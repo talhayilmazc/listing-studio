@@ -6,10 +6,13 @@ schema to be created here without a Postgres server; the Alembic migration is
 what runs against Postgres in real environments.
 """
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
+import pytest_asyncio
+from fakeredis import FakeAsyncRedis
 from sqlalchemy import Engine, create_engine, event
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -44,3 +47,37 @@ def session(engine: Engine) -> Iterator[Session]:
     factory = sessionmaker(bind=engine)
     with factory() as sess:
         yield sess
+
+
+@pytest_asyncio.fixture()
+async def async_sm() -> AsyncIterator[async_sessionmaker]:
+    """Async in-memory SQLite session factory with FK enforcement."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_fk(dbapi_conn: object, _: object) -> None:
+        cursor = dbapi_conn.cursor()  # type: ignore[attr-defined]
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture()
+async def fake_redis() -> AsyncIterator[FakeAsyncRedis]:
+    """Isolated in-process fake Redis (supports Lua EVAL via lupa)."""
+    client = FakeAsyncRedis()
+    try:
+        yield client
+    finally:
+        await client.flushall()
+        await client.aclose()
