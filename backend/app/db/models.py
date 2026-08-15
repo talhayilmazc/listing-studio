@@ -270,6 +270,8 @@ class Asset(Base):
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
     processed_key: Mapped[str | None] = mapped_column(Text)
+    #: 1-based display order within the batch (Etsy listing image rank).
+    rank: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[AssetStatus] = mapped_column(
         _enum(AssetStatus, "asset_status"), nullable=False, default=AssetStatus.uploaded
     )

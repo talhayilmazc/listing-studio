@@ -15,6 +15,8 @@ dependencies = [
     "pydantic-settings>=2.5",
     "httpx>=0.27",
     "cryptography>=43.0",
+    "pyvips>=2.2",
+    "Pillow>=10.4",
 ]
 
 [project.optional-dependencies]

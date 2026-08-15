@@ -6,6 +6,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# libvips runtime for pyvips (image processing). Kept minimal.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libvips42 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first for better layer caching.
 # Only the project metadata is needed to resolve deps.
 COPY backend/pyproject.toml ./pyproject.toml

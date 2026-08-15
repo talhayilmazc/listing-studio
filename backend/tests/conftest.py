@@ -6,7 +6,7 @@ schema to be created here without a Postgres server; the Alembic migration is
 what runs against Postgres in real environments.
 """
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import pytest
 import pytest_asyncio
@@ -81,3 +81,23 @@ async def fake_redis() -> AsyncIterator[FakeAsyncRedis]:
     finally:
         await client.flushall()
         await client.aclose()
+
+
+@pytest.fixture()
+def make_image() -> "Callable[..., bytes]":
+    """Factory producing in-memory image bytes (no binary fixtures on disk)."""
+    import io
+
+    from PIL import Image
+
+    def _make(
+        width: int = 1200,
+        height: int = 800,
+        color: tuple[int, int, int] = (200, 30, 30),
+        fmt: str = "PNG",
+    ) -> bytes:
+        buffer = io.BytesIO()
+        Image.new("RGB", (width, height), color).save(buffer, format=fmt)
+        return buffer.getvalue()
+
+    return _make

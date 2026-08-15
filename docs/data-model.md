@@ -117,6 +117,7 @@ Yüklenen tek dosya.
 | mime_type | text | |
 | width / height | int | |
 | processed_key | text | İşlenmiş görselin anahtarı, nullable |
+| rank | int | Batch içindeki 1-tabanlı görsel sırası (Etsy image rank), nullable. 5. adımda eklendi (migration `0002_asset_rank`) |
 | status | enum | `uploaded`, `processed`, `failed` |
 
 ### `generated_content`
