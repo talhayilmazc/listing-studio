@@ -1,0 +1,184 @@
+"""End-to-end generation + persistence (provider mocked, real SQLite)."""
+
+import uuid
+from typing import Callable
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.db.models import (
+    Asset,
+    AssetStatus,
+    ConnectionStatus,
+    EtsyConnection,
+    GeneratedContent,
+    Tenant,
+    UploadBatch,
+    UploadBatchStatus,
+)
+from app.pipeline.content import AnthropicContentGenerator
+from app.pipeline.generation import generate_listing_content
+from app.pipeline.vision import AnthropicVisionAnalyzer
+from app.pipeline.llm import AnthropicLLMClient
+from tests.support import FakeMessages, fake_response
+
+VISION_DATA = {
+    "theme": "cozy autumn coffee",
+    "embedded_text": "but first, coffee",
+    "style": "hand-lettered",
+    "colors": ["rust", "cream"],
+    "target_audience": "coffee lovers",
+    "product_type_hints": ["mug", "printable"],
+}
+
+
+def _content(tags: list[str]) -> dict:
+    return {
+        "title": "Cozy Autumn Coffee Printable",
+        "tags": tags,
+        "description": "A warm hand-lettered design. Instant digital download.",
+    }
+
+
+async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    async with sm() as session:
+        tenant = Tenant(email=f"{uuid.uuid4()}@example.com", password_hash="x")
+        session.add(tenant)
+        await session.flush()
+        conn = EtsyConnection(tenant_id=tenant.id, status=ConnectionStatus.active)
+        session.add(conn)
+        batch = UploadBatch(tenant_id=tenant.id, status=UploadBatchStatus.ready, file_count=1)
+        session.add(batch)
+        await session.flush()
+        asset = Asset(
+            batch_id=batch.id,
+            tenant_id=tenant.id,
+            original_filename="SKU1_front.png",
+            parsed_sku="SKU1",
+            storage_key="k",
+            status=AssetStatus.processed,
+            rank=1,
+        )
+        session.add(asset)
+        await session.commit()
+        return tenant.id, batch.id, asset.id
+
+
+def _pipeline(messages: FakeMessages) -> tuple[AnthropicVisionAnalyzer, AnthropicContentGenerator]:
+    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=messages)
+    return AnthropicVisionAnalyzer(client), AnthropicContentGenerator(client)
+
+
+async def test_success_persists_generated_content(
+    async_sm: async_sessionmaker, make_image: Callable[..., bytes]
+) -> None:
+    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    tags = [f"tag{i}" for i in range(13)]
+    messages = FakeMessages(
+        [
+            fake_response(VISION_DATA, input_tokens=1200, output_tokens=90),
+            fake_response(_content(tags), input_tokens=300, output_tokens=120),
+        ]
+    )
+    analyzer, generator = _pipeline(messages)
+
+    async with async_sm() as session:
+        outcome = await generate_listing_content(
+            session,
+            tenant_id=tenant_id,
+            batch_id=batch_id,
+            asset_id=asset_id,
+            image_data=make_image(400, 300),
+            media_type="image/png",
+            sku="SKU1",
+            analyzer=analyzer,
+            generator=generator,
+        )
+
+    assert outcome.status == "generated"
+    assert outcome.generated_content_id is not None
+    # vision + one content attempt
+    assert len(outcome.usages) == 2
+
+    async with async_sm() as session:
+        row = await session.get(GeneratedContent, outcome.generated_content_id)
+        assert row is not None
+        assert row.approved is False
+        assert row.taxonomy_id is None
+        assert row.model_used == "claude-haiku-4-5-20251001"
+        assert row.input_tokens == 300 and row.output_tokens == 120
+        assert len(row.tags) == 13
+
+
+async def test_retry_tokens_are_summed_into_row(
+    async_sm: async_sessionmaker, make_image: Callable[..., bytes]
+) -> None:
+    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    good = [f"tag{i}" for i in range(13)]
+    bad = [f"tag{i}" for i in range(12)]
+    messages = FakeMessages(
+        [
+            fake_response(VISION_DATA, input_tokens=1000, output_tokens=80),
+            fake_response(_content(bad), input_tokens=300, output_tokens=100),  # invalid
+            fake_response(_content(good), input_tokens=320, output_tokens=110),  # valid
+        ]
+    )
+    analyzer, generator = _pipeline(messages)
+
+    async with async_sm() as session:
+        outcome = await generate_listing_content(
+            session,
+            tenant_id=tenant_id,
+            batch_id=batch_id,
+            asset_id=asset_id,
+            image_data=make_image(200, 200),
+            media_type="image/png",
+            sku="SKU1",
+            analyzer=analyzer,
+            generator=generator,
+        )
+
+    async with async_sm() as session:
+        row = await session.get(GeneratedContent, outcome.generated_content_id)
+        # Both content attempts counted: 300+320 in, 100+110 out.
+        assert row.input_tokens == 620
+        assert row.output_tokens == 210
+
+
+async def test_validation_failure_marks_asset_failed(
+    async_sm: async_sessionmaker, make_image: Callable[..., bytes]
+) -> None:
+    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    messages = FakeMessages(
+        [
+            fake_response(VISION_DATA),
+            fake_response(_content([f"tag{i}" for i in range(11)])),  # invalid
+            fake_response(_content([f"tag{i}" for i in range(10)])),  # invalid again
+        ]
+    )
+    analyzer, generator = _pipeline(messages)
+
+    async with async_sm() as session:
+        outcome = await generate_listing_content(
+            session,
+            tenant_id=tenant_id,
+            batch_id=batch_id,
+            asset_id=asset_id,
+            image_data=make_image(200, 200),
+            media_type="image/png",
+            sku="SKU1",
+            analyzer=analyzer,
+            generator=generator,
+        )
+
+    assert outcome.status == "failed"
+    assert outcome.generated_content_id is None
+    assert outcome.errors
+
+    async with async_sm() as session:
+        asset = await session.get(Asset, asset_id)
+        assert asset.status is AssetStatus.failed
+        rows = await session.execute(
+            select(GeneratedContent).where(GeneratedContent.asset_id == asset_id)
+        )
+        assert rows.first() is None  # nothing persisted on failure

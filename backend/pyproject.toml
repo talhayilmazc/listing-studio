@@ -17,6 +17,7 @@ dependencies = [
     "cryptography>=43.0",
     "pyvips>=2.2",
     "Pillow>=10.4",
+    "anthropic>=0.69",
 ]
 
 [project.optional-dependencies]

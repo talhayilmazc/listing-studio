@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     etsy_client_id: str = ""
     etsy_client_secret: str = ""
 
+    # LLM provider (Anthropic) for vision analysis + content generation.
+    # Key is read from the environment only, never hardcoded (see CLAUDE.md).
+    llm_api_key: str = ""
+    llm_model: str = "claude-haiku-4-5-20251001"
+
 
 @lru_cache
 def get_settings() -> Settings:
