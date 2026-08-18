@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "claude-haiku-4-5-20251001"
 
+    # Object storage root for uploaded originals + processed derivatives.
+    storage_dir: str = "./storage"
+
+    # Global daily API budget (app-wide, see CLAUDE.md). Tenant budget is per-tenant.
+    global_daily_limit: int = 9000
+
+    # Shown in the UI (ToU requires a visible support email).
+    support_email: str = "support@example.com"
+
+    # Browser origins allowed to call the API directly (dev). Comma-separated.
+    cors_origins: str = "http://localhost:3000"
+
 
 @lru_cache
 def get_settings() -> Settings:

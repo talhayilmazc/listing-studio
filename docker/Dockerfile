@@ -20,8 +20,11 @@ RUN pip install --upgrade pip && pip install ".[dev]"
 # but copy it so the image is runnable standalone too.
 COPY backend/ ./
 
-# Run as non-root.
-RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
+# Run as non-root. Create the storage dir owned by appuser so the mounted
+# named volume seeds with writable ownership.
+RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p /data/storage \
+    && chown -R appuser:appuser /app /data/storage
 USER appuser
 
 EXPOSE 8000

@@ -16,7 +16,8 @@ import os
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Asset, AssetStatus, UploadBatch, UploadBatchStatus
 from app.pipeline.images import ImageProcessingError, ImageProcessor, ProcessingSpec
@@ -93,6 +94,58 @@ class BatchIngestor:
             )
             await session.commit()
             return batch_id
+
+    # --- Incremental (per-file) API flow -----------------------------------
+    # The batch-at-once ``ingest`` above suits workers; the UI uploads files one
+    # at a time for per-file progress, so these drive the same steps with the
+    # caller's session.
+    async def create_batch(self, session: AsyncSession, tenant_id: uuid.UUID) -> UploadBatch:
+        batch = UploadBatch(
+            tenant_id=tenant_id, status=UploadBatchStatus.uploading, file_count=0
+        )
+        session.add(batch)
+        await session.flush()
+        return batch
+
+    async def add_file(
+        self,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        upload: UploadFile,
+    ) -> Asset:
+        """Process and persist one uploaded file; rank follows arrival order."""
+        count = await session.scalar(
+            select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id)
+        )
+        rank = int(count or 0) + 1
+        asset = await self._ingest_one(tenant_id, batch_id, rank, upload)
+        session.add(asset)
+        batch = await session.get(UploadBatch, batch_id)
+        if batch is not None:
+            batch.file_count = rank
+            if batch.status is UploadBatchStatus.uploading:
+                batch.status = UploadBatchStatus.processing
+        await session.commit()
+        await session.refresh(asset)
+        return asset
+
+    async def finalize_batch(self, session: AsyncSession, batch_id: uuid.UUID) -> UploadBatch:
+        """Mark the batch ready if any asset processed, else failed."""
+        batch = await session.get(UploadBatch, batch_id)
+        if batch is None:
+            raise KeyError(batch_id)
+        processed = await session.scalar(
+            select(func.count())
+            .select_from(Asset)
+            .where(Asset.batch_id == batch_id, Asset.status == AssetStatus.processed)
+        )
+        batch.status = (
+            UploadBatchStatus.ready if int(processed or 0) > 0 else UploadBatchStatus.failed
+        )
+        await session.commit()
+        await session.refresh(batch)
+        return batch
 
     async def _ingest_one(
         self, tenant_id: uuid.UUID, batch_id: uuid.UUID, rank: int, upload: UploadFile

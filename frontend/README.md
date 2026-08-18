@@ -1,14 +1,22 @@
-# Frontend (placeholder)
+# Frontend — Listing Studio
 
-Not scaffolded yet. At the frontend step this becomes a **Next.js (App Router) +
-TypeScript + Tailwind** application.
+Next.js (App Router) + TypeScript + Tailwind. Runs at http://localhost:3000.
 
-## Mandatory compliance elements in the UI
+## Screens
 
-These come from CLAUDE.md ("Zorunlu uyum unsurları") and must appear in the interface:
+- `/upload` — drag-and-drop a folder of design images; creates an upload batch with per-file progress.
+- `/batches/[id]` — batch view: thumbnails, parsed SKU, rank, asset status; "Generate content" and cost panel.
+- `/batches/[id]/review` — the core screen: edit the generated title, 13 tags and description inline, with an approve toggle. Publishing to Etsy is disabled (arrives with the Etsy client step).
+- `/terms`, `/privacy` — placeholder compliance pages.
 
-- **Visible trademark notice:**
-  `The term "Etsy" is a trademark of Etsy, Inc. This Application uses Etsy's API, but is not endorsed or certified by Etsy.`
-- Terms of use + privacy policy, accepted with an explicit click.
-- A support email address.
-- Display of the user's remaining API quota.
+## Running
+
+Via docker-compose (recommended): `docker compose up` → http://localhost:3000. The Next dev server proxies `/api/*` to the FastAPI backend (`API_PROXY_TARGET`, default `http://api:8000`), so the browser stays same-origin.
+
+Standalone: `npm install && npm run dev` (set `API_PROXY_TARGET=http://localhost:8000` if the API runs elsewhere).
+
+## Compliance elements in the UI (from CLAUDE.md)
+
+- The exact Etsy trademark notice, Terms/Privacy links, and a visible support email live in the footer (`components/Footer.tsx`).
+- Remaining daily API quota is shown in the top bar (`components/QuotaBadge.tsx`).
+- The app name and title do not contain the word "Etsy".
