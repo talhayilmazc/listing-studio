@@ -3,10 +3,10 @@
 Two independent guards, applied in this order by the worker:
 
 1. :class:`DailyQuota` -- per-tenant and global daily request budgets
-   (Etsy allows 10.000/day per *app*; we target 9.000 for safety margin).
-2. :class:`TokenBucket` -- a global 8 req/s token bucket shared by all workers,
-   refilled atomically in Redis via a Lua script (Etsy's per-second limit is 10;
-   8 leaves margin).
+   (Personal App allows 5.000/day per *app*; we target 5.000 with monitoring).
+2. :class:`TokenBucket` -- a global 4 req/s token bucket shared by all workers,
+   refilled atomically in Redis via a Lua script (Etsy's per-second limit is 5;
+   4 leaves margin).
 
 Both live in Redis so the limits hold across worker processes.
 """
@@ -63,8 +63,8 @@ class TokenBucket:
         self,
         redis: Redis,
         *,
-        rate: float = 8.0,
-        capacity: float = 8.0,
+        rate: float = 4.0,
+        capacity: float = 4.0,
         key: str = "bucket:global",
         time_func: Callable[[], float] | None = None,
     ) -> None:
@@ -105,7 +105,7 @@ class DailyQuota:
         self,
         redis: Redis,
         *,
-        global_daily_limit: int = 9000,
+        global_daily_limit: int = 5000,
         ttl_seconds: int = 48 * 3600,
         now_func: Callable[[], datetime] | None = None,
     ) -> None:

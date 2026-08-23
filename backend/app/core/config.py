@@ -29,9 +29,19 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
     encryption_key: str = "change-me"
 
-    # Etsy Open API v3 credentials (empty until the OAuth step).
+    # Etsy Open API v3 credentials. etsy_client_id = keystring, etsy_client_secret
+    # = shared secret. The x-api-key header is "{keystring}:{shared_secret}".
     etsy_client_id: str = ""
     etsy_client_secret: str = ""
+
+    # Etsy OAuth 2.0 (PKCE).
+    etsy_oauth_authorize_url: str = "https://www.etsy.com/oauth/connect"
+    etsy_oauth_token_url: str = "https://api.etsy.com/v3/public/oauth/token"
+    etsy_redirect_uri: str = "http://localhost:8000/api/auth/etsy/callback"
+    etsy_scopes: str = "listings_r listings_w shops_r shops_w"
+
+    # Where to send the browser back to after the OAuth callback completes.
+    frontend_url: str = "http://localhost:3000"
 
     # LLM provider (Anthropic) for vision analysis + content generation.
     # Key is read from the environment only, never hardcoded (see CLAUDE.md).
@@ -41,8 +51,8 @@ class Settings(BaseSettings):
     # Object storage root for uploaded originals + processed derivatives.
     storage_dir: str = "./storage"
 
-    # Global daily API budget (app-wide, see CLAUDE.md). Tenant budget is per-tenant.
-    global_daily_limit: int = 9000
+    # Global daily API budget (app-wide, Personal App = 5.000/day). Tenant budget is per-tenant.
+    global_daily_limit: int = 5000
 
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"

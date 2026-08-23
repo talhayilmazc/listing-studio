@@ -89,3 +89,13 @@ export interface GenerateResult {
   failed: number;
   skipped: number;
 }
+
+export interface Connection {
+  connected: boolean;
+  status: string | null;
+  etsy_user_id: number | null;
+  shop_name: string | null;
+  scopes: string[];
+  connected_at: string | null;
+  expires_at: string | null;
+}

@@ -3,6 +3,7 @@ import type {
   BatchCost,
   BatchDetail,
   BatchSummary,
+  Connection,
   Content,
   ContentUpdateResult,
   GenerateResult,
@@ -12,6 +13,9 @@ import type {
 
 // Same-origin: Next rewrites /api/* to the FastAPI backend.
 const BASE = "/api";
+
+// Full-page navigation target that begins the Etsy OAuth redirect flow.
+export const AUTH_START_URL = `${BASE}/auth/etsy/start`;
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -58,6 +62,8 @@ export const api = {
   quota: () => req<Quota>("/quota"),
   meta: () => req<Meta>("/meta"),
   assetImage: (id: string) => `${BASE}/assets/${id}/image`,
+  connection: () => req<Connection>("/auth/etsy/status"),
+  disconnect: () => req<Connection>("/auth/etsy/disconnect", { method: "POST" }),
 };
 
 /** Upload a single file with per-file progress via XHR. */

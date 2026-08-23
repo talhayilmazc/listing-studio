@@ -16,7 +16,7 @@ Bunlar Etsy API Terms of Use'dan gelir. İhlali geliştirici hesabının ve kull
 2. **Rakip analizi yasak.** Başka satıcıların listingleri, tagleri, görselleri veya fiyatları toplanmaz, analiz edilmez, model eğitiminde kullanılmaz. Yalnızca kimliği doğrulanmış kullanıcının **kendi** mağaza verisine erişilir. Üye izni olmadan Etsy üyeleri hakkında kişisel veri toplanamaz/işlenemez.
 3. **Otomatik yayın yok.** Her listing `createDraftListing` ile taslak olarak oluşturulur. Yayın yalnızca kullanıcının arayüzde açık onayıyla yapılır. "Auto-publish" özelliği eklenmez.
 4. **Etsy Ads endpoint'i yoktur.** Reklam açma/kapama/bütçe özelliği yazılmaz.
-5. **Rate limit: 10.000 istek/gün** — uygulama bazında, kullanıcı bazında değil. Saniyelik sınır için 8 req/s hedeflenir (güvenlik payı).
+5. **Rate limit: 5.000 istek/gün, 5 istek/saniye** — uygulama bazında, kullanıcı bazında değil (Personal App). Güvenlik payı için 4 req/s hedeflenir; global günlük bütçe 5.000.
 6. **Token'lar şifreli saklanır.** Asla loglanmaz, asla hata mesajında görünmez, asla frontend'e gönderilmez.
 7. **Checkout akışı taklit edilemez.** Etsy'nin ödeme/checkout deneyimini kopyalayan veya devre dışı bırakan hiçbir şey yazılmaz.
 8. **Trafik başka yere yönlendirilemez.** Uygulama, kullanıcıyı veya alıcıyı Etsy dışı platformlara taşımak için kullanılamaz.
@@ -54,10 +54,16 @@ ToU Bölüm 1'den gelir, ihlali doğrudan sözleşme ihlalidir.
 **Her Etsy API çağrısı kuyruk üzerinden geçer.** Servis katmanından doğrudan `httpx` ile Etsy'ye istek atılmaz. Tek istisna: OAuth token değişimi.
 
 ```
-Job → queue → tenant kota kontrolü → global token bucket (8 req/s) → Etsy API
+Job → queue → tenant kota kontrolü → global token bucket (4 req/s) → Etsy API
                                             ↓ 429
                                   exponential backoff + requeue
 ```
+
+## Etsy API erişim notları (doğrulandı — Personal App aktif)
+
+- **`x-api-key` başlığı `{keystring}:{shared_secret}` biçiminde gönderilir**, yalnızca keystring değil. Sadece keystring gönderilirse `openapi-ping` **403** döner. İki değer de `.env`'den (`ETSY_CLIENT_ID` = keystring, `ETSY_CLIENT_SECRET` = shared secret) okunur; asla loglanmaz.
+- OAuth 2.0 PKCE: authorization + token endpoint'i client_id (keystring) ve `code_verifier` ile çalışır; token değişiminde `x-api-key` gerekmez. `x-api-key` yukarıdaki biçimde yalnızca **API v3 çağrılarında** kullanılır.
+- Scope'lar: `listings_r listings_w shops_r shops_w`. Redirect URI: `http://localhost:8000/api/auth/etsy/callback`.
 
 ## Yığın
 

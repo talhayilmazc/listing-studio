@@ -16,9 +16,15 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from collections.abc import Callable
+
+import httpx
+
 from app.core.config import get_settings
+from app.core.crypto import get_cipher
 from app.db.models import Tenant
 from app.db.session import get_sessionmaker
+from app.etsy.connection import ConnectionService
 from app.etsy.rate_limiter import DailyQuota
 from app.pipeline.cost import CostCalculator
 from app.pipeline.images import ImageProcessor
@@ -74,3 +80,17 @@ def get_redis() -> Redis:
 
 def get_quota() -> DailyQuota:
     return DailyQuota(get_redis(), global_daily_limit=get_settings().global_daily_limit)
+
+
+def get_connection_service() -> ConnectionService:
+    settings = get_settings()
+    return ConnectionService(
+        get_cipher(),
+        client_id=settings.etsy_client_id,
+        token_url=settings.etsy_oauth_token_url,
+    )
+
+
+def get_token_http_factory() -> Callable[[], httpx.AsyncClient]:
+    """Factory for the httpx client used in the OAuth token exchange (mockable)."""
+    return httpx.AsyncClient

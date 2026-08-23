@@ -64,7 +64,7 @@ async def client(tmp_path) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[deps.get_session] = _session
     app.dependency_overrides[deps.get_storage] = lambda: storage
     app.dependency_overrides[deps.get_ingestor] = lambda: ingestor
-    app.dependency_overrides[deps.get_quota] = lambda: DailyQuota(fake_redis, global_daily_limit=9000)
+    app.dependency_overrides[deps.get_quota] = lambda: DailyQuota(fake_redis, global_daily_limit=5000)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -117,7 +117,7 @@ async def test_quota_and_meta(client: AsyncClient) -> None:
     quota = (await client.get("/api/quota")).json()
     assert quota["tenant_limit"] == 2000
     assert quota["tenant_remaining"] == 2000
-    assert quota["global_remaining"] == 9000
+    assert quota["global_remaining"] == 5000
 
     meta = (await client.get("/api/meta")).json()
     assert meta["support_email"]

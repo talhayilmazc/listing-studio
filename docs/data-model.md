@@ -158,8 +158,8 @@ Yayın öncesi tarama sonucu.
 ## 2. Rate limit kuyruğu
 
 ### Kısıt
-- Global: **10.000 istek / 24 saat**, **10 istek / saniye** — uygulama bazında
-- Güvenlik payı: saniyede 8, günde 9.000 hedefle
+- Global: **5.000 istek / 24 saat**, **5 istek / saniye** — uygulama bazında (Personal App)
+- Güvenlik payı: saniyede 4 hedefle, günlük bütçe 5.000
 
 ### Katmanlar
 
@@ -170,7 +170,7 @@ Servis → job kaydı (Postgres) → arq kuyruğu (Redis)
                                       ↓
                        tenant günlük kota kontrolü (Redis sayaç)
                                       ↓
-                       global token bucket (Redis, 8 req/s)
+                       global token bucket (Redis, 4 req/s)
                                       ↓
                                  Etsy API
                                       ↓
@@ -199,7 +199,7 @@ Servis → job kaydı (Postgres) → arq kuyruğu (Redis)
 
 - Tenant kotası dolduğunda iş bekletiliyor mu
 - 429'da backoff süresi doğru hesaplanıyor mu
-- Eşzamanlı 50 iş saniyede 8 sınırını aşmıyor mu
+- Eşzamanlı 50 iş saniyede 4 sınırını aşmıyor mu
 - `max_attempts` sonrası iş `failed` oluyor mu
 - Etsy client testlerinde gerçek API'ye çağrı yapılmıyor (mock)
 

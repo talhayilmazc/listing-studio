@@ -103,6 +103,18 @@ class GenerateResult(BaseModel):
     skipped: int
 
 
+class ConnectionOut(BaseModel):
+    """Etsy connection status for the UI. Never includes tokens."""
+
+    connected: bool
+    status: str | None = None
+    etsy_user_id: int | None = None
+    shop_name: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    connected_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
 class MetaOut(BaseModel):
     support_email: str
     trademark_notice: str = Field(
