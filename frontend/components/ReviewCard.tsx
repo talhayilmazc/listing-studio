@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { Content } from "@/lib/types";
 import { TagEditor } from "./TagEditor";
 
+const MIN_TITLE = 130;
 const MAX_TITLE = 140;
 const MAX_TAG = 20;
 const REQUIRED_TAGS = 13;
@@ -13,6 +14,7 @@ const REQUIRED_TAGS = 13;
 function validate(title: string, tags: string[], description: string): string[] {
   const errors: string[] = [];
   if (!title.trim()) errors.push("Title is empty");
+  else if (title.length < MIN_TITLE) errors.push(`Title must be at least ${MIN_TITLE} characters`);
   if (title.length > MAX_TITLE) errors.push(`Title exceeds ${MAX_TITLE} characters`);
   if (tags.length !== REQUIRED_TAGS) errors.push(`Need exactly ${REQUIRED_TAGS} tags`);
   const seen = new Set<string>();
@@ -36,6 +38,13 @@ export function ReviewCard({ initial }: { initial: Content }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const listingUrl = (id: number) => `https://www.etsy.com/listing/${id}`;
+  const [listingId, setListingId] = useState<number | null>(initial.etsy_listing_id);
+  const [publishState, setPublishState] = useState<
+    "idle" | "publishing" | "done" | "error"
+  >(initial.etsy_listing_id ? "done" : "idle");
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const errors = useMemo(() => validate(title, tags, description), [title, tags, description]);
   const valid = errors.length === 0;
@@ -62,6 +71,35 @@ export function ReviewCard({ initial }: { initial: Content }) {
       setMessage(res.content.approved ? "Approved" : "Approval cleared");
     } catch (e: any) {
       setMessage(e.message ?? String(e));
+    }
+  }
+
+  async function publish() {
+    if (dirty) await save();
+    setPublishState("publishing");
+    setPublishError(null);
+    try {
+      const { job_id } = await api.publishContent(initial.id);
+      // Poll the job until it finishes (draft creation runs through the queue).
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const job = await api.jobStatus(job_id);
+        if (job.status === "succeeded" && job.listing_id) {
+          setListingId(job.listing_id);
+          setPublishState("done");
+          return;
+        }
+        if (job.status === "failed") {
+          setPublishError(job.error ?? "Publishing failed.");
+          setPublishState("error");
+          return;
+        }
+      }
+      setPublishError("Timed out waiting for the draft to be created.");
+      setPublishState("error");
+    } catch (e: any) {
+      setPublishError(e.message ?? String(e));
+      setPublishState("error");
     }
   }
 
@@ -160,18 +198,32 @@ export function ReviewCard({ initial }: { initial: Content }) {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled
-                title="Publishing arrives with the Etsy client step."
-                className="btn-secondary"
-              >
-                Publish to Etsy
-              </button>
+              {listingId ? (
+                <a
+                  href={listingUrl(listingId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-primary"
+                >
+                  View Etsy draft ↗
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={publish}
+                  disabled={!approved || publishState === "publishing"}
+                  title={approved ? "Create an Etsy draft listing" : "Approve first"}
+                >
+                  {publishState === "publishing" ? "Creating draft…" : "Publish to Etsy"}
+                </button>
+              )}
             </div>
           </div>
+          {publishError && <p className="text-right text-xs text-rose-600">{publishError}</p>}
           <p className="text-right text-xs text-slate-400">
-            Publishing to Etsy arrives with the Etsy client step; drafts are created there.
+            Creates a <strong>draft</strong> listing only — it is never published automatically;
+            you publish it yourself in Etsy.
           </p>
         </div>
       </div>

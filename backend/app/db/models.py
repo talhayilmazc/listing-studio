@@ -139,6 +139,8 @@ class EtsyConnection(Base):
     etsy_user_id: Mapped[int | None] = mapped_column(BigInteger)
     shop_id: Mapped[int | None] = mapped_column(BigInteger)
     shop_name: Mapped[str | None] = mapped_column(Text)
+    #: The app's shop section id, created lazily on first publish and reused.
+    section_id: Mapped[int | None] = mapped_column(BigInteger)
     # Encrypted at rest (Fernet / AES-GCM). Never logged, never serialized.
     access_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
     refresh_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
@@ -272,6 +274,8 @@ class Asset(Base):
     processed_key: Mapped[str | None] = mapped_column(Text)
     #: 1-based display order within the batch (Etsy listing image rank).
     rank: Mapped[int | None] = mapped_column(Integer)
+    #: Last content-generation failure reason (safe text, no tokens); null when ok.
+    error: Mapped[str | None] = mapped_column(Text)
     status: Mapped[AssetStatus] = mapped_column(
         _enum(AssetStatus, "asset_status"), nullable=False, default=AssetStatus.uploaded
     )
@@ -300,6 +304,8 @@ class GeneratedContent(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: Set once this approved content has been published as an Etsy DRAFT listing.
+    etsy_listing_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

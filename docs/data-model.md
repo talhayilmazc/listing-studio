@@ -118,7 +118,8 @@ Yüklenen tek dosya.
 | width / height | int | |
 | processed_key | text | İşlenmiş görselin anahtarı, nullable |
 | rank | int | Batch içindeki 1-tabanlı görsel sırası (Etsy image rank), nullable. 5. adımda eklendi (migration `0002_asset_rank`) |
-| status | enum | `uploaded`, `processed`, `failed` |
+| error | text | Son içerik üretimi hata nedeni (güvenli metin, token içermez), nullable. Migration `0003_asset_error` |
+| status | enum | `uploaded`, `processed`, `failed`. İçerik üretimi hatası `status`'ü değiştirmez (görsel geçerli); neden `error`'a yazılır ve tekrar denenebilir |
 
 ### `generated_content`
 Vision + LLM çıktısı. Kullanıcı onaylamadan Etsy'ye gitmez.

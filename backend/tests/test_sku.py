@@ -39,3 +39,16 @@ def test_custom_rules_take_precedence() -> None:
 
 def test_default_ruleset_is_exposed() -> None:
     assert len(DEFAULT_SKU_RULES) >= 1
+
+
+# --- SKU-at-end rule (spec §5) ---------------------------------------------
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("tasarim_BR5475.png", "BR5475"),
+        ("mockup-front-AB1234.jpg", "AB1234"),
+        ("something_BR5475_2.png", "BR5475"),
+    ],
+)
+def test_sku_suffix_rule(filename: str, expected: str) -> None:
+    assert SkuParser().parse(filename) == expected

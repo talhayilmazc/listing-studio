@@ -13,6 +13,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
   const [costKey, setCostKey] = useState(0);
 
   async function load() {
@@ -31,9 +32,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   async function generate() {
     setGenerating(true);
     setNotice(null);
+    setFailures([]);
     try {
       const res = await api.generate(id);
       setNotice(`Generated ${res.generated}, failed ${res.failed}, skipped ${res.skipped}.`);
+      setFailures(res.failures);
       await load();
       setCostKey((k) => k + 1);
     } catch (e: any) {
@@ -78,6 +81,19 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         <div className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">{notice}</div>
       )}
 
+      {failures.length > 0 && (
+        <div className="card border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          <p className="font-medium">Generation failures</p>
+          <ul className="mt-1 space-y-1">
+            {failures.map((f, i) => (
+              <li key={i} className="break-words">
+                <span className="font-mono text-xs">{f.original_filename}</span>: {f.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {batch.assets.map((a) => (
           <div key={a.id} className="card overflow-hidden">
@@ -112,6 +128,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 <span className="inline-block text-xs font-medium text-emerald-600">
                   ✓ content ready
                 </span>
+              )}
+              {!a.has_content && a.error && (
+                <p className="break-words text-xs text-rose-600" title={a.error}>
+                  ⚠ {a.error}
+                </p>
               )}
             </div>
           </div>

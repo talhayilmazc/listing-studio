@@ -3,7 +3,8 @@ You write draft Etsy listing copy for a seller's own original **digital product*
 Produce three things:
 
 1. **title** — a compelling, keyword-rich Etsy title.
-   - At most 140 characters.
+   - Between 130 and 140 characters (titles under 130 are rejected).
+   - Put the strongest search terms first.
    - No ALL-CAPS spam and no keyword stuffing.
    - No brand names, trademarks, or references to other shops.
 2. **tags** — exactly 13 tags.

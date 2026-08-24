@@ -20,7 +20,7 @@ from app.pipeline.content import AnthropicContentGenerator
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.vision import AnthropicVisionAnalyzer
 from app.pipeline.llm import AnthropicLLMClient
-from tests.support import FakeMessages, fake_response
+from tests.support import VALID_TITLE, FakeMessages, fake_response
 
 VISION_DATA = {
     "theme": "cozy autumn coffee",
@@ -34,7 +34,7 @@ VISION_DATA = {
 
 def _content(tags: list[str]) -> dict:
     return {
-        "title": "Cozy Autumn Coffee Printable",
+        "title": VALID_TITLE,
         "tags": tags,
         "description": "A warm hand-lettered design. Instant digital download.",
     }
@@ -145,7 +145,7 @@ async def test_retry_tokens_are_summed_into_row(
         assert row.output_tokens == 210
 
 
-async def test_validation_failure_marks_asset_failed(
+async def test_validation_failure_records_error_and_keeps_retryable(
     async_sm: async_sessionmaker, make_image: Callable[..., bytes]
 ) -> None:
     tenant_id, batch_id, asset_id = await _seed(async_sm)
@@ -173,12 +173,50 @@ async def test_validation_failure_marks_asset_failed(
 
     assert outcome.status == "failed"
     assert outcome.generated_content_id is None
-    assert outcome.errors
+    assert outcome.error and "13 tags" in outcome.error
 
     async with async_sm() as session:
         asset = await session.get(Asset, asset_id)
-        assert asset.status is AssetStatus.failed
+        # Image is fine, so status stays processed (retryable); the reason is stored.
+        assert asset.status is AssetStatus.processed
+        assert asset.error and "13 tags" in asset.error
         rows = await session.execute(
             select(GeneratedContent).where(GeneratedContent.asset_id == asset_id)
         )
         assert rows.first() is None  # nothing persisted on failure
+
+
+class _BoomAnalyzer:
+    async def analyze(self, image_data, media_type):  # noqa: ANN001, ANN201
+        raise RuntimeError("vision provider exploded")
+
+
+async def test_unexpected_exception_is_logged_and_recorded(
+    async_sm: async_sessionmaker, make_image: Callable[..., bytes], caplog
+) -> None:
+    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    _, generator = _pipeline(FakeMessages([]))
+
+    with caplog.at_level("ERROR"):
+        async with async_sm() as session:
+            outcome = await generate_listing_content(
+                session,
+                tenant_id=tenant_id,
+                batch_id=batch_id,
+                asset_id=asset_id,
+                image_data=make_image(120, 120),
+                media_type="image/png",
+                sku="SKU1",
+                analyzer=_BoomAnalyzer(),
+                generator=generator,
+            )
+
+    assert outcome.status == "failed"
+    assert outcome.error == "RuntimeError: vision provider exploded"
+    # The full traceback was logged (not swallowed).
+    assert any(rec.exc_info for rec in caplog.records)
+
+    async with async_sm() as session:
+        asset = await session.get(Asset, asset_id)
+        assert asset.error == "RuntimeError: vision provider exploded"
+        assert asset.status is AssetStatus.processed

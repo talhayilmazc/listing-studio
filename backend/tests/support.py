@@ -10,6 +10,10 @@ from app.pipeline.llm import AnthropicLLMClient
 
 MODEL = "claude-haiku-4-5-20251001"
 
+# A 135-char title that satisfies the 130-140 rule (spec §3).
+VALID_TITLE = ("Adventure Awaits Printable Wall Art Digital Download Poster " * 4)[:135]
+assert 130 <= len(VALID_TITLE) <= 140
+
 
 @dataclass
 class FakeTextBlock:

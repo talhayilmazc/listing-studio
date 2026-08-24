@@ -32,6 +32,10 @@ class SkuRule:
 _VIEWS = "front|back|main|side|top|bottom|detail|closeup|angle|thumb|hero|left|right"
 
 DEFAULT_SKU_RULES: tuple[SkuRule, ...] = (
+    # SKU at the END of the name: letter prefix + digits, optional trailing index.
+    # "tasarim_BR5475" -> BR5475, "mockup-front-AB1234" -> AB1234,
+    # "something_BR5475_2" -> BR5475. Checked first (first match wins).
+    SkuRule(r"(?P<sku>[A-Za-z]{2,4}\d{3,6})(?:[-_]\d+)?$"),
     # "<sku>_front", "<sku>-back", ...  (SKU is everything before the view word)
     SkuRule(rf"^(?P<sku>.+?)[-_](?:{_VIEWS})\b"),
     # "<sku>_2", "<sku>-03"  (trailing 1-3 digit index)

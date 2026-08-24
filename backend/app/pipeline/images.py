@@ -187,3 +187,58 @@ class ImageProcessor:
 
     def process(self, data: bytes, spec: ProcessingSpec) -> ProcessedImage:
         return self._backend.process(data, spec)
+
+
+# --- Thumbnail preparation (rank=1 listing image) --------------------------
+# Etsy's uploadListingImage has no crop/zoom params, so the thumbnail is trimmed,
+# padded and squared here before upload. Backend-agnostic Pillow implementation.
+def prepare_thumbnail(
+    data: bytes,
+    *,
+    padding_pct: int = 8,
+    size: int = 2000,
+    background: tuple[int, int, int] = (255, 255, 255),
+) -> ProcessedImage:
+    """Trim empty/transparent margins, pad, centre on a square, output size x size.
+
+    Bounding box comes from the alpha channel on transparent images, or from the
+    difference against the corner (background) colour on flat-background images.
+    """
+    from PIL import Image, ImageChops, UnidentifiedImageError
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ImageProcessingError(str(exc)) from exc
+
+    has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    mask = None
+    if has_alpha:
+        content = img.convert("RGBA")
+        bbox = content.getchannel("A").getbbox()
+        if bbox:
+            content = content.crop(bbox)
+        mask = content.getchannel("A")
+    else:
+        content = img.convert("RGB")
+        corner = content.getpixel((0, 0))
+        diff = ImageChops.difference(content, Image.new("RGB", content.size, corner))
+        bbox = diff.getbbox()
+        if bbox:
+            content = content.crop(bbox)
+
+    side = max(content.width, content.height)
+    pad = round(side * padding_pct / 100)
+    canvas_side = side + 2 * pad
+    canvas = Image.new("RGB", (canvas_side, canvas_side), background)
+    offset = ((canvas_side - content.width) // 2, (canvas_side - content.height) // 2)
+    if mask is not None:
+        canvas.paste(content, offset, mask)
+    else:
+        canvas.paste(content, offset)
+
+    canvas = canvas.resize((size, size), Image.LANCZOS)
+    out = io.BytesIO()
+    canvas.save(out, format="JPEG", quality=90)
+    return ProcessedImage(out.getvalue(), size, size, "JPEG")

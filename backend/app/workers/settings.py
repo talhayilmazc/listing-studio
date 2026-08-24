@@ -23,6 +23,7 @@ from app.etsy.client import UnavailableEtsyClient
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
 from app.workers.processor import JobProcessor, ProcessResult
+from app.workers.publish import run_publish_job
 
 
 async def process_job(ctx: dict[str, Any], job_id: str) -> str:
@@ -44,14 +45,17 @@ async def flush_usage(ctx: dict[str, Any]) -> None:
 
 
 async def startup(ctx: dict[str, Any]) -> None:
+    settings = get_settings()
     redis = ctx["redis"]  # arq provides the pool
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["usage"] = UsageRecorder()
+    ctx["bucket"] = TokenBucket(redis)  # 4 req/s
+    ctx["quota"] = DailyQuota(redis, global_daily_limit=settings.global_daily_limit)  # 5000/day
     ctx["processor"] = JobProcessor(
         sessionmaker=ctx["sessionmaker"],
-        bucket=TokenBucket(redis),
-        quota=DailyQuota(redis),
-        client=UnavailableEtsyClient(),  # replaced with the real client in step 4
+        bucket=ctx["bucket"],
+        quota=ctx["quota"],
+        client=UnavailableEtsyClient(),  # generic single-call path; publish uses run_publish_job
         usage=ctx["usage"],
     )
 
@@ -59,7 +63,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """arq worker configuration."""
 
-    functions = [process_job]
+    functions = [process_job, run_publish_job]
     cron_jobs = [cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False)]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -27,6 +27,7 @@ def _to_out(content: GeneratedContent, asset: Asset) -> schemas.ContentOut:
         model_used=content.model_used,
         input_tokens=content.input_tokens,
         output_tokens=content.output_tokens,
+        etsy_listing_id=content.etsy_listing_id,
         original_filename=asset.original_filename,
         parsed_sku=asset.parsed_sku,
         rank=asset.rank,

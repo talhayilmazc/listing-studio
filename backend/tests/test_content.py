@@ -9,7 +9,7 @@ from app.pipeline.content import (
     validate_listing,
 )
 from app.pipeline.vision import VisionAnalysis
-from tests.support import FakeMessages, fake_response
+from tests.support import VALID_TITLE, FakeMessages, fake_response
 from app.pipeline.llm import AnthropicLLMClient
 
 ANALYSIS = VisionAnalysis(
@@ -26,7 +26,7 @@ def _tags(n: int) -> list[str]:
     return [f"tag{i}" for i in range(n)]
 
 
-def _payload(title: str = "Cozy Autumn Coffee Printable Wall Art", tags: list[str] | None = None) -> dict:
+def _payload(title: str = VALID_TITLE, tags: list[str] | None = None) -> dict:
     return {
         "title": title,
         "tags": tags if tags is not None else _tags(13),
@@ -41,7 +41,7 @@ def _generator(messages: FakeMessages) -> AnthropicContentGenerator:
 
 # --- validate_listing unit tests -------------------------------------------
 def test_valid_listing_has_no_errors() -> None:
-    listing = GeneratedListing("A good title", _tags(13), "A description.")
+    listing = GeneratedListing(VALID_TITLE, _tags(13), "A description.")
     assert validate_listing(listing) == []
 
 
@@ -118,3 +118,14 @@ async def test_user_turn_includes_analysis_and_sku() -> None:
     # System prompt is cached and does not carry the volatile analysis.
     assert messages.calls[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert "SKU-42" not in messages.calls[0]["system"][0]["text"]
+
+
+# --- title length bounds (spec §3) -----------------------------------------
+def test_title_below_130_is_rejected() -> None:
+    listing = GeneratedListing("x" * 129, _tags(13), "A description.")
+    assert any("at least 130" in e for e in validate_listing(listing))
+
+
+def test_title_135_is_accepted() -> None:
+    listing = GeneratedListing("x" * 135, _tags(13), "A description.")
+    assert validate_listing(listing) == []

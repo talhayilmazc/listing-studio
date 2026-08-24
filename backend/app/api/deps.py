@@ -14,6 +14,7 @@ from functools import lru_cache
 from fastapi import Depends
 from redis.asyncio import Redis
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from collections.abc import Callable
@@ -41,15 +42,34 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-async def current_tenant(session: AsyncSession = Depends(get_session)) -> Tenant:
-    """Return the development tenant, creating it on first use."""
+async def _fetch_dev_tenant(session: AsyncSession) -> Tenant | None:
     result = await session.execute(select(Tenant).where(Tenant.email == _DEV_TENANT_EMAIL))
-    tenant = result.scalar_one_or_none()
-    if tenant is None:
-        tenant = Tenant(email=_DEV_TENANT_EMAIL, password_hash="!", daily_quota=2000)
-        session.add(tenant)
+    return result.scalar_one_or_none()
+
+
+async def current_tenant(session: AsyncSession = Depends(get_session)) -> Tenant:
+    """Return the development tenant, creating it on first use.
+
+    Idempotent under concurrency: the frontend fires /status, /quota and /meta in
+    parallel and each may try to create the tenant. The unique ``email`` makes
+    exactly one insert win; the losers catch IntegrityError and re-fetch the row.
+    """
+    tenant = await _fetch_dev_tenant(session)
+    if tenant is not None:
+        return tenant
+
+    tenant = Tenant(email=_DEV_TENANT_EMAIL, password_hash="!", daily_quota=2000)
+    session.add(tenant)
+    try:
         await session.commit()
-        await session.refresh(tenant)
+    except IntegrityError:
+        # A concurrent request created it first; roll back and read the winner.
+        await session.rollback()
+        existing = await _fetch_dev_tenant(session)
+        if existing is None:  # pragma: no cover - would mean a different constraint
+            raise
+        return existing
+    await session.refresh(tenant)
     return tenant
 
 
@@ -80,6 +100,27 @@ def get_redis() -> Redis:
 
 def get_quota() -> DailyQuota:
     return DailyQuota(get_redis(), global_daily_limit=get_settings().global_daily_limit)
+
+
+class Enqueuer:
+    """Minimal arq enqueue wrapper (overridden with a stub in tests)."""
+
+    def __init__(self, redis_url: str) -> None:
+        self._url = redis_url
+        self._pool = None
+
+    async def enqueue(self, function: str, *args: object) -> None:
+        if self._pool is None:
+            from arq import create_pool
+            from arq.connections import RedisSettings
+
+            self._pool = await create_pool(RedisSettings.from_dsn(self._url))
+        await self._pool.enqueue_job(function, *args)
+
+
+@lru_cache
+def get_enqueuer() -> Enqueuer:
+    return Enqueuer(get_settings().redis_url)
 
 
 def get_connection_service() -> ConnectionService:

@@ -23,6 +23,7 @@ VISION_SCHEMA: dict[str, Any] = {
         "colors": {"type": "array", "items": {"type": "string"}},
         "target_audience": {"type": "string"},
         "product_type_hints": {"type": "array", "items": {"type": "string"}},
+        "occasion": {"type": "string"},
     },
     "required": [
         "theme",
@@ -44,6 +45,8 @@ class VisionAnalysis:
     colors: list[str]
     target_audience: str
     product_type_hints: list[str]
+    #: Holiday/event the design suits (e.g. "christmas", "4th of july"); "" if none.
+    occasion: str = ""
 
 
 @dataclass
@@ -98,6 +101,7 @@ def _to_analysis(data: dict[str, Any]) -> VisionAnalysis:
             colors=[str(c) for c in data["colors"]],
             target_audience=str(data["target_audience"]),
             product_type_hints=[str(h) for h in data["product_type_hints"]],
+            occasion=str(data.get("occasion", "")),
         )
     except (KeyError, TypeError) as exc:
         raise LLMError(f"vision response missing fields: {exc}") from exc

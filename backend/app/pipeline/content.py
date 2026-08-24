@@ -17,6 +17,7 @@ from app.pipeline.vision import VisionAnalysis
 
 # Etsy structural limits.
 REQUIRED_TAG_COUNT = 13
+MIN_TITLE_LENGTH = 130
 MAX_TITLE_LENGTH = 140
 MAX_TAG_LENGTH = 20
 
@@ -62,6 +63,8 @@ def validate_listing(listing: GeneratedListing) -> list[str]:
     title = listing.title.strip()
     if not title:
         errors.append("title is empty")
+    elif len(listing.title) < MIN_TITLE_LENGTH:
+        errors.append(f"title must be at least {MIN_TITLE_LENGTH} characters")
     if len(listing.title) > MAX_TITLE_LENGTH:
         errors.append(f"title exceeds {MAX_TITLE_LENGTH} characters")
 

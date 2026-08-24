@@ -11,6 +11,7 @@ export interface Asset {
   width: number | null;
   height: number | null;
   has_content: boolean;
+  error: string | null;
 }
 
 export interface BatchSummary {
@@ -37,9 +38,24 @@ export interface Content {
   model_used: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  etsy_listing_id: number | null;
   original_filename: string;
   parsed_sku: string | null;
   rank: number | null;
+}
+
+export interface PublishJob {
+  content_id: string;
+  job_id: string;
+}
+
+export interface JobStatus {
+  id: string;
+  type: string;
+  status: string;
+  error: string | null;
+  listing_id: number | null;
+  listing_url: string | null;
 }
 
 export interface Validation {
@@ -84,10 +100,17 @@ export interface Meta {
   trademark_notice: string;
 }
 
+export interface AssetFailure {
+  asset_id: string;
+  original_filename: string;
+  error: string;
+}
+
 export interface GenerateResult {
   generated: number;
   failed: number;
   skipped: number;
+  failures: AssetFailure[];
 }
 
 export interface Connection {

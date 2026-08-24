@@ -27,6 +27,7 @@ from app.pipeline.images import ImageProcessor, PillowBackend
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage
+from tests.support import VALID_TITLE
 
 
 @pytest_asyncio.fixture()
@@ -155,7 +156,7 @@ async def _seed_content(client: AsyncClient, tags: list[str]) -> tuple[str, str]
             tenant_id=tenant_id,
             batch_id=uuid.UUID(batch_id),
             asset_id=uuid.UUID(asset["id"]),
-            title="A perfectly fine title",
+            title=VALID_TITLE,
             tags=tags,
             description="A description.",
             model_used="claude-haiku-4-5-20251001",
@@ -194,10 +195,38 @@ async def test_review_edit_and_approve(client: AsyncClient) -> None:
     assert denied.status_code == 422
 
     # Fix the title, then approve succeeds.
-    await client.patch(f"/api/content/{content_id}", json={"title": "A good title"})
+    await client.patch(f"/api/content/{content_id}", json={"title": VALID_TITLE})
     ok = await client.post(f"/api/content/{content_id}/approve", json={"approved": True})
     assert ok.status_code == 200
     assert ok.json()["content"]["approved"] is True
+
+
+async def test_current_tenant_is_idempotent_on_conflict(client: AsyncClient, monkeypatch) -> None:
+    """The insert path tolerates a concurrent creation (IntegrityError -> refetch)."""
+    # Ensure the dev tenant already exists (a prior request created it).
+    await client.get("/api/quota")
+
+    # Force the initial lookup to miss so the insert runs and hits the unique
+    # email constraint -- exactly the concurrent-request race.
+    real = deps._fetch_dev_tenant
+    seen = {"n": 0}
+
+    async def flaky(session):  # noqa: ANN001, ANN202
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return None
+        return await real(session)
+
+    monkeypatch.setattr(deps, "_fetch_dev_tenant", flaky)
+
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        tenant = await deps.current_tenant(session=s)
+    assert tenant.email == "dev@localhost"
+
+    # Still exactly one dev tenant.
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        rows = await s.execute(select(Tenant).where(Tenant.email == "dev@localhost"))
+        assert len(rows.scalars().all()) == 1
 
 
 async def test_batch_cost_from_tokens(client: AsyncClient) -> None:

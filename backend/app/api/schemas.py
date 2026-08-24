@@ -18,6 +18,7 @@ class AssetOut(BaseModel):
     width: int | None
     height: int | None
     has_content: bool = False
+    error: str | None = None  # last content-generation failure reason, if any
 
 
 class BatchSummary(BaseModel):
@@ -44,6 +45,7 @@ class ContentOut(BaseModel):
     model_used: str | None
     input_tokens: int | None
     output_tokens: int | None
+    etsy_listing_id: int | None = None  # set once published as a draft
     # asset context for the review screen
     original_filename: str
     parsed_sku: str | None
@@ -97,10 +99,41 @@ class QuotaOut(BaseModel):
     usage_date: str
 
 
+class AssetFailure(BaseModel):
+    asset_id: uuid.UUID
+    original_filename: str
+    error: str
+
+
 class GenerateResult(BaseModel):
     generated: int
     failed: int
     skipped: int
+    failures: list[AssetFailure] = Field(default_factory=list)
+
+
+class PublishJobOut(BaseModel):
+    content_id: uuid.UUID
+    job_id: uuid.UUID
+
+
+class PublishSkipped(BaseModel):
+    content_id: uuid.UUID
+    reason: str
+
+
+class BatchPublishResult(BaseModel):
+    jobs: list[PublishJobOut] = Field(default_factory=list)
+    skipped: list[PublishSkipped] = Field(default_factory=list)
+
+
+class JobStatusOut(BaseModel):
+    id: uuid.UUID
+    type: str
+    status: str
+    error: str | None = None
+    listing_id: int | None = None
+    listing_url: str | None = None
 
 
 class ConnectionOut(BaseModel):

@@ -1,0 +1,171 @@
+"""Publish approved content to Etsy as draft listings (via the queue)."""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api import schemas
+from app.api.deps import Enqueuer, current_tenant, get_connection_service, get_enqueuer, get_session
+from app.db.models import (
+    ComplianceFinding,
+    ComplianceSeverity,
+    GeneratedContent,
+    Job,
+    JobStatus,
+    JobType,
+    Tenant,
+    UploadBatch,
+)
+from app.etsy.connection import ConnectionService
+from app.etsy.publisher import listing_url
+from app.pipeline.content import GeneratedListing, validate_listing
+
+router = APIRouter(prefix="/api", tags=["publish"])
+
+
+async def _blocking(session: AsyncSession, content_id: uuid.UUID) -> bool:
+    rows = await session.execute(
+        select(ComplianceFinding.id).where(
+            ComplianceFinding.generated_content_id == content_id,
+            ComplianceFinding.severity == ComplianceSeverity.blocking,
+        )
+    )
+    return rows.first() is not None
+
+
+def _validation_reason(content: GeneratedContent) -> str | None:
+    if not content.approved:
+        return "not approved"
+    if content.etsy_listing_id is not None:
+        return "already published"
+    errors = validate_listing(
+        GeneratedListing(
+            title=content.title or "",
+            tags=list(content.tags or []),
+            description=content.description or "",
+        )
+    )
+    return "; ".join(errors) if errors else None
+
+
+async def _enqueue_publish(
+    session: AsyncSession,
+    enqueuer: Enqueuer,
+    *,
+    tenant: Tenant,
+    connection_id: uuid.UUID,
+    content: GeneratedContent,
+) -> Job:
+    job = Job(
+        tenant_id=tenant.id,
+        connection_id=connection_id,
+        type=JobType.create_draft,
+        payload={"content_id": str(content.id)},
+        batch_id=content.batch_id,
+        status=JobStatus.queued,
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await enqueuer.enqueue("run_publish_job", str(job.id))
+    return job
+
+
+@router.post("/content/{content_id}/publish", response_model=schemas.PublishJobOut)
+async def publish_one(
+    content_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+    service: ConnectionService = Depends(get_connection_service),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.PublishJobOut:
+    content = await session.get(GeneratedContent, content_id)
+    if content is None or content.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="content not found")
+
+    connection = await service.get_active(session, tenant.id)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+
+    reason = _validation_reason(content)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+    if await _blocking(session, content.id):
+        raise HTTPException(status_code=409, detail="content has a blocking compliance finding")
+
+    job = await _enqueue_publish(
+        session, enqueuer, tenant=tenant, connection_id=connection.id, content=content
+    )
+    return schemas.PublishJobOut(content_id=content.id, job_id=job.id)
+
+
+@router.post("/batches/{batch_id}/publish", response_model=schemas.BatchPublishResult)
+async def publish_batch(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+    service: ConnectionService = Depends(get_connection_service),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.BatchPublishResult:
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    connection = await service.get_active(session, tenant.id)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+
+    rows = await session.execute(
+        select(GeneratedContent).where(GeneratedContent.batch_id == batch_id)
+    )
+    result = schemas.BatchPublishResult()
+    for content in rows.scalars():
+        reason = _validation_reason(content)
+        if reason == "not approved":
+            continue  # only publish approved content; silently skip the rest
+        if reason:
+            result.skipped.append(schemas.PublishSkipped(content_id=content.id, reason=reason))
+            continue
+        if await _blocking(session, content.id):
+            result.skipped.append(
+                schemas.PublishSkipped(content_id=content.id, reason="blocking compliance finding")
+            )
+            continue
+        job = await _enqueue_publish(
+            session, enqueuer, tenant=tenant, connection_id=connection.id, content=content
+        )
+        result.jobs.append(schemas.PublishJobOut(content_id=content.id, job_id=job.id))
+    return result
+
+
+@router.get("/jobs/{job_id}", response_model=schemas.JobStatusOut)
+async def job_status(
+    job_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+) -> schemas.JobStatusOut:
+    job = await session.get(Job, job_id)
+    if job is None or job.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    listing_id = None
+    url = None
+    content_id = (job.payload or {}).get("content_id")
+    if content_id:
+        content = await session.get(GeneratedContent, uuid.UUID(content_id))
+        if content and content.etsy_listing_id:
+            listing_id = content.etsy_listing_id
+            url = listing_url(listing_id)
+
+    return schemas.JobStatusOut(
+        id=job.id,
+        type=job.type.value,
+        status=job.status.value,
+        error=job.last_error,
+        listing_id=listing_id,
+        listing_url=url,
+    )

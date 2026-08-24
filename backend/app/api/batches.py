@@ -14,6 +14,7 @@ from app.api.deps import current_tenant, get_cost_calculator, get_ingestor, get_
 from app.core.config import get_settings
 from app.db.models import Asset, AssetStatus, GeneratedContent, Tenant, UploadBatch
 from app.pipeline.content import AnthropicContentGenerator
+from app.pipeline.description import load_description_template
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
@@ -99,6 +100,7 @@ async def add_asset(
         width=asset.width,
         height=asset.height,
         has_content=False,
+        error=asset.error,
     )
 
 
@@ -151,6 +153,7 @@ async def get_batch(
             width=a.width,
             height=a.height,
             has_content=a.id in with_content,
+            error=a.error,
         )
         for a in rows.scalars()
     ]
@@ -195,6 +198,12 @@ async def generate_content(
     analyzer = AnthropicVisionAnalyzer(client)
     generator = AnthropicContentGenerator(client)
 
+    # Description is templated (not free-generated); load the configured template.
+    try:
+        description_template = load_description_template(settings.description_template)
+    except FileNotFoundError:
+        description_template = None
+
     already = await _content_asset_ids(session, batch_id)
     rows = await session.execute(
         select(Asset).where(
@@ -204,6 +213,7 @@ async def generate_content(
     assets = [a for a in rows.scalars() if a.id not in already]
 
     generated = failed = 0
+    failures: list[schemas.AssetFailure] = []
     for asset in assets:
         if asset.processed_key is None:
             continue
@@ -218,14 +228,23 @@ async def generate_content(
             sku=asset.parsed_sku,
             analyzer=analyzer,
             generator=generator,
+            description_template=description_template,
+            description_variables=settings.description_variables,
         )
         if outcome.status == "generated":
             generated += 1
         else:
             failed += 1
+            failures.append(
+                schemas.AssetFailure(
+                    asset_id=asset.id,
+                    original_filename=asset.original_filename,
+                    error=outcome.error or "unknown error",
+                )
+            )
 
     return schemas.GenerateResult(
-        generated=generated, failed=failed, skipped=len(already)
+        generated=generated, failed=failed, skipped=len(already), failures=failures
     )
 
 

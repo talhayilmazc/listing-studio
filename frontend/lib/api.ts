@@ -7,7 +7,9 @@ import type {
   Content,
   ContentUpdateResult,
   GenerateResult,
+  JobStatus,
   Meta,
+  PublishJob,
   Quota,
 } from "./types";
 
@@ -64,6 +66,9 @@ export const api = {
   assetImage: (id: string) => `${BASE}/assets/${id}/image`,
   connection: () => req<Connection>("/auth/etsy/status"),
   disconnect: () => req<Connection>("/auth/etsy/disconnect", { method: "POST" }),
+  publishContent: (id: string) =>
+    req<PublishJob>(`/content/${id}/publish`, { method: "POST" }),
+  jobStatus: (jobId: string) => req<JobStatus>(`/jobs/${jobId}`),
 };
 
 /** Upload a single file with per-file progress via XHR. */
