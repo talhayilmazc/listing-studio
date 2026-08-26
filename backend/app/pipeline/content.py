@@ -61,12 +61,19 @@ def validate_listing(listing: GeneratedListing) -> list[str]:
     errors: list[str] = []
 
     title = listing.title.strip()
+    n = len(listing.title)
     if not title:
         errors.append("title is empty")
-    elif len(listing.title) < MIN_TITLE_LENGTH:
-        errors.append(f"title must be at least {MIN_TITLE_LENGTH} characters")
-    if len(listing.title) > MAX_TITLE_LENGTH:
-        errors.append(f"title exceeds {MAX_TITLE_LENGTH} characters")
+    elif n < MIN_TITLE_LENGTH:
+        errors.append(
+            f"title must be at least {MIN_TITLE_LENGTH} characters "
+            f"(yours was {n}); target {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH}"
+        )
+    if n > MAX_TITLE_LENGTH:
+        errors.append(
+            f"title exceeds {MAX_TITLE_LENGTH} characters "
+            f"(yours was {n}); target {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH}"
+        )
 
     if len(listing.tags) != REQUIRED_TAG_COUNT:
         errors.append(f"expected exactly {REQUIRED_TAG_COUNT} tags, got {len(listing.tags)}")
@@ -131,28 +138,62 @@ class AnthropicContentGenerator:
             max_tokens=self._max_tokens,
         )
 
+    def _correction_block(
+        self, previous: GeneratedListing, errors: list[str]
+    ) -> dict[str, Any]:
+        """A user turn that tells the model exactly what to fix on the retry.
+
+        Blind retries usually reproduce the same violation, so we quote the
+        rejected output back and list every validation error verbatim.
+        """
+        bullets = "\n".join(f"- {e}" for e in errors)
+        text = (
+            "Your previous response was REJECTED by validation. Fix every problem "
+            "below and return the corrected listing as JSON again — keep what was "
+            "already valid, change only what these errors require:\n"
+            f"{bullets}\n\n"
+            "Your previous (rejected) output was:\n"
+            f"- title ({len(previous.title)} chars): {previous.title}\n"
+            f"- tags ({len(previous.tags)}): {', '.join(previous.tags)}\n"
+            f"- description: {previous.description}"
+        )
+        return {"type": "text", "text": text}
+
     async def _generate_once(
-        self, analysis: VisionAnalysis, sku: str | None
+        self,
+        analysis: VisionAnalysis,
+        sku: str | None,
+        *,
+        correction: dict[str, Any] | None = None,
     ) -> tuple[GeneratedListing, Usage]:
+        blocks = self._content_blocks(analysis, sku)
+        if correction is not None:
+            blocks = [*blocks, correction]
         result = await self._client.complete_json(
             system=self._template.system,
-            content_blocks=self._content_blocks(analysis, sku),
+            content_blocks=blocks,
             schema=CONTENT_SCHEMA,
             max_tokens=self._max_tokens,
         )
         return _to_listing(result.data), result.usage
 
     async def generate(self, analysis: VisionAnalysis, sku: str | None = None) -> ContentResult:
-        """Generate + validate, regenerating once on failure before giving up."""
+        """Generate + validate, regenerating once on failure before giving up.
+
+        The retry prompt carries the previous attempt's validation errors so the
+        model knows precisely what to correct.
+        """
         usages: list[Usage] = []
         last_errors: list[str] = []
+        correction: dict[str, Any] | None = None
         for attempt in range(2):
-            listing, usage = await self._generate_once(analysis, sku)
+            listing, usage = await self._generate_once(analysis, sku, correction=correction)
             usages.append(usage)
             errors = validate_listing(listing)
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
             last_errors = errors
+            correction = self._correction_block(listing, errors)
         raise ContentValidationError(last_errors, usages)
 
 

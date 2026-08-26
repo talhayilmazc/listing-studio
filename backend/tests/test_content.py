@@ -93,6 +93,36 @@ async def test_generate_regenerates_once_then_succeeds() -> None:
     assert len(messages.calls) == 2
 
 
+async def test_retry_prompt_includes_specific_validation_errors() -> None:
+    # First attempt: too few tags + a short title -> both should surface in the retry.
+    short_title = "Too short"
+    messages = FakeMessages(
+        [
+            fake_response(_payload(title=short_title, tags=_tags(12))),  # invalid
+            fake_response(_payload(tags=_tags(13))),  # valid
+        ]
+    )
+    gen = _generator(messages)
+
+    result = await gen.generate(ANALYSIS, sku="SKU1")
+    assert result.attempts == 2
+
+    # The second call's user turn must spell out what to fix and quote the reject.
+    blocks = messages.calls[1]["messages"][0]["content"]
+    retry_text = "\n".join(b["text"] for b in blocks if b["type"] == "text")
+    assert "REJECTED" in retry_text
+    assert "at least 130" in retry_text  # title bound
+    assert f"(yours was {len(short_title)})" in retry_text  # actual length
+    assert "exactly 13 tags" in retry_text  # tag-count error
+    assert short_title in retry_text  # previous output echoed back
+
+    # The first call must NOT carry any correction block.
+    first_text = "\n".join(
+        b["text"] for b in messages.calls[0]["messages"][0]["content"] if b["type"] == "text"
+    )
+    assert "REJECTED" not in first_text
+
+
 async def test_generate_fails_after_two_invalid_attempts() -> None:
     messages = FakeMessages(
         [fake_response(_payload(tags=_tags(11))), fake_response(_payload(tags=_tags(10)))]
