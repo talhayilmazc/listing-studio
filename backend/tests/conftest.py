@@ -16,8 +16,40 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings, set_settings_override
 from app.db import models  # noqa: F401  (registers models on Base.metadata)
 from app.db.base import Base
+
+
+@pytest.fixture()
+def test_settings() -> Settings:
+    """Isolated settings for a test.
+
+    Built with ``_env_file=None`` so the real ``.env`` is never read, and with the
+    safety-critical fields pinned as explicit kwargs (init values outrank any
+    ambient environment variable in pydantic-settings). In particular
+    ``llm_api_key=""`` guarantees no test can reach a real provider, and the
+    quota/limit values are fixed here rather than inherited from whatever ``.env``
+    happens to contain. Tests may mutate the returned instance before use.
+    """
+    return Settings(
+        _env_file=None,
+        app_env="test",
+        llm_api_key="",  # no provider is reachable from tests
+        global_daily_limit=5000,
+        etsy_client_id="",
+        etsy_client_secret="",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings(test_settings: Settings) -> Iterator[None]:
+    """Install the isolated settings for every test, then clear the override."""
+    set_settings_override(test_settings)
+    try:
+        yield
+    finally:
+        set_settings_override(None)
 
 
 @pytest.fixture()

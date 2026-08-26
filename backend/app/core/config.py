@@ -87,6 +87,30 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
-    """Return a cached Settings instance."""
+def _load_settings() -> Settings:
+    """Build Settings from the environment / .env, cached for the process."""
     return Settings()
+
+
+# Test-only override. When set, ``get_settings()`` returns this instance verbatim,
+# bypassing .env *and* the ambient environment so tests never depend on — or reach —
+# external configuration (e.g. a real LLM_API_KEY). Production leaves this ``None``.
+_override: Settings | None = None
+
+
+def set_settings_override(settings: Settings | None) -> None:
+    """Install an isolated Settings instance (or clear it with ``None``)."""
+    global _override
+    _override = settings
+
+
+def clear_settings_cache() -> None:
+    """Drop the cached production settings so the next load re-reads the env."""
+    _load_settings.cache_clear()
+
+
+def get_settings() -> Settings:
+    """Return the active settings: the test override if set, else the cached load."""
+    if _override is not None:
+        return _override
+    return _load_settings()

@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api import deps
-from app.core.config import get_settings
 from app.core.crypto import TokenCipher
 from app.db.base import Base
 from app.db.models import ConnectionStatus, EtsyConnection, Tenant
@@ -211,10 +210,11 @@ async def test_disconnect_revokes_and_clears(async_sm: async_sessionmaker) -> No
 
 # --- Router end-to-end ------------------------------------------------------
 @pytest_asyncio.fixture()
-async def auth_client(monkeypatch) -> AsyncIterator[httpx.AsyncClient]:
-    monkeypatch.setenv("ETSY_CLIENT_ID", "test-keystring")
-    monkeypatch.setenv("ETSY_CLIENT_SECRET", "test-secret")
-    get_settings.cache_clear()
+async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
+    # Configure Etsy credentials on the isolated settings (installed by the
+    # autouse fixture) instead of touching the ambient environment / .env.
+    test_settings.etsy_client_id = "test-keystring"
+    test_settings.etsy_client_secret = "test-secret"
 
     engine = create_async_engine(
         "sqlite+aiosqlite://",
@@ -262,7 +262,6 @@ async def auth_client(monkeypatch) -> AsyncIterator[httpx.AsyncClient]:
         yield ac
 
     await engine.dispose()
-    get_settings.cache_clear()
 
 
 async def test_full_oauth_flow(auth_client: httpx.AsyncClient) -> None:
