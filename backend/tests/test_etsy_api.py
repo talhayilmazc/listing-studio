@@ -41,6 +41,41 @@ async def test_headers_and_create_draft_never_sets_state() -> None:
     assert "state" not in req.content.decode()  # never auto-publish
 
 
+async def test_create_draft_sends_all_tags_as_one_comma_field() -> None:
+    """A1: 13 tags must reach Etsy as a single comma-separated field, not repeated
+    keys (which Etsy collapses to one tag)."""
+    from urllib.parse import parse_qs
+
+    seen: list[httpx.Request] = []
+    client, http = _make(
+        lambda req: (seen.append(req), httpx.Response(200, json={"listing_id": 1}))[1]
+    )
+    tags = [f"tag{i}" for i in range(13)]
+    async with http:
+        await client.create_draft_listing(
+            9, listing={"title": "t", "tags": tags}, access_token="tok"
+        )
+
+    body = parse_qs(seen[0].content.decode())
+    assert body["tags"] == [",".join(tags)]  # exactly one field, comma-joined
+    assert len(body["tags"][0].split(",")) == 13
+
+
+async def test_update_listing_serializes_tags_the_same_way() -> None:
+    from urllib.parse import parse_qs
+
+    seen: list[httpx.Request] = []
+    client, http = _make(
+        lambda req: (seen.append(req), httpx.Response(200, json={"listing_id": 1}))[1]
+    )
+    tags = [f"t{i}" for i in range(13)]
+    async with http:
+        await client.update_listing(9, 1, updates={"tags": tags}, access_token="tok")
+
+    body = parse_qs(seen[0].content.decode())
+    assert len(body["tags"][0].split(",")) == 13
+
+
 @pytest.mark.parametrize(
     ("status", "exc"),
     [(429, EtsyRateLimited), (404, EtsyClientError), (500, EtsyServerError)],

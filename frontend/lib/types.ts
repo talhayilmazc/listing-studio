@@ -39,6 +39,8 @@ export interface Content {
   input_tokens: number | null;
   output_tokens: number | null;
   etsy_listing_id: number | null;
+  etsy_listing_state: string | null;
+  listing_link: string | null;
   original_filename: string;
   parsed_sku: string | null;
   rank: number | null;
@@ -56,6 +58,7 @@ export interface JobStatus {
   error: string | null;
   listing_id: number | null;
   listing_url: string | null;
+  is_draft: boolean;
 }
 
 export interface Validation {

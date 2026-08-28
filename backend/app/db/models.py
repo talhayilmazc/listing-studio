@@ -306,6 +306,9 @@ class GeneratedContent(Base):
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     #: Set once this approved content has been published as an Etsy DRAFT listing.
     etsy_listing_id: Mapped[int | None] = mapped_column(BigInteger)
+    #: Etsy listing state after publishing: "draft" on create, "active" once the
+    #: seller explicitly publishes it. Null == never published (treated as draft).
+    etsy_listing_state: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

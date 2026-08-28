@@ -34,6 +34,24 @@ class RateLimitExceeded(Exception):
     """The tenant/global daily budget is exhausted; the job should be deferred."""
 
 
+def _encode_form(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Serialize list-valued form fields the way Etsy's form API expects them.
+
+    Etsy takes multi-value fields (``tags``, ``materials``, ...) as a single
+    **comma-separated string**. If a Python list is handed straight to httpx it is
+    form-encoded as repeated keys (``tags=a&tags=b``) and Etsy keeps only one
+    value -- the cause of "only 1 tag on the draft". Join list/tuple values here.
+    """
+    if not data:
+        return data
+    return {
+        key: ",".join(str(item) for item in value)
+        if isinstance(value, (list, tuple))
+        else value
+        for key, value in data.items()
+    }
+
+
 def _retry_after(resp: httpx.Response) -> float | None:
     raw = resp.headers.get("retry-after")
     if raw is None:
@@ -91,7 +109,7 @@ class EtsyApiClient:
             f"{self._base}{path}",
             headers=auth_headers(self._client_id, self._shared_secret, access_token),
             params=params,
-            data=data,
+            data=_encode_form(data),
             json=json,
             files=files,
         )

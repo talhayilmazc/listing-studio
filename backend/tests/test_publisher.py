@@ -191,6 +191,49 @@ async def test_publish_creates_draft_and_snapshot(async_sm: async_sessionmaker) 
         assert snap.payload["operation"] == "create_draft"
 
 
+async def test_publish_writes_sku_to_every_product_and_marks_draft(
+    async_sm: async_sessionmaker,
+) -> None:
+    """A2: the SKU must land in ``products[].sku`` for every variation. A4: the
+    listing is recorded as a DRAFT so the UI links it to Shop Manager."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(properties={"results": [{"name": "Size"}]})
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        await publish_content(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            sku="BR5475",
+            thumbnail=PublishImage(b"thumb", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            size_config=SizeConfig("Size", ["S", "M"], {}),
+            theme="abstract",
+            tenant_limit=2000,
+        )
+
+    products = fake.inventory["products"]
+    assert products, "inventory must contain products"
+    assert all("BR5475" in p["sku"] for p in products)
+
+    async with async_sm() as s:
+        row = await s.get(GeneratedContent, content_id)
+        assert row.etsy_listing_state == "draft"
+
+
+def test_link_for_picks_edit_url_for_draft_and_public_for_active() -> None:
+    from app.etsy.publisher import link_for, listing_edit_url, listing_url
+
+    assert link_for(555, "draft") == listing_edit_url(555)
+    assert link_for(555, None) == listing_edit_url(555)  # null == draft
+    assert link_for(555, "active") == listing_url(555)
+    assert "your/shops/me/listing-editor/edit/555" in listing_edit_url(555)
+
+
 async def test_publish_without_size_support_single_product(async_sm: async_sessionmaker) -> None:
     _, conn_id, content_id, job_id = await _seed(async_sm)
     fake = FakeEtsy(properties={"results": []})  # taxonomy has no Size property

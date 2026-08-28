@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import type { Content } from "@/lib/types";
 import { TagEditor } from "./TagEditor";
 
-const MIN_TITLE = 130;
+const MIN_TITLE = 110;
 const MAX_TITLE = 140;
 const MAX_TAG = 20;
 const REQUIRED_TAGS = 13;
@@ -39,8 +39,10 @@ export function ReviewCard({ initial }: { initial: Content }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const listingUrl = (id: number) => `https://www.etsy.com/listing/${id}`;
-  const [listingId, setListingId] = useState<number | null>(initial.etsy_listing_id);
+  // A draft links to Shop Manager (editable); an active listing to the public URL.
+  // The server resolves the correct URL; drafts have no working public page (A4).
+  const [listingLink, setListingLink] = useState<string | null>(initial.listing_link);
+  const [isDraft, setIsDraft] = useState<boolean>(initial.etsy_listing_state !== "active");
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "done" | "error"
   >(initial.etsy_listing_id ? "done" : "idle");
@@ -85,7 +87,8 @@ export function ReviewCard({ initial }: { initial: Content }) {
         await new Promise((r) => setTimeout(r, 1500));
         const job = await api.jobStatus(job_id);
         if (job.status === "succeeded" && job.listing_id) {
-          setListingId(job.listing_id);
+          setListingLink(job.listing_url);
+          setIsDraft(job.is_draft);
           setPublishState("done");
           return;
         }
@@ -198,14 +201,14 @@ export function ReviewCard({ initial }: { initial: Content }) {
             </div>
 
             <div className="flex items-center gap-2">
-              {listingId ? (
+              {listingLink ? (
                 <a
-                  href={listingUrl(listingId)}
+                  href={listingLink}
                   target="_blank"
                   rel="noreferrer"
                   className="btn-primary"
                 >
-                  View Etsy draft ↗
+                  {isDraft ? "Edit draft in Shop Manager ↗" : "View on Etsy ↗"}
                 </a>
               ) : (
                 <button

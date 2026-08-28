@@ -88,7 +88,9 @@ async def ctx() -> AsyncIterator[dict]:
     await engine.dispose()
 
 
-async def _add_content(sm, tenant_id, *, approved=True, valid=True, listing_id=None) -> uuid.UUID:
+async def _add_content(
+    sm, tenant_id, *, approved=True, valid=True, listing_id=None, listing_state=None
+) -> uuid.UUID:
     async with sm() as s:
         batch = UploadBatch(tenant_id=tenant_id, status=UploadBatchStatus.ready, file_count=1)
         s.add(batch)
@@ -113,6 +115,7 @@ async def _add_content(sm, tenant_id, *, approved=True, valid=True, listing_id=N
             description="Fixed description.",
             approved=approved,
             etsy_listing_id=listing_id,
+            etsy_listing_state=listing_state,
         )
         s.add(content)
         await s.commit()
@@ -181,9 +184,7 @@ async def test_batch_publish_skips_and_enqueues(ctx) -> None:
     assert len(body["jobs"]) == 1 and body["jobs"][0]["content_id"] == str(good)
 
 
-async def test_job_status_reports_listing_url(ctx) -> None:
-    content_id = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
-    # Create a job referencing it.
+async def _job_for(ctx, content_id) -> uuid.UUID:
     async with ctx["sm"]() as s:
         content = await s.get(GeneratedContent, content_id)
         job = Job(
@@ -195,9 +196,24 @@ async def test_job_status_reports_listing_url(ctx) -> None:
         )
         s.add(job)
         await s.commit()
-        job_id = job.id
-    res = await ctx["client"].get(f"/api/jobs/{job_id}")
-    assert res.status_code == 200
-    body = res.json()
+        return job.id
+
+
+async def test_job_status_links_draft_to_shop_manager(ctx) -> None:
+    # A4: a draft (no active state) links to the editable Shop Manager page.
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
+    job_id = await _job_for(ctx, content_id)
+    body = (await ctx["client"].get(f"/api/jobs/{job_id}")).json()
     assert body["listing_id"] == 777
-    assert body["listing_url"] == "https://www.etsy.com/listing/777"
+    assert body["is_draft"] is True
+    assert body["listing_url"] == "https://www.etsy.com/your/shops/me/listing-editor/edit/777"
+
+
+async def test_job_status_links_active_to_public_url(ctx) -> None:
+    content_id = await _add_content(
+        ctx["sm"], ctx["tenant_id"], listing_id=888, listing_state="active"
+    )
+    job_id = await _job_for(ctx, content_id)
+    body = (await ctx["client"].get(f"/api/jobs/{job_id}")).json()
+    assert body["is_draft"] is False
+    assert body["listing_url"] == "https://www.etsy.com/listing/888"

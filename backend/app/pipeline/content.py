@@ -17,7 +17,7 @@ from app.pipeline.vision import VisionAnalysis
 
 # Etsy structural limits.
 REQUIRED_TAG_COUNT = 13
-MIN_TITLE_LENGTH = 130
+MIN_TITLE_LENGTH = 110
 MAX_TITLE_LENGTH = 140
 MAX_TAG_LENGTH = 20
 

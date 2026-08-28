@@ -46,6 +46,8 @@ class ContentOut(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     etsy_listing_id: int | None = None  # set once published as a draft
+    etsy_listing_state: str | None = None  # "draft" | "active" | null
+    listing_link: str | None = None  # edit URL for a draft, public URL once active
     # asset context for the review screen
     original_filename: str
     parsed_sku: str | None
@@ -133,7 +135,8 @@ class JobStatusOut(BaseModel):
     status: str
     error: str | None = None
     listing_id: int | None = None
-    listing_url: str | None = None
+    listing_url: str | None = None  # edit URL for a draft, public URL once active
+    is_draft: bool = True
 
 
 class ConnectionOut(BaseModel):

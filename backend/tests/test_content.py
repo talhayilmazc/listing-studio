@@ -111,7 +111,7 @@ async def test_retry_prompt_includes_specific_validation_errors() -> None:
     blocks = messages.calls[1]["messages"][0]["content"]
     retry_text = "\n".join(b["text"] for b in blocks if b["type"] == "text")
     assert "REJECTED" in retry_text
-    assert "at least 130" in retry_text  # title bound
+    assert "at least 110" in retry_text  # title bound
     assert f"(yours was {len(short_title)})" in retry_text  # actual length
     assert "exactly 13 tags" in retry_text  # tag-count error
     assert short_title in retry_text  # previous output echoed back
@@ -151,9 +151,14 @@ async def test_user_turn_includes_analysis_and_sku() -> None:
 
 
 # --- title length bounds (spec §3) -----------------------------------------
-def test_title_below_130_is_rejected() -> None:
-    listing = GeneratedListing("x" * 129, _tags(13), "A description.")
-    assert any("at least 130" in e for e in validate_listing(listing))
+def test_title_below_110_is_rejected() -> None:
+    listing = GeneratedListing("x" * 109, _tags(13), "A description.")
+    assert any("at least 110" in e for e in validate_listing(listing))
+
+
+def test_title_110_is_accepted() -> None:
+    listing = GeneratedListing("x" * 110, _tags(13), "A description.")
+    assert validate_listing(listing) == []
 
 
 def test_title_135_is_accepted() -> None:

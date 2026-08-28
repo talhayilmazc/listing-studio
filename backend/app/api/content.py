@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import current_tenant, get_session
 from app.db.models import Asset, GeneratedContent, Tenant
+from app.etsy.publisher import link_for
 from app.pipeline.content import GeneratedListing, validate_listing
 
 router = APIRouter(prefix="/api", tags=["content"])
@@ -28,6 +29,12 @@ def _to_out(content: GeneratedContent, asset: Asset) -> schemas.ContentOut:
         input_tokens=content.input_tokens,
         output_tokens=content.output_tokens,
         etsy_listing_id=content.etsy_listing_id,
+        etsy_listing_state=content.etsy_listing_state,
+        listing_link=(
+            link_for(content.etsy_listing_id, content.etsy_listing_state)
+            if content.etsy_listing_id
+            else None
+        ),
         original_filename=asset.original_filename,
         parsed_sku=asset.parsed_sku,
         rank=asset.rank,

@@ -21,7 +21,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.connection import ConnectionService
-from app.etsy.publisher import listing_url
+from app.etsy.publisher import link_for
 from app.pipeline.content import GeneratedListing, validate_listing
 
 router = APIRouter(prefix="/api", tags=["publish"])
@@ -154,12 +154,15 @@ async def job_status(
 
     listing_id = None
     url = None
+    is_draft = True
     content_id = (job.payload or {}).get("content_id")
     if content_id:
         content = await session.get(GeneratedContent, uuid.UUID(content_id))
         if content and content.etsy_listing_id:
             listing_id = content.etsy_listing_id
-            url = listing_url(listing_id)
+            is_draft = content.etsy_listing_state != "active"
+            # A draft links to Shop Manager (editable); active links to the public URL.
+            url = link_for(listing_id, content.etsy_listing_state)
 
     return schemas.JobStatusOut(
         id=job.id,
@@ -168,4 +171,5 @@ async def job_status(
         error=job.last_error,
         listing_id=listing_id,
         listing_url=url,
+        is_draft=is_draft,
     )

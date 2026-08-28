@@ -72,8 +72,22 @@ class PublishResult:
 
 
 def listing_url(listing_id: int) -> str:
-    """The public Etsy listing URL (ToU back-link requirement)."""
+    """The public Etsy listing URL (ToU back-link requirement); active listings only."""
     return f"https://www.etsy.com/listing/{listing_id}"
+
+
+def listing_edit_url(listing_id: int) -> str:
+    """Shop Manager editor URL for a DRAFT listing.
+
+    A draft has no working public URL ("Sorry this item is unavailable"), so the UI
+    links drafts here instead. Public :func:`listing_url` is used once active.
+    """
+    return f"https://www.etsy.com/your/shops/me/listing-editor/edit/{listing_id}"
+
+
+def link_for(listing_id: int, state: str | None) -> str:
+    """Pick the edit URL for a draft (default) or the public URL for an active listing."""
+    return listing_url(listing_id) if state == "active" else listing_edit_url(listing_id)
 
 
 def _first_shop(resp: dict[str, Any]) -> dict[str, Any]:
@@ -220,8 +234,10 @@ async def publish_content(
             **ctx,
         )
 
-    # 9) Record the listing id.
+    # 9) Record the listing id. It is created as a DRAFT (state never set), so mark
+    # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
     content.etsy_listing_id = listing_id
+    content.etsy_listing_state = "draft"
     await session.commit()
 
     return PublishResult(
