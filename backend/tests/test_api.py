@@ -136,8 +136,11 @@ async def test_generate_requires_llm_key(
         f"/api/batches/{batch_id}/assets",
         files={"file": ("SKU1.png", io.BytesIO(make_image(100, 100)), "image/png")},
     )
-    # No LLM_API_KEY configured in the test settings -> 503.
-    res = await client.post(f"/api/batches/{batch_id}/generate")
+    # No LLM_API_KEY configured in the test settings -> 503 (checked before the
+    # profile lookup, so any profile_id in the required body is fine here).
+    res = await client.post(
+        f"/api/batches/{batch_id}/generate", json={"profile_id": str(uuid.uuid4())}
+    )
     assert res.status_code == 503
 
 

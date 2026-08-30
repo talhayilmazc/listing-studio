@@ -123,6 +123,36 @@ async def test_taxonomy_response_is_cached() -> None:
     assert len(calls) == 1  # second call served from the 24h cache
 
 
+async def test_get_listing_inventory_and_images_paths() -> None:
+    seen: list[httpx.Request] = []
+    client, http = _make(
+        lambda req: (seen.append(req), httpx.Response(200, json={"results": []}))[1]
+    )
+    async with http:
+        await client.get_listing_inventory(42, access_token="t")
+        await client.get_listing_images(42, access_token="t")
+    assert seen[0].url.path == "/v3/application/listings/42/inventory"
+    assert seen[1].url.path == "/v3/application/listings/42/images"
+
+
+async def test_upload_image_by_id_copies_without_file() -> None:
+    from urllib.parse import parse_qs
+
+    seen: list[httpx.Request] = []
+    client, http = _make(
+        lambda req: (seen.append(req), httpx.Response(201, json={"listing_image_id": 9}))[1]
+    )
+    async with http:
+        await client.upload_listing_image(
+            5, 55, rank=3, listing_image_id=900, access_token="t"
+        )
+    req = seen[0]
+    # Copying uses the listing_image_id form field, not a multipart file upload.
+    assert "multipart/form-data" not in req.headers.get("content-type", "")
+    body = parse_qs(req.content.decode())
+    assert body["listing_image_id"] == ["900"] and body["rank"] == ["3"]
+
+
 async def test_get_shop_sections_path() -> None:
     seen: list[httpx.Request] = []
     client, http = _make(

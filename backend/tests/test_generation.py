@@ -1,6 +1,7 @@
 """End-to-end generation + persistence (provider mocked, real SQLite)."""
 
 import uuid
+from datetime import datetime, timezone
 from typing import Callable
 
 from sqlalchemy import select
@@ -12,10 +13,14 @@ from app.db.models import (
     ConnectionStatus,
     EtsyConnection,
     GeneratedContent,
+    ListingProfile,
     Tenant,
     UploadBatch,
     UploadBatchStatus,
 )
+
+# Reference description: only the first line (the old title) is replaced (B2).
+REF_DESCRIPTION = "Old Reference Title\nSize: S-3XL\nShips in 3 days.\nReturns accepted."
 from app.pipeline.content import AnthropicContentGenerator
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.vision import AnthropicVisionAnalyzer
@@ -40,7 +45,7 @@ def _content(tags: list[str]) -> dict:
     }
 
 
-async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
     async with sm() as session:
         tenant = Tenant(email=f"{uuid.uuid4()}@example.com", password_hash="x")
         session.add(tenant)
@@ -49,6 +54,16 @@ async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID
         session.add(conn)
         batch = UploadBatch(tenant_id=tenant.id, status=UploadBatchStatus.ready, file_count=1)
         session.add(batch)
+        profile = ListingProfile(
+            tenant_id=tenant.id,
+            name="Standard Tee",
+            reference_listing_id=111,
+            content_template="digital_products",
+            title_replace_lines=1,
+            cached_payload={"description": REF_DESCRIPTION, "taxonomy_id": 2078},
+            updated_at=datetime.now(timezone.utc),
+        )
+        session.add(profile)
         await session.flush()
         asset = Asset(
             batch_id=batch.id,
@@ -61,7 +76,7 @@ async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID
         )
         session.add(asset)
         await session.commit()
-        return tenant.id, batch.id, asset.id
+        return tenant.id, batch.id, asset.id, profile.id
 
 
 def _pipeline(messages: FakeMessages) -> tuple[AnthropicVisionAnalyzer, AnthropicContentGenerator]:
@@ -72,7 +87,7 @@ def _pipeline(messages: FakeMessages) -> tuple[AnthropicVisionAnalyzer, Anthropi
 async def test_success_persists_generated_content(
     async_sm: async_sessionmaker, make_image: Callable[..., bytes]
 ) -> None:
-    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    tenant_id, batch_id, asset_id, profile_id = await _seed(async_sm)
     tags = [f"tag{i}" for i in range(13)]
     messages = FakeMessages(
         [
@@ -93,6 +108,7 @@ async def test_success_persists_generated_content(
             sku="SKU1",
             analyzer=analyzer,
             generator=generator,
+            profile=await session.get(ListingProfile, profile_id),
         )
 
     assert outcome.status == "generated"
@@ -104,7 +120,13 @@ async def test_success_persists_generated_content(
         row = await session.get(GeneratedContent, outcome.generated_content_id)
         assert row is not None
         assert row.approved is False
-        assert row.taxonomy_id is None
+        # Taxonomy comes from the reference profile, never re-selected (A3/B).
+        assert row.taxonomy_id == 2078
+        assert row.listing_profile_id == profile_id
+        # Description is the reference body with only the first line replaced (B2).
+        assert row.description.split("\n")[0] == VALID_TITLE
+        assert "Size: S-3XL" in row.description
+        assert "Old Reference Title" not in row.description
         assert row.model_used == "claude-haiku-4-5-20251001"
         assert row.input_tokens == 300 and row.output_tokens == 120
         assert len(row.tags) == 13
@@ -113,7 +135,7 @@ async def test_success_persists_generated_content(
 async def test_retry_tokens_are_summed_into_row(
     async_sm: async_sessionmaker, make_image: Callable[..., bytes]
 ) -> None:
-    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    tenant_id, batch_id, asset_id, profile_id = await _seed(async_sm)
     good = [f"tag{i}" for i in range(13)]
     bad = [f"tag{i}" for i in range(12)]
     messages = FakeMessages(
@@ -136,6 +158,7 @@ async def test_retry_tokens_are_summed_into_row(
             sku="SKU1",
             analyzer=analyzer,
             generator=generator,
+            profile=await session.get(ListingProfile, profile_id),
         )
 
     async with async_sm() as session:
@@ -148,7 +171,7 @@ async def test_retry_tokens_are_summed_into_row(
 async def test_validation_failure_records_error_and_keeps_retryable(
     async_sm: async_sessionmaker, make_image: Callable[..., bytes]
 ) -> None:
-    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    tenant_id, batch_id, asset_id, profile_id = await _seed(async_sm)
     messages = FakeMessages(
         [
             fake_response(VISION_DATA),
@@ -169,6 +192,7 @@ async def test_validation_failure_records_error_and_keeps_retryable(
             sku="SKU1",
             analyzer=analyzer,
             generator=generator,
+            profile=await session.get(ListingProfile, profile_id),
         )
 
     assert outcome.status == "failed"
@@ -194,7 +218,7 @@ class _BoomAnalyzer:
 async def test_unexpected_exception_is_logged_and_recorded(
     async_sm: async_sessionmaker, make_image: Callable[..., bytes], caplog
 ) -> None:
-    tenant_id, batch_id, asset_id = await _seed(async_sm)
+    tenant_id, batch_id, asset_id, profile_id = await _seed(async_sm)
     _, generator = _pipeline(FakeMessages([]))
 
     with caplog.at_level("ERROR"):
@@ -209,6 +233,7 @@ async def test_unexpected_exception_is_logged_and_recorded(
                 sku="SKU1",
                 analyzer=_BoomAnalyzer(),
                 generator=generator,
+                profile=await session.get(ListingProfile, profile_id),
             )
 
     assert outcome.status == "failed"

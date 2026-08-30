@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -25,13 +24,13 @@ from app.db.models import (
     GeneratedContent,
     Job,
     JobStatus,
+    ListingProfile,
     Tenant,
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content
 from app.pipeline.images import prepare_thumbnail
-from app.pipeline.sizes import load_size_config
 from app.pipeline.storage import LocalStorage
 
 logger = logging.getLogger(__name__)
@@ -73,8 +72,15 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             connection = await session.get(EtsyConnection, job.connection_id)
             asset = await session.get(Asset, content.asset_id) if content else None
             tenant = await session.get(Tenant, job.tenant_id)
+            profile = (
+                await session.get(ListingProfile, content.listing_profile_id)
+                if content and content.listing_profile_id
+                else None
+            )
             if not (content and connection and asset and tenant):
                 raise ValueError("publish job is missing content/connection/asset/tenant")
+            if profile is None or not profile.cached_payload:
+                raise ValueError("publish job has no reference profile payload")
 
             access_token = await connection_service.get_valid_access_token(session, connection)
 
@@ -111,14 +117,6 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                         )
                     )
 
-            # Optional size-chart image.
-            size_chart = None
-            if settings.size_chart_image and Path(settings.size_chart_image).is_file():
-                size_chart = PublishImage(
-                    data=Path(settings.size_chart_image).read_bytes(),
-                    filename="size-chart.jpg",
-                )
-
             vision = (content.attributes or {}).get("vision", {})
             async with httpx.AsyncClient(timeout=30.0) as http:
                 client = EtsyApiClient(
@@ -138,11 +136,11 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     sku=asset.parsed_sku,
                     thumbnail=thumbnail,
                     extra_images=extras,
-                    size_chart=size_chart,
+                    fixed_image_ids=profile.fixed_image_ids or [],
                     client=client,
                     access_token=access_token,
                     config=publish_config(settings),
-                    size_config=load_size_config(),
+                    reference=profile.cached_payload,
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),
                     auto_create_sections=settings.auto_create_sections,

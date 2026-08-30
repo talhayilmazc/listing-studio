@@ -1,5 +1,0 @@
-{
-  "property": "Size",
-  "values": ["S", "M", "L", "XL", "2XL", "3XL"],
-  "price_offsets": {"2XL": 2.0, "3XL": 3.0}
-}

@@ -23,6 +23,7 @@ from app.etsy.client import UnavailableEtsyClient
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
 from app.workers.processor import JobProcessor, ProcessResult
+from app.workers.profiles import refresh_profile, sync_shop_listings
 from app.workers.publish import run_publish_job
 
 
@@ -63,7 +64,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """arq worker configuration."""
 
-    functions = [process_job, run_publish_job]
+    functions = [process_job, run_publish_job, refresh_profile, sync_shop_listings]
     cron_jobs = [cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False)]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -65,6 +65,9 @@ class JobType(str, enum.Enum):
     upload_image = "upload_image"
     sync_listings = "sync_listings"
     update_inventory = "update_inventory"
+    refresh_profile = "refresh_profile"
+    sync_shop_listings = "sync_shop_listings"
+    publish_live = "publish_live"
 
 
 class JobStatus(str, enum.Enum):
@@ -304,12 +307,79 @@ class GeneratedContent(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: The reference-listing profile that drives category/price/variations/
+    #: description for this content (required by the generate path). SET NULL on
+    #: profile delete so content survives.
+    listing_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
+    )
     #: Set once this approved content has been published as an Etsy DRAFT listing.
     etsy_listing_id: Mapped[int | None] = mapped_column(BigInteger)
     #: Etsy listing state after publishing: "draft" on create, "active" once the
     #: seller explicitly publishes it. Null == never published (treated as draft).
     etsy_listing_state: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ListingProfile(Base):
+    """A product-type profile copied from one of the seller's own listings.
+
+    The seller picks a reference listing; :attr:`cached_payload` holds the fields
+    the app reuses verbatim (category, attributes, price, shipping, variation
+    structure, description body, image ids). That payload is Member Content, so it
+    is refreshed when older than :attr:`CACHE_MAX_AGE_SECONDS` (24h, CLAUDE.md) and
+    deleted when the seller disconnects. Only the authenticated seller's own shop
+    is ever read (CLAUDE.md constraint #2).
+    """
+
+    __tablename__ = "listing_profile"
+    __table_args__ = (Index("ix_listing_profile_tenant", "tenant_id"),)
+
+    #: Reference-content cache staleness window (Member Content, ToU §1).
+    CACHE_MAX_AGE_SECONDS: ClassVar[int] = 24 * 3600
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    reference_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: Fields copied from the reference listing; null until first refresh.
+    cached_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: Reference listing_image_ids always appended to new drafts (B3, e.g. size charts).
+    fixed_image_ids: Mapped[list[int] | None] = mapped_column(JSONB_TYPE)
+    #: How many leading description lines the generated title replaces (B2).
+    title_replace_lines: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    #: Which content prompt to use: "apparel" | "digital_products" (C1).
+    content_template: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="digital_products"
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ShopListingCache(Base):
+    """Cache of the seller's own existing listings for the dashboard (B4).
+
+    Member Content: listing content, so rows are refetched when older than
+    :attr:`STALE_SECONDS` (6h, CLAUDE.md) and deleted on disconnect.
+    """
+
+    __tablename__ = "shop_listing_cache"
+
+    #: Listing-content staleness window (CLAUDE.md: 6h for listing content).
+    STALE_SECONDS: ClassVar[int] = 6 * 3600
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True
+    )
+    listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 

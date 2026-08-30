@@ -107,6 +107,10 @@ class AssetFailure(BaseModel):
     error: str
 
 
+class GenerateRequest(BaseModel):
+    profile_id: uuid.UUID  # required: the reference-listing profile to generate against
+
+
 class GenerateResult(BaseModel):
     generated: int
     failed: int
@@ -137,6 +141,54 @@ class JobStatusOut(BaseModel):
     listing_id: int | None = None
     listing_url: str | None = None  # edit URL for a draft, public URL once active
     is_draft: bool = True
+
+
+class ProfileCreate(BaseModel):
+    name: str
+    reference_listing_id: int
+    content_template: str = "digital_products"
+    title_replace_lines: int = 1
+    fixed_image_ids: list[int] = Field(default_factory=list)
+
+
+class ProfileUpdate(BaseModel):
+    name: str | None = None
+    content_template: str | None = None
+    title_replace_lines: int | None = None
+    fixed_image_ids: list[int] | None = None
+
+
+class ReferenceImageOut(BaseModel):
+    listing_image_id: int | None = None
+    rank: int | None = None
+    url: str | None = None
+
+
+class ProfileOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    reference_listing_id: int
+    content_template: str
+    title_replace_lines: int
+    fixed_image_ids: list[int] = Field(default_factory=list)
+    updated_at: datetime | None = None
+    is_fresh: bool = False  # cached reference payload present and <24h old
+    reference_images: list[ReferenceImageOut] = Field(default_factory=list)
+
+
+class ShopListingOut(BaseModel):
+    listing_id: int
+    title: str | None = None
+    state: str | None = None
+    sku: str | None = None
+    shop_section_id: int | None = None
+    url: str | None = None
+    thumbnail_url: str | None = None
+
+
+class ShopListingsOut(BaseModel):
+    listings: list[ShopListingOut] = Field(default_factory=list)
+    stale: bool = False  # a background refresh was triggered
 
 
 class ConnectionOut(BaseModel):

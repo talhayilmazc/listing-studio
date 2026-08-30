@@ -34,8 +34,8 @@ from app.db.models import (
     ListingSnapshot,
 )
 from app.etsy.api import EtsyApiClient
+from app.pipeline.reference import build_inventory_from_reference
 from app.pipeline.sections import choose_section
-from app.pipeline.sizes import SizeConfig, build_inventory, taxonomy_supports_property
 
 
 class PublishBlocked(Exception):
@@ -98,18 +98,11 @@ def _first_shop(resp: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("no shop found for this Etsy account")
 
 
-def _order_images(
-    thumbnail: PublishImage,
-    extras: list[PublishImage],
-    size_chart: PublishImage | None,
-) -> list[PublishImage]:
-    """Thumbnail first; size chart second-to-last; assign 1-based ranks."""
-    ordered = [thumbnail, *extras]
-    if size_chart is not None:
-        ordered.insert(max(len(ordered) - 1, 1), size_chart)
-    for i, image in enumerate(ordered, start=1):
+def _rank(images: list[PublishImage]) -> list[PublishImage]:
+    """Assign 1-based ranks in list order (thumbnail first)."""
+    for i, image in enumerate(images, start=1):
         image.rank = i
-    return ordered
+    return images
 
 
 async def _has_blocking_finding(session: AsyncSession, content_id: uuid.UUID) -> bool:
@@ -133,15 +126,16 @@ async def publish_content(
     client: EtsyApiClient,
     access_token: str,
     config: PublishConfig,
+    reference: dict[str, Any],
     extra_images: list[PublishImage] | None = None,
-    size_chart: PublishImage | None = None,
-    size_config: SizeConfig | None = None,
+    fixed_image_ids: list[int] | None = None,
     theme: str = "",
     occasion: str = "",
     auto_create_sections: bool = False,
     tenant_limit: int,
 ) -> PublishResult:
     extras = list(extra_images) if extra_images else []
+    fixed = list(fixed_image_ids or [])
     tenant_id = connection.tenant_id
     ctx = {"access_token": access_token, "tenant_id": tenant_id, "tenant_limit": tenant_limit}
 
@@ -177,31 +171,34 @@ async def publish_content(
         created = await client.create_shop_section(shop_id, title=decision.name, **ctx)
         section_id = int(created["shop_section_id"])
 
-    # 4) Validate size support against the taxonomy.
-    taxonomy_id = content.taxonomy_id or config.default_taxonomy_id
-    supports_sizes = False
-    if size_config is not None and size_config.values:
-        props = await client.get_properties_by_taxonomy_id(taxonomy_id, **ctx)
-        supports_sizes = taxonomy_supports_property(props, size_config.property)
-
-    # 5) Create the DRAFT listing (state is never set -> stays a draft).
+    # 4) Create the DRAFT listing. Category, price, fulfilment and variation
+    # structure are copied VERBATIM from the seller's reference listing (A3 / B) --
+    # never re-selected. Only title, description and tags are the generated content.
+    taxonomy_id = reference.get("taxonomy_id") or content.taxonomy_id or config.default_taxonomy_id
+    price = reference.get("price")
     listing: dict[str, Any] = {
         "quantity": config.quantity,
         "title": content.title or "",
         "description": content.description or "",
-        "price": config.price,
-        "who_made": config.who_made,
-        "when_made": config.when_made,
+        "price": price if price is not None else config.price,
+        "who_made": reference.get("who_made") or config.who_made,
+        "when_made": reference.get("when_made") or config.when_made,
         "taxonomy_id": taxonomy_id,
-        "type": config.listing_type,
+        "type": reference.get("listing_type") or config.listing_type,
         "tags": list(content.tags or []),
     }
+    for key in ("shipping_profile_id", "production_partner_ids", "processing_min", "processing_max"):
+        value = reference.get(key)
+        if value:
+            listing[key] = value
+    if reference.get("is_supply") is not None:
+        listing["is_supply"] = reference["is_supply"]
     if section_id is not None:
         listing["shop_section_id"] = section_id
     created = await client.create_draft_listing(shop_id, listing=listing, **ctx)
     listing_id = int(created["listing_id"])
 
-    # 6) Snapshot the created baseline before any further write.
+    # 5) Snapshot the created baseline before any further write.
     session.add(
         ListingSnapshot(
             tenant_id=tenant_id,
@@ -212,17 +209,16 @@ async def publish_content(
     )
     await session.commit()
 
-    # 7) Inventory: sizes (if supported) + SKU.
-    inventory = build_inventory(
-        sku=sku,
-        base_price=config.price,
-        quantity=config.quantity,
-        size_config=size_config if supports_sizes else None,
+    # 6) Inventory: the reference variation structure with OUR sku on every product.
+    inventory = build_inventory_from_reference(
+        reference.get("inventory_products") or [], sku=sku, quantity=config.quantity
     )
     await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
+    has_variations = len(inventory["products"]) > 1
 
-    # 8) Upload images in rank order.
-    ordered = _order_images(thumbnail, extras, size_chart)
+    # 7) Upload new images (thumbnail rank 1, then siblings), then re-use the
+    # reference's fixed images (B3, e.g. size charts) by id, in order.
+    ordered = _rank([thumbnail, *extras])
     for image in ordered:
         await client.upload_listing_image(
             shop_id,
@@ -233,8 +229,14 @@ async def publish_content(
             mime_type=image.mime_type,
             **ctx,
         )
+    next_rank = len(ordered)
+    for image_id in fixed:
+        next_rank += 1
+        await client.upload_listing_image(
+            shop_id, listing_id, listing_image_id=image_id, rank=next_rank, **ctx
+        )
 
-    # 9) Record the listing id. It is created as a DRAFT (state never set), so mark
+    # 8) Record the listing id. It is created as a DRAFT (state never set), so mark
     # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
     content.etsy_listing_id = listing_id
     content.etsy_listing_state = "draft"
@@ -242,8 +244,8 @@ async def publish_content(
 
     return PublishResult(
         listing_id=listing_id,
-        listing_url=listing_url(listing_id),
+        listing_url=listing_edit_url(listing_id),  # draft -> Shop Manager (A4)
         section_id=section_id,
-        sizes_applied=supports_sizes,
-        image_count=len(ordered),
+        sizes_applied=has_variations,
+        image_count=next_rank,
     )

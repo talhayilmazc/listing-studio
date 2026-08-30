@@ -204,19 +204,58 @@ class EtsyApiClient:
         access_token: str,
         state: str = "draft",
         limit: int = 25,
+        includes: list[str] | None = None,
         tenant_id: Any = None,
         tenant_limit: int | None = None,
     ) -> dict[str, Any]:
+        params: dict[str, Any] = {"state": state, "limit": limit}
+        if includes:
+            params["includes"] = ",".join(includes)
         return await self._request(
             "GET",
             f"/application/shops/{shop_id}/listings",
             access_token=access_token,
-            params={"state": state, "limit": limit},
+            params=params,
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
         )
 
     async def get_listing(
+        self,
+        listing_id: int,
+        *,
+        includes: list[str] | None = None,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            f"/application/listings/{listing_id}",
+            access_token=access_token,
+            params={"includes": ",".join(includes)} if includes else None,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
+    async def get_listing_inventory(
+        self,
+        listing_id: int,
+        *,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Read a listing's inventory (variation structure) — seller's own listing."""
+        return await self._request(
+            "GET",
+            f"/application/listings/{listing_id}/inventory",
+            access_token=access_token,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
+    async def get_listing_images(
         self,
         listing_id: int,
         *,
@@ -226,7 +265,7 @@ class EtsyApiClient:
     ) -> dict[str, Any]:
         return await self._request(
             "GET",
-            f"/application/listings/{listing_id}",
+            f"/application/listings/{listing_id}/images",
             access_token=access_token,
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
@@ -257,14 +296,32 @@ class EtsyApiClient:
         shop_id: int,
         listing_id: int,
         *,
-        image_bytes: bytes,
-        filename: str,
         rank: int,
         access_token: str,
+        image_bytes: bytes | None = None,
+        filename: str = "image.jpg",
         mime_type: str = "image/jpeg",
+        listing_image_id: int | None = None,
         tenant_id: Any = None,
         tenant_limit: int | None = None,
     ) -> dict[str, Any]:
+        """Upload image bytes, or copy an existing image by ``listing_image_id``.
+
+        Copying (B3, e.g. a size chart from the reference listing) is done through
+        Etsy's own ``listing_image_id`` parameter — the seller's image is never
+        downloaded from the site.
+        """
+        if listing_image_id is not None:
+            return await self._request(
+                "POST",
+                f"/application/shops/{shop_id}/listings/{listing_id}/images",
+                access_token=access_token,
+                data={"rank": rank, "listing_image_id": listing_image_id},
+                tenant_id=tenant_id,
+                tenant_limit=tenant_limit,
+            )
+        if image_bytes is None:
+            raise ValueError("upload_listing_image needs image_bytes or listing_image_id")
         return await self._request(
             "POST",
             f"/application/shops/{shop_id}/listings/{listing_id}/images",

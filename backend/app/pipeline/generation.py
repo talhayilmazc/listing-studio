@@ -18,10 +18,10 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Asset, GeneratedContent
+from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.pipeline.content import ContentGenerator, ContentValidationError
-from app.pipeline.description import render_description
 from app.pipeline.llm import Usage
+from app.pipeline.reference import replace_leading_lines
 from app.pipeline.vision import VisionAnalysis, VisionAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -57,14 +57,14 @@ async def generate_listing_content(
     sku: str | None,
     analyzer: VisionAnalyzer,
     generator: ContentGenerator,
-    description_template: str | None = None,
-    description_variables: bool = False,
+    profile: ListingProfile,
 ) -> GenerationOutcome:
     """Analyze the processed derivative, generate the listing, and persist it.
 
-    When ``description_template`` is given, the description is built from that
-    fixed template (title + optional theme/occasion/audience) instead of the LLM
-    text; the vision hints are also stored on ``attributes`` for section matching.
+    A reference-listing ``profile`` is required (Section B): its ``cached_payload``
+    supplies the description body (only the leading line(s) are replaced by the new
+    title) and the taxonomy; the LLM only writes the title and 13 tags. The vision
+    hints are stored on ``attributes`` for section matching.
     """
     usages: list[Usage] = []
     analysis: VisionAnalysis | None = None
@@ -95,16 +95,13 @@ async def generate_listing_content(
     input_tokens = sum(u.input_tokens for u in result.usages)
     output_tokens = sum(u.output_tokens for u in result.usages)
 
-    description = listing.description
-    if description_template is not None and analysis is not None:
-        variables = None
-        if description_variables:
-            variables = {
-                "theme": analysis.theme,
-                "occasion": analysis.occasion,
-                "audience": analysis.target_audience,
-            }
-        description = render_description(description_template, title=listing.title, variables=variables)
+    # Description comes from the reference listing; only the leading line(s) that
+    # carry the old title are replaced by the newly generated one (B2).
+    payload = profile.cached_payload or {}
+    description = replace_leading_lines(
+        str(payload.get("description", "")), listing.title, profile.title_replace_lines
+    )
+    taxonomy_id = payload.get("taxonomy_id")
 
     attributes = None
     if analysis is not None:
@@ -123,7 +120,8 @@ async def generate_listing_content(
         title=listing.title,
         tags=listing.tags,
         description=description,
-        taxonomy_id=None,  # set by the Etsy taxonomy step (step 4)
+        taxonomy_id=taxonomy_id,  # from the reference listing (never re-selected)
+        listing_profile_id=profile.id,
         attributes=attributes,
         model_used=result.usages[-1].model,
         input_tokens=input_tokens,

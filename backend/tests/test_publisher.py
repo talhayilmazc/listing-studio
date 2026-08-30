@@ -26,9 +26,9 @@ from app.etsy.publisher import (
     PublishBlocked,
     PublishConfig,
     PublishImage,
+    listing_edit_url,
     publish_content,
 )
-from app.pipeline.sizes import SizeConfig
 from tests.support import VALID_TITLE
 
 CONFIG = PublishConfig(
@@ -41,6 +41,35 @@ CONFIG = PublishConfig(
     when_made="made_to_order",
     listing_type="download",
 )
+
+# Reference-listing payload the publisher copies from (A3 / B): two size variations,
+# the seller's own taxonomy, price and fulfilment.
+REFERENCE = {
+    "taxonomy_id": 2078,
+    "price": 25.99,
+    "who_made": "i_did",
+    "when_made": "made_to_order",
+    "is_supply": False,
+    "shipping_profile_id": 55,
+    "production_partner_ids": [7],
+    "listing_type": "physical",
+    "inventory_products": [
+        {
+            "sku": "OLD-S",
+            "offerings": [{"price": {"amount": 2599, "divisor": 100}, "quantity": 10}],
+            "property_values": [
+                {"property_id": 200, "property_name": "Size", "value_ids": [1], "values": ["S"]}
+            ],
+        },
+        {
+            "sku": "OLD-M",
+            "offerings": [{"price": {"amount": 2599, "divisor": 100}, "quantity": 10}],
+            "property_values": [
+                {"property_id": 200, "property_name": "Size", "value_ids": [2], "values": ["M"]}
+            ],
+        },
+    ],
+}
 
 
 class FakeEtsy:
@@ -80,8 +109,19 @@ class FakeEtsy:
         self.inventory = inventory
         return {}
 
-    async def upload_listing_image(self, shop_id, listing_id, *, image_bytes, filename, rank, **_):
-        self.uploaded.append((rank, filename))
+    async def upload_listing_image(
+        self,
+        shop_id,
+        listing_id,
+        *,
+        rank,
+        image_bytes=None,
+        filename=None,
+        listing_image_id=None,
+        **_,
+    ):
+        # Record bytes uploads by filename; copied reference images by their id.
+        self.uploaded.append((rank, filename if listing_image_id is None else listing_image_id))
         return {}
 
 
@@ -139,14 +179,9 @@ async def _seed(sm: async_sessionmaker, *, blocking: bool = False, taxonomy_id=N
         return tenant.id, conn.id, content.id, job.id
 
 
-async def test_publish_creates_draft_and_snapshot(async_sm: async_sessionmaker) -> None:
-    _, conn_id, content_id, job_id = await _seed(
-        async_sm, taxonomy_id=None
-    )
-    fake = FakeEtsy(
-        sections={"results": [{"shop_section_id": 10, "title": "4th of July"}]},
-        properties={"results": [{"name": "Size"}]},
-    )
+async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmaker) -> None:
+    _, conn_id, content_id, job_id = await _seed(async_sm, taxonomy_id=None)
+    fake = FakeEtsy(sections={"results": [{"shop_section_id": 10, "title": "4th of July"}]})
     async with async_sm() as s:
         content = await s.get(GeneratedContent, content_id)
         conn = await s.get(EtsyConnection, conn_id)
@@ -158,25 +193,32 @@ async def test_publish_creates_draft_and_snapshot(async_sm: async_sessionmaker) 
             sku="BR5475",
             thumbnail=PublishImage(b"thumb", "t.jpg"),
             extra_images=[PublishImage(b"extra", "e.jpg")],
-            size_chart=PublishImage(b"chart", "c.jpg"),
+            fixed_image_ids=[901],  # a reference image copied by id (B3)
             client=fake,
             access_token="tok",
             config=CONFIG,
-            size_config=SizeConfig("Size", ["S", "M"], {}),
+            reference=REFERENCE,
             theme="patriotic eagle",
             auto_create_sections=False,
             tenant_limit=2000,
         )
 
     assert result.listing_id == 555
-    assert result.listing_url == "https://www.etsy.com/listing/555"
+    # A draft links to Shop Manager, not the public URL (A4).
+    assert result.listing_url == listing_edit_url(555)
     # DRAFT ONLY: state is never set.
     assert "state" not in fake.last_listing
+    # Category/price/fulfilment copied VERBATIM from the reference (A3), not CONFIG.
+    assert fake.last_listing["taxonomy_id"] == 2078
+    assert fake.last_listing["price"] == 25.99
+    assert fake.last_listing["type"] == "physical"
+    assert fake.last_listing["shipping_profile_id"] == 55
+    assert fake.last_listing["production_partner_ids"] == [7]
     # Section resolved from the theme rule to the existing section.
     assert fake.last_listing["shop_section_id"] == 10
-    # Images uploaded in rank order: thumbnail rank 1, size chart second-to-last.
-    assert fake.uploaded == [(1, "t.jpg"), (2, "c.jpg"), (3, "e.jpg")]
-    # Sizes applied (taxonomy supports Size) -> one product per size.
+    # Generated images first (thumbnail rank 1), then the fixed reference image by id.
+    assert fake.uploaded == [(1, "t.jpg"), (2, "e.jpg"), (3, 901)]
+    # Reference variation structure preserved -> one product per size.
     assert result.sizes_applied is True
     assert len(fake.inventory["products"]) == 2
 
@@ -197,7 +239,7 @@ async def test_publish_writes_sku_to_every_product_and_marks_draft(
     """A2: the SKU must land in ``products[].sku`` for every variation. A4: the
     listing is recorded as a DRAFT so the UI links it to Shop Manager."""
     _, conn_id, content_id, job_id = await _seed(async_sm)
-    fake = FakeEtsy(properties={"results": [{"name": "Size"}]})
+    fake = FakeEtsy()
     async with async_sm() as s:
         content = await s.get(GeneratedContent, content_id)
         conn = await s.get(EtsyConnection, conn_id)
@@ -211,14 +253,14 @@ async def test_publish_writes_sku_to_every_product_and_marks_draft(
             client=fake,
             access_token="tok",
             config=CONFIG,
-            size_config=SizeConfig("Size", ["S", "M"], {}),
+            reference=REFERENCE,
             theme="abstract",
             tenant_limit=2000,
         )
 
     products = fake.inventory["products"]
     assert products, "inventory must contain products"
-    assert all("BR5475" in p["sku"] for p in products)
+    assert all(p["sku"] == "BR5475" for p in products)  # our SKU on every variation
 
     async with async_sm() as s:
         row = await s.get(GeneratedContent, content_id)
@@ -234,9 +276,12 @@ def test_link_for_picks_edit_url_for_draft_and_public_for_active() -> None:
     assert "your/shops/me/listing-editor/edit/555" in listing_edit_url(555)
 
 
-async def test_publish_without_size_support_single_product(async_sm: async_sessionmaker) -> None:
+async def test_publish_reference_without_variations_single_product(
+    async_sm: async_sessionmaker,
+) -> None:
     _, conn_id, content_id, job_id = await _seed(async_sm)
-    fake = FakeEtsy(properties={"results": []})  # taxonomy has no Size property
+    fake = FakeEtsy()
+    reference = {**REFERENCE, "inventory_products": []}  # reference has no variations
     async with async_sm() as s:
         content = await s.get(GeneratedContent, content_id)
         conn = await s.get(EtsyConnection, conn_id)
@@ -250,12 +295,13 @@ async def test_publish_without_size_support_single_product(async_sm: async_sessi
             client=fake,
             access_token="tok",
             config=CONFIG,
-            size_config=SizeConfig("Size", ["S", "M"], {}),
+            reference=reference,
             theme="abstract",
             tenant_limit=2000,
         )
     assert result.sizes_applied is False
     assert len(fake.inventory["products"]) == 1
+    assert fake.inventory["products"][0]["sku"] == "BR5475"
     assert fake.uploaded == [(1, "t.jpg")]
 
 
@@ -276,6 +322,7 @@ async def test_publish_blocked_by_compliance(async_sm: async_sessionmaker) -> No
                 client=fake,
                 access_token="tok",
                 config=CONFIG,
+                reference=REFERENCE,
                 tenant_limit=2000,
             )
     assert fake.calls == []  # nothing was sent to Etsy

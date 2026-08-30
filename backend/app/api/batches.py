@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
@@ -12,17 +13,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import current_tenant, get_cost_calculator, get_ingestor, get_session, get_storage
 from app.core.config import get_settings
-from app.db.models import Asset, AssetStatus, GeneratedContent, Tenant, UploadBatch
+from app.db.models import (
+    Asset,
+    AssetStatus,
+    GeneratedContent,
+    ListingProfile,
+    Tenant,
+    UploadBatch,
+)
 from app.pipeline.content import AnthropicContentGenerator
-from app.pipeline.description import load_description_template
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.storage import Storage
+from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
 
 router = APIRouter(prefix="/api", tags=["batches"])
+
+
+def _profile_is_fresh(profile: ListingProfile) -> bool:
+    """A profile is usable once its reference payload is cached and <24h old."""
+    if not profile.cached_payload or profile.updated_at is None:
+        return False
+    updated = profile.updated_at
+    if updated.tzinfo is None:  # SQLite returns naive; treat as UTC.
+        updated = updated.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - updated).total_seconds()
+    return age < ListingProfile.CACHE_MAX_AGE_SECONDS
 
 
 async def _content_asset_ids(session: AsyncSession, batch_id: uuid.UUID) -> set[uuid.UUID]:
@@ -182,6 +201,7 @@ async def get_asset_image(
 @router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)
 async def generate_content(
     batch_id: uuid.UUID,
+    body: schemas.GenerateRequest,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(current_tenant),
     storage: Storage = Depends(get_storage),
@@ -194,15 +214,21 @@ async def generate_content(
         )
     await _get_batch(session, tenant, batch_id)
 
+    # A reference-listing profile is required and must have a fresh cached payload.
+    profile = await session.get(ListingProfile, body.profile_id)
+    if profile is None or profile.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="profile not found")
+    if not _profile_is_fresh(profile):
+        raise HTTPException(
+            status_code=409,
+            detail="profile has no fresh reference data; refresh the profile first",
+        )
+
     client = AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
     analyzer = AnthropicVisionAnalyzer(client)
-    generator = AnthropicContentGenerator(client)
-
-    # Description is templated (not free-generated); load the configured template.
-    try:
-        description_template = load_description_template(settings.description_template)
-    except FileNotFoundError:
-        description_template = None
+    generator = AnthropicContentGenerator(
+        client, template=load_template(f"content/{profile.content_template}")
+    )
 
     already = await _content_asset_ids(session, batch_id)
     rows = await session.execute(
@@ -228,8 +254,7 @@ async def generate_content(
             sku=asset.parsed_sku,
             analyzer=analyzer,
             generator=generator,
-            description_template=description_template,
-            description_variables=settings.description_variables,
+            profile=profile,
         )
         if outcome.status == "generated":
             generated += 1
