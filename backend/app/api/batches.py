@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Response, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -100,6 +100,7 @@ async def create_batch(
 async def add_asset(
     batch_id: uuid.UUID,
     file: UploadFile,
+    group_key: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(current_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
@@ -107,12 +108,17 @@ async def add_asset(
     await _get_batch(session, tenant, batch_id)
     data = await file.read()
     asset = await ingestor.add_file(
-        session, batch_id, tenant.id, IngestFile(filename=file.filename or "upload", data=data)
+        session,
+        batch_id,
+        tenant.id,
+        IngestFile(filename=file.filename or "upload", data=data),
+        group_key=group_key or None,
     )
     return schemas.AssetOut(
         id=asset.id,
         original_filename=asset.original_filename,
         parsed_sku=asset.parsed_sku,
+        group_key=asset.group_key,
         rank=asset.rank,
         status=asset.status.value,
         mime_type=asset.mime_type,
@@ -166,6 +172,7 @@ async def get_batch(
             id=a.id,
             original_filename=a.original_filename,
             parsed_sku=a.parsed_sku,
+            group_key=a.group_key,
             rank=a.rank,
             status=a.status.value,
             mime_type=a.mime_type,
@@ -232,28 +239,43 @@ async def generate_content(
         policy=policy_for(profile.content_template),
     )
 
+    # One folder group = one listing (D1). Generate once per group, from its
+    # primary (rank-1, alphabetically-first) image; the whole group's images are
+    # attached at publish time. A group whose primary already has content is skipped.
     already = await _content_asset_ids(session, batch_id)
     rows = await session.execute(
         select(Asset).where(
             Asset.batch_id == batch_id, Asset.status == AssetStatus.processed
         )
     )
-    assets = [a for a in rows.scalars() if a.id not in already]
+    groups: dict[str, list[Asset]] = {}
+    for asset in rows.scalars():
+        if asset.processed_key is not None:
+            groups.setdefault(asset.group_key or "", []).append(asset)
+    if body.group_key is not None:  # per-group action (D3)
+        groups = {body.group_key: groups.get(body.group_key, [])}
 
-    generated = failed = 0
+    generated = failed = skipped = 0
     failures: list[schemas.AssetFailure] = []
-    for asset in assets:
-        if asset.processed_key is None:
+    for members in groups.values():
+        if not members:
             continue
-        data = storage.get(asset.processed_key)
+        primary = min(
+            members,
+            key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()),
+        )
+        if primary.id in already:
+            skipped += 1
+            continue
+        data = storage.get(primary.processed_key)
         outcome = await generate_listing_content(
             session,
             tenant_id=tenant.id,
             batch_id=batch_id,
-            asset_id=asset.id,
+            asset_id=primary.id,
             image_data=data,
-            media_type=asset.mime_type or "image/jpeg",
-            sku=asset.parsed_sku,
+            media_type=primary.mime_type or "image/jpeg",
+            sku=primary.parsed_sku,
             analyzer=analyzer,
             generator=generator,
             profile=profile,
@@ -264,14 +286,14 @@ async def generate_content(
             failed += 1
             failures.append(
                 schemas.AssetFailure(
-                    asset_id=asset.id,
-                    original_filename=asset.original_filename,
+                    asset_id=primary.id,
+                    original_filename=primary.original_filename,
                     error=outcome.error or "unknown error",
                 )
             )
 
     return schemas.GenerateResult(
-        generated=generated, failed=failed, skipped=len(already), failures=failures
+        generated=generated, failed=failed, skipped=skipped, failures=failures
     )
 
 

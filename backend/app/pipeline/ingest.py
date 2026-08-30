@@ -113,13 +113,19 @@ class BatchIngestor:
         batch_id: uuid.UUID,
         tenant_id: uuid.UUID,
         upload: UploadFile,
+        group_key: str | None = None,
     ) -> Asset:
-        """Process and persist one uploaded file; rank follows arrival order."""
+        """Process and persist one uploaded file.
+
+        ``rank`` follows arrival order for now; ``finalize_batch`` re-ranks each
+        folder group alphabetically (D1). ``group_key`` (the folder) groups a
+        listing's images and drives the SKU (D2).
+        """
         count = await session.scalar(
             select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id)
         )
         rank = int(count or 0) + 1
-        asset = await self._ingest_one(tenant_id, batch_id, rank, upload)
+        asset = await self._ingest_one(tenant_id, batch_id, rank, upload, group_key)
         session.add(asset)
         batch = await session.get(UploadBatch, batch_id)
         if batch is not None:
@@ -131,27 +137,43 @@ class BatchIngestor:
         return asset
 
     async def finalize_batch(self, session: AsyncSession, batch_id: uuid.UUID) -> UploadBatch:
-        """Mark the batch ready if any asset processed, else failed."""
+        """Mark the batch ready if any asset processed, else failed.
+
+        Also re-ranks each folder group alphabetically by filename (D1), so a
+        listing's images always appear in a stable, predictable order.
+        """
         batch = await session.get(UploadBatch, batch_id)
         if batch is None:
             raise KeyError(batch_id)
-        processed = await session.scalar(
-            select(func.count())
-            .select_from(Asset)
-            .where(Asset.batch_id == batch_id, Asset.status == AssetStatus.processed)
-        )
-        batch.status = (
-            UploadBatchStatus.ready if int(processed or 0) > 0 else UploadBatchStatus.failed
-        )
+
+        rows = await session.execute(select(Asset).where(Asset.batch_id == batch_id))
+        assets = list(rows.scalars())
+        groups: dict[str, list[Asset]] = {}
+        for asset in assets:
+            groups.setdefault(asset.group_key or "", []).append(asset)
+        for members in groups.values():
+            for rank, asset in enumerate(
+                sorted(members, key=lambda a: a.original_filename.lower()), start=1
+            ):
+                asset.rank = rank
+
+        processed = sum(1 for a in assets if a.status is AssetStatus.processed)
+        batch.status = UploadBatchStatus.ready if processed > 0 else UploadBatchStatus.failed
         await session.commit()
         await session.refresh(batch)
         return batch
 
     async def _ingest_one(
-        self, tenant_id: uuid.UUID, batch_id: uuid.UUID, rank: int, upload: UploadFile
+        self,
+        tenant_id: uuid.UUID,
+        batch_id: uuid.UUID,
+        rank: int,
+        upload: UploadFile,
+        group_key: str | None = None,
     ) -> Asset:
         asset_id = uuid.uuid4()
-        sku = self._sku.parse(upload.filename)
+        # Folder-name SKU takes precedence over the filename rule (D2).
+        sku = self._sku.parse_group(group_key) or self._sku.parse(upload.filename)
         ext = os.path.splitext(upload.filename)[1].lower() or ".bin"
         original_key = f"{tenant_id}/{batch_id}/original/{asset_id}{ext}"
         self._storage.put(original_key, upload.data, _original_mime(upload.filename))
@@ -168,6 +190,7 @@ class BatchIngestor:
                 tenant_id=tenant_id,
                 original_filename=upload.filename,
                 parsed_sku=sku,
+                group_key=group_key,
                 storage_key=original_key,
                 mime_type=_original_mime(upload.filename),
                 rank=rank,
@@ -182,6 +205,7 @@ class BatchIngestor:
             tenant_id=tenant_id,
             original_filename=upload.filename,
             parsed_sku=sku,
+            group_key=group_key,
             storage_key=original_key,
             processed_key=processed_key,
             mime_type=processed.mime_type,

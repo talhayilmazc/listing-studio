@@ -93,14 +93,15 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             )
             thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg")
 
-            # Same-SKU siblings -> extra images (original ratio), in rank order.
+            # Same-folder-group siblings -> extra images (original ratio), rank order.
+            # One folder = one listing (D1), so the group defines the listing's images.
             extras: list[PublishImage] = []
-            if asset.parsed_sku:
+            if asset.group_key is not None:
                 rows = await session.execute(
                     select(Asset)
                     .where(
                         Asset.batch_id == asset.batch_id,
-                        Asset.parsed_sku == asset.parsed_sku,
+                        Asset.group_key == asset.group_key,
                         Asset.status == AssetStatus.processed,
                         Asset.id != asset.id,
                     )

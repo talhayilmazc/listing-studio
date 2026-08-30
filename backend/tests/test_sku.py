@@ -52,3 +52,28 @@ def test_default_ruleset_is_exposed() -> None:
 )
 def test_sku_suffix_rule(filename: str, expected: str) -> None:
     assert SkuParser().parse(filename) == expected
+
+
+# --- SKU from folder name (spec §D2) ---------------------------------------
+@pytest.mark.parametrize(
+    ("folder", "expected"),
+    [
+        ("BR5475", "BR5475"),  # folder name is the SKU directly
+        ("BR5475/", "BR5475"),  # trailing slash tolerated
+        ("designs/BR5475", "BR5475"),  # nested: use the last segment
+        ("Summer BR5475 Tee", "BR5475"),  # extra text -> extract the token
+        ("plainfolder", "PLAINFOLDER"),  # clean token used as-is (normalized)
+        ("has space text", None),  # not a token and no SKU pattern -> none
+        ("", None),
+        (None, None),
+    ],
+)
+def test_parse_group(folder, expected) -> None:
+    assert SkuParser().parse_group(folder) == expected
+
+
+def test_folder_sku_takes_precedence_over_filename() -> None:
+    # parse_group wins; the filename rule is only a fallback (D2).
+    parser = SkuParser()
+    assert parser.parse_group("BR5475") == "BR5475"
+    assert parser.parse("photo_XY9999.png") == "XY9999"  # different fallback value

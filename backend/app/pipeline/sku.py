@@ -31,6 +31,11 @@ class SkuRule:
 # Known "view"/angle words that separate a SKU from a descriptor.
 _VIEWS = "front|back|main|side|top|bottom|detail|closeup|angle|thumb|hero|left|right"
 
+# A SKU embedded in a folder name (D2): letter prefix + digits, e.g. BR5475.
+_GROUP_SKU_RE = re.compile(r"[A-Za-z]{2,4}\d{3,6}")
+# A folder name that is itself a clean single token usable as a SKU.
+_CLEAN_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-_]*$")
+
 DEFAULT_SKU_RULES: tuple[SkuRule, ...] = (
     # SKU at the END of the name: letter prefix + digits, optional trailing index.
     # "tasarim_BR5475" -> BR5475, "mockup-front-AB1234" -> AB1234,
@@ -59,6 +64,25 @@ class SkuParser:
         ]
         self._normalize = normalize
         self._strip_extension = strip_extension
+
+    def parse_group(self, folder: str | None) -> str | None:
+        """Return the SKU for a folder name (D2), or ``None``.
+
+        The folder name is the SKU directly (``BR5475/`` -> ``BR5475``); if it
+        carries extra text the ``[A-Za-z]{2,4}\\d{3,6}`` token is extracted from it.
+        Takes precedence over the filename rule when a group is present.
+        """
+        if not folder:
+            return None
+        name = folder.replace("\\", "/").rstrip("/").split("/")[-1].strip()
+        if not name:
+            return None
+        match = _GROUP_SKU_RE.search(name)
+        if match:
+            return self._apply_normalize(match.group(0))
+        if _CLEAN_TOKEN_RE.fullmatch(name):
+            return self._apply_normalize(name)
+        return None
 
     def parse(self, filename: str) -> str | None:
         """Return the SKU for ``filename`` or ``None`` if no rule matches."""

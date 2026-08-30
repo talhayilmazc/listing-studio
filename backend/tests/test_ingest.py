@@ -116,6 +116,74 @@ async def test_all_failed_marks_batch_failed(
         assert batch.status is UploadBatchStatus.failed
 
 
+# --- folder groups (spec §D1/D2) -------------------------------------------
+async def _new_batch(ingestor: BatchIngestor, sm: async_sessionmaker, tenant_id: uuid.UUID):
+    async with sm() as s:
+        batch = await ingestor.create_batch(s, tenant_id)
+        await s.commit()
+        return batch.id
+
+
+async def test_folder_groups_take_folder_sku_and_alphabetical_rank(
+    async_sm: async_sessionmaker, tmp_path, make_image: Callable[..., bytes]
+) -> None:
+    tenant_id = await _make_tenant(async_sm)
+    ingestor = _ingestor(async_sm, tmp_path)
+    batch_id = await _new_batch(ingestor, async_sm, tenant_id)
+
+    # Two folders; files uploaded out of alphabetical order.
+    uploads = [
+        ("BR5475", "b_back.png"),
+        ("BR5475", "a_front.png"),
+        ("designs/AB1234", "z.png"),
+        ("designs/AB1234", "m.png"),
+    ]
+    async with async_sm() as s:
+        for group_key, name in uploads:
+            await ingestor.add_file(
+                s, batch_id, tenant_id, UploadFile(name, make_image(80, 80)), group_key=group_key
+            )
+        await ingestor.finalize_batch(s, batch_id)
+
+    assets = await _assets(async_sm, batch_id)
+    groups: dict[str, list[Asset]] = {}
+    for a in assets:
+        groups.setdefault(a.group_key, []).append(a)
+    assert set(groups) == {"BR5475", "designs/AB1234"}
+    # SKU parsed from the folder name (last segment), not the filename.
+    assert {a.parsed_sku for a in groups["BR5475"]} == {"BR5475"}
+    assert {a.parsed_sku for a in groups["designs/AB1234"]} == {"AB1234"}
+    # Ranks are alphabetical within each group, regardless of upload order.
+    br = sorted(groups["BR5475"], key=lambda a: a.rank)
+    assert [a.original_filename for a in br] == ["a_front.png", "b_back.png"]
+    assert [a.rank for a in br] == [1, 2]
+    ab = sorted(groups["designs/AB1234"], key=lambda a: a.rank)
+    assert [a.original_filename for a in ab] == ["m.png", "z.png"]
+    assert [a.rank for a in ab] == [1, 2]
+
+
+async def test_ten_folders_make_ten_groups(
+    async_sm: async_sessionmaker, tmp_path, make_image: Callable[..., bytes]
+) -> None:
+    tenant_id = await _make_tenant(async_sm)
+    ingestor = _ingestor(async_sm, tmp_path)
+    batch_id = await _new_batch(ingestor, async_sm, tenant_id)
+    async with async_sm() as s:
+        for i in range(10):
+            await ingestor.add_file(
+                s,
+                batch_id,
+                tenant_id,
+                UploadFile(f"img_{i}.png", make_image(50, 50)),
+                group_key=f"BR{1000 + i}",
+            )
+        await ingestor.finalize_batch(s, batch_id)
+
+    assets = await _assets(async_sm, batch_id)
+    assert len({a.group_key for a in assets}) == 10  # 10 folders -> 10 groups
+    assert all(a.rank == 1 for a in assets)  # one image per group
+
+
 async def test_sort_by_filename_orders_rank(
     async_sm: async_sessionmaker, tmp_path, make_image: Callable[..., bytes]
 ) -> None:

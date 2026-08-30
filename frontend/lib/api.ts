@@ -76,10 +76,13 @@ export function uploadAsset(
   batchId: string,
   file: File,
   onProgress: (pct: number) => void,
+  groupKey?: string,
 ): Promise<Asset> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file, file.name);
+    // Folder-derived listing group (D1); empty string = root (single) group.
+    if (groupKey !== undefined) form.append("group_key", groupKey);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/batches/${batchId}/assets`);
     xhr.upload.onprogress = (e) => {

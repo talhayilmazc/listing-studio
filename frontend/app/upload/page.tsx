@@ -10,11 +10,23 @@ interface Row {
   pct: number;
   status: "pending" | "uploading" | "done" | "error";
   sku?: string | null;
+  group?: string;
   assetStatus?: string;
   error?: string;
 }
 
+interface Item {
+  file: File;
+  relpath: string;
+}
+
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
+
+/** The folder (listing group) a file belongs to; "" for root-level files (D1). */
+function groupKeyOf(relpath: string): string {
+  const i = relpath.lastIndexOf("/");
+  return i >= 0 ? relpath.slice(0, i) : "";
+}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -25,14 +37,21 @@ export default function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const runUpload = useCallback(
-    async (files: File[]) => {
-      const images = files.filter((f) => IMAGE_RE.test(f.name));
+    async (items: Item[]) => {
+      const images = items.filter((it) => IMAGE_RE.test(it.file.name));
       if (images.length === 0) {
         setRows([{ name: "No image files found in that folder.", pct: 0, status: "error" }]);
         return;
       }
       setBusy(true);
-      setRows(images.map((f) => ({ name: f.name, pct: 0, status: "pending" })));
+      setRows(
+        images.map((it) => ({
+          name: it.file.name,
+          pct: 0,
+          status: "pending",
+          group: groupKeyOf(it.relpath) || "(root)",
+        })),
+      );
 
       const batch = await api.createBatch();
       setBatchId(batch.id);
@@ -40,8 +59,11 @@ export default function UploadPage() {
       for (let i = 0; i < images.length; i++) {
         setRows((r) => update(r, i, { status: "uploading" }));
         try {
-          const asset = await uploadAsset(batch.id, images[i], (pct) =>
-            setRows((r) => update(r, i, { pct })),
+          const asset = await uploadAsset(
+            batch.id,
+            images[i].file,
+            (pct) => setRows((r) => update(r, i, { pct })),
+            groupKeyOf(images[i].relpath),
           );
           setRows((r) =>
             update(r, i, {
@@ -62,17 +84,17 @@ export default function UploadPage() {
     [],
   );
 
-  async function collectFromDrop(dt: DataTransfer): Promise<File[]> {
+  async function collectFromDrop(dt: DataTransfer): Promise<Item[]> {
     const items = Array.from(dt.items);
     const entries = items
       .map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
       .filter(Boolean) as FileSystemEntry[];
     if (entries.length > 0) {
-      const out: File[] = [];
-      await Promise.all(entries.map((e) => walkEntry(e, out)));
+      const out: Item[] = [];
+      await Promise.all(entries.map((e) => walkEntry(e, out, "")));
       return out;
     }
-    return Array.from(dt.files);
+    return Array.from(dt.files).map((f) => ({ file: f, relpath: f.name }));
   }
 
   return (
@@ -128,7 +150,13 @@ export default function UploadPage() {
           className="hidden"
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
-            if (files.length) runUpload(files);
+            if (files.length)
+              runUpload(
+                files.map((f) => ({
+                  file: f,
+                  relpath: (f as any).webkitRelativePath || f.name,
+                })),
+              );
           }}
         />
       </div>
@@ -150,11 +178,18 @@ export default function UploadPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-slate-700">{r.name}</span>
-                  {r.sku && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
-                      {r.sku}
-                    </span>
-                  )}
+                  <span className="flex shrink-0 items-center gap-1">
+                    {r.group && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+                        {r.group}
+                      </span>
+                    )}
+                    {r.sku && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
+                        {r.sku}
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                   <div
@@ -185,17 +220,17 @@ function update(rows: Row[], i: number, patch: Partial<Row>): Row[] {
   return rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
 }
 
-async function walkEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
+async function walkEntry(entry: FileSystemEntry, out: Item[], prefix: string): Promise<void> {
   if (entry.isFile) {
     const file = await new Promise<File>((resolve, reject) =>
       (entry as FileSystemFileEntry).file(resolve, reject),
     );
-    out.push(file);
+    out.push({ file, relpath: prefix + entry.name });
   } else if (entry.isDirectory) {
     const reader = (entry as FileSystemDirectoryEntry).createReader();
     const entries = await new Promise<FileSystemEntry[]>((resolve, reject) =>
       reader.readEntries(resolve, reject),
     );
-    await Promise.all(entries.map((e) => walkEntry(e, out)));
+    await Promise.all(entries.map((e) => walkEntry(e, out, prefix + entry.name + "/")));
   }
 }

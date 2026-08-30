@@ -12,6 +12,7 @@ class AssetOut(BaseModel):
     id: uuid.UUID
     original_filename: str
     parsed_sku: str | None
+    group_key: str | None = None  # folder-derived listing group (D1)
     rank: int | None
     status: str
     mime_type: str | None
@@ -109,6 +110,7 @@ class AssetFailure(BaseModel):
 
 class GenerateRequest(BaseModel):
     profile_id: uuid.UUID  # required: the reference-listing profile to generate against
+    group_key: str | None = None  # limit to one folder group; None = all groups (D3)
 
 
 class GenerateResult(BaseModel):

@@ -5,6 +5,7 @@ export interface Asset {
   id: string;
   original_filename: string;
   parsed_sku: string | null;
+  group_key: string | null;
   rank: number | null;
   status: AssetStatus;
   mime_type: string | null;

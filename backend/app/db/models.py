@@ -270,6 +270,10 @@ class Asset(Base):
     )
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     parsed_sku: Mapped[str | None] = mapped_column(Text)
+    #: Folder-derived listing group (D1): one folder = one listing. Assets sharing
+    #: a group_key are one listing's images; "" is the root (single) group; null is
+    #: an ungrouped legacy asset. SKU is parsed from the folder name (D2).
+    group_key: Mapped[str | None] = mapped_column(Text, index=True)
     storage_key: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int | None] = mapped_column(Integer)
