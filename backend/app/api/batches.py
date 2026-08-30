@@ -21,7 +21,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.pipeline.content import AnthropicContentGenerator
+from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
@@ -227,7 +227,9 @@ async def generate_content(
     client = AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
     analyzer = AnthropicVisionAnalyzer(client)
     generator = AnthropicContentGenerator(
-        client, template=load_template(f"content/{profile.content_template}")
+        client,
+        template=load_template(f"content/{profile.content_template}"),
+        policy=policy_for(profile.content_template),
     )
 
     already = await _content_asset_ids(session, batch_id)

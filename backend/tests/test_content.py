@@ -6,11 +6,18 @@ from app.pipeline.content import (
     AnthropicContentGenerator,
     ContentValidationError,
     GeneratedListing,
+    policy_for,
     validate_listing,
 )
 from app.pipeline.vision import VisionAnalysis
 from tests.support import VALID_TITLE, FakeMessages, fake_response
 from app.pipeline.llm import AnthropicLLMClient
+
+# A valid apparel title: 110-140 chars, names the product type ("Shirt"), no file words.
+APPAREL_TITLE = (
+    "Patriotic 4th of July American Flag Shirt Retro Distressed Eagle "
+    "Gift for Men and Women Independence Day USA Patriot Apparel"
+)
 
 ANALYSIS = VisionAnalysis(
     theme="cozy autumn coffee",
@@ -151,6 +158,79 @@ async def test_user_turn_includes_analysis_and_sku() -> None:
 
 
 # --- title length bounds (spec §3) -----------------------------------------
+# --- profile-scoped content policy (spec §C) -------------------------------
+APPAREL = policy_for("apparel")
+DIGITAL = policy_for("digital_products")
+
+
+def test_apparel_prompt_template_loads() -> None:
+    from app.pipeline.templates import load_template
+
+    tpl = load_template("content/apparel")
+    assert "110 and 140" in tpl.system
+    assert "digital download" in tpl.system.lower()  # names the banned words
+    assert "$theme" in tpl.user
+
+
+def test_apparel_policy_is_scoped_by_content_template() -> None:
+    assert APPAREL.forbidden_terms and APPAREL.required_type_terms
+    # Digital sellers legitimately use "digital download"/"SVG": no bans.
+    assert DIGITAL.forbidden_terms == () and DIGITAL.required_type_terms == ()
+    assert policy_for("unknown").forbidden_terms == ()
+
+
+def test_apparel_valid_listing_passes() -> None:
+    assert 110 <= len(APPAREL_TITLE) <= 140  # self-check the fixture
+    tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    assert validate_listing(GeneratedListing(APPAREL_TITLE, tags, "A comfy tee."), APPAREL) == []
+
+
+def test_apparel_rejects_forbidden_word_in_title() -> None:
+    title = APPAREL_TITLE[:120] + " SVG"  # inject a file word, keep length valid
+    tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    errors = validate_listing(GeneratedListing(title, tags, "d"), APPAREL)
+    assert any("svg" in e.lower() and "title" in e for e in errors), errors
+
+
+def test_apparel_rejects_forbidden_word_in_tags() -> None:
+    tags = ["digital download", "shirt", *[f"tag{i}" for i in range(11)]]
+    errors = validate_listing(GeneratedListing(APPAREL_TITLE, tags, "d"), APPAREL)
+    assert any("digital download" in e and "tag" in e for e in errors), errors
+
+
+def test_apparel_requires_product_type_in_title_and_tags() -> None:
+    no_type_title = APPAREL_TITLE.replace("Shirt ", "")  # drop the only product word
+    tags = [f"tag{i}" for i in range(13)]  # no product-type tag either
+    errors = validate_listing(GeneratedListing(no_type_title, tags, "d"), APPAREL)
+    assert any("title must name the product type" in e for e in errors), errors
+    assert any("at least one tag must name the product type" in e for e in errors), errors
+
+
+def test_digital_policy_allows_download_words() -> None:
+    # VALID_TITLE contains "Printable" and "Digital Download" -> fine for a digital seller.
+    tags = [f"tag{i}" for i in range(13)]
+    assert validate_listing(GeneratedListing(VALID_TITLE, tags, "d"), DIGITAL) == []
+
+
+async def test_generator_retry_carries_forbidden_word_error() -> None:
+    bad_tags = ["svg", "shirt", *[f"tag{i}" for i in range(11)]]  # 'svg' forbidden
+    good_tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    messages = FakeMessages(
+        [
+            fake_response(_payload(title=APPAREL_TITLE, tags=bad_tags)),  # invalid (svg)
+            fake_response(_payload(title=APPAREL_TITLE, tags=good_tags)),  # valid
+        ]
+    )
+    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=messages)
+    gen = AnthropicContentGenerator(client, policy=APPAREL)
+
+    result = await gen.generate(ANALYSIS, sku="SKU1")
+    assert result.attempts == 2
+    blocks = messages.calls[1]["messages"][0]["content"]
+    retry_text = "\n".join(b["text"] for b in blocks if b["type"] == "text")
+    assert "svg" in retry_text.lower()  # the correction names the offending term
+
+
 def test_title_below_110_is_rejected() -> None:
     listing = GeneratedListing("x" * 109, _tags(13), "A description.")
     assert any("at least 110" in e for e in validate_listing(listing))

@@ -17,12 +17,13 @@ from app.db.models import (
     Job,
     JobStatus,
     JobType,
+    ListingProfile,
     Tenant,
     UploadBatch,
 )
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import link_for
-from app.pipeline.content import GeneratedListing, validate_listing
+from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
@@ -37,17 +38,25 @@ async def _blocking(session: AsyncSession, content_id: uuid.UUID) -> bool:
     return rows.first() is not None
 
 
-def _validation_reason(content: GeneratedContent) -> str | None:
+async def _validation_reason(
+    session: AsyncSession, content: GeneratedContent
+) -> str | None:
     if not content.approved:
         return "not approved"
     if content.etsy_listing_id is not None:
         return "already published"
+    policy = None
+    if content.listing_profile_id is not None:
+        profile = await session.get(ListingProfile, content.listing_profile_id)
+        if profile is not None:
+            policy = policy_for(profile.content_template)
     errors = validate_listing(
         GeneratedListing(
             title=content.title or "",
             tags=list(content.tags or []),
             description=content.description or "",
-        )
+        ),
+        policy,
     )
     return "; ".join(errors) if errors else None
 
@@ -91,7 +100,7 @@ async def publish_one(
     if connection is None:
         raise HTTPException(status_code=409, detail="connect your Etsy shop first")
 
-    reason = _validation_reason(content)
+    reason = await _validation_reason(session, content)
     if reason:
         raise HTTPException(status_code=409, detail=reason)
     if await _blocking(session, content.id):
@@ -124,7 +133,7 @@ async def publish_batch(
     )
     result = schemas.BatchPublishResult()
     for content in rows.scalars():
-        reason = _validation_reason(content)
+        reason = await _validation_reason(session, content)
         if reason == "not approved":
             continue  # only publish approved content; silently skip the rest
         if reason:

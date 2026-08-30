@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import current_tenant, get_session
-from app.db.models import Asset, GeneratedContent, Tenant
+from app.db.models import Asset, GeneratedContent, ListingProfile, Tenant
 from app.etsy.publisher import link_for
-from app.pipeline.content import GeneratedListing, validate_listing
+from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
 router = APIRouter(prefix="/api", tags=["content"])
 
@@ -41,13 +41,22 @@ def _to_out(content: GeneratedContent, asset: Asset) -> schemas.ContentOut:
     )
 
 
-def _validation(content: GeneratedContent) -> schemas.ValidationInfo:
+async def _validation(
+    session: AsyncSession, content: GeneratedContent
+) -> schemas.ValidationInfo:
+    # Apply the product-type policy from the content's profile (apparel bans
+    # "digital download" etc.; digital-products does not).
+    policy = None
+    if content.listing_profile_id is not None:
+        profile = await session.get(ListingProfile, content.listing_profile_id)
+        if profile is not None:
+            policy = policy_for(profile.content_template)
     listing = GeneratedListing(
         title=content.title or "",
         tags=list(content.tags or []),
         description=content.description or "",
     )
-    errors = validate_listing(listing)
+    errors = validate_listing(listing, policy)
     return schemas.ValidationInfo(valid=not errors, errors=errors)
 
 
@@ -91,7 +100,7 @@ async def update_content(
     await session.refresh(content)
     asset = await session.get(Asset, content.asset_id)
     return schemas.ContentUpdateResult(
-        content=_to_out(content, asset), validation=_validation(content)
+        content=_to_out(content, asset), validation=await _validation(session, content)
     )
 
 
@@ -103,7 +112,7 @@ async def approve_content(
     tenant: Tenant = Depends(current_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
-    validation = _validation(content)
+    validation = await _validation(session, content)
     if body.approved and not validation.valid:
         raise HTTPException(
             status_code=422,

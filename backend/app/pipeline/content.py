@@ -8,6 +8,7 @@ then reported as failed.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -20,6 +21,51 @@ REQUIRED_TAG_COUNT = 13
 MIN_TITLE_LENGTH = 110
 MAX_TITLE_LENGTH = 140
 MAX_TAG_LENGTH = 20
+
+
+@dataclass(frozen=True)
+class ContentPolicy:
+    """Product-type content rules, scoped to a profile's ``content_template``.
+
+    Forbidden words are deliberately NOT global: "digital download" is wrong on an
+    apparel listing but exactly right for a digital-products seller. Which policy
+    applies is decided by the profile (see :func:`policy_for`).
+    """
+
+    forbidden_terms: tuple[str, ...] = ()
+    required_type_terms: tuple[str, ...] = ()
+
+
+# File-format / delivery words that must never appear on a physical apparel listing.
+_APPAREL_FORBIDDEN = (
+    "svg",
+    "png",
+    "pdf",
+    "printable",
+    "digital download",
+    "instant download",
+    "cut file",
+    "sublimation",
+    "clipart",
+)
+# At least one of these must name the product type in the title and in the tags.
+_APPAREL_TYPES = ("shirt", "t-shirt", "tshirt", "tee", "sweatshirt", "hoodie")
+
+_POLICIES: dict[str, ContentPolicy] = {
+    "apparel": ContentPolicy(_APPAREL_FORBIDDEN, _APPAREL_TYPES),
+    # Digital sellers may legitimately use "digital download", "SVG", etc.
+    "digital_products": ContentPolicy(),
+}
+
+
+def policy_for(content_template: str) -> ContentPolicy:
+    """Return the content policy for a profile's ``content_template`` (default: none)."""
+    return _POLICIES.get(content_template, ContentPolicy())
+
+
+def _has_term(text: str, term: str) -> bool:
+    """Whole-word (case-insensitive) match, so 'png' won't fire inside 'opening'."""
+    return re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE) is not None
 
 CONTENT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -56,8 +102,14 @@ class ContentValidationError(Exception):
         self.usages = usages
 
 
-def validate_listing(listing: GeneratedListing) -> list[str]:
-    """Return a list of validation errors (empty if the listing is valid)."""
+def validate_listing(
+    listing: GeneratedListing, policy: ContentPolicy | None = None
+) -> list[str]:
+    """Return validation errors (empty if valid).
+
+    Structural Etsy limits always apply; ``policy`` adds product-type rules
+    (forbidden format words, required product-type wording) scoped to the profile.
+    """
     errors: list[str] = []
 
     title = listing.title.strip()
@@ -96,6 +148,36 @@ def validate_listing(listing: GeneratedListing) -> list[str]:
     if not listing.description.strip():
         errors.append("description is empty")
 
+    if policy is not None:
+        errors.extend(_policy_errors(listing, policy))
+
+    return errors
+
+
+def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str]:
+    """Profile-scoped content rules: banned format words + required product type."""
+    errors: list[str] = []
+    title = listing.title
+    tags = listing.tags
+
+    for term in policy.forbidden_terms:
+        if _has_term(title, term):
+            errors.append(
+                f"remove '{term}' from the title — not allowed for this product type"
+            )
+        bad = [t for t in tags if _has_term(t, term)]
+        if bad:
+            errors.append(
+                f"remove '{term}' from these tags: {bad} — not allowed for this product type"
+            )
+
+    if policy.required_type_terms:
+        options = ", ".join(policy.required_type_terms)
+        if not any(_has_term(title, term) for term in policy.required_type_terms):
+            errors.append(f"title must name the product type (one of: {options})")
+        if not any(_has_term(tag, term) for tag in tags for term in policy.required_type_terms):
+            errors.append(f"at least one tag must name the product type (e.g. {options})")
+
     return errors
 
 
@@ -110,10 +192,12 @@ class AnthropicContentGenerator:
         template: PromptTemplate | None = None,
         *,
         max_tokens: int = 1024,
+        policy: ContentPolicy | None = None,
     ) -> None:
         self._client = client
         self._template = template or load_template("content/digital_products")
         self._max_tokens = max_tokens
+        self._policy = policy
 
     def _content_blocks(self, analysis: VisionAnalysis, sku: str | None) -> list[dict[str, Any]]:
         text = self._template.render_user(
@@ -189,7 +273,7 @@ class AnthropicContentGenerator:
         for attempt in range(2):
             listing, usage = await self._generate_once(analysis, sku, correction=correction)
             usages.append(usage)
-            errors = validate_listing(listing)
+            errors = validate_listing(listing, self._policy)
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
             last_errors = errors
