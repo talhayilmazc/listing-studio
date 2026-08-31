@@ -115,7 +115,7 @@ class FakeEtsy:
         self.inventory = inventory
         return {}
 
-    async def update_listing(self, shop_id: int, listing_id: int, *, updates: dict[str, Any], **_: Any):
+    async def update_listing(self, listing_id: int, *, updates: dict[str, Any], **_: Any):
         self.calls.append("update_listing")
         self.last_update = updates
         return {}

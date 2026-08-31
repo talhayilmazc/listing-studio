@@ -289,13 +289,7 @@ async def publish_live(
     if content.etsy_listing_id is None:
         raise ValueError("no draft listing to publish; create the draft first")
 
-    if connection.shop_id is None:
-        if connection.etsy_user_id is None:
-            raise ValueError("connection has no Etsy user id")
-        shop = _first_shop(await client.get_shop_by_owner_user_id(connection.etsy_user_id, **ctx))
-        connection.shop_id = int(shop["shop_id"])
-        await session.commit()
-    shop_id = connection.shop_id
+    # updateListing is not shop-scoped, so no shop resolution is needed here.
     listing_id = content.etsy_listing_id
 
     # Snapshot the pre-change state so the go-live can be rolled back to draft.
@@ -309,7 +303,7 @@ async def publish_live(
     )
     await session.commit()
 
-    await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
+    await client.update_listing(listing_id, updates={"state": "active"}, **ctx)
     content.etsy_listing_state = "active"
     await session.commit()
 
@@ -383,7 +377,6 @@ async def replace_listing_images(
 
     # 5) Refresh only the copy; NEVER touch state, price, taxonomy, variations, etc.
     await client.update_listing(
-        shop_id,
         listing_id,
         updates={"title": new_title, "description": new_description, "tags": new_tags},
         **ctx,
