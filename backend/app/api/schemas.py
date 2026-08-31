@@ -37,6 +37,23 @@ class SizeChartProfileUpdate(BaseModel):
     profile_id: uuid.UUID | None = None  # null clears it (use each content's own profile)
 
 
+class GroupOut(BaseModel):
+    group_key: str
+    sku: str | None = None
+    image_count: int
+    has_content: bool
+    profile_id: uuid.UUID | None = None
+    size_chart_profile_id: uuid.UUID | None = None
+    manual: bool = False
+
+
+class GroupAssign(BaseModel):
+    # group_key null/absent => apply to every group that the seller hasn't set manually.
+    group_key: str | None = None
+    profile_id: uuid.UUID | None = None
+    size_chart_profile_id: uuid.UUID | None = None
+
+
 class BatchDetail(BatchSummary):
     assets: list[AssetOut]
 
@@ -114,7 +131,9 @@ class AssetFailure(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    profile_id: uuid.UUID  # required: the reference-listing profile to generate against
+    # Batch-level default profile; each group may override it via its group setting
+    # (v4 §E). None => every group must have its own assigned profile.
+    profile_id: uuid.UUID | None = None
     group_key: str | None = None  # limit to one folder group; None = all groups (D3)
 
 

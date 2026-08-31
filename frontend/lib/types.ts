@@ -31,6 +31,16 @@ export interface ReplaceImagesResult {
   job_id: string;
 }
 
+export interface Group {
+  group_key: string;
+  sku: string | null;
+  image_count: number;
+  has_content: boolean;
+  profile_id: string | null;
+  size_chart_profile_id: string | null;
+  manual: boolean;
+}
+
 export interface BatchDetail extends BatchSummary {
   assets: Asset[];
 }

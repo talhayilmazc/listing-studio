@@ -24,6 +24,7 @@ from app.db.models import (
     GeneratedContent,
     Job,
     JobStatus,
+    ListingGroupSetting,
     ListingProfile,
     Tenant,
     UploadBatch,
@@ -38,16 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 def publish_config(settings: Settings) -> PublishConfig:
-    return PublishConfig(
-        default_taxonomy_id=settings.etsy_default_taxonomy_id,
-        price=settings.default_price,
-        quantity=settings.default_quantity,
-        currency=settings.etsy_currency,
-        section_title=settings.etsy_default_section_title,
-        who_made=settings.etsy_who_made,
-        when_made=settings.etsy_when_made,
-        listing_type=settings.etsy_listing_type,
-    )
+    return PublishConfig(quantity=settings.default_quantity)
 
 
 async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
@@ -83,14 +75,26 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             if profile is None or not profile.cached_payload:
                 raise ValueError("publish job has no reference profile payload")
 
-            # Size charts (fixed images) may come from a different profile chosen for
-            # the batch (Task 4); fall back to this content's own profile.
+            # Size charts (fixed images) may come from a different profile chosen per
+            # group (v4 §E), then per batch (Task 4), else this content's own profile.
             fixed_image_ids = profile.fixed_image_ids or []
-            batch = await session.get(UploadBatch, content.batch_id)
-            if batch is not None and batch.size_chart_profile_id is not None:
-                chart_profile = await session.get(
-                    ListingProfile, batch.size_chart_profile_id
+            chart_profile_id = None
+            group_setting = (
+                await session.execute(
+                    select(ListingGroupSetting).where(
+                        ListingGroupSetting.batch_id == content.batch_id,
+                        ListingGroupSetting.group_key == (asset.group_key or ""),
+                    )
                 )
+            ).scalar_one_or_none()
+            if group_setting is not None and group_setting.size_chart_profile_id is not None:
+                chart_profile_id = group_setting.size_chart_profile_id
+            else:
+                batch = await session.get(UploadBatch, content.batch_id)
+                if batch is not None and batch.size_chart_profile_id is not None:
+                    chart_profile_id = batch.size_chart_profile_id
+            if chart_profile_id is not None:
+                chart_profile = await session.get(ListingProfile, chart_profile_id)
                 if chart_profile is not None:
                     fixed_image_ids = chart_profile.fixed_image_ids or []
 

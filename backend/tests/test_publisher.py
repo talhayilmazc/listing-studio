@@ -34,16 +34,7 @@ from app.etsy.publisher import (
 )
 from tests.support import VALID_TITLE
 
-CONFIG = PublishConfig(
-    default_taxonomy_id=1,
-    price=5.0,
-    quantity=999,
-    currency="USD",
-    section_title="Drafts",
-    who_made="i_did",
-    when_made="made_to_order",
-    listing_type="download",
-)
+CONFIG = PublishConfig(quantity=999)
 
 # Reference-listing payload the publisher copies from (A3 / B): two size variations,
 # the seller's own taxonomy, price and fulfilment.
@@ -54,8 +45,13 @@ REFERENCE = {
     "when_made": "made_to_order",
     "is_supply": False,
     "shipping_profile_id": 55,
+    "return_policy_id": 88,
     "production_partner_ids": [7],
-    "listing_type": "physical",
+    "should_auto_renew": True,
+    "is_customizable": True,
+    "is_personalizable": False,
+    "processing_min": 1,
+    "processing_max": 3,
     "price_on_property": [200],  # price varies on the Size property
     "inventory_products": [
         {
@@ -250,6 +246,14 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
     assert fake.last_listing["type"] == "physical"
     assert fake.last_listing["shipping_profile_id"] == 55
     assert fake.last_listing["production_partner_ids"] == [7]
+    # All remaining settings copied from the reference, none from config (v4 §C).
+    assert fake.last_listing["who_made"] == "i_did"
+    assert fake.last_listing["when_made"] == "made_to_order"
+    assert fake.last_listing["return_policy_id"] == 88
+    assert fake.last_listing["should_auto_renew"] is True
+    assert fake.last_listing["is_customizable"] is True
+    assert fake.last_listing["is_personalizable"] is False  # False copied, not dropped
+    assert fake.last_listing["processing_min"] == 1 and fake.last_listing["processing_max"] == 3
     # Section resolved from the theme rule to the existing section.
     assert fake.last_listing["shop_section_id"] == 10
     # Generated images first (thumbnail rank 1), then the fixed reference image by id.

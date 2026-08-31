@@ -43,15 +43,10 @@ class Settings(BaseSettings):
     # Where to send the browser back to after the OAuth callback completes.
     frontend_url: str = "http://localhost:3000"
 
-    # Draft-listing defaults (Etsy requires these; the UI doesn't collect them yet).
-    etsy_default_taxonomy_id: int = 1  # override with a real seller-taxonomy node id
-    default_price: float = 5.00
+    # Stock quantity for made-to-order products. Everything else on a listing --
+    # category, price, who_made, when_made, shipping, return policy, production,
+    # auto-renew -- comes from the reference listing, never from config (v4 §0/§C).
     default_quantity: int = 999
-    etsy_currency: str = "USD"
-    etsy_default_section_title: str = "Listing Studio Drafts"
-    etsy_who_made: str = "i_did"
-    etsy_when_made: str = "made_to_order"
-    etsy_listing_type: str = "download"  # digital products
 
     # Thumbnail preparation (rank=1 image is trimmed, padded, squared to size).
     thumbnail_padding_pct: int = 8

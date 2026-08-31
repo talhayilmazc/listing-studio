@@ -17,6 +17,7 @@ from app.db.models import (
     Asset,
     AssetStatus,
     GeneratedContent,
+    ListingGroupSetting,
     ListingProfile,
     Tenant,
     UploadBatch,
@@ -223,6 +224,111 @@ async def get_asset_image(
     return Response(content=data, media_type=asset.mime_type or "application/octet-stream")
 
 
+# --- Per-group profile selection (v4 §E) -----------------------------------
+async def _batch_groups(
+    session: AsyncSession, batch_id: uuid.UUID
+) -> list[schemas.GroupOut]:
+    rows = await session.execute(select(Asset).where(Asset.batch_id == batch_id))
+    assets = list(rows.scalars())
+    with_content = await _content_asset_ids(session, batch_id)
+    setting_rows = await session.execute(
+        select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id)
+    )
+    group_settings = {s.group_key: s for s in setting_rows.scalars()}
+
+    grouped: dict[str, list[Asset]] = {}
+    for asset in assets:
+        grouped.setdefault(asset.group_key or "", []).append(asset)
+
+    out: list[schemas.GroupOut] = []
+    for key in sorted(grouped):
+        members = grouped[key]
+        s = group_settings.get(key)
+        out.append(
+            schemas.GroupOut(
+                group_key=key,
+                sku=next((m.parsed_sku for m in members if m.parsed_sku), None),
+                image_count=len(members),
+                has_content=any(m.id in with_content for m in members),
+                profile_id=s.profile_id if s else None,
+                size_chart_profile_id=s.size_chart_profile_id if s else None,
+                manual=s.manual if s else False,
+            )
+        )
+    return out
+
+
+@router.get("/batches/{batch_id}/groups", response_model=list[schemas.GroupOut])
+async def list_groups(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+) -> list[schemas.GroupOut]:
+    await _get_batch(session, tenant, batch_id)
+    return await _batch_groups(session, batch_id)
+
+
+@router.put("/batches/{batch_id}/groups", response_model=list[schemas.GroupOut])
+async def assign_group_profile(
+    batch_id: uuid.UUID,
+    body: schemas.GroupAssign,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+) -> list[schemas.GroupOut]:
+    """Assign a profile (and size-chart profile) to one group, or bulk-apply to all.
+
+    With a ``group_key`` it sets that group explicitly (``manual``); without one it
+    applies to every group the seller hasn't set manually, without clobbering the
+    field it didn't provide (v4 §E).
+    """
+    await _get_batch(session, tenant, batch_id)
+    for pid in (body.profile_id, body.size_chart_profile_id):
+        if pid is not None:
+            p = await session.get(ListingProfile, pid)
+            if p is None or p.tenant_id != tenant.id:
+                raise HTTPException(status_code=404, detail="profile not found")
+
+    existing = {
+        s.group_key: s
+        for s in (
+            await session.execute(
+                select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id)
+            )
+        ).scalars()
+    }
+
+    if body.group_key is not None:
+        keys = [body.group_key]
+    else:
+        all_keys = {
+            (a.group_key or "")
+            for a in (
+                await session.execute(select(Asset).where(Asset.batch_id == batch_id))
+            ).scalars()
+        }
+        keys = [k for k in all_keys if not (existing.get(k) and existing[k].manual)]
+
+    for key in keys:
+        setting = existing.get(key)
+        if setting is None:
+            setting = ListingGroupSetting(tenant_id=tenant.id, batch_id=batch_id, group_key=key)
+            session.add(setting)
+            existing[key] = setting
+        if body.group_key is not None:
+            # Explicit single-group set: apply exactly what was sent (clearing allowed).
+            setting.profile_id = body.profile_id
+            setting.size_chart_profile_id = body.size_chart_profile_id
+            setting.manual = True
+        else:
+            # Bulk: fill only the fields provided; never clobber the other.
+            if body.profile_id is not None:
+                setting.profile_id = body.profile_id
+            if body.size_chart_profile_id is not None:
+                setting.size_chart_profile_id = body.size_chart_profile_id
+    await session.commit()
+    return await _batch_groups(session, batch_id)
+
+
 # --- Content generation -----------------------------------------------------
 @router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)
 async def generate_content(
@@ -240,23 +346,32 @@ async def generate_content(
         )
     await _get_batch(session, tenant, batch_id)
 
-    # A reference-listing profile is required and must have a fresh cached payload.
-    profile = await session.get(ListingProfile, body.profile_id)
-    if profile is None or profile.tenant_id != tenant.id:
-        raise HTTPException(status_code=404, detail="profile not found")
-    if not _profile_is_fresh(profile):
-        raise HTTPException(
-            status_code=409,
-            detail="profile has no fresh reference data; refresh the profile first",
-        )
-
     client = AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
     analyzer = AnthropicVisionAnalyzer(client)
-    generator = AnthropicContentGenerator(
-        client,
-        template=load_template(f"content/{profile.content_template}"),
-        policy=policy_for(profile.content_template),
+
+    # Per-group profile selection (v4 §E): each group uses its own assigned profile,
+    # falling back to the batch-level default in the request body.
+    group_rows = await session.execute(
+        select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id)
     )
+    group_profile = {s.group_key: s.profile_id for s in group_rows.scalars()}
+    profile_cache: dict[uuid.UUID, ListingProfile] = {}
+    generator_cache: dict[uuid.UUID, AnthropicContentGenerator] = {}
+
+    async def _profile(profile_id: uuid.UUID) -> ListingProfile | None:
+        if profile_id not in profile_cache:
+            p = await session.get(ListingProfile, profile_id)
+            profile_cache[profile_id] = p if p and p.tenant_id == tenant.id else None
+        return profile_cache[profile_id]
+
+    def _generator(p: ListingProfile) -> AnthropicContentGenerator:
+        if p.id not in generator_cache:
+            generator_cache[p.id] = AnthropicContentGenerator(
+                client,
+                template=load_template(f"content/{p.content_template}"),
+                policy=policy_for(p.content_template),
+            )
+        return generator_cache[p.id]
 
     # One folder group = one listing (D1). Generate once per group, from its
     # primary (rank-1, alphabetically-first) image; the whole group's images are
@@ -276,7 +391,7 @@ async def generate_content(
 
     generated = failed = skipped = 0
     failures: list[schemas.AssetFailure] = []
-    for members in groups.values():
+    for key, members in groups.items():
         if not members:
             continue
         primary = min(
@@ -286,6 +401,30 @@ async def generate_content(
         if primary.id in already:
             skipped += 1
             continue
+
+        def _fail(reason: str) -> None:
+            nonlocal failed
+            failed += 1
+            failures.append(
+                schemas.AssetFailure(
+                    asset_id=primary.id,
+                    original_filename=primary.original_filename,
+                    error=reason,
+                )
+            )
+
+        profile_id = group_profile.get(key) or body.profile_id
+        if profile_id is None:
+            _fail("no profile selected for this group")
+            continue
+        profile = await _profile(profile_id)
+        if profile is None:
+            _fail("profile not found")
+            continue
+        if not _profile_is_fresh(profile):
+            _fail("profile has no fresh reference data; refresh it first")
+            continue
+
         data = storage.get(primary.processed_key)
         outcome = await generate_listing_content(
             session,
@@ -296,7 +435,7 @@ async def generate_content(
             media_type=primary.mime_type or "image/jpeg",
             sku=primary.parsed_sku,
             analyzer=analyzer,
-            generator=generator,
+            generator=_generator(profile),
             profile=profile,
         )
         if outcome.status == "generated":

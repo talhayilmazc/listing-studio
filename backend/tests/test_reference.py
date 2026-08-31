@@ -74,6 +74,21 @@ def test_build_profile_payload_copies_reference_fields() -> None:
     assert [img["listing_image_id"] for img in payload["images"]] == [900, 901]
 
 
+def test_build_profile_payload_stores_all_v4_c_settings() -> None:
+    listing = {
+        **REF_LISTING,
+        "return_policy_id": 88,
+        "should_auto_renew": True,
+        "is_customizable": True,
+        "is_personalizable": False,
+    }
+    payload = build_profile_payload(listing, REF_INVENTORY, REF_IMAGES)
+    assert payload["return_policy_id"] == 88
+    assert payload["should_auto_renew"] is True
+    assert payload["is_customizable"] is True
+    assert payload["is_personalizable"] is False  # False stored, not dropped
+
+
 def test_replace_title_block_replaces_up_to_first_blank_line() -> None:
     # Two-line title block, then a blank line, then the body.
     desc = "Old Title Line One\nOld Subtitle Line Two\n\nSize: S-3XL\nShips in 3 days."

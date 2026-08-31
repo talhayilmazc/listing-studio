@@ -13,6 +13,8 @@ from sqlalchemy.pool import StaticPool
 from app.api import deps
 from app.db.base import Base
 from app.db.models import (
+    Asset,
+    AssetStatus,
     ListingProfile,
     ShopListingCache,
     Tenant,
@@ -223,6 +225,51 @@ async def test_set_and_clear_size_chart_profile(ctx) -> None:
         f"/api/batches/{batch_id}/size-chart-profile", json={"profile_id": None}
     )
     assert cleared.json()["size_chart_profile_id"] is None
+
+
+async def test_per_group_profile_assignment_and_bulk(ctx) -> None:
+    """v4 §E: bulk applies to all groups; a manual per-group choice is preserved."""
+    async with ctx["sm"]() as s:
+        batch = UploadBatch(
+            tenant_id=ctx["tenant_id"], status=UploadBatchStatus.ready, file_count=2
+        )
+        s.add(batch)
+        await s.flush()
+        for gk in ("A", "B"):
+            s.add(
+                Asset(
+                    batch_id=batch.id,
+                    tenant_id=ctx["tenant_id"],
+                    original_filename=f"{gk}.png",
+                    parsed_sku=gk,
+                    group_key=gk,
+                    storage_key="k",
+                    status=AssetStatus.processed,
+                    rank=1,
+                )
+            )
+        p1 = ListingProfile(tenant_id=ctx["tenant_id"], name="P1", reference_listing_id=1)
+        p2 = ListingProfile(tenant_id=ctx["tenant_id"], name="P2", reference_listing_id=2)
+        s.add_all([p1, p2])
+        await s.commit()
+        batch_id, p1_id, p2_id = batch.id, str(p1.id), str(p2.id)
+
+    base = f"/api/batches/{batch_id}/groups"
+    groups = (await ctx["client"].get(base)).json()
+    assert {g["group_key"] for g in groups} == {"A", "B"}
+    assert all(g["profile_id"] is None for g in groups)
+
+    # Bulk: assign P1 to all groups.
+    await ctx["client"].put(base, json={"profile_id": p1_id})
+    assert all(g["profile_id"] == p1_id for g in (await ctx["client"].get(base)).json())
+
+    # Manually override group B -> P2.
+    await ctx["client"].put(base, json={"group_key": "B", "profile_id": p2_id})
+    # Bulk P1 again must NOT overwrite the manual B.
+    await ctx["client"].put(base, json={"profile_id": p1_id})
+    by_key = {g["group_key"]: g for g in (await ctx["client"].get(base)).json()}
+    assert by_key["A"]["profile_id"] == p1_id
+    assert by_key["B"]["profile_id"] == p2_id and by_key["B"]["manual"] is True
 
 
 async def test_use_listing_as_profile_creates_and_enqueues(ctx) -> None:

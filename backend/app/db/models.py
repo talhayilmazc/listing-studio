@@ -265,6 +265,38 @@ class UploadBatch(Base):
     )
 
 
+class ListingGroupSetting(Base):
+    """Per-folder-group profile selection within a batch (v4 §E).
+
+    One upload can mix product types (e.g. 3 Comfort Colors + 2 standard tees), so
+    the metadata profile and the size-chart profile are chosen per listing group,
+    not just per batch. ``manual`` records that the seller set this group explicitly
+    so a later bulk "apply to all" does not overwrite it.
+    """
+
+    __tablename__ = "listing_group_setting"
+    __table_args__ = (
+        Index("ix_group_setting_batch_group", "batch_id", "group_key", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    group_key: Mapped[str] = mapped_column(Text, nullable=False)  # "" is the root group
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="SET NULL")
+    )
+    size_chart_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="SET NULL")
+    )
+    #: Set by the seller directly (a bulk apply-to-all won't overwrite it).
+    manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+
+
 class Asset(Base):
     __tablename__ = "asset"
 

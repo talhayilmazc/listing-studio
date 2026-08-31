@@ -9,6 +9,7 @@ import type {
   ContentUpdateResult,
   GenerateResult,
   JobStatus,
+  Group,
   Meta,
   Profile,
   PublishJob,
@@ -62,11 +63,21 @@ export const api = {
       body: JSON.stringify({ profile_id: profileId }),
     }),
   // Generate content for a batch; pass a groupKey to limit to one folder group (D3).
-  generate: (id: string, profileId: string, groupKey?: string) =>
+  // profileId is optional — each group can carry its own assigned profile (v4 §E).
+  generate: (id: string, profileId?: string, groupKey?: string) =>
     req<GenerateResult>(`/batches/${id}/generate`, {
       method: "POST",
-      body: JSON.stringify({ profile_id: profileId, ...(groupKey != null ? { group_key: groupKey } : {}) }),
+      body: JSON.stringify({
+        ...(profileId ? { profile_id: profileId } : {}),
+        ...(groupKey != null ? { group_key: groupKey } : {}),
+      }),
     }),
+  // Per-group profile selection (v4 §E): omit group_key to bulk-apply to all groups.
+  listGroups: (id: string) => req<Group[]>(`/batches/${id}/groups`),
+  assignGroup: (
+    id: string,
+    body: { group_key?: string | null; profile_id?: string | null; size_chart_profile_id?: string | null },
+  ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
   batchCost: (id: string) => req<BatchCost>(`/batches/${id}/cost`),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>

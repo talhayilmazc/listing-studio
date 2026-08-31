@@ -53,14 +53,10 @@ class PublishImage:
 
 @dataclass
 class PublishConfig:
-    default_taxonomy_id: int
-    price: float
+    #: Stock quantity for made-to-order products (a fulfilment setting, not listing
+    #: metadata). Everything else -- category, price, who_made, when_made, shipping,
+    #: return policy, production, auto-renew -- comes from the reference (v4 §0/§C).
     quantity: int
-    currency: str
-    section_title: str
-    who_made: str
-    when_made: str
-    listing_type: str
 
 
 @dataclass
@@ -190,26 +186,36 @@ async def publish_content(
         raise ValueError(
             "reference profile has no taxonomy_id; refresh the profile before publishing"
         )
-    price = reference.get("price")
     listing: dict[str, Any] = {
         "quantity": config.quantity,
         "title": content.title or "",
         "description": content.description or "",
-        "price": price if price is not None else config.price,
-        "who_made": reference.get("who_made") or config.who_made,
-        "when_made": reference.get("when_made") or config.when_made,
+        # Price, who_made and when_made come from the reference only -- no default
+        # is ever substituted (v4 §0/§C). Missing values fail at Etsy (body logged).
+        "price": reference.get("price"),
+        "who_made": reference.get("who_made"),
+        "when_made": reference.get("when_made"),
         "taxonomy_id": taxonomy_id,
         # Apparel is always a PHYSICAL listing. Sending type=download makes Etsy
         # create a digital listing and force the "Digital files" category (v4 §A).
         "type": "physical",
         "tags": list(content.tags or []),
     }
-    for key in ("shipping_profile_id", "production_partner_ids", "processing_min", "processing_max"):
+    # Fulfilment / policy ids and processing times copied from the reference (v4 §C).
+    for key in (
+        "shipping_profile_id",
+        "return_policy_id",
+        "production_partner_ids",
+        "processing_min",
+        "processing_max",
+    ):
         value = reference.get(key)
         if value:
             listing[key] = value
-    if reference.get("is_supply") is not None:
-        listing["is_supply"] = reference["is_supply"]
+    # Tri-state flags: include when explicitly set (False is meaningful, don't drop).
+    for key in ("is_supply", "is_customizable", "is_personalizable", "should_auto_renew"):
+        if reference.get(key) is not None:
+            listing[key] = reference[key]
     if section_id is not None:
         listing["shop_section_id"] = section_id
     created = await client.create_draft_listing(shop_id, listing=listing, **ctx)
