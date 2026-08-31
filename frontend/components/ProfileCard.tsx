@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 
-const TEMPLATES = ["digital_products", "apparel"];
+const TEMPLATES = ["apparel", "digital_products"];
 
 export function ProfileCard({
   profile,

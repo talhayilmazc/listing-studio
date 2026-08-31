@@ -12,7 +12,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import deps
 from app.db.base import Base
-from app.db.models import ListingProfile, ShopListingCache, Tenant
+from app.db.models import (
+    ListingProfile,
+    ShopListingCache,
+    Tenant,
+    UploadBatch,
+    UploadBatchStatus,
+)
 
 DEV_EMAIL = "dev@localhost"
 
@@ -186,6 +192,37 @@ async def test_shop_listings_returns_cached_rows(ctx) -> None:
     assert row["listing_id"] == 777
     assert row["sku"] == "BR5475"
     assert row["thumbnail_url"] == "https://img/570.jpg"
+
+
+async def test_profile_model_defaults_to_apparel(ctx) -> None:
+    async with ctx["sm"]() as s:
+        p = ListingProfile(tenant_id=ctx["tenant_id"], name="X", reference_listing_id=7)
+        s.add(p)
+        await s.commit()
+        await s.refresh(p)
+        assert p.content_template == "apparel"  # apparel is the model default now
+
+
+async def test_set_and_clear_size_chart_profile(ctx) -> None:
+    async with ctx["sm"]() as s:
+        batch = UploadBatch(
+            tenant_id=ctx["tenant_id"], status=UploadBatchStatus.ready, file_count=1
+        )
+        profile = ListingProfile(tenant_id=ctx["tenant_id"], name="Charts", reference_listing_id=5)
+        s.add_all([batch, profile])
+        await s.commit()
+        batch_id, profile_id = batch.id, profile.id
+
+    res = await ctx["client"].put(
+        f"/api/batches/{batch_id}/size-chart-profile", json={"profile_id": str(profile_id)}
+    )
+    assert res.status_code == 200
+    assert res.json()["size_chart_profile_id"] == str(profile_id)
+
+    cleared = await ctx["client"].put(
+        f"/api/batches/{batch_id}/size-chart-profile", json={"profile_id": None}
+    )
+    assert cleared.json()["size_chart_profile_id"] is None
 
 
 async def test_use_listing_as_profile_creates_and_enqueues(ctx) -> None:

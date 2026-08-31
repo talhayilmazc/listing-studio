@@ -30,6 +30,7 @@ from app.etsy.publisher import (
     listing_url,
     publish_content,
     publish_live,
+    replace_listing_images,
 )
 from tests.support import VALID_TITLE
 
@@ -84,6 +85,7 @@ class FakeEtsy:
         self.uploaded: list[tuple[int, str]] = []
         self.created_section_title: str | None = None
         self.last_update: dict[str, Any] | None = None
+        self.deleted: list[int] = []
 
     async def get_shop_by_owner_user_id(self, uid: int, **_: Any) -> dict[str, Any]:
         self.calls.append("shop")
@@ -115,6 +117,10 @@ class FakeEtsy:
     async def update_listing(self, shop_id: int, listing_id: int, *, updates: dict[str, Any], **_: Any):
         self.calls.append("update_listing")
         self.last_update = updates
+        return {}
+
+    async def delete_listing_image(self, shop_id: int, listing_id: int, image_id: int, **_: Any):
+        self.deleted.append(image_id)
         return {}
 
     async def upload_listing_image(
@@ -329,6 +335,48 @@ async def test_publish_live_blocked_by_compliance(async_sm: async_sessionmaker) 
                 tenant_limit=2000,
             )
     assert fake.calls == []  # never touched Etsy
+
+
+async def test_replace_listing_images_swaps_artwork_keeps_charts(
+    async_sm: async_sessionmaker,
+) -> None:
+    """B4: delete artwork, keep + re-rank size charts, refresh copy, never touch state."""
+    tenant_id, _conn_id, _content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy()
+    async with async_sm() as s:
+        result = await replace_listing_images(
+            s,
+            job_id=job_id,
+            listing_id=999,
+            shop_id=900,
+            tenant_id=tenant_id,
+            client=fake,
+            access_token="tok",
+            tenant_limit=2000,
+            existing_listing={"listing_id": 999, "description": "Old\n\nBody", "state": "active"},
+            keep_image_ids=[900],  # a size chart to retain
+            delete_image_ids=[801, 802],  # artwork to delete
+            new_images=[PublishImage(b"t", "t.jpg"), PublishImage(b"e", "e.jpg")],
+            new_title="Brand New Title",
+            new_tags=["shirt", "tag1"],
+            new_description="Brand New Title\n\nBody",
+        )
+
+    assert (result.deleted, result.added, result.kept) == (2, 2, 1)
+    assert fake.deleted == [801, 802]
+    # New photos ranked 1,2; the retained chart re-ranked to 3 (after the new photos).
+    assert fake.uploaded == [(1, "t.jpg"), (2, "e.jpg"), (3, 900)]
+    assert fake.last_update == {
+        "title": "Brand New Title",
+        "description": "Brand New Title\n\nBody",
+        "tags": ["shirt", "tag1"],
+    }
+    assert "state" not in fake.last_update  # state is never touched (Task 3)
+
+    async with async_sm() as s:
+        snaps = await s.execute(select(ListingSnapshot).where(ListingSnapshot.listing_id == 999))
+        snap = snaps.scalars().first()
+        assert snap is not None and snap.payload["operation"] == "replace_images"
 
 
 def test_link_for_picks_edit_url_for_draft_and_public_for_active() -> None:

@@ -71,6 +71,14 @@ class PublishResult:
     image_count: int = 0
 
 
+@dataclass
+class ReplaceResult:
+    listing_id: int
+    deleted: int
+    added: int
+    kept: int
+
+
 def listing_url(listing_id: int) -> str:
     """The public Etsy listing URL (ToU back-link requirement); active listings only."""
     return f"https://www.etsy.com/listing/{listing_id}"
@@ -302,4 +310,82 @@ async def publish_live(
     return PublishResult(
         listing_id=listing_id,
         listing_url=listing_url(listing_id),  # active -> public URL (ToU back-link)
+    )
+
+
+async def replace_listing_images(
+    session: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    listing_id: int,
+    shop_id: int,
+    tenant_id: uuid.UUID,
+    client: EtsyApiClient,
+    access_token: str,
+    tenant_limit: int,
+    existing_listing: dict[str, Any],
+    keep_image_ids: list[int],
+    delete_image_ids: list[int],
+    new_images: list[PublishImage],
+    new_title: str,
+    new_tags: list[str],
+    new_description: str,
+) -> ReplaceResult:
+    """Update an existing listing in place: swap artwork images + refresh copy (B4).
+
+    Deletes only the artwork images (size charts are retained and re-ranked after the
+    new photos), uploads the new photos in order, and updates title/13-tags/description
+    — the title block only. Category, price, variations, shipping, partners, section
+    and **state** are never touched. Snapshots the listing before any write.
+    """
+    ctx = {"access_token": access_token, "tenant_id": tenant_id, "tenant_limit": tenant_limit}
+
+    # 1) Snapshot the whole listing BEFORE any write (rollback anchor).
+    session.add(
+        ListingSnapshot(
+            tenant_id=tenant_id,
+            listing_id=listing_id,
+            job_id=job_id,
+            payload={"operation": "replace_images", "listing": existing_listing},
+        )
+    )
+    await session.commit()
+
+    # 2) Delete only the artwork images; the size charts stay.
+    for image_id in delete_image_ids:
+        await client.delete_listing_image(shop_id, listing_id, image_id, **ctx)
+
+    # 3) Upload the new photos first (thumbnail rank 1), ...
+    ranked = _rank(list(new_images))
+    for image in ranked:
+        await client.upload_listing_image(
+            shop_id,
+            listing_id,
+            image_bytes=image.data,
+            filename=image.filename,
+            rank=image.rank,
+            mime_type=image.mime_type,
+            **ctx,
+        )
+    # 4) ... then re-rank the retained size charts to come after them.
+    rank = len(ranked)
+    for image_id in keep_image_ids:
+        rank += 1
+        await client.upload_listing_image(
+            shop_id, listing_id, listing_image_id=image_id, rank=rank, **ctx
+        )
+
+    # 5) Refresh only the copy; NEVER touch state, price, taxonomy, variations, etc.
+    await client.update_listing(
+        shop_id,
+        listing_id,
+        updates={"title": new_title, "description": new_description, "tags": new_tags},
+        **ctx,
+    )
+
+    return ReplaceResult(
+        listing_id=listing_id,
+        deleted=len(delete_image_ids),
+        added=len(ranked),
+        kept=len(keep_image_ids),
     )

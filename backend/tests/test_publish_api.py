@@ -251,6 +251,23 @@ async def test_publish_live_rejects_already_active(ctx) -> None:
     assert res.status_code == 409 and res.json()["detail"] == "already published"
 
 
+async def test_replace_images_enqueues_job(ctx) -> None:
+    async with ctx["sm"]() as s:
+        batch = UploadBatch(
+            tenant_id=ctx["tenant_id"], status=UploadBatchStatus.ready, file_count=2
+        )
+        s.add(batch)
+        await s.commit()
+        batch_id = batch.id
+    res = await ctx["client"].post(
+        "/api/shop/listings/12345/replace-images", json={"batch_id": str(batch_id)}
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["listing_id"] == 12345
+    assert any(c[0] == "run_replace_images_job" for c in ctx["enqueuer"].calls)
+
+
 async def test_publish_all_live_publishes_approved_draft(ctx) -> None:
     good = await _add_content(
         ctx["sm"], ctx["tenant_id"], approved=True, listing_id=10, listing_state="draft"

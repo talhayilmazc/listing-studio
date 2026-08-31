@@ -23,6 +23,12 @@ export interface BatchSummary {
   asset_count: number;
   processed_count: number;
   approved_count: number;
+  size_chart_profile_id: string | null;
+}
+
+export interface ReplaceImagesResult {
+  listing_id: number;
+  job_id: string;
 }
 
 export interface BatchDetail extends BatchSummary {

@@ -10,7 +10,14 @@ proven listing. Only the authenticated seller's own shop is ever read.
 
 from __future__ import annotations
 
+import html
 from typing import Any
+
+
+def decode_etsy_text(text: str | None) -> str:
+    """Decode HTML entities in Etsy-returned text (titles/descriptions come escaped,
+    e.g. ``I&#39;m`` -> ``I'm``). Safe on ``None``."""
+    return html.unescape(text or "")
 
 
 def _money_to_float(money: Any) -> float:
@@ -42,7 +49,7 @@ def build_profile_payload(
         "is_supply": listing.get("is_supply"),
         "processing_min": listing.get("processing_min"),
         "processing_max": listing.get("processing_max"),
-        "description": listing.get("description", "") or "",
+        "description": decode_etsy_text(listing.get("description")),
         # Reference variation structure, reused (with the new SKU) at publish time.
         "inventory_products": list((inventory or {}).get("products") or []),
         # Image ids/urls so the UI can offer them as fixed images (B3).

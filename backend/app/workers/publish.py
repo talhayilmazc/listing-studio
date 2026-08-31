@@ -26,6 +26,7 @@ from app.db.models import (
     JobStatus,
     ListingProfile,
     Tenant,
+    UploadBatch,
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
@@ -82,6 +83,17 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             if profile is None or not profile.cached_payload:
                 raise ValueError("publish job has no reference profile payload")
 
+            # Size charts (fixed images) may come from a different profile chosen for
+            # the batch (Task 4); fall back to this content's own profile.
+            fixed_image_ids = profile.fixed_image_ids or []
+            batch = await session.get(UploadBatch, content.batch_id)
+            if batch is not None and batch.size_chart_profile_id is not None:
+                chart_profile = await session.get(
+                    ListingProfile, batch.size_chart_profile_id
+                )
+                if chart_profile is not None:
+                    fixed_image_ids = chart_profile.fixed_image_ids or []
+
             access_token = await connection_service.get_valid_access_token(session, connection)
 
             # Primary image -> prepared thumbnail (rank=1).
@@ -137,7 +149,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     sku=asset.parsed_sku,
                     thumbnail=thumbnail,
                     extra_images=extras,
-                    fixed_image_ids=profile.fixed_image_ids or [],
+                    fixed_image_ids=fixed_image_ids,
                     client=client,
                     access_token=access_token,
                     config=publish_config(settings),

@@ -16,8 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, current_tenant, get_enqueuer, get_session
-from app.db.models import ListingProfile, ShopListingCache, Tenant
+from app.api.deps import Enqueuer, current_tenant, get_connection_service, get_enqueuer, get_session
+from app.db.models import Job, JobStatus, JobType, ListingProfile, ShopListingCache, Tenant, UploadBatch
+from app.etsy.connection import ConnectionService
+from app.pipeline.reference import decode_etsy_text
 
 router = APIRouter(prefix="/api/shop", tags=["shop"])
 
@@ -30,7 +32,7 @@ def _listing_out(row: dict[str, Any]) -> schemas.ShopListingOut:
     skus = row.get("skus") or []
     return schemas.ShopListingOut(
         listing_id=int(row["listing_id"]),
-        title=row.get("title"),
+        title=decode_etsy_text(row.get("title")) or None,
         state=row.get("state"),
         sku=skus[0] if skus else None,
         shop_section_id=row.get("shop_section_id"),
@@ -101,7 +103,9 @@ async def use_listing_as_profile(
     tuned afterwards via PATCH /api/profiles/{id}.
     """
     cached = await session.get(ShopListingCache, (tenant.id, listing_id))
-    default_name = (cached.payload or {}).get("title") if cached is not None else None
+    default_name = (
+        decode_etsy_text((cached.payload or {}).get("title")) if cached is not None else None
+    )
 
     profile = ListingProfile(
         tenant_id=tenant.id,
@@ -118,3 +122,40 @@ async def use_listing_as_profile(
     from app.api.profiles import _to_out
 
     return _to_out(profile)
+
+
+@router.post("/listings/{listing_id}/replace-images", response_model=schemas.ReplaceImagesOut)
+async def replace_listing_images_endpoint(
+    listing_id: int,
+    body: schemas.ReplaceImagesRequest,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+    service: ConnectionService = Depends(get_connection_service),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.ReplaceImagesOut:
+    """Update an existing listing in place with a batch of new product photos (B4).
+
+    Runs through the queue: deletes the listing's artwork images (keeps size charts),
+    uploads the new photos, and refreshes title/tags/description — state and all
+    metadata untouched. Snapshots before any write.
+    """
+    connection = await service.get_active(session, tenant.id)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    batch = await session.get(UploadBatch, body.batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    job = Job(
+        tenant_id=tenant.id,
+        connection_id=connection.id,
+        type=JobType.replace_images,
+        payload={"listing_id": listing_id, "batch_id": str(body.batch_id)},
+        batch_id=body.batch_id,
+        status=JobStatus.queued,
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await enqueuer.enqueue("run_replace_images_job", str(job.id))
+    return schemas.ReplaceImagesOut(listing_id=listing_id, job_id=job.id)

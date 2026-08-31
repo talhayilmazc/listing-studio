@@ -165,13 +165,23 @@ class DetectFakeEtsy:
             return {"products": [{"property_values": [{"property_name": "Size"}]}]}
         return {"products": [{"property_values": []}]}
 
+    async def get_seller_taxonomy_nodes(self, **_: Any) -> dict[str, Any]:
+        # Tees (100) live under Clothing; the mug (200) does not.
+        return {
+            "results": [
+                {"id": 1, "name": "Clothing", "children": [{"id": 100, "name": "Tops"}]},
+                {"id": 2, "name": "Home & Living", "children": [{"id": 200, "name": "Mugs"}]},
+            ]
+        }
+
 
 async def test_detect_profiles_clusters_and_creates_unconfirmed(
-    async_sm: async_sessionmaker, monkeypatch
+    async_sm: async_sessionmaker, monkeypatch, test_settings
 ) -> None:
     tenant_id, _ = await _seed(async_sm, with_profile=False)
     fake = DetectFakeEtsy()
     _patch(monkeypatch, tenant_id, fake)  # no LLM key in test settings -> heuristic naming
+    test_settings.default_content_template = "digital_products"  # non-clothing fallback
     enqueued: list[tuple] = []
 
     async def _enqueue(func, *args):  # noqa: ANN001, ANN202

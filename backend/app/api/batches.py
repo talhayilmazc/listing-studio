@@ -73,6 +73,7 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
         asset_count=int(asset_count or 0),
         processed_count=int(processed_count or 0),
         approved_count=int(approved_count or 0),
+        size_chart_profile_id=batch.size_chart_profile_id,
     )
 
 
@@ -127,6 +128,24 @@ async def add_asset(
         has_content=False,
         error=asset.error,
     )
+
+
+@router.put("/batches/{batch_id}/size-chart-profile", response_model=schemas.BatchSummary)
+async def set_size_chart_profile(
+    batch_id: uuid.UUID,
+    body: schemas.SizeChartProfileUpdate,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+) -> schemas.BatchSummary:
+    """Choose which profile's size charts (fixed images) to append for this batch (Task 4)."""
+    batch = await _get_batch(session, tenant, batch_id)
+    if body.profile_id is not None:
+        profile = await session.get(ListingProfile, body.profile_id)
+        if profile is None or profile.tenant_id != tenant.id:
+            raise HTTPException(status_code=404, detail="profile not found")
+    batch.size_chart_profile_id = body.profile_id
+    await session.commit()
+    return await _summary(session, batch)
 
 
 @router.post("/batches/{batch_id}/finalize", response_model=schemas.BatchSummary)

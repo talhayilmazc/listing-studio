@@ -24,7 +24,8 @@ from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.llm import AnthropicLLMClient
-from app.pipeline.reference import build_profile_payload
+from app.pipeline.reference import build_profile_payload, decode_etsy_text
+from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,9 @@ async def detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
                 shop_id, state="active", limit=100, includes=["Images"], **kw
             )
             listings_raw = resp.get("results", [])
+            # Taxonomy tree (cached) -> which taxonomy ids are under Clothing (apparel).
+            nodes = await client.get_seller_taxonomy_nodes(**kw)
+            clothing_ids = clothing_taxonomy_ids(nodes)
 
             forcluster: list[ListingForCluster] = []
             for row in listings_raw:
@@ -252,9 +256,12 @@ async def detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
             if ref.listing_id in known:
                 continue
             # Named LOCALLY from the titles (no Etsy content sent to any provider);
-            # the seller renames it on confirm anyway.
-            name = heuristic_name([m.title for m in cluster.listings])
-            template = "apparel" if cluster.has_size_variation else "digital_products"
+            # the seller renames it on confirm anyway. Titles are HTML-decoded.
+            name = heuristic_name([decode_etsy_text(m.title) for m in cluster.listings])
+            # Template from the taxonomy (Clothing -> apparel), not variation shape.
+            template = infer_content_template(
+                ref.taxonomy_id, clothing_ids, default=settings.default_content_template
+            )
             profile = ListingProfile(
                 tenant_id=tid,
                 name=name,

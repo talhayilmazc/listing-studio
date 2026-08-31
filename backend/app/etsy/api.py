@@ -332,6 +332,24 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def delete_listing_image(
+        self,
+        shop_id: int,
+        listing_id: int,
+        listing_image_id: int,
+        *,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            f"/application/shops/{shop_id}/listings/{listing_id}/images/{listing_image_id}",
+            access_token=access_token,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     async def update_listing_inventory(
         self,
         listing_id: int,

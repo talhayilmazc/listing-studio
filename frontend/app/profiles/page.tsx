@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, uploadAsset } from "@/lib/api";
 import type { Profile, ShopListing } from "@/lib/types";
 import { ProfileCard } from "@/components/ProfileCard";
+
+const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -11,6 +14,9 @@ export default function ProfilesPage() {
   const [syncing, setSyncing] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replace, setReplace] = useState<{ id: number; status: string } | null>(null);
+  const pendingListing = useRef<number | null>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -60,6 +66,50 @@ export default function ProfilesPage() {
       await loadProfiles();
     } catch (e: any) {
       setError(String(e.message ?? e));
+    }
+  }
+
+  // Replace-images (B4): upload a folder of new photos, then update the listing in place.
+  function pickReplacement(listingId: number) {
+    pendingListing.current = listingId;
+    replaceInput.current?.click();
+  }
+
+  async function onReplaceFiles(files: File[]) {
+    const listingId = pendingListing.current;
+    if (listingId == null) return;
+    const images = files.filter((f) => IMAGE_RE.test(f.name));
+    if (images.length === 0) {
+      setReplace({ id: listingId, status: "No image files in that folder." });
+      return;
+    }
+    setReplace({ id: listingId, status: "Uploading new photos…" });
+    try {
+      const batch = await api.createBatch();
+      for (const f of images) {
+        const rel = (f as any).webkitRelativePath || f.name;
+        const gk = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+        await uploadAsset(batch.id, f, () => {}, gk);
+      }
+      await api.finalizeBatch(batch.id);
+      setReplace({ id: listingId, status: "Updating listing…" });
+      const { job_id } = await api.replaceImages(listingId, batch.id);
+      for (let i = 0; i < 80; i++) {
+        await sleep(1500);
+        const s = await api.jobStatus(job_id);
+        if (s.status === "succeeded") {
+          setReplace({ id: listingId, status: "Updated ✓" });
+          loadListings();
+          return;
+        }
+        if (s.status === "failed") {
+          setReplace({ id: listingId, status: `Failed: ${s.error ?? ""}` });
+          return;
+        }
+      }
+      setReplace({ id: listingId, status: "Timed out." });
+    } catch (e: any) {
+      setReplace({ id: listingId, status: e.message ?? String(e) });
     }
   }
 
@@ -158,12 +208,38 @@ export default function ProfilesPage() {
                   >
                     Use as profile
                   </button>
+                  <button
+                    className="w-full py-1 text-xs text-slate-500 hover:text-slate-800"
+                    onClick={() => pickReplacement(l.listing_id)}
+                    title="Upload a folder of new photos to update this listing in place"
+                  >
+                    Replace images…
+                  </button>
+                  {replace?.id === l.listing_id && (
+                    <p className="text-[11px] text-slate-500">{replace.status}</p>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {/* Hidden folder input for the replace-images flow. */}
+      <input
+        ref={replaceInput}
+        type="file"
+        multiple
+        // @ts-expect-error non-standard folder-select attributes
+        webkitdirectory=""
+        directory=""
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          if (files.length) onReplaceFiles(files);
+        }}
+      />
     </div>
   );
 }

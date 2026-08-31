@@ -13,6 +13,7 @@ import type {
   Profile,
   PublishJob,
   Quota,
+  ReplaceImagesResult,
   ShopListings,
 } from "./types";
 
@@ -54,6 +55,12 @@ export const api = {
   getBatch: (id: string) => req<BatchDetail>(`/batches/${id}`),
   createBatch: () => req<BatchSummary>("/batches", { method: "POST" }),
   finalizeBatch: (id: string) => req<BatchSummary>(`/batches/${id}/finalize`, { method: "POST" }),
+  // Choose which profile's size charts to append when publishing this batch (Task 4).
+  setSizeChartProfile: (id: string, profileId: string | null) =>
+    req<BatchSummary>(`/batches/${id}/size-chart-profile`, {
+      method: "PUT",
+      body: JSON.stringify({ profile_id: profileId }),
+    }),
   // Generate content for a batch; pass a groupKey to limit to one folder group (D3).
   generate: (id: string, profileId: string, groupKey?: string) =>
     req<GenerateResult>(`/batches/${id}/generate`, {
@@ -100,6 +107,11 @@ export const api = {
   shopListings: () => req<ShopListings>("/shop/listings"),
   useListingAsProfile: (listingId: number) =>
     req<Profile>(`/shop/listings/${listingId}/use-as-profile`, { method: "POST" }),
+  replaceImages: (listingId: number, batchId: string) =>
+    req<ReplaceImagesResult>(`/shop/listings/${listingId}/replace-images`, {
+      method: "POST",
+      body: JSON.stringify({ batch_id: batchId }),
+    }),
 };
 
 /** Upload a single file with per-file progress via XHR. */

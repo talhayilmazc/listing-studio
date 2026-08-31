@@ -68,6 +68,7 @@ class JobType(str, enum.Enum):
     refresh_profile = "refresh_profile"
     sync_shop_listings = "sync_shop_listings"
     publish_live = "publish_live"
+    replace_images = "replace_images"
 
 
 class JobStatus(str, enum.Enum):
@@ -253,6 +254,12 @@ class UploadBatch(Base):
         default=UploadBatchStatus.uploading,
     )
     file_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: Optional profile whose size-chart (fixed) images to append when publishing
+    #: this batch's listings — lets size charts come from a different profile than
+    #: the one supplying metadata (Task 4). Null = use each content's own profile.
+    size_chart_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -355,9 +362,10 @@ class ListingProfile(Base):
     #: Reference listing_image_ids always appended to new drafts (B3, e.g. size
     #: charts). Auto-detected by classifying the reference images; user-toggleable.
     fixed_image_ids: Mapped[list[int] | None] = mapped_column(JSONB_TYPE)
-    #: Which content prompt to use: "apparel" | "digital_products" (C1).
+    #: Which content prompt to use: "apparel" | "digital_products" (C1). Apparel is
+    #: the default; digital_products is opt-in.
     content_template: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default="digital_products"
+        Text, nullable=False, server_default="apparel"
     )
     #: How the profile was created: "manual" | "detected" (auto-clustered).
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")

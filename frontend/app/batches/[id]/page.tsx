@@ -140,6 +140,31 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           {selected && !selected.is_fresh && (
             <span className="text-xs text-amber-600">reference not fetched — refresh it first</span>
           )}
+          {profiles.length > 0 && (
+            <>
+              <label className="ml-3 text-sm text-slate-600">Size charts</label>
+              <select
+                className="field w-auto py-1 text-sm"
+                value={batch.size_chart_profile_id ?? ""}
+                onChange={async (e) => {
+                  const val = e.target.value || null;
+                  try {
+                    const updated = await api.setSizeChartProfile(id, val);
+                    setBatch((b) => (b ? { ...b, size_chart_profile_id: updated.size_chart_profile_id } : b));
+                  } catch (err: any) {
+                    setNotice(err.message ?? String(err));
+                  }
+                }}
+              >
+                <option value="">Each listing’s own profile</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
         <button
           className="btn-secondary"

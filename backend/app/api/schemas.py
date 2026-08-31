@@ -30,6 +30,11 @@ class BatchSummary(BaseModel):
     asset_count: int
     processed_count: int
     approved_count: int
+    size_chart_profile_id: uuid.UUID | None = None  # profile whose size charts to append
+
+
+class SizeChartProfileUpdate(BaseModel):
+    profile_id: uuid.UUID | None = None  # null clears it (use each content's own profile)
 
 
 class BatchDetail(BatchSummary):
@@ -148,7 +153,7 @@ class JobStatusOut(BaseModel):
 class ProfileCreate(BaseModel):
     name: str
     reference_listing_id: int
-    content_template: str = "digital_products"
+    content_template: str = "apparel"
     fixed_image_ids: list[int] = Field(default_factory=list)
 
 
@@ -193,6 +198,15 @@ class ShopListingOut(BaseModel):
 class ShopListingsOut(BaseModel):
     listings: list[ShopListingOut] = Field(default_factory=list)
     stale: bool = False  # a background refresh was triggered
+
+
+class ReplaceImagesRequest(BaseModel):
+    batch_id: uuid.UUID  # the uploaded batch of new product photos
+
+
+class ReplaceImagesOut(BaseModel):
+    listing_id: int
+    job_id: uuid.UUID
 
 
 class ConnectionOut(BaseModel):

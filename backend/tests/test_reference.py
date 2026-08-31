@@ -3,8 +3,21 @@
 from app.pipeline.reference import (
     build_inventory_from_reference,
     build_profile_payload,
+    decode_etsy_text,
     replace_title_block,
 )
+
+
+def test_decode_etsy_text_unescapes_html_entities() -> None:
+    assert decode_etsy_text("I&#39;m a Tee &amp; More") == "I'm a Tee & More"
+    assert decode_etsy_text(None) == ""
+
+
+def test_build_profile_payload_decodes_description() -> None:
+    payload = build_profile_payload(
+        {"description": "It&#39;s great\n\nSize: S-3XL"}, {"products": []}, {"results": []}
+    )
+    assert payload["description"].startswith("It's great")
 
 REF_LISTING = {
     "listing_id": 111,

@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # user's shop without permission.
     auto_create_sections: bool = False
 
+    # Default content prompt when the taxonomy doesn't say otherwise (apparel shop).
+    default_content_template: str = "apparel"
+
     # LLM provider (Anthropic) for vision analysis + content generation.
     # Key is read from the environment only, never hardcoded (see CLAUDE.md).
     llm_api_key: str = ""
