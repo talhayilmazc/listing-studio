@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 
@@ -18,6 +18,40 @@ export function ProfileCard({
   const [name, setName] = useState(profile.name);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+
+  // A freshly created/detected profile has its reference fetched in the background
+  // (refresh_profile is enqueued on create). Poll until the cached payload lands so
+  // the card shows "fetching reference…" and then flips to cached on its own.
+  useEffect(() => {
+    if (profile.is_fresh) {
+      setFetching(false);
+      return;
+    }
+    let cancelled = false;
+    setFetching(true);
+    (async () => {
+      for (let i = 0; i < 16; i++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (cancelled) return;
+        try {
+          const fresh = await api.getProfile(profile.id);
+          if (cancelled) return;
+          if (fresh.is_fresh) {
+            onChange(fresh);
+            return; // effect re-runs with is_fresh=true and clears `fetching`
+          }
+        } catch {
+          /* keep polling; a transient error shouldn't stop the fetch */
+        }
+      }
+      if (!cancelled) setFetching(false); // give up quietly after ~40s
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.is_fresh, profile.id]);
 
   async function run(label: string, fn: () => Promise<Profile | void>) {
     setBusy(label);
@@ -96,8 +130,20 @@ export function ProfileCard({
               </option>
             ))}
           </select>
-          <span className={profile.is_fresh ? "text-emerald-600" : "text-amber-600"}>
-            {profile.is_fresh ? "● reference cached" : "○ not fetched"}
+          <span
+            className={
+              profile.is_fresh
+                ? "text-emerald-600"
+                : fetching
+                  ? "text-brand-600"
+                  : "text-amber-600"
+            }
+          >
+            {profile.is_fresh
+              ? "● reference cached"
+              : fetching
+                ? "◌ fetching reference…"
+                : "○ not fetched"}
           </span>
         </div>
       </div>

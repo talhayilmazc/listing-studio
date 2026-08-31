@@ -94,6 +94,7 @@ export const api = {
 
   // Reference-listing profiles (Section B) + shop listings (B4).
   listProfiles: () => req<Profile[]>("/profiles"),
+  getProfile: (id: string) => req<Profile>(`/profiles/${id}`),
   createProfile: (body: { name: string; reference_listing_id: number; content_template?: string }) =>
     req<Profile>("/profiles", { method: "POST", body: JSON.stringify(body) }),
   updateProfile: (
