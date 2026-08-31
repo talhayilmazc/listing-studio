@@ -14,6 +14,7 @@ CLAUDE.md); the service layer never calls Etsy directly. Tokens are never logged
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 import json
 from typing import Any
@@ -25,6 +26,8 @@ from app.etsy.client import ETSY_API_BASE, auth_headers
 from app.etsy.errors import raise_for_etsy_status
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
+
+logger = logging.getLogger(__name__)
 
 # Taxonomy rarely changes and is NOT Member Content, so the 24h cache rule applies.
 _TAXONOMY_TTL = 24 * 3600
@@ -114,7 +117,15 @@ class EtsyApiClient:
             files=files,
         )
         if resp.status_code >= 400:
-            raise_for_etsy_status(resp.status_code, _retry_after(resp))
+            # Etsy names the rejected field in the body — capture it (no token is in
+            # the response body or the path). Logged server-side; kept off the UI.
+            body = resp.text[:2000] if resp.content else ""
+            logger.warning(
+                "Etsy API %s %s -> %d: %s", method, path, resp.status_code, body
+            )
+            raise_for_etsy_status(
+                resp.status_code, _retry_after(resp), body=body, path=path, method=method
+            )
         if self._usage is not None and tenant_id is not None:
             self._usage.record(tenant_id, date.today())
         return resp.json() if resp.content else {}

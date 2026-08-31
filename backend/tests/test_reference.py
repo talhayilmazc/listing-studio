@@ -101,6 +101,54 @@ def test_build_inventory_from_reference_applies_sku_and_keeps_variations() -> No
 
 
 def test_build_inventory_from_reference_falls_back_to_single_product() -> None:
-    inv = build_inventory_from_reference([], sku="BR5475", quantity=999)
+    # No variations: a single product priced from the reference listing price (§0).
+    inv = build_inventory_from_reference([], sku="BR5475", quantity=999, fallback_price=12.5)
     assert len(inv["products"]) == 1
     assert inv["products"][0]["sku"] == "BR5475"
+    assert inv["products"][0]["offerings"][0]["price"] == 12.5
+
+
+def test_inventory_converts_prices_and_drops_priceless_variations() -> None:
+    # A read-back inventory: money objects on read; two rows have no price (disabled).
+    ref = [
+        {
+            "offerings": [{"price": {"amount": 2599, "divisor": 100}, "is_enabled": True}],
+            "property_values": [
+                {"property_id": 200, "property_name": "Size", "value_ids": [1], "values": ["S"]}
+            ],
+        },
+        {
+            "offerings": [{"price": None}],  # priceless -> dropped (§C)
+            "property_values": [
+                {"property_id": 200, "property_name": "Size", "value_ids": [2], "values": ["M"]}
+            ],
+        },
+        {
+            "offerings": [{"price": {"amount": 0, "divisor": 100}}],  # zero -> dropped
+            "property_values": [
+                {"property_id": 200, "property_name": "Size", "value_ids": [3], "values": ["L"]}
+            ],
+        },
+    ]
+    inv = build_inventory_from_reference(ref, sku="BR5475", quantity=999)
+    # Only the one priced (S) variation survives.
+    assert len(inv["products"]) == 1
+    assert inv["products"][0]["property_values"][0]["values"] == ["S"]
+    # Price is a writable float, not the read-back {amount, divisor}.
+    price = inv["products"][0]["offerings"][0]["price"]
+    assert price == 25.99 and isinstance(price, float)
+    # No offering is ever sent with a zero/None price (the 400 cause).
+    for product in inv["products"]:
+        for offering in product["offerings"]:
+            assert offering["price"] and offering["price"] > 0
+
+
+def test_inventory_preserves_offering_is_enabled() -> None:
+    ref = [
+        {
+            "offerings": [{"price": {"amount": 2000, "divisor": 100}, "is_enabled": False}],
+            "property_values": [],
+        }
+    ]
+    inv = build_inventory_from_reference(ref, sku="X", quantity=5)
+    assert inv["products"][0]["offerings"][0]["is_enabled"] is False

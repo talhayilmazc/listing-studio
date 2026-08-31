@@ -87,6 +87,27 @@ async def test_error_status_mapping(status: int, exc: type[Exception]) -> None:
             await client.get_listing(1, access_token="t")
 
 
+async def test_client_error_captures_body_and_path_and_logs(caplog) -> None:
+    """A 400 must surface Etsy's rejected-field body + the request path (for logs),
+    while the exception str() stays generic (no leak to the UI)."""
+    detail = "Inventory instances are invalid: offering price is below the minimum"
+    client, http = _make(lambda req: httpx.Response(400, json={"error": detail}))
+    with caplog.at_level("WARNING"):
+        async with http:
+            with pytest.raises(EtsyClientError) as exc:
+                await client.update_listing_inventory(
+                    77, inventory={"products": []}, access_token="t"
+                )
+
+    err = exc.value
+    assert err.status_code == 400
+    assert detail in (err.body or "")
+    assert err.path == "/application/listings/77/inventory"
+    assert err.method == "PUT"
+    assert str(err) == "etsy client error (400)"  # generic -> safe for job.last_error
+    assert any(detail in rec.getMessage() for rec in caplog.records)  # logged server-side
+
+
 async def test_quota_and_bucket_gate_each_call() -> None:
     redis = FakeAsyncRedis()
     quota = DailyQuota(redis, global_daily_limit=100)

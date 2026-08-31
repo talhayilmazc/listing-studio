@@ -219,7 +219,10 @@ async def publish_content(
 
     # 6) Inventory: the reference variation structure with OUR sku on every product.
     inventory = build_inventory_from_reference(
-        reference.get("inventory_products") or [], sku=sku, quantity=config.quantity
+        reference.get("inventory_products") or [],
+        sku=sku,
+        quantity=config.quantity,
+        fallback_price=reference.get("price"),
     )
     await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
     has_variations = len(inventory["products"]) > 1

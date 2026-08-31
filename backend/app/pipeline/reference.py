@@ -80,50 +80,84 @@ def replace_title_block(description: str, title: str) -> str:
     return "\n".join([title, *lines[blank:]])
 
 
+def _offering_price(offering: dict[str, Any]) -> float | None:
+    """A read-back offering's price as a writable float, or ``None`` if it has none.
+
+    Etsy returns price as ``{amount, divisor}`` on read but expects a plain float on
+    write. A variation whose price is absent/zero is disabled in the seller's shop
+    and must NOT be sent (v3 §C: priceless rows are dropped).
+    """
+    price = offering.get("price")
+    if isinstance(price, dict):
+        amount = price.get("amount")
+        divisor = price.get("divisor") or 100
+        if not amount:  # 0 or None -> priceless
+            return None
+        return round(float(amount) / float(divisor), 2)
+    if price in (None, ""):
+        return None
+    try:
+        value = float(price)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def build_inventory_from_reference(
     reference_products: list[dict[str, Any]],
     *,
     sku: str | None,
     quantity: int,
+    fallback_price: float | None = None,
 ) -> dict[str, Any]:
-    """Rebuild an ``updateListingInventory`` body from the reference variations.
+    """Reshape a read-back inventory into a writable ``updateListingInventory`` body.
 
-    Copies the reference variation structure (property values) and prices, but sets
-    our SKU on every product (A2) and our quantity. Falls back to a single product
-    when the reference has no variations.
+    A ``getListingInventory`` response is NOT directly writable: prices come back as
+    ``{amount, divisor}`` (float on write), offerings carry read-only fields, and
+    priceless rows are disabled. This converts the prices, keeps only priced
+    offerings, drops any product left with no priced offering (v3 §C), sets our SKU
+    on every product (§D), and reshapes ``property_values`` to the writable subset.
+
+    Only the SKU is ours; prices, sizes, colours and quantities come from the
+    reference (v3 §0 — nothing hardcoded). Falls back to a single bare product priced
+    from ``fallback_price`` (the reference listing price) when there are no variations.
     """
-    if not reference_products:
-        return {
-            "products": [
-                {
-                    "sku": sku or "",
-                    "offerings": [{"price": 0.0, "quantity": quantity, "is_enabled": True}],
-                    "property_values": [],
-                }
-            ]
-        }
-
     products: list[dict[str, Any]] = []
-    for product in reference_products:
-        offerings = [
-            {
-                "price": _money_to_float(off.get("price")),
-                "quantity": quantity,
-                "is_enabled": True,
-            }
-            for off in product.get("offerings", [])
-        ] or [{"price": 0.0, "quantity": quantity, "is_enabled": True}]
-
-        property_values = []
-        for value in product.get("property_values", []):
-            property_values.append(
+    for product in reference_products or []:
+        offerings = []
+        for offering in product.get("offerings", []):
+            price = _offering_price(offering)
+            if price is None:
+                continue  # priceless / disabled variation -> skip (§C)
+            offerings.append(
                 {
-                    k: value[k]
-                    for k in ("property_id", "property_name", "scale_id", "value_ids", "values")
-                    if value.get(k) is not None
+                    "price": price,
+                    "quantity": quantity,
+                    "is_enabled": bool(offering.get("is_enabled", True)),
                 }
             )
+        if not offerings:
+            continue  # a variation with no priced offering is dropped entirely
+
+        property_values = [
+            {
+                key: value[key]
+                for key in ("property_id", "property_name", "scale_id", "value_ids", "values")
+                if value.get(key) is not None
+            }
+            for value in product.get("property_values", [])
+        ]
         products.append(
             {"sku": sku or "", "offerings": offerings, "property_values": property_values}
         )
+
+    if not products:
+        # No priced variations (or the reference had no inventory): a single product
+        # priced from the reference listing price. Never a hardcoded price (§0).
+        offerings = (
+            [{"price": round(float(fallback_price), 2), "quantity": quantity, "is_enabled": True}]
+            if fallback_price
+            else []
+        )
+        products = [{"sku": sku or "", "offerings": offerings, "property_values": []}]
     return {"products": products}
