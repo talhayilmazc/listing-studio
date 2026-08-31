@@ -34,6 +34,7 @@ from app.db.models import (
     ListingSnapshot,
 )
 from app.etsy.api import EtsyApiClient
+from app.pipeline.attributes import resolve_required_attributes
 from app.pipeline.reference import build_inventory_from_reference
 from app.pipeline.sections import choose_section
 
@@ -139,6 +140,7 @@ async def publish_content(
     fixed_image_ids: list[int] | None = None,
     theme: str = "",
     occasion: str = "",
+    vision: dict[str, Any] | None = None,
     auto_create_sections: bool = False,
     tenant_limit: int,
 ) -> PublishResult:
@@ -180,9 +182,14 @@ async def publish_content(
         section_id = int(created["shop_section_id"])
 
     # 4) Create the DRAFT listing. Category, price, fulfilment and variation
-    # structure are copied VERBATIM from the seller's reference listing (A3 / B) --
-    # never re-selected. Only title, description and tags are the generated content.
-    taxonomy_id = reference.get("taxonomy_id") or content.taxonomy_id or config.default_taxonomy_id
+    # structure are copied VERBATIM from the seller's reference listing -- never
+    # re-selected or defaulted (v4 §0/§A). The taxonomy MUST come from the reference;
+    # no code path selects a category or falls back to a default.
+    taxonomy_id = reference.get("taxonomy_id")
+    if not taxonomy_id:
+        raise ValueError(
+            "reference profile has no taxonomy_id; refresh the profile before publishing"
+        )
     price = reference.get("price")
     listing: dict[str, Any] = {
         "quantity": config.quantity,
@@ -192,7 +199,9 @@ async def publish_content(
         "who_made": reference.get("who_made") or config.who_made,
         "when_made": reference.get("when_made") or config.when_made,
         "taxonomy_id": taxonomy_id,
-        "type": reference.get("listing_type") or config.listing_type,
+        # Apparel is always a PHYSICAL listing. Sending type=download makes Etsy
+        # create a digital listing and force the "Digital files" category (v4 §A).
+        "type": "physical",
         "tags": list(content.tags or []),
     }
     for key in ("shipping_profile_id", "production_partner_ids", "processing_min", "processing_max"):
@@ -216,6 +225,39 @@ async def publish_content(
         )
     )
     await session.commit()
+
+    # 5a) Read the draft back and verify Etsy stored the reference category. A wrong
+    # `type` or a re-selected category lands it under Digital; fail loudly (v4 §A).
+    readback = await client.get_listing(listing_id, **ctx)
+    stored_taxonomy = readback.get("taxonomy_id")
+    if int(stored_taxonomy or 0) != int(taxonomy_id):
+        raise ValueError(
+            f"draft taxonomy_id {stored_taxonomy} does not match reference {taxonomy_id}; "
+            "the listing would be in the wrong category"
+        )
+
+    # 5b) Required category attributes (neckline, sleeve length, clothing style, ...):
+    # copy from the reference, else derive from the mockup vision, else fail with the
+    # missing names -- never a hardcoded default (v4 §B). Missing required attributes
+    # are why "save then publish" was needed in Etsy's UI.
+    props = await client.get_properties_by_taxonomy_id(taxonomy_id, **ctx)
+    resolved, missing = resolve_required_attributes(
+        props.get("results", []), reference.get("attributes"), vision
+    )
+    if missing:
+        raise ValueError(
+            "required clothing attributes could not be determined: " + ", ".join(missing)
+        )
+    for attr in resolved:
+        await client.update_listing_property(
+            shop_id,
+            listing_id,
+            attr.property_id,
+            value_ids=attr.value_ids,
+            values=attr.values,
+            scale_id=attr.scale_id,
+            **ctx,
+        )
 
     # 6) Inventory: the reference variation structure with OUR sku on every product.
     inventory = build_inventory_from_reference(

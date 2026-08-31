@@ -94,13 +94,15 @@ async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
                 "tenant_id": profile.tenant_id,
                 "tenant_limit": tenant.daily_quota if tenant else None,
             }
-            await _resolve_shop_id(session, client, connection, kw)
+            shop_id = await _resolve_shop_id(session, client, connection, kw)
             ref_id = profile.reference_listing_id
             listing = await client.get_listing(ref_id, **kw)
             inventory = await client.get_listing_inventory(ref_id, **kw)
             images = await client.get_listing_images(ref_id, **kw)
+            # Category attributes (neckline, sleeve length, ...) for v4 §B.
+            properties = await client.get_listing_properties(shop_id, ref_id, **kw)
 
-        payload = build_profile_payload(listing, inventory, images)
+        payload = build_profile_payload(listing, inventory, images, properties)
 
         # Classify the reference's non-primary images as size charts vs artwork and
         # auto-mark the charts as fixed images (B3). Done LOCALLY from the image

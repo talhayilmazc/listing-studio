@@ -34,6 +34,7 @@ def build_profile_payload(
     listing: dict[str, Any],
     inventory: dict[str, Any],
     images: dict[str, Any],
+    listing_properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Extract the reusable fields from a reference listing into ``cached_payload``."""
     price = listing.get("price")
@@ -57,6 +58,9 @@ def build_profile_payload(
         "price_on_property": list((inventory or {}).get("price_on_property") or []),
         "quantity_on_property": list((inventory or {}).get("quantity_on_property") or []),
         "sku_on_property": list((inventory or {}).get("sku_on_property") or []),
+        # Category attributes (neckline, sleeve length, ...) copied from the reference
+        # so required clothing properties can be re-applied to new drafts (v4 §B).
+        "attributes": list((listing_properties or {}).get("results") or []),
         # Image ids/urls so the UI can offer them as fixed images (B3).
         "images": [
             {

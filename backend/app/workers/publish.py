@@ -156,6 +156,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     reference=profile.cached_payload,
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),
+                    vision=vision,
                     auto_create_sections=settings.auto_create_sections,
                     tenant_limit=tenant.daily_quota,
                 )

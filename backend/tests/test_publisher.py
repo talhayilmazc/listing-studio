@@ -77,16 +77,29 @@ REFERENCE = {
 
 
 class FakeEtsy:
-    def __init__(self, *, sections=None, properties=None) -> None:
+    def __init__(self, *, sections=None, properties=None, readback_taxonomy=None) -> None:
         self.calls: list[str] = []
         self._sections = sections if sections is not None else {"results": []}
         self._properties = properties if properties is not None else {"results": []}
+        # If set, get_listing returns this taxonomy (to simulate Etsy storing a
+        # different/wrong category); otherwise it echoes what was submitted.
+        self._readback_taxonomy = readback_taxonomy
         self.last_listing: dict[str, Any] | None = None
         self.inventory: dict[str, Any] | None = None
         self.uploaded: list[tuple[int, str]] = []
         self.created_section_title: str | None = None
         self.last_update: dict[str, Any] | None = None
         self.deleted: list[int] = []
+        self.properties_set: list[dict[str, Any]] = []
+
+    async def get_listing(self, listing_id: int, **_: Any) -> dict[str, Any]:
+        self.calls.append("get_listing")
+        taxonomy = (
+            self._readback_taxonomy
+            if self._readback_taxonomy is not None
+            else (self.last_listing or {}).get("taxonomy_id")
+        )
+        return {"listing_id": listing_id, "taxonomy_id": taxonomy}
 
     async def get_shop_by_owner_user_id(self, uid: int, **_: Any) -> dict[str, Any]:
         self.calls.append("shop")
@@ -122,6 +135,14 @@ class FakeEtsy:
 
     async def delete_listing_image(self, shop_id: int, listing_id: int, image_id: int, **_: Any):
         self.deleted.append(image_id)
+        return {}
+
+    async def update_listing_property(
+        self, shop_id: int, listing_id: int, property_id: int, **kw: Any
+    ):
+        self.properties_set.append(
+            {"property_id": property_id, "value_ids": kw.get("value_ids"), "values": kw.get("values")}
+        )
         return {}
 
     async def upload_listing_image(
@@ -248,6 +269,178 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
         snap = snaps.scalars().first()
         assert snap is not None and snap.job_id == job_id
         assert snap.payload["operation"] == "create_draft"
+    assert "get_listing" in fake.calls  # taxonomy read-back happened (v4 §A)
+
+
+async def test_publish_always_sends_physical_type(async_sm: async_sessionmaker) -> None:
+    """v4 §A: cached_payload never stores a listing type, yet the draft is always
+    physical (a download type forces the Digital-files category)."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy()
+    reference = {k: v for k, v in REFERENCE.items() if k != "listing_type"}
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        await publish_content(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            reference=reference,
+            theme="x",
+            tenant_limit=2000,
+        )
+    assert fake.last_listing["type"] == "physical"
+    assert fake.last_listing["taxonomy_id"] == 2078  # from the reference, not CONFIG
+
+
+async def test_publish_fails_when_stored_taxonomy_differs(async_sm: async_sessionmaker) -> None:
+    """v4 §A: if Etsy stored a different category (e.g. Digital), fail loudly."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(readback_taxonomy=999)  # Etsy stored a different category
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        with pytest.raises(ValueError, match="taxonomy"):
+            await publish_content(
+                s,
+                job_id=job_id,
+                content=content,
+                connection=conn,
+                sku="BR5475",
+                thumbnail=PublishImage(b"t", "t.jpg"),
+                client=fake,
+                access_token="tok",
+                config=CONFIG,
+                reference=REFERENCE,
+                theme="x",
+                tenant_limit=2000,
+            )
+
+
+REQUIRED_NECKLINE = {
+    "results": [
+        {
+            "property_id": 100,
+            "property_name": "Neckline",
+            "is_required": True,
+            "possible_values": [{"value_id": 11, "name": "Crew Neck"}],
+        }
+    ]
+}
+
+
+async def test_publish_applies_required_attribute_from_reference(
+    async_sm: async_sessionmaker,
+) -> None:
+    """v4 §B: a required clothing attribute is copied from the reference listing."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(properties=REQUIRED_NECKLINE)
+    reference = {**REFERENCE, "attributes": [{"property_id": 100, "value_ids": [11], "values": ["Crew Neck"]}]}
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        await publish_content(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            reference=reference,
+            theme="x",
+            tenant_limit=2000,
+        )
+    assert fake.properties_set == [{"property_id": 100, "value_ids": [11], "values": ["Crew Neck"]}]
+
+
+async def test_publish_applies_required_attribute_from_vision(
+    async_sm: async_sessionmaker,
+) -> None:
+    """v4 §B: when the reference lacks it, the attribute comes from the mockup vision."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(properties=REQUIRED_NECKLINE)
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        await publish_content(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            reference=REFERENCE,  # no attributes
+            vision={"neckline": "crew neck"},
+            theme="x",
+            tenant_limit=2000,
+        )
+    assert fake.properties_set == [{"property_id": 100, "value_ids": [11], "values": ["Crew Neck"]}]
+
+
+async def test_publish_fails_when_required_attribute_undetermined(
+    async_sm: async_sessionmaker,
+) -> None:
+    """v4 §B: an unfillable required attribute fails the job (no random default)."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(properties=REQUIRED_NECKLINE)
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        with pytest.raises(ValueError, match="Neckline"):
+            await publish_content(
+                s,
+                job_id=job_id,
+                content=content,
+                connection=conn,
+                sku="BR5475",
+                thumbnail=PublishImage(b"t", "t.jpg"),
+                client=fake,
+                access_token="tok",
+                config=CONFIG,
+                reference=REFERENCE,  # no attributes
+                vision={},  # nothing from vision either
+                theme="x",
+                tenant_limit=2000,
+            )
+    assert fake.properties_set == []  # never set a guessed value
+
+
+async def test_publish_requires_reference_taxonomy_no_default(async_sm: async_sessionmaker) -> None:
+    """v4 §A: no code path selects a category — a profile without taxonomy fails."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy()
+    reference = {k: v for k, v in REFERENCE.items() if k != "taxonomy_id"}
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        with pytest.raises(ValueError, match="taxonomy_id"):
+            await publish_content(
+                s,
+                job_id=job_id,
+                content=content,
+                connection=conn,
+                sku="BR5475",
+                thumbnail=PublishImage(b"t", "t.jpg"),
+                client=fake,
+                access_token="tok",
+                config=CONFIG,
+                reference=reference,
+                theme="x",
+                tenant_limit=2000,
+            )
+    assert fake.last_listing is None  # never created a draft -> no default category
 
 
 async def test_publish_writes_sku_to_every_product_and_marks_draft(

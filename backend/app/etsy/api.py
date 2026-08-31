@@ -432,3 +432,52 @@ class EtsyApiClient:
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
         )
+
+    # --- Category attributes (neckline, sleeve length, ...) ----------------
+    async def get_listing_properties(
+        self,
+        shop_id: int,
+        listing_id: int,
+        *,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Read a listing's category attribute values (the seller's own listing)."""
+        return await self._request(
+            "GET",
+            f"/application/shops/{shop_id}/listings/{listing_id}/properties",
+            access_token=access_token,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
+    async def update_listing_property(
+        self,
+        shop_id: int,
+        listing_id: int,
+        property_id: int,
+        *,
+        value_ids: list[int] | None = None,
+        values: list[str] | None = None,
+        scale_id: int | None = None,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Set one category attribute on a listing (e.g. neckline, sleeve length)."""
+        data: dict[str, Any] = {}
+        if value_ids:
+            data["value_ids"] = value_ids
+        if values:
+            data["values"] = values
+        if scale_id is not None:
+            data["scale_id"] = scale_id
+        return await self._request(
+            "PUT",
+            f"/application/shops/{shop_id}/listings/{listing_id}/properties/{property_id}",
+            access_token=access_token,
+            data=data,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )

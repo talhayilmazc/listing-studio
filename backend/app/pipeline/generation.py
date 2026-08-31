@@ -108,6 +108,10 @@ async def generate_listing_content(
                 "theme": analysis.theme,
                 "occasion": analysis.occasion,
                 "audience": analysis.target_audience,
+                # Garment attributes for Etsy's required clothing properties (v4 §B).
+                "neckline": analysis.neckline,
+                "sleeve_length": analysis.sleeve_length,
+                "clothing_style": analysis.clothing_style,
             }
         }
 

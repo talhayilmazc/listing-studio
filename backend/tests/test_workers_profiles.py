@@ -52,6 +52,9 @@ class FakeEtsy:
     async def get_listing_images(self, listing_id: int, **_: Any) -> dict[str, Any]:
         return {"results": [{"listing_image_id": 900, "rank": 1, "url_fullxfull": "u"}]}
 
+    async def get_listing_properties(self, shop_id: int, listing_id: int, **_: Any) -> dict[str, Any]:
+        return {"results": [{"property_id": 100, "property_name": "Neckline", "values": ["Crew Neck"]}]}
+
     async def get_listings_by_shop(self, shop_id: int, *, state: str, **_: Any) -> dict[str, Any]:
         self.listings_calls.append(state)
         if state == "active":

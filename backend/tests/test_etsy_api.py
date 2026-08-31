@@ -190,6 +190,25 @@ async def test_upload_image_by_id_copies_without_file() -> None:
     assert body["listing_image_id"] == ["900"] and body["rank"] == ["3"]
 
 
+async def test_listing_property_read_and_write_paths() -> None:
+    seen: list[httpx.Request] = []
+    client, http = _make(
+        lambda req: (seen.append(req), httpx.Response(200, json={"results": []}))[1]
+    )
+    async with http:
+        await client.get_listing_properties(63829375, 4565991052, access_token="t")
+        await client.update_listing_property(
+            63829375, 4565991052, 100, value_ids=[11], values=["Crew Neck"], access_token="t"
+        )
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/v3/application/shops/63829375/listings/4565991052/properties"
+    assert seen[1].method == "PUT"
+    assert (
+        seen[1].url.path
+        == "/v3/application/shops/63829375/listings/4565991052/properties/100"
+    )
+
+
 async def test_get_shop_sections_path() -> None:
     seen: list[httpx.Request] = []
     client, http = _make(

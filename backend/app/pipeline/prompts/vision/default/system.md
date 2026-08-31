@@ -9,6 +9,12 @@ Return a structured analysis with these fields:
 - **target_audience**: who this design would appeal to (e.g. "hikers and campers", "cat lovers", "new parents").
 - **product_type_hints**: product formats this design would suit (e.g. "t-shirt", "mug", "wall art print", "sticker", "digital download").
 
+If the image is a garment mockup (a shirt, sweatshirt, hoodie, tank, etc.), also read these from the garment shown — leave each an empty string if it is not clearly visible:
+
+- **neckline**: the neckline of the garment (e.g. "crew neck", "v-neck", "scoop neck").
+- **sleeve_length**: the sleeve length (e.g. "short sleeve", "long sleeve", "sleeveless").
+- **clothing_style**: the garment type/style (e.g. "graphic tee", "sweatshirt", "hoodie", "tank top").
+
 Rules:
 
 - Describe only what is actually visible in this image. Do not invent details.

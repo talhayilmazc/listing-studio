@@ -24,6 +24,10 @@ VISION_SCHEMA: dict[str, Any] = {
         "target_audience": {"type": "string"},
         "product_type_hints": {"type": "array", "items": {"type": "string"}},
         "occasion": {"type": "string"},
+        # Garment attributes read from the mockup (v4 §B) -> Etsy clothing attributes.
+        "neckline": {"type": "string"},
+        "sleeve_length": {"type": "string"},
+        "clothing_style": {"type": "string"},
     },
     "required": [
         "theme",
@@ -47,6 +51,10 @@ class VisionAnalysis:
     product_type_hints: list[str]
     #: Holiday/event the design suits (e.g. "christmas", "4th of july"); "" if none.
     occasion: str = ""
+    #: Garment attributes seen in the mockup (v4 §B); "" when not visible.
+    neckline: str = ""
+    sleeve_length: str = ""
+    clothing_style: str = ""
 
 
 @dataclass
@@ -102,6 +110,9 @@ def _to_analysis(data: dict[str, Any]) -> VisionAnalysis:
             target_audience=str(data["target_audience"]),
             product_type_hints=[str(h) for h in data["product_type_hints"]],
             occasion=str(data.get("occasion", "")),
+            neckline=str(data.get("neckline", "")),
+            sleeve_length=str(data.get("sleeve_length", "")),
+            clothing_style=str(data.get("clothing_style", "")),
         )
     except (KeyError, TypeError) as exc:
         raise LLMError(f"vision response missing fields: {exc}") from exc
