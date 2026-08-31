@@ -2,6 +2,7 @@ import type {
   Asset,
   BatchCost,
   BatchDetail,
+  BatchPublishResult,
   BatchSummary,
   Connection,
   Content,
@@ -9,8 +10,10 @@ import type {
   GenerateResult,
   JobStatus,
   Meta,
+  Profile,
   PublishJob,
   Quota,
+  ShopListings,
 } from "./types";
 
 // Same-origin: Next rewrites /api/* to the FastAPI backend.
@@ -51,7 +54,12 @@ export const api = {
   getBatch: (id: string) => req<BatchDetail>(`/batches/${id}`),
   createBatch: () => req<BatchSummary>("/batches", { method: "POST" }),
   finalizeBatch: (id: string) => req<BatchSummary>(`/batches/${id}/finalize`, { method: "POST" }),
-  generate: (id: string) => req<GenerateResult>(`/batches/${id}/generate`, { method: "POST" }),
+  // Generate content for a batch; pass a groupKey to limit to one folder group (D3).
+  generate: (id: string, profileId: string, groupKey?: string) =>
+    req<GenerateResult>(`/batches/${id}/generate`, {
+      method: "POST",
+      body: JSON.stringify({ profile_id: profileId, ...(groupKey != null ? { group_key: groupKey } : {}) }),
+    }),
   batchCost: (id: string) => req<BatchCost>(`/batches/${id}/cost`),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
@@ -70,7 +78,28 @@ export const api = {
     req<PublishJob>(`/content/${id}/publish`, { method: "POST" }),
   publishLive: (id: string) =>
     req<PublishJob>(`/content/${id}/publish-live`, { method: "POST" }),
+  // Bulk: create drafts / publish-live for every approved item in the batch (D3/E).
+  publishBatch: (id: string) =>
+    req<BatchPublishResult>(`/batches/${id}/publish`, { method: "POST" }),
+  publishBatchLive: (id: string) =>
+    req<BatchPublishResult>(`/batches/${id}/publish-live`, { method: "POST" }),
   jobStatus: (jobId: string) => req<JobStatus>(`/jobs/${jobId}`),
+
+  // Reference-listing profiles (Section B) + shop listings (B4).
+  listProfiles: () => req<Profile[]>("/profiles"),
+  createProfile: (body: { name: string; reference_listing_id: number; content_template?: string }) =>
+    req<Profile>("/profiles", { method: "POST", body: JSON.stringify(body) }),
+  updateProfile: (
+    id: string,
+    body: Partial<{ name: string; content_template: string; fixed_image_ids: number[]; confirmed: boolean }>,
+  ) => req<Profile>(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),
+  refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),
+  deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),
+  detectProfiles: () => req<{ status: string }>("/shop/detect-profiles", { method: "POST" }),
+  shopListings: () => req<ShopListings>("/shop/listings"),
+  useListingAsProfile: (listingId: number) =>
+    req<Profile>(`/shop/listings/${listingId}/use-as-profile`, { method: "POST" }),
 };
 
 /** Upload a single file with per-file progress via XHR. */

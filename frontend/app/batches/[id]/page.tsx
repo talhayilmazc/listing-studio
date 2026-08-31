@@ -1,17 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import type { BatchDetail } from "@/lib/types";
+import type { Asset, BatchDetail, Profile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
+
+interface Group {
+  key: string;
+  label: string;
+  sku: string | null;
+  assets: Asset[];
+  done: boolean;
+}
 
 export default function BatchPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const [batch, setBatch] = useState<BatchDetail | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profileId, setProfileId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null); // group key, or "__all__"
   const [notice, setNotice] = useState<string | null>(null);
   const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
   const [costKey, setCostKey] = useState(0);
@@ -26,15 +36,48 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     load();
+    api
+      .listProfiles()
+      .then((all) => {
+        const confirmed = all.filter((p) => p.confirmed);
+        setProfiles(confirmed);
+        if (confirmed[0]) setProfileId((cur) => cur || confirmed[0].id);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function generate() {
-    setGenerating(true);
+  // One folder = one listing group (D1).
+  const groups: Group[] = useMemo(() => {
+    if (!batch) return [];
+    const by = new Map<string, Asset[]>();
+    for (const a of batch.assets) {
+      const key = a.group_key ?? "";
+      (by.get(key) ?? by.set(key, []).get(key)!).push(a);
+    }
+    return [...by.entries()]
+      .map(([key, assets]) => ({
+        key,
+        label: key === "" ? "(root)" : key,
+        sku: assets.find((a) => a.parsed_sku)?.parsed_sku ?? null,
+        assets: assets.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)),
+        done: assets.some((a) => a.has_content),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [batch]);
+
+  const selected = profiles.find((p) => p.id === profileId) ?? null;
+
+  async function generate(groupKey?: string) {
+    if (!profileId) {
+      setNotice("Pick a profile first.");
+      return;
+    }
+    setBusy(groupKey ?? "__all__");
     setNotice(null);
     setFailures([]);
     try {
-      const res = await api.generate(id);
+      const res = await api.generate(id, profileId, groupKey);
       setNotice(`Generated ${res.generated}, failed ${res.failed}, skipped ${res.skipped}.`);
       setFailures(res.failures);
       await load();
@@ -42,7 +85,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     } catch (e: any) {
       setNotice(e.message ?? String(e));
     } finally {
-      setGenerating(false);
+      setBusy(null);
     }
   }
 
@@ -50,6 +93,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   if (!batch) return <p className="text-sm text-slate-400">Loading…</p>;
 
   const withContent = batch.assets.filter((a) => a.has_content).length;
+  const anyBusy = busy !== null;
 
   return (
     <div className="space-y-6">
@@ -63,18 +107,47 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             <StatusPill status={batch.status} />
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            {batch.asset_count} files · {batch.processed_count} processed · {withContent} with
-            content · {batch.approved_count} approved
+            {groups.length} listing group{groups.length === 1 ? "" : "s"} · {batch.processed_count}{" "}
+            processed · {withContent} with content · {batch.approved_count} approved
           </p>
         </div>
+        <Link href={`/batches/${id}/review`} className="btn-primary">
+          Review listings
+        </Link>
+      </div>
+
+      {/* Profile picker + Generate all */}
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="flex items-center gap-2">
-          <button className="btn-secondary" onClick={generate} disabled={generating}>
-            {generating ? "Generating…" : "Generate content"}
-          </button>
-          <Link href={`/batches/${id}/review`} className="btn-primary">
-            Review listings
-          </Link>
+          <label className="text-sm text-slate-600">Profile</label>
+          {profiles.length === 0 ? (
+            <Link href="/profiles" className="text-sm text-brand-600 underline">
+              Create a profile first →
+            </Link>
+          ) : (
+            <select
+              className="field w-auto py-1 text-sm"
+              value={profileId}
+              onChange={(e) => setProfileId(e.target.value)}
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.content_template})
+                </option>
+              ))}
+            </select>
+          )}
+          {selected && !selected.is_fresh && (
+            <span className="text-xs text-amber-600">reference not fetched — refresh it first</span>
+          )}
         </div>
+        <button
+          className="btn-secondary"
+          onClick={() => generate()}
+          disabled={anyBusy || !profileId}
+        >
+          {busy === "__all__" ? "Generating all…" : "Generate content for all"}
+        </button>
       </div>
 
       {notice && (
@@ -94,46 +167,46 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {batch.assets.map((a) => (
-          <div key={a.id} className="card overflow-hidden">
-            <div className="aspect-square bg-slate-100">
-              {a.status === "processed" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={api.assetImage(a.id)}
-                  alt={a.original_filename}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-xs text-slate-400">
-                  no preview
-                </div>
-              )}
-            </div>
-            <div className="space-y-1 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-slate-800" title={a.original_filename}>
-                  {a.original_filename}
+      {/* Detected groups */}
+      <div className="space-y-3">
+        {groups.map((g) => (
+          <div key={g.key} className="card p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-slate-100 px-2 py-0.5 text-sm text-slate-600">
+                  {g.label}
                 </span>
-                {a.rank != null && (
-                  <span className="shrink-0 text-xs text-slate-400">#{a.rank}</span>
+                {g.sku && (
+                  <span className="font-mono text-xs text-slate-500">SKU {g.sku}</span>
                 )}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs text-slate-500">{a.parsed_sku ?? "—"}</span>
-                <StatusPill status={a.status} />
-              </div>
-              {a.has_content && (
-                <span className="inline-block text-xs font-medium text-emerald-600">
-                  ✓ content ready
+                <span className="text-xs text-slate-400">
+                  {g.assets.length} image{g.assets.length === 1 ? "" : "s"}
                 </span>
-              )}
-              {!a.has_content && a.error && (
-                <p className="break-words text-xs text-rose-600" title={a.error}>
-                  ⚠ {a.error}
-                </p>
-              )}
+                {g.done && <span className="text-xs text-emerald-600">✓ content ready</span>}
+              </div>
+              <button
+                className="btn-secondary py-1 text-xs"
+                onClick={() => generate(g.key)}
+                disabled={anyBusy || !profileId}
+              >
+                {busy === g.key ? "Generating…" : g.done ? "Regenerate" : "Generate"}
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto">
+              {g.assets.map((a) => (
+                <div key={a.id} className="shrink-0">
+                  <div className="h-16 w-16 overflow-hidden rounded bg-slate-100">
+                    {a.status === "processed" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={api.assetImage(a.id)}
+                        alt={a.original_filename}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ))}

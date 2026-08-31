@@ -52,6 +52,52 @@ export interface PublishJob {
   job_id: string;
 }
 
+export interface PublishSkipped {
+  content_id: string;
+  reason: string;
+}
+
+export interface BatchPublishResult {
+  jobs: PublishJob[];
+  skipped: PublishSkipped[];
+}
+
+export interface ReferenceImage {
+  listing_image_id: number | null;
+  rank: number | null;
+  url: string | null;
+  kind: string | null; // "size_chart" | "artwork" | null
+  is_fixed: boolean;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  reference_listing_id: number;
+  content_template: string;
+  source: string; // "manual" | "detected"
+  confirmed: boolean;
+  fixed_image_ids: number[];
+  updated_at: string | null;
+  is_fresh: boolean;
+  reference_images: ReferenceImage[];
+}
+
+export interface ShopListing {
+  listing_id: number;
+  title: string | null;
+  state: string | null;
+  sku: string | null;
+  shop_section_id: number | null;
+  url: string | null;
+  thumbnail_url: string | null;
+}
+
+export interface ShopListings {
+  listings: ShopListing[];
+  stale: boolean;
+}
+
 export interface JobStatus {
   id: string;
   type: string;

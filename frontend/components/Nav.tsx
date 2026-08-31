@@ -16,6 +16,12 @@ export function Nav() {
           <Link href="/" className="hidden text-sm text-slate-600 hover:text-slate-900 sm:block">
             Batches
           </Link>
+          <Link
+            href="/profiles"
+            className="hidden text-sm text-slate-600 hover:text-slate-900 sm:block"
+          >
+            Profiles
+          </Link>
           <ConnectionBadge />
           <QuotaBadge />
           <Link href="/upload" className="btn-primary">
