@@ -174,8 +174,10 @@ def test_apparel_prompt_template_loads() -> None:
 
 def test_apparel_policy_is_scoped_by_content_template() -> None:
     assert APPAREL.forbidden_terms and APPAREL.required_type_terms
+    assert APPAREL.forbidden_tag_terms  # generic-adjective tags are banned (v4 §H)
     # Digital sellers legitimately use "digital download"/"SVG": no bans.
     assert DIGITAL.forbidden_terms == () and DIGITAL.required_type_terms == ()
+    assert DIGITAL.forbidden_tag_terms == ()
     assert policy_for("unknown").forbidden_terms == ()
 
 
@@ -198,6 +200,19 @@ def test_apparel_rejects_forbidden_word_in_tags() -> None:
     assert any("digital download" in e and "tag" in e for e in errors), errors
 
 
+def test_apparel_rejects_generic_design_tags() -> None:
+    # "illustrated design" reached a real draft; the validator must now stop it.
+    tags = ["illustrated design", "shirt", *[f"tag{i}" for i in range(11)]]
+    errors = validate_listing(GeneratedListing(APPAREL_TITLE, tags, "d"), APPAREL)
+    assert any("illustrated design" in e and "search value" in e for e in errors), errors
+
+
+def test_apparel_generic_tags_are_case_insensitive() -> None:
+    tags = ["Graphic Design", "shirt", *[f"tag{i}" for i in range(11)]]
+    errors = validate_listing(GeneratedListing(APPAREL_TITLE, tags, "d"), APPAREL)
+    assert any("graphic design" in e.lower() for e in errors), errors
+
+
 def test_apparel_requires_product_type_in_title_and_tags() -> None:
     no_type_title = APPAREL_TITLE.replace("Shirt ", "")  # drop the only product word
     tags = [f"tag{i}" for i in range(13)]  # no product-type tag either
@@ -210,6 +225,32 @@ def test_digital_policy_allows_download_words() -> None:
     # VALID_TITLE contains "Printable" and "Digital Download" -> fine for a digital seller.
     tags = [f"tag{i}" for i in range(13)]
     assert validate_listing(GeneratedListing(VALID_TITLE, tags, "d"), DIGITAL) == []
+
+
+def test_digital_policy_allows_generic_design_tags() -> None:
+    # The generic-tag ban is apparel-scoped; digital sellers are unaffected.
+    tags = ["graphic design", *[f"tag{i}" for i in range(12)]]
+    assert validate_listing(GeneratedListing(VALID_TITLE, tags, "d"), DIGITAL) == []
+
+
+async def test_generator_retry_carries_generic_tag_error() -> None:
+    # A generic-adjective tag must fail validation and be corrected on the retry.
+    bad_tags = ["illustrated design", "shirt", *[f"tag{i}" for i in range(11)]]
+    good_tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    messages = FakeMessages(
+        [
+            fake_response(_payload(title=APPAREL_TITLE, tags=bad_tags)),  # invalid
+            fake_response(_payload(title=APPAREL_TITLE, tags=good_tags)),  # valid
+        ]
+    )
+    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=messages)
+    gen = AnthropicContentGenerator(client, policy=APPAREL)
+
+    result = await gen.generate(ANALYSIS, sku="SKU1")
+    assert result.attempts == 2
+    blocks = messages.calls[1]["messages"][0]["content"]
+    retry_text = "\n".join(b["text"] for b in blocks if b["type"] == "text")
+    assert "illustrated design" in retry_text.lower()
 
 
 async def test_generator_retry_carries_forbidden_word_error() -> None:

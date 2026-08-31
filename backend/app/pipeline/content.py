@@ -34,6 +34,8 @@ class ContentPolicy:
 
     forbidden_terms: tuple[str, ...] = ()
     required_type_terms: tuple[str, ...] = ()
+    #: Generic, no-search-value phrases banned in TAGS only (title may differ).
+    forbidden_tag_terms: tuple[str, ...] = ()
 
 
 # File-format / delivery words that must never appear on a physical apparel listing.
@@ -50,9 +52,20 @@ _APPAREL_FORBIDDEN = (
 )
 # At least one of these must name the product type in the title and in the tags.
 _APPAREL_TYPES = ("shirt", "t-shirt", "tshirt", "tee", "sweatshirt", "hoodie")
+# Generic design adjectives that carry no search value -> rejected as tags (v4 §H).
+_GENERIC_DESIGN_TAGS = (
+    "illustrated design",
+    "graphic design",
+    "digital art",
+    "printed design",
+    "custom design",
+    "unique design",
+    "trendy design",
+    "cool design",
+)
 
 _POLICIES: dict[str, ContentPolicy] = {
-    "apparel": ContentPolicy(_APPAREL_FORBIDDEN, _APPAREL_TYPES),
+    "apparel": ContentPolicy(_APPAREL_FORBIDDEN, _APPAREL_TYPES, _GENERIC_DESIGN_TAGS),
     # Digital sellers may legitimately use "digital download", "SVG", etc.
     "digital_products": ContentPolicy(),
 }
@@ -169,6 +182,15 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
         if bad:
             errors.append(
                 f"remove '{term}' from these tags: {bad} — not allowed for this product type"
+            )
+
+    # Generic design adjectives carry no search value -> rejected as tags (v4 §H).
+    for term in policy.forbidden_tag_terms:
+        bad = [t for t in tags if _has_term(t, term)]
+        if bad:
+            errors.append(
+                f"replace the generic tag(s) {bad}: '{term}' has no search value — "
+                "each tag must name the subject, occasion, recipient, garment type or style"
             )
 
     if policy.required_type_terms:
