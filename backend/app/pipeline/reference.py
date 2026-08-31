@@ -52,6 +52,11 @@ def build_profile_payload(
         "description": decode_etsy_text(listing.get("description")),
         # Reference variation structure, reused (with the new SKU) at publish time.
         "inventory_products": list((inventory or {}).get("products") or []),
+        # Which properties price/quantity/sku vary on — Etsy needs these declared at
+        # the top level of updateListingInventory or it rejects size-varying prices.
+        "price_on_property": list((inventory or {}).get("price_on_property") or []),
+        "quantity_on_property": list((inventory or {}).get("quantity_on_property") or []),
+        "sku_on_property": list((inventory or {}).get("sku_on_property") or []),
         # Image ids/urls so the UI can offer them as fixed images (B3).
         "images": [
             {
@@ -109,6 +114,9 @@ def build_inventory_from_reference(
     sku: str | None,
     quantity: int,
     fallback_price: float | None = None,
+    price_on_property: list[int] | None = None,
+    quantity_on_property: list[int] | None = None,
+    sku_on_property: list[int] | None = None,
 ) -> dict[str, Any]:
     """Reshape a read-back inventory into a writable ``updateListingInventory`` body.
 
@@ -117,6 +125,12 @@ def build_inventory_from_reference(
     priceless rows are disabled. This converts the prices, keeps only priced
     offerings, drops any product left with no priced offering (v3 §C), sets our SKU
     on every product (§D), and reshapes ``property_values`` to the writable subset.
+
+    The ``*_on_property`` lists declare which properties price/quantity/sku vary on;
+    Etsy requires them at the top level (a size-varying listing whose price differs
+    by size is rejected as "price must be consistent across all products" unless
+    ``price_on_property`` names the size property). They are carried from the
+    reference verbatim.
 
     Only the SKU is ours; prices, sizes, colours and quantities come from the
     reference (v3 §0 — nothing hardcoded). Falls back to a single bare product priced
@@ -160,4 +174,9 @@ def build_inventory_from_reference(
             else []
         )
         products = [{"sku": sku or "", "offerings": offerings, "property_values": []}]
-    return {"products": products}
+    return {
+        "products": products,
+        "price_on_property": list(price_on_property or []),
+        "quantity_on_property": list(quantity_on_property or []),
+        "sku_on_property": list(sku_on_property or []),
+    }

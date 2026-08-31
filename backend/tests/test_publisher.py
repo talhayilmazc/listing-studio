@@ -56,6 +56,7 @@ REFERENCE = {
     "shipping_profile_id": 55,
     "production_partner_ids": [7],
     "listing_type": "physical",
+    "price_on_property": [200],  # price varies on the Size property
     "inventory_products": [
         {
             "sku": "OLD-S",
@@ -235,6 +236,8 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
     # Reference variation structure preserved -> one product per size.
     assert result.sizes_applied is True
     assert len(fake.inventory["products"]) == 2
+    # price_on_property carried through so Etsy accepts the size-varying prices.
+    assert fake.inventory["price_on_property"] == [200]
 
     async with async_sm() as s:
         row = await s.get(GeneratedContent, content_id)

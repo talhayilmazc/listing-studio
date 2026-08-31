@@ -143,6 +143,56 @@ def test_inventory_converts_prices_and_drops_priceless_variations() -> None:
             assert offering["price"] and offering["price"] > 0
 
 
+def test_build_profile_payload_stores_on_property_declarations() -> None:
+    inventory = {
+        "products": [],
+        "price_on_property": [513],
+        "quantity_on_property": [],
+        "sku_on_property": [513],
+    }
+    payload = build_profile_payload({"description": "x"}, inventory, {"results": []})
+    assert payload["price_on_property"] == [513]
+    assert payload["quantity_on_property"] == []
+    assert payload["sku_on_property"] == [513]
+
+
+def test_inventory_carries_on_property_declarations() -> None:
+    # The *_on_property lists must survive the read-back -> writable conversion.
+    inv = build_inventory_from_reference(
+        REF_INVENTORY["products"],
+        sku="X",
+        quantity=1,
+        price_on_property=[513],
+        quantity_on_property=[],
+        sku_on_property=[513],
+    )
+    assert inv["price_on_property"] == [513]
+    assert inv["quantity_on_property"] == []
+    assert inv["sku_on_property"] == [513]
+
+
+def test_size_varying_reference_declares_price_on_property() -> None:
+    # A Sweatshirt priced by size: S-XL $40.50, 2XL $43.50, 3XL $46.50.
+    products = [
+        {
+            "offerings": [{"price": {"amount": 4050, "divisor": 100}}],
+            "property_values": [{"property_id": 513, "property_name": "Size", "values": ["S"]}],
+        },
+        {
+            "offerings": [{"price": {"amount": 4350, "divisor": 100}}],
+            "property_values": [{"property_id": 513, "property_name": "Size", "values": ["2XL"]}],
+        },
+        {
+            "offerings": [{"price": {"amount": 4650, "divisor": 100}}],
+            "property_values": [{"property_id": 513, "property_name": "Size", "values": ["3XL"]}],
+        },
+    ]
+    inv = build_inventory_from_reference(products, sku="X", quantity=1, price_on_property=[513])
+    # Non-empty price_on_property -> Etsy accepts prices that vary by size.
+    assert inv["price_on_property"] == [513]
+    assert [p["offerings"][0]["price"] for p in inv["products"]] == [40.5, 43.5, 46.5]
+
+
 def test_inventory_preserves_offering_is_enabled() -> None:
     ref = [
         {

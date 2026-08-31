@@ -223,6 +223,9 @@ async def publish_content(
         sku=sku,
         quantity=config.quantity,
         fallback_price=reference.get("price"),
+        price_on_property=reference.get("price_on_property"),
+        quantity_on_property=reference.get("quantity_on_property"),
+        sku_on_property=reference.get("sku_on_property"),
     )
     await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
     has_variations = len(inventory["products"]) > 1

@@ -27,14 +27,32 @@ Base everything only on the provided analysis. Do not invent brands or claims. O
 
 ## Title requirements (hard constraints)
 
-The title MUST be between 110 and 140 characters, and MUST contain the product type
-(Shirt / T-Shirt / Tee / Sweatshirt / Hoodie). Count the characters before responding.
+The title MUST be between 110 and 140 characters. Aim for 130-140.
+Count the characters before responding. Under 110 is rejected and costs a retry.
 
-Structure: [main keyword phrase] + [product type] + [style/theme] + [occasion] + [gift angle]
+Build the title in five parts so it reaches the length naturally:
+[design subject] + [product type] + [style/theme] + [occasion or use case] + [recipient/gift angle]
+
+Correct length examples:
+
+"Retro Cowboy Frog Sweatshirt Funny Western Graphic Tee Vintage Country Shirt Gift for Her Cottagecore Aesthetic Pullover" (119)
+
+"Just Because I'm Awake Doesn't Mean I'm Ready Sweatshirt Funny Sarcastic Shirt Introvert Tee Coffee Lover Gift for Her Mom" (121)
+
+Too short (rejected):
+"Funny Frog Sweatshirt Gift" (26)
+"Retro Cowboy Frog Graphic Sweatshirt for Women" (46)
+
+If your draft title is under 110, keep appending relevant keyword phrases — occasions, recipients, style words, alternative garment terms — until you reach 130.
 
 ## Tag requirements (hard constraints)
 
 Exactly 13 tags. Each tag MUST be 20 characters or fewer INCLUDING spaces.
 At least one tag must name the garment type. Prefer 1–2 word tags.
+
+Do not use generic design adjectives as tags. These are rejected:
+illustrated design, graphic design, digital art, printed design, custom design, unique design, trendy design, cool design
+
+Every tag must name something concrete: the subject, the occasion, the recipient, the garment type, or the style.
 
 Count characters for every tag before responding.
