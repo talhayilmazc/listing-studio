@@ -217,3 +217,46 @@ async def test_job_status_links_active_to_public_url(ctx) -> None:
     body = (await ctx["client"].get(f"/api/jobs/{job_id}")).json()
     assert body["is_draft"] is False
     assert body["listing_url"] == "https://www.etsy.com/listing/888"
+
+
+# --- Publish now (draft -> active), spec §E ---------------------------------
+async def test_publish_live_enqueues_for_approved_draft(ctx) -> None:
+    cid = await _add_content(
+        ctx["sm"], ctx["tenant_id"], approved=True, listing_id=777, listing_state="draft"
+    )
+    res = await ctx["client"].post(f"/api/content/{cid}/publish-live")
+    assert res.status_code == 200
+    assert any(call[0] == "run_publish_live_job" for call in ctx["enqueuer"].calls)
+
+
+async def test_publish_live_requires_a_created_draft(ctx) -> None:
+    cid = await _add_content(ctx["sm"], ctx["tenant_id"], approved=True)  # no draft yet
+    res = await ctx["client"].post(f"/api/content/{cid}/publish-live")
+    assert res.status_code == 409 and "draft" in res.json()["detail"]
+
+
+async def test_publish_live_requires_approval(ctx) -> None:
+    cid = await _add_content(
+        ctx["sm"], ctx["tenant_id"], approved=False, listing_id=1, listing_state="draft"
+    )
+    res = await ctx["client"].post(f"/api/content/{cid}/publish-live")
+    assert res.status_code == 409 and res.json()["detail"] == "not approved"
+
+
+async def test_publish_live_rejects_already_active(ctx) -> None:
+    cid = await _add_content(
+        ctx["sm"], ctx["tenant_id"], approved=True, listing_id=2, listing_state="active"
+    )
+    res = await ctx["client"].post(f"/api/content/{cid}/publish-live")
+    assert res.status_code == 409 and res.json()["detail"] == "already published"
+
+
+async def test_publish_all_live_publishes_approved_draft(ctx) -> None:
+    good = await _add_content(
+        ctx["sm"], ctx["tenant_id"], approved=True, listing_id=10, listing_state="draft"
+    )
+    async with ctx["sm"]() as s:
+        batch_id = (await s.get(GeneratedContent, good)).batch_id
+    res = await ctx["client"].post(f"/api/batches/{batch_id}/publish-live")
+    assert res.status_code == 200
+    assert [j["content_id"] for j in res.json()["jobs"]] == [str(good)]

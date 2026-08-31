@@ -68,11 +68,13 @@ async def _enqueue_publish(
     tenant: Tenant,
     connection_id: uuid.UUID,
     content: GeneratedContent,
+    job_type: JobType = JobType.create_draft,
+    function: str = "run_publish_job",
 ) -> Job:
     job = Job(
         tenant_id=tenant.id,
         connection_id=connection_id,
-        type=JobType.create_draft,
+        type=job_type,
         payload={"content_id": str(content.id)},
         batch_id=content.batch_id,
         status=JobStatus.queued,
@@ -80,8 +82,19 @@ async def _enqueue_publish(
     session.add(job)
     await session.commit()
     await session.refresh(job)
-    await enqueuer.enqueue("run_publish_job", str(job.id))
+    await enqueuer.enqueue(function, str(job.id))
     return job
+
+
+def _publish_live_reason(content: GeneratedContent) -> str | None:
+    """Why this content can't be made active yet (E), or None if it can."""
+    if not content.approved:
+        return "not approved"
+    if content.etsy_listing_id is None:
+        return "no draft yet — create the draft first"
+    if content.etsy_listing_state == "active":
+        return "already published"
+    return None
 
 
 @router.post("/content/{content_id}/publish", response_model=schemas.PublishJobOut)
@@ -146,6 +159,93 @@ async def publish_batch(
             continue
         job = await _enqueue_publish(
             session, enqueuer, tenant=tenant, connection_id=connection.id, content=content
+        )
+        result.jobs.append(schemas.PublishJobOut(content_id=content.id, job_id=job.id))
+    return result
+
+
+# --- Publish now (draft -> active) ------------------------------------------
+@router.post("/content/{content_id}/publish-live", response_model=schemas.PublishJobOut)
+async def publish_one_live(
+    content_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+    service: ConnectionService = Depends(get_connection_service),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.PublishJobOut:
+    """Make an already-created, approved draft ACTIVE — the explicit "Publish now"."""
+    content = await session.get(GeneratedContent, content_id)
+    if content is None or content.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="content not found")
+
+    connection = await service.get_active(session, tenant.id)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+
+    reason = _publish_live_reason(content)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+    if await _blocking(session, content.id):
+        raise HTTPException(status_code=409, detail="content has a blocking compliance finding")
+
+    job = await _enqueue_publish(
+        session,
+        enqueuer,
+        tenant=tenant,
+        connection_id=connection.id,
+        content=content,
+        job_type=JobType.publish_live,
+        function="run_publish_live_job",
+    )
+    return schemas.PublishJobOut(content_id=content.id, job_id=job.id)
+
+
+@router.post("/batches/{batch_id}/publish-live", response_model=schemas.BatchPublishResult)
+async def publish_batch_live(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+    service: ConnectionService = Depends(get_connection_service),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.BatchPublishResult:
+    """"Publish all": make every approved, already-drafted listing active.
+
+    Only the seller's individually-approved drafts are published; anything not
+    approved is silently skipped, and anything without a draft or with a blocking
+    finding is reported as skipped.
+    """
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    connection = await service.get_active(session, tenant.id)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+
+    rows = await session.execute(
+        select(GeneratedContent).where(GeneratedContent.batch_id == batch_id)
+    )
+    result = schemas.BatchPublishResult()
+    for content in rows.scalars():
+        reason = _publish_live_reason(content)
+        if reason == "not approved":
+            continue  # only publish what the seller approved; skip the rest silently
+        if reason:
+            result.skipped.append(schemas.PublishSkipped(content_id=content.id, reason=reason))
+            continue
+        if await _blocking(session, content.id):
+            result.skipped.append(
+                schemas.PublishSkipped(content_id=content.id, reason="blocking compliance finding")
+            )
+            continue
+        job = await _enqueue_publish(
+            session,
+            enqueuer,
+            tenant=tenant,
+            connection_id=connection.id,
+            content=content,
+            job_type=JobType.publish_live,
+            function="run_publish_live_job",
         )
         result.jobs.append(schemas.PublishJobOut(content_id=content.id, job_id=job.id))
     return result

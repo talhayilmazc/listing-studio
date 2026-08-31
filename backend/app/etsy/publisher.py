@@ -249,3 +249,57 @@ async def publish_content(
         sizes_applied=has_variations,
         image_count=next_rank,
     )
+
+
+async def publish_live(
+    session: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    content: GeneratedContent,
+    connection: EtsyConnection,
+    client: EtsyApiClient,
+    access_token: str,
+    tenant_limit: int,
+) -> PublishResult:
+    """Make an existing DRAFT listing ACTIVE (the explicit "Publish now" step, E).
+
+    Publishing is never automatic: this runs only from a deliberate user action on a
+    draft the seller has already reviewed and approved. A blocking compliance finding
+    still prevents it.
+    """
+    tenant_id = connection.tenant_id
+    ctx = {"access_token": access_token, "tenant_id": tenant_id, "tenant_limit": tenant_limit}
+
+    if await _has_blocking_finding(session, content.id):
+        raise PublishBlocked("content has a blocking compliance finding")
+    if content.etsy_listing_id is None:
+        raise ValueError("no draft listing to publish; create the draft first")
+
+    if connection.shop_id is None:
+        if connection.etsy_user_id is None:
+            raise ValueError("connection has no Etsy user id")
+        shop = _first_shop(await client.get_shop_by_owner_user_id(connection.etsy_user_id, **ctx))
+        connection.shop_id = int(shop["shop_id"])
+        await session.commit()
+    shop_id = connection.shop_id
+    listing_id = content.etsy_listing_id
+
+    # Snapshot the pre-change state so the go-live can be rolled back to draft.
+    session.add(
+        ListingSnapshot(
+            tenant_id=tenant_id,
+            listing_id=listing_id,
+            job_id=job_id,
+            payload={"operation": "publish_live", "previous_state": content.etsy_listing_state or "draft"},
+        )
+    )
+    await session.commit()
+
+    await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
+    content.etsy_listing_state = "active"
+    await session.commit()
+
+    return PublishResult(
+        listing_id=listing_id,
+        listing_url=listing_url(listing_id),  # active -> public URL (ToU back-link)
+    )

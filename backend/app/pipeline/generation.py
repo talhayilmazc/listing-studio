@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
-from app.pipeline.reference import replace_leading_lines
+from app.pipeline.reference import replace_title_block
 from app.pipeline.vision import VisionAnalysis, VisionAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -95,12 +95,10 @@ async def generate_listing_content(
     input_tokens = sum(u.input_tokens for u in result.usages)
     output_tokens = sum(u.output_tokens for u in result.usages)
 
-    # Description comes from the reference listing; only the leading line(s) that
-    # carry the old title are replaced by the newly generated one (B2).
+    # Description comes from the reference listing; the title block (everything
+    # before the first blank line) is replaced by the newly generated title (B2).
     payload = profile.cached_payload or {}
-    description = replace_leading_lines(
-        str(payload.get("description", "")), listing.title, profile.title_replace_lines
-    )
+    description = replace_title_block(str(payload.get("description", "")), listing.title)
     taxonomy_id = payload.get("taxonomy_id")
 
     attributes = None

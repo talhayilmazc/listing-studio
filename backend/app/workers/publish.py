@@ -29,7 +29,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
-from app.etsy.publisher import PublishConfig, PublishImage, publish_content
+from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
 from app.pipeline.images import prepare_thumbnail
 from app.pipeline.storage import LocalStorage
 
@@ -153,6 +153,65 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             job.finished_at = datetime.now(timezone.utc)
             await session.commit()
             logger.exception("publish failed for job %s", job_id)
+            return "failed"
+
+        job.status = JobStatus.succeeded
+        job.finished_at = datetime.now(timezone.utc)
+        await session.commit()
+        return "succeeded"
+
+
+async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
+    """Make an approved, already-created DRAFT listing ACTIVE (E "Publish now")."""
+    settings = get_settings()
+    sessionmaker = ctx["sessionmaker"]
+    connection_service = ConnectionService(
+        get_cipher(),
+        client_id=settings.etsy_client_id,
+        token_url=settings.etsy_oauth_token_url,
+    )
+
+    async with sessionmaker() as session:
+        job = await session.get(Job, uuid.UUID(job_id))
+        if job is None:
+            return "missing"
+        job.status = JobStatus.running
+        job.started_at = datetime.now(timezone.utc)
+        await session.commit()
+
+        try:
+            content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
+            connection = await session.get(EtsyConnection, job.connection_id)
+            tenant = await session.get(Tenant, job.tenant_id)
+            if not (content and connection and tenant):
+                raise ValueError("publish-live job is missing content/connection/tenant")
+
+            access_token = await connection_service.get_valid_access_token(session, connection)
+            async with httpx.AsyncClient(timeout=30.0) as http:
+                client = EtsyApiClient(
+                    client_id=settings.etsy_client_id,
+                    shared_secret=settings.etsy_client_secret,
+                    http_client=http,
+                    bucket=ctx["bucket"],
+                    quota=ctx["quota"],
+                    usage=ctx.get("usage"),
+                    cache=ctx.get("redis"),
+                )
+                await publish_live(
+                    session,
+                    job_id=job.id,
+                    content=content,
+                    connection=connection,
+                    client=client,
+                    access_token=access_token,
+                    tenant_limit=tenant.daily_quota,
+                )
+        except Exception as exc:  # noqa: BLE001 - record which step failed
+            job.status = JobStatus.failed
+            job.last_error = f"{type(exc).__name__}: {exc}"[:500]
+            job.finished_at = datetime.now(timezone.utc)
+            await session.commit()
+            logger.exception("publish-live failed for job %s", job_id)
             return "failed"
 
         job.status = JobStatus.succeeded

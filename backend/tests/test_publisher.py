@@ -27,7 +27,9 @@ from app.etsy.publisher import (
     PublishConfig,
     PublishImage,
     listing_edit_url,
+    listing_url,
     publish_content,
+    publish_live,
 )
 from tests.support import VALID_TITLE
 
@@ -81,6 +83,7 @@ class FakeEtsy:
         self.inventory: dict[str, Any] | None = None
         self.uploaded: list[tuple[int, str]] = []
         self.created_section_title: str | None = None
+        self.last_update: dict[str, Any] | None = None
 
     async def get_shop_by_owner_user_id(self, uid: int, **_: Any) -> dict[str, Any]:
         self.calls.append("shop")
@@ -107,6 +110,11 @@ class FakeEtsy:
     async def update_listing_inventory(self, listing_id: int, *, inventory: dict[str, Any], **_: Any):
         self.calls.append("inventory")
         self.inventory = inventory
+        return {}
+
+    async def update_listing(self, shop_id: int, listing_id: int, *, updates: dict[str, Any], **_: Any):
+        self.calls.append("update_listing")
+        self.last_update = updates
         return {}
 
     async def upload_listing_image(
@@ -265,6 +273,62 @@ async def test_publish_writes_sku_to_every_product_and_marks_draft(
     async with async_sm() as s:
         row = await s.get(GeneratedContent, content_id)
         assert row.etsy_listing_state == "draft"
+
+
+async def test_publish_live_makes_draft_active(async_sm: async_sessionmaker) -> None:
+    """E: an explicit Publish-now flips an existing draft to active via updateListing."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        content.etsy_listing_id = 555
+        content.etsy_listing_state = "draft"
+        await s.commit()
+
+    fake = FakeEtsy()
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        result = await publish_live(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            client=fake,
+            access_token="tok",
+            tenant_limit=2000,
+        )
+
+    assert fake.last_update == {"state": "active"}
+    assert result.listing_url == listing_url(555)  # active -> public URL
+    async with async_sm() as s:
+        row = await s.get(GeneratedContent, content_id)
+        assert row.etsy_listing_state == "active"
+        snaps = await s.execute(select(ListingSnapshot).where(ListingSnapshot.listing_id == 555))
+        assert "publish_live" in [sn.payload["operation"] for sn in snaps.scalars()]
+
+
+async def test_publish_live_blocked_by_compliance(async_sm: async_sessionmaker) -> None:
+    _, conn_id, content_id, job_id = await _seed(async_sm, blocking=True)
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        content.etsy_listing_id = 555
+        content.etsy_listing_state = "draft"
+        await s.commit()
+    fake = FakeEtsy()
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        with pytest.raises(PublishBlocked):
+            await publish_live(
+                s,
+                job_id=job_id,
+                content=content,
+                connection=conn,
+                client=fake,
+                access_token="tok",
+                tenant_limit=2000,
+            )
+    assert fake.calls == []  # never touched Etsy
 
 
 def test_link_for_picks_edit_url_for_draft_and_public_for_active() -> None:

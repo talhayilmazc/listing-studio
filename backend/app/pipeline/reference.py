@@ -57,16 +57,20 @@ def build_profile_payload(
     }
 
 
-def replace_leading_lines(description: str, title: str, n: int = 1) -> str:
-    """Replace the first ``n`` lines of ``description`` with ``title`` (B2).
+def replace_title_block(description: str, title: str) -> str:
+    """Replace the reference description's title block with the new title (B2).
 
-    The rest of the reference copy (sizes, shipping, returns, care) is preserved
-    verbatim. ``n`` is configurable because some listings carry a two-line heading.
+    Everything before the first blank line is the title block and is replaced with
+    ``title``; everything from the first blank line onward (sizes, shipping,
+    returns, care) is carried over verbatim. If there is no blank line, only the
+    first line is replaced.
     """
-    if n <= 0:
-        return f"{title}\n{description}" if description else title
-    remainder = description.split("\n")[n:]
-    return "\n".join([title, *remainder])
+    lines = description.split("\n")
+    blank = next((i for i, line in enumerate(lines) if line.strip() == ""), None)
+    if blank is None:
+        return "\n".join([title, *lines[1:]])
+    # Keep the blank line (lines[blank]) and everything after it verbatim.
+    return "\n".join([title, *lines[blank:]])
 
 
 def build_inventory_from_reference(

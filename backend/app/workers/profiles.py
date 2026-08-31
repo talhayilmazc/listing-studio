@@ -14,15 +14,26 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.db.models import EtsyConnection, ListingProfile, ShopListingCache, Tenant
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
+from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
+from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
+from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.reference import build_profile_payload
 
 logger = logging.getLogger(__name__)
+
+
+def _llm_client(settings) -> AnthropicLLMClient | None:  # noqa: ANN001
+    """Return an LLM client if a key is configured, else None (skip LLM steps)."""
+    if not settings.llm_api_key:
+        return None
+    return AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
 
 
 def _connection_service(settings) -> ConnectionService:  # noqa: ANN001
@@ -88,7 +99,42 @@ async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
             inventory = await client.get_listing_inventory(ref_id, **kw)
             images = await client.get_listing_images(ref_id, **kw)
 
-        profile.cached_payload = build_profile_payload(listing, inventory, images)
+        payload = build_profile_payload(listing, inventory, images)
+
+        # Classify the reference's non-primary images as size charts vs artwork and
+        # auto-mark the charts as fixed images (B3). Done LOCALLY from the image
+        # pixels (no third party); only ambiguous images fall back to the vision
+        # model. Prior classifications are reused so this isn't re-run; fixed images
+        # are only auto-set if the seller hasn't toggled them.
+        prior = {
+            img.get("listing_image_id"): img.get("kind")
+            for img in (profile.cached_payload or {}).get("images", [])
+            if img.get("kind")
+        }
+        llm = _llm_client(settings)
+        vision = AnthropicImageKindClassifier(llm).classify if llm is not None else None
+        # Fetch the seller's own image bytes to OUR server (no Etsy auth headers sent
+        # to the CDN). A separate client avoids any header leakage to the image host.
+        async with httpx.AsyncClient(timeout=20.0) as img_http:
+
+            async def _fetch(url: str) -> tuple[bytes, str] | None:
+                try:
+                    resp = await img_http.get(url)
+                    resp.raise_for_status()
+                    ctype = resp.headers.get("content-type", "image/jpeg").split(";")[0]
+                    return resp.content, ctype or "image/jpeg"
+                except Exception:  # noqa: BLE001 - a fetch failure just skips this image
+                    logger.warning("reference image fetch failed", exc_info=True)
+                    return None
+
+            charts = await classify_reference_images(
+                payload["images"], fetch_bytes=_fetch, vision=vision, prior_kinds=prior
+            )
+        payload["images_classified"] = True
+        if profile.fixed_image_ids is None and charts:
+            profile.fixed_image_ids = charts
+
+        profile.cached_payload = payload
         profile.updated_at = datetime.now(timezone.utc)
         await session.commit()
         return "refreshed"
@@ -137,3 +183,113 @@ async def sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
                 existing.fetched_at = now
         await session.commit()
         return f"synced:{len(rows)}"
+
+
+async def detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
+    """Auto-detect candidate profiles by clustering the seller's own active listings.
+
+    Clusters by taxonomy + production partner + variation structure + price band,
+    names each cluster, and creates an **unconfirmed** profile per cluster (never
+    used until the seller confirms it). Each new profile is then refreshed to build
+    its cached payload and classify its images. Own-shop data only.
+    """
+    settings = get_settings()
+    sessionmaker = ctx["sessionmaker"]
+    service = _connection_service(settings)
+    tid = uuid.UUID(tenant_id)
+
+    async with sessionmaker() as session:
+        connection = await service.get_active(session, tid)
+        if connection is None:
+            return "no-connection"
+        tenant = await session.get(Tenant, tid)
+        token = await service.get_valid_access_token(session, connection)
+
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            client = _build_client(ctx, http, settings)
+            kw = {
+                "access_token": token,
+                "tenant_id": tid,
+                "tenant_limit": tenant.daily_quota if tenant else None,
+            }
+            shop_id = await _resolve_shop_id(session, client, connection, kw)
+            resp = await client.get_listings_by_shop(
+                shop_id, state="active", limit=100, includes=["Images"], **kw
+            )
+            listings_raw = resp.get("results", [])
+
+            forcluster: list[ListingForCluster] = []
+            for row in listings_raw:
+                lid = int(row["listing_id"])
+                inv = await client.get_listing_inventory(lid, **kw)
+                props = {
+                    pv.get("property_name")
+                    for product in (inv.get("products") or [])
+                    for pv in product.get("property_values", [])
+                    if pv.get("property_name")
+                }
+                forcluster.append(
+                    ListingForCluster(
+                        listing_id=lid,
+                        title=str(row.get("title") or ""),
+                        taxonomy_id=row.get("taxonomy_id"),
+                        price=_price_float(row.get("price")),
+                        production_partner_ids=tuple(row.get("production_partner_ids") or []),
+                        variation_properties=tuple(sorted(props)),
+                        image_count=len(row.get("images") or []),
+                    )
+                )
+
+        # Existing reference ids so we don't duplicate profiles on re-run.
+        existing = await session.execute(
+            select(ListingProfile.reference_listing_id).where(ListingProfile.tenant_id == tid)
+        )
+        known = set(existing.scalars())
+
+        created: list[uuid.UUID] = []
+        for cluster in cluster_listings(forcluster):
+            ref = cluster.reference
+            if ref.listing_id in known:
+                continue
+            # Named LOCALLY from the titles (no Etsy content sent to any provider);
+            # the seller renames it on confirm anyway.
+            name = heuristic_name([m.title for m in cluster.listings])
+            template = "apparel" if cluster.has_size_variation else "digital_products"
+            profile = ListingProfile(
+                tenant_id=tid,
+                name=name,
+                reference_listing_id=ref.listing_id,
+                content_template=template,
+                source="detected",
+                confirmed=False,  # never used until the seller confirms it
+            )
+            session.add(profile)
+            await session.flush()
+            created.append(profile.id)
+        await session.commit()
+
+    # Build each new profile's cached payload + image classification via the queue.
+    for pid in created:
+        await _enqueue_job(ctx, "refresh_profile", str(pid))
+    return f"detected:{len(created)}"
+
+
+async def _enqueue_job(ctx: dict[str, Any], function: str, *args: Any) -> None:
+    """Enqueue a follow-up job. Tests inject ``ctx['enqueue']``; arq provides
+    ``ctx['redis']`` (the pool) with ``enqueue_job``."""
+    enqueue = ctx.get("enqueue")
+    if enqueue is not None:
+        await enqueue(function, *args)
+        return
+    redis = ctx.get("redis")
+    if redis is not None and hasattr(redis, "enqueue_job"):
+        await redis.enqueue_job(function, *args)
+
+
+def _price_float(price: Any) -> float | None:
+    if isinstance(price, dict) and price.get("divisor"):
+        return round(float(price.get("amount", 0)) / float(price["divisor"]), 2)
+    try:
+        return float(price) if price is not None else None
+    except (TypeError, ValueError):
+        return None

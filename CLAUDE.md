@@ -35,6 +35,7 @@ ToU Bölüm 1'den gelir, ihlali doğrudan sözleşme ihlalidir.
 - `listing_snapshot` tablosu Member Content içerir. **Retention politikası zorunlu: 90 gün sonra otomatik silinir.** Bunu yapan periyodik bir temizlik job'ı olmalıdır.
 - Kullanıcı bağlantısını kestiğinde (`etsy_connection` → `revoked`) o kullanıcıya ait tüm Etsy kaynaklı içerik silinir.
 - Cache yaşı arayüzde gösterilen her listing için kontrol edilir; süresi geçmişse gösterilmez, yeniden çekilir.
+- **Referans görsel baytları saklanmaz.** Beden tablosu sınıflandırması için satıcının kendi referans listing görselleri API'nin verdiği CDN URL'inden çekilir, **yalnızca bellekte** sınıflandırılır (yerel sezgisel; belirsizse vision fallback) ve baytlar hemen atılır. Yalnızca **sınıflandırma sonucu** (`size_chart`/`artwork`) ve türetilen `fixed_image_ids` saklanır. Görsel baytı diske/DB'ye yazılmadığı için 6 saatlik görsel cache yükümlülüğü doğmaz; saklanan sonuç, profilin 24 saatlik `cached_payload` yenilenmesine tabidir.
 
 ## Zorunlu uyum unsurları (arayüzde bulunacak)
 

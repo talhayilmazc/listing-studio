@@ -125,3 +125,88 @@ async def test_sync_shop_listings_caches_active_and_draft(
         )
         cached = {r.listing_id: r.payload["state"] for r in rows.scalars()}
         assert cached == {1: "active", 2: "draft"}
+
+
+class DetectFakeEtsy:
+    async def get_listings_by_shop(self, shop_id: int, *, state: str, **_: Any) -> dict[str, Any]:
+        if state != "active":
+            return {"results": []}
+        return {
+            "results": [
+                {
+                    "listing_id": 10,
+                    "title": "Comfort Colors Patriotic Tee",
+                    "taxonomy_id": 100,
+                    "price": {"amount": 2500, "divisor": 100},
+                    "production_partner_ids": [7],
+                    "images": [{}, {}, {}],
+                },
+                {
+                    "listing_id": 11,
+                    "title": "Comfort Colors Retro Tee",
+                    "taxonomy_id": 100,
+                    "price": {"amount": 2600, "divisor": 100},
+                    "production_partner_ids": [7],
+                    "images": [{}, {}],
+                },
+                {
+                    "listing_id": 20,
+                    "title": "Ceramic Coffee Mug Design",
+                    "taxonomy_id": 200,
+                    "price": {"amount": 1500, "divisor": 100},
+                    "production_partner_ids": [],
+                    "images": [{}],
+                },
+            ]
+        }
+
+    async def get_listing_inventory(self, listing_id: int, **_: Any) -> dict[str, Any]:
+        if listing_id in (10, 11):
+            return {"products": [{"property_values": [{"property_name": "Size"}]}]}
+        return {"products": [{"property_values": []}]}
+
+
+async def test_detect_profiles_clusters_and_creates_unconfirmed(
+    async_sm: async_sessionmaker, monkeypatch
+) -> None:
+    tenant_id, _ = await _seed(async_sm, with_profile=False)
+    fake = DetectFakeEtsy()
+    _patch(monkeypatch, tenant_id, fake)  # no LLM key in test settings -> heuristic naming
+    enqueued: list[tuple] = []
+
+    async def _enqueue(func, *args):  # noqa: ANN001, ANN202
+        enqueued.append((func, args))
+
+    ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None, "enqueue": _enqueue}
+    result = await worker.detect_profiles(ctx, str(tenant_id))
+    assert result == "detected:2"  # tees cluster into one, the mug the other
+
+    async with async_sm() as s:
+        rows = await s.execute(
+            select(ListingProfile).where(ListingProfile.tenant_id == tenant_id)
+        )
+        profiles = {p.reference_listing_id: p for p in rows.scalars()}
+    assert set(profiles) == {10, 20}  # reference = most-complete listing per cluster
+    assert all(p.source == "detected" and p.confirmed is False for p in profiles.values())
+    # Apparel inferred from the Size variation; the mug is not apparel.
+    assert profiles[10].content_template == "apparel"
+    assert profiles[20].content_template == "digital_products"
+    # Each new profile is queued for a payload refresh + image classification.
+    assert sorted(a[0] for a in enqueued) == ["refresh_profile", "refresh_profile"]
+
+
+async def test_detect_profiles_skips_existing_reference(
+    async_sm: async_sessionmaker, monkeypatch
+) -> None:
+    tenant_id, _ = await _seed(async_sm, with_profile=False)
+    async with async_sm() as s:  # a profile already references listing 10
+        s.add(ListingProfile(tenant_id=tenant_id, name="Tee", reference_listing_id=10))
+        await s.commit()
+    _patch(monkeypatch, tenant_id, DetectFakeEtsy())
+    ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None, "enqueue": lambda *a: _noop()}
+    result = await worker.detect_profiles(ctx, str(tenant_id))
+    assert result == "detected:1"  # only the mug is new
+
+
+async def _noop():
+    return None

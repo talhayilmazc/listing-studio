@@ -68,6 +68,8 @@ export const api = {
   disconnect: () => req<Connection>("/auth/etsy/disconnect", { method: "POST" }),
   publishContent: (id: string) =>
     req<PublishJob>(`/content/${id}/publish`, { method: "POST" }),
+  publishLive: (id: string) =>
+    req<PublishJob>(`/content/${id}/publish-live`, { method: "POST" }),
   jobStatus: (jobId: string) => req<JobStatus>(`/jobs/${jobId}`),
 };
 

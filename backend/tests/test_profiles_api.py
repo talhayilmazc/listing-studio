@@ -74,7 +74,30 @@ async def test_create_profile_enqueues_refresh(ctx) -> None:
     body = res.json()
     assert body["name"] == "Standard Tee"
     assert body["is_fresh"] is False  # payload not fetched yet
+    assert body["source"] == "manual" and body["confirmed"] is True  # hand-made -> confirmed
     assert ctx["enqueuer"].calls == [("refresh_profile", (body["id"],))]
+
+
+async def test_detect_and_confirm_flow(ctx) -> None:
+    # Detection is enqueued...
+    res = await ctx["client"].post("/api/shop/detect-profiles")
+    assert res.status_code == 202
+    assert ("detect_profiles", (str(ctx["tenant_id"]),)) in ctx["enqueuer"].calls
+
+    # ...a detected (unconfirmed) profile is confirmed by the seller before use.
+    async with ctx["sm"]() as s:
+        profile = ListingProfile(
+            tenant_id=ctx["tenant_id"],
+            name="Standard Tee",
+            reference_listing_id=555,
+            source="detected",
+            confirmed=False,
+        )
+        s.add(profile)
+        await s.commit()
+        pid = profile.id
+    body = (await ctx["client"].post(f"/api/profiles/{pid}/confirm")).json()
+    assert body["confirmed"] is True and body["source"] == "detected"
 
 
 async def test_list_get_patch_delete_profile(ctx) -> None:
@@ -90,10 +113,10 @@ async def test_list_get_patch_delete_profile(ctx) -> None:
 
     patched = (
         await ctx["client"].patch(
-            f"/api/profiles/{pid}", json={"title_replace_lines": 2, "fixed_image_ids": [900]}
+            f"/api/profiles/{pid}", json={"content_template": "apparel", "fixed_image_ids": [900]}
         )
     ).json()
-    assert patched["title_replace_lines"] == 2
+    assert patched["content_template"] == "apparel"
     assert patched["fixed_image_ids"] == [900]
 
     assert (await ctx["client"].delete(f"/api/profiles/{pid}")).status_code == 204

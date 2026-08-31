@@ -3,7 +3,7 @@
 from app.pipeline.reference import (
     build_inventory_from_reference,
     build_profile_payload,
-    replace_leading_lines,
+    replace_title_block,
 )
 
 REF_LISTING = {
@@ -61,19 +61,19 @@ def test_build_profile_payload_copies_reference_fields() -> None:
     assert [img["listing_image_id"] for img in payload["images"]] == [900, 901]
 
 
-def test_replace_leading_lines_replaces_only_the_title_line() -> None:
+def test_replace_title_block_replaces_up_to_first_blank_line() -> None:
+    # Two-line title block, then a blank line, then the body.
+    desc = "Old Title Line One\nOld Subtitle Line Two\n\nSize: S-3XL\nShips in 3 days."
+    out = replace_title_block(desc, "Brand New Generated Title")
+    # The whole title block is replaced; body (from the blank line) is verbatim.
+    assert out == "Brand New Generated Title\n\nSize: S-3XL\nShips in 3 days."
+    assert "Old Title Line One" not in out and "Old Subtitle Line Two" not in out
+
+
+def test_replace_title_block_no_blank_line_replaces_first_line_only() -> None:
     desc = "Old Title Here\nSize: S-3XL\nShips in 3 days."
-    out = replace_leading_lines(desc, "Brand New Generated Title", 1)
-    assert out.split("\n")[0] == "Brand New Generated Title"
-    # The body (sizes, shipping) is preserved verbatim.
-    assert "Size: S-3XL" in out and "Ships in 3 days." in out
-    assert "Old Title Here" not in out
-
-
-def test_replace_leading_lines_supports_two_line_heading() -> None:
-    desc = "Line one\nLine two\nBody stays."
-    out = replace_leading_lines(desc, "New Title", 2)
-    assert out == "New Title\nBody stays."
+    out = replace_title_block(desc, "New Title")
+    assert out == "New Title\nSize: S-3XL\nShips in 3 days."
 
 
 def test_build_inventory_from_reference_applies_sku_and_keeps_variations() -> None:

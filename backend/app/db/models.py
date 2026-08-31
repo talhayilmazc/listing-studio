@@ -352,14 +352,18 @@ class ListingProfile(Base):
     reference_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     #: Fields copied from the reference listing; null until first refresh.
     cached_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
-    #: Reference listing_image_ids always appended to new drafts (B3, e.g. size charts).
+    #: Reference listing_image_ids always appended to new drafts (B3, e.g. size
+    #: charts). Auto-detected by classifying the reference images; user-toggleable.
     fixed_image_ids: Mapped[list[int] | None] = mapped_column(JSONB_TYPE)
-    #: How many leading description lines the generated title replaces (B2).
-    title_replace_lines: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     #: Which content prompt to use: "apparel" | "digital_products" (C1).
     content_template: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="digital_products"
     )
+    #: How the profile was created: "manual" | "detected" (auto-clustered).
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")
+    #: Auto-detected profiles start unconfirmed; the seller confirms/renames them
+    #: before use (never used silently). Manual creates are confirmed on creation.
+    confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

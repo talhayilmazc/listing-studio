@@ -69,6 +69,20 @@ async def list_shop_listings(
     )
 
 
+@router.post("/detect-profiles", status_code=202)
+async def detect_profiles_endpoint(
+    tenant: Tenant = Depends(current_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> dict[str, str]:
+    """Kick off auto-detection of candidate profiles from the seller's own shop.
+
+    Runs through the queue; detected profiles appear in GET /api/profiles as
+    unconfirmed for the seller to confirm, rename or override (never used silently).
+    """
+    await enqueuer.enqueue("detect_profiles", str(tenant.id))
+    return {"status": "detecting"}
+
+
 @router.post(
     "/listings/{listing_id}/use-as-profile",
     response_model=schemas.ProfileOut,
@@ -93,6 +107,8 @@ async def use_listing_as_profile(
         tenant_id=tenant.id,
         name=default_name or f"Listing {listing_id}",
         reference_listing_id=listing_id,
+        source="manual",
+        confirmed=True,  # the seller explicitly chose this listing
     )
     session.add(profile)
     await session.commit()

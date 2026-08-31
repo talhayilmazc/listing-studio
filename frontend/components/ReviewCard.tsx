@@ -76,13 +76,16 @@ export function ReviewCard({ initial }: { initial: Content }) {
     }
   }
 
-  async function publish() {
+  // Run a queued publish job (create-draft or publish-live) and poll to completion.
+  async function runJob(
+    start: () => Promise<{ job_id: string }>,
+    timeoutMsg: string,
+  ) {
     if (dirty) await save();
     setPublishState("publishing");
     setPublishError(null);
     try {
-      const { job_id } = await api.publishContent(initial.id);
-      // Poll the job until it finishes (draft creation runs through the queue).
+      const { job_id } = await start();
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => setTimeout(r, 1500));
         const job = await api.jobStatus(job_id);
@@ -93,18 +96,27 @@ export function ReviewCard({ initial }: { initial: Content }) {
           return;
         }
         if (job.status === "failed") {
-          setPublishError(job.error ?? "Publishing failed.");
+          setPublishError(job.error ?? "The job failed.");
           setPublishState("error");
           return;
         }
       }
-      setPublishError("Timed out waiting for the draft to be created.");
+      setPublishError(timeoutMsg);
       setPublishState("error");
     } catch (e: any) {
       setPublishError(e.message ?? String(e));
       setPublishState("error");
     }
   }
+
+  // Step 1: create the draft (never published automatically).
+  const createDraft = () =>
+    runJob(() => api.publishContent(initial.id), "Timed out waiting for the draft.");
+  // Step 2 (explicit): flip the reviewed, approved draft to active.
+  const publishNow = () =>
+    runJob(() => api.publishLive(initial.id), "Timed out waiting for publishing.");
+
+  const publishing = publishState === "publishing";
 
   const change =
     <T,>(setter: (v: T) => void) =>
@@ -201,33 +213,65 @@ export function ReviewCard({ initial }: { initial: Content }) {
             </div>
 
             <div className="flex items-center gap-2">
-              {listingLink ? (
-                <a
-                  href={listingLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-primary"
-                >
-                  {isDraft ? "Edit draft in Shop Manager ↗" : "View on Etsy ↗"}
-                </a>
-              ) : (
+              {!listingLink && (
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={publish}
-                  disabled={!approved || publishState === "publishing"}
+                  onClick={createDraft}
+                  disabled={!approved || publishing}
                   title={approved ? "Create an Etsy draft listing" : "Approve first"}
                 >
-                  {publishState === "publishing" ? "Creating draft…" : "Publish to Etsy"}
+                  {publishing ? "Creating draft…" : "Create draft"}
                 </button>
+              )}
+              {listingLink && isDraft && (
+                <>
+                  <a
+                    href={listingLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-secondary"
+                  >
+                    Edit draft ↗
+                  </a>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={publishNow}
+                    disabled={publishing}
+                    title="Make this draft active on Etsy"
+                  >
+                    {publishing ? "Publishing…" : "Publish now"}
+                  </button>
+                </>
+              )}
+              {listingLink && !isDraft && (
+                <a href={listingLink} target="_blank" rel="noreferrer" className="btn-primary">
+                  View on Etsy ↗
+                </a>
               )}
             </div>
           </div>
           {publishError && <p className="text-right text-xs text-rose-600">{publishError}</p>}
-          <p className="text-right text-xs text-slate-400">
-            Creates a <strong>draft</strong> listing only — it is never published automatically;
-            you publish it yourself in Etsy.
-          </p>
+          {listingLink && !isDraft ? (
+            <p className="text-right text-xs text-slate-400">
+              Published. To promote it, open{" "}
+              <a
+                href="https://www.etsy.com/your/shops/me/tools/marketing"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                Shop Manager → Marketing → Etsy Ads
+              </a>
+              . (Ads can’t be managed from here — Etsy has no Ads API.)
+            </p>
+          ) : (
+            <p className="text-right text-xs text-slate-400">
+              A <strong>draft</strong> is created first; it is never published automatically. You
+              then publish it yourself with <strong>Publish now</strong>.
+            </p>
+          )}
         </div>
       </div>
     </div>

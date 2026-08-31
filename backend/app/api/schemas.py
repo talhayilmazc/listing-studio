@@ -149,21 +149,22 @@ class ProfileCreate(BaseModel):
     name: str
     reference_listing_id: int
     content_template: str = "digital_products"
-    title_replace_lines: int = 1
     fixed_image_ids: list[int] = Field(default_factory=list)
 
 
 class ProfileUpdate(BaseModel):
     name: str | None = None
     content_template: str | None = None
-    title_replace_lines: int | None = None
     fixed_image_ids: list[int] | None = None
+    confirmed: bool | None = None
 
 
 class ReferenceImageOut(BaseModel):
     listing_image_id: int | None = None
     rank: int | None = None
     url: str | None = None
+    kind: str | None = None  # "size_chart" | "artwork" | null (unclassified)
+    is_fixed: bool = False  # currently included on every draft (B3)
 
 
 class ProfileOut(BaseModel):
@@ -171,7 +172,8 @@ class ProfileOut(BaseModel):
     name: str
     reference_listing_id: int
     content_template: str
-    title_replace_lines: int
+    source: str = "manual"  # "manual" | "detected"
+    confirmed: bool = True
     fixed_image_ids: list[int] = Field(default_factory=list)
     updated_at: datetime | None = None
     is_fresh: bool = False  # cached reference payload present and <24h old

@@ -33,18 +33,28 @@ def _is_fresh(profile: ListingProfile) -> bool:
 
 def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
     payload = profile.cached_payload or {}
+    fixed = set(profile.fixed_image_ids or [])
+    images = [
+        schemas.ReferenceImageOut(
+            listing_image_id=img.get("listing_image_id"),
+            rank=img.get("rank"),
+            url=img.get("url"),
+            kind=img.get("kind"),
+            is_fixed=img.get("listing_image_id") in fixed,
+        )
+        for img in payload.get("images", [])
+    ]
     return schemas.ProfileOut(
         id=profile.id,
         name=profile.name,
         reference_listing_id=profile.reference_listing_id,
         content_template=profile.content_template,
-        title_replace_lines=profile.title_replace_lines,
+        source=profile.source,
+        confirmed=profile.confirmed,
         fixed_image_ids=list(profile.fixed_image_ids or []),
         updated_at=profile.updated_at,
         is_fresh=_is_fresh(profile),
-        reference_images=[
-            schemas.ReferenceImageOut(**img) for img in payload.get("images", [])
-        ],
+        reference_images=images,
     )
 
 
@@ -80,8 +90,9 @@ async def create_profile(
         name=body.name,
         reference_listing_id=body.reference_listing_id,
         content_template=body.content_template,
-        title_replace_lines=body.title_replace_lines,
         fixed_image_ids=body.fixed_image_ids or None,
+        source="manual",
+        confirmed=True,  # a profile the seller created by hand is confirmed
     )
     session.add(profile)
     await session.commit()
@@ -112,10 +123,24 @@ async def update_profile(
         profile.name = body.name
     if body.content_template is not None:
         profile.content_template = body.content_template
-    if body.title_replace_lines is not None:
-        profile.title_replace_lines = body.title_replace_lines
     if body.fixed_image_ids is not None:
         profile.fixed_image_ids = body.fixed_image_ids or None
+    if body.confirmed is not None:
+        profile.confirmed = body.confirmed
+    await session.commit()
+    await session.refresh(profile)
+    return _to_out(profile)
+
+
+@router.post("/{profile_id}/confirm", response_model=schemas.ProfileOut)
+async def confirm_profile(
+    profile_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+) -> schemas.ProfileOut:
+    """Confirm an auto-detected profile for use (never used silently before this)."""
+    profile = await _get(session, tenant, profile_id)
+    profile.confirmed = True
     await session.commit()
     await session.refresh(profile)
     return _to_out(profile)
