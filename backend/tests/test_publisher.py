@@ -267,6 +267,12 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
     assert len(fake.inventory["products"]) == 2
     # price_on_property carried through so Etsy accepts the size-varying prices.
     assert fake.inventory["price_on_property"] == [200]
+    # Every offering carries a readiness_state_id (listing-level fallback here).
+    assert all(
+        o["readiness_state_id"] == 42
+        for p in fake.inventory["products"]
+        for o in p["offerings"]
+    )
 
     async with async_sm() as s:
         row = await s.get(GeneratedContent, content_id)

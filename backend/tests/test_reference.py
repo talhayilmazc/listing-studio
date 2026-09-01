@@ -210,6 +210,24 @@ def test_size_varying_reference_declares_price_on_property() -> None:
     assert [p["offerings"][0]["price"] for p in inv["products"]] == [40.5, 43.5, 46.5]
 
 
+def test_inventory_offerings_carry_readiness_state_id() -> None:
+    # Every offering needs a readiness_state_id: keep its own, else the listing-level.
+    products = [
+        {
+            "offerings": [{"price": {"amount": 4050, "divisor": 100}, "readiness_state_id": 7}],
+            "property_values": [],
+        },
+        {
+            "offerings": [{"price": {"amount": 4350, "divisor": 100}}],  # no per-offering value
+            "property_values": [],
+        },
+    ]
+    inv = build_inventory_from_reference(products, sku="X", quantity=1, readiness_state_id=42)
+    offers = [p["offerings"][0] for p in inv["products"]]
+    assert offers[0]["readiness_state_id"] == 7  # kept its own
+    assert offers[1]["readiness_state_id"] == 42  # fell back to listing-level
+
+
 def test_inventory_preserves_offering_is_enabled() -> None:
     ref = [
         {

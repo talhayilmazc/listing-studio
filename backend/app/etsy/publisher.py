@@ -273,6 +273,7 @@ async def publish_content(
         sku=sku,
         quantity=config.quantity,
         fallback_price=reference.get("price"),
+        readiness_state_id=reference.get("readiness_state_id"),
         price_on_property=reference.get("price_on_property"),
         quantity_on_property=reference.get("quantity_on_property"),
         sku_on_property=reference.get("sku_on_property"),

@@ -119,12 +119,22 @@ def _offering_price(offering: dict[str, Any]) -> float | None:
     return value if value > 0 else None
 
 
+def _offering(price: float, quantity: int, is_enabled: bool, readiness_state_id: int | None) -> dict[str, Any]:
+    """A writable offering. ``readiness_state_id`` is required on every offering for
+    physical listings ("All offerings need readiness state"); include it when known."""
+    offer: dict[str, Any] = {"price": price, "quantity": quantity, "is_enabled": is_enabled}
+    if readiness_state_id is not None:
+        offer["readiness_state_id"] = readiness_state_id
+    return offer
+
+
 def build_inventory_from_reference(
     reference_products: list[dict[str, Any]],
     *,
     sku: str | None,
     quantity: int,
     fallback_price: float | None = None,
+    readiness_state_id: int | None = None,
     price_on_property: list[int] | None = None,
     quantity_on_property: list[int] | None = None,
     sku_on_property: list[int] | None = None,
@@ -154,12 +164,14 @@ def build_inventory_from_reference(
             price = _offering_price(offering)
             if price is None:
                 continue  # priceless / disabled variation -> skip (§C)
+            # Each offering keeps its own readiness_state_id, else the listing-level one.
             offerings.append(
-                {
-                    "price": price,
-                    "quantity": quantity,
-                    "is_enabled": bool(offering.get("is_enabled", True)),
-                }
+                _offering(
+                    price,
+                    quantity,
+                    bool(offering.get("is_enabled", True)),
+                    offering.get("readiness_state_id") or readiness_state_id,
+                )
             )
         if not offerings:
             continue  # a variation with no priced offering is dropped entirely
@@ -180,7 +192,7 @@ def build_inventory_from_reference(
         # No priced variations (or the reference had no inventory): a single product
         # priced from the reference listing price. Never a hardcoded price (§0).
         offerings = (
-            [{"price": round(float(fallback_price), 2), "quantity": quantity, "is_enabled": True}]
+            [_offering(round(float(fallback_price), 2), quantity, True, readiness_state_id)]
             if fallback_price
             else []
         )
