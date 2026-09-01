@@ -11,6 +11,8 @@ proven listing. Only the authenticated seller's own shop is ever read.
 from __future__ import annotations
 
 import html
+import math
+from collections import Counter
 from typing import Any
 
 
@@ -80,20 +82,40 @@ def build_profile_payload(
     }
 
 
-def leading_title_prefix(title: str) -> str:
-    """Derive a title prefix from a reference title's leading ALL-CAPS words.
+def common_title_prefix(
+    titles: list[str], *, min_listings: int = 2, max_words: int = 4
+) -> str:
+    """Derive a brand-like title prefix shared by a cluster's listing titles.
 
-    e.g. "COMFORT COLORS Retro Frog Tee" -> "COMFORT COLORS"; a normal
-    title-cased title like "Motherhood is Kingdom Work" -> "" (no prefix).
+    Detects the leading word run (case-insensitive, so "Comfort Colors" is caught as
+    well as "COMFORT COLORS") that recurs across a **majority** of the titles, and
+    returns it in the casing the reference uses. Conservative: needs at least
+    ``min_listings`` titles and the run must repeat, else returns "" for the user to
+    fill in — a single listing never yields a prefix.
     """
-    prefix: list[str] = []
-    for word in (title or "").split():
-        core = word.strip(",")
-        if len(core) >= 2 and core.isupper() and any(c.isalpha() for c in core):
-            prefix.append(core)
-        else:
+    cleaned = [[w for w in (t or "").replace(",", " ").split() if w] for t in titles]
+    cleaned = [words for words in cleaned if words]
+    n = len(cleaned)
+    if n < min_listings:
+        return ""
+
+    threshold = max(min_listings, math.ceil(n / 2))  # "several" == a majority
+    best_casing: list[str] = []
+    for length in range(1, max_words + 1):
+        sequences: Counter[tuple[str, ...]] = Counter()
+        example: dict[tuple[str, ...], list[str]] = {}
+        for words in cleaned:
+            if len(words) >= length:
+                key = tuple(w.lower() for w in words[:length])
+                sequences[key] += 1
+                example.setdefault(key, words[:length])  # reference casing
+        if not sequences:
             break
-    return " ".join(prefix)
+        key, count = sequences.most_common(1)[0]
+        if count < threshold:
+            break
+        best_casing = example[key]
+    return " ".join(best_casing)
 
 
 def replace_title_block(description: str, title: str) -> str:

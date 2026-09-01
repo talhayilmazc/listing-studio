@@ -109,8 +109,8 @@ async def test_refresh_profile_populates_cached_payload(
         assert payload["price"] == 25.99
         assert payload["description"].startswith("Old Title")
         assert payload["images"][0]["listing_image_id"] == 900
-        # Title prefix auto-filled from the reference title's leading caps (v4 #2).
-        assert profile.title_prefix == "COMFORT COLORS"
+        # refresh does NOT set the title prefix (that's derived per cluster at detect).
+        assert profile.title_prefix is None
 
 
 async def test_sync_shop_listings_caches_active_and_draft(
@@ -207,6 +207,9 @@ async def test_detect_profiles_clusters_and_creates_unconfirmed(
     # Apparel inferred from the Size variation; the mug is not apparel.
     assert profiles[10].content_template == "apparel"
     assert profiles[20].content_template == "digital_products"
+    # Title prefix derived from the tee cluster's shared lead; none for the lone mug.
+    assert profiles[10].title_prefix == "Comfort Colors"
+    assert profiles[20].title_prefix == ""
     # Each new profile is queued for a payload refresh + image classification.
     assert sorted(a[0] for a in enqueued) == ["refresh_profile", "refresh_profile"]
 

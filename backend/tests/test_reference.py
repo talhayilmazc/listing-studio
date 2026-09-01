@@ -3,16 +3,29 @@
 from app.pipeline.reference import (
     build_inventory_from_reference,
     build_profile_payload,
+    common_title_prefix,
     decode_etsy_text,
-    leading_title_prefix,
     replace_title_block,
 )
 
 
-def test_leading_title_prefix_extracts_all_caps_lead() -> None:
-    assert leading_title_prefix("COMFORT COLORS Retro Frog Tee") == "COMFORT COLORS"
-    assert leading_title_prefix("Motherhood is Kingdom Work") == ""  # title-case, no prefix
-    assert leading_title_prefix("") == ""
+def test_common_title_prefix_detects_repeating_brand_any_case() -> None:
+    # Title-case brand caught (not only ALL-CAPS), normalised to the reference casing.
+    titles = ["Comfort Colors Retro Frog Tee", "Comfort Colors Flag Tee", "Comfort Colors Mom Shirt"]
+    assert common_title_prefix(titles) == "Comfort Colors"
+    caps = ["COMFORT COLORS Retro Tee", "COMFORT COLORS Flag Tee"]
+    assert common_title_prefix(caps) == "COMFORT COLORS"
+
+
+def test_common_title_prefix_uses_majority_not_all() -> None:
+    titles = ["Comfort Colors Retro Tee", "Comfort Colors Flag Tee", "Standard Frog Shirt"]
+    assert common_title_prefix(titles) == "Comfort Colors"  # 2 of 3 share it
+
+
+def test_common_title_prefix_conservative_when_not_repeated() -> None:
+    assert common_title_prefix(["Funny Frog Tee", "Retro Cat Shirt"]) == ""  # no shared lead
+    assert common_title_prefix(["Comfort Colors Retro Tee"]) == ""  # single listing -> none
+    assert common_title_prefix([]) == ""
 
 
 def test_decode_etsy_text_unescapes_html_entities() -> None:
