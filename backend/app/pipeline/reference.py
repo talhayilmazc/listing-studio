@@ -45,6 +45,9 @@ def build_profile_payload(
         "currency": (price or {}).get("currency_code") if isinstance(price, dict) else None,
         "shipping_profile_id": listing.get("shipping_profile_id"),
         "return_policy_id": listing.get("return_policy_id"),
+        # Etsy's processing/readiness profile; mandatory for physical listings and
+        # the modern replacement for raw processing_min/max (v4 §A).
+        "readiness_state_id": listing.get("readiness_state_id"),
         "production_partner_ids": list(listing.get("production_partner_ids") or []),
         "who_made": listing.get("who_made"),
         "when_made": listing.get("when_made"),

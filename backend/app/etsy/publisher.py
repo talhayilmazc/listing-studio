@@ -177,41 +177,43 @@ async def publish_content(
         created = await client.create_shop_section(shop_id, title=decision.name, **ctx)
         section_id = int(created["shop_section_id"])
 
-    # 4) Create the DRAFT listing. Category, price, fulfilment and variation
-    # structure are copied VERBATIM from the seller's reference listing -- never
-    # re-selected or defaulted (v4 §0/§A). The taxonomy MUST come from the reference;
-    # no code path selects a category or falls back to a default.
-    taxonomy_id = reference.get("taxonomy_id")
-    if not taxonomy_id:
+    # 4) Create the DRAFT listing. Every field is copied VERBATIM from the reference
+    # -- never re-selected or defaulted (v4 §0/§A). These are Etsy's mandatory fields
+    # for a PHYSICAL listing (audited against createDraftListing): the base fields
+    # plus shipping_profile_id, return_policy_id and readiness_state_id (the modern
+    # processing profile that replaces raw processing_min/max). A valid reference
+    # listing has them all; if any is missing we fail with the list rather than
+    # guess a default.
+    required = {
+        "taxonomy_id": reference.get("taxonomy_id"),
+        "price": reference.get("price"),
+        "who_made": reference.get("who_made"),
+        "when_made": reference.get("when_made"),
+        "shipping_profile_id": reference.get("shipping_profile_id"),
+        "return_policy_id": reference.get("return_policy_id"),
+        "readiness_state_id": reference.get("readiness_state_id"),
+    }
+    missing = [name for name, value in required.items() if value is None or value == ""]
+    if missing:
         raise ValueError(
-            "reference profile has no taxonomy_id; refresh the profile before publishing"
+            "reference profile is missing required physical-listing fields: "
+            + ", ".join(missing)
+            + "; refresh the profile before publishing"
         )
+    taxonomy_id = required["taxonomy_id"]
     listing: dict[str, Any] = {
         "quantity": config.quantity,
         "title": content.title or "",
         "description": content.description or "",
-        # Price, who_made and when_made come from the reference only -- no default
-        # is ever substituted (v4 §0/§C). Missing values fail at Etsy (body logged).
-        "price": reference.get("price"),
-        "who_made": reference.get("who_made"),
-        "when_made": reference.get("when_made"),
-        "taxonomy_id": taxonomy_id,
         # Apparel is always a PHYSICAL listing. Sending type=download makes Etsy
         # create a digital listing and force the "Digital files" category (v4 §A).
         "type": "physical",
         "tags": list(content.tags or []),
+        **required,
     }
-    # Fulfilment / policy ids and processing times copied from the reference (v4 §C).
-    for key in (
-        "shipping_profile_id",
-        "return_policy_id",
-        "production_partner_ids",
-        "processing_min",
-        "processing_max",
-    ):
-        value = reference.get(key)
-        if value:
-            listing[key] = value
+    # production_partner_ids: required only for made-by-someone-else; copy if present.
+    if reference.get("production_partner_ids"):
+        listing["production_partner_ids"] = reference["production_partner_ids"]
     # Tri-state flags: include when explicitly set (False is meaningful, don't drop).
     for key in ("is_supply", "is_customizable", "is_personalizable", "should_auto_renew"):
         if reference.get(key) is not None:

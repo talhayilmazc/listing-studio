@@ -46,6 +46,7 @@ REFERENCE = {
     "is_supply": False,
     "shipping_profile_id": 55,
     "return_policy_id": 88,
+    "readiness_state_id": 42,
     "production_partner_ids": [7],
     "should_auto_renew": True,
     "is_customizable": True,
@@ -250,10 +251,13 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
     assert fake.last_listing["who_made"] == "i_did"
     assert fake.last_listing["when_made"] == "made_to_order"
     assert fake.last_listing["return_policy_id"] == 88
+    # readiness_state_id (processing profile) is mandatory for physical listings (v4 §A).
+    assert fake.last_listing["readiness_state_id"] == 42
     assert fake.last_listing["should_auto_renew"] is True
     assert fake.last_listing["is_customizable"] is True
     assert fake.last_listing["is_personalizable"] is False  # False copied, not dropped
-    assert fake.last_listing["processing_min"] == 1 and fake.last_listing["processing_max"] == 3
+    # Raw processing_min/max are superseded by readiness_state_id and not sent.
+    assert "processing_min" not in fake.last_listing
     # Section resolved from the theme rule to the existing section.
     assert fake.last_listing["shop_section_id"] == 10
     # Generated images first (thumbnail rank 1), then the fixed reference image by id.
@@ -301,6 +305,32 @@ async def test_publish_always_sends_physical_type(async_sm: async_sessionmaker) 
         )
     assert fake.last_listing["type"] == "physical"
     assert fake.last_listing["taxonomy_id"] == 2078  # from the reference, not CONFIG
+
+
+async def test_publish_fails_when_readiness_state_id_missing(async_sm: async_sessionmaker) -> None:
+    """v4 §A: readiness_state_id is mandatory for physical listings — fail, no default."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy()
+    reference = {k: v for k, v in REFERENCE.items() if k != "readiness_state_id"}
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        with pytest.raises(ValueError, match="readiness_state_id"):
+            await publish_content(
+                s,
+                job_id=job_id,
+                content=content,
+                connection=conn,
+                sku="BR5475",
+                thumbnail=PublishImage(b"t", "t.jpg"),
+                client=fake,
+                access_token="tok",
+                config=CONFIG,
+                reference=reference,
+                theme="x",
+                tenant_limit=2000,
+            )
+    assert fake.last_listing is None  # never created a draft
 
 
 async def test_publish_fails_when_stored_taxonomy_differs(async_sm: async_sessionmaker) -> None:

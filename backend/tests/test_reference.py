@@ -78,12 +78,14 @@ def test_build_profile_payload_stores_all_v4_c_settings() -> None:
     listing = {
         **REF_LISTING,
         "return_policy_id": 88,
+        "readiness_state_id": 42,
         "should_auto_renew": True,
         "is_customizable": True,
         "is_personalizable": False,
     }
     payload = build_profile_payload(listing, REF_INVENTORY, REF_IMAGES)
     assert payload["return_policy_id"] == 88
+    assert payload["readiness_state_id"] == 42  # processing profile (v4 §A)
     assert payload["should_auto_renew"] is True
     assert payload["is_customizable"] is True
     assert payload["is_personalizable"] is False  # False stored, not dropped
