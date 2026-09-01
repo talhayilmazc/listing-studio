@@ -190,20 +190,24 @@ class ImageProcessor:
 
 
 # --- Thumbnail preparation (rank=1 listing image) --------------------------
-# Etsy's uploadListingImage has no crop/zoom params, so the thumbnail is trimmed,
-# padded and squared here before upload. Backend-agnostic Pillow implementation.
+# Etsy's uploadListingImage has no crop/zoom params, so the square thumbnail is
+# produced here before upload. Two modes:
+#   crop (default): centre-crop the largest square of the source, so no background
+#     is ever added (a portrait mockup would otherwise get white bars). Transparent
+#     designs, and flat-background images whose content is smaller than the frame,
+#     still get trimmed + padded so their margins are normalised.
+#   pad: always trim to content and pad to a square (the older framed look), for a
+#     shop that prefers it.
+# Backend-agnostic Pillow implementation.
 def prepare_thumbnail(
     data: bytes,
     *,
     padding_pct: int = 8,
     size: int = 2000,
     background: tuple[int, int, int] = (255, 255, 255),
+    mode: str = "crop",
 ) -> ProcessedImage:
-    """Trim empty/transparent margins, pad, centre on a square, output size x size.
-
-    Bounding box comes from the alpha channel on transparent images, or from the
-    difference against the corner (background) colour on flat-background images.
-    """
+    """Return a ``size`` x ``size`` JPEG thumbnail (see the modes above)."""
     from PIL import Image, ImageChops, UnidentifiedImageError
 
     try:
@@ -213,30 +217,43 @@ def prepare_thumbnail(
         raise ImageProcessingError(str(exc)) from exc
 
     has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
-    mask = None
+    # Find the content bounding box and whether the content is smaller than the
+    # frame (a transparent margin, or a uniform flat border to trim).
     if has_alpha:
-        content = img.convert("RGBA")
-        bbox = content.getchannel("A").getbbox()
-        if bbox:
-            content = content.crop(bbox)
-        mask = content.getchannel("A")
+        source = img.convert("RGBA")
+        bbox = source.getchannel("A").getbbox()
     else:
-        content = img.convert("RGB")
-        corner = content.getpixel((0, 0))
-        diff = ImageChops.difference(content, Image.new("RGB", content.size, corner))
+        source = img.convert("RGB")
+        corner = source.getpixel((0, 0))
+        diff = ImageChops.difference(source, Image.new("RGB", source.size, corner))
         bbox = diff.getbbox()
-        if bbox:
-            content = content.crop(bbox)
+    full = (0, 0, source.width, source.height)
+    content_smaller = bbox is not None and bbox != full
 
-    side = max(content.width, content.height)
-    pad = round(side * padding_pct / 100)
-    canvas_side = side + 2 * pad
-    canvas = Image.new("RGB", (canvas_side, canvas_side), background)
-    offset = ((canvas_side - content.width) // 2, (canvas_side - content.height) // 2)
-    if mask is not None:
-        canvas.paste(content, offset, mask)
+    # crop mode + a full-bleed photographic mockup -> centre-crop, never pad.
+    if mode != "pad" and not content_smaller:
+        rgb = img.convert("RGB")
+        square = min(rgb.width, rgb.height)
+        left = (rgb.width - square) // 2
+        top = (rgb.height - square) // 2
+        canvas = rgb.crop((left, top, left + square, top + square))
     else:
-        canvas.paste(content, offset)
+        # Trim to content, then pad to a centred square.
+        mask = None
+        if has_alpha:
+            content = source.crop(bbox) if bbox else source
+            mask = content.getchannel("A")
+        else:
+            content = source.crop(bbox) if bbox else source
+        side = max(content.width, content.height)
+        pad = round(side * padding_pct / 100)
+        canvas_side = side + 2 * pad
+        canvas = Image.new("RGB", (canvas_side, canvas_side), background)
+        offset = ((canvas_side - content.width) // 2, (canvas_side - content.height) // 2)
+        if mask is not None:
+            canvas.paste(content, offset, mask)
+        else:
+            canvas.paste(content, offset)
 
     canvas = canvas.resize((size, size), Image.LANCZOS)
     out = io.BytesIO()

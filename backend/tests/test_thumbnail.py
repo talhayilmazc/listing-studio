@@ -38,12 +38,24 @@ def test_flat_background_trimmed() -> None:
     assert im.getpixel((20, 20))[0] > 230  # padding corner is white
 
 
-def test_already_square_solid_is_padded_and_resized() -> None:
-    img = Image.new("RGB", (200, 200), (40, 160, 80))
-    out = prepare_thumbnail(_png(img), padding_pct=8, size=2000)
+def test_portrait_mockup_cropped_no_border() -> None:
+    # A non-square photographic mockup is centre-cropped to a square: NO white bars.
+    img = Image.new("RGB", (120, 200), (200, 30, 30))
+    out = prepare_thumbnail(_png(img), size=2000)  # crop is the default
+
+    im = Image.open(io.BytesIO(out.data))
+    assert im.size == (2000, 2000)  # square
+    for xy in [(10, 10), (1990, 10), (1000, 1000), (10, 1990), (1990, 1990)]:
+        r, g, b = im.getpixel(xy)
+        assert r > 160 and g < 90 and b < 90, xy  # design colour everywhere, no background
+
+
+def test_pad_mode_adds_border_on_portrait() -> None:
+    # The opt-in pad mode keeps the framed look: white bars on a portrait's sides.
+    img = Image.new("RGB", (120, 200), (200, 30, 30))
+    out = prepare_thumbnail(_png(img), padding_pct=8, size=2000, mode="pad")
 
     im = Image.open(io.BytesIO(out.data))
     assert im.size == (2000, 2000)
-    cx = im.getpixel((1000, 1000))
-    assert cx[1] > 120 and cx[0] < 90  # green centre
-    assert im.getpixel((10, 10))[0] > 230  # padding corner is white
+    assert im.getpixel((1000, 1000))[0] > 160  # red design centred
+    assert im.getpixel((20, 1000))[0] > 230  # left-edge padding is white

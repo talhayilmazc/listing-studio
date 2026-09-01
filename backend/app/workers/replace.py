@@ -80,6 +80,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 primary_bytes,
                 padding_pct=settings.thumbnail_padding_pct,
                 size=settings.thumbnail_size,
+                mode=settings.thumbnail_mode,
             )
             new_images = [PublishImage(data=thumb.data, filename=f"{primary.id}-thumb.jpg")]
             for extra in assets[1:]:

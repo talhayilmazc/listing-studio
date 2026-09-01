@@ -48,7 +48,9 @@ class Settings(BaseSettings):
     # auto-renew -- comes from the reference listing, never from config (v4 §0/§C).
     default_quantity: int = 999
 
-    # Thumbnail preparation (rank=1 image is trimmed, padded, squared to size).
+    # Thumbnail preparation (rank=1 image squared to size).
+    # thumbnail_mode: "crop" (centre-crop, no added border — default) or "pad".
+    thumbnail_mode: str = "crop"
     thumbnail_padding_pct: int = 8
     thumbnail_size: int = 2000
 
