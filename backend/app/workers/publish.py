@@ -106,6 +106,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                 primary_bytes,
                 padding_pct=settings.thumbnail_padding_pct,
                 size=settings.thumbnail_size,
+                mode=settings.thumbnail_mode,
             )
             thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg")
 
