@@ -28,22 +28,28 @@ Base everything only on the provided analysis. Do not invent brands or claims. O
 ## Title requirements (hard constraints)
 
 The title MUST be between 110 and 140 characters. Aim for 130-140.
-Count the characters before responding. Under 110 is rejected and costs a retry.
+Count the characters before responding (the commas count too). Under 110 is rejected
+and costs a retry.
 
-Build the title in five parts so it reaches the length naturally:
-[design subject] + [product type] + [style/theme] + [occasion or use case] + [recipient/gift angle]
+Write the title as **4 to 6 comma-separated keyword phrases**, not one run-on string.
+Each phrase is a short search term a buyer might type; the first phrase leads with the
+strongest keywords and names the garment type. Roughly:
+[design subject + product type], [style/theme phrase], [occasion or use case], [recipient/gift angle], [extra keyword phrase]
 
-Correct length examples:
+Correct (comma-separated, right length):
 
-"Retro Cowboy Frog Sweatshirt Funny Western Graphic Tee Vintage Country Shirt Gift for Her Cottagecore Aesthetic Pullover" (119)
+"Motherhood is Kingdom Work T-Shirt, Empowerment Quote Tee, Minimalist Graphic, Gift for Mom, Christian Shirt, Mothers Day" (121)
 
-"Just Because I'm Awake Doesn't Mean I'm Ready Sweatshirt Funny Sarcastic Shirt Introvert Tee Coffee Lover Gift for Her Mom" (121)
+"Retro Cowboy Frog Sweatshirt, Funny Western Graphic Tee, Vintage Country Shirt, Gift for Her, Cottagecore Aesthetic" (115)
+
+Wrong (one run-on string, no commas):
+"Motherhood is Kingdom Work T-Shirt Empowerment Quote Tee Minimalist Graphic Gift for Mom Christian Shirt Mothers Day"
 
 Too short (rejected):
-"Funny Frog Sweatshirt Gift" (26)
-"Retro Cowboy Frog Graphic Sweatshirt for Women" (46)
+"Funny Frog Sweatshirt, Gift for Her" (35)
 
-If your draft title is under 110, keep appending relevant keyword phrases — occasions, recipients, style words, alternative garment terms — until you reach 130.
+If your draft is under 110, add another comma-separated phrase — an occasion, recipient,
+style word, or alternative garment term — until it reaches 130.
 
 ## Tag requirements (hard constraints)
 

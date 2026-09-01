@@ -215,11 +215,13 @@ class AnthropicContentGenerator:
         *,
         max_tokens: int = 1024,
         policy: ContentPolicy | None = None,
+        title_prefix: str = "",
     ) -> None:
         self._client = client
         self._template = template or load_template("content/digital_products")
         self._max_tokens = max_tokens
         self._policy = policy
+        self._title_prefix = (title_prefix or "").strip()
 
     def _content_blocks(self, analysis: VisionAnalysis, sku: str | None) -> list[dict[str, Any]]:
         text = self._template.render_user(
@@ -233,7 +235,34 @@ class AnthropicContentGenerator:
                 "sku": sku or "(none)",
             }
         )
-        return [{"type": "text", "text": text}]
+        blocks = [{"type": "text", "text": text}]
+        if self._title_prefix:
+            # The prefix is prepended for us; the model writes only the remainder, to a
+            # reduced budget so the FULL title still lands in MIN..MAX characters.
+            used = len(self._title_prefix) + 2  # the ", " separator
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": (
+                        f"The title will be prefixed with '{self._title_prefix}, ' "
+                        "automatically. Write ONLY the phrases after that prefix. The full "
+                        f"title (prefix included) must be {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH} "
+                        f"characters, so write about {max(0, 130 - used)}-{MAX_TITLE_LENGTH - used} "
+                        "characters and do not repeat the prefix."
+                    ),
+                }
+            )
+        return blocks
+
+    def _apply_prefix(self, listing: GeneratedListing) -> GeneratedListing:
+        """Prepend the fixed prefix to the generated title (v4: per-profile prefix)."""
+        if not self._title_prefix:
+            return listing
+        raw = listing.title.strip()
+        if raw.lower().startswith(self._title_prefix.lower()):
+            return listing  # model already included it; don't double it
+        listing.title = f"{self._title_prefix}, {raw}"
+        return listing
 
     def build_params(self, analysis: VisionAnalysis, sku: str | None = None) -> dict[str, Any]:
         """Request body for this call — reusable for the Batch API later."""
@@ -295,6 +324,7 @@ class AnthropicContentGenerator:
         for attempt in range(2):
             listing, usage = await self._generate_once(analysis, sku, correction=correction)
             usages.append(usage)
+            listing = self._apply_prefix(listing)  # prepend the profile's title prefix
             errors = validate_listing(listing, self._policy)
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)

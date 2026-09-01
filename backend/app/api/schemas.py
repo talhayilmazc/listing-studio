@@ -181,6 +181,7 @@ class ProfileUpdate(BaseModel):
     content_template: str | None = None
     fixed_image_ids: list[int] | None = None
     confirmed: bool | None = None
+    title_prefix: str | None = None
 
 
 class ReferenceImageOut(BaseModel):
@@ -198,6 +199,7 @@ class ProfileOut(BaseModel):
     content_template: str
     source: str = "manual"  # "manual" | "detected"
     confirmed: bool = True
+    title_prefix: str = ""  # prepended to every generated title (e.g. "COMFORT COLORS")
     fixed_image_ids: list[int] = Field(default_factory=list)
     updated_at: datetime | None = None
     is_fresh: bool = False  # cached reference payload present and <24h old

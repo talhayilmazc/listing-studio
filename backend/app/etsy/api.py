@@ -415,6 +415,7 @@ class EtsyApiClient:
 
     async def update_listing(
         self,
+        shop_id: int,
         listing_id: int,
         *,
         updates: dict[str, Any],
@@ -422,11 +423,11 @@ class EtsyApiClient:
         tenant_id: Any = None,
         tenant_limit: int | None = None,
     ) -> dict[str, Any]:
-        # Etsy's updateListing is PATCH /application/listings/{listing_id} -- NOT
-        # shop-scoped and NOT PUT (a shop-scoped PUT 404s).
+        # Etsy's updateListing is PATCH (not PUT) and IS shop-scoped:
+        # PATCH /application/shops/{shop_id}/listings/{listing_id}.
         return await self._request(
             "PATCH",
-            f"/application/listings/{listing_id}",
+            f"/application/shops/{shop_id}/listings/{listing_id}",
             access_token=access_token,
             data=updates,
             tenant_id=tenant_id,

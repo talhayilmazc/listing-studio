@@ -51,6 +51,7 @@ def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
         content_template=profile.content_template,
         source=profile.source,
         confirmed=profile.confirmed,
+        title_prefix=profile.title_prefix or "",
         fixed_image_ids=list(profile.fixed_image_ids or []),
         updated_at=profile.updated_at,
         is_fresh=_is_fresh(profile),
@@ -127,6 +128,8 @@ async def update_profile(
         profile.fixed_image_ids = body.fixed_image_ids or None
     if body.confirmed is not None:
         profile.confirmed = body.confirmed
+    if body.title_prefix is not None:
+        profile.title_prefix = body.title_prefix
     await session.commit()
     await session.refresh(profile)
     return _to_out(profile)

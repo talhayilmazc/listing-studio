@@ -19,6 +19,7 @@ records which step failed. Nothing is ever auto-published.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +38,8 @@ from app.etsy.api import EtsyApiClient
 from app.pipeline.attributes import resolve_required_attributes
 from app.pipeline.reference import build_inventory_from_reference
 from app.pipeline.sections import choose_section
+
+logger = logging.getLogger(__name__)
 
 
 class PublishBlocked(Exception):
@@ -137,6 +140,7 @@ async def publish_content(
     theme: str = "",
     occasion: str = "",
     vision: dict[str, Any] | None = None,
+    profile_name: str = "",
     auto_create_sections: bool = False,
     tenant_limit: int,
 ) -> PublishResult:
@@ -159,23 +163,56 @@ async def publish_content(
         await session.commit()
     shop_id = connection.shop_id
 
-    # 3) Choose a shop section from the theme/occasion.
+    # 3) Choose a shop section (v3 §F): a Comfort Colors profile ALWAYS maps to the
+    # shop's "Comfort Colors" section (deterministic, no LLM); otherwise match by
+    # theme (rules.json). Every branch is logged so a missing section is diagnosable.
     sections_resp = await client.get_shop_sections(shop_id, **ctx)
     section_by_title = {
         str(s["title"]): int(s["shop_section_id"]) for s in sections_resp.get("results", [])
     }
-    decision = choose_section(
-        theme=theme,
-        occasion=occasion,
-        existing_sections=list(section_by_title),
-        auto_create=auto_create_sections,
-    )
+    section_by_lower = {title.lower(): sid for title, sid in section_by_title.items()}
+
     section_id: int | None = None
-    if decision.name and decision.exists:
-        section_id = section_by_title[decision.name]
-    elif decision.name and decision.create:
-        created = await client.create_shop_section(shop_id, title=decision.name, **ctx)
-        section_id = int(created["shop_section_id"])
+    if "comfort colors" in profile_name.lower():
+        section_id = section_by_lower.get("comfort colors")
+        if section_id is not None:
+            logger.info("section: Comfort Colors profile rule -> section %s", section_id)
+        else:
+            logger.warning(
+                "section: Comfort Colors profile %r but shop has no 'Comfort Colors' "
+                "section; leaving unset (existing: %s)",
+                profile_name,
+                list(section_by_title),
+            )
+    else:
+        decision = choose_section(
+            theme=theme,
+            occasion=occasion,
+            existing_sections=list(section_by_title),
+            auto_create=auto_create_sections,
+        )
+        if decision.name and decision.exists:
+            section_id = section_by_title[decision.name]
+            logger.info("section: theme rule matched existing '%s' (%s)", decision.name, section_id)
+        elif decision.name and decision.create:
+            created = await client.create_shop_section(shop_id, title=decision.name, **ctx)
+            section_id = int(created["shop_section_id"])
+            logger.info("section: theme rule created '%s' (%s)", decision.name, section_id)
+        elif decision.name:
+            logger.info(
+                "section: theme rule matched '%s' but shop has no such section and "
+                "auto-create is off; leaving unset",
+                decision.name,
+            )
+        else:
+            logger.info(
+                "section: no rule matched (theme=%r occasion=%r); leaving unset", theme, occasion
+            )
+
+    logger.info(
+        "section: %s",
+        f"shop_section_id {section_id} will be sent" if section_id else "no section on the draft",
+    )
 
     # 4) Create the DRAFT listing. Every field is copied VERBATIM from the reference
     # -- never re-selected or defaulted (v4 §0/§A). These are Etsy's mandatory fields
@@ -340,7 +377,14 @@ async def publish_live(
     if content.etsy_listing_id is None:
         raise ValueError("no draft listing to publish; create the draft first")
 
-    # updateListing is not shop-scoped, so no shop resolution is needed here.
+    # updateListing is shop-scoped, so resolve (and cache) the shop id.
+    if connection.shop_id is None:
+        if connection.etsy_user_id is None:
+            raise ValueError("connection has no Etsy user id")
+        shop = _first_shop(await client.get_shop_by_owner_user_id(connection.etsy_user_id, **ctx))
+        connection.shop_id = int(shop["shop_id"])
+        await session.commit()
+    shop_id = connection.shop_id
     listing_id = content.etsy_listing_id
 
     # Snapshot the pre-change state so the go-live can be rolled back to draft.
@@ -354,7 +398,7 @@ async def publish_live(
     )
     await session.commit()
 
-    await client.update_listing(listing_id, updates={"state": "active"}, **ctx)
+    await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
     content.etsy_listing_state = "active"
     await session.commit()
 
@@ -428,6 +472,7 @@ async def replace_listing_images(
 
     # 5) Refresh only the copy; NEVER touch state, price, taxonomy, variations, etc.
     await client.update_listing(
+        shop_id,
         listing_id,
         updates={"title": new_title, "description": new_description, "tags": new_tags},
         **ctx,

@@ -80,6 +80,22 @@ def build_profile_payload(
     }
 
 
+def leading_title_prefix(title: str) -> str:
+    """Derive a title prefix from a reference title's leading ALL-CAPS words.
+
+    e.g. "COMFORT COLORS Retro Frog Tee" -> "COMFORT COLORS"; a normal
+    title-cased title like "Motherhood is Kingdom Work" -> "" (no prefix).
+    """
+    prefix: list[str] = []
+    for word in (title or "").split():
+        core = word.strip(",")
+        if len(core) >= 2 and core.isupper() and any(c.isalpha() for c in core):
+            prefix.append(core)
+        else:
+            break
+    return " ".join(prefix)
+
+
 def replace_title_block(description: str, title: str) -> str:
     """Replace the reference description's title block with the new title (B2).
 

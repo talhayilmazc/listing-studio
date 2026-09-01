@@ -370,6 +370,7 @@ async def generate_content(
                 client,
                 template=load_template(f"content/{p.content_template}"),
                 policy=policy_for(p.content_template),
+                title_prefix=p.title_prefix or "",
             )
         return generator_cache[p.id]
 

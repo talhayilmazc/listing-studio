@@ -110,7 +110,13 @@ export const api = {
     req<Profile>("/profiles", { method: "POST", body: JSON.stringify(body) }),
   updateProfile: (
     id: string,
-    body: Partial<{ name: string; content_template: string; fixed_image_ids: number[]; confirmed: boolean }>,
+    body: Partial<{
+      name: string;
+      content_template: string;
+      fixed_image_ids: number[];
+      confirmed: boolean;
+      title_prefix: string;
+    }>,
   ) => req<Profile>(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),
   refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),

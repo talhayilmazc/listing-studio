@@ -4,8 +4,15 @@ from app.pipeline.reference import (
     build_inventory_from_reference,
     build_profile_payload,
     decode_etsy_text,
+    leading_title_prefix,
     replace_title_block,
 )
+
+
+def test_leading_title_prefix_extracts_all_caps_lead() -> None:
+    assert leading_title_prefix("COMFORT COLORS Retro Frog Tee") == "COMFORT COLORS"
+    assert leading_title_prefix("Motherhood is Kingdom Work") == ""  # title-case, no prefix
+    assert leading_title_prefix("") == ""
 
 
 def test_decode_etsy_text_unescapes_html_entities() -> None:

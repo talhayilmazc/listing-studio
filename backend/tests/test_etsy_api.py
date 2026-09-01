@@ -70,26 +70,27 @@ async def test_update_listing_serializes_tags_the_same_way() -> None:
     )
     tags = [f"t{i}" for i in range(13)]
     async with http:
-        await client.update_listing(1, updates={"tags": tags}, access_token="tok")
+        await client.update_listing(5, 1, updates={"tags": tags}, access_token="tok")
 
     body = parse_qs(seen[0].content.decode())
     assert len(body["tags"][0].split(",")) == 13
 
 
-async def test_update_listing_uses_patch_and_unscoped_path() -> None:
-    """Etsy's updateListing is PATCH /application/listings/{id} -- not shop-scoped,
-    not PUT (a shop-scoped PUT 404s)."""
+async def test_update_listing_uses_patch_and_shop_scoped_path() -> None:
+    """Etsy's updateListing is PATCH (not PUT) and IS shop-scoped:
+    PATCH /application/shops/{shop_id}/listings/{listing_id}."""
     seen: list[httpx.Request] = []
     client, http = _make(
         lambda req: (seen.append(req), httpx.Response(200, json={"listing_id": 4565991052}))[1]
     )
     async with http:
-        await client.update_listing(4565991052, updates={"state": "active"}, access_token="tok")
+        await client.update_listing(
+            63829375, 4565991052, updates={"state": "active"}, access_token="tok"
+        )
 
     req = seen[0]
     assert req.method == "PATCH"
-    assert req.url.path == "/v3/application/listings/4565991052"
-    assert "/shops/" not in req.url.path  # never shop-scoped
+    assert req.url.path == "/v3/application/shops/63829375/listings/4565991052"
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,7 @@ export function ProfileCard({
   onDelete: (id: string) => void;
 }) {
   const [name, setName] = useState(profile.name);
+  const [prefix, setPrefix] = useState(profile.title_prefix ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
@@ -68,6 +69,9 @@ export function ProfileCard({
 
   const saveName = () =>
     name !== profile.name && run("name", () => api.updateProfile(profile.id, { name }));
+  const savePrefix = () =>
+    prefix !== (profile.title_prefix ?? "") &&
+    run("prefix", () => api.updateProfile(profile.id, { title_prefix: prefix }));
   const setTemplate = (t: string) =>
     run("template", () => api.updateProfile(profile.id, { content_template: t }));
   const confirm = () => run("confirm", () => api.confirmProfile(profile.id));
@@ -151,6 +155,19 @@ export function ProfileCard({
       <p className="text-xs text-slate-400">
         Reference listing #{profile.reference_listing_id}
       </p>
+
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-slate-500">Title prefix</label>
+        <input
+          className="field max-w-[220px] py-1 text-xs"
+          value={prefix}
+          placeholder="none"
+          onChange={(e) => setPrefix(e.target.value)}
+          onBlur={savePrefix}
+          disabled={busy !== null}
+        />
+        <span className="text-xs text-slate-400">prepended to every generated title</span>
+      </div>
 
       {nonPrimary.length > 0 && (
         <div>

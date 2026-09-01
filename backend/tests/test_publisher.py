@@ -125,7 +125,7 @@ class FakeEtsy:
         self.inventory = inventory
         return {}
 
-    async def update_listing(self, listing_id: int, *, updates: dict[str, Any], **_: Any):
+    async def update_listing(self, shop_id: int, listing_id: int, *, updates: dict[str, Any], **_: Any):
         self.calls.append("update_listing")
         self.last_update = updates
         return {}
@@ -284,6 +284,65 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
         assert snap is not None and snap.job_id == job_id
         assert snap.payload["operation"] == "create_draft"
     assert "get_listing" in fake.calls  # taxonomy read-back happened (v4 §A)
+
+
+async def test_comfort_colors_profile_maps_to_that_section(async_sm: async_sessionmaker) -> None:
+    """v3 §F rule 1: a Comfort Colors profile always uses the shop's CC section,
+    deterministically — even when a theme rule would match a different section."""
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(
+        sections={
+            "results": [
+                {"shop_section_id": 30, "title": "Comfort Colors"},
+                {"shop_section_id": 10, "title": "4th of July"},
+            ]
+        }
+    )
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        await publish_content(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            reference=REFERENCE,
+            theme="patriotic eagle",  # would match "4th of July" by theme
+            profile_name="Comfort Colors Tee",
+            tenant_limit=2000,
+        )
+    assert fake.last_listing["shop_section_id"] == 30  # CC rule wins over theme
+
+
+async def test_comfort_colors_profile_without_section_leaves_it_unset(
+    async_sm: async_sessionmaker,
+) -> None:
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    fake = FakeEtsy(sections={"results": []})  # shop has no Comfort Colors section
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        conn = await s.get(EtsyConnection, conn_id)
+        await publish_content(
+            s,
+            job_id=job_id,
+            content=content,
+            connection=conn,
+            sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            reference=REFERENCE,
+            theme="patriotic eagle",
+            profile_name="Comfort Colors",
+            tenant_limit=2000,
+        )
+    assert "shop_section_id" not in fake.last_listing  # not created (auto-create off)
 
 
 async def test_publish_always_sends_physical_type(async_sm: async_sessionmaker) -> None:

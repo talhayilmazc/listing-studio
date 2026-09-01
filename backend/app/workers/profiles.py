@@ -24,7 +24,7 @@ from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.llm import AnthropicLLMClient
-from app.pipeline.reference import build_profile_payload, decode_etsy_text
+from app.pipeline.reference import build_profile_payload, decode_etsy_text, leading_title_prefix
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 
 logger = logging.getLogger(__name__)
@@ -103,6 +103,11 @@ async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
             properties = await client.get_listing_properties(shop_id, ref_id, **kw)
 
         payload = build_profile_payload(listing, inventory, images, properties)
+
+        # Auto-fill the title prefix from the reference title's leading words the
+        # first time only; the seller can edit it and re-refresh won't overwrite it.
+        if profile.title_prefix is None:
+            profile.title_prefix = leading_title_prefix(decode_etsy_text(listing.get("title")))
 
         # Classify the reference's non-primary images as size charts vs artwork and
         # auto-mark the charts as fixed images (B3). Done LOCALLY from the image

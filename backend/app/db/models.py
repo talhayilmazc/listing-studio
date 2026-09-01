@@ -399,6 +399,10 @@ class ListingProfile(Base):
     content_template: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="apparel"
     )
+    #: Fixed prefix prepended to every generated title (e.g. "COMFORT COLORS").
+    #: Auto-filled from the reference title's leading words; editable. Null = not yet
+    #: derived; "" = deliberately none.
+    title_prefix: Mapped[str | None] = mapped_column(Text)
     #: How the profile was created: "manual" | "detected" (auto-clustered).
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")
     #: Auto-detected profiles start unconfirmed; the seller confirms/renames them

@@ -272,6 +272,25 @@ async def test_generator_retry_carries_forbidden_word_error() -> None:
     assert "svg" in retry_text.lower()  # the correction names the offending term
 
 
+async def test_generator_prepends_profile_title_prefix() -> None:
+    # The model writes only the remainder; the prefix is prepended and the FULL
+    # title validates in 110-140 (v4: per-profile title prefix).
+    remainder = "Motherhood is Kingdom Work Tee, Empowerment Quote Shirt, Minimalist Graphic, Gift for Mom, Mothers Day"
+    tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    messages = FakeMessages([fake_response(_payload(title=remainder, tags=tags))])
+    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=messages)
+    gen = AnthropicContentGenerator(client, policy=APPAREL, title_prefix="COMFORT COLORS")
+
+    result = await gen.generate(ANALYSIS, sku="SKU1")
+    assert result.attempts == 1
+    assert result.listing.title.startswith("COMFORT COLORS, ")
+    assert 110 <= len(result.listing.title) <= 140
+    # The prompt tells the model about the prefix and the reduced budget.
+    blocks = messages.calls[0]["messages"][0]["content"]
+    text = "\n".join(b["text"] for b in blocks if b["type"] == "text")
+    assert "COMFORT COLORS" in text
+
+
 def test_title_below_110_is_rejected() -> None:
     listing = GeneratedListing("x" * 109, _tags(13), "A description.")
     assert any("at least 110" in e for e in validate_listing(listing))

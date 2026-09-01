@@ -93,6 +93,7 @@ export interface Profile {
   content_template: string;
   source: string; // "manual" | "detected"
   confirmed: boolean;
+  title_prefix: string;
   fixed_image_ids: number[];
   updated_at: string | null;
   is_fresh: boolean;

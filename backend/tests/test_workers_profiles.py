@@ -40,6 +40,7 @@ class FakeEtsy:
         return {
             "listing_id": listing_id,
             "taxonomy_id": 2078,
+            "title": "COMFORT COLORS Retro Frog Tee",
             "price": {"amount": 2599, "divisor": 100, "currency_code": "USD"},
             "who_made": "i_did",
             "when_made": "made_to_order",
@@ -108,6 +109,8 @@ async def test_refresh_profile_populates_cached_payload(
         assert payload["price"] == 25.99
         assert payload["description"].startswith("Old Title")
         assert payload["images"][0]["listing_image_id"] == 900
+        # Title prefix auto-filled from the reference title's leading caps (v4 #2).
+        assert profile.title_prefix == "COMFORT COLORS"
 
 
 async def test_sync_shop_listings_caches_active_and_draft(
