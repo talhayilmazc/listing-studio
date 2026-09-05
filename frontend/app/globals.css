@@ -2,12 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens (docs/ui-redesign.md §1). Warm neutral base, one deep-violet
+   accent used sparingly. Deliberately far from Etsy orange (ToU §2). */
 :root {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-sunken: #f5f5f4;
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --text: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #a8a29e;
+  --accent: #4c1d95;
+  --accent-hover: #5b21b6;
+  --accent-subtle: #f5f3ff;
+  --success: #166534;
+  --warning: #a16207;
+  --danger: #991b1b;
 }
 
 body {
   @apply bg-stone-50 text-slate-800 antialiased;
+  font-feature-settings: "cv11";
 }
 
 @layer components {
