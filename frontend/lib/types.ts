@@ -152,6 +152,11 @@ export interface BatchCost {
   listings: ListingCost[];
 }
 
+export interface QuotaDay {
+  date: string; // YYYY-MM-DD (UTC)
+  count: number;
+}
+
 export interface Quota {
   tenant_used: number;
   tenant_limit: number;
@@ -160,6 +165,8 @@ export interface Quota {
   global_limit: number;
   global_remaining: number;
   usage_date: string;
+  /** Last 7 days of this shop's API usage, oldest first. */
+  history: QuotaDay[];
 }
 
 export interface Meta {
