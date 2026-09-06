@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -194,6 +194,74 @@ async def test_shop_listings_returns_cached_rows(ctx) -> None:
     assert row["listing_id"] == 777
     assert row["sku"] == "BR5475"
     assert row["thumbnail_url"] == "https://img/570.jpg"
+
+
+async def test_shop_summary_counts_without_triggering_sync(ctx) -> None:
+    """Counts come from the cache; unlike /shop/listings this never enqueues."""
+    now = datetime.now(timezone.utc)
+    this_month = now.replace(day=1, hour=12, minute=0, second=0, microsecond=0)
+    last_month = (this_month - timedelta(days=1)).replace(day=2, hour=12)
+    long_ago = this_month - timedelta(days=400)
+
+    rows = [
+        (1, "active", this_month),
+        (2, "active", this_month + timedelta(hours=5)),
+        (3, "active", last_month),
+        (4, "active", long_ago),
+        (5, "draft", this_month),  # never published -> counts in neither month
+    ]
+    async with ctx["sm"]() as s:
+        for listing_id, state, stamp in rows:
+            s.add(
+                ShopListingCache(
+                    tenant_id=ctx["tenant_id"],
+                    listing_id=listing_id,
+                    payload={
+                        "listing_id": listing_id,
+                        "state": state,
+                        "state_timestamp": int(stamp.timestamp()),
+                    },
+                    fetched_at=now,
+                )
+            )
+        await s.commit()
+
+    body = (await ctx["client"].get("/api/shop/summary")).json()
+    assert ctx["enqueuer"].calls == []  # the whole point: no sync side effect
+
+    assert body["total"] == 5
+    assert body["active"] == 4
+    assert body["draft"] == 1
+    assert body["published_this_month"] == 2
+    assert body["published_last_month"] == 1
+    assert body["stale"] is False
+
+
+async def test_shop_summary_stale_cache_still_does_not_sync(ctx) -> None:
+    """A stale cache is reported as stale, but reading it must not enqueue."""
+    res = await ctx["client"].get("/api/shop/summary")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 0
+    assert body["stale"] is True
+    assert body["fetched_at"] is None
+    assert ctx["enqueuer"].calls == []
+
+
+async def test_shop_listing_carries_state_timestamp(ctx) -> None:
+    stamp = int(datetime.now(timezone.utc).timestamp())
+    async with ctx["sm"]() as s:
+        s.add(
+            ShopListingCache(
+                tenant_id=ctx["tenant_id"],
+                listing_id=778,
+                payload={"listing_id": 778, "state": "active", "state_timestamp": stamp},
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        await s.commit()
+    row = (await ctx["client"].get("/api/shop/listings")).json()["listings"][0]
+    assert row["state_timestamp"] == stamp
 
 
 async def test_profile_model_defaults_to_apparel(ctx) -> None:

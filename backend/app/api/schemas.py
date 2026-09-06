@@ -224,11 +224,30 @@ class ShopListingOut(BaseModel):
     shop_section_id: int | None = None
     url: str | None = None
     thumbnail_url: str | None = None
+    # Additive: Etsy's own timestamp for when the listing entered its current
+    # state (unix seconds) - for an active listing, when it went live.
+    state_timestamp: int | None = None
 
 
 class ShopListingsOut(BaseModel):
     listings: list[ShopListingOut] = Field(default_factory=list)
     stale: bool = False  # a background refresh was triggered
+
+
+class ShopSummaryOut(BaseModel):
+    """Counts derived from the cached shop listings.
+
+    Read-only: unlike ``/shop/listings`` this never enqueues a refresh, so it is
+    safe to call from a component present on every page.
+    """
+
+    total: int = 0
+    active: int = 0
+    draft: int = 0
+    published_this_month: int = 0
+    published_last_month: int = 0
+    fetched_at: datetime | None = None
+    stale: bool = False  # cache is older than its 6h window (no refresh triggered)
 
 
 class ReplaceImagesRequest(BaseModel):

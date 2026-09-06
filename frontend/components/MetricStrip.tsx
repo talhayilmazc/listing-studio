@@ -3,16 +3,16 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { BatchSummary, Profile, Quota } from "@/lib/types";
+import type { BatchSummary, Profile, Quota, ShopSummary } from "@/lib/types";
 
 /**
- * Metric strip (docs/ui-direction-v2.md §3): a thin band of real figures above
- * the page content — serif numbers, small muted labels, a 7-day sparkline for
- * quota built from the additive `history` field.
+ * Metric strip (docs/ui-direction-v2.md §3): a band of real figures above the
+ * page content — serif numbers, muted labels, each with the period it covers and
+ * a comparison where one is computable.
  *
- * Deliberately reads only side-effect-free endpoints. `/api/shop/listings`
- * enqueues a shop sync when its 6h cache is stale, so calling it from a strip
- * present on every page would multiply those syncs and spend Etsy quota.
+ * Reads only side-effect-free endpoints. `/shop/summary` serves the cached
+ * counts without the sync `/shop/listings` would enqueue, so a strip on every
+ * page never spends Etsy quota.
  */
 
 // Utility pages carry no shop context.
@@ -21,6 +21,7 @@ const HIDDEN = [/^\/terms$/, /^\/privacy$/, /^\/connect$/];
 export function MetricStrip() {
   const pathname = usePathname() ?? "/";
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [shop, setShop] = useState<ShopSummary | null>(null);
   const [batches, setBatches] = useState<BatchSummary[] | null>(null);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
 
@@ -30,6 +31,7 @@ export function MetricStrip() {
     if (hidden) return;
     let cancelled = false;
     api.quota().then((q) => !cancelled && setQuota(q)).catch(() => {});
+    api.shopSummary().then((s) => !cancelled && setShop(s)).catch(() => {});
     api.listBatches().then((b) => !cancelled && setBatches(b)).catch(() => setBatches([]));
     api.listProfiles().then((p) => !cancelled && setProfiles(p)).catch(() => setProfiles([]));
     return () => {
@@ -39,75 +41,168 @@ export function MetricStrip() {
 
   if (hidden) return null;
 
-  const approved = batches?.reduce((n, b) => n + b.approved_count, 0) ?? null;
-  const processed = batches?.reduce((n, b) => n + b.processed_count, 0) ?? null;
   const activeProfiles = profiles?.filter((p) => p.confirmed).length ?? null;
+  const awaitingReview =
+    batches?.reduce((n, b) => n + Math.max(0, b.processed_count - b.approved_count), 0) ?? null;
 
   return (
     <div className="border-b border-slate-200">
       <dl className="mx-auto grid w-full max-w-[1800px] grid-cols-2 lg:grid-cols-4">
-        <Cell label="Approved listings" value={approved} />
-        <Cell label="Designs processed" value={processed} />
+        <Cell
+          label="Published"
+          period="this month"
+          value={shop?.published_this_month ?? null}
+          delta={
+            shop ? changePct(shop.published_this_month, shop.published_last_month) : null
+          }
+          deltaNote="vs last month"
+        />
+        <Cell
+          label="Draft listings"
+          period="awaiting publish"
+          value={shop?.draft ?? null}
+          secondary={shop ? `${shop.active.toLocaleString()} live` : null}
+        />
         <QuotaCell quota={quota} />
-        <Cell label="Active profiles" value={activeProfiles} />
+        <Cell
+          label="Active profiles"
+          period="in your library"
+          value={activeProfiles}
+          secondary={
+            awaitingReview === null
+              ? null
+              : `${awaitingReview.toLocaleString()} designs awaiting review`
+          }
+        />
       </dl>
     </div>
   );
+}
+
+/** Percent change, or null when there is no meaningful base to compare against. */
+function changePct(now: number, before: number): number | null {
+  if (before <= 0) return null;
+  return Math.round(((now - before) / before) * 100);
 }
 
 // Hairlines between cells only, never a leading edge: left borders on the 2nd
 // cell of each row (plus the 3rd once the row holds four), top borders only on
 // the wrapped second row at narrow widths.
 const CELL =
-  "border-slate-200 px-6 py-4 lg:px-8 " +
+  "border-slate-200 px-6 py-5 lg:px-8 " +
   "[&:nth-child(even)]:border-l lg:[&:nth-child(3)]:border-l " +
   "[&:nth-child(n+3)]:border-t lg:[&:nth-child(n+3)]:border-t-0";
 
-function Cell({ label, value }: { label: string; value: number | null }) {
+function Label({ label, period }: { label: string; period: string }) {
+  return (
+    <dt className="flex flex-wrap items-baseline gap-x-1.5 text-xs">
+      <span className="font-medium text-slate-600">{label}</span>
+      <span className="text-slate-400">{period}</span>
+    </dt>
+  );
+}
+
+function Cell({
+  label,
+  period,
+  value,
+  delta,
+  deltaNote,
+  secondary,
+}: {
+  label: string;
+  period: string;
+  value: number | null;
+  delta?: number | null;
+  deltaNote?: string;
+  secondary?: string | null;
+}) {
   return (
     <div className={CELL}>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="mt-0.5 font-display text-3xl leading-none text-slate-900">
+      <Label label={label} period={period} />
+      <dd className="mt-1.5 flex items-baseline gap-2.5">
         {value === null ? (
-          <span className="inline-block h-7 w-12 animate-pulse rounded bg-slate-100 align-bottom" />
+          <span className="inline-block h-8 w-14 animate-pulse rounded bg-slate-100" />
         ) : (
-          <span className="tabular-nums">{value.toLocaleString()}</span>
+          <span className="font-display text-3xl leading-none tabular-nums text-slate-900">
+            {value.toLocaleString()}
+          </span>
+        )}
+        {delta != null && delta !== 0 && (
+          <span
+            className={
+              "flex items-baseline gap-0.5 text-xs font-medium tabular-nums " +
+              (delta > 0 ? "text-emerald-700" : "text-slate-500")
+            }
+            title={deltaNote}
+          >
+            <span aria-hidden>{delta > 0 ? "↑" : "↓"}</span>
+            {Math.abs(delta)}%
+          </span>
         )}
       </dd>
+      <p className="mt-1.5 h-4 text-xs text-slate-400">
+        {delta != null && delta !== 0 ? deltaNote : (secondary ?? "")}
+      </p>
     </div>
   );
 }
 
+/**
+ * Quota is the anchor of the strip: it is the scarce resource, so it carries the
+ * sunken surface and the full-height 7-day chart.
+ */
 function QuotaCell({ quota }: { quota: Quota | null }) {
+  const low = quota ? quota.tenant_remaining < quota.tenant_limit * 0.1 : false;
+  const yesterday = quota?.history?.at(-2)?.count ?? null;
+  const today = quota?.tenant_used ?? null;
+  const delta = today != null && yesterday != null ? changePct(today, yesterday) : null;
+
   return (
-    <div className={CELL}>
-      <dt className="text-xs text-slate-500">Today&rsquo;s quota</dt>
-      <dd className="mt-0.5 flex items-end justify-between gap-4">
-        {quota === null ? (
-          <span className="inline-block h-7 w-24 animate-pulse rounded bg-slate-100" />
-        ) : (
-          <span className="font-display text-3xl leading-none tabular-nums text-slate-900">
-            {quota.tenant_remaining.toLocaleString()}
-            <span className="text-lg text-slate-400">
-              {" / "}
-              {quota.tenant_limit.toLocaleString()}
+    <div className={CELL + " bg-slate-50"}>
+      <Label label="API quota" period="remaining today" />
+      <dd className="mt-1.5 flex items-end justify-between gap-4">
+        <div>
+          {quota === null ? (
+            <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />
+          ) : (
+            <span
+              className={
+                "font-display text-3xl leading-none tabular-nums " +
+                (low ? "text-amber-700" : "text-slate-900")
+              }
+            >
+              {quota.tenant_remaining.toLocaleString()}
+              <span className="text-lg text-slate-400">
+                {" / "}
+                {quota.tenant_limit.toLocaleString()}
+              </span>
             </span>
-          </span>
-        )}
-        {quota && <Sparkline history={quota.history} />}
+          )}
+          <p className="mt-1.5 h-4 text-xs text-slate-400">
+            {quota === null
+              ? ""
+              : delta != null && delta !== 0
+                ? `${quota.tenant_used.toLocaleString()} used · ${delta > 0 ? "↑" : "↓"}${Math.abs(delta)}% vs yesterday`
+                : `${quota.tenant_used.toLocaleString()} used today`}
+          </p>
+        </div>
+        {quota && <UsageChart history={quota.history} />}
       </dd>
     </div>
   );
 }
 
 /** Seven days of calls, oldest to newest, today picked out in the accent. */
-function Sparkline({ history }: { history: Quota["history"] }) {
+function UsageChart({ history }: { history: Quota["history"] }) {
   if (!history?.length) return null;
   const max = Math.max(1, ...history.map((d) => d.count));
+  const H = 64; // tall enough to read a shape, not a hairline
+
   return (
     <span
-      className="flex h-7 shrink-0 items-end gap-[3px]"
-      title={history.map((d) => `${d.date}: ${d.count.toLocaleString()} calls`).join("\n")}
+      className="flex shrink-0 items-end gap-1"
+      style={{ height: H }}
       aria-label={`API calls over the last ${history.length} days`}
     >
       {history.map((d, i) => {
@@ -115,10 +210,12 @@ function Sparkline({ history }: { history: Quota["history"] }) {
         return (
           <span
             key={d.date}
+            title={`${d.date}: ${d.count.toLocaleString()} calls`}
             className={
-              "w-1.5 rounded-sm " + (last ? "bg-brand-600" : d.count ? "bg-slate-300" : "bg-slate-200")
+              "w-2 rounded-sm " +
+              (last ? "bg-brand-600" : d.count ? "bg-slate-300" : "bg-slate-200")
             }
-            style={{ height: Math.max(2, Math.round((d.count / max) * 28)) + "px" }}
+            style={{ height: Math.max(2, Math.round((d.count / max) * H)) + "px" }}
           />
         );
       })}

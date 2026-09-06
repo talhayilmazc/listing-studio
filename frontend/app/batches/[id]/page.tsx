@@ -129,7 +129,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             ← Batches
           </Link>
           <div className="mt-1 flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900">Batch {id.slice(0, 8)}</h1>
             <StatusPill status={batch.status} />
           </div>
           <p className="mt-1 text-sm text-slate-500">

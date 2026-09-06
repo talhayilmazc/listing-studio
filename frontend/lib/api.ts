@@ -16,6 +16,7 @@ import type {
   Quota,
   ReplaceImagesResult,
   ShopListings,
+  ShopSummary,
 } from "./types";
 
 // Same-origin: Next rewrites /api/* to the FastAPI backend.
@@ -125,6 +126,8 @@ export const api = {
   deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),
   detectProfiles: () => req<{ status: string }>("/shop/detect-profiles", { method: "POST" }),
   shopListings: () => req<ShopListings>("/shop/listings"),
+  /** Cached counts only — unlike shopListings this never triggers a sync. */
+  shopSummary: () => req<ShopSummary>("/shop/summary"),
   useListingAsProfile: (listingId: number) =>
     req<Profile>(`/shop/listings/${listingId}/use-as-profile`, { method: "POST" }),
   replaceImages: (listingId: number, batchId: string) =>

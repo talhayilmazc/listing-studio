@@ -58,18 +58,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Your shop, your remaining API quota, and what you have been working on.
-          </p>
-        </div>
-        <Link href="/upload" className="btn-primary shrink-0">
-          New upload
-        </Link>
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-3">
         <ShopCard connection={connection} listings={listings} />
         <QuotaCard quota={quota} />

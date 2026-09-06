@@ -108,6 +108,19 @@ export interface ShopListing {
   shop_section_id: number | null;
   url: string | null;
   thumbnail_url: string | null;
+  /** Unix seconds; for an active listing, when it went live. */
+  state_timestamp: number | null;
+}
+
+/** Cached listing counts. Reading this never triggers a shop sync. */
+export interface ShopSummary {
+  total: number;
+  active: number;
+  draft: number;
+  published_this_month: number;
+  published_last_month: number;
+  fetched_at: string | null;
+  stale: boolean;
 }
 
 export interface ShopListings {

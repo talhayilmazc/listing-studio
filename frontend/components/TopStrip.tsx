@@ -15,7 +15,6 @@ const TITLES: [RegExp, string][] = [
   [/^\/dashboard$/, "Overview"],
   [/^\/$/, "Batches"],
   [/^\/batches\/[^/]+\/review$/, "Review"],
-  [/^\/batches\/[^/]+$/, "Batch"],
   [/^\/profiles$/, "Profiles"],
   [/^\/upload$/, "Uploads"],
   [/^\/connect$/, "Connection"],
@@ -25,6 +24,9 @@ const TITLES: [RegExp, string][] = [
 
 function titleFor(pathname: string): string {
   for (const [re, title] of TITLES) if (re.test(pathname)) return title;
+  // Batch detail keeps its short id, which the page no longer repeats.
+  const batch = pathname.match(/^\/batches\/([^/]+)$/);
+  if (batch) return "Batch " + batch[1].slice(0, 8);
   return "Listing Studio";
 }
 
