@@ -292,46 +292,80 @@ def prepare_thumbnail(
 # Presentation only: nothing here touches what is uploaded to Etsy.
 PREVIEW_WIDTHS: frozenset[int] = frozenset({112, 224, 448, 896})
 
+# Bump when the crop or encode changes: it is part of the on-disk cache key, so
+# raising it retires every previously cached derivative instead of serving stale
+# crops forever.
+PREVIEW_VERSION = 2
+
 # Tile shapes the grid actually uses, as width/height.
 PREVIEW_ASPECTS: dict[str, float] = {"4:5": 4 / 5, "16:10": 16 / 10}
 
 
+CROP_MARGIN = 0.06  # breathing room around a detected design, as a share of its size
+
+
 def _crop_box(
-    size: tuple[int, int], bbox: tuple[int, int, int, int] | None, ratio: float
+    size: tuple[int, int],
+    bbox: tuple[int, int, int, int] | None,
+    ratio: float,
 ) -> tuple[int, int, int, int]:
-    """The largest ``ratio`` window that contains ``bbox`` and fits inside ``size``.
+    """A ``ratio`` window over ``size``, framing the design when one was found.
 
-    Centred on the content, then nudged back inside the image edges.
+    Two cases, kept deliberately distinct:
 
-    When the window is too short to hold the content — a wide tile over a tall
-    mockup — it anchors to the top of the content instead of its middle. On a
-    photograph of a worn garment the detected content is the whole model, whose
-    midpoint sits at the waist; the printed design sits high on the chest, so
-    centring cuts through the artwork and keeping the top keeps it whole.
+    *Content detected* — ``bbox`` is a proper subset of the frame, which happens
+    for a transparent design or artwork on a flat background. The window is drawn
+    snugly around it plus :data:`CROP_MARGIN`, so the design is actually enlarged
+    rather than merely de-lettered. If the window is too short to hold the whole
+    box it keeps the top of it: on a worn-garment shot the detected content runs
+    the height of the model, whose midpoint is the waist, while the print sits
+    high on the chest.
+
+    *No content signal* — ``bbox`` covers the whole frame, which is what a
+    photographic mockup gives: a room scene has no uniform background to measure
+    against. The window is then the largest one of this ratio, placed by how much
+    height it has to discard. Cutting a little is safe centred; cutting a lot
+    means the frame is much taller than the tile, and in garment photography the
+    print sits above the midline of the subject — so the more must go, the higher
+    the window sits. Predictable beats clever: no invented focal point.
     """
     width, height = size
+    full = bbox is None or bbox == (0, 0, width, height)
     left, top, right, bottom = bbox or (0, 0, width, height)
     box_w, box_h = max(1, right - left), max(1, bottom - top)
 
-    # Smallest window of this ratio that still covers the content...
-    crop_w = max(box_w, box_h * ratio)
-    crop_h = crop_w / ratio
-    # ...shrunk to fit the image, keeping the ratio exact.
-    if crop_w > width:
-        crop_w, crop_h = width, width / ratio
-    if crop_h > height:
-        crop_w, crop_h = height * ratio, height
+    if full:
+        crop_w, crop_h = _fit(width, height, width, ratio)
+        slack = height - crop_h
+        kept = crop_h / height  # 1.0 = nothing cut, small = most of the height cut
+        y = slack * 0.5 * kept * kept
+        x = (width - crop_w) / 2
+        return round(x), round(y), round(x + crop_w), round(y + crop_h)
+
+    # Snug around the design, then corrected to the ratio and clamped to the image.
+    margin = CROP_MARGIN * max(box_w, box_h)
+    want_w = max(box_w + 2 * margin, (box_h + 2 * margin) * ratio)
+    crop_w, crop_h = _fit(width, height, want_w, ratio)
 
     centre_x = (left + right) / 2
     x = min(max(0.0, centre_x - crop_w / 2), width - crop_w)
-
     if crop_h < box_h:
-        y = float(top)  # keep the top of the content, not its midpoint
+        y = float(top)  # keep the top of the design, not the middle of the model
     else:
         y = (top + bottom) / 2 - crop_h / 2
     y = min(max(0.0, y), height - crop_h)
 
     return round(x), round(y), round(x + crop_w), round(y + crop_h)
+
+
+def _fit(width: int, height: int, want_w: float, ratio: float) -> tuple[float, float]:
+    """A ``ratio`` box about ``want_w`` wide, shrunk to fit ``width`` x ``height``."""
+    crop_w = min(float(want_w), float(width))
+    crop_h = crop_w / ratio
+    if crop_h > height:
+        crop_h = float(height)
+        crop_w = crop_h * ratio
+    return crop_w, crop_h
 
 
 def resize_preview(data: bytes, width: int, aspect: str | None = None) -> bytes:

@@ -1,9 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
+import { relativeTime } from "@/lib/format";
+import type { BatchSummary } from "@/lib/types";
 
 interface Row {
   name: string;
@@ -38,8 +41,21 @@ export default function UploadPage() {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [batchId, setBatchId] = useState<string | null>(null);
+  const [recent, setRecent] = useState<BatchSummary[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const previews = useRef<string[]>([]);
+
+  // The last few uploads, so an empty page is not a single box in a void.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listBatches()
+      .then((b) => !cancelled && setRecent(b.slice(0, 3)))
+      .catch(() => setRecent([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Object URLs are owned by this page; release them when it goes away.
   useEffect(() => {
@@ -168,41 +184,45 @@ export default function UploadPage() {
     />
   );
 
-  // Empty page: the drop zone is the hero and fills it.
+  // Empty page: the drop zone leads, with recent uploads beneath it.
   if (empty) {
     return (
+      <div className="space-y-6">
       <div
         {...dropHandlers}
         className={
-          "flex min-h-[60vh] flex-col items-center justify-center rounded-xl border-2 border-dashed p-12 text-center transition-colors " +
+          "flex min-h-[30vh] flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors " +
           (dragging ? "border-brand-600 bg-brand-50" : "border-slate-300 bg-white")
         }
       >
         <div
           className={
-            "flex h-16 w-16 items-center justify-center rounded-2xl transition-colors " +
+            "flex h-14 w-14 items-center justify-center rounded-2xl transition-colors " +
             (dragging ? "bg-brand-600 text-white" : "bg-brand-50 text-brand-700")
           }
         >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M12 16V4M12 4l-4 4M12 4l4 4" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
           </svg>
         </div>
-        <h2 className="mt-5 font-display text-3xl text-slate-900">Drop a folder of designs</h2>
-        <p className="mt-2 max-w-md text-sm text-slate-500">
+        <h2 className="mt-4 font-display text-3xl text-slate-900">Drop a folder of designs</h2>
+        <p className="mt-1.5 max-w-md text-sm text-slate-500">
           Each subfolder becomes one listing group, and the SKU is read from the folder or file
           name. PNG, JPG, WebP, GIF and TIFF are accepted.
         </p>
         <button
           type="button"
           disabled={busy}
-          className="btn-secondary mt-6"
+          className="btn-secondary mt-5"
           onClick={() => inputRef.current?.click()}
         >
           Choose a folder
         </button>
         {folderInput}
+      </div>
+
+      <RecentUploads batches={recent} />
       </div>
     );
   }
@@ -422,4 +442,48 @@ async function walkEntry(entry: FileSystemEntry, out: Item[], prefix: string): P
     );
     await Promise.all(entries.map((e) => walkEntry(e, out, prefix + entry.name + "/")));
   }
+}
+
+/** The last three uploads, as compact rows. */
+function RecentUploads({ batches }: { batches: BatchSummary[] | null }) {
+  if (batches !== null && batches.length === 0) return null;
+  return (
+    <section>
+      <div className="flex items-baseline justify-between border-b border-slate-200 pb-2">
+        <h2 className="font-display text-lg text-slate-900">Recent uploads</h2>
+        <Link href="/" className="text-xs font-medium text-brand-700 hover:text-brand-800">
+          All batches
+        </Link>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {batches === null
+          ? [0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3 py-3">
+                <div className="h-4 w-32 animate-pulse rounded bg-slate-100" />
+                <div className="h-3 w-20 animate-pulse rounded bg-slate-100" />
+              </div>
+            ))
+          : batches.map((b) => (
+              <Link
+                key={b.id}
+                href={"/batches/" + b.id}
+                className="group flex items-center justify-between gap-4 py-3"
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <StatusPill status={b.status} />
+                  <span className="truncate text-sm text-slate-700 group-hover:text-brand-700">
+                    Batch {b.id.slice(0, 8)}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs text-slate-400">
+                  <span className="tabular-nums">{b.asset_count}</span> files ·{" "}
+                  <span title={new Date(b.created_at).toLocaleString()}>
+                    {relativeTime(b.created_at)}
+                  </span>
+                </span>
+              </Link>
+            ))}
+      </div>
+    </section>
+  );
 }

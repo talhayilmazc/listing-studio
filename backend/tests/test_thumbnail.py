@@ -148,3 +148,51 @@ def test_wide_crop_of_tall_mockup_keeps_the_design() -> None:
     for y in (top + 2, (top + bottom) // 2, bottom - 2):
         r, g, b = im.getpixel((im.width // 2, y))
         assert r > 160 and g < 90 and b < 90, y
+
+
+def test_preview_zooms_into_a_detected_design() -> None:
+    """A detected design is framed snugly, not merely letterboxed away."""
+    from app.pipeline.images import resize_preview
+
+    # A small design on a large flat field: the crop should be far tighter than
+    # the frame, so the design ends up occupying most of the tile.
+    img = Image.new("RGB", (2000, 2000), (255, 255, 255))
+    img.paste(Image.new("RGB", (400, 400), (200, 30, 30)), (800, 800))
+    im = Image.open(io.BytesIO(resize_preview(_png(img), 448, "4:5")))
+
+    # Count how much of the tile the design covers; a full-frame window would
+    # leave it at roughly 4% of the area.
+    red = sum(
+        1
+        for y in range(0, im.height, 4)
+        for x in range(0, im.width, 4)
+        if im.getpixel((x, y))[0] > 160 and im.getpixel((x, y))[1] < 90
+    )
+    total = len(range(0, im.height, 4)) * len(range(0, im.width, 4))
+    assert red / total > 0.5
+
+
+def test_preview_without_a_content_signal_is_placed_by_how_much_is_cut() -> None:
+    """A photographic frame has no uniform background, so no focal point is invented.
+
+    The window is the largest of the ratio; how high it sits depends only on how
+    much height it must discard. Trimming a little stays near centred; discarding
+    half the frame biases upward, where a garment print sits on a full-length shot.
+    """
+    from app.pipeline.images import _crop_box
+
+    # Landscape room mockup: 16:10 keeps 78% of the height, so barely off centre.
+    wide = _crop_box((2000, 1600), (0, 0, 2000, 1600), 1.6)
+    assert wide[0] == 0 and wide[2] == 2000  # full width
+    assert wide[3] - wide[1] == 1250
+    centred_y = (1600 - 1250) / 2
+    assert 0 < wide[1] < centred_y  # above centre, but not pinned to the top
+
+    # Portrait torso shot: 16:10 discards half the height, so it sits much higher.
+    tall = _crop_box((1663, 2000), (0, 0, 1663, 2000), 1.6)
+    assert tall[3] - tall[1] == round(1663 / 1.6)
+    assert tall[1] < (2000 - 1663 / 1.6) * 0.2
+
+    # A ratio that cuts nothing vertically is left alone.
+    exact = _crop_box((2000, 1600), (0, 0, 2000, 1600), 0.8)
+    assert exact[1] == 0 and exact[3] == 1600
