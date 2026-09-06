@@ -20,7 +20,7 @@ export function Footer() {
 
   return (
     <footer className="mt-16 border-t border-slate-200 bg-white">
-      <div className="mx-auto max-w-6xl space-y-3 px-6 py-8 text-sm text-slate-500">
+      <div className="mx-auto w-full max-w-[1800px] space-y-3 px-6 py-8 text-sm text-slate-500 lg:px-8">
         <p className="max-w-3xl leading-relaxed">{TRADEMARK_NOTICE}</p>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <Link href="/terms" className="hover:text-slate-800">

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Nav } from "@/components/Nav";
-import { Footer } from "@/components/Footer";
+import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "Listing Studio",
@@ -11,10 +10,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="flex min-h-screen flex-col">
-        <Nav />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
-        <Footer />
+      <body>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
