@@ -125,155 +125,201 @@ export function ReviewCard({ initial }: { initial: Content }) {
       setDirty(true);
     };
 
+  // Out of range is a warning, not an error: amber, never red.
+  const titleOut = title.length > 0 && (title.length < MIN_TITLE || title.length > MAX_TITLE);
+
   return (
     <div
-      className={`card overflow-hidden ${approved ? "ring-2 ring-emerald-300" : ""}`}
+      className={"card overflow-hidden " + (approved ? "border-emerald-300" : "")}
       id={initial.id}
     >
-      <div className="grid gap-0 md:grid-cols-[220px_1fr]">
-        {/* Image + meta */}
-        <div className="border-b border-slate-100 bg-slate-50 md:border-b-0 md:border-r">
-          <div className="aspect-square">
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
+        {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
+        <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
+          <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={api.assetImage(initial.asset_id)}
+              src={api.assetImage(initial.asset_id, 896)}
               alt={initial.original_filename}
-              className="h-full w-full object-cover"
+              className="max-h-full max-w-full object-contain"
+              loading="lazy"
+              decoding="async"
             />
           </div>
-          <div className="space-y-1 p-3 text-xs text-slate-500">
-            <div className="truncate font-medium text-slate-700" title={initial.original_filename}>
-              {initial.original_filename}
-            </div>
-            <div>SKU: {initial.parsed_sku ?? "—"}</div>
-            <div>Rank: {initial.rank ?? "—"}</div>
-            {initial.model_used && <div className="truncate">Model: {initial.model_used}</div>}
-          </div>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-200 p-4 text-xs">
+            <Meta label="File" value={initial.original_filename} truncate />
+            <Meta label="SKU" value={initial.parsed_sku ?? "—"} />
+            <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
+            {initial.model_used && <Meta label="Model" value={initial.model_used} truncate />}
+          </dl>
         </div>
 
         {/* Editable fields */}
-        <div className="space-y-4 p-5">
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="label mb-0">Title</span>
-              <span
-                className={`text-xs font-medium ${
-                  title.length > MAX_TITLE ? "text-rose-600" : "text-slate-400"
-                }`}
-              >
-                {title.length} / {MAX_TITLE}
-              </span>
-            </div>
-            <input
-              className="field"
-              value={title}
-              onChange={(e) => change(setTitle)(e.target.value)}
-              placeholder="Listing title"
-            />
-          </div>
-
-          <TagEditor tags={tags} onChange={change(setTags)} />
-
-          <div>
-            <span className="label">Description</span>
-            <textarea
-              className="field min-h-[120px] resize-y"
-              value={description}
-              onChange={(e) => change(setDescription)(e.target.value)}
-              placeholder="Listing description"
-            />
-          </div>
-
-          {!valid && (
-            <ul className="space-y-0.5 rounded-lg bg-rose-50 p-3 text-xs text-rose-700">
-              {errors.map((e, i) => (
-                <li key={i}>• {e}</li>
-              ))}
-            </ul>
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-            <div className="flex items-center gap-3">
-              <button className="btn-secondary" onClick={save} disabled={saving || !dirty}>
-                {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
-              </button>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <div className="flex flex-col">
+          <div className="space-y-5 p-5">
+            <div>
+              <span className="label">Title</span>
+              <div className="relative">
                 <input
-                  type="checkbox"
-                  checked={approved}
-                  disabled={!valid}
-                  onChange={toggleApprove}
-                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  className={
+                    "field " +
+                    (titleOut ? "border-amber-400 focus:border-amber-500 focus:ring-amber-500" : "")
+                  }
+                  value={title}
+                  onChange={(e) => change(setTitle)(e.target.value)}
+                  placeholder="Listing title"
+                  aria-label="Listing title"
                 />
-                <span className={approved ? "font-medium text-emerald-700" : "text-slate-600"}>
-                  {approved ? "Approved" : "Approve for draft"}
+                {/* The counter sits on the field's border rather than above it. */}
+                <span
+                  className={"counter " + (titleOut ? "text-amber-700" : "text-slate-400")}
+                  title={`${MIN_TITLE}-${MAX_TITLE} characters`}
+                >
+                  {title.length} / {MAX_TITLE}
                 </span>
-              </label>
-              {message && <span className="text-xs text-slate-400">{message}</span>}
+              </div>
+              {titleOut && (
+                <p className="mt-1 text-xs text-amber-700">
+                  {title.length < MIN_TITLE
+                    ? `${MIN_TITLE - title.length} short of the ${MIN_TITLE} minimum`
+                    : `${title.length - MAX_TITLE} over the ${MAX_TITLE} maximum`}
+                </p>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
-              {!listingLink && (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={createDraft}
-                  disabled={!approved || publishing}
-                  title={approved ? "Create an Etsy draft listing" : "Approve first"}
-                >
-                  {publishing ? "Creating draft…" : "Create draft"}
+            <TagEditor tags={tags} onChange={change(setTags)} />
+
+            <Description value={description} onChange={change(setDescription)} />
+
+            {!valid && (
+              <ul className="space-y-0.5 text-xs text-rose-700">
+                {errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Sticky action bar: stays reachable while this card is on screen. */}
+          <div className="sticky bottom-0 mt-auto border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button className="btn-secondary" onClick={save} disabled={saving || !dirty}>
+                  {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
                 </button>
-              )}
-              {listingLink && isDraft && (
-                <>
-                  <a
-                    href={listingLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-secondary"
-                  >
-                    Edit draft ↗
-                  </a>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={approved}
+                    disabled={!valid}
+                    onChange={toggleApprove}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className={approved ? "font-medium text-emerald-700" : "text-slate-600"}>
+                    {approved ? "Approved" : "Approve for draft"}
+                  </span>
+                </label>
+                {message && <span className="text-xs text-slate-400">{message}</span>}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {!listingLink && (
                   <button
                     type="button"
                     className="btn-primary"
-                    onClick={publishNow}
-                    disabled={publishing}
-                    title="Make this draft active on Etsy"
+                    onClick={createDraft}
+                    disabled={!approved || publishing}
+                    title={approved ? "Create an Etsy draft listing" : "Approve first"}
                   >
-                    {publishing ? "Publishing…" : "Publish now"}
+                    {publishing ? "Creating draft…" : "Create draft"}
                   </button>
-                </>
-              )}
-              {listingLink && !isDraft && (
-                <a href={listingLink} target="_blank" rel="noreferrer" className="btn-primary">
-                  View on Etsy ↗
-                </a>
-              )}
+                )}
+                {listingLink && isDraft && (
+                  <>
+                    <a href={listingLink} target="_blank" rel="noreferrer" className="btn-secondary">
+                      Edit draft ↗
+                    </a>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={publishNow}
+                      disabled={publishing}
+                      title="Make this draft active on Etsy"
+                    >
+                      {publishing ? "Publishing…" : "Publish now"}
+                    </button>
+                  </>
+                )}
+                {listingLink && !isDraft && (
+                  <a href={listingLink} target="_blank" rel="noreferrer" className="btn-primary">
+                    View on Etsy ↗
+                  </a>
+                )}
+              </div>
             </div>
+            {publishError && <p className="mt-2 text-right text-xs text-rose-700">{publishError}</p>}
+            {listingLink && !isDraft ? (
+              <p className="mt-2 text-right text-xs text-slate-400">
+                Published. To promote it, open{" "}
+                <a
+                  href="https://www.etsy.com/your/shops/me/tools/marketing"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  Shop Manager → Marketing → Etsy Ads
+                </a>
+                . (Ads can&rsquo;t be managed from here — Etsy has no Ads API.)
+              </p>
+            ) : (
+              <p className="mt-2 text-right text-xs text-slate-400">
+                A <strong>draft</strong> is created first; it is never published automatically. You
+                then publish it yourself with <strong>Publish now</strong>.
+              </p>
+            )}
           </div>
-          {publishError && <p className="text-right text-xs text-rose-600">{publishError}</p>}
-          {listingLink && !isDraft ? (
-            <p className="text-right text-xs text-slate-400">
-              Published. To promote it, open{" "}
-              <a
-                href="https://www.etsy.com/your/shops/me/tools/marketing"
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                Shop Manager → Marketing → Etsy Ads
-              </a>
-              . (Ads can’t be managed from here — Etsy has no Ads API.)
-            </p>
-          ) : (
-            <p className="text-right text-xs text-slate-400">
-              A <strong>draft</strong> is created first; it is never published automatically. You
-              then publish it yourself with <strong>Publish now</strong>.
-            </p>
-          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Meta({ label, value, truncate }: { label: string; value: string; truncate?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-slate-400">{label}</dt>
+      <dd
+        className={"text-slate-700 " + (truncate ? "truncate" : "")}
+        title={truncate ? value : undefined}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/** Collapsed to roughly three lines until opened. */
+function Description({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="label mb-0">Description</span>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="text-xs font-medium text-brand-700 hover:text-brand-800"
+        >
+          {open ? "Collapse" : "Expand"}
+        </button>
+      </div>
+      <textarea
+        className={"field resize-y " + (open ? "min-h-[280px]" : "min-h-[76px]")}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Listing description"
+        aria-label="Listing description"
+      />
     </div>
   );
 }

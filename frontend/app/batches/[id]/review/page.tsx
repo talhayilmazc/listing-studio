@@ -82,23 +82,34 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
           <Link href={`/batches/${id}`} className="text-sm text-slate-400 hover:text-slate-600">
             ← Batch {id.slice(0, 8)}
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900">Review listings</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Edit and approve each listing, then create drafts. Publishing is always a separate,
             explicit step.
           </p>
         </div>
         {items && items.length > 0 && (
-          <div className="flex items-center gap-2">
-            <button className="btn-secondary" onClick={createDraftsAll} disabled={busy || approvedCount === 0}>
+          <div className="flex items-center gap-3">
+            <span className="text-xs tabular-nums text-slate-500">
+              <span className="font-medium text-slate-700">{approvedCount}</span> of {items.length}{" "}
+              approved
+            </span>
+            <button
+              className="btn-secondary"
+              onClick={createDraftsAll}
+              disabled={busy || approvedCount === 0}
+            >
               Create drafts for all
             </button>
-            <button className="btn-primary" onClick={publishAll} disabled={busy || approvedCount === 0}>
+            <button
+              className="btn-primary"
+              onClick={publishAll}
+              disabled={busy || approvedCount === 0}
+            >
               Publish all
             </button>
           </div>
@@ -115,9 +126,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               {progress.skipped > 0 && ` · ${progress.skipped} skipped`}
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="progress">
             <div
-              className="h-full rounded-full bg-brand-500 transition-all"
+              className="progress-fill"
               style={{
                 width: `${progress.total ? ((progress.done + progress.failed) / progress.total) * 100 : 0}%`,
               }}

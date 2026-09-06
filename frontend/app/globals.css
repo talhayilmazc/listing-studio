@@ -72,6 +72,28 @@ body {
 
   /* Progress — a hairline track. Fill colour can be overridden by a utility
      class at the call site (utilities layer wins over this one). */
+  /* Neutral transparency backdrop for the review image, so a design with a
+     transparent or near-white background still reads as an object on a surface. */
+  .checkerboard {
+    background-color: #ffffff;
+    background-image:
+      linear-gradient(45deg, #f0efee 25%, transparent 25%),
+      linear-gradient(-45deg, #f0efee 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #f0efee 75%),
+      linear-gradient(-45deg, transparent 75%, #f0efee 75%);
+    background-size: 16px 16px;
+    background-position:
+      0 0,
+      0 8px,
+      8px -8px,
+      -8px 0;
+  }
+
+  /* Counter that sits on a field's top border, like a fieldset legend. */
+  .counter {
+    @apply absolute -top-2 right-3 rounded bg-white px-1 text-xs font-medium tabular-nums;
+  }
+
   .progress {
     @apply h-1.5 w-full overflow-hidden rounded-full bg-slate-100;
   }

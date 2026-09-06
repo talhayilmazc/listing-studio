@@ -29,8 +29,7 @@ export function TagEditor({
     onChange(tags.map((t, idx) => (idx === i ? value : t)));
   }
 
-  const countTone =
-    tags.length === REQUIRED ? "text-emerald-600" : "text-amber-600";
+  const countTone = tags.length === REQUIRED ? "text-emerald-700" : "text-amber-700";
 
   return (
     <div>
@@ -46,22 +45,30 @@ export function TagEditor({
           return (
             <span
               key={i}
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs ${
+              className={`inline-flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-1.5 text-xs transition-colors ${
                 tooLong
-                  ? "border-rose-300 bg-rose-50 text-rose-700"
-                  : "border-slate-200 bg-slate-50 text-slate-700"
+                  ? "border-amber-300 bg-amber-50 text-amber-800"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
               }`}
             >
               <input
                 value={t}
                 onChange={(e) => edit(i, e.target.value)}
-                className="w-[7.5ch] bg-transparent focus:outline-none"
+                className="bg-transparent focus:outline-none"
                 style={{ width: `${Math.max(t.length, 4) + 1}ch` }}
+                aria-label={`Tag ${i + 1}`}
               />
+              {/* Each chip carries its own length, so the 20-char limit is visible per tag. */}
+              <span
+                className={`tabular-nums ${tooLong ? "font-medium text-amber-700" : "text-slate-400"}`}
+                title={`${t.length} of ${MAX_TAG} characters`}
+              >
+                {t.length}
+              </span>
               <button
                 type="button"
                 onClick={() => remove(i)}
-                className="text-slate-400 hover:text-rose-500"
+                className="rounded-full px-0.5 text-slate-400 hover:text-rose-600"
                 aria-label={`Remove ${t}`}
               >
                 ×
