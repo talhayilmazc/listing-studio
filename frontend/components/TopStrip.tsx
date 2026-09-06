@@ -5,8 +5,7 @@ import { usePathname } from "next/navigation";
 
 /**
  * Top strip (docs/ui-direction-v2.md §1): page title on the left, primary action
- * on the right. The title is route-derived for now; the serif display face lands
- * with step 2 and the metric strip with step 3.
+ * on the right. The title is route-derived and set in the 40px display serif (§2).
  *
  * The "New upload" action is the one the old horizontal Nav carried, relocated —
  * not a new button.
@@ -33,8 +32,8 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname() ?? "/";
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-stone-50/80 backdrop-blur">
-      <div className="flex items-center gap-3 px-6 py-4 lg:px-8">
+    <header className="border-b border-slate-200">
+      <div className="flex items-center gap-4 px-6 py-6 lg:px-8">
         <button
           type="button"
           onClick={onMenu}
@@ -46,7 +45,7 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
           </svg>
         </button>
 
-        <h1 className="flex-1 truncate text-xl font-semibold text-slate-900">
+        <h1 className="flex-1 truncate font-display text-4xl font-normal text-slate-900">
           {titleFor(pathname)}
         </h1>
 

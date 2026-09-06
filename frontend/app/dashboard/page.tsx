@@ -229,7 +229,8 @@ function QuotaCard({ quota }: { quota: Quota | null }) {
       <p className="mt-3 flex items-baseline gap-1.5">
         <span
           className={
-            "text-3xl font-semibold tabular-nums " + (low ? "text-amber-700" : "text-slate-900")
+            "font-display text-3xl font-normal tabular-nums " +
+            (low ? "text-amber-700" : "text-slate-900")
           }
         >
           {quota.tenant_remaining.toLocaleString()}

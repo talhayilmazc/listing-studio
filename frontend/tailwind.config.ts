@@ -64,6 +64,9 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        // Editorial display face (docs/ui-direction-v2.md §2). Page titles and
+        // large metric numbers only — never body or UI text.
+        display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],
       },
       // Scale: 32 / 24 / 18 / 15 / 13. Body 15px, meta 13px.
       // Headings 1.2 line-height with tight tracking; body 1.6.
@@ -73,6 +76,8 @@ const config: Config = {
         lg: ["1.125rem", { lineHeight: "1.3", letterSpacing: "-0.01em" }], // 18px
         "2xl": ["1.5rem", { lineHeight: "1.2", letterSpacing: "-0.02em" }], // 24px
         "3xl": ["2rem", { lineHeight: "1.2", letterSpacing: "-0.02em" }], // 32px
+        // Serif page title: 40px, near-normal tracking (a serif needs less than a sans).
+        "4xl": ["2.5rem", { lineHeight: "1.1", letterSpacing: "-0.01em" }], // 40px
       },
       boxShadow: {
         card: "0 1px 2px rgba(0,0,0,0.04)",

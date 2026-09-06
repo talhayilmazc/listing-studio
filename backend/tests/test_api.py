@@ -300,3 +300,44 @@ async def test_asset_image_preview_width_allowlist(
     for good in (112, 224, 448):
         resp = await client.get(f"/api/assets/{asset_id}/image", params={"w": good})
         assert resp.status_code == 200, good
+
+
+async def test_quota_history_series(client: AsyncClient) -> None:
+    """History is 7 days oldest-first, gaps zero-filled, today from the live counter."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import ApiUsage
+
+    today = datetime.now(timezone.utc).date()
+    first = (await client.get("/api/quota")).json()  # also creates the dev tenant
+    assert len(first["history"]) == 7  # present with no api_usage rows at all
+    assert all(h["count"] == 0 for h in first["history"])
+
+    tenant_id = await _tenant_id(client)
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        # Two days inside the window, one deliberately outside it.
+        s.add(ApiUsage(tenant_id=tenant_id, usage_date=today - timedelta(days=2), request_count=41))
+        s.add(ApiUsage(tenant_id=tenant_id, usage_date=today - timedelta(days=5), request_count=7))
+        s.add(ApiUsage(tenant_id=tenant_id, usage_date=today - timedelta(days=9), request_count=999))
+        await s.commit()
+
+    body = (await client.get("/api/quota")).json()
+    history = body["history"]
+
+    assert len(history) == 7
+    dates = [h["date"] for h in history]
+    assert dates == sorted(dates)  # oldest first
+    assert dates[-1] == today.isoformat()
+    assert dates[0] == (today - timedelta(days=6)).isoformat()
+
+    by_date = {h["date"]: h["count"] for h in history}
+    assert by_date[(today - timedelta(days=2)).isoformat()] == 41
+    assert by_date[(today - timedelta(days=5)).isoformat()] == 7
+    assert by_date[(today - timedelta(days=1)).isoformat()] == 0  # gap zero-filled
+    assert 999 not in by_date.values()  # outside the window
+    # Today mirrors the live counter the same response reports.
+    assert by_date[today.isoformat()] == body["tenant_used"]
+
+    # The pre-existing fields are untouched.
+    assert body["tenant_limit"] == 2000
+    assert body["global_remaining"] == 5000

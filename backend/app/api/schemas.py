@@ -114,6 +114,13 @@ class BatchCostOut(BaseModel):
     listings: list[ListingCost]
 
 
+class QuotaDay(BaseModel):
+    """One day of this tenant's Etsy API usage."""
+
+    date: str  # YYYY-MM-DD (UTC), matching the quota reset boundary
+    count: int
+
+
 class QuotaOut(BaseModel):
     tenant_used: int
     tenant_limit: int
@@ -122,6 +129,9 @@ class QuotaOut(BaseModel):
     global_limit: int
     global_remaining: int
     usage_date: str
+    # Additive: the last 7 days of this tenant's usage, oldest first, for the
+    # dashboard sparkline. Existing fields and their meanings are unchanged.
+    history: list[QuotaDay] = Field(default_factory=list)
 
 
 class AssetFailure(BaseModel):
