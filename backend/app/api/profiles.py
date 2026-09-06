@@ -38,7 +38,7 @@ def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
         schemas.ReferenceImageOut(
             listing_image_id=img.get("listing_image_id"),
             rank=img.get("rank"),
-            url=img.get("url"),
+            url=img.get("display_url") or img.get("url"),
             kind=img.get("kind"),
             is_fixed=img.get("listing_image_id") in fixed,
         )

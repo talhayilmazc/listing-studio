@@ -257,3 +257,25 @@ def test_inventory_preserves_offering_is_enabled() -> None:
     ]
     inv = build_inventory_from_reference(ref, sku="X", quantity=5)
     assert inv["products"][0]["offerings"][0]["is_enabled"] is False
+
+
+def test_reference_images_carry_both_full_and_display_urls() -> None:
+    """Classification keeps the full-size url; the UI gets the 570px variant."""
+    payload = build_profile_payload(
+        {"listing_id": 5, "title": "T"},
+        {},
+        {"results": [
+            {
+                "listing_image_id": 900,
+                "rank": 1,
+                "url_fullxfull": "https://img/full-1.jpg",
+                "url_570xN": "https://img/570-1.jpg",
+            },
+            # Only a full-size url available: display falls back to it.
+            {"listing_image_id": 901, "rank": 2, "url_fullxfull": "https://img/full-2.jpg"},
+        ]},
+    )
+    first, second = payload["images"]
+    assert first["url"] == "https://img/full-1.jpg"
+    assert first["display_url"] == "https://img/570-1.jpg"
+    assert second["url"] == second["display_url"] == "https://img/full-2.jpg"
