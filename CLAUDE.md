@@ -103,6 +103,14 @@ docs/             # data-model.md ve diğer spesifikasyonlar
 - Hata mesajlarında kullanıcı verisi veya token bulunmaz
 - Member Content saklayan her tabloda retention stratejisi tanımlı olmalı
 
+## Geliştirme notları
+
+- **arq worker'ının reload'u yoktur.** `api` servisi `uvicorn --reload` ile çalıştığı için
+  backend değişikliklerini anında alır; worker almaz. Job kodunu etkileyen bir değişiklikten
+  sonra `docker compose restart worker` çalıştırılmalıdır — aksi halde job'lar **sessizce eski
+  kodu çalıştırır** ve hata vermediği için fark edilmesi zordur. Etkilenen yerler:
+  `app/workers/`, `app/pipeline/`, `app/etsy/` ve bunların kullandığı her şey.
+
 ## MVP kapsamı
 
 **Dahil:** OAuth bağlantı, klasör yükleme, dosya adından SKU parse, görsel işleme (resize/watermark/sıra), vision ile tasarım analizi, başlık+13 tag+açıklama üretimi, taksonomi eşleme, taslak listing oluşturma, section yönetimi, toplu güncelleme, dry-run önizleme, rollback, compliance tarayıcı, retention temizliği.
