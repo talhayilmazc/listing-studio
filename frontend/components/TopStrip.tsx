@@ -1,0 +1,59 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+/**
+ * Top strip (docs/ui-direction-v2.md §1): page title on the left, primary action
+ * on the right. The title is route-derived for now; the serif display face lands
+ * with step 2 and the metric strip with step 3.
+ *
+ * The "New upload" action is the one the old horizontal Nav carried, relocated —
+ * not a new button.
+ */
+
+const TITLES: [RegExp, string][] = [
+  [/^\/dashboard$/, "Overview"],
+  [/^\/$/, "Batches"],
+  [/^\/batches\/[^/]+\/review$/, "Review"],
+  [/^\/batches\/[^/]+$/, "Batch"],
+  [/^\/profiles$/, "Profiles"],
+  [/^\/upload$/, "Uploads"],
+  [/^\/connect$/, "Connection"],
+  [/^\/terms$/, "Terms of Service"],
+  [/^\/privacy$/, "Privacy Policy"],
+];
+
+function titleFor(pathname: string): string {
+  for (const [re, title] of TITLES) if (re.test(pathname)) return title;
+  return "Listing Studio";
+}
+
+export function TopStrip({ onMenu }: { onMenu: () => void }) {
+  const pathname = usePathname() ?? "/";
+
+  return (
+    <header className="sticky top-0 z-20 border-b border-slate-200 bg-stone-50/80 backdrop-blur">
+      <div className="flex items-center gap-3 px-6 py-4 lg:px-8">
+        <button
+          type="button"
+          onClick={onMenu}
+          aria-label="Open navigation"
+          className="-ml-1 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 lg:hidden"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round" />
+          </svg>
+        </button>
+
+        <h1 className="flex-1 truncate text-xl font-semibold text-slate-900">
+          {titleFor(pathname)}
+        </h1>
+
+        <Link href="/upload" className="btn-primary shrink-0">
+          New upload
+        </Link>
+      </div>
+    </header>
+  );
+}

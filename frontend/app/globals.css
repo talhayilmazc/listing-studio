@@ -18,6 +18,12 @@
   --accent: #4c1d95;
   --accent-hover: #5b21b6;
   --accent-subtle: #f5f3ff;
+
+  /* Persistent left rail (docs/ui-direction-v2.md §6). The dark rail against the
+     warm-light content area is the layered contrast the direction is built on. */
+  --rail: #1c1917;
+  --rail-text: #a8a29e;
+  --rail-active: #fafaf9;
   --success: #166534;
   --warning: #a16207;
   --danger: #991b1b;
