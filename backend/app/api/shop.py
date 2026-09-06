@@ -8,7 +8,7 @@ Only the authenticated seller's own listings are ever read.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -38,7 +38,19 @@ def _listing_out(row: dict[str, Any]) -> schemas.ShopListingOut:
         shop_section_id=row.get("shop_section_id"),
         url=row.get("url"),
         thumbnail_url=thumb,
+        state_timestamp=_as_int(row.get("state_timestamp")),
     )
+
+
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _month_start(moment: datetime) -> datetime:
+    return moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 def _is_stale(fetched_at: datetime | None) -> bool:
@@ -68,6 +80,51 @@ async def list_shop_listings(
         await enqueuer.enqueue("sync_shop_listings", str(tenant.id))
     return schemas.ShopListingsOut(
         listings=[_listing_out(c.payload) for c in cached], stale=stale
+    )
+
+
+@router.get("/summary", response_model=schemas.ShopSummaryOut)
+async def shop_summary(
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
+) -> schemas.ShopSummaryOut:
+    """Listing counts from the cache. Never triggers a sync (cf. ``/shop/listings``)."""
+    rows = await session.execute(
+        select(ShopListingCache).where(ShopListingCache.tenant_id == tenant.id)
+    )
+    cached = list(rows.scalars())
+    newest = max((c.fetched_at for c in cached), default=None)
+
+    now = datetime.now(timezone.utc)
+    this_month = _month_start(now)
+    last_month = _month_start(this_month - timedelta(days=1))
+
+    active = draft = this_count = last_count = 0
+    for row in cached:
+        payload = row.payload or {}
+        state = payload.get("state")
+        if state == "active":
+            active += 1
+        elif state == "draft":
+            draft += 1
+        # "Published" = went live, which is what state_timestamp records for an
+        # active listing. Drafts have never been published, so they never count.
+        stamp = _as_int(payload.get("state_timestamp"))
+        if state == "active" and stamp is not None:
+            went_live = datetime.fromtimestamp(stamp, timezone.utc)
+            if went_live >= this_month:
+                this_count += 1
+            elif went_live >= last_month:
+                last_count += 1
+
+    return schemas.ShopSummaryOut(
+        total=len(cached),
+        active=active,
+        draft=draft,
+        published_this_month=this_count,
+        published_last_month=last_count,
+        fetched_at=newest,
+        stale=_is_stale(newest),
     )
 
 

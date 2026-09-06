@@ -71,26 +71,13 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Upload batches</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Upload a folder of your original designs, then review and approve the generated draft
-            listings.
-          </p>
-        </div>
-        <Link href="/upload" className="btn-primary">
-          New upload
-        </Link>
-      </div>
-
       {error && (
         <div className="card border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
       )}
 
       {batches === null && !error && (
-        <div className="grid gap-3">
-          {[0, 1, 2].map((i) => (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
             <BatchSkeleton key={i} />
           ))}
         </div>
@@ -106,7 +93,7 @@ export default function Home() {
       )}
 
       {batches && batches.length > 0 && (
-        <div className="grid gap-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {batches.map((b) => (
             <BatchCard key={b.id} batch={b} extra={extra[b.id]} profiles={profiles} />
           ))}
@@ -129,8 +116,8 @@ function BatchCard({
   const groups = extra?.groups ?? [];
   const content = extra?.content ?? [];
 
-  // One thumbnail per listing group (its rank-1 image), so the strip shows
-  // distinct designs rather than several angles of the same one.
+  // One image per listing group (its rank-1 image), so the mosaic shows distinct
+  // designs rather than several angles of the same one.
   const usable = assets.filter((a) => a.status === "processed");
   const byGroup = new Map<string, Asset>();
   for (const a of usable) {
@@ -138,9 +125,9 @@ function BatchCard({
     const seen = byGroup.get(key);
     if (!seen || (a.rank ?? 99) < (seen.rank ?? 99)) byGroup.set(key, a);
   }
-  const thumbs = [...byGroup.values()].slice(0, 5);
+  const tiles = [...byGroup.values()].slice(0, 5);
   const listings = groups.length || byGroup.size;
-  const moreThumbs = Math.max(0, (listings || usable.length) - thumbs.length);
+  const more = Math.max(0, (listings || usable.length) - tiles.length);
 
   // "AD3 + 32 more" reads better than an opaque hash; fall back to the id.
   const skus = groups.map((g) => g.sku).filter((s): s is string => !!s);
@@ -165,29 +152,21 @@ function BatchCard({
   const approved = content.filter((c) => c.approved).length;
   const drafted = content.filter((c) => c.etsy_listing_id !== null).length;
   const published = content.filter((c) => c.etsy_listing_state === "active").length;
-  const total = Math.max(listings, generated, 1);
 
   return (
     <Link
       href={"/batches/" + batch.id}
-      className="card group flex items-start gap-5 p-5 transition-colors hover:border-slate-300"
+      className="card group flex flex-col overflow-hidden transition-colors hover:border-brand-600"
     >
-      <ThumbStrip thumbs={thumbs} more={moreThumbs} pending={!extra} />
+      <Mosaic tiles={tiles} more={more} pending={!extra} />
 
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-slate-900">{title}</span>
+      <div className="flex flex-1 flex-col p-5">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="min-w-0 flex-1 truncate font-display text-lg leading-tight text-slate-900">
+            {title}
+          </h2>
           <StatusPill status={batch.status} />
         </div>
-
-        <p className="mt-1 text-xs text-slate-500">
-          <span className="tabular-nums">{listings || batch.asset_count}</span>{" "}
-          {listings === 1 ? "listing" : "listings"} ·{" "}
-          <span className="tabular-nums">{batch.asset_count}</span> files ·{" "}
-          <span title={new Date(batch.created_at).toLocaleString()}>
-            {relativeTime(batch.created_at)}
-          </span>
-        </p>
 
         {profileNames.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -202,106 +181,101 @@ function BatchCard({
           </div>
         )}
 
-        <FunnelBar
-          total={total}
-          generated={generated}
-          approved={approved}
-          drafted={drafted}
-          published={published}
-          pending={!extra}
-        />
-      </div>
+        <div className="mt-3 flex-1">
+          <Progress
+            batch={batch}
+            listings={listings}
+            generated={generated}
+            approved={approved}
+            drafted={drafted}
+            published={published}
+            pending={!extra}
+          />
+        </div>
 
-      <span
-        aria-hidden
-        className="shrink-0 self-center text-slate-300 transition-colors group-hover:text-brand-600"
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
+        <div className="mt-4 flex items-baseline justify-between gap-3 text-xs text-slate-400">
+          <span>
+            <span className="tabular-nums">{listings || batch.asset_count}</span>{" "}
+            {listings === 1 ? "listing" : "listings"} ·{" "}
+            <span className="tabular-nums">{batch.asset_count}</span> files ·{" "}
+            <span title={new Date(batch.created_at).toLocaleString()}>
+              {relativeTime(batch.created_at)}
+            </span>
+          </span>
+          {/* Affordance inside the existing card link — not an added button. */}
+          <span className="shrink-0 font-medium text-brand-700 opacity-0 transition-opacity group-hover:opacity-100">
+            Open →
+          </span>
+        </div>
+      </div>
     </Link>
   );
 }
 
-function ThumbStrip({
-  thumbs,
-  more,
-  pending,
-}: {
-  thumbs: Asset[];
-  more: number;
-  pending: boolean;
-}) {
-  if (pending && thumbs.length === 0) {
-    return (
-      <div className="flex shrink-0 gap-1.5">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-14 w-14 animate-pulse rounded-lg bg-slate-100" />
-        ))}
-      </div>
-    );
-  }
-  if (thumbs.length === 0) {
-    return (
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-200 text-slate-300">
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-        >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <path d="M3 15l5-5 4 4 3-3 6 6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-    );
-  }
+/**
+ * Image mosaic (docs/ui-direction-v2.md §4): one dominant tile with a 2×2 of
+ * smaller ones beside it, filling the card at 16:10. The images are the hero.
+ */
+function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pending: boolean }) {
+  const cells = Array.from({ length: 5 }, (_, i) => tiles[i] ?? null);
+
   return (
-    <div className="flex shrink-0 gap-1.5">
-      {thumbs.map((a) => (
-        <div
-          key={a.id}
-          className="h-14 w-14 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={api.assetImage(a.id, 112)}
-            alt={a.original_filename}
-            className="h-full w-full object-cover"
-            loading="lazy"
-            decoding="async"
-          />
+    <div className="overflow-hidden bg-slate-100">
+      <div className="aspect-[16/10] w-full transition-transform duration-200 group-hover:scale-[1.02]">
+        <div className="grid h-full w-full grid-cols-4 grid-rows-2 gap-1 p-1">
+          {cells.map((asset, i) => (
+            <div
+              key={asset?.id ?? "empty-" + i}
+              className={
+                "relative overflow-hidden rounded-lg bg-slate-50 " +
+                (i === 0 ? "col-span-2 row-span-2" : "")
+              }
+            >
+              {pending && !asset ? (
+                <div className="h-full w-full animate-pulse bg-slate-100" />
+              ) : asset ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={api.assetImage(asset.id, i === 0 ? 448 : 224)}
+                    alt={asset.original_filename}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  {/* Overflow count sits on the last tile rather than stealing a slot. */}
+                  {more > 0 && i === cells.length - 1 && (
+                    <span className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-sm font-medium tabular-nums text-white">
+                      +{more}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <div className="h-full w-full bg-slate-100/60" />
+              )}
+            </div>
+          ))}
         </div>
-      ))}
-      {more > 0 && (
-        <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium tabular-nums text-slate-500">
-          +{more}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
 
-/** The funnel as one stacked track, most-complete stage first. */
-function FunnelBar({
-  total,
+/**
+ * A single status line in the accent tone (§4). The bar appears only while work
+ * is genuinely still moving — a finished batch just states where it got to.
+ */
+function Progress({
+  batch,
+  listings,
   generated,
   approved,
   drafted,
   published,
   pending,
 }: {
-  total: number;
+  batch: BatchSummary;
+  listings: number;
   generated: number;
   approved: number;
   drafted: number;
@@ -309,54 +283,66 @@ function FunnelBar({
   pending: boolean;
 }) {
   if (pending) {
-    return <div className="mt-3 h-1.5 w-full animate-pulse rounded-full bg-slate-100" />;
+    return <div className="h-4 w-32 animate-pulse rounded bg-slate-100" />;
   }
-  const pct = (n: number) => Math.max(0, (n / total) * 100) + "%";
-  const segments = [
-    { key: "published", w: published, cls: "bg-emerald-600" },
-    { key: "drafted", w: drafted - published, cls: "bg-brand-600" },
-    { key: "approved", w: approved - drafted, cls: "bg-brand-100" },
-    { key: "generated", w: generated - approved, cls: "bg-slate-300" },
-  ].filter((s) => s.w > 0);
 
-  return (
-    <div className="mt-3">
-      <div className="progress flex">
-        {segments.map((s) => (
-          <div key={s.key} className={s.cls} style={{ width: pct(s.w) }} />
-        ))}
+  const working =
+    batch.status === "processing" ||
+    batch.status === "uploading" ||
+    (generated > 0 && listings > 0 && generated < listings);
+
+  const [count, noun] =
+    published > 0
+      ? [published, "published"]
+      : drafted > 0
+        ? [drafted, "drafted"]
+        : approved > 0
+          ? [approved, "approved"]
+          : generated > 0
+            ? [generated, "generated"]
+            : [0, ""];
+
+  if (working) {
+    const done = Math.min(generated, listings);
+    const pct = listings > 0 ? (done / listings) * 100 : 0;
+    return (
+      <div>
+        <div className="progress">
+          <div className="progress-fill" style={{ width: pct + "%" }} />
+        </div>
+        <p className="mt-1.5 text-xs tabular-nums text-slate-500">
+          {done} / {listings} generated
+        </p>
       </div>
-      <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs tabular-nums text-slate-500">
-        <Stat n={generated} label="generated" dot="bg-slate-300" />
-        <Stat n={approved} label="approved" dot="bg-brand-100" />
-        <Stat n={drafted} label="drafted" dot="bg-brand-600" />
-        <Stat n={published} label="published" dot="bg-emerald-600" />
-      </p>
-    </div>
-  );
-}
+    );
+  }
 
-function Stat({ n, label, dot }: { n: number; label: string; dot: string }) {
+  if (count === 0) {
+    return <p className="text-xs text-slate-400">Not generated yet</p>;
+  }
+
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className={"h-1.5 w-1.5 rounded-full " + dot} />
-      <span className="font-medium text-slate-700">{n}</span> {label}
-    </span>
+    <p className="text-xs">
+      <span className="font-medium tabular-nums text-brand-700">{count}</span>{" "}
+      <span className="text-brand-700">{noun}</span>
+      {published > 0 && drafted > published && (
+        <span className="text-slate-400">
+          {" · "}
+          <span className="tabular-nums">{drafted - published}</span> awaiting publish
+        </span>
+      )}
+    </p>
   );
 }
 
 function BatchSkeleton() {
   return (
-    <div className="card flex items-start gap-5 p-5">
-      <div className="flex shrink-0 gap-1.5">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-14 w-14 animate-pulse rounded-lg bg-slate-100" />
-        ))}
-      </div>
-      <div className="flex-1 space-y-2">
-        <div className="h-4 w-40 animate-pulse rounded bg-slate-100" />
-        <div className="h-3 w-56 animate-pulse rounded bg-slate-100" />
-        <div className="h-1.5 w-full animate-pulse rounded-full bg-slate-100" />
+    <div className="card overflow-hidden">
+      <div className="aspect-[16/10] w-full animate-pulse bg-slate-100" />
+      <div className="space-y-2 p-5">
+        <div className="h-5 w-32 animate-pulse rounded bg-slate-100" />
+        <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
+        <div className="h-3 w-40 animate-pulse rounded bg-slate-100" />
       </div>
     </div>
   );

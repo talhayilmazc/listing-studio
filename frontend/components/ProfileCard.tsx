@@ -94,7 +94,9 @@ export function ProfileCard({
 
   return (
     <div
-      className={`card space-y-3 p-4 ${
+      // Anchor target for the rail's profile children.
+      id={"profile-" + profile.id}
+      className={`card scroll-mt-6 space-y-3 p-4 ${
         profile.confirmed ? "" : "ring-2 ring-amber-300"
       }`}
     >
