@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Profile } from "@/lib/types";
+import type { Profile, ReferenceImage, ShopListing } from "@/lib/types";
+import { etsyListingLink } from "@/lib/format";
 
 const TEMPLATES = ["apparel", "digital_products"];
 
@@ -10,10 +11,13 @@ export function ProfileCard({
   profile,
   onChange,
   onDelete,
+  listing,
 }: {
   profile: Profile;
   onChange: (p: Profile) => void;
   onDelete: (id: string) => void;
+  /** The cached shop listing behind this profile, when known — picks the right back-link. */
+  listing?: ShopListing;
 }) {
   const [name, setName] = useState(profile.name);
   const [prefix, setPrefix] = useState(profile.title_prefix ?? "");
@@ -90,139 +94,254 @@ export function ProfileCard({
     return run("images", () => api.updateProfile(profile.id, { fixed_image_ids: next }));
   };
 
-  const nonPrimary = profile.reference_images.filter((img, i) => i > 0 && img.listing_image_id != null);
+  // The listing's own hero image identifies the profile at a glance; the rest is
+  // split so size charts read as their own labelled group.
+  const images = profile.reference_images;
+  const hero = images.find((i) => i.kind !== "size_chart" && i.url) ?? images[0];
+  const rest = images.filter((i, idx) => i.listing_image_id != null && i !== hero && idx > 0);
+  const charts = rest.filter((i) => i.kind === "size_chart");
+  const others = rest.filter((i) => i.kind !== "size_chart");
+
+  const backLink = etsyListingLink(
+    profile.reference_listing_id,
+    listing?.state ?? "active",
+    listing?.url,
+  );
 
   return (
     <div
       // Anchor target for the rail's profile children.
       id={"profile-" + profile.id}
-      className={`card scroll-mt-6 space-y-3 p-4 ${
-        profile.confirmed ? "" : "ring-2 ring-amber-300"
-      }`}
+      className={
+        "card scroll-mt-6 flex flex-col overflow-hidden " +
+        (profile.confirmed ? "" : "border-amber-300")
+      }
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      {/* Reference listing's own hero image as the card header. */}
+      <div className="relative aspect-[16/10] w-full bg-slate-100">
+        {hero?.url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={hero.url}
+            alt={`Reference listing ${profile.reference_listing_id}`}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-xs text-slate-400">
+            {fetching ? "fetching reference…" : "no reference image"}
+          </div>
+        )}
+        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+          {profile.confirmed ? (
+            <Chip tone="emerald">confirmed</Chip>
+          ) : (
+            <Chip tone="amber">needs confirmation</Chip>
+          )}
+          {profile.source === "detected" && <Chip tone="slate">detected</Chip>}
+        </div>
+        {/* ToU: product imagery always links back to the listing on Etsy. */}
+        <a
+          href={backLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute bottom-3 right-3 rounded-md bg-white/90 px-2 py-1 text-xs font-medium text-slate-700 backdrop-blur transition-colors hover:bg-white hover:text-brand-700"
+          title={
+            listing?.state === "draft"
+              ? "Edit draft in Shop Manager"
+              : "View this listing on Etsy"
+          }
+        >
+          {listing?.state === "draft" ? "Edit on Etsy ↗" : "View on Etsy ↗"}
+        </a>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-3 p-5">
+        <div>
           <input
-            className="field max-w-[220px] py-1 text-sm font-medium"
+            className="field py-1.5 font-display text-lg text-slate-900"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={saveName}
+            aria-label="Profile name"
           />
-          {profile.source === "detected" && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
-              detected
-            </span>
-          )}
-          {profile.confirmed ? (
-            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">
-              confirmed
-            </span>
-          ) : (
-            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
-              needs confirmation
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <select
-            className="field w-auto py-1 text-xs"
-            value={profile.content_template}
-            onChange={(e) => setTemplate(e.target.value)}
-            disabled={busy !== null}
-          >
-            {TEMPLATES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <span
-            className={
-              profile.is_fresh
-                ? "text-emerald-600"
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
+            <a
+              href={backLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="tabular-nums hover:text-brand-700 hover:underline"
+            >
+              Listing #{profile.reference_listing_id} ↗
+            </a>
+            <span>·</span>
+            <span
+              className={
+                profile.is_fresh
+                  ? "text-emerald-700"
+                  : fetching
+                    ? "text-brand-700"
+                    : "text-amber-700"
+              }
+            >
+              {profile.is_fresh
+                ? "reference cached"
                 : fetching
-                  ? "text-brand-600"
-                  : "text-amber-600"
-            }
-          >
-            {profile.is_fresh
-              ? "● reference cached"
-              : fetching
-                ? "◌ fetching reference…"
-                : "○ not fetched"}
-          </span>
-        </div>
-      </div>
-
-      <p className="text-xs text-slate-400">
-        Reference listing #{profile.reference_listing_id}
-      </p>
-
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-slate-500">Title prefix</label>
-        <input
-          className="field max-w-[220px] py-1 text-xs"
-          value={prefix}
-          placeholder="none"
-          onChange={(e) => setPrefix(e.target.value)}
-          onBlur={savePrefix}
-          disabled={busy !== null}
-        />
-        <span className="text-xs text-slate-400">prepended to every generated title</span>
-      </div>
-
-      {nonPrimary.length > 0 && (
-        <div>
-          <p className="mb-1 text-xs font-medium text-slate-600">
-            Fixed images (size charts added to every draft)
+                  ? "fetching reference…"
+                  : "not fetched"}
+            </span>
           </p>
-          <div className="flex flex-wrap gap-2">
-            {nonPrimary.map((img) => {
-              const id = img.listing_image_id as number;
-              const on = profile.fixed_image_ids.includes(id);
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => toggleFixed(id, !on)}
-                  disabled={busy !== null}
-                  title={img.kind ?? "image"}
-                  className={`relative h-16 w-16 overflow-hidden rounded border-2 ${
-                    on ? "border-brand-500" : "border-transparent opacity-60"
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {img.url && <img src={img.url} alt="" className="h-full w-full object-cover" />}
-                  {img.kind === "size_chart" && (
-                    <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-[9px] text-white">
-                      chart
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor={`tpl-${profile.id}`}>
+              Template
+            </label>
+            <select
+              id={`tpl-${profile.id}`}
+              className="field py-1.5 text-sm"
+              value={profile.content_template}
+              onChange={(e) => setTemplate(e.target.value)}
+              disabled={busy !== null}
+            >
+              {TEMPLATES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor={`prefix-${profile.id}`}>
+              Title prefix
+            </label>
+            <input
+              id={`prefix-${profile.id}`}
+              className="field py-1.5 text-sm"
+              value={prefix}
+              placeholder="none"
+              onChange={(e) => setPrefix(e.target.value)}
+              onBlur={savePrefix}
+              disabled={busy !== null}
+            />
           </div>
         </div>
-      )}
 
-      {error && <p className="text-xs text-rose-600">{error}</p>}
-
-      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-        {!profile.confirmed && (
-          <button className="btn-primary" onClick={confirm} disabled={busy !== null}>
-            {busy === "confirm" ? "Confirming…" : "Confirm"}
-          </button>
+        {charts.length > 0 && (
+          <ImageRow
+            title="Size charts"
+            note="appended to every draft using this profile"
+            images={charts}
+            fixed={profile.fixed_image_ids}
+            onToggle={toggleFixed}
+            disabled={busy !== null}
+            emphasise
+          />
         )}
-        <button className="btn-secondary" onClick={refresh} disabled={busy !== null}>
-          {busy === "refresh" ? "Refreshing…" : "Refresh reference"}
-        </button>
-        <button
-          className="text-xs text-rose-500 hover:text-rose-700"
-          onClick={remove}
-          disabled={busy !== null}
-        >
-          Delete
-        </button>
+
+        {others.length > 0 && (
+          <ImageRow
+            title="Other reference images"
+            note="select any to append them too"
+            images={others}
+            fixed={profile.fixed_image_ids}
+            onToggle={toggleFixed}
+            disabled={busy !== null}
+          />
+        )}
+
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+
+        <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          {!profile.confirmed && (
+            <button className="btn-primary" onClick={confirm} disabled={busy !== null}>
+              {busy === "confirm" ? "Confirming…" : "Confirm"}
+            </button>
+          )}
+          <button className="btn-secondary" onClick={refresh} disabled={busy !== null}>
+            {busy === "refresh" ? "Refreshing…" : "Refresh reference"}
+          </button>
+          <button
+            className="ml-auto text-xs text-rose-600 hover:text-rose-700"
+            onClick={remove}
+            disabled={busy !== null}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Chip({ tone, children }: { tone: "emerald" | "amber" | "slate"; children: React.ReactNode }) {
+  const tones = {
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    slate: "border-slate-200 bg-white text-slate-600",
+  };
+  return (
+    <span className={"rounded-md border px-1.5 py-0.5 text-xs font-medium " + tones[tone]}>
+      {children}
+    </span>
+  );
+}
+
+/** A labelled, visually separated row of reference images (§ size charts). */
+function ImageRow({
+  title,
+  note,
+  images,
+  fixed,
+  onToggle,
+  disabled,
+  emphasise,
+}: {
+  title: string;
+  note: string;
+  images: ReferenceImage[];
+  fixed: number[];
+  onToggle: (id: number, on: boolean) => void;
+  disabled: boolean;
+  emphasise?: boolean;
+}) {
+  return (
+    <div className={"rounded-lg p-3 " + (emphasise ? "bg-brand-50/60" : "bg-slate-50")}>
+      <p className="label mb-0">{title}</p>
+      <p className="mb-2 text-xs text-slate-400">{note}</p>
+      <div className="flex flex-wrap gap-2">
+        {images.map((img) => {
+          const id = img.listing_image_id as number;
+          const on = fixed.includes(id);
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onToggle(id, !on)}
+              disabled={disabled}
+              aria-pressed={on}
+              title={on ? "Included in every draft" : "Not included"}
+              className={
+                "relative h-16 w-16 overflow-hidden rounded-lg border-2 transition-all " +
+                (on
+                  ? "border-brand-600 opacity-100"
+                  : "border-transparent opacity-55 hover:opacity-90")
+              }
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {img.url && (
+                <img src={img.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+              )}
+              {on && (
+                <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-bold text-white">
+                  ✓
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

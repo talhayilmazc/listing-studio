@@ -213,10 +213,47 @@ function BatchCard({
 }
 
 /**
- * Image mosaic (docs/ui-direction-v2.md §4): one dominant tile with a 2×2 of
- * smaller ones beside it, filling the card at 16:10. The images are the hero.
+ * Card imagery (docs/ui-direction-v2.md §4).
+ *
+ * Three or more designs get the mosaic: one dominant tile with a 2×2 beside it.
+ * Fewer than that would leave the grid half empty, so one or two designs get a
+ * single full-width 16:10 image instead. Every tile is cropped server-side
+ * around the artwork, so nothing is sliced through the middle.
  */
 function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pending: boolean }) {
+  if (pending && tiles.length === 0) {
+    return <div className="aspect-[16/10] w-full animate-pulse bg-slate-100" />;
+  }
+
+  if (tiles.length === 0) {
+    return (
+      <div className="flex aspect-[16/10] w-full items-center justify-center bg-slate-100 text-slate-300">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M3 15l5-5 4 4 3-3 6 6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+    );
+  }
+
+  // One or two designs: a single hero reads better than a mosaic with holes.
+  if (tiles.length < 3) {
+    return (
+      <div className="overflow-hidden bg-slate-100">
+        <div className="aspect-[16/10] w-full transition-transform duration-200 group-hover:scale-[1.02]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={api.assetImage(tiles[0].id, 896, "16:10")}
+            alt={tiles[0].original_filename}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </div>
+    );
+  }
+
   const cells = Array.from({ length: 5 }, (_, i) => tiles[i] ?? null);
 
   return (
@@ -231,13 +268,11 @@ function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pendin
                 (i === 0 ? "col-span-2 row-span-2" : "")
               }
             >
-              {pending && !asset ? (
-                <div className="h-full w-full animate-pulse bg-slate-100" />
-              ) : asset ? (
+              {asset ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={api.assetImage(asset.id, i === 0 ? 448 : 224)}
+                    src={api.assetImage(asset.id, i === 0 ? 448 : 224, "4:5")}
                     alt={asset.original_filename}
                     className="h-full w-full object-cover"
                     loading="lazy"

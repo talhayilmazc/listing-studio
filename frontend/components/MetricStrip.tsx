@@ -79,6 +79,17 @@ export function MetricStrip() {
   );
 }
 
+/**
+ * Mean calls per day across the completed days of the window. Today is excluded
+ * on purpose: a morning's two requests against yesterday's full day reads as a
+ * collapse when nothing has happened yet.
+ */
+function dailyAverage(history: Quota["history"]): number | null {
+  const complete = (history ?? []).slice(0, -1);
+  if (complete.length === 0) return null;
+  return Math.round(complete.reduce((n, d) => n + d.count, 0) / complete.length);
+}
+
 /** Percent change, or null when there is no meaningful base to compare against. */
 function changePct(now: number, before: number): number | null {
   if (before <= 0) return null;
@@ -154,9 +165,7 @@ function Cell({
  */
 function QuotaCell({ quota }: { quota: Quota | null }) {
   const low = quota ? quota.tenant_remaining < quota.tenant_limit * 0.1 : false;
-  const yesterday = quota?.history?.at(-2)?.count ?? null;
-  const today = quota?.tenant_used ?? null;
-  const delta = today != null && yesterday != null ? changePct(today, yesterday) : null;
+  const average = quota ? dailyAverage(quota.history) : null;
 
   return (
     <div className={CELL + " bg-slate-50"}>
@@ -182,8 +191,8 @@ function QuotaCell({ quota }: { quota: Quota | null }) {
           <p className="mt-1.5 h-4 text-xs text-slate-400">
             {quota === null
               ? ""
-              : delta != null && delta !== 0
-                ? `${quota.tenant_used.toLocaleString()} used · ${delta > 0 ? "↑" : "↓"}${Math.abs(delta)}% vs yesterday`
+              : average != null
+                ? `${quota.tenant_used.toLocaleString()} used today · avg ${average.toLocaleString()}/day over 7 days`
                 : `${quota.tenant_used.toLocaleString()} used today`}
           </p>
         </div>

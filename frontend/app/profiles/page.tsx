@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
 import type { Profile, ShopListing } from "@/lib/types";
+import { etsyListingLink } from "@/lib/format";
 import { ProfileCard } from "@/components/ProfileCard";
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
@@ -118,20 +119,18 @@ export default function ProfilesPage() {
   const onDelete = (id: string) =>
     setProfiles((cur) => (cur ?? []).filter((x) => x.id !== id));
 
+  const byListingId = new Map(listings.map((l) => [l.listing_id, l]));
   const detected = (profiles ?? []).filter((p) => !p.confirmed);
   const confirmed = (profiles ?? []).filter((p) => p.confirmed);
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Product-type profiles</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Profiles copy category, price, variations and description from your own listings. New
-            drafts reuse them instead of inventing metadata.
-          </p>
-        </div>
-        <button className="btn-primary" onClick={detect} disabled={detecting}>
+        <p className="max-w-2xl text-sm text-slate-500">
+          Profiles copy category, price, variations and description from your own listings. New
+          drafts reuse them instead of inventing metadata.
+        </p>
+        <button className="btn-primary shrink-0" onClick={detect} disabled={detecting}>
           {detecting ? "Detecting…" : "Detect from my shop"}
         </button>
       </div>
@@ -142,79 +141,113 @@ export default function ProfilesPage() {
 
       {detected.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-amber-700">
-            Detected — confirm or rename before use ({detected.length})
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
+          <SectionHead
+            title="Detected"
+            note="confirm or rename before use"
+            count={detected.length}
+            tone="amber"
+          />
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {detected.map((p) => (
-              <ProfileCard key={p.id} profile={p} onChange={onChange} onDelete={onDelete} />
+              <ProfileCard
+                key={p.id}
+                profile={p}
+                onChange={onChange}
+                onDelete={onDelete}
+                listing={byListingId.get(p.reference_listing_id)}
+              />
             ))}
           </div>
         </section>
       )}
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-700">
-          Confirmed profiles ({confirmed.length})
-        </h2>
+        <SectionHead title="Confirmed profiles" count={confirmed.length} />
         {confirmed.length === 0 ? (
           <p className="text-sm text-slate-400">
             None yet. Detect them from your shop, or pick a listing below to use as a profile.
           </p>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {confirmed.map((p) => (
-              <ProfileCard key={p.id} profile={p} onChange={onChange} onDelete={onDelete} />
+              <ProfileCard
+                key={p.id}
+                profile={p}
+                onChange={onChange}
+                onDelete={onDelete}
+                listing={byListingId.get(p.reference_listing_id)}
+              />
             ))}
           </div>
         )}
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-700">
-          Your listings {syncing && <span className="text-xs text-amber-600">· syncing…</span>}
-        </h2>
+        <SectionHead
+          title="Your listings"
+          count={listings.length}
+          note={syncing ? "syncing…" : undefined}
+          tone={syncing ? "amber" : undefined}
+        />
         {listings.length === 0 ? (
           <p className="text-sm text-slate-400">No listings cached yet.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
             {listings.map((l) => (
-              <div key={l.listing_id} className="card overflow-hidden">
-                <div className="aspect-square bg-slate-100">
+              <div key={l.listing_id} className="card group overflow-hidden">
+                <div className="relative aspect-square bg-slate-100">
                   {l.thumbnail_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={l.thumbnail_url} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={l.thumbnail_url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   ) : (
                     <div className="flex h-full items-center justify-center text-xs text-slate-400">
                       no image
                     </div>
                   )}
+                  <span className="absolute left-2 top-2 rounded-md border border-slate-200 bg-white/90 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 backdrop-blur">
+                    {l.state}
+                  </span>
+                  {/* Actions surface on hover; the Etsy back-link is always present below. */}
+                  <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <button
+                      className="w-full rounded-md bg-white/95 py-1 text-xs font-medium text-slate-800 hover:bg-white"
+                      onClick={() => useAsProfile(l.listing_id)}
+                    >
+                      Use as profile
+                    </button>
+                    <button
+                      className="w-full rounded-md py-1 text-xs font-medium text-white/90 hover:text-white"
+                      onClick={() => pickReplacement(l.listing_id)}
+                      title="Upload a folder of new photos to update this listing in place"
+                    >
+                      Replace images…
+                    </button>
+                  </div>
                 </div>
-                <div className="space-y-1 p-2">
+                <div className="space-y-1 p-2.5">
                   <p className="truncate text-xs font-medium text-slate-700" title={l.title ?? ""}>
                     {l.title ?? `#${l.listing_id}`}
                   </p>
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{l.state}</span>
-                    {l.url && (
-                      <a href={l.url} target="_blank" rel="noreferrer" className="underline">
-                        view ↗
-                      </a>
-                    )}
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                    <span className="truncate tabular-nums" title={l.sku ?? ""}>
+                      {l.sku ?? "—"}
+                    </span>
+                    {/* ToU: every listing card links back to Etsy. */}
+                    <a
+                      href={etsyListingLink(l.listing_id, l.state, l.url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 font-medium text-brand-700 hover:underline"
+                    >
+                      {l.state === "draft" ? "edit ↗" : "view ↗"}
+                    </a>
                   </div>
-                  <button
-                    className="btn-secondary w-full py-1 text-xs"
-                    onClick={() => useAsProfile(l.listing_id)}
-                  >
-                    Use as profile
-                  </button>
-                  <button
-                    className="w-full py-1 text-xs text-slate-500 hover:text-slate-800"
-                    onClick={() => pickReplacement(l.listing_id)}
-                    title="Upload a folder of new photos to update this listing in place"
-                  >
-                    Replace images…
-                  </button>
                   {replace?.id === l.listing_id && (
                     <p className="text-[11px] text-slate-500">{replace.status}</p>
                   )}
@@ -240,6 +273,30 @@ export default function ProfilesPage() {
           if (files.length) onReplaceFiles(files);
         }}
       />
+    </div>
+  );
+}
+
+function SectionHead({
+  title,
+  count,
+  note,
+  tone,
+}: {
+  title: string;
+  count: number;
+  note?: string;
+  tone?: "amber";
+}) {
+  return (
+    <div className="flex items-baseline gap-2 border-b border-slate-200 pb-2">
+      <h2 className="font-display text-lg text-slate-900">{title}</h2>
+      <span className="text-xs tabular-nums text-slate-400">{count}</span>
+      {note && (
+        <span className={"text-xs " + (tone === "amber" ? "text-amber-700" : "text-slate-400")}>
+          {note}
+        </span>
+      )}
     </div>
   );
 }

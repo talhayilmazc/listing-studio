@@ -302,6 +302,49 @@ async def test_asset_image_preview_width_allowlist(
         assert resp.status_code == 200, good
 
 
+async def test_asset_image_aspect_variant(
+    client: AsyncClient, make_image: "Callable[..., bytes]"
+) -> None:
+    """?ar= crops to a tile ratio; it is allowlisted and requires w."""
+    from PIL import Image
+
+    created = await client.post("/api/batches")
+    batch_id = created.json()["id"]
+    up = await client.post(
+        f"/api/batches/{batch_id}/assets",
+        files={"file": ("SKU7_front.png", io.BytesIO(make_image(900, 1200)), "image/png")},
+    )
+    asset_id = up.json()["id"]
+
+    tile = await client.get(f"/api/assets/{asset_id}/image", params={"w": 224, "ar": "4:5"})
+    assert tile.status_code == 200
+    im = Image.open(io.BytesIO(tile.content))
+    assert abs(im.width / im.height - 4 / 5) < 0.01
+
+    hero = await client.get(f"/api/assets/{asset_id}/image", params={"w": 448, "ar": "16:10"})
+    assert hero.status_code == 200
+    assert abs(Image.open(io.BytesIO(hero.content)).width / Image.open(io.BytesIO(hero.content)).height - 16 / 10) < 0.01
+
+    # Each ratio is cached separately from the plain width variant.
+    again = await client.get(f"/api/assets/{asset_id}/image", params={"w": 224, "ar": "4:5"})
+    assert again.content == tile.content
+    plain = await client.get(f"/api/assets/{asset_id}/image", params={"w": 224})
+    assert plain.status_code == 200
+    assert plain.content != tile.content
+
+    for bad in ("1:1", "3:2", "banana"):
+        r = await client.get(f"/api/assets/{asset_id}/image", params={"w": 224, "ar": bad})
+        assert r.status_code == 400, bad
+
+    # ar without w would silently do nothing, so it is rejected.
+    assert (await client.get(f"/api/assets/{asset_id}/image", params={"ar": "4:5"})).status_code == 400
+
+    # And the parameterless response is still the untouched original.
+    full = await client.get(f"/api/assets/{asset_id}/image")
+    assert full.status_code == 200
+    assert "cache-control" not in {k.lower() for k in full.headers}
+
+
 async def test_quota_history_series(client: AsyncClient) -> None:
     """History is 7 days oldest-first, gaps zero-filled, today from the live counter."""
     from datetime import datetime, timedelta, timezone

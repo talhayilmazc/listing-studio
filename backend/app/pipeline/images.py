@@ -199,6 +199,38 @@ class ImageProcessor:
 #   pad: always trim to content and pad to a square (the older framed look), for a
 #     shop that prefers it.
 # Backend-agnostic Pillow implementation.
+def _open(data: bytes):  # noqa: ANN202 - PIL.Image.Image
+    """Decode bytes to a loaded PIL image, or raise :class:`ImageProcessingError`."""
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        return img
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ImageProcessingError(str(exc)) from exc
+
+
+def _content_bbox(img):  # noqa: ANN001, ANN202
+    """Locate the artwork within ``img``.
+
+    Returns ``(source, bbox, has_alpha)``. Transparent designs are measured on
+    their alpha channel; everything else by difference from the top-left pixel,
+    which isolates the subject on a flat studio background. ``bbox`` is ``None``
+    for a wholly uniform image.
+    """
+    from PIL import Image, ImageChops
+
+    has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    if has_alpha:
+        source = img.convert("RGBA")
+        return source, source.getchannel("A").getbbox(), True
+    source = img.convert("RGB")
+    corner = source.getpixel((0, 0))
+    diff = ImageChops.difference(source, Image.new("RGB", source.size, corner))
+    return source, diff.getbbox(), False
+
+
 def prepare_thumbnail(
     data: bytes,
     *,
@@ -208,25 +240,13 @@ def prepare_thumbnail(
     mode: str = "crop",
 ) -> ProcessedImage:
     """Return a ``size`` x ``size`` JPEG thumbnail (see the modes above)."""
-    from PIL import Image, ImageChops, UnidentifiedImageError
+    from PIL import Image
 
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.load()
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
-        raise ImageProcessingError(str(exc)) from exc
+    img = _open(data)
 
-    has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
     # Find the content bounding box and whether the content is smaller than the
     # frame (a transparent margin, or a uniform flat border to trim).
-    if has_alpha:
-        source = img.convert("RGBA")
-        bbox = source.getchannel("A").getbbox()
-    else:
-        source = img.convert("RGB")
-        corner = source.getpixel((0, 0))
-        diff = ImageChops.difference(source, Image.new("RGB", source.size, corner))
-        bbox = diff.getbbox()
+    source, bbox, has_alpha = _content_bbox(img)
     full = (0, 0, source.width, source.height)
     content_smaller = bbox is not None and bbox != full
 
@@ -262,32 +282,89 @@ def prepare_thumbnail(
 
 
 # --- UI preview derivatives -------------------------------------------------
-# The batches list renders 56px thumbnail tiles; serving the full processed JPEG
-# for each one costs ~600KB a tile. `resize_preview` produces a small JPEG that
-# the API caches on disk, so the resize happens once per asset per width.
+# The batch grid renders small tiles; serving the full processed JPEG for each
+# one costs ~600KB a tile. `resize_preview` produces a small JPEG that the API
+# caches on disk, so the work happens once per asset per size.
+#
+# With an aspect ratio it also crops, centring on the artwork found by
+# `_content_bbox` rather than on the frame. Centring on the frame slices the
+# design off a portrait mockup; centring on the content keeps it whole.
 # Presentation only: nothing here touches what is uploaded to Etsy.
-PREVIEW_WIDTHS: frozenset[int] = frozenset({112, 224, 448})
+PREVIEW_WIDTHS: frozenset[int] = frozenset({112, 224, 448, 896})
+
+# Tile shapes the grid actually uses, as width/height.
+PREVIEW_ASPECTS: dict[str, float] = {"4:5": 4 / 5, "16:10": 16 / 10}
 
 
-def resize_preview(data: bytes, width: int) -> bytes:
-    """Return ``data`` as a JPEG scaled to ``width``, preserving aspect ratio.
+def _crop_box(
+    size: tuple[int, int], bbox: tuple[int, int, int, int] | None, ratio: float
+) -> tuple[int, int, int, int]:
+    """The largest ``ratio`` window that contains ``bbox`` and fits inside ``size``.
 
-    Never upscales: a source narrower than ``width`` is re-encoded at its own size.
+    Centred on the content, then nudged back inside the image edges.
+
+    When the window is too short to hold the content — a wide tile over a tall
+    mockup — it anchors to the top of the content instead of its middle. On a
+    photograph of a worn garment the detected content is the whole model, whose
+    midpoint sits at the waist; the printed design sits high on the chest, so
+    centring cuts through the artwork and keeping the top keeps it whole.
     """
-    from PIL import Image, UnidentifiedImageError
+    width, height = size
+    left, top, right, bottom = bbox or (0, 0, width, height)
+    box_w, box_h = max(1, right - left), max(1, bottom - top)
 
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.load()
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
-        raise ImageProcessingError(str(exc)) from exc
+    # Smallest window of this ratio that still covers the content...
+    crop_w = max(box_w, box_h * ratio)
+    crop_h = crop_w / ratio
+    # ...shrunk to fit the image, keeping the ratio exact.
+    if crop_w > width:
+        crop_w, crop_h = width, width / ratio
+    if crop_h > height:
+        crop_w, crop_h = height * ratio, height
 
-    if img.mode not in ("RGB", "L"):
+    centre_x = (left + right) / 2
+    x = min(max(0.0, centre_x - crop_w / 2), width - crop_w)
+
+    if crop_h < box_h:
+        y = float(top)  # keep the top of the content, not its midpoint
+    else:
+        y = (top + bottom) / 2 - crop_h / 2
+    y = min(max(0.0, y), height - crop_h)
+
+    return round(x), round(y), round(x + crop_w), round(y + crop_h)
+
+
+def resize_preview(data: bytes, width: int, aspect: str | None = None) -> bytes:
+    """Return ``data`` as a small JPEG.
+
+    Without ``aspect`` the image is scaled to ``width``, preserving its own
+    proportions. With one, it is first cropped to that ratio around the artwork.
+    Never upscales beyond the source's own width.
+    """
+    from PIL import Image
+
+    img = _open(data)
+    source, bbox, has_alpha = _content_bbox(img)
+
+    # Flatten onto white: a plain RGBA->RGB conversion renders transparent
+    # areas black, which is not how these designs are meant to be seen.
+    if has_alpha:
+        flat = Image.new("RGB", source.size, (255, 255, 255))
+        flat.paste(source, (0, 0), source.getchannel("A"))
+        img = flat
+    elif img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
-    target = min(width, img.width)
-    height = max(1, round(img.height * target / img.width))
-    img = img.resize((target, height), Image.LANCZOS)
 
+    if aspect is not None:
+        ratio = PREVIEW_ASPECTS[aspect]
+        img = img.crop(_crop_box(img.size, bbox, ratio))
+        target_w = min(width, img.width)
+        target_h = max(1, round(target_w / ratio))
+    else:
+        target_w = min(width, img.width)
+        target_h = max(1, round(img.height * target_w / img.width))
+
+    img = img.resize((target_w, target_h), Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=82, optimize=True)
     return out.getvalue()
