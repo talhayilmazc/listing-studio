@@ -71,11 +71,15 @@ def build_profile_payload(
         # so required clothing properties can be re-applied to new drafts (v4 §B).
         "attributes": list((listing_properties or {}).get("results") or []),
         # Image ids/urls so the UI can offer them as fixed images (B3).
+        # `url` stays full-size: it is what size-chart classification downloads.
+        # `display_url` is the 570px variant the UI renders, matching how
+        # ShopListingOut.thumbnail_url already picks its source.
         "images": [
             {
                 "listing_image_id": row.get("listing_image_id"),
                 "rank": row.get("rank"),
                 "url": row.get("url_fullxfull") or row.get("url_570xN"),
+                "display_url": row.get("url_570xN") or row.get("url_fullxfull"),
             }
             for row in (image_rows or [])
         ],
