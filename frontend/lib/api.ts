@@ -89,7 +89,9 @@ export const api = {
     }),
   quota: () => req<Quota>("/quota"),
   meta: () => req<Meta>("/meta"),
-  assetImage: (id: string) => `${BASE}/assets/${id}/image`,
+  /** `width` requests a cached preview derivative (112 | 224 | 448); omit it for the full image. */
+  assetImage: (id: string, width?: 112 | 224 | 448) =>
+    `${BASE}/assets/${id}/image` + (width ? `?w=${width}` : ""),
   connection: () => req<Connection>("/auth/etsy/status"),
   disconnect: () => req<Connection>("/auth/etsy/disconnect", { method: "POST" }),
   publishContent: (id: string) =>
