@@ -90,9 +90,14 @@ export const api = {
     }),
   quota: () => req<Quota>("/quota"),
   meta: () => req<Meta>("/meta"),
-  /** `width` requests a cached preview derivative (112 | 224 | 448); omit it for the full image. */
-  assetImage: (id: string, width?: 112 | 224 | 448) =>
-    `${BASE}/assets/${id}/image` + (width ? `?w=${width}` : ""),
+  /**
+   * `width` requests a cached preview derivative; omit it for the full image.
+   * `aspect` additionally crops to that tile ratio, centred on the artwork
+   * rather than the frame, so a portrait mockup is not sliced through.
+   */
+  assetImage: (id: string, width?: 112 | 224 | 448 | 896, aspect?: "4:5" | "16:10") =>
+    `${BASE}/assets/${id}/image` +
+    (width ? `?w=${width}` + (aspect ? `&ar=${aspect}` : "") : ""),
   connection: () => req<Connection>("/auth/etsy/status"),
   disconnect: () => req<Connection>("/auth/etsy/disconnect", { method: "POST" }),
   publishContent: (id: string) =>

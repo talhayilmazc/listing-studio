@@ -25,7 +25,12 @@ from app.db.models import (
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
-from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
+from app.pipeline.images import (
+    PREVIEW_ASPECTS,
+    PREVIEW_WIDTHS,
+    ImageProcessingError,
+    resize_preview,
+)
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.storage import Storage
@@ -218,6 +223,13 @@ async def get_asset_image(
     w: int | None = Query(
         None, description=f"Optional preview width; one of {sorted(PREVIEW_WIDTHS)}."
     ),
+    ar: str | None = Query(
+        None,
+        description=(
+            "Optional tile aspect ratio, cropped around the artwork; one of "
+            f"{sorted(PREVIEW_ASPECTS)}. Requires w."
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(current_tenant),
     storage: Storage = Depends(get_storage),
@@ -230,12 +242,20 @@ async def get_asset_image(
     # Additive preview path: only taken when ?w= is supplied. Widths are limited to
     # an allowlist so an arbitrary ?w= cannot force unbounded resize work, and each
     # result is cached beside its source so the resize runs once per asset per width.
+    if w is None and ar is not None:
+        raise HTTPException(status_code=400, detail="ar requires w")
+
     if w is not None:
         if w not in PREVIEW_WIDTHS:
             raise HTTPException(
                 status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}"
             )
-        cache_key = f"{key}.w{w}.jpg"
+        if ar is not None and ar not in PREVIEW_ASPECTS:
+            raise HTTPException(
+                status_code=400, detail=f"ar must be one of {sorted(PREVIEW_ASPECTS)}"
+            )
+        suffix = f".w{w}" + (f"-{ar.replace(':', 'x')}" if ar else "")
+        cache_key = f"{key}{suffix}.jpg"
         try:
             if storage.exists(cache_key):
                 return Response(
@@ -250,7 +270,7 @@ async def get_asset_image(
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="image not found") from exc
         try:
-            preview = resize_preview(source, w)
+            preview = resize_preview(source, w, ar)
         except ImageProcessingError as exc:
             raise HTTPException(status_code=422, detail="image cannot be resized") from exc
         storage.put(cache_key, preview, "image/jpeg")
