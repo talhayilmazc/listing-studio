@@ -27,6 +27,7 @@ from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.images import (
     PREVIEW_ASPECTS,
+    PREVIEW_VERSION,
     PREVIEW_WIDTHS,
     ImageProcessingError,
     resize_preview,
@@ -254,7 +255,7 @@ async def get_asset_image(
             raise HTTPException(
                 status_code=400, detail=f"ar must be one of {sorted(PREVIEW_ASPECTS)}"
             )
-        suffix = f".w{w}" + (f"-{ar.replace(':', 'x')}" if ar else "")
+        suffix = f".v{PREVIEW_VERSION}.w{w}" + (f"-{ar.replace(':', 'x')}" if ar else "")
         cache_key = f"{key}{suffix}.jpg"
         try:
             if storage.exists(cache_key):

@@ -3,14 +3,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Asset, BatchSummary, Connection, Quota, ShopListing } from "@/lib/types";
+import type {
+  Asset,
+  BatchSummary,
+  Connection,
+  Group,
+  Profile,
+  Quota,
+  ShopListing,
+} from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
 import { StatusPill } from "@/components/StatusPill";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
 type Thumbs = Record<string, Asset[]>;
 
-const RECENT = 5;
+const RECENT = 3;
 
 export default function Dashboard() {
   const [connection, setConnection] = useState<Connection | null>(null);
@@ -18,6 +26,8 @@ export default function Dashboard() {
   const [listings, setListings] = useState<ShopListing[] | null>(null);
   const [batches, setBatches] = useState<BatchSummary[] | null>(null);
   const [thumbs, setThumbs] = useState<Thumbs>({});
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [usage, setUsage] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,10 +43,36 @@ export default function Dashboard() {
       .catch(() => setListings([]));
 
     api
+      .listProfiles()
+      .then(set(setProfiles))
+      .catch(() => setProfiles([]));
+
+    api
       .listBatches()
       .then(async (list) => {
         if (cancelled) return;
         setBatches(list);
+
+        // How many listing groups each profile drives, across every batch.
+        // Local reads only; a failure just leaves the counts unknown.
+        const queue = [...list];
+        const counts: Record<string, number> = {};
+        const worker = async () => {
+          while (queue.length && !cancelled) {
+            const b = queue.shift();
+            if (!b) return;
+            try {
+              const groups: Group[] = await api.listGroups(b.id);
+              for (const g of groups) {
+                if (g.profile_id) counts[g.profile_id] = (counts[g.profile_id] ?? 0) + 1;
+              }
+            } catch {
+              /* skip this batch */
+            }
+          }
+        };
+        await Promise.all([worker(), worker(), worker()]);
+        if (!cancelled) setUsage(counts);
         // One thumbnail row per recent batch; failures just leave that row empty.
         const recent = list.slice(0, RECENT);
         const results = await Promise.allSettled(recent.map((b) => api.getBatch(b.id)));
@@ -63,7 +99,10 @@ export default function Dashboard() {
         <QuotaCard quota={quota} />
       </div>
 
-      <ActivityCard batches={batches} thumbs={thumbs} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ActivityCard batches={batches} thumbs={thumbs} />
+        <ProfilesCard profiles={profiles} usage={usage} />
+      </div>
     </div>
   );
 }
@@ -407,5 +446,123 @@ function ActivityRow({
         )}
       </Link>
     </li>
+  );
+}
+
+/* ------------------------------------------------------------- profiles ---- */
+
+/** Profile library at a glance — reference thumbnail, usage and freshness. */
+function ProfilesCard({
+  profiles,
+  usage,
+}: {
+  profiles: Profile[] | null;
+  usage: Record<string, number> | null;
+}) {
+  return (
+    <section className="card p-6">
+      <div className="flex items-baseline justify-between">
+        <h2 className="label mb-0">Profiles</h2>
+        <Link href="/profiles" className="text-xs font-medium text-brand-700 hover:text-brand-800">
+          Manage
+        </Link>
+      </div>
+
+      {profiles === null && (
+        <div className="mt-4 space-y-4">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="h-12 w-12 animate-pulse rounded-lg bg-slate-100" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-32 animate-pulse rounded bg-slate-100" />
+                <div className="h-3 w-20 animate-pulse rounded bg-slate-100" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {profiles?.length === 0 && (
+        <p className="mt-4 text-sm text-slate-500">
+          No profiles yet. They copy category, price and variations from your own listings.
+        </p>
+      )}
+
+      {profiles && profiles.length > 0 && (
+        <ul className="mt-4 divide-y divide-slate-100">
+          {profiles.map((p) => {
+            const hero = p.reference_images.find((i) => i.kind !== "size_chart" && i.url);
+            const used = usage?.[p.id];
+            return (
+              <li key={p.id}>
+                <Link
+                  href={"/profiles#profile-" + p.id}
+                  className="group flex items-center gap-3 py-3"
+                >
+                  <span className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                    {hero?.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={hero.url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-slate-900 group-hover:text-brand-700">
+                      {p.name}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      {used === undefined ? (
+                        <span className="text-slate-400">counting listings…</span>
+                      ) : (
+                        <>
+                          <span className="tabular-nums">{used ?? 0}</span>{" "}
+                          {used === 1 ? "listing" : "listings"}
+                        </>
+                      )}
+                      {" · "}
+                      {p.content_template}
+                    </span>
+                  </span>
+                  <Freshness profile={p} />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Reference cache state: fresh, stale, or never fetched. */
+function Freshness({ profile }: { profile: Profile }) {
+  const label = !profile.confirmed
+    ? "unconfirmed"
+    : profile.is_fresh
+      ? "fresh"
+      : profile.updated_at
+        ? "stale"
+        : "not fetched";
+  const tone = !profile.confirmed
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : profile.is_fresh
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-amber-200 bg-amber-50 text-amber-700";
+  return (
+    <span
+      className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium " + tone}
+      title={
+        profile.updated_at
+          ? "Reference cached " + relativeTime(profile.updated_at)
+          : "Reference has never been fetched"
+      }
+    >
+      {label}
+    </span>
   );
 }
