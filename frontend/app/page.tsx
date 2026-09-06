@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
+import { relativeTime } from "@/lib/format";
 
 /** Per-batch detail loaded after the list paints, so the page never waits on it. */
 interface Enrichment {
@@ -359,18 +360,4 @@ function BatchSkeleton() {
       </div>
     </div>
   );
-}
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return mins + (mins === 1 ? " minute ago" : " minutes ago");
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return hours + (hours === 1 ? " hour ago" : " hours ago");
-  const days = Math.round(hours / 24);
-  if (days < 30) return days + (days === 1 ? " day ago" : " days ago");
-  const months = Math.round(days / 30);
-  return months + (months === 1 ? " month ago" : " months ago");
 }

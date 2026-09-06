@@ -13,6 +13,12 @@ export function Nav() {
           <span className="text-base font-semibold text-slate-900">Listing Studio</span>
         </Link>
         <nav className="flex items-center gap-3">
+          <Link
+            href="/dashboard"
+            className="hidden text-sm text-slate-600 hover:text-slate-900 sm:block"
+          >
+            Dashboard
+          </Link>
           <Link href="/" className="hidden text-sm text-slate-600 hover:text-slate-900 sm:block">
             Batches
           </Link>
