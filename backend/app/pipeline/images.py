@@ -259,3 +259,35 @@ def prepare_thumbnail(
     out = io.BytesIO()
     canvas.save(out, format="JPEG", quality=90)
     return ProcessedImage(out.getvalue(), size, size, "JPEG")
+
+
+# --- UI preview derivatives -------------------------------------------------
+# The batches list renders 56px thumbnail tiles; serving the full processed JPEG
+# for each one costs ~600KB a tile. `resize_preview` produces a small JPEG that
+# the API caches on disk, so the resize happens once per asset per width.
+# Presentation only: nothing here touches what is uploaded to Etsy.
+PREVIEW_WIDTHS: frozenset[int] = frozenset({112, 224, 448})
+
+
+def resize_preview(data: bytes, width: int) -> bytes:
+    """Return ``data`` as a JPEG scaled to ``width``, preserving aspect ratio.
+
+    Never upscales: a source narrower than ``width`` is re-encoded at its own size.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ImageProcessingError(str(exc)) from exc
+
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    target = min(width, img.width)
+    height = max(1, round(img.height * target / img.width))
+    img = img.resize((target, height), Image.LANCZOS)
+
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=82, optimize=True)
+    return out.getvalue()

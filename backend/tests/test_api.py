@@ -240,3 +240,63 @@ async def test_batch_cost_from_tokens(client: AsyncClient) -> None:
     assert cost["total_output_tokens"] == 120
     # 300/1e6*$1 + 120/1e6*$5 = 0.0009
     assert float(cost["total_cost_usd"]) == pytest.approx(0.0009, rel=1e-6)
+
+
+async def test_asset_image_preview_widths(
+    client: AsyncClient, make_image: "Callable[..., bytes]"
+) -> None:
+    """?w= returns a resized JPEG; the no-parameter response stays byte-identical."""
+    from PIL import Image
+
+    created = await client.post("/api/batches")
+    batch_id = created.json()["id"]
+    up = await client.post(
+        f"/api/batches/{batch_id}/assets",
+        files={"file": ("SKU9_front.png", io.BytesIO(make_image(800, 600)), "image/png")},
+    )
+    asset_id = up.json()["id"]
+
+    # Baseline: the parameterless response, captured before any preview exists.
+    full = await client.get(f"/api/assets/{asset_id}/image")
+    assert full.status_code == 200
+    baseline = full.content
+
+    preview = await client.get(f"/api/assets/{asset_id}/image", params={"w": 112})
+    assert preview.status_code == 200
+    assert preview.headers["content-type"] == "image/jpeg"
+    im = Image.open(io.BytesIO(preview.content))
+    assert im.format == "JPEG"
+    assert im.width == 112
+    assert len(preview.content) < len(baseline)
+
+    # Cached: the second request returns the same bytes without re-encoding.
+    again = await client.get(f"/api/assets/{asset_id}/image", params={"w": 112})
+    assert again.content == preview.content
+
+    # The parameterless path is unaffected by the preview having been generated.
+    after = await client.get(f"/api/assets/{asset_id}/image")
+    assert after.status_code == 200
+    assert after.content == baseline
+    assert after.headers["content-type"] == full.headers["content-type"]
+    assert "cache-control" not in {k.lower() for k in after.headers}
+
+
+async def test_asset_image_preview_width_allowlist(
+    client: AsyncClient, make_image: "Callable[..., bytes]"
+) -> None:
+    """An off-allowlist width is rejected, so ?w= cannot drive arbitrary resizes."""
+    created = await client.post("/api/batches")
+    batch_id = created.json()["id"]
+    up = await client.post(
+        f"/api/batches/{batch_id}/assets",
+        files={"file": ("SKU8_front.png", io.BytesIO(make_image(400, 300)), "image/png")},
+    )
+    asset_id = up.json()["id"]
+
+    for bad in (113, 4000, 0, -1):
+        resp = await client.get(f"/api/assets/{asset_id}/image", params={"w": bad})
+        assert resp.status_code == 400, bad
+
+    for good in (112, 224, 448):
+        resp = await client.get(f"/api/assets/{asset_id}/image", params={"w": good})
+        assert resp.status_code == 200, good

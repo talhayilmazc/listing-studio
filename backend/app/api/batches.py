@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.db.models import (
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
+from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.storage import Storage
@@ -206,9 +207,17 @@ async def get_batch(
     return schemas.BatchDetail(**summary.model_dump(), assets=assets)
 
 
+# Browser cache for the resized previews only. These are the seller's own uploaded
+# designs, not Etsy Member Content, so the ToU cache ceilings do not apply.
+_PREVIEW_CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
+
+
 @router.get("/assets/{asset_id}/image")
 async def get_asset_image(
     asset_id: uuid.UUID,
+    w: int | None = Query(
+        None, description=f"Optional preview width; one of {sorted(PREVIEW_WIDTHS)}."
+    ),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(current_tenant),
     storage: Storage = Depends(get_storage),
@@ -217,6 +226,38 @@ async def get_asset_image(
     if asset is None or asset.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="asset not found")
     key = asset.processed_key or asset.storage_key
+
+    # Additive preview path: only taken when ?w= is supplied. Widths are limited to
+    # an allowlist so an arbitrary ?w= cannot force unbounded resize work, and each
+    # result is cached beside its source so the resize runs once per asset per width.
+    if w is not None:
+        if w not in PREVIEW_WIDTHS:
+            raise HTTPException(
+                status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}"
+            )
+        cache_key = f"{key}.w{w}.jpg"
+        try:
+            if storage.exists(cache_key):
+                return Response(
+                    content=storage.get(cache_key),
+                    media_type="image/jpeg",
+                    headers=_PREVIEW_CACHE_HEADERS,
+                )
+        except FileNotFoundError:
+            pass  # cache entry vanished between the check and the read; rebuild it
+        try:
+            source = storage.get(key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="image not found") from exc
+        try:
+            preview = resize_preview(source, w)
+        except ImageProcessingError as exc:
+            raise HTTPException(status_code=422, detail="image cannot be resized") from exc
+        storage.put(cache_key, preview, "image/jpeg")
+        return Response(
+            content=preview, media_type="image/jpeg", headers=_PREVIEW_CACHE_HEADERS
+        )
+
     try:
         data = storage.get(key)
     except FileNotFoundError as exc:
