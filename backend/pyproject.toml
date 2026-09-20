@@ -19,6 +19,7 @@ dependencies = [
     "pyvips>=2.2",
     "Pillow>=10.4",
     "anthropic>=0.69",
+    "argon2-cffi>=23.1",
 ]
 
 [project.optional-dependencies]

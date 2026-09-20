@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
     encryption_key: str = "change-me"
 
+    # Invite-code minting and admin password resets (production-spec A1/A4).
+    # Empty disables the admin endpoints entirely rather than leaving them open.
+    admin_token: str = ""
+
+    # Session cookie lifetime, days (A3). Rolling: renewed on every request.
+    session_ttl_days: int = 30
+    # Send the session cookie only over HTTPS. Must be true in production.
+    session_cookie_secure: bool = False
+
+    # Per-tenant daily Etsy budget (production-spec C: 5 tenants x 1000 = 5000).
+    tenant_daily_quota: int = 1000
+
     # Etsy Open API v3 credentials. etsy_client_id = keystring, etsy_client_secret
     # = shared secret. The x-api-key header is "{keystring}:{shared_secret}".
     etsy_client_id: str = ""

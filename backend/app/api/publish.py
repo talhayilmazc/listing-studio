@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, current_tenant, get_connection_service, get_enqueuer, get_session
+from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_session
 from app.db.models import (
     ComplianceFinding,
     ComplianceSeverity,
@@ -101,7 +101,7 @@ def _publish_live_reason(content: GeneratedContent) -> str | None:
 async def publish_one(
     content_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.PublishJobOut:
@@ -129,7 +129,7 @@ async def publish_one(
 async def publish_batch(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.BatchPublishResult:
@@ -169,7 +169,7 @@ async def publish_batch(
 async def publish_one_live(
     content_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.PublishJobOut:
@@ -204,7 +204,7 @@ async def publish_one_live(
 async def publish_batch_live(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.BatchPublishResult:
@@ -255,7 +255,7 @@ async def publish_batch_live(
 async def job_status(
     job_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.JobStatusOut:
     job = await session.get(Job, job_id)
     if job is None or job.tenant_id != tenant.id:

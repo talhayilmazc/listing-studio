@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import current_tenant, get_quota, get_session
+from app.api.deps import active_tenant, get_quota, get_session
 from app.core.config import get_settings
 from app.db.models import ApiUsage, Tenant
 from app.etsy.rate_limiter import DailyQuota
@@ -46,7 +46,7 @@ async def _usage_history(
 
 @router.get("/quota", response_model=schemas.QuotaOut)
 async def get_quota_status(
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     session: AsyncSession = Depends(get_session),
 ) -> schemas.QuotaOut:

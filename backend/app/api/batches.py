@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import current_tenant, get_cost_calculator, get_ingestor, get_session, get_storage
+from app.api.deps import active_tenant, get_cost_calculator, get_ingestor, get_session, get_storage
 from app.core.config import get_settings
 from app.db.models import (
     Asset,
@@ -96,7 +96,7 @@ async def _get_batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID)
 @router.post("/batches", response_model=schemas.BatchSummary, status_code=201)
 async def create_batch(
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.BatchSummary:
     batch = await ingestor.create_batch(session, tenant.id)
@@ -111,7 +111,7 @@ async def add_asset(
     file: UploadFile,
     group_key: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.AssetOut:
     await _get_batch(session, tenant, batch_id)
@@ -143,7 +143,7 @@ async def set_size_chart_profile(
     batch_id: uuid.UUID,
     body: schemas.SizeChartProfileUpdate,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchSummary:
     """Choose which profile's size charts (fixed images) to append for this batch (Task 4)."""
     batch = await _get_batch(session, tenant, batch_id)
@@ -160,7 +160,7 @@ async def set_size_chart_profile(
 async def finalize_batch(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.BatchSummary:
     await _get_batch(session, tenant, batch_id)
@@ -172,7 +172,7 @@ async def finalize_batch(
 @router.get("/batches", response_model=list[schemas.BatchSummary])
 async def list_batches(
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.BatchSummary]:
     rows = await session.execute(
         select(UploadBatch)
@@ -186,7 +186,7 @@ async def list_batches(
 async def get_batch(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     batch = await _get_batch(session, tenant, batch_id)
     summary = await _summary(session, batch)
@@ -232,7 +232,7 @@ async def get_asset_image(
         ),
     ),
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
     asset = await session.get(Asset, asset_id)
@@ -324,7 +324,7 @@ async def _batch_groups(
 async def list_groups(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     await _get_batch(session, tenant, batch_id)
     return await _batch_groups(session, batch_id)
@@ -335,7 +335,7 @@ async def assign_group_profile(
     batch_id: uuid.UUID,
     body: schemas.GroupAssign,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     """Assign a profile (and size-chart profile) to one group, or bulk-apply to all.
 
@@ -397,16 +397,23 @@ async def generate_content(
     batch_id: uuid.UUID,
     body: schemas.GenerateRequest,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> schemas.GenerateResult:
+    # Ownership first: a caller with no claim on this batch must learn nothing
+    # about it, not even whether the service is configured (production-spec B3).
+    await _get_batch(session, tenant, batch_id)
+    if body.profile_id is not None:
+        requested = await session.get(ListingProfile, body.profile_id)
+        if requested is None or requested.tenant_id != tenant.id:
+            raise HTTPException(status_code=404, detail="profile not found")
+
     settings = get_settings()
     if not settings.llm_api_key:
         raise HTTPException(
             status_code=503,
             detail="LLM_API_KEY is not configured; content generation is unavailable.",
         )
-    await _get_batch(session, tenant, batch_id)
 
     client = AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
     analyzer = AnthropicVisionAnalyzer(client)
@@ -523,7 +530,7 @@ async def generate_content(
 async def batch_cost(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     calc: CostCalculator = Depends(get_cost_calculator),
 ) -> schemas.BatchCostOut:
     await _get_batch(session, tenant, batch_id)

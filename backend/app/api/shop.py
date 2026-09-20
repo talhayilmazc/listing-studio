@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, current_tenant, get_connection_service, get_enqueuer, get_session
+from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_session
 from app.db.models import Job, JobStatus, JobType, ListingProfile, ShopListingCache, Tenant, UploadBatch
 from app.etsy.connection import ConnectionService
 from app.pipeline.reference import decode_etsy_text
@@ -66,7 +66,7 @@ def _is_stale(fetched_at: datetime | None) -> bool:
 @router.get("/listings", response_model=schemas.ShopListingsOut)
 async def list_shop_listings(
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ShopListingsOut:
     rows = await session.execute(
@@ -86,7 +86,7 @@ async def list_shop_listings(
 @router.get("/summary", response_model=schemas.ShopSummaryOut)
 async def shop_summary(
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ShopSummaryOut:
     """Listing counts from the cache. Never triggers a sync (cf. ``/shop/listings``)."""
     rows = await session.execute(
@@ -130,7 +130,7 @@ async def shop_summary(
 
 @router.post("/detect-profiles", status_code=202)
 async def detect_profiles_endpoint(
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, str]:
     """Kick off auto-detection of candidate profiles from the seller's own shop.
@@ -150,7 +150,7 @@ async def detect_profiles_endpoint(
 async def use_listing_as_profile(
     listing_id: int,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
     """Create a profile from an existing listing ("Yeni sürüm oluştur", B4).
@@ -186,7 +186,7 @@ async def replace_listing_images_endpoint(
     listing_id: int,
     body: schemas.ReplaceImagesRequest,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ReplaceImagesOut:

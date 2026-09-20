@@ -21,12 +21,14 @@ from app.api import deps
 from app.db import models  # noqa: F401
 from app.db.base import Base
 from app.db.models import GeneratedContent, Tenant
+from app.core.sessions import SessionStore
 from app.etsy.rate_limiter import DailyQuota
 from app.main import create_app
 from app.pipeline.images import ImageProcessor, PillowBackend
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage
+from tests.auth_support import authenticate, make_tenant, open_session
 from tests.support import VALID_TITLE
 
 
@@ -66,19 +68,25 @@ async def client(tmp_path) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[deps.get_storage] = lambda: storage
     app.dependency_overrides[deps.get_ingestor] = lambda: ingestor
     app.dependency_overrides[deps.get_quota] = lambda: DailyQuota(fake_redis, global_daily_limit=5000)
+    app.dependency_overrides[deps.get_redis] = lambda: fake_redis
+    app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
+
+    tenant_id = await make_tenant(sm, "owner@example.com")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.sm = sm  # type: ignore[attr-defined]  (tests reach into the DB directly)
+        ac.tenant_id = tenant_id  # type: ignore[attr-defined]
+        ac.redis = fake_redis  # type: ignore[attr-defined]
+        ac.app = app  # type: ignore[attr-defined]
+        authenticate(ac, await open_session(fake_redis, tenant_id))
         yield ac
 
     await engine.dispose()
 
 
 async def _tenant_id(client: AsyncClient) -> uuid.UUID:
-    async with client.sm() as s:  # type: ignore[attr-defined]
-        row = await s.execute(select(Tenant).where(Tenant.email == "dev@localhost"))
-        return row.scalar_one().id
+    return client.tenant_id  # type: ignore[attr-defined]
 
 
 async def test_upload_flow(client: AsyncClient, make_image: Callable[..., bytes]) -> None:
@@ -136,11 +144,15 @@ async def test_generate_requires_llm_key(
         f"/api/batches/{batch_id}/assets",
         files={"file": ("SKU1.png", io.BytesIO(make_image(100, 100)), "image/png")},
     )
-    # No LLM_API_KEY configured in the test settings -> 503 (checked before the
-    # profile lookup, so any profile_id in the required body is fine here).
-    res = await client.post(
+    # Ownership is settled before anything else, so an unknown profile is 404
+    # even though the service is unconfigured (production-spec B3).
+    unknown = await client.post(
         f"/api/batches/{batch_id}/generate", json={"profile_id": str(uuid.uuid4())}
     )
+    assert unknown.status_code == 404
+
+    # With nothing to reject on ownership grounds, the missing key surfaces.
+    res = await client.post(f"/api/batches/{batch_id}/generate", json={})
     assert res.status_code == 503
 
 
@@ -204,32 +216,49 @@ async def test_review_edit_and_approve(client: AsyncClient) -> None:
     assert ok.json()["content"]["approved"] is True
 
 
-async def test_current_tenant_is_idempotent_on_conflict(client: AsyncClient, monkeypatch) -> None:
-    """The insert path tolerates a concurrent creation (IntegrityError -> refetch)."""
-    # Ensure the dev tenant already exists (a prior request created it).
-    await client.get("/api/quota")
+async def test_no_session_is_rejected_everywhere(client: AsyncClient) -> None:
+    """There is no default tenant: without a session the API answers 401 (B1).
 
-    # Force the initial lookup to miss so the insert runs and hits the unique
-    # email constraint -- exactly the concurrent-request race.
-    real = deps._fetch_dev_tenant
-    seen = {"n": 0}
+    The dev get-or-create tenant is gone, so a request that carries no cookie has
+    no identity to fall back to and must be refused before any handler runs.
+    """
+    from app.core.sessions import SESSION_COOKIE
 
-    async def flaky(session):  # noqa: ANN001, ANN202
-        seen["n"] += 1
-        if seen["n"] == 1:
-            return None
-        return await real(session)
+    client.cookies.delete(SESSION_COOKIE)
 
-    monkeypatch.setattr(deps, "_fetch_dev_tenant", flaky)
+    for method, path in [
+        ("GET", "/api/batches"),
+        ("POST", "/api/batches"),
+        ("GET", "/api/quota"),
+        ("GET", "/api/profiles"),
+        ("GET", "/api/shop/summary"),
+        ("GET", "/api/auth/etsy/status"),
+    ]:
+        resp = await client.request(method, path)
+        assert resp.status_code == 401, f"{method} {path} -> {resp.status_code}"
 
+    # /meta and /health carry no tenant data and stay open.
+    assert (await client.get("/api/meta")).status_code == 200
+    assert (await client.get("/health")).status_code == 200
+
+
+async def test_stale_session_cookie_is_rejected(client: AsyncClient) -> None:
+    """A token with no Redis record must not resolve to anyone."""
+    from app.core.sessions import SESSION_COOKIE
+
+    client.cookies.set(SESSION_COOKIE, "not-a-real-token")
+    assert (await client.get("/api/batches")).status_code == 401
+
+
+async def test_deleted_tenant_invalidates_its_session(client: AsyncClient) -> None:
+    """A live session whose tenant has gone is refused, not resurrected."""
+    from sqlalchemy import delete
+
+    assert (await client.get("/api/batches")).status_code == 200
     async with client.sm() as s:  # type: ignore[attr-defined]
-        tenant = await deps.current_tenant(session=s)
-    assert tenant.email == "dev@localhost"
-
-    # Still exactly one dev tenant.
-    async with client.sm() as s:  # type: ignore[attr-defined]
-        rows = await s.execute(select(Tenant).where(Tenant.email == "dev@localhost"))
-        assert len(rows.scalars().all()) == 1
+        await s.execute(delete(Tenant).where(Tenant.id == client.tenant_id))  # type: ignore[attr-defined]
+        await s.commit()
+    assert (await client.get("/api/batches")).status_code == 401
 
 
 async def test_batch_cost_from_tokens(client: AsyncClient) -> None:

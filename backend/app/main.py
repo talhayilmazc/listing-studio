@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, batches, content, health, meta, profiles, publish, shop
+from app.api import accounts, auth, batches, content, health, meta, profiles, publish, shop
 from app.core.config import get_settings
 
 
@@ -22,6 +22,7 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(health.router)
+    application.include_router(accounts.router)
     application.include_router(auth.router)
     application.include_router(batches.router)
     application.include_router(content.router)

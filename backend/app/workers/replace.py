@@ -32,6 +32,7 @@ from app.pipeline.storage import LocalStorage
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
+from app.workers.guards import owned
 
 logger = logging.getLogger(__name__)
 
@@ -57,17 +58,25 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 raise ValueError("LLM_API_KEY not configured; cannot regenerate content")
             listing_id = int(job.payload["listing_id"])
             batch_id = uuid.UUID(job.payload["batch_id"])
-            connection = await session.get(EtsyConnection, job.connection_id)
+            connection = owned(
+                await session.get(EtsyConnection, job.connection_id),
+                job.tenant_id,
+                "connection",
+            )
             tenant = await session.get(Tenant, job.tenant_id)
-            if not (connection and tenant):
-                raise ValueError("replace job missing connection/tenant")
+            if tenant is None:
+                raise ValueError("replace job missing tenant")
 
             token = await service.get_valid_access_token(session, connection)
 
             # New photos for this listing, alphabetical (D1). Primary = first.
             rows = await session.execute(
                 select(Asset)
-                .where(Asset.batch_id == batch_id, Asset.status == AssetStatus.processed)
+                .where(
+                    Asset.batch_id == batch_id,
+                    Asset.tenant_id == job.tenant_id,  # B5
+                    Asset.status == AssetStatus.processed,
+                )
                 .order_by(Asset.original_filename)
             )
             assets = [a for a in rows.scalars() if a.processed_key is not None]

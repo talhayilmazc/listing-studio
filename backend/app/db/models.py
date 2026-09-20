@@ -125,12 +125,39 @@ class Tenant(Base):
         default=TenantStatus.active,
     )
     daily_quota: Mapped[int] = mapped_column(Integer, nullable=False, server_default="2000")
+    # Set when an admin issues a temporary password: the tenant must replace it
+    # before the rest of the API will answer (production-spec A4).
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class InviteCode(Base):
+    """A single-use registration code (production-spec A1).
+
+    Registration is invite-only: there is no public sign-up. A code is handed to
+    the user out of band, and is spent the first time it is redeemed.
+    """
+
+    __tablename__ = "invite_code"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    code_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)  # who it was meant for
+    used_by_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenant.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EtsyConnection(Base):
