@@ -26,7 +26,9 @@ from app.db.base import Base
 from app.db.models import ConnectionStatus, EtsyConnection, Tenant
 from app.etsy import oauth
 from app.etsy.connection import ConnectionService
+from app.core.sessions import SessionStore
 from app.main import create_app
+from tests.auth_support import authenticate, make_tenant, open_session
 
 
 # --- PKCE + authorize URL ---------------------------------------------------
@@ -254,11 +256,16 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
         lambda: _token_client(token_payload)
     )
 
+    app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
+    tenant_id = await make_tenant(sm, "owner@example.com")
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://test", follow_redirects=False
     ) as ac:
         ac.sm = sm  # type: ignore[attr-defined]
+        ac.tenant_id = tenant_id  # type: ignore[attr-defined]
+        authenticate(ac, await open_session(fake_redis, tenant_id))
         yield ac
 
     await engine.dispose()

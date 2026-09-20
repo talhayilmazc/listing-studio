@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, current_tenant, get_enqueuer, get_session
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.db.models import ListingProfile, Tenant
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -69,7 +69,7 @@ async def _get(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> 
 @router.get("", response_model=list[schemas.ProfileOut])
 async def list_profiles(
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.ProfileOut]:
     rows = await session.execute(
         select(ListingProfile)
@@ -83,7 +83,7 @@ async def list_profiles(
 async def create_profile(
     body: schemas.ProfileCreate,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
     profile = ListingProfile(
@@ -107,7 +107,7 @@ async def create_profile(
 async def get_profile(
     profile_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     return _to_out(await _get(session, tenant, profile_id))
 
@@ -117,7 +117,7 @@ async def update_profile(
     profile_id: uuid.UUID,
     body: schemas.ProfileUpdate,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)
     if body.name is not None:
@@ -139,7 +139,7 @@ async def update_profile(
 async def confirm_profile(
     profile_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     """Confirm an auto-detected profile for use (never used silently before this)."""
     profile = await _get(session, tenant, profile_id)
@@ -153,7 +153,7 @@ async def confirm_profile(
 async def delete_profile(
     profile_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> None:
     profile = await _get(session, tenant, profile_id)
     await session.delete(profile)
@@ -164,7 +164,7 @@ async def delete_profile(
 async def refresh_profile_endpoint(
     profile_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)

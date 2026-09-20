@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 import pytest_asyncio
 from cryptography.fernet import Fernet
+from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -26,10 +27,12 @@ from app.db.models import (
     UploadBatchStatus,
 )
 from app.etsy.connection import ConnectionService
+from app.core.sessions import SessionStore
 from app.main import create_app
+from tests.auth_support import authenticate, make_tenant, open_session
 from tests.support import VALID_TITLE
 
-DEV_EMAIL = "dev@localhost"
+OWNER_EMAIL = "owner@example.com"
 
 
 class StubEnqueuer:
@@ -58,7 +61,7 @@ async def ctx() -> AsyncIterator[dict]:
 
     # Seed the dev tenant + an active connection.
     async with sm() as s:
-        tenant = Tenant(email=DEV_EMAIL, password_hash="!", daily_quota=2000)
+        tenant = Tenant(email=OWNER_EMAIL, password_hash="!", daily_quota=2000)
         s.add(tenant)
         await s.flush()
         s.add(
@@ -82,9 +85,21 @@ async def ctx() -> AsyncIterator[dict]:
         TokenCipher(Fernet.generate_key()), client_id="k", token_url="https://t"
     )
 
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[deps.get_redis] = lambda: fake_redis
+    app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield {"client": ac, "sm": sm, "enqueuer": enqueuer, "tenant_id": tenant_id}
+        authenticate(ac, await open_session(fake_redis, tenant_id))
+        yield {
+            "client": ac,
+            "sm": sm,
+            "enqueuer": enqueuer,
+            "tenant_id": tenant_id,
+            "redis": fake_redis,
+            "app": app,
+        }
     await engine.dispose()
 
 

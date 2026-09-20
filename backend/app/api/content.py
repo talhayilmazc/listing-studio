@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import current_tenant, get_session
-from app.db.models import Asset, GeneratedContent, ListingProfile, Tenant
+from app.api.deps import active_tenant, get_session
+from app.db.models import Asset, GeneratedContent, ListingProfile, Tenant, UploadBatch
 from app.etsy.publisher import link_for
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
@@ -71,8 +71,15 @@ async def _get(session: AsyncSession, tenant: Tenant, content_id: uuid.UUID) -> 
 async def list_batch_content(
     batch_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.ContentOut]:
+    # A batch the caller does not own must look exactly like one that does not
+    # exist (B3). The query below is tenant-filtered too, so nothing leaks either
+    # way, but an empty 200 would still confirm the id is well-formed and absent.
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+
     rows = await session.execute(
         select(GeneratedContent, Asset)
         .join(Asset, Asset.id == GeneratedContent.asset_id)
@@ -87,7 +94,7 @@ async def update_content(
     content_id: uuid.UUID,
     body: schemas.ContentUpdate,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
     if body.title is not None:
@@ -109,7 +116,7 @@ async def approve_content(
     content_id: uuid.UUID,
     body: schemas.ApproveUpdate,
     session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
     validation = await _validation(session, content)

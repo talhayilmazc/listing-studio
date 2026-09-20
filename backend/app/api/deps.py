@@ -1,9 +1,9 @@
 """Shared FastAPI dependencies.
 
-Auth (OAuth, step 2) isn't built yet, so the API operates against a single
-get-or-create **development tenant**. This is a deliberate stand-in until real
-authentication lands; every endpoint is already tenant-scoped so swapping in a
-real ``current_tenant`` later is a one-line change.
+Every request resolves its tenant from the server-side session cookie
+(production-spec B1). There is no default or fallback tenant: without a valid
+session the request is rejected with 401 before any handler runs, so no endpoint
+can silently operate on somebody else's data.
 """
 
 from __future__ import annotations
@@ -11,10 +11,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from collections.abc import Callable
@@ -23,7 +21,8 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
-from app.db.models import Tenant
+from app.core.sessions import SESSION_COOKIE, SessionStore
+from app.db.models import Tenant, TenantStatus
 from app.db.session import get_sessionmaker
 from app.etsy.connection import ConnectionService
 from app.etsy.rate_limiter import DailyQuota
@@ -33,43 +32,52 @@ from app.pipeline.ingest import BatchIngestor
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage, Storage
 
-_DEV_TENANT_EMAIL = "dev@localhost"
-
-
 async def get_session() -> AsyncIterator[AsyncSession]:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         yield session
 
 
-async def _fetch_dev_tenant(session: AsyncSession) -> Tenant | None:
-    result = await session.execute(select(Tenant).where(Tenant.email == _DEV_TENANT_EMAIL))
-    return result.scalar_one_or_none()
+def get_session_store() -> SessionStore:
+    return SessionStore(
+        get_redis(), ttl_seconds=get_settings().session_ttl_days * 24 * 3600
+    )
 
 
-async def current_tenant(session: AsyncSession = Depends(get_session)) -> Tenant:
-    """Return the development tenant, creating it on first use.
+async def current_tenant(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    sessions: SessionStore = Depends(get_session_store),
+) -> Tenant:
+    """The tenant owning this request, from its session cookie.
 
-    Idempotent under concurrency: the frontend fires /status, /quota and /meta in
-    parallel and each may try to create the tenant. The unique ``email`` makes
-    exactly one insert win; the losers catch IntegrityError and re-fetch the row.
+    401 when there is no usable session, when the tenant behind it no longer
+    exists, or when the account is suspended. There is deliberately no
+    get-or-create and no default tenant: a missing session must fail, never fall
+    back to somebody's data.
     """
-    tenant = await _fetch_dev_tenant(session)
-    if tenant is not None:
-        return tenant
+    record = await sessions.read(request.cookies.get(SESSION_COOKIE, ""))
+    if record is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
 
-    tenant = Tenant(email=_DEV_TENANT_EMAIL, password_hash="!", daily_quota=2000)
-    session.add(tenant)
-    try:
-        await session.commit()
-    except IntegrityError:
-        # A concurrent request created it first; roll back and read the winner.
-        await session.rollback()
-        existing = await _fetch_dev_tenant(session)
-        if existing is None:  # pragma: no cover - would mean a different constraint
-            raise
-        return existing
-    await session.refresh(tenant)
+    tenant = await session.get(Tenant, record.tenant_id)
+    if tenant is None:
+        # The account was deleted while the session lived on.
+        await sessions.destroy(record.token)
+        raise HTTPException(status_code=401, detail="not authenticated")
+    if tenant.status is not TenantStatus.active:
+        raise HTTPException(status_code=403, detail="account suspended")
+    return tenant
+
+
+async def active_tenant(tenant: Tenant = Depends(current_tenant)) -> Tenant:
+    """A tenant that may use the product, i.e. not sitting on a temporary password.
+
+    Everything except the account endpoints depends on this, so an admin-issued
+    temporary password cannot be used to browse around (production-spec A4).
+    """
+    if tenant.must_change_password:
+        raise HTTPException(status_code=403, detail="password change required")
     return tenant
 
 

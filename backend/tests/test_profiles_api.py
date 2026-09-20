@@ -5,12 +5,14 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
+from fakeredis import FakeAsyncRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api import deps
+from tests.auth_support import authenticate, make_tenant, open_session
 from app.db.base import Base
 from app.db.models import (
     Asset,
@@ -22,7 +24,7 @@ from app.db.models import (
     UploadBatchStatus,
 )
 
-DEV_EMAIL = "dev@localhost"
+OWNER_EMAIL = "owner@example.com"
 
 
 class StubEnqueuer:
@@ -50,7 +52,7 @@ async def ctx() -> AsyncIterator[dict]:
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     async with sm() as s:
-        tenant = Tenant(email=DEV_EMAIL, password_hash="!", daily_quota=2000)
+        tenant = Tenant(email=OWNER_EMAIL, password_hash="!", daily_quota=2000)
         s.add(tenant)
         await s.commit()
         tenant_id = tenant.id
@@ -61,15 +63,28 @@ async def ctx() -> AsyncIterator[dict]:
         async with sm() as s:
             yield s
 
+    from app.core.sessions import SessionStore
     from app.main import create_app
 
     app = create_app()
     app.dependency_overrides[deps.get_session] = _session
     app.dependency_overrides[deps.get_enqueuer] = lambda: enqueuer
 
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[deps.get_redis] = lambda: fake_redis
+    app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield {"client": ac, "sm": sm, "enqueuer": enqueuer, "tenant_id": tenant_id}
+        authenticate(ac, await open_session(fake_redis, tenant_id))
+        yield {
+            "client": ac,
+            "sm": sm,
+            "enqueuer": enqueuer,
+            "tenant_id": tenant_id,
+            "redis": fake_redis,
+            "app": app,
+        }
     await engine.dispose()
 
 

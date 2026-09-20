@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import (
-    current_tenant,
+    active_tenant,
     get_connection_service,
     get_redis,
     get_session,
@@ -51,7 +51,7 @@ def _redirect(url: str) -> RedirectResponse:
 
 @router.get("/start")
 async def start(
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> RedirectResponse:
     """Begin the OAuth flow: store PKCE state, redirect the browser to Etsy."""
@@ -124,7 +124,7 @@ async def callback(
 
 @router.get("/status", response_model=schemas.ConnectionOut)
 async def status(
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     session: AsyncSession = Depends(get_session),
     service: ConnectionService = Depends(get_connection_service),
 ) -> schemas.ConnectionOut:
@@ -144,7 +144,7 @@ async def status(
 
 @router.post("/disconnect", response_model=schemas.ConnectionOut)
 async def disconnect(
-    tenant: Tenant = Depends(current_tenant),
+    tenant: Tenant = Depends(active_tenant),
     session: AsyncSession = Depends(get_session),
     service: ConnectionService = Depends(get_connection_service),
 ) -> schemas.ConnectionOut:

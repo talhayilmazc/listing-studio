@@ -30,6 +30,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.api import EtsyApiClient
+from app.workers.guards import owned, owned_optional
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
 from app.pipeline.images import prepare_thumbnail
@@ -61,17 +62,27 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
         await session.commit()
 
         try:
-            content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
-            connection = await session.get(EtsyConnection, job.connection_id)
-            asset = await session.get(Asset, content.asset_id) if content else None
-            tenant = await session.get(Tenant, job.tenant_id)
-            profile = (
-                await session.get(ListingProfile, content.listing_profile_id)
-                if content and content.listing_profile_id
-                else None
+            # Every row this job touches must belong to the job's tenant (B5).
+            content = owned(
+                await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"])),
+                job.tenant_id,
+                "content",
             )
-            if not (content and connection and asset and tenant):
-                raise ValueError("publish job is missing content/connection/asset/tenant")
+            connection = owned(
+                await session.get(EtsyConnection, job.connection_id),
+                job.tenant_id,
+                "connection",
+            )
+            asset = owned(await session.get(Asset, content.asset_id), job.tenant_id, "asset")
+            tenant = await session.get(Tenant, job.tenant_id)
+            profile = owned_optional(
+                await session.get(ListingProfile, content.listing_profile_id)
+                if content.listing_profile_id
+                else None,
+                job.tenant_id,
+            )
+            if tenant is None:
+                raise ValueError("publish job is missing its tenant")
             if profile is None or not profile.cached_payload:
                 raise ValueError("publish job has no reference profile payload")
 
@@ -90,11 +101,15 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             if group_setting is not None and group_setting.size_chart_profile_id is not None:
                 chart_profile_id = group_setting.size_chart_profile_id
             else:
-                batch = await session.get(UploadBatch, content.batch_id)
+                batch = owned_optional(
+                    await session.get(UploadBatch, content.batch_id), job.tenant_id
+                )
                 if batch is not None and batch.size_chart_profile_id is not None:
                     chart_profile_id = batch.size_chart_profile_id
             if chart_profile_id is not None:
-                chart_profile = await session.get(ListingProfile, chart_profile_id)
+                chart_profile = owned_optional(
+                    await session.get(ListingProfile, chart_profile_id), job.tenant_id
+                )
                 if chart_profile is not None:
                     fixed_image_ids = chart_profile.fixed_image_ids or []
 
@@ -199,8 +214,16 @@ async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
         await session.commit()
 
         try:
-            content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
-            connection = await session.get(EtsyConnection, job.connection_id)
+            content = owned(
+                await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"])),
+                job.tenant_id,
+                "content",
+            )
+            connection = owned(
+                await session.get(EtsyConnection, job.connection_id),
+                job.tenant_id,
+                "connection",
+            )
             tenant = await session.get(Tenant, job.tenant_id)
             if not (content and connection and tenant):
                 raise ValueError("publish-live job is missing content/connection/tenant")
