@@ -1,4 +1,5 @@
 import type {
+  Account,
   Asset,
   BatchCost,
   BatchDetail,
@@ -53,6 +54,26 @@ export class ApiError extends Error {
 }
 
 export const api = {
+  // --- Account (production-spec A). Session travels in an HttpOnly cookie,
+  // which same-origin fetch sends automatically.
+  me: () => req<Account>("/account/me"),
+  login: (email: string, password: string) =>
+    req<Account>("/account/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  register: (email: string, password: string, inviteCode: string) =>
+    req<Account>("/account/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, invite_code: inviteCode }),
+    }),
+  logout: () => req<void>("/account/logout", { method: "POST" }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    req<Account>("/account/password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+
   listBatches: () => req<BatchSummary[]>("/batches"),
   getBatch: (id: string) => req<BatchDetail>(`/batches/${id}`),
   createBatch: () => req<BatchSummary>("/batches", { method: "POST" }),

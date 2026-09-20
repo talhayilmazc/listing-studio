@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
+import { SessionProvider } from "@/components/SessionProvider";
 
 // Display face for page titles and large metric numbers (docs/ui-direction-v2.md §2).
 // Self-hosted by next/font at build time - no runtime request, no new dependency.
@@ -21,7 +22,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={display.variable}>
       <body>
-        <AppShell>{children}</AppShell>
+        <SessionProvider>
+          <AppShell>{children}</AppShell>
+        </SessionProvider>
       </body>
     </html>
   );

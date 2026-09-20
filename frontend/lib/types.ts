@@ -209,3 +209,11 @@ export interface Connection {
   connected_at: string | null;
   expires_at: string | null;
 }
+
+/** The signed-in account (production-spec A). Never carries a password or token. */
+export interface Account {
+  id: string;
+  email: string;
+  daily_quota: number;
+  must_change_password: boolean;
+}
