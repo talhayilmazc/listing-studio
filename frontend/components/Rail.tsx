@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useSession } from "./SessionProvider";
 import type { Connection, Profile, Quota } from "@/lib/types";
 
 /**
@@ -218,8 +219,9 @@ function ProfileChildren({
   );
 }
 
-/** Shop identity + the ToU-required daily quota indicator. */
+/** Account, shop identity, and the ToU-required daily quota indicator. */
 function RailFooter() {
+  const { account, signOut } = useSession();
   const [conn, setConn] = useState<Connection | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
 
@@ -251,6 +253,21 @@ function RailFooter() {
 
   return (
     <div className="border-t border-white/[0.08] p-3">
+      {/* Who is signed in, and the way out. */}
+      <div className="mb-1 flex items-center gap-2 px-2 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--rail-text)]" title={account?.email}>
+          {account?.email ?? ""}
+        </span>
+        <button
+          type="button"
+          onClick={signOut}
+          className="shrink-0 rounded px-1 text-[11px] font-medium text-[var(--rail-text)] transition-colors hover:text-[var(--rail-active)]"
+          title="Sign out"
+        >
+          Sign out
+        </button>
+      </div>
+
       {conn && !conn.connected ? (
         <Link
           href="/connect"
