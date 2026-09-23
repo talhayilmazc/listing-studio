@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api import deps
+from tests.auth_support import BROWSER_HEADERS
 from app.core.config import Settings, set_settings_override
 from app.core.passwords import WeakPassword, hash_password, validate_strength, verify_password
 from app.core.sessions import SESSION_COOKIE, SessionStore
@@ -56,7 +57,7 @@ async def app_ctx(test_settings: Settings) -> AsyncIterator[dict]:
     app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as client:
         yield {"client": client, "sm": sm, "redis": fake_redis}
     await engine.dispose()
 

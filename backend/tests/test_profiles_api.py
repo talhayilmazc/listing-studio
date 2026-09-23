@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api import deps
-from tests.auth_support import authenticate, make_tenant, open_session
+from tests.auth_support import BROWSER_HEADERS, authenticate, make_tenant, open_session
 from app.db.base import Base
 from app.db.models import (
     Asset,
@@ -75,7 +75,7 @@ async def ctx() -> AsyncIterator[dict]:
     app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as ac:
         authenticate(ac, await open_session(fake_redis, tenant_id))
         yield {
             "client": ac,

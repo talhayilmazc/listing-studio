@@ -40,5 +40,19 @@ def owned_optional(row: T | None, tenant_id: uuid.UUID) -> T | None:
         return None
     owner: Any = getattr(row, "tenant_id", None)
     if owner is None or owner != tenant_id:
-        raise CrossTenantJob("row belongs to another tenant")
+        raise CrossTenantJob("referenced row not found")
     return row
+
+
+# Failures whose messages we wrote ourselves and are safe to show the tenant.
+# Anything else — a database error, a filesystem path, a library's internals —
+# is replaced by a generic line; the full trace is already in the worker log.
+def public_error(exc: BaseException) -> str:
+    """The text stored in ``job.last_error``, which the owning tenant can read."""
+    from app.core.logsafety import redact
+    from app.etsy.errors import EtsyError
+    from app.pipeline.images import ImageProcessingError
+
+    if isinstance(exc, (EtsyError, CrossTenantJob, ImageProcessingError, ValueError)):
+        return redact(str(exc))[:500] or "the job failed"
+    return "the job failed unexpectedly; it has been logged for investigation"

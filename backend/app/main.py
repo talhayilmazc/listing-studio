@@ -1,25 +1,54 @@
 """FastAPI application entrypoint."""
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import accounts, auth, batches, content, health, meta, profiles, publish, shop
 from app.core.config import get_settings
+from app.core.logsafety import install_log_redaction
+from app.core.ratelimit import rate_limit
+from app.core.security import SecurityMiddleware
+
+# Methods and headers the frontend actually uses. Anything else is refused at
+# preflight rather than allowed by wildcard.
+CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+CORS_HEADERS = ["Content-Type"]
 
 
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
+    install_log_redaction()
     settings = get_settings()
-    application = FastAPI(title="Etsy Listing Assistant", version="0.1.0")
+    production = settings.app_env == "production"
+
+    application = FastAPI(
+        title="Etsy Listing Assistant",
+        version="0.1.0",
+        # The schema is a map of every endpoint and parameter; nobody outside
+        # needs it in production.
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
+        dependencies=[Depends(rate_limit)],
+    )
 
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if "*" in origins:
+        # A wildcard with credentials would hand every site the session.
+        raise RuntimeError("CORS_ORIGINS must list explicit origins, never '*'")
     application.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=CORS_METHODS,
+        allow_headers=CORS_HEADERS,
     )
+    # Added last, so outermost: it must see every request and every response.
+    application.add_middleware(SecurityMiddleware)
+
+    application.add_exception_handler(RequestValidationError, _validation_error)
 
     application.include_router(health.router)
     application.include_router(accounts.router)
@@ -31,6 +60,20 @@ def create_app() -> FastAPI:
     application.include_router(shop.router)
     application.include_router(publish.router)
     return application
+
+
+async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 without echoing the submitted values back.
+
+    FastAPI's default includes each offending ``input``, which for a malformed
+    login or registration is the whole body — password included. Location and
+    message are all a client needs to fix the request.
+    """
+    errors = [
+        {"loc": list(err.get("loc", ())), "msg": err.get("msg", ""), "type": err.get("type", "")}
+        for err in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 app = create_app()

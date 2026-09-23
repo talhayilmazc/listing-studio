@@ -30,7 +30,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.api import EtsyApiClient
-from app.workers.guards import owned, owned_optional
+from app.workers.guards import owned, owned_optional, public_error
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
 from app.pipeline.images import prepare_thumbnail
@@ -183,7 +183,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                 )
         except Exception as exc:  # noqa: BLE001 - record which step failed
             job.status = JobStatus.failed
-            job.last_error = f"{type(exc).__name__}: {exc}"[:500]
+            job.last_error = public_error(exc)
             job.finished_at = datetime.now(timezone.utc)
             await session.commit()
             logger.exception("publish failed for job %s", job_id)
@@ -250,7 +250,7 @@ async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                 )
         except Exception as exc:  # noqa: BLE001 - record which step failed
             job.status = JobStatus.failed
-            job.last_error = f"{type(exc).__name__}: {exc}"[:500]
+            job.last_error = public_error(exc)
             job.finished_at = datetime.now(timezone.utc)
             await session.commit()
             logger.exception("publish-live failed for job %s", job_id)

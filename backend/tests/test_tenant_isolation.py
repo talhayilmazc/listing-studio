@@ -52,7 +52,7 @@ from app.pipeline.images import ImageProcessor, PillowBackend
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage
-from tests.auth_support import make_tenant, open_session
+from tests.auth_support import BROWSER_HEADERS, make_tenant, open_session
 from tests.support import VALID_TITLE
 
 pytestmark = []
@@ -215,11 +215,11 @@ async def two(tmp_path) -> AsyncIterator[dict]:
     bob = await _seed(sm, storage, "bob@example.com", 2002)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as a_client:
-        async with AsyncClient(transport=transport, base_url="http://test") as b_client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as a_client:
+        async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as b_client:
             a_client.cookies.set(SESSION_COOKIE, await open_session(fake_redis, alice.tenant_id))
             b_client.cookies.set(SESSION_COOKIE, await open_session(fake_redis, bob.tenant_id))
-            async with AsyncClient(transport=transport, base_url="http://test") as anon:
+            async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as anon:
                 yield {
                     "a": a_client,
                     "b": b_client,

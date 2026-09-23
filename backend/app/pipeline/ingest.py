@@ -12,7 +12,6 @@ in later parts of the pipeline.
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from dataclasses import dataclass, field
 
@@ -20,19 +19,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Asset, AssetStatus, UploadBatch, UploadBatchStatus
+from app.core.config import get_settings
 from app.pipeline.images import ImageProcessingError, ImageProcessor, ProcessingSpec
+from app.pipeline.uploads import AdmittedImage, UploadRejected, UploadTooLarge, admit_image
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
 
-_EXT_MIME = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-    ".tif": "image/tiff",
-    ".tiff": "image/tiff",
-}
 
 
 @dataclass
@@ -47,8 +39,14 @@ class IngestConfig:
     sort_by_filename: bool = False
 
 
-def _original_mime(filename: str) -> str:
-    return _EXT_MIME.get(os.path.splitext(filename)[1].lower(), "application/octet-stream")
+def _admit(upload: UploadFile) -> AdmittedImage:
+    """Decide from the bytes whether ``upload`` is an image we accept (raises if not)."""
+    settings = get_settings()
+    return admit_image(
+        upload.data,
+        max_bytes=settings.max_upload_bytes,
+        max_pixels=settings.max_image_pixels,
+    )
 
 
 class BatchIngestor:
@@ -84,8 +82,15 @@ class BatchIngestor:
             batch_id = batch.id
 
             processed_any = False
-            for rank, upload in enumerate(ordered, start=1):
-                asset = await self._ingest_one(tenant_id, batch_id, rank, upload)
+            rank = 0
+            for upload in ordered:
+                # Admission comes before storage: a refused file never lands on disk.
+                try:
+                    admitted = _admit(upload)
+                except UploadRejected:
+                    continue
+                rank += 1
+                asset = await self._ingest_one(tenant_id, batch_id, rank, upload, admitted)
                 session.add(asset)
                 processed_any = processed_any or asset.status is AssetStatus.processed
 
@@ -121,11 +126,23 @@ class BatchIngestor:
         folder group alphabetically (D1). ``group_key`` (the folder) groups a
         listing's images and drives the SKU (D2).
         """
+        # Admission comes before storage: a refused file never lands on disk.
+        admitted = _admit(upload)
+
+        used = await session.scalar(
+            select(func.coalesce(func.sum(Asset.byte_size), 0)).where(Asset.batch_id == batch_id)
+        )
+        ceiling = get_settings().max_batch_bytes
+        if int(used or 0) + len(upload.data) > ceiling:
+            raise UploadTooLarge(
+                f"a batch is limited to {ceiling // (1024 * 1024)} MB in total"
+            )
+
         count = await session.scalar(
             select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id)
         )
         rank = int(count or 0) + 1
-        asset = await self._ingest_one(tenant_id, batch_id, rank, upload, group_key)
+        asset = await self._ingest_one(tenant_id, batch_id, rank, upload, admitted, group_key)
         session.add(asset)
         batch = await session.get(UploadBatch, batch_id)
         if batch is not None:
@@ -169,14 +186,16 @@ class BatchIngestor:
         batch_id: uuid.UUID,
         rank: int,
         upload: UploadFile,
+        admitted: AdmittedImage,
         group_key: str | None = None,
     ) -> Asset:
         asset_id = uuid.uuid4()
         # Folder-name SKU takes precedence over the filename rule (D2).
         sku = self._sku.parse_group(group_key) or self._sku.parse(upload.filename)
-        ext = os.path.splitext(upload.filename)[1].lower() or ".bin"
-        original_key = f"{tenant_id}/{batch_id}/original/{asset_id}{ext}"
-        self._storage.put(original_key, upload.data, _original_mime(upload.filename))
+        # Extension and type come from the sniffed contents, never the filename:
+        # "photo.png" holding HTML is stored and served as nothing but refused.
+        original_key = f"{tenant_id}/{batch_id}/original/{asset_id}{admitted.ext}"
+        self._storage.put(original_key, upload.data, admitted.mime)
 
         try:
             # Image work is CPU-bound; keep the event loop free.
@@ -192,7 +211,8 @@ class BatchIngestor:
                 parsed_sku=sku,
                 group_key=group_key,
                 storage_key=original_key,
-                mime_type=_original_mime(upload.filename),
+                mime_type=admitted.mime,
+                byte_size=len(upload.data),
                 rank=rank,
                 status=AssetStatus.failed,
             )
@@ -211,6 +231,7 @@ class BatchIngestor:
             mime_type=processed.mime_type,
             width=processed.width,
             height=processed.height,
+            byte_size=len(upload.data),
             rank=rank,
             status=AssetStatus.processed,
         )

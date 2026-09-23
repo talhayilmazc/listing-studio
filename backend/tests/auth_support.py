@@ -17,6 +17,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.core.sessions import SESSION_COOKIE, SessionStore
 from app.db.models import Tenant, TenantStatus
 
+# The frontend's origin in test settings. A browser attaches Origin to every
+# state-changing request, and the CSRF guard refuses cookie-bearing ones without
+# it, so test clients present it too.
+BROWSER_ORIGIN = "http://localhost:3000"
+BROWSER_HEADERS = {"origin": BROWSER_ORIGIN}
+
 # argon2 is slow by design; tests that do not exercise login use this marker
 # directly so fixtures are not paying a KDF per tenant.
 UNUSABLE_HASH = "!"
