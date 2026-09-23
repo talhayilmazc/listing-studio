@@ -1,0 +1,152 @@
+# Production (production-spec F). Standalone, not an override of
+# docker-compose.yml: nothing here inherits the development bind mounts,
+# published ports or `--reload`.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# No port is published to the host. The only way in is the Cloudflare Tunnel
+# (the `cloudflared` service below), which dials out to Cloudflare; the host
+# firewall can therefore stay closed to everything but SSH. See docs/deploy.md.
+
+name: listyro
+
+x-logging: &logging
+  # Rotated by size: at most 5 x 10 MB per container. The Privacy Policy says
+  # logs are rotated automatically; this is what makes that true.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    args:
+      EXTRAS: ""  # no test tooling in production images
+  image: listyro/backend:latest
+  # Overridable only so a rehearsal can use a scratch file; on the server this
+  # is /opt/listyro/.env.
+  env_file: ${LISTYRO_ENV_FILE:-.env}
+  environment:
+    STORAGE_DIR: /data/storage
+  volumes:
+    - storage_data:/data/storage
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  logging: *logging
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    image: redis:7
+    # Append-only persistence: the daily Etsy quota counters live here. Losing
+    # them on a restart would reset the count mid-day and let the app overrun
+    # Etsy's 5,000-request limit. (Sessions persist too, so a restart does not
+    # sign everyone out.)
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    <<: *backend
+    # Migrations run once, before any worker process starts serving. No --reload.
+    command:
+      - sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+        --workers 2 --no-server-header
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  worker:
+    <<: *backend
+    command: ["arq", "app.workers.settings.WorkerSettings"]
+    healthcheck:
+      # arq records a heartbeat in Redis; --check fails if it has gone stale.
+      test: ["CMD", "arq", "--check", "app.workers.settings.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.prod.Dockerfile
+      args:
+        API_PROXY_TARGET: http://api:8000
+    image: listyro/frontend:latest
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    logging: *logging
+
+  cloudflared:
+    # Pinned: a tunnel client that updates itself underneath production is a
+    # change nobody reviewed. Bump deliberately.
+    image: cloudflare/cloudflared:2026.9.1
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    volumes:
+      - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      # The tunnel credentials file lives on the server, never in the repo.
+      - /etc/listyro/cloudflared:/etc/cloudflared/creds:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  pgdata:
+  redisdata:
+  storage_data:

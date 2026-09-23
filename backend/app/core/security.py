@@ -26,6 +26,7 @@ import json
 import logging
 import re
 import secrets
+import sys
 from urllib.parse import urlsplit
 
 from starlette.datastructures import MutableHeaders
@@ -33,6 +34,7 @@ from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.config import get_settings
+from app.core.errortracking import capture
 from app.core.sessions import SESSION_COOKIE
 
 logger = logging.getLogger("app.security")
@@ -193,6 +195,9 @@ class SecurityMiddleware:
             # Full trace to the log (scrubbed by logsafety); nothing internal
             # to the caller beyond an id they can quote to support.
             logger.exception("unhandled error in %s %s [%s]", method, path, request_id)
+            # This handler catches the exception before Sentry's ASGI hooks can,
+            # so report it explicitly (a no-op when error tracking is off).
+            capture(sys.exc_info()[1])
             if started:
                 raise
             await _json(

@@ -18,6 +18,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
+from app.core.errortracking import init_error_tracking
 from app.core.logsafety import install_log_redaction
 from app.db.session import get_sessionmaker
 from app.etsy.client import UnavailableEtsyClient
@@ -31,6 +32,7 @@ from app.workers.retention import purge_expired
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
+init_error_tracking("worker")
 
 
 async def process_job(ctx: dict[str, Any], job_id: str) -> str:

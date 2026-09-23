@@ -21,7 +21,12 @@ export const TRADEMARK_NOTICE =
 
 type Operator = Pick<
   Meta,
-  "support_email" | "operator_name" | "operator_location" | "governing_law" | "dispute_venue"
+  | "support_email"
+  | "operator_name"
+  | "operator_location"
+  | "governing_law"
+  | "dispute_venue"
+  | "error_tracking"
 >;
 
 const OperatorContext = createContext<Operator | null>(null);
@@ -117,7 +122,11 @@ export function Section({
 }
 
 /** An operator fact from configuration, or an unmistakable marker when unset. */
-export function Fact({ field }: { field: keyof Omit<Operator, "support_email"> }) {
+export function Fact({
+  field,
+}: {
+  field: "operator_name" | "operator_location" | "governing_law" | "dispute_venue";
+}) {
   const meta = useContext(OperatorContext);
   if (meta === null) return <span className="text-slate-400">…</span>;
   const value = meta[field]?.trim();
@@ -154,4 +163,13 @@ export function Conspicuous({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+/**
+ * Renders only when error reporting is switched on, so the policy names Sentry
+ * exactly when Sentry receives something — never before, never after.
+ */
+export function WhenErrorTracking({ children }: { children: React.ReactNode }) {
+  const meta = useContext(OperatorContext);
+  return meta?.error_tracking ? <>{children}</> : null;
 }

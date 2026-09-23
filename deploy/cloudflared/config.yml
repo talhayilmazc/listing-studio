@@ -1,0 +1,36 @@
+# Cloudflare Tunnel ingress (production-spec F2). Locally managed, so the rules
+# are reviewed in git rather than clicked together in a dashboard.
+#
+# Replace <TUNNEL_ID> in both places with the id printed by
+# `cloudflared tunnel create listyro` (docs/deploy.md, step 3). The credentials
+# JSON lives in /etc/listyro/cloudflared/ on the server, never in this repo.
+
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/creds/<TUNNEL_ID>.json
+
+ingress:
+  # The admin endpoints (invite codes, temporary passwords) are never reachable
+  # from the internet. Run deploy/admin.sh on the server instead.
+  - hostname: listyro.com
+    path: ^/api/account/admin/
+    service: http_status:404
+
+  # The app. The browser only ever talks to listyro.com; /api/* is proxied to
+  # the backend inside the Docker network, so the session stays same-origin.
+  - hostname: listyro.com
+    service: http://frontend:3000
+
+  # api.listyro.com exists for exactly two things: Etsy's OAuth redirect, which
+  # must match the callback URL registered with Etsy, and the uptime check.
+  # Everything else on this hostname is refused at the edge.
+  - hostname: api.listyro.com
+    path: ^/api/auth/etsy/callback$
+    service: http://api:8000
+  - hostname: api.listyro.com
+    path: ^/health$
+    service: http://api:8000
+  - hostname: api.listyro.com
+    service: http_status:404
+
+  # Anything else that reaches the tunnel.
+  - service: http_status:404

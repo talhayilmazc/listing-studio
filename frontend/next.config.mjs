@@ -42,6 +42,9 @@ const nextConfig = {
   reactStrictMode: true,
   // No "X-Powered-By: Next.js" advertising the stack.
   poweredByHeader: false,
+  // A self-contained server for the production image (docker/frontend.prod.Dockerfile):
+  // only the files the app needs, no dev dependencies. No effect on `next dev`.
+  output: "standalone",
   // Proxy API calls to the FastAPI backend so the browser stays same-origin
   // (no CORS) and image <img src="/api/..."> works directly.
   async rewrites() {

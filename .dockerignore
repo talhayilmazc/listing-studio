@@ -1,0 +1,33 @@
+# Build context hygiene. Images get source code and nothing else: no secrets,
+# no uploaded designs, no backups, no host-built artefacts.
+
+# Secrets and local configuration — never in an image.
+**/.env
+**/.env.*
+!**/.env.example
+deploy/secrets/
+
+# Seller data that may exist on a development machine.
+**/storage/
+backups/
+**/*.dump
+**/*.sql.gz
+
+# Host-built artefacts. node_modules contains platform-specific native
+# binaries (e.g. Next's SWC compiler); a Windows or macOS copy would overwrite
+# the Linux one the image installs and break the build.
+**/node_modules/
+**/.next/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.venv*/
+**/tsconfig.tsbuildinfo
+
+# Repository and editor noise.
+.git/
+.github/
+.vscode/
+.idea/
+**/*.log
