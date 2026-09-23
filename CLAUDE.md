@@ -16,7 +16,7 @@ Bunlar Etsy API Terms of Use'dan gelir. İhlali geliştirici hesabının ve kull
 2. **Rakip analizi yasak.** Başka satıcıların listingleri, tagleri, görselleri veya fiyatları toplanmaz, analiz edilmez, model eğitiminde kullanılmaz. Yalnızca kimliği doğrulanmış kullanıcının **kendi** mağaza verisine erişilir. Üye izni olmadan Etsy üyeleri hakkında kişisel veri toplanamaz/işlenemez.
 3. **Otomatik yayın yok.** Her listing `createDraftListing` ile taslak olarak oluşturulur. Yayın yalnızca kullanıcının arayüzde açık onayıyla yapılır. "Auto-publish" özelliği eklenmez.
 4. **Etsy Ads endpoint'i yoktur.** Reklam açma/kapama/bütçe özelliği yazılmaz.
-5. **Rate limit: 5.000 istek/gün, 5 istek/saniye** — uygulama bazında, kullanıcı bazında değil (Personal App). Güvenlik payı için 4 req/s hedeflenir; global günlük bütçe 5.000.
+5. **Rate limit: 5.000 istek/gün, 5 istek/saniye** — uygulama bazında, kullanıcı bazında değil (Personal App). Güvenlik payı için **3 req/s, burst olmadan** hedeflenir (4 req/s + 4 jetonluk burst, eşzamanlı işlerde bir saniyeye 7 istek sığdırıp 429 üretti — v5 §A); global günlük bütçe 5.000.
 6. **Token'lar şifreli saklanır.** Asla loglanmaz, asla hata mesajında görünmez, asla frontend'e gönderilmez.
 7. **Checkout akışı taklit edilemez.** Etsy'nin ödeme/checkout deneyimini kopyalayan veya devre dışı bırakan hiçbir şey yazılmaz.
 8. **Trafik başka yere yönlendirilemez.** Uygulama, kullanıcıyı veya alıcıyı Etsy dışı platformlara taşımak için kullanılamaz.
@@ -55,9 +55,10 @@ ToU Bölüm 1'den gelir, ihlali doğrudan sözleşme ihlalidir.
 **Her Etsy API çağrısı kuyruk üzerinden geçer.** Servis katmanından doğrudan `httpx` ile Etsy'ye istek atılmaz. Tek istisna: OAuth token değişimi.
 
 ```
-Job → queue → tenant kota kontrolü → global token bucket (4 req/s) → Etsy API
+Job → queue → tenant kota kontrolü → global token bucket (3 req/s, burst yok) → Etsy API
                                             ↓ 429
-                                  exponential backoff + requeue
+                  Retry-After / exponential backoff, tüm worker'lar bekler;
+                  yeniden deneme yine kota + bucket'tan geçer
 ```
 
 **Her job önce `app/workers/gate.py`'dan geçer.** Askıya alınmış kiracının işi çalışmaz (askıya alma kuyruktaki job'ları iptal eder). Global kullanım `GLOBAL_PAUSE_PERCENT` (%90 = 4.500) seviyesine ulaşınca veya işin tahmini maliyeti kiracının kalan kotasına sığmıyorsa, yeni işler **ilk istekten önce** 00:00 UTC'ye ertelenir; sebep job'a ve kullanıcıya gösterilen uyarıya yazılır. `GLOBAL_DAILY_LIMIT` Etsy'nin gerçek tavanı olan 5.000'de kalır. Yeni bir job türü eklenirse `JOB_COST`'a maliyet üst sınırı eklenir.

@@ -18,11 +18,14 @@ export function AuthShell({
   subtitle,
   children,
   footer,
+  betaNotice = false,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  /** Shown where someone decides to join (register), not on every sign-in. */
+  betaNotice?: boolean;
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-stone-50 px-6 py-10">
@@ -40,7 +43,7 @@ export function AuthShell({
           <div className="mt-6">{children}</div>
         </div>
 
-        <BetaNotice />
+        {betaNotice && <BetaNotice />}
         {footer && <div className="mt-5 text-center text-sm text-slate-500">{footer}</div>}
         <AuthFooter />
       </div>
@@ -49,9 +52,9 @@ export function AuthShell({
 }
 
 /**
- * Beta notice (production-spec E3). Required on both signed-out screens: these
- * are real sellers with real shops, and they must know what they are joining
- * before they hand over an account.
+ * Beta notice (production-spec E3). Shown on register, before someone commits:
+ * these are real sellers with real shops, and they must know what they are
+ * joining before they hand over an account. Returning users have seen it.
  */
 export function BetaNotice() {
   return (

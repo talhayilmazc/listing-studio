@@ -27,6 +27,7 @@ from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_refer
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.reference import build_profile_payload, common_title_prefix, decode_etsy_text
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
+from app.etsy.calllog import current_job
 from app.workers import gate
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ async def _run_gated(
     if verdict.action == "suspended":
         return "suspended"
     if verdict.action == "run":
+        current_job.set(f"{function}:{arg}")  # tags this job's Etsy requests
         try:
             return await body()
         except RateLimitExceeded:

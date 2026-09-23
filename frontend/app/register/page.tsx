@@ -43,6 +43,7 @@ export default function RegisterPage() {
 
   return (
     <AuthShell
+      betaNotice
       title="Create your account"
       subtitle="Registration is by invitation during the beta."
       footer={
