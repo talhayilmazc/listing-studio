@@ -101,7 +101,11 @@ export function ProfileCard({
   // The listing's own hero image identifies the profile at a glance; the rest is
   // split so size charts read as their own labelled group.
   const images = profile.reference_images;
-  const hero = images.find((i) => i.kind !== "size_chart" && i.url) ?? images[0];
+  // Two limits: the image links are displayed, so they go after 6 hours; the rest
+  // of the reference is only used to build drafts and stays usable for 24.
+  const imagesHidden = profile.reference_images_expired;
+  const hero =
+    images.find((i) => i.kind !== "size_chart" && (i.url || imagesHidden)) ?? images[0];
   const rest = images.filter((i, idx) => i.listing_image_id != null && i !== hero && idx > 0);
   const charts = rest.filter((i) => i.kind === "size_chart");
   const others = rest.filter((i) => i.kind !== "size_chart");
@@ -138,7 +142,9 @@ export function ProfileCard({
               ? "fetching reference…"
               : expired
                 ? "Etsy data is cleared after 24 hours — refresh the reference"
-                : "no reference image"}
+                : imagesHidden
+                  ? "Reference images are shown for 6 hours after each refresh"
+                  : "no reference image"}
           </div>
         )}
         <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
@@ -194,7 +200,9 @@ export function ProfileCard({
               }
             >
               {profile.is_fresh
-                ? "reference cached"
+                ? imagesHidden
+                  ? "usable · images hidden after 6 hours"
+                  : "reference cached"
                 : fetching
                   ? "fetching reference…"
                   : expired
@@ -242,7 +250,11 @@ export function ProfileCard({
         {charts.length > 0 && (
           <ImageRow
             title="Size charts"
-            note="appended to every draft using this profile"
+            note={
+              imagesHidden
+                ? "images hidden after 6 hours; your selection still applies"
+                : "appended to every draft using this profile"
+            }
             images={charts}
             fixed={profile.fixed_image_ids}
             onToggle={toggleFixed}
@@ -254,7 +266,11 @@ export function ProfileCard({
         {others.length > 0 && (
           <ImageRow
             title="Other reference images"
-            note="select any to append them too"
+            note={
+              imagesHidden
+                ? "images hidden after 6 hours; refresh to see them"
+                : "select any to append them too"
+            }
             images={others}
             fixed={profile.fixed_image_ids}
             onToggle={toggleFixed}
@@ -340,9 +356,15 @@ function ImageRow({
                   : "border-transparent opacity-55 hover:opacity-90")
               }
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {img.url && (
+              {img.url ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={img.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+              ) : (
+                // Link withheld past the 6-hour display limit: keep the slot and
+                // its position so the selection still reads.
+                <span className="flex h-full w-full items-center justify-center bg-slate-100 text-[11px] tabular-nums text-slate-400">
+                  #{img.rank ?? "?"}
+                </span>
               )}
               {on && (
                 <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-bold text-white">

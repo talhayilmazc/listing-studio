@@ -400,17 +400,30 @@ class ListingProfile(Base):
 
     The seller picks a reference listing; :attr:`cached_payload` holds the fields
     the app reuses verbatim (category, attributes, price, shipping, variation
-    structure, description body, image ids). That payload is Member Content, so it
-    is refreshed when older than :attr:`CACHE_MAX_AGE_SECONDS` (24h, CLAUDE.md) and
-    deleted when the seller disconnects. Only the authenticated seller's own shop
-    is ever read (CLAUDE.md constraint #2).
+    structure, description body, image ids). That payload is Member Content and
+    holds two kinds of data under two limits (CLAUDE.md, ToU §1):
+
+    * **displayed** — the reference image links shown in the profile card follow
+      the listing-display limit, :attr:`DISPLAY_MAX_AGE_SECONDS` (6h). Past it the
+      API stops returning them and retention strips them from storage.
+    * **structural** — taxonomy, attributes, price, shipping, variation shape,
+      readiness state, the description used to write each draft, and the images'
+      ids, ranks and size-chart classifications. Never displayed, held to provide
+      the service: :attr:`CACHE_MAX_AGE_SECONDS` (24h), then cleared.
+
+    Everything is deleted when the seller disconnects. Only the authenticated
+    seller's own shop is ever read (CLAUDE.md constraint #2).
     """
 
     __tablename__ = "listing_profile"
     __table_args__ = (Index("ix_listing_profile_tenant", "tenant_id"),)
 
-    #: Reference-content cache staleness window (Member Content, ToU §1).
+    #: Structural reference data: held to provide the service (ToU §1).
     CACHE_MAX_AGE_SECONDS: ClassVar[int] = 24 * 3600
+    #: Displayed reference data (image links): the listing-display limit.
+    DISPLAY_MAX_AGE_SECONDS: ClassVar[int] = 6 * 3600
+    #: Payload keys on each image entry that exist only to display it.
+    DISPLAY_IMAGE_KEYS: ClassVar[tuple[str, ...]] = ("url", "display_url")
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(

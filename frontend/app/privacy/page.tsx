@@ -251,8 +251,12 @@ export default function PrivacyPage() {
                 period="6 hours at most, then deleted and fetched again when you next need them"
               />
               <Row
-                data="Reference listing details for each profile"
-                period="24 hours at most, then cleared. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile"
+                data="Your reference listing's images, as shown on the profile card"
+                period="6 hours at most. After that the images are no longer shown and their links are deleted; refreshing the profile shows them again"
+              />
+              <Row
+                data="Your reference listing's details used to build drafts — category, attributes, price, shipping profile, variations, readiness state, description, and which of its images are size charts"
+                period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile"
               />
               <Row
                 data="Copies of listings taken before we change them"
@@ -286,9 +290,16 @@ export default function PrivacyPage() {
           </table>
         </div>
         <p>
-          We do not store the images from your Etsy reference listings: they are fetched, checked
-          in memory to tell size charts from artwork, and discarded. We keep only the result of
-          that check, which follows the 24-hour limit above.
+          Two limits apply to your Etsy data because it is used in two ways. Anything we{" "}
+          <strong>show</strong> you from Etsy — your shop&rsquo;s listings, and your reference
+          listing&rsquo;s images on the profile card — is kept for at most 6 hours. Details we
+          only <strong>use</strong> to build your drafts, and never display, are kept for at most
+          24 hours.
+        </p>
+        <p>
+          We never store the image files from your Etsy reference listings: they are fetched,
+          checked in memory to tell size charts from artwork, and discarded. We keep only their
+          links (6 hours) and the result of that check (24 hours).
         </p>
       </Section>
 
