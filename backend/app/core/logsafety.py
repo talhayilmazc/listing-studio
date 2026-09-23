@@ -101,3 +101,22 @@ def _scrub(record: logging.LogRecord, formatter: logging.Formatter) -> None:
 
     if record.exc_info and not record.exc_text:
         record.exc_text = redact(formatter.formatException(record.exc_info))
+
+
+def configure_app_logging() -> None:
+    """Print the app's own INFO logs (the Etsy call log, generation traces).
+
+    Neither uvicorn nor arq configures anything but its own loggers, so without
+    this every ``app.*`` INFO line is dropped and warnings fall through to
+    Python's bare last-resort handler. Records still propagate, so nothing is
+    lost to handlers configured above. Redaction is applied when each record is
+    created (:func:`install_log_redaction`).
+    """
+    app_logger = logging.getLogger("app")
+    if any(getattr(h, "_listyro", False) for h in app_logger.handlers):
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    handler._listyro = True  # type: ignore[attr-defined]
+    app_logger.addHandler(handler)
+    app_logger.setLevel(logging.INFO)

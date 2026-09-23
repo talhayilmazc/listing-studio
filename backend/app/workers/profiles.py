@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -25,7 +25,12 @@ from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.llm import AnthropicLLMClient
-from app.pipeline.reference import build_profile_payload, common_title_prefix, decode_etsy_text
+from app.pipeline.reference import (
+    build_profile_payload,
+    common_title_prefix,
+    decode_etsy_text,
+    prefix_from_shop,
+)
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 from app.etsy.calllog import current_job
 from app.workers import gate
@@ -152,8 +157,31 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
             properties = await client.get_listing_properties(shop_id, ref_id, **kw)
 
         payload = build_profile_payload(listing, inventory, images, properties)
-        # Note: the title prefix is derived at detection time from the whole cluster
-        # (common_title_prefix), not from this single reference title.
+
+        # Title prefix (docs/duzeltmeler-v5.md §B). Detection sets it from its cluster.
+        # A profile made by hand starts with none (NULL), so fill it here, once, from
+        # the seller's own listings of the same kind. Never overwrite: a prefix the
+        # seller typed, or cleared on purpose (""), stays exactly as it is.
+        if profile.title_prefix is None:
+            fresh_since = datetime.now(timezone.utc) - timedelta(
+                seconds=ShopListingCache.STALE_SECONDS
+            )
+            cached = await session.execute(
+                select(ShopListingCache.payload).where(
+                    ShopListingCache.tenant_id == profile.tenant_id,
+                    ShopListingCache.fetched_at >= fresh_since,
+                )
+            )
+            shop_rows = [row for row in cached.scalars() if row]
+            derived = prefix_from_shop(listing, shop_rows)
+            if derived:
+                profile.title_prefix = derived
+            logger.info(
+                "profile %s: title prefix was unset; derived %r from %d cached listings",
+                profile.id, derived, len(shop_rows),
+            )
+        else:
+            logger.info("profile %s: title prefix kept as %r", profile.id, profile.title_prefix)
 
         # Classify the reference's non-primary images as size charts vs artwork and
         # auto-mark the charts as fixed images (B3). Done LOCALLY from the image

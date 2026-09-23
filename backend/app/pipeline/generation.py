@@ -100,6 +100,16 @@ async def generate_listing_content(
     payload = profile.cached_payload or {}
     description = replace_title_block(str(payload.get("description", "")), listing.title)
     taxonomy_id = payload.get("taxonomy_id")
+    prefix = (profile.title_prefix or "").strip()
+    logger.info(
+        "generated for profile %s: title_prefix=%r title_has_prefix=%s title_length=%d "
+        "description_title_block_replaced=%s",
+        profile.id,
+        prefix,
+        bool(prefix) and listing.title.lower().startswith(prefix.lower()),
+        len(listing.title),
+        description.split("\n", 1)[0] == listing.title,
+    )
 
     attributes = None
     if analysis is not None:

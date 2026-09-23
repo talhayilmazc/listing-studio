@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from app.api import accounts, admin, auth, batches, content, health, meta, profiles, publish, shop
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
-from app.core.logsafety import install_log_redaction
+from app.core.logsafety import configure_app_logging, install_log_redaction
 from app.core.ratelimit import rate_limit
 from app.core.security import SecurityMiddleware
 
@@ -21,6 +21,7 @@ CORS_HEADERS = ["Content-Type"]
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     install_log_redaction()
+    configure_app_logging()
     settings = get_settings()
     production = settings.app_env == "production"
     if production:
