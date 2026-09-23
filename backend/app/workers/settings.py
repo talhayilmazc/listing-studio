@@ -27,6 +27,7 @@ from app.workers.processor import JobProcessor, ProcessResult
 from app.workers.profiles import detect_profiles, refresh_profile, sync_shop_listings
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
+from app.workers.retention import purge_expired
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -78,6 +79,11 @@ class WorkerSettings:
         detect_profiles,
         run_replace_images_job,
     ]
-    cron_jobs = [cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False)]
+    cron_jobs = [
+        cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False),
+        # Every 15 minutes, so a 6-hour cache row outlives its limit by at most
+        # a quarter hour. Also on startup: a worker that was down catches up.
+        cron(purge_expired, minute={0, 15, 30, 45}, second=0, run_at_startup=True),
+    ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

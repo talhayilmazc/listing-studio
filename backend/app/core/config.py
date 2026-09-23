@@ -105,6 +105,14 @@ class Settings(BaseSettings):
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"
 
+    # Who operates the service, as named in the Terms and Privacy Policy.
+    # Production refuses to start while any is empty, so the published legal
+    # pages can never go out naming nobody.
+    operator_name: str = ""  # the legal person or business, e.g. "Jane Doe"
+    operator_location: str = ""  # e.g. "Istanbul, Türkiye"
+    governing_law: str = ""  # e.g. "the Republic of Türkiye"
+    dispute_venue: str = ""  # e.g. "the courts of Istanbul"
+
     # Browser origins allowed to call the API directly (dev). Comma-separated.
     cors_origins: str = "http://localhost:3000"
 

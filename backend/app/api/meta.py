@@ -68,4 +68,11 @@ async def get_quota_status(
 
 @router.get("/meta", response_model=schemas.MetaOut)
 async def get_meta() -> schemas.MetaOut:
-    return schemas.MetaOut(support_email=get_settings().support_email)
+    settings = get_settings()
+    return schemas.MetaOut(
+        support_email=settings.support_email,
+        operator_name=settings.operator_name,
+        operator_location=settings.operator_location,
+        governing_law=settings.governing_law,
+        dispute_venue=settings.dispute_venue,
+    )

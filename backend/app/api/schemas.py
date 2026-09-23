@@ -273,6 +273,11 @@ class ConnectionOut(BaseModel):
 
 class MetaOut(BaseModel):
     support_email: str
+    # Operator facts for the legal pages; see Settings.operator_*.
+    operator_name: str = ""
+    operator_location: str = ""
+    governing_law: str = ""
+    dispute_venue: str = ""
     trademark_notice: str = Field(
         default=(
             "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the "

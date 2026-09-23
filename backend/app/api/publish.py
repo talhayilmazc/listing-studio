@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -38,6 +39,16 @@ async def _blocking(session: AsyncSession, content_id: uuid.UUID) -> bool:
     return rows.first() is not None
 
 
+def _reference_is_fresh(profile: ListingProfile) -> bool:
+    if not profile.cached_payload or profile.updated_at is None:
+        return False
+    updated = profile.updated_at
+    if updated.tzinfo is None:  # SQLite hands back naive datetimes
+        updated = updated.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - updated).total_seconds()
+    return age < ListingProfile.CACHE_MAX_AGE_SECONDS
+
+
 async def _validation_reason(
     session: AsyncSession, content: GeneratedContent
 ) -> str | None:
@@ -50,6 +61,14 @@ async def _validation_reason(
         profile = await session.get(ListingProfile, content.listing_profile_id)
         if profile is not None:
             policy = policy_for(profile.content_template)
+            # A draft copies category, price and variations from the reference
+            # listing, so that data must be within its 24-hour limit. Past it,
+            # the retention job clears it; either way, refresh first.
+            if not _reference_is_fresh(profile):
+                return (
+                    f"the Etsy data for profile \"{profile.name}\" is more than a day old; "
+                    "refresh the profile, then try again"
+                )
     errors = validate_listing(
         GeneratedListing(
             title=content.title or "",

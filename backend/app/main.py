@@ -22,6 +22,8 @@ def create_app() -> FastAPI:
     install_log_redaction()
     settings = get_settings()
     production = settings.app_env == "production"
+    if production:
+        _require_legal_identity(settings)
 
     application = FastAPI(
         title="Etsy Listing Assistant",
@@ -60,6 +62,27 @@ def create_app() -> FastAPI:
     application.include_router(shop.router)
     application.include_router(publish.router)
     return application
+
+
+def _require_legal_identity(settings) -> None:  # noqa: ANN001
+    """Refuse to serve production traffic with legal pages that name no one.
+
+    The Terms and Privacy Policy state who operates the service, which law
+    governs it, and where to write. Placeholders there are not a cosmetic bug:
+    a policy that names no controller is not a policy.
+    """
+    missing = [
+        name
+        for name in ("operator_name", "operator_location", "governing_law", "dispute_venue")
+        if not getattr(settings, name).strip()
+    ]
+    if not settings.support_email.strip() or settings.support_email.endswith("@example.com"):
+        missing.append("support_email")
+    if missing:
+        raise RuntimeError(
+            "production needs the operator details for the legal pages; set: "
+            + ", ".join(m.upper() for m in missing)
+        )
 
 
 async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

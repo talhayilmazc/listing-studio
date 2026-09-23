@@ -375,3 +375,25 @@ async def test_use_listing_as_profile_creates_and_enqueues(ctx) -> None:
     async with ctx["sm"]() as s:
         rows = await s.execute(select(ListingProfile).where(ListingProfile.reference_listing_id == 888))
         assert rows.scalars().first() is not None
+
+
+async def test_expired_shop_listings_are_never_shown(ctx) -> None:
+    """Past 6 hours a listing is re-fetched, not displayed (CLAUDE.md)."""
+    now = datetime.now(timezone.utc)
+    async with ctx["sm"]() as s:
+        for listing_id, age in ((900, timedelta(hours=7)), (901, timedelta(minutes=5))):
+            s.add(
+                ShopListingCache(
+                    tenant_id=ctx["tenant_id"],
+                    listing_id=listing_id,
+                    payload={"listing_id": listing_id, "state": "active", "state_timestamp": 1},
+                    fetched_at=now - age,
+                )
+            )
+        await s.commit()
+
+    body = (await ctx["client"].get("/api/shop/listings")).json()
+    assert [row["listing_id"] for row in body["listings"]] == [901]
+
+    summary = (await ctx["client"].get("/api/shop/summary")).json()
+    assert summary["total"] == 1 and summary["active"] == 1
