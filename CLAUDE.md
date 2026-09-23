@@ -60,6 +60,8 @@ Job → queue → tenant kota kontrolü → global token bucket (4 req/s) → Et
                                   exponential backoff + requeue
 ```
 
+**Admin rolü kiracı izolasyonunu delmez.** `/api/admin/*` yalnızca hesap üst verisi (e-posta, bağlı mağaza adı, kayıt tarihi, yayın sayısı) ve kota görür; başka bir kiracının tasarımlarını, batch'lerini, profillerini veya üretilen içeriğini okuyan admin endpoint'i yazılmaz. Her admin endpoint'i `is_admin`'i sunucuda kontrol eder, admin olmayana 404 döner, her işlem `audit_log`'a yazılır. Admin yalnızca CLI ile atanır (`python -m app.cli create-admin`).
+
 ## Etsy API erişim notları (doğrulandı — Personal App aktif)
 
 - **`x-api-key` başlığı `{keystring}:{shared_secret}` biçiminde gönderilir**, yalnızca keystring değil. Sadece keystring gönderilirse `openapi-ping` **403** döner. İki değer de `.env`'den (`ETSY_CLIENT_ID` = keystring, `ETSY_CLIENT_SECRET` = shared secret) okunur; asla loglanmaz.
@@ -73,8 +75,8 @@ Job → queue → tenant kota kontrolü → global token bucket (4 req/s) → Et
 - DB: PostgreSQL
 - Frontend: Next.js (App Router), TypeScript, Tailwind
 - Görsel işleme: pyvips (fallback: Pillow)
-- Storage: S3 uyumlu (Cloudflare R2)
-- Deploy: Docker Compose + Caddy, tek VPS
+- Storage: yerel Docker volume (`LocalStorage`); S3 uyumlu depolama (R2) henüz yok
+- Deploy: Docker Compose + Cloudflare Tunnel, Türkiye'de tek VPS — adımlar `docs/deploy.md`
 
 ## Klasör yapısı
 
