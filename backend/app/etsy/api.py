@@ -3,10 +3,14 @@
 Every method makes exactly one HTTP request through :meth:`_request`, which:
 
 1. reserves the per-tenant + global **daily quota** (5.000/day),
-2. paces via the global **4 req/s token bucket**,
+2. paces via the global **3 req/s token bucket** (no bursts; see rate_limiter),
 3. sends with the correct headers -- ``x-api-key: {keystring}:{shared_secret}``
    (verified: keystring alone -> 403) plus the OAuth ``Authorization: Bearer``,
-4. maps non-2xx responses onto the :mod:`app.etsy.errors` hierarchy.
+4. maps non-2xx responses onto the :mod:`app.etsy.errors` hierarchy,
+5. on **429** waits (``Retry-After``, else exponential backoff), slows every worker
+   down by the same amount, and retries -- each retry again through the quota and
+   the bucket, so a 429 never turns into a burst of retries,
+6. logs every request with its time, path, job and status (:mod:`app.etsy.calllog`).
 
 This client only ever runs inside the worker (jobs go through the queue per
 CLAUDE.md); the service layer never calls Etsy directly. Tokens are never logged.
@@ -14,7 +18,10 @@ CLAUDE.md); the service layer never calls Etsy directly. Tokens are never logged
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
+from collections.abc import Awaitable, Callable
 from datetime import date
 import json
 from typing import Any
@@ -23,6 +30,7 @@ import httpx
 from redis.asyncio import Redis
 
 from app.etsy.client import ETSY_API_BASE, auth_headers
+from app.etsy.calllog import CallLog
 from app.etsy.errors import raise_for_etsy_status
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
@@ -31,6 +39,20 @@ logger = logging.getLogger(__name__)
 
 # Taxonomy rarely changes and is NOT Member Content, so the 24h cache rule applies.
 _TAXONOMY_TTL = 24 * 3600
+
+
+# 429 handling. A 429 means Etsy refused the request, so resending it is safe even
+# for a POST. A Retry-After longer than this is not a per-second problem; give up
+# rather than hold a worker slot for minutes.
+RATE_LIMIT_RETRIES = 4
+MAX_RETRY_WAIT_SECONDS = 60.0
+
+
+def rate_limit_wait(attempt: int, retry_after: float | None) -> float:
+    """Seconds to wait before retry ``attempt`` (1-based) after a 429."""
+    if retry_after is not None and retry_after >= 0:
+        return retry_after
+    return min(2.0 ** (attempt - 1), 30.0)  # 1, 2, 4, 8
 
 
 class RateLimitExceeded(Exception):
@@ -77,6 +99,8 @@ class EtsyApiClient:
         quota: DailyQuota | None = None,
         usage: UsageRecorder | None = None,
         cache: Redis | None = None,
+        call_log: CallLog | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self._client_id = client_id
         self._shared_secret = shared_secret
@@ -86,6 +110,8 @@ class EtsyApiClient:
         self._quota = quota
         self._cache = cache
         self._usage = usage
+        self._calls = call_log or CallLog(bucket.redis if bucket is not None else None)
+        self._sleep = sleep or asyncio.sleep
 
     async def _request(
         self,
@@ -100,22 +126,50 @@ class EtsyApiClient:
         json: Any = None,
         files: Any = None,
     ) -> dict[str, Any]:
-        # 1) daily quota  2) token bucket  3) Etsy API  (order per CLAUDE.md)
-        if self._quota is not None and tenant_id is not None and tenant_limit is not None:
-            if not await self._quota.reserve(tenant_id, tenant_limit):
-                raise RateLimitExceeded("daily Etsy API budget exhausted")
-        if self._bucket is not None:
-            await self._bucket.acquire()
+        attempt = 0
+        while True:
+            attempt += 1
+            # 1) daily quota  2) token bucket  3) Etsy API  (order per CLAUDE.md).
+            # Every attempt, retries included, passes both: a refused request still
+            # counts against Etsy's budget, and an unpaced retry makes more 429s.
+            if self._quota is not None and tenant_id is not None and tenant_limit is not None:
+                if not await self._quota.reserve(tenant_id, tenant_limit):
+                    raise RateLimitExceeded("daily Etsy API budget exhausted")
+            waited = time.monotonic()
+            if self._bucket is not None:
+                await self._bucket.acquire()
+            waited = time.monotonic() - waited
 
-        resp = await self._http.request(
-            method,
-            f"{self._base}{path}",
-            headers=auth_headers(self._client_id, self._shared_secret, access_token),
-            params=params,
-            data=_encode_form(data),
-            json=json,
-            files=files,
-        )
+            sent_at, in_second = await self._calls.sent()
+            resp = await self._http.request(
+                method,
+                f"{self._base}{path}",
+                headers=auth_headers(self._client_id, self._shared_secret, access_token),
+                params=params,
+                data=_encode_form(data),
+                json=json,
+                files=files,
+            )
+            await self._calls.record(
+                sent_at=sent_at,
+                in_second=in_second,
+                method=method,
+                path=path,
+                status=resp.status_code,
+                waited=waited,
+                attempt=attempt,
+            )
+            if resp.status_code != 429 or attempt > RATE_LIMIT_RETRIES:
+                break
+            wait = rate_limit_wait(attempt, _retry_after(resp))
+            if wait > MAX_RETRY_WAIT_SECONDS:
+                break
+            if self._bucket is not None:
+                # Everyone backs off, not just this request.
+                await self._bucket.penalize(wait)
+            else:
+                await self._sleep(wait)
+
         if resp.status_code >= 400:
             # Etsy names the rejected field in the body — capture it (no token is in
             # the response body or the path). Logged server-side; kept off the UI.

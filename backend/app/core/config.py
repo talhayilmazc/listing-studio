@@ -106,6 +106,9 @@ class Settings(BaseSettings):
 
     # Global daily API budget (app-wide, Personal App = 5.000/day). Tenant budget is per-tenant.
     global_daily_limit: int = 5000
+    # Etsy allows 5 requests/second and refuses bursts. 3, spaced evenly, leaves the
+    # margin that 4 (with a 4-token burst) did not (docs/duzeltmeler-v5.md §A).
+    etsy_requests_per_second: float = Field(default=3.0, gt=0, le=5)
     # New jobs pause once app-wide usage reaches this share of the limit (production-spec C).
     # The rest is held back so jobs already running finish instead of dying at the wall.
     global_pause_percent: int = Field(default=90, ge=1, le=100)

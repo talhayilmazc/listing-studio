@@ -23,6 +23,7 @@ from typing import Any, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job, JobStatus, Tenant, TenantStatus
+from app.etsy.calllog import current_job
 from app.etsy.rate_limiter import PAUSE_TENANT
 
 # Upper bound on the Etsy requests one run of each job can make. A job starts only
@@ -157,4 +158,6 @@ async def start_job(
     job.status = JobStatus.running
     job.started_at = now
     await session.commit()
+    # Tag every Etsy request this job makes, for the call log.
+    current_job.set(f"{function}:{job.id}")
     return None

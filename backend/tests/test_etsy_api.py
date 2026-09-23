@@ -98,7 +98,11 @@ async def test_update_listing_uses_patch_and_shop_scoped_path() -> None:
     [(429, EtsyRateLimited), (404, EtsyClientError), (500, EtsyServerError)],
 )
 async def test_error_status_mapping(status: int, exc: type[Exception]) -> None:
-    client, http = _make(lambda req: httpx.Response(status, json={}))
+    async def _no_wait(_seconds: float) -> None:
+        return None
+
+    # A 429 is retried (with backoff) before it is raised; don't sleep for real here.
+    client, http = _make(lambda req: httpx.Response(status, json={}), sleep=_no_wait)
     async with http:
         with pytest.raises(exc):
             await client.get_listing(1, access_token="t")

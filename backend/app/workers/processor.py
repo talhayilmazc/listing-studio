@@ -7,7 +7,7 @@ it can be unit-tested without the worker runtime: construct a
 
 Flow per the architecture rule (docs/data-model.md §2):
 
-    tenant + global daily quota  ->  global token bucket (8 req/s)  ->  Etsy API
+    tenant + global daily quota  ->  global token bucket (3 req/s)  ->  Etsy API
                                                                           |
                             429 / 5xx  ->  backoff (or Retry-After) + requeue
                             4xx        ->  permanent failure
@@ -108,7 +108,7 @@ class JobProcessor:
                     delay=(reset_at - self._now()).total_seconds(),
                 )
 
-            # 2) Global 8 req/s token bucket (blocks until a token is free).
+            # 2) Global 3 req/s token bucket (blocks until a token is free).
             await self._bucket.acquire()
 
             # 3) The Etsy call itself (mocked in tests; real client in step 4).

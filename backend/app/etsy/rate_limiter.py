@@ -6,9 +6,13 @@ Two independent guards, applied in this order by the worker:
    (Personal App allows 5.000/day per *app*). Two thresholds: new jobs pause at
    ``pause_percent`` of the global limit (production-spec C, 90% = 4.500), and
    every single request still stops hard at the limit itself.
-2. :class:`TokenBucket` -- a global 4 req/s token bucket shared by all workers,
-   refilled atomically in Redis via a Lua script (Etsy's per-second limit is 5;
-   4 leaves margin).
+2. :class:`TokenBucket` -- a global 3 req/s pacer shared by all workers,
+   refilled atomically in Redis via a Lua script. Etsy's per-second limit is 5
+   and it counts bursts: the old 4 req/s bucket held 4 tokens, so after an idle
+   moment it released 4 at once *plus* the refill, up to 7 in one second under
+   concurrent jobs (docs/duzeltmeler-v5.md §A). Capacity is now 1 -- no stored
+   burst -- so requests are spaced at least 1/rate apart, and any one-second
+   window holds at most ``rate`` of them.
 
 Both live in Redis so the limits hold across worker processes.
 """
@@ -16,9 +20,8 @@ Both live in Redis so the limits hold across worker processes.
 from __future__ import annotations
 
 import asyncio
-import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from redis.asyncio import Redis
@@ -31,6 +34,12 @@ local rate = tonumber(ARGV[1])
 local capacity = tonumber(ARGV[2])
 local now_ms = tonumber(ARGV[3])
 local requested = tonumber(ARGV[4])
+if now_ms < 0 then
+  -- One clock for every process: Redis's. Per-process monotonic clocks have
+  -- unrelated origins, so buckets refilled from them disagree.
+  local t = redis.call('TIME')
+  now_ms = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+end
 
 local bucket = redis.call('HMGET', key, 'tokens', 'ts')
 local tokens = tonumber(bucket[1])
@@ -58,29 +67,77 @@ return {allowed, tostring(wait)}
 """
 
 
+# After a 429, push the whole bucket into debt so every worker waits, not just
+# the request that was refused.
+_PENALIZE_LUA = """
+local key = KEYS[1]
+local rate = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local now_ms = tonumber(ARGV[3])
+local seconds = tonumber(ARGV[4])
+if now_ms < 0 then
+  local t = redis.call('TIME')
+  now_ms = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+end
+local bucket = redis.call('HMGET', key, 'tokens', 'ts')
+local tokens = tonumber(bucket[1])
+local ts = tonumber(bucket[2])
+if tokens == nil then
+  tokens = capacity
+  ts = now_ms
+end
+tokens = math.min(capacity, tokens + math.max(0, now_ms - ts) / 1000.0 * rate)
+tokens = math.min(tokens, 1 - seconds * rate)
+redis.call('HSET', key, 'tokens', tokens, 'ts', now_ms)
+redis.call('PEXPIRE', key, 60000 + math.ceil(seconds * 1000))
+return 1
+"""
+
+
 class TokenBucket:
-    """Global token bucket enforcing a steady requests-per-second ceiling."""
+    """Global pacer enforcing a steady requests-per-second ceiling, without bursts."""
 
     def __init__(
         self,
         redis: Redis,
         *,
-        rate: float = 4.0,
-        capacity: float = 4.0,
+        rate: float = 3.0,
+        capacity: float = 1.0,
         key: str = "bucket:global",
         time_func: Callable[[], float] | None = None,
+        sleep_func: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self._redis = redis
         self._rate = rate
         self._capacity = capacity
         self._key = key
-        # Injectable monotonic clock (seconds) for deterministic tests.
-        self._now = time_func or time.monotonic
+        # Injectable clock (seconds) and sleep for deterministic tests. Without a
+        # clock, the script reads Redis TIME, shared by every worker process.
+        self._now = time_func
+        self._sleep = sleep_func or asyncio.sleep
         self._script = redis.register_script(_BUCKET_LUA)
+        self._penalize = redis.register_script(_PENALIZE_LUA)
+
+    @property
+    def redis(self) -> Redis:
+        return self._redis
+
+    @property
+    def rate(self) -> float:
+        return self._rate
+
+    def _now_ms(self) -> int:
+        return int(self._now() * 1000) if self._now is not None else -1
+
+    async def penalize(self, seconds: float) -> None:
+        """Make every caller wait at least ``seconds`` (after a 429 from Etsy)."""
+        await self._penalize(
+            keys=[self._key], args=[self._rate, self._capacity, self._now_ms(), seconds]
+        )
 
     async def try_acquire(self, tokens: float = 1.0) -> tuple[bool, float]:
         """Attempt to take ``tokens``. Returns (allowed, seconds_until_available)."""
-        now_ms = int(self._now() * 1000)
+        now_ms = self._now_ms()
         result = await self._script(
             keys=[self._key],
             args=[self._rate, self._capacity, now_ms, tokens],
@@ -97,7 +154,7 @@ class TokenBucket:
             allowed, wait = await self.try_acquire(tokens)
             if allowed:
                 return
-            await asyncio.sleep(wait)
+            await self._sleep(wait)
 
 
 # Why a job is waiting for the next daily reset. Stored on job.paused_reason and

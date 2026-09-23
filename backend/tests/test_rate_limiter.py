@@ -40,11 +40,13 @@ async def test_bucket_refills_over_time(fake_redis: FakeAsyncRedis) -> None:
     assert sum(1 for ok, _ in results if ok) == 4
 
 
-async def test_default_rate_is_four(fake_redis: FakeAsyncRedis) -> None:
-    # Default bucket (no explicit rate) enforces the 4 req/s target.
+async def test_default_is_three_per_second_without_a_burst(fake_redis: FakeAsyncRedis) -> None:
+    # The default bucket holds one token: 20 simultaneous callers get one request
+    # through, and the next is a third of a second away (docs/duzeltmeler-v5.md §A).
     bucket = TokenBucket(fake_redis, time_func=lambda: 0.0)
     results = await asyncio.gather(*(bucket.try_acquire() for _ in range(20)))
-    assert sum(1 for ok, _ in results if ok) == 4
+    assert sum(1 for ok, _ in results if ok) == 1
+    assert all(abs(wait - 1 / 3) < 1e-3 for ok, wait in results if not ok)
 
 
 async def test_never_exceeds_rate_across_windows(fake_redis: FakeAsyncRedis) -> None:

@@ -11,6 +11,7 @@ all boot and run.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -33,6 +34,24 @@ from app.workers.retention import purge_expired
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
 init_error_tracking("worker")
+
+
+def _log_etsy_calls() -> None:
+    """Send the per-request Etsy call log (app.etsy.calls) to the worker's stderr.
+
+    Nothing else configures app logging in the worker (arq configures only its
+    own logger), so without this the INFO lines would be dropped.
+    """
+    calls = logging.getLogger("app.etsy.calls")
+    if not calls.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        calls.addHandler(handler)
+        calls.setLevel(logging.INFO)
+        calls.propagate = False
+
+
+_log_etsy_calls()
 
 
 async def process_job(ctx: dict[str, Any], job_id: str) -> str:
@@ -58,7 +77,8 @@ async def startup(ctx: dict[str, Any]) -> None:
     redis = ctx["redis"]  # arq provides the pool
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["usage"] = UsageRecorder()
-    ctx["bucket"] = TokenBucket(redis)  # 4 req/s
+    # 3 req/s, no bursts (docs/duzeltmeler-v5.md §A); Redis clock shared by all workers.
+    ctx["bucket"] = TokenBucket(redis, rate=settings.etsy_requests_per_second)
     # 5000/day; new jobs pause at global_pause_percent of it (production-spec C).
     ctx["quota"] = DailyQuota(
         redis,
