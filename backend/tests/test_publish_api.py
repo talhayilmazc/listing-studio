@@ -292,3 +292,87 @@ async def test_publish_all_live_publishes_approved_draft(ctx) -> None:
     res = await ctx["client"].post(f"/api/batches/{batch_id}/publish-live")
     assert res.status_code == 200
     assert [j["content_id"] for j in res.json()["jobs"]] == [str(good)]
+
+
+# --- reference freshness (CLAUDE.md: Etsy data older than 24h is not used) --
+async def _attach_profile(sm, content_id, *, age_hours: float, payload=True) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import ListingProfile
+
+    async with sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        profile = ListingProfile(
+            tenant_id=content.tenant_id,
+            name="Standard Tee",
+            reference_listing_id=555,
+            # The seeded content is a digital print; an apparel template would
+            # (rightly) reject its title under the apparel content policy.
+            content_template="digital_products",
+            cached_payload={"price": 25.0, "images": []} if payload else None,
+            updated_at=datetime.now(timezone.utc) - timedelta(hours=age_hours),
+        )
+        s.add(profile)
+        await s.flush()
+        content.listing_profile_id = profile.id
+        await s.commit()
+
+
+async def test_publish_refuses_a_reference_older_than_a_day(ctx) -> None:
+    cid = await _add_content(ctx["sm"], ctx["tenant_id"])
+    await _attach_profile(ctx["sm"], cid, age_hours=25)
+
+    res = await ctx["client"].post(f"/api/content/{cid}/publish")
+    assert res.status_code == 409
+    assert "more than a day old" in res.json()["detail"]
+    assert "Standard Tee" in res.json()["detail"]
+    assert ctx["enqueuer"].calls == []  # nothing built from expired Etsy data
+
+
+async def test_publish_refuses_a_reference_the_retention_job_cleared(ctx) -> None:
+    cid = await _add_content(ctx["sm"], ctx["tenant_id"])
+    await _attach_profile(ctx["sm"], cid, age_hours=1, payload=False)
+    assert (await ctx["client"].post(f"/api/content/{cid}/publish")).status_code == 409
+
+
+async def test_publish_accepts_a_fresh_reference(ctx) -> None:
+    cid = await _add_content(ctx["sm"], ctx["tenant_id"])
+    await _attach_profile(ctx["sm"], cid, age_hours=23)
+    res = await ctx["client"].post(f"/api/content/{cid}/publish")
+    assert res.status_code == 200, res.json()
+    assert len(ctx["enqueuer"].calls) == 1
+
+
+async def test_batch_publish_skips_expired_references_with_the_reason(ctx) -> None:
+    fresh = await _add_content(ctx["sm"], ctx["tenant_id"])
+    await _attach_profile(ctx["sm"], fresh, age_hours=2)
+    async with ctx["sm"]() as s:
+        batch_id = (await s.get(GeneratedContent, fresh)).batch_id
+        stale_asset = Asset(
+            batch_id=batch_id,
+            tenant_id=ctx["tenant_id"],
+            original_filename="old_BR1.png",
+            storage_key="k2",
+            status=AssetStatus.processed,
+            rank=2,
+        )
+        s.add(stale_asset)
+        await s.flush()
+        stale_content = GeneratedContent(
+            tenant_id=ctx["tenant_id"],
+            batch_id=batch_id,
+            asset_id=stale_asset.id,
+            title=VALID_TITLE,
+            tags=[f"tag{i}" for i in range(13)],
+            description="d",
+            approved=True,
+        )
+        s.add(stale_content)
+        await s.commit()
+        stale = stale_content.id
+    await _attach_profile(ctx["sm"], stale, age_hours=30)
+
+    body = (await ctx["client"].post(f"/api/batches/{batch_id}/publish")).json()
+    assert [j["content_id"] for j in body["jobs"]] == [str(fresh)]
+    assert body["skipped"][0]["content_id"] == str(stale)
+    assert "more than a day old" in body["skipped"][0]["reason"]

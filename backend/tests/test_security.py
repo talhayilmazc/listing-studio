@@ -236,8 +236,18 @@ async def test_validation_errors_do_not_echo_the_submitted_password(sec) -> None
     assert "hunter2hunter2" not in missing.text  # the "missing" error carries the whole body
 
 
+PRODUCTION = {
+    "app_env": "production",
+    "operator_name": "Example Operator",
+    "operator_location": "Istanbul, Türkiye",
+    "governing_law": "the Republic of Türkiye",
+    "dispute_venue": "the courts of Istanbul",
+    "support_email": "help@listyro.com",
+}
+
+
 async def test_api_docs_are_off_in_production(test_settings: Settings) -> None:
-    set_settings_override(test_settings.model_copy(update={"app_env": "production"}))
+    set_settings_override(test_settings.model_copy(update=PRODUCTION))
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         for path in ("/docs", "/redoc", "/openapi.json"):
@@ -356,3 +366,24 @@ async def test_trusted_ip_header_is_honoured(sec) -> None:
         headers={"cf-connecting-ip": "198.51.100.10"},
     )
     assert other.status_code == 200
+
+
+# --- legal identity (production-spec E) -------------------------------------
+def test_production_refuses_to_start_without_operator_details(test_settings: Settings) -> None:
+    set_settings_override(test_settings.model_copy(update={"app_env": "production"}))
+    with pytest.raises(RuntimeError) as err:
+        create_app()
+    for field in ("OPERATOR_NAME", "GOVERNING_LAW", "DISPUTE_VENUE", "SUPPORT_EMAIL"):
+        assert field in str(err.value)
+
+
+def test_production_starts_once_the_operator_is_named(test_settings: Settings) -> None:
+    set_settings_override(test_settings.model_copy(update=PRODUCTION))
+    create_app()  # does not raise
+
+
+async def test_meta_serves_the_operator_details(sec) -> None:
+    _with_settings(sec, operator_name="Example Operator", governing_law="the Republic of Türkiye")
+    meta = (await sec["raw"].get("/api/meta")).json()
+    assert meta["operator_name"] == "Example Operator"
+    assert meta["governing_law"] == "the Republic of Türkiye"

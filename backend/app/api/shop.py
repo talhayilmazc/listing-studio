@@ -76,10 +76,13 @@ async def list_shop_listings(
     newest = max((c.fetched_at for c in cached), default=None)
     stale = _is_stale(newest)
     if stale:
-        # Refresh in the background; return whatever we already have meanwhile.
         await enqueuer.enqueue("sync_shop_listings", str(tenant.id))
+    # Expired rows are never shown (CLAUDE.md: past its age, listing content is
+    # re-fetched, not displayed). The retention job deletes them; this filter
+    # covers the minutes between a row expiring and the next sweep.
     return schemas.ShopListingsOut(
-        listings=[_listing_out(c.payload) for c in cached], stale=stale
+        listings=[_listing_out(c.payload) for c in cached if not _is_stale(c.fetched_at)],
+        stale=stale,
     )
 
 
@@ -92,8 +95,10 @@ async def shop_summary(
     rows = await session.execute(
         select(ShopListingCache).where(ShopListingCache.tenant_id == tenant.id)
     )
-    cached = list(rows.scalars())
-    newest = max((c.fetched_at for c in cached), default=None)
+    everything = list(rows.scalars())
+    newest = max((c.fetched_at for c in everything), default=None)
+    # Counts are derived from listing content, so expired rows do not count.
+    cached = [c for c in everything if not _is_stale(c.fetched_at)]
 
     now = datetime.now(timezone.utc)
     this_month = _month_start(now)

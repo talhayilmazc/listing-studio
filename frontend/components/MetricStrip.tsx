@@ -52,6 +52,7 @@ export function MetricStrip() {
           label="Published"
           period="this month"
           value={shop?.published_this_month ?? null}
+          unavailable={shop?.stale ? "updating from Etsy" : undefined}
           delta={
             shop ? changePct(shop.published_this_month, shop.published_last_month) : null
           }
@@ -62,6 +63,7 @@ export function MetricStrip() {
           period="awaiting publish"
           value={shop?.draft ?? null}
           secondary={shop ? `${shop.active.toLocaleString()} live` : null}
+          unavailable={shop?.stale ? "updating from Etsy" : undefined}
         />
         <QuotaCell quota={quota} />
         <Cell
@@ -120,6 +122,7 @@ function Cell({
   delta,
   deltaNote,
   secondary,
+  unavailable,
 }: {
   label: string;
   period: string;
@@ -127,7 +130,18 @@ function Cell({
   delta?: number | null;
   deltaNote?: string;
   secondary?: string | null;
+  /** Set when the underlying Etsy data has expired: show a dash, never a zero. */
+  unavailable?: string;
 }) {
+  if (unavailable) {
+    return (
+      <div className={CELL}>
+        <Label label={label} period={period} />
+        <dd className="mt-1.5 font-display text-3xl leading-none text-slate-300">—</dd>
+        <p className="mt-1.5 h-4 text-xs text-slate-400">{unavailable}</p>
+      </div>
+    );
+  }
   return (
     <div className={CELL}>
       <Label label={label} period={period} />

@@ -124,14 +124,18 @@ class ConnectionService:
         return tokens.access_token
 
     async def disconnect(self, session: AsyncSession, connection: EtsyConnection) -> None:
-        """Revoke a connection and drop its stored tokens.
+        """Revoke a connection, drop its tokens, and delete Etsy-sourced content.
 
-        Per CLAUDE.md, revoking must also delete the tenant's Etsy-sourced
-        content; that cascade lands with the retention/cleanup work (step 6).
+        CLAUDE.md: when a seller disconnects, everything that came from Etsy for
+        them is deleted — not left to age out. One transaction, so a failure
+        cannot leave the tokens gone but the content behind, or the reverse.
         """
+        from app.workers.retention import purge_tenant_etsy_content
+
         connection.status = ConnectionStatus.revoked
         connection.access_token_enc = None
         connection.refresh_token_enc = None
+        await purge_tenant_etsy_content(session, connection.tenant_id)
         await session.commit()
 
     async def _existing(

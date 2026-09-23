@@ -185,6 +185,11 @@ export interface Quota {
 export interface Meta {
   support_email: string;
   trademark_notice: string;
+  /** Operator facts for the legal pages; production refuses to start without them. */
+  operator_name: string;
+  operator_location: string;
+  governing_law: string;
+  dispute_venue: string;
 }
 
 export interface AssetFailure {

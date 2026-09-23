@@ -28,8 +28,12 @@ export function ProfileCard({
   // A freshly created/detected profile has its reference fetched in the background
   // (refresh_profile is enqueued on create). Poll until the cached payload lands so
   // the card shows "fetching reference…" and then flips to cached on its own.
+  // Never fetched (just created) vs. fetched once but past its 24-hour limit and
+  // cleared by retention. Only the first is in flight; the second needs a refresh.
+  const expired = !profile.is_fresh && profile.updated_at !== null;
+
   useEffect(() => {
-    if (profile.is_fresh) {
+    if (profile.is_fresh || expired) {
       setFetching(false);
       return;
     }
@@ -56,7 +60,7 @@ export function ProfileCard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.is_fresh, profile.id]);
+  }, [profile.is_fresh, profile.id, expired]);
 
   async function run(label: string, fn: () => Promise<Profile | void>) {
     setBusy(label);
@@ -130,7 +134,11 @@ export function ProfileCard({
           />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-slate-400">
-            {fetching ? "fetching reference…" : "no reference image"}
+            {fetching
+              ? "fetching reference…"
+              : expired
+                ? "Etsy data is cleared after 24 hours — refresh the reference"
+                : "no reference image"}
           </div>
         )}
         <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
@@ -189,7 +197,9 @@ export function ProfileCard({
                 ? "reference cached"
                 : fetching
                   ? "fetching reference…"
-                  : "not fetched"}
+                  : expired
+                    ? "Etsy data expired — refresh to use"
+                    : "not fetched"}
             </span>
           </p>
         </div>
