@@ -21,24 +21,40 @@ from app.db.models import ListingProfile, Tenant
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 
-def _is_fresh(profile: ListingProfile) -> bool:
+def _payload_age(profile: ListingProfile) -> float | None:
+    """Seconds since the reference was fetched, or None if it holds nothing."""
     if not profile.cached_payload or profile.updated_at is None:
-        return False
+        return None
     updated = profile.updated_at
     if updated.tzinfo is None:  # SQLite returns naive; treat as UTC.
         updated = updated.replace(tzinfo=timezone.utc)
-    age = (datetime.now(timezone.utc) - updated).total_seconds()
-    return age < ListingProfile.CACHE_MAX_AGE_SECONDS
+    return (datetime.now(timezone.utc) - updated).total_seconds()
+
+
+def _is_fresh(profile: ListingProfile) -> bool:
+    """Structural reference data is within its 24-hour limit."""
+    age = _payload_age(profile)
+    return age is not None and age < ListingProfile.CACHE_MAX_AGE_SECONDS
+
+
+def _images_displayable(profile: ListingProfile) -> bool:
+    """Reference image links are within the 6-hour display limit."""
+    age = _payload_age(profile)
+    return age is not None and age < ListingProfile.DISPLAY_MAX_AGE_SECONDS
 
 
 def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
     payload = profile.cached_payload or {}
     fixed = set(profile.fixed_image_ids or [])
+    # Past 6 hours the links are withheld even before retention strips them, so
+    # nothing expired is ever displayed. The ids and classifications remain, so
+    # the card can still show which size charts are selected.
+    displayable = _images_displayable(profile)
     images = [
         schemas.ReferenceImageOut(
             listing_image_id=img.get("listing_image_id"),
             rank=img.get("rank"),
-            url=img.get("display_url") or img.get("url"),
+            url=(img.get("display_url") or img.get("url")) if displayable else None,
             kind=img.get("kind"),
             is_fixed=img.get("listing_image_id") in fixed,
         )
@@ -56,6 +72,7 @@ def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
         updated_at=profile.updated_at,
         is_fresh=_is_fresh(profile),
         reference_images=images,
+        reference_images_expired=bool(images) and not displayable,
     )
 
 

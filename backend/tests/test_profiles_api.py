@@ -397,3 +397,41 @@ async def test_expired_shop_listings_are_never_shown(ctx) -> None:
 
     summary = (await ctx["client"].get("/api/shop/summary")).json()
     assert summary["total"] == 1 and summary["active"] == 1
+
+
+async def test_reference_image_links_are_withheld_after_6_hours(ctx) -> None:
+    """Displayed data follows the 6h limit even before retention strips it."""
+    payload = {
+        "taxonomy_id": 1,
+        "images": [
+            {"listing_image_id": 1, "rank": 1, "kind": "artwork", "url": "https://img/1.jpg"},
+            {"listing_image_id": 2, "rank": 2, "kind": "size_chart", "url": "https://img/2.jpg"},
+        ],
+    }
+    now = datetime.now(timezone.utc)
+    async with ctx["sm"]() as s:
+        for name, age in (("recent", timedelta(hours=2)), ("older", timedelta(hours=7))):
+            s.add(
+                ListingProfile(
+                    tenant_id=ctx["tenant_id"],
+                    name=name,
+                    reference_listing_id=int(age.total_seconds()),
+                    content_template="apparel",
+                    cached_payload=payload,
+                    updated_at=now - age,
+                )
+            )
+        await s.commit()
+
+    profiles = {p["name"]: p for p in (await ctx["client"].get("/api/profiles")).json()}
+    recent, older = profiles["recent"], profiles["older"]
+
+    assert recent["reference_images_expired"] is False
+    assert [i["url"] for i in recent["reference_images"]] == ["https://img/1.jpg", "https://img/2.jpg"]
+
+    # 7 hours: the links are withheld, the structure is not.
+    assert older["reference_images_expired"] is True
+    assert [i["url"] for i in older["reference_images"]] == [None, None]
+    assert [i["kind"] for i in older["reference_images"]] == ["artwork", "size_chart"]
+    # Still usable for generating and publishing: that follows the 24h limit.
+    assert older["is_fresh"] is True

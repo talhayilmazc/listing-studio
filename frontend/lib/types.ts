@@ -98,6 +98,8 @@ export interface Profile {
   updated_at: string | null;
   is_fresh: boolean;
   reference_images: ReferenceImage[];
+  /** Image links passed the 6h display limit; ids and classifications remain. */
+  reference_images_expired: boolean;
 }
 
 export interface ShopListing {

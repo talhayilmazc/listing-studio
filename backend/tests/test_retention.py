@@ -173,7 +173,12 @@ async def test_purge_is_idempotent(world) -> None:
         await purge_expired_rows(s, now=NOW)
     async with sm() as s:
         again = await purge_expired_rows(s, now=NOW)
-    assert again == {"snapshots": 0, "shop_listings": 0, "profile_payloads": 0}
+    assert again == {
+        "snapshots": 0,
+        "shop_listings": 0,
+        "profile_image_links": 0,
+        "profile_payloads": 0,
+    }
 
 
 # --- disconnect -------------------------------------------------------------
@@ -228,3 +233,94 @@ def test_retention_runs_on_a_schedule() -> None:
 
     names = [job.coroutine.__name__ for job in WorkerSettings.cron_jobs]
     assert "purge_expired" in names
+
+
+# --- the two profile limits: displayed (6h) vs structural (24h) -------------
+def _payload() -> dict:
+    return {
+        "taxonomy_id": 2078,
+        "shipping_profile_id": 55,
+        "price": 25.0,
+        "inventory_products": [{"sku": "X", "offerings": []}],
+        "description": "Reference description.",
+        "images": [
+            {
+                "listing_image_id": 900,
+                "rank": 1,
+                "kind": "artwork",
+                "url": "https://i.etsystatic.com/full-900.jpg",
+                "display_url": "https://i.etsystatic.com/570-900.jpg",
+            },
+            {
+                "listing_image_id": 901,
+                "rank": 2,
+                "kind": "size_chart",
+                "url": "https://i.etsystatic.com/full-901.jpg",
+                "display_url": "https://i.etsystatic.com/570-901.jpg",
+            },
+        ],
+    }
+
+
+async def _profile_aged(sm, tenant_id, hours: float) -> uuid.UUID:
+    async with sm() as s:
+        profile = ListingProfile(
+            tenant_id=tenant_id,
+            name=f"aged {hours}h",
+            reference_listing_id=int(hours * 100),
+            content_template="apparel",
+            cached_payload=_payload(),
+            fixed_image_ids=[901],
+            updated_at=NOW - timedelta(hours=hours),
+        )
+        s.add(profile)
+        await s.commit()
+        return profile.id
+
+
+async def test_image_links_are_stripped_after_6_hours_structure_kept(world) -> None:
+    sm, a = world["sm"], world["a"]
+    seven = await _profile_aged(sm, a["tenant_id"], 7)
+    five = await _profile_aged(sm, a["tenant_id"], 5)
+
+    async with sm() as s:
+        counts = await purge_expired_rows(s, now=NOW)
+    assert counts["profile_image_links"] == 1
+
+    async with sm() as s:
+        stripped = (await s.get(ListingProfile, seven)).cached_payload
+        untouched = (await s.get(ListingProfile, five)).cached_payload
+
+    # Past 6 hours: no link to any Etsy image survives in storage...
+    for image in stripped["images"]:
+        assert "url" not in image and "display_url" not in image
+    # ...but what the service needs to build a draft is all still there.
+    assert [(i["listing_image_id"], i["rank"], i["kind"]) for i in stripped["images"]] == [
+        (900, 1, "artwork"),
+        (901, 2, "size_chart"),
+    ]
+    for key in ("taxonomy_id", "shipping_profile_id", "price", "inventory_products", "description"):
+        assert stripped[key] == _payload()[key], key
+
+    assert untouched == _payload()  # under 6 hours: nothing changes
+
+
+async def test_structural_data_is_cleared_after_24_hours(world) -> None:
+    sm, a = world["sm"], world["a"]
+    old = await _profile_aged(sm, a["tenant_id"], 25)
+    async with sm() as s:
+        await purge_expired_rows(s, now=NOW)
+    async with sm() as s:
+        profile = await s.get(ListingProfile, old)
+    assert profile.cached_payload is None
+    assert profile.fixed_image_ids == [901]  # the seller's choice outlives the data
+
+
+async def test_stripping_is_idempotent(world) -> None:
+    sm, a = world["sm"], world["a"]
+    await _profile_aged(sm, a["tenant_id"], 7)
+    async with sm() as s:
+        await purge_expired_rows(s, now=NOW)
+    async with sm() as s:
+        again = await purge_expired_rows(s, now=NOW)
+    assert again["profile_image_links"] == 0

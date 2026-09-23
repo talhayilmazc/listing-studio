@@ -214,6 +214,9 @@ class ProfileOut(BaseModel):
     updated_at: datetime | None = None
     is_fresh: bool = False  # cached reference payload present and <24h old
     reference_images: list[ReferenceImageOut] = Field(default_factory=list)
+    # True once the image links pass the 6h display limit: ids, ranks and
+    # size-chart classifications are still returned, the links are not.
+    reference_images_expired: bool = False
 
 
 class ShopListingOut(BaseModel):
