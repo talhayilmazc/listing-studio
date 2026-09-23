@@ -130,6 +130,9 @@ class Tenant(Base):
     must_change_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    # Operator access to /admin. Granted only by the CLI (app.cli create-admin);
+    # no endpoint can set it, so no request can escalate itself.
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -158,6 +161,42 @@ class InviteCode(Base):
     )
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Optional: only this address may redeem the code. Stored lower-cased.
+    bound_email: Mapped[str | None] = mapped_column(Text)
+    # Set when an admin withdraws an unused code; a revoked code never redeems.
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenant.id", ondelete="SET NULL")
+    )
+
+
+class AuditLog(Base):
+    """Who did what to whom, and when — every admin action (production-spec admin).
+
+    Rows name people by id only. Emails are joined in at read time, so the log
+    holds no copy of anyone's address and deleting an account leaves a row that
+    reads "deleted account" rather than a stale personal detail.
+    """
+
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_created_at", "created_at"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    # Null actor = the server CLI (bootstrap), not a signed-in admin.
+    actor_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenant.id", ondelete="SET NULL"), index=True
+    )
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    target_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenant.id", ondelete="SET NULL"), index=True
+    )
+    target_invite_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("invite_code.id", ondelete="SET NULL")
+    )
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class EtsyConnection(Base):

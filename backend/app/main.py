@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import accounts, auth, batches, content, health, meta, profiles, publish, shop
+from app.api import accounts, admin, auth, batches, content, health, meta, profiles, publish, shop
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
 from app.core.logsafety import install_log_redaction
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
 
     application.include_router(health.router)
     application.include_router(accounts.router)
+    application.include_router(admin.router)
     application.include_router(auth.router)
     application.include_router(batches.router)
     application.include_router(content.router)

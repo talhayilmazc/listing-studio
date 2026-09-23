@@ -39,6 +39,12 @@ def test_settings() -> Settings:
         global_daily_limit=5000,
         etsy_client_id="",
         etsy_client_secret="",
+        # The legal-identity fields decide whether production starts; tests set them explicitly.
+        support_email="support@example.com",
+        operator_name="",
+        operator_location="",
+        governing_law="",
+        dispute_venue="",
     )
 
 
@@ -50,6 +56,11 @@ def _isolate_settings(test_settings: Settings) -> Iterator[None]:
         yield
     finally:
         set_settings_override(None)
+        # The app caches one Redis client per process. Each test runs on its own
+        # event loop, so a client left over from the previous test is unusable.
+        from app.api.deps import get_redis
+
+        get_redis.cache_clear()
 
 
 @pytest.fixture()

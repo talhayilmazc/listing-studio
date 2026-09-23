@@ -1,5 +1,10 @@
 import type {
   Account,
+  AdminInvite,
+  AdminUsage,
+  AdminUser,
+  InviteIssued,
+  TempPasswordIssued,
   Asset,
   BatchCost,
   BatchDetail,
@@ -73,6 +78,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     }),
+
+  // --- Admin panel. The server answers 404 to anyone who is not an admin.
+  admin: {
+    users: () => req<AdminUser[]>("/admin/users"),
+    suspend: (id: string) => req<AdminUser>(`/admin/users/${id}/suspend`, { method: "POST" }),
+    reactivate: (id: string) =>
+      req<AdminUser>(`/admin/users/${id}/reactivate`, { method: "POST" }),
+    temporaryPassword: (id: string) =>
+      req<TempPasswordIssued>(`/admin/users/${id}/temporary-password`, { method: "POST" }),
+    setQuota: (id: string, dailyQuota: number) =>
+      req<AdminUser>(`/admin/users/${id}/quota`, {
+        method: "PUT",
+        body: JSON.stringify({ daily_quota: dailyQuota }),
+      }),
+    invites: () => req<AdminInvite[]>("/admin/invites"),
+    createInvite: (body: { email?: string; note?: string; expires_in_days: number | null }) =>
+      req<InviteIssued>("/admin/invites", { method: "POST", body: JSON.stringify(body) }),
+    revokeInvite: (id: string) =>
+      req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
+    usage: () => req<AdminUsage>("/admin/usage"),
+  },
 
   listBatches: () => req<BatchSummary[]>("/batches"),
   getBatch: (id: string) => req<BatchDetail>(`/batches/${id}`),
