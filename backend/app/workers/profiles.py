@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -19,13 +20,14 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.db.models import EtsyConnection, ListingProfile, ShopListingCache, Tenant
-from app.etsy.api import EtsyApiClient
+from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.reference import build_profile_payload, common_title_prefix, decode_etsy_text
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
+from app.workers import gate
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +74,52 @@ async def _resolve_shop_id(
     return connection.shop_id
 
 
+async def _run_gated(
+    ctx: dict[str, Any],
+    function: str,
+    arg: str,
+    tenant_id: uuid.UUID,
+    body: Callable[[], Awaitable[str]],
+) -> str:
+    """Run a job that has no ``job`` row through the gate (see workers/gate.py).
+
+    These jobs only read the seller's own shop and are safe to repeat, so one
+    that meets the daily limit partway is simply run again after the reset.
+    """
+    async with ctx["sessionmaker"]() as session:
+        tenant = await session.get(Tenant, tenant_id)
+        verdict = await gate.check(ctx, tenant, function)
+    if verdict.action == "suspended":
+        return "suspended"
+    if verdict.action == "run":
+        try:
+            return await body()
+        except RateLimitExceeded:
+            assert tenant is not None
+            verdict = await gate.paused_by_wall(ctx, tenant)
+    assert verdict.resumes_at is not None
+    await gate.requeue(
+        ctx,
+        function,
+        arg,
+        resumes_at=verdict.resumes_at,
+        job_key=gate.pause_key(function, arg, verdict.resumes_at),
+    )
+    return "deferred"
+
+
 async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
+    async with ctx["sessionmaker"]() as session:
+        profile = await session.get(ListingProfile, uuid.UUID(profile_id))
+        if profile is None:
+            return "missing"
+        tenant_id = profile.tenant_id
+    return await _run_gated(
+        ctx, "refresh_profile", profile_id, tenant_id, lambda: _refresh_profile(ctx, profile_id)
+    )
+
+
+async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     service = _connection_service(settings)
@@ -146,6 +193,16 @@ async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
 
 
 async def sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
+    return await _run_gated(
+        ctx,
+        "sync_shop_listings",
+        tenant_id,
+        uuid.UUID(tenant_id),
+        lambda: _sync_shop_listings(ctx, tenant_id),
+    )
+
+
+async def _sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     service = _connection_service(settings)
@@ -191,6 +248,16 @@ async def sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
 
 
 async def detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
+    return await _run_gated(
+        ctx,
+        "detect_profiles",
+        tenant_id,
+        uuid.UUID(tenant_id),
+        lambda: _detect_profiles(ctx, tenant_id),
+    )
+
+
+async def _detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
     """Auto-detect candidate profiles by clustering the seller's own active listings.
 
     Clusters by taxonomy + production partner + variation structure + price band,

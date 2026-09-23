@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import type { Content } from "@/lib/types";
+import type { Content, Pause } from "@/lib/types";
+import { resumeTime } from "@/lib/format";
 import { TagEditor } from "./TagEditor";
 
 const MIN_TITLE = 110;
@@ -44,9 +45,11 @@ export function ReviewCard({ initial }: { initial: Content }) {
   const [listingLink, setListingLink] = useState<string | null>(initial.listing_link);
   const [isDraft, setIsDraft] = useState<boolean>(initial.etsy_listing_state !== "active");
   const [publishState, setPublishState] = useState<
-    "idle" | "publishing" | "done" | "error"
+    "idle" | "publishing" | "paused" | "done" | "error"
   >(initial.etsy_listing_id ? "done" : "idle");
   const [publishError, setPublishError] = useState<string | null>(null);
+  // A job waiting for the daily Etsy reset: still queued, runs by itself later.
+  const [pause, setPause] = useState<Pause | null>(null);
 
   const errors = useMemo(() => validate(title, tags, description), [title, tags, description]);
   const valid = errors.length === 0;
@@ -84,6 +87,7 @@ export function ReviewCard({ initial }: { initial: Content }) {
     if (dirty) await save();
     setPublishState("publishing");
     setPublishError(null);
+    setPause(null);
     try {
       const { job_id } = await start();
       for (let i = 0; i < 60; i++) {
@@ -95,9 +99,14 @@ export function ReviewCard({ initial }: { initial: Content }) {
           setPublishState("done");
           return;
         }
-        if (job.status === "failed") {
+        if (job.status === "failed" || job.status === "cancelled") {
           setPublishError(job.error ?? "The job failed.");
           setPublishState("error");
+          return;
+        }
+        if (job.pause) {
+          setPause(job.pause);
+          setPublishState("paused");
           return;
         }
       }
@@ -116,7 +125,8 @@ export function ReviewCard({ initial }: { initial: Content }) {
   const publishNow = () =>
     runJob(() => api.publishLive(initial.id), "Timed out waiting for publishing.");
 
-  const publishing = publishState === "publishing";
+  // Paused counts as busy: asking again would only return the same waiting job.
+  const publishing = publishState === "publishing" || publishState === "paused";
 
   const change =
     <T,>(setter: (v: T) => void) =>
@@ -231,7 +241,11 @@ export function ReviewCard({ initial }: { initial: Content }) {
                     disabled={!approved || publishing}
                     title={approved ? "Create an Etsy draft listing" : "Approve first"}
                   >
-                    {publishing ? "Creating draft…" : "Create draft"}
+                    {publishState === "paused"
+                      ? "Draft queued"
+                      : publishing
+                        ? "Creating draft…"
+                        : "Create draft"}
                   </button>
                 )}
                 {listingLink && isDraft && (
@@ -246,7 +260,11 @@ export function ReviewCard({ initial }: { initial: Content }) {
                       disabled={publishing}
                       title="Make this draft active on Etsy"
                     >
-                      {publishing ? "Publishing…" : "Publish now"}
+                      {publishState === "paused"
+                        ? "Publish queued"
+                        : publishing
+                          ? "Publishing…"
+                          : "Publish now"}
                     </button>
                   </>
                 )}
@@ -258,6 +276,11 @@ export function ReviewCard({ initial }: { initial: Content }) {
               </div>
             </div>
             {publishError && <p className="mt-2 text-right text-xs text-rose-700">{publishError}</p>}
+            {pause && publishState === "paused" && (
+              <p role="status" className="mt-2 text-right text-xs text-amber-800">
+                Queued, not failed. {pause.message} That is around {resumeTime(pause.resumes_at)} your time.
+              </p>
+            )}
             {listingLink && !isDraft ? (
               <p className="mt-2 text-right text-xs text-slate-400">
                 Published. To promote it, open{" "}

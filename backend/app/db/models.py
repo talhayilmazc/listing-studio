@@ -256,6 +256,9 @@ class Job(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="5")
     last_error: Mapped[str | None] = mapped_column(Text)  # never contains tokens
+    # Set while a queued job waits for the daily reset (PAUSE_GLOBAL / PAUSE_TENANT);
+    # scheduled_at then holds when it resumes. Cleared when the job starts.
+    paused_reason: Mapped[str | None] = mapped_column(Text)
     batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid())
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

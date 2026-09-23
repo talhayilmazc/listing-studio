@@ -23,12 +23,13 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models import Job, JobStatus, Tenant
+from app.db.models import Job, JobStatus, Tenant, TenantStatus
 from app.etsy.client import EtsyClient
 from app.etsy.errors import EtsyClientError, EtsyRateLimited, EtsyServerError
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.retry import backoff_seconds
 from app.etsy.usage import UsageRecorder
+from app.workers.gate import SUSPENDED_MESSAGE
 
 
 class ProcessResult(str, enum.Enum):
@@ -87,6 +88,14 @@ class JobProcessor:
                 job.finished_at = self._now()
                 await session.commit()
                 return Outcome(ProcessResult.failed)
+
+            # 0) A suspended tenant's queued work is dropped, never run.
+            if tenant.status is TenantStatus.suspended:
+                job.status = JobStatus.cancelled
+                job.last_error = SUSPENDED_MESSAGE
+                job.finished_at = self._now()
+                await session.commit()
+                return Outcome(ProcessResult.skipped)
 
             # 1) Daily quota (tenant + global). Exceeded -> defer to next reset.
             if not await self._quota.reserve(job.tenant_id, tenant.daily_quota):

@@ -152,6 +152,20 @@ async def test_publish_one_enqueues_job(ctx) -> None:
         assert job.payload["content_id"] == str(content_id)
 
 
+async def test_asking_again_reuses_the_unfinished_job(ctx) -> None:
+    """A job paused until the daily reset may wait for hours. Asking again must not
+    queue a second one, which would create a second draft when both run."""
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"])
+    first = (await ctx["client"].post(f"/api/content/{content_id}/publish")).json()
+    second = (await ctx["client"].post(f"/api/content/{content_id}/publish")).json()
+
+    assert first["job_id"] == second["job_id"]
+    assert len(ctx["enqueuer"].calls) == 1
+    async with ctx["sm"]() as s:
+        jobs = (await s.execute(select(Job))).scalars().all()
+    assert len(jobs) == 1
+
+
 async def test_publish_one_rejects_unapproved(ctx) -> None:
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
     res = await ctx["client"].post(f"/api/content/{content_id}/publish")

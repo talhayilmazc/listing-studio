@@ -3,7 +3,9 @@
 Two independent guards, applied in this order by the worker:
 
 1. :class:`DailyQuota` -- per-tenant and global daily request budgets
-   (Personal App allows 5.000/day per *app*; we target 5.000 with monitoring).
+   (Personal App allows 5.000/day per *app*). Two thresholds: new jobs pause at
+   ``pause_percent`` of the global limit (production-spec C, 90% = 4.500), and
+   every single request still stops hard at the limit itself.
 2. :class:`TokenBucket` -- a global 4 req/s token bucket shared by all workers,
    refilled atomically in Redis via a Lua script (Etsy's per-second limit is 5;
    4 leaves margin).
@@ -98,6 +100,12 @@ class TokenBucket:
             await asyncio.sleep(wait)
 
 
+# Why a job is waiting for the next daily reset. Stored on job.paused_reason and
+# in the per-tenant pause marker; the API turns them into sentences.
+PAUSE_GLOBAL = "global_quota"
+PAUSE_TENANT = "tenant_quota"
+
+
 class DailyQuota:
     """Per-tenant and global daily request budgets, tracked in Redis counters."""
 
@@ -106,13 +114,24 @@ class DailyQuota:
         redis: Redis,
         *,
         global_daily_limit: int = 5000,
+        pause_percent: int = 100,
         ttl_seconds: int = 48 * 3600,
         now_func: Callable[[], datetime] | None = None,
     ) -> None:
         self._redis = redis
         self._global_limit = global_daily_limit
+        self._pause_at = global_daily_limit * pause_percent // 100
         self._ttl = ttl_seconds
         self._now = now_func or (lambda: datetime.now(timezone.utc))
+
+    @property
+    def global_limit(self) -> int:
+        return self._global_limit
+
+    @property
+    def pause_at(self) -> int:
+        """App-wide usage at which new jobs stop being started for the day."""
+        return self._pause_at
 
     def _day(self) -> str:
         return self._now().strftime("%Y-%m-%d")
@@ -161,6 +180,35 @@ class DailyQuota:
         if isinstance(value, (bytes, bytearray)):
             value = value.decode()
         return int(value)
+
+    async def admission(
+        self, tenant_id: uuid.UUID, tenant_limit: int, cost: int
+    ) -> str | None:
+        """Whether a new job may start now: ``None``, or the reason it must wait.
+
+        Reads the counters without reserving anything. ``cost`` is the most
+        requests the job can make; it must fit in what the tenant has left, so a
+        job is not started only to be cut off halfway by the tenant ceiling.
+        """
+        tenant_used, global_used = await self.usage(tenant_id)
+        if global_used >= self._pause_at:
+            return PAUSE_GLOBAL
+        if tenant_limit <= 0 or tenant_used + min(cost, tenant_limit) > tenant_limit:
+            return PAUSE_TENANT
+        return None
+
+    def _pause_key(self, tenant_id: uuid.UUID, day: str) -> str:
+        return f"quota:paused:{tenant_id}:{day}"
+
+    async def mark_paused(self, tenant_id: uuid.UUID, reason: str) -> None:
+        """Remember that this tenant has work waiting today, and why (for the UI)."""
+        await self._redis.set(self._pause_key(tenant_id, self._day()), reason, ex=self._ttl)
+
+    async def paused_reason(self, tenant_id: uuid.UUID) -> str | None:
+        raw = await self._redis.get(self._pause_key(tenant_id, self._day()))
+        if raw is None:
+            return None
+        return raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
 
     async def usage(self, tenant_id: uuid.UUID) -> tuple[int, int]:
         """Return (tenant_used, global_used) today -- for the UI quota display."""

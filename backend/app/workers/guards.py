@@ -50,9 +50,18 @@ def owned_optional(row: T | None, tenant_id: uuid.UUID) -> T | None:
 def public_error(exc: BaseException) -> str:
     """The text stored in ``job.last_error``, which the owning tenant can read."""
     from app.core.logsafety import redact
+    from app.etsy.api import RateLimitExceeded
     from app.etsy.errors import EtsyError
     from app.pipeline.images import ImageProcessingError
 
+    if isinstance(exc, RateLimitExceeded):
+        # Rare: jobs start only when their whole budget fits. A publish is not
+        # resumable (a rerun would create a second draft), so it stops and says so.
+        return (
+            "Etsy's daily request limit ran out partway through, so this stopped before "
+            "finishing. Try again after 00:00 UTC. For a new listing, check Shop Manager "
+            "first for a partly created draft."
+        )
     if isinstance(exc, (EtsyError, CrossTenantJob, ImageProcessingError, ValueError)):
         return redact(str(exc))[:500] or "the job failed"
     return "the job failed unexpectedly; it has been logged for investigation"

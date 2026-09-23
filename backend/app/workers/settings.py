@@ -59,7 +59,12 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["usage"] = UsageRecorder()
     ctx["bucket"] = TokenBucket(redis)  # 4 req/s
-    ctx["quota"] = DailyQuota(redis, global_daily_limit=settings.global_daily_limit)  # 5000/day
+    # 5000/day; new jobs pause at global_pause_percent of it (production-spec C).
+    ctx["quota"] = DailyQuota(
+        redis,
+        global_daily_limit=settings.global_daily_limit,
+        pause_percent=settings.global_pause_percent,
+    )
     ctx["processor"] = JobProcessor(
         sessionmaker=ctx["sessionmaker"],
         bucket=ctx["bucket"],

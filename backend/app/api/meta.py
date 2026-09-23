@@ -13,7 +13,8 @@ from app.api.deps import active_tenant, get_quota, get_session
 from app.core.config import get_settings
 from app.core.errortracking import is_enabled
 from app.db.models import ApiUsage, Tenant
-from app.etsy.rate_limiter import DailyQuota
+from app.api.pauses import pause_out
+from app.etsy.rate_limiter import PAUSE_GLOBAL, PAUSE_TENANT, DailyQuota
 
 router = APIRouter(prefix="/api", tags=["meta"])
 
@@ -64,7 +65,30 @@ async def get_quota_status(
         global_remaining=max(0, settings.global_daily_limit - global_used),
         usage_date=today.strftime("%Y-%m-%d"),
         history=await _usage_history(session, tenant.id, today, tenant_used),
+        global_pause_at=quota.pause_at,
+        pause=pause_out(
+            await _pause_reason(quota, tenant, tenant_used, global_used),
+            tenant_limit=tenant.daily_quota,
+        ),
     )
+
+
+async def _pause_reason(
+    quota: DailyQuota, tenant: Tenant, tenant_used: int, global_used: int
+) -> str | None:
+    """Why new work would wait right now, if it would.
+
+    A job the worker already paused leaves a marker saying why; without one, the
+    counters alone tell whether the next job would start.
+    """
+    marked = await quota.paused_reason(tenant.id)
+    if marked:
+        return marked
+    if global_used >= quota.pause_at:
+        return PAUSE_GLOBAL
+    if tenant_used >= tenant.daily_quota:
+        return PAUSE_TENANT
+    return None
 
 
 @router.get("/meta", response_model=schemas.MetaOut)

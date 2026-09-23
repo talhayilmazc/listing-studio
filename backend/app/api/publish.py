@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
+from app.api.pauses import pause_out
 from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_session
 from app.db.models import (
     ComplianceFinding,
@@ -90,6 +91,20 @@ async def _enqueue_publish(
     job_type: JobType = JobType.create_draft,
     function: str = "run_publish_job",
 ) -> Job:
+    # One unfinished job per content and action. A job paused until the daily
+    # reset can wait for hours; asking again must not queue a second one (which
+    # would create a second draft when both run).
+    unfinished = await session.execute(
+        select(Job).where(
+            Job.tenant_id == tenant.id,
+            Job.type == job_type,
+            Job.status.in_((JobStatus.queued, JobStatus.running)),
+        )
+    )
+    for existing in unfinished.scalars():
+        if (existing.payload or {}).get("content_id") == str(content.id):
+            return existing
+
     job = Job(
         tenant_id=tenant.id,
         connection_id=connection_id,
@@ -300,4 +315,9 @@ async def job_status(
         listing_id=listing_id,
         listing_url=url,
         is_draft=is_draft,
+        pause=pause_out(
+            job.paused_reason if job.status is JobStatus.queued else None,
+            tenant_limit=tenant.daily_quota,
+            resumes_at=job.scheduled_at,
+        ),
     )
