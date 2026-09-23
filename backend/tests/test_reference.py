@@ -279,3 +279,42 @@ def test_reference_images_carry_both_full_and_display_urls() -> None:
     assert first["url"] == "https://img/full-1.jpg"
     assert first["display_url"] == "https://img/570-1.jpg"
     assert second["url"] == second["display_url"] == "https://img/full-2.jpg"
+
+
+# --- prefix for a profile made by hand (docs/duzeltmeler-v5.md §B) ----------------
+def _row(listing_id: int, title: str, *, taxonomy: int = 2078, price: int = 2599, partners=(7,)) -> dict:
+    return {
+        "listing_id": listing_id,
+        "title": title,
+        "taxonomy_id": taxonomy,
+        "price": {"amount": price, "divisor": 100},
+        "production_partner_ids": list(partners),
+    }
+
+
+def test_prefix_from_shop_uses_the_references_own_kind_of_listing() -> None:
+    from app.pipeline.reference import prefix_from_shop
+
+    reference = _row(1, "Comfort Colors&reg; Retro Frog Tee, Cottagecore Shirt")
+    shop = [
+        _row(2, "Comfort Colors&reg; Mushroom Tee, Forest Shirt"),
+        _row(3, "Comfort Colors&reg; Cat Mom Shirt"),
+        _row(4, "Funny Dad Shirt", price=1899),  # a cheaper blank: a different kind
+        _row(5, "Funny Dad Tee", price=1899),
+        _row(6, "Funny Grandpa Tee", price=1899),
+    ]
+    assert prefix_from_shop(reference, shop) == "Comfort Colors®"
+
+
+def test_prefix_from_shop_needs_the_reference_to_start_with_it() -> None:
+    from app.pipeline.reference import prefix_from_shop
+
+    reference = _row(1, "Retro Frog Tee")
+    shop = [_row(2, "Comfort Colors Mushroom Tee"), _row(3, "Comfort Colors Cat Tee")]
+    assert prefix_from_shop(reference, shop) == ""
+
+
+def test_prefix_from_shop_is_conservative_without_other_listings() -> None:
+    from app.pipeline.reference import prefix_from_shop
+
+    assert prefix_from_shop(_row(1, "Comfort Colors Retro Frog Tee"), []) == ""

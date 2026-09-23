@@ -242,6 +242,8 @@ export function ProfileCard({
               placeholder="none"
               onChange={(e) => setPrefix(e.target.value)}
               onBlur={savePrefix}
+              // Enter saves too; a prefix typed and never blurred was silently lost.
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               disabled={busy !== null}
             />
           </div>

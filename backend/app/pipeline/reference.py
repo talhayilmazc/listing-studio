@@ -122,6 +122,48 @@ def common_title_prefix(
     return " ".join(best_casing)
 
 
+def _price_value(price: Any) -> float | None:
+    if isinstance(price, dict) and price.get("divisor"):
+        return float(price.get("amount", 0)) / float(price["divisor"])
+    try:
+        return float(price) if price is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _kind(listing: dict[str, Any], band_width: float) -> tuple:
+    """The detection cluster key, as far as a listing row shows it."""
+    price = _price_value(listing.get("price"))
+    return (
+        listing.get("taxonomy_id"),
+        tuple(sorted(listing.get("production_partner_ids") or [])),
+        int(price // band_width) if price is not None else None,
+    )
+
+
+def prefix_from_shop(
+    reference: dict[str, Any], shop_listings: list[dict[str, Any]], *, band_width: float = 10.0
+) -> str:
+    """A title prefix for a profile the seller created by hand (docs/duzeltmeler-v5.md §B).
+
+    Detection derives the prefix from the cluster it found. A hand-made profile
+    has no cluster, so this rebuilds one from the seller's own cached listings of
+    the same kind as the reference (category, production partner, price band, as
+    detection groups them) and takes the prefix those titles share. The result is
+    kept only if the reference title itself starts with it.
+    """
+    kind = _kind(reference, band_width)
+    titles = {int(reference["listing_id"]): decode_etsy_text(reference.get("title"))}
+    for row in shop_listings:
+        if row.get("listing_id") is not None and _kind(row, band_width) == kind:
+            titles.setdefault(int(row["listing_id"]), decode_etsy_text(row.get("title")))
+    prefix = common_title_prefix(list(titles.values()))
+    own = titles[int(reference["listing_id"])].replace(",", " ")
+    if prefix and " ".join(own.split()).lower().startswith(prefix.lower()):
+        return prefix
+    return ""
+
+
 def replace_title_block(description: str, title: str) -> str:
     """Replace the reference description's title block with the new title (B2).
 

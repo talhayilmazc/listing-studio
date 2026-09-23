@@ -11,7 +11,6 @@ all boot and run.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from typing import Any
 
@@ -20,7 +19,7 @@ from arq.connections import RedisSettings
 
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
-from app.core.logsafety import install_log_redaction
+from app.core.logsafety import configure_app_logging, install_log_redaction
 from app.db.session import get_sessionmaker
 from app.etsy.client import UnavailableEtsyClient
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
@@ -36,22 +35,8 @@ install_log_redaction()
 init_error_tracking("worker")
 
 
-def _log_etsy_calls() -> None:
-    """Send the per-request Etsy call log (app.etsy.calls) to the worker's stderr.
-
-    Nothing else configures app logging in the worker (arq configures only its
-    own logger), so without this the INFO lines would be dropped.
-    """
-    calls = logging.getLogger("app.etsy.calls")
-    if not calls.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        calls.addHandler(handler)
-        calls.setLevel(logging.INFO)
-        calls.propagate = False
-
-
-_log_etsy_calls()
+# The per-request Etsy call log (app.etsy.calls) and other app INFO lines.
+configure_app_logging()
 
 
 async def process_job(ctx: dict[str, Any], job_id: str) -> str:

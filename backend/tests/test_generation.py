@@ -244,3 +244,57 @@ async def test_unexpected_exception_is_logged_and_recorded(
         asset = await session.get(Asset, asset_id)
         assert asset.error == "RuntimeError: vision provider exploded"
         assert asset.status is AssetStatus.processed
+
+
+async def test_prefixed_title_leads_the_description_and_counts_toward_the_length(
+    async_sm: async_sessionmaker, make_image: Callable[..., bytes]
+) -> None:
+    """docs/duzeltmeler-v5.md §B: prefix stored on the profile -> title starts with it,
+    110-140 characters including it, and the description's title block is replaced
+    by the prefixed title."""
+    from tests.test_content import APPAREL
+
+    tenant_id, batch_id, asset_id, profile_id = await _seed(async_sm)
+    async with async_sm() as session:
+        profile = await session.get(ListingProfile, profile_id)
+        profile.title_prefix = "Comfort Colors®"
+        profile.content_template = "apparel"
+        await session.commit()
+
+    remainder = (
+        "Retro Frog Tee, Cottagecore Shirt, Vintage Frog Graphic Top, Nature Lover Gift, "
+        "Pond Life Crewneck Tee"
+    )
+    tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    messages = FakeMessages(
+        [
+            fake_response(VISION_DATA),
+            fake_response({"title": remainder, "tags": tags, "description": "x"}),
+        ]
+    )
+    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=messages)
+
+    async with async_sm() as session:
+        profile = await session.get(ListingProfile, profile_id)
+        outcome = await generate_listing_content(
+            session,
+            tenant_id=tenant_id,
+            batch_id=batch_id,
+            asset_id=asset_id,
+            image_data=make_image(400, 300),
+            media_type="image/png",
+            sku="SKU1",
+            analyzer=AnthropicVisionAnalyzer(client),
+            generator=AnthropicContentGenerator(
+                client, policy=APPAREL, title_prefix=profile.title_prefix
+            ),
+            profile=profile,
+        )
+
+    assert outcome.status == "generated", outcome
+    async with async_sm() as session:
+        row = await session.get(GeneratedContent, outcome.generated_content_id)
+    assert row.title.startswith("Comfort Colors®, Retro Frog Tee")
+    assert 110 <= len(row.title) <= 140
+    assert row.description.split("\n")[0] == row.title
+    assert "Size: S-3XL" in row.description

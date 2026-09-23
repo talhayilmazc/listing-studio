@@ -229,3 +229,78 @@ async def test_detect_profiles_skips_existing_reference(
 
 async def _noop():
     return None
+
+
+# --- title prefix on refresh (docs/duzeltmeler-v5.md §B) --------------------------
+async def _with_shop_cache(sm: async_sessionmaker, tenant_id, *, age_hours: float = 0.0) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    fetched = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    rows = [
+        (501, "COMFORT COLORS Mushroom Tee"),
+        (502, "Comfort Colors Cat Mom Shirt"),
+        (503, "COMFORT COLORS Pumpkin Tee"),
+    ]
+    async with sm() as s:
+        for listing_id, title in rows:
+            s.add(
+                ShopListingCache(
+                    tenant_id=tenant_id,
+                    listing_id=listing_id,
+                    fetched_at=fetched,
+                    payload={
+                        "listing_id": listing_id,
+                        "title": title,
+                        "taxonomy_id": 2078,
+                        "price": {"amount": 2599, "divisor": 100},
+                    },
+                )
+            )
+        await s.commit()
+
+
+async def _set_prefix(sm: async_sessionmaker, profile_id, value) -> None:
+    async with sm() as s:
+        profile = await s.get(ListingProfile, profile_id)
+        profile.title_prefix = value
+        await s.commit()
+
+
+async def _refresh_and_read_prefix(sm, monkeypatch, tenant_id, profile_id):
+    _patch(monkeypatch, tenant_id, FakeEtsy())
+    ctx = {"sessionmaker": sm, "bucket": None, "quota": None}
+    assert await worker.refresh_profile(ctx, str(profile_id)) == "refreshed"
+    async with sm() as s:
+        return (await s.get(ListingProfile, profile_id)).title_prefix
+
+
+async def test_refresh_fills_a_never_set_prefix_from_the_sellers_own_listings(
+    async_sm: async_sessionmaker, monkeypatch
+) -> None:
+    tenant_id, profile_id = await _seed(async_sm)
+    await _with_shop_cache(async_sm, tenant_id)
+
+    # Reference title "COMFORT COLORS Retro Frog Tee"; its casing is kept.
+    assert await _refresh_and_read_prefix(async_sm, monkeypatch, tenant_id, profile_id) == "COMFORT COLORS"
+
+
+async def test_refresh_never_overwrites_a_prefix_the_seller_set_or_cleared(
+    async_sm: async_sessionmaker, monkeypatch
+) -> None:
+    tenant_id, profile_id = await _seed(async_sm)
+    await _with_shop_cache(async_sm, tenant_id)
+
+    await _set_prefix(async_sm, profile_id, "Comfort Colors®")
+    assert await _refresh_and_read_prefix(async_sm, monkeypatch, tenant_id, profile_id) == "Comfort Colors®"
+
+    await _set_prefix(async_sm, profile_id, "")  # cleared on purpose
+    assert await _refresh_and_read_prefix(async_sm, monkeypatch, tenant_id, profile_id) == ""
+
+
+async def test_refresh_ignores_shop_data_past_its_six_hour_limit(
+    async_sm: async_sessionmaker, monkeypatch
+) -> None:
+    tenant_id, profile_id = await _seed(async_sm)
+    await _with_shop_cache(async_sm, tenant_id, age_hours=7)
+
+    assert await _refresh_and_read_prefix(async_sm, monkeypatch, tenant_id, profile_id) is None
