@@ -281,6 +281,8 @@ class MetaOut(BaseModel):
     operator_location: str = ""
     governing_law: str = ""
     dispute_venue: str = ""
+    # Whether error reports go to Sentry; the Privacy Policy names it only if so.
+    error_tracking: bool = False
     trademark_notice: str = Field(
         default=(
             "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the "

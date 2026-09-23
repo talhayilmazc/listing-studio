@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import accounts, auth, batches, content, health, meta, profiles, publish, shop
 from app.core.config import get_settings
+from app.core.errortracking import init_error_tracking
 from app.core.logsafety import install_log_redaction
 from app.core.ratelimit import rate_limit
 from app.core.security import SecurityMiddleware
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
     production = settings.app_env == "production"
     if production:
         _require_legal_identity(settings)
+    init_error_tracking("api")
 
     application = FastAPI(
         title="Etsy Listing Assistant",

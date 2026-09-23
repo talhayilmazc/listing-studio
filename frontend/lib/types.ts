@@ -192,6 +192,8 @@ export interface Meta {
   operator_location: string;
   governing_law: string;
   dispute_venue: string;
+  /** Error reports go to Sentry; the Privacy Policy names it only when true. */
+  error_tracking: boolean;
 }
 
 export interface AssetFailure {

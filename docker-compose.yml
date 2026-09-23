@@ -1,3 +1,4 @@
+# Local development. Production is docker-compose.prod.yml (see docs/deploy.md).
 services:
   postgres:
     image: postgres:16
@@ -29,6 +30,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        EXTRAS: dev  # test tooling for local work; production installs none
     # Apply migrations before serving so the schema is present on first run.
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     environment:
@@ -50,6 +53,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        EXTRAS: dev  # test tooling for local work; production installs none
     command: arq app.workers.settings.WorkerSettings
     environment:
       STORAGE_DIR: /data/storage

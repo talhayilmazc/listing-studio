@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     max_batch_bytes: int = 1024 * 1024 * 1024  # per batch, all files
     max_image_pixels: int = 60_000_000  # decompression-bomb ceiling (~7746 x 7746)
 
+    # Optional error reporting (production-spec F6). Empty = off, and then the
+    # Privacy Policy does not mention Sentry, because nothing is sent to it.
+    sentry_dsn: str = ""
+
     # Etsy Open API v3 credentials. etsy_client_id = keystring, etsy_client_secret
     # = shared secret. The x-api-key header is "{keystring}:{shared_secret}".
     etsy_client_id: str = ""

@@ -254,9 +254,10 @@ export default function TermsPage() {
           To the fullest extent permitted by law, we will not be liable for any indirect,
           incidental, special, consequential or punitive damages, or for any loss of profits,
           sales, revenue, data or goodwill, or for any action Etsy takes regarding your account
-          or listings, arising out of or related to the Service. Because the Service is provided
-          free of charge, our total liability to you for all claims relating to the Service is
-          limited to fifty (50) euros.
+          or listings, arising out of or related to the Service. Our total liability to you for
+          all claims relating to the Service is limited to the greater of (a) the amount you have
+          paid us for the Service in the twelve months before the claim arose, and (b) fifty
+          United States dollars (US$50). During the free beta, the amount in (a) is zero.
         </Conspicuous>
         <p>
           Nothing in these terms limits liability that cannot be limited by law, such as

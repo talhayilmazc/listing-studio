@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import active_tenant, get_quota, get_session
 from app.core.config import get_settings
+from app.core.errortracking import is_enabled
 from app.db.models import ApiUsage, Tenant
 from app.etsy.rate_limiter import DailyQuota
 
@@ -75,4 +76,5 @@ async def get_meta() -> schemas.MetaOut:
         operator_location=settings.operator_location,
         governing_law=settings.governing_law,
         dispute_venue=settings.dispute_venue,
+        error_tracking=is_enabled(),
     )

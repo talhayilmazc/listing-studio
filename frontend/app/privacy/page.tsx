@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Fact, Items, LegalShell, Section, SupportEmail } from "@/components/LegalShell";
+import {
+  Fact,
+  Items,
+  LegalShell,
+  Section,
+  SupportEmail,
+  WhenErrorTracking,
+} from "@/components/LegalShell";
 
 const SECTIONS = [
   { id: "who", title: "Who we are" },
@@ -208,22 +215,32 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Our server hosting provider</strong> — the Service&rsquo;s database and files
-            live on a server we rent and administer.
+            live on a server in Türkiye that we rent and administer.
           </li>
+          <WhenErrorTracking>
+            <li>
+              <strong>Sentry</strong> — when something in the Service fails, a technical report
+              of the error goes to Sentry so we can fix it. Before it leaves our server we remove
+              your email address, your IP address, cookies, passwords, tokens and anything you
+              submitted; what remains is which part of the code failed and why.
+            </li>
+          </WhenErrorTracking>
           <li>
             <strong>Authorities</strong> — only where the law requires us to disclose information.
           </li>
         </Items>
         <p>
-          Some of these providers may process data outside the country where you live. Where
-          they do, we rely on the safeguards they offer for international transfers.
+          Because the Service is hosted in Türkiye, using it transfers your data to Türkiye if you
+          live elsewhere. Anthropic is based in the United States and may process the images it
+          receives there, and Cloudflare carries traffic through its global network. Where data crosses borders, we
+          rely on the safeguards these providers offer for international transfers.
         </p>
       </Section>
 
       <Section id="storage" n={8} title="Where it is stored and how it is protected">
         <p>
-          Your data is stored in a database and file store on a server administered by the
-          operator. Connections to the Service are encrypted in transit. Etsy tokens are
+          The Service is hosted on servers located in <strong>Türkiye</strong>. Your data is
+          stored there, in a database and file store administered by the operator. Connections to the Service are encrypted in transit. Etsy tokens are
           encrypted at rest, and passwords are stored only as hashes. Every account&rsquo;s data
           is kept separate, and the Service checks on every request that you can reach only your
           own. No method of storage is perfectly secure, but we work to protect your data and
