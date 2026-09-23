@@ -344,6 +344,8 @@ class Asset(Base):
     mime_type: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
+    # Size of the uploaded original, for the per-batch ceiling (production-spec D).
+    byte_size: Mapped[int | None] = mapped_column(BigInteger)
     processed_key: Mapped[str | None] = mapped_column(Text)
     #: 1-based display order within the batch (Etsy listing image rank).
     rank: Mapped[int | None] = mapped_column(Integer)

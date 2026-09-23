@@ -96,10 +96,12 @@ async def test_corrupt_file_marked_failed_without_aborting_batch(
     by_name = {a.original_filename: a for a in assets}
     assert by_name["good_1.png"].status is AssetStatus.processed
     assert by_name["good_1.png"].processed_key is not None
-    broken = by_name["broken_2.png"]
-    assert broken.status is AssetStatus.failed
-    assert broken.processed_key is None  # no derivative
-    assert broken.storage_key is not None  # original still kept
+    # A file that is not an image is refused before storage (production-spec D):
+    # no row, and nothing written to disk under this batch.
+    assert "broken_2.png" not in by_name
+    stored = [p.name for p in tmp_path.rglob("*") if p.is_file()]
+    assert all(str(batch_id) in str(p) for p in tmp_path.rglob("*") if p.is_file())
+    assert len(stored) == 2  # the good file's original + its processed derivative
 
 
 async def test_all_failed_marks_batch_failed(

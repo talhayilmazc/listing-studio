@@ -29,7 +29,7 @@ from app.db.models import (
 from app.etsy.connection import ConnectionService
 from app.core.sessions import SessionStore
 from app.main import create_app
-from tests.auth_support import authenticate, make_tenant, open_session
+from tests.auth_support import BROWSER_HEADERS, authenticate, make_tenant, open_session
 from tests.support import VALID_TITLE
 
 OWNER_EMAIL = "owner@example.com"
@@ -90,7 +90,7 @@ async def ctx() -> AsyncIterator[dict]:
     app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as ac:
         authenticate(ac, await open_session(fake_redis, tenant_id))
         yield {
             "client": ac,

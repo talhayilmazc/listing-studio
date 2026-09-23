@@ -28,7 +28,7 @@ from app.etsy import oauth
 from app.etsy.connection import ConnectionService
 from app.core.sessions import SessionStore
 from app.main import create_app
-from tests.auth_support import authenticate, make_tenant, open_session
+from tests.auth_support import BROWSER_HEADERS, authenticate, make_tenant, open_session
 
 
 # --- PKCE + authorize URL ---------------------------------------------------
@@ -261,7 +261,10 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://test", follow_redirects=False
+        transport=transport,
+        base_url="http://test",
+        follow_redirects=False,
+        headers=BROWSER_HEADERS,
     ) as ac:
         ac.sm = sm  # type: ignore[attr-defined]
         ac.tenant_id = tenant_id  # type: ignore[attr-defined]

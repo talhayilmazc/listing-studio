@@ -184,7 +184,16 @@ export function uploadAsset(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(JSON.parse(xhr.responseText) as Asset);
       } else {
-        reject(new ApiError(xhr.responseText || xhr.statusText, xhr.status));
+        // Refusals (415 not an image, 413 too large) carry a readable `detail`;
+        // show that, not the raw JSON envelope.
+        let message = xhr.statusText || "upload failed";
+        try {
+          const detail = JSON.parse(xhr.responseText)?.detail;
+          if (typeof detail === "string") message = detail;
+        } catch {
+          /* non-JSON body: keep the status text */
+        }
+        reject(new ApiError(message, xhr.status));
       }
     };
     xhr.onerror = () => reject(new ApiError("network error", 0));

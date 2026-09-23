@@ -33,6 +33,7 @@ from app.pipeline.images import (
     resize_preview,
 )
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
+from app.pipeline.uploads import UploadRejected
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
@@ -115,14 +116,19 @@ async def add_asset(
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.AssetOut:
     await _get_batch(session, tenant, batch_id)
+    # The security middleware has already capped the request body, so this read
+    # is bounded; admission below still enforces the exact per-file limit.
     data = await file.read()
-    asset = await ingestor.add_file(
-        session,
-        batch_id,
-        tenant.id,
-        IngestFile(filename=file.filename or "upload", data=data),
-        group_key=group_key or None,
-    )
+    try:
+        asset = await ingestor.add_file(
+            session,
+            batch_id,
+            tenant.id,
+            IngestFile(filename=file.filename or "upload", data=data),
+            group_key=group_key or None,
+        )
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     return schemas.AssetOut(
         id=asset.id,
         original_filename=asset.original_filename,

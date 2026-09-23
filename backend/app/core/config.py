@@ -41,6 +41,24 @@ class Settings(BaseSettings):
     # Per-tenant daily Etsy budget (production-spec C: 5 tenants x 1000 = 5000).
     tenant_daily_quota: int = 1000
 
+    # --- Hardening (production-spec D) --------------------------------------
+    # Header carrying the real client IP. Empty = the socket peer. Behind
+    # Cloudflare set "cf-connecting-ip": Cloudflare overwrites it, whereas the
+    # first X-Forwarded-For entry is whatever the client chose to send.
+    client_ip_header: str = ""
+
+    # Request ceilings, per client per window. Auth endpoints (login, register,
+    # admin) get their own much tighter budget on top of the login lockout.
+    rate_limit_requests: int = 1200
+    rate_limit_window_seconds: int = 60
+    auth_rate_limit_requests: int = 20
+    auth_rate_limit_window_seconds: int = 15 * 60
+
+    # Upload limits. Type is decided from the bytes, never the filename.
+    max_upload_bytes: int = 25 * 1024 * 1024  # per file
+    max_batch_bytes: int = 1024 * 1024 * 1024  # per batch, all files
+    max_image_pixels: int = 60_000_000  # decompression-bomb ceiling (~7746 x 7746)
+
     # Etsy Open API v3 credentials. etsy_client_id = keystring, etsy_client_secret
     # = shared secret. The x-api-key header is "{keystring}:{shared_secret}".
     etsy_client_id: str = ""

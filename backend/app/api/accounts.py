@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_tenant, get_session, get_session_store
 from app.core.config import get_settings
+from app.core.ratelimit import client_ip
 from app.core.passwords import (
     WeakPassword,
     generate_temp_password,
@@ -107,11 +108,10 @@ def _normalise_email(email: str) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    # Behind Cloudflare Tunnel the edge sets X-Forwarded-For; fall back to the peer.
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # One resolver for the lockout and the rate limiter. It ignores
+    # X-Forwarded-For, whose first entry the client controls — trusting it let
+    # an attacker present a fresh "IP" per attempt and never trip the lockout.
+    return client_ip(request)
 
 
 def _set_session_cookie(response: Response, token: str) -> None:

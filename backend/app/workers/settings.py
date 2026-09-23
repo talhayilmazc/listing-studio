@@ -18,6 +18,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
+from app.core.logsafety import install_log_redaction
 from app.db.session import get_sessionmaker
 from app.etsy.client import UnavailableEtsyClient
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
@@ -26,6 +27,9 @@ from app.workers.processor import JobProcessor, ProcessResult
 from app.workers.profiles import detect_profiles, refresh_profile, sync_shop_listings
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
+
+# The worker logs job failures with full tracebacks; scrub them like the API does.
+install_log_redaction()
 
 
 async def process_job(ctx: dict[str, Any], job_id: str) -> str:

@@ -28,7 +28,7 @@ from app.pipeline.images import ImageProcessor, PillowBackend
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage
-from tests.auth_support import authenticate, make_tenant, open_session
+from tests.auth_support import BROWSER_HEADERS, authenticate, make_tenant, open_session
 from tests.support import VALID_TITLE
 
 
@@ -74,7 +74,7 @@ async def client(tmp_path) -> AsyncIterator[AsyncClient]:
     tenant_id = await make_tenant(sm, "owner@example.com")
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=BROWSER_HEADERS) as ac:
         ac.sm = sm  # type: ignore[attr-defined]  (tests reach into the DB directly)
         ac.tenant_id = tenant_id  # type: ignore[attr-defined]
         ac.redis = fake_redis  # type: ignore[attr-defined]
@@ -307,7 +307,9 @@ async def test_asset_image_preview_widths(
     assert after.status_code == 200
     assert after.content == baseline
     assert after.headers["content-type"] == full.headers["content-type"]
-    assert "cache-control" not in {k.lower() for k in after.headers}
+    # The preview's browser-cache policy does not leak onto the original, which
+    # keeps the hardening default: tenant designs are never stored by caches.
+    assert after.headers["cache-control"] == "no-store"
 
 
 async def test_asset_image_preview_width_allowlist(
@@ -371,7 +373,7 @@ async def test_asset_image_aspect_variant(
     # And the parameterless response is still the untouched original.
     full = await client.get(f"/api/assets/{asset_id}/image")
     assert full.status_code == 200
-    assert "cache-control" not in {k.lower() for k in full.headers}
+    assert full.headers["cache-control"] == "no-store"
 
 
 async def test_quota_history_series(client: AsyncClient) -> None:
