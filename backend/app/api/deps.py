@@ -107,7 +107,12 @@ def get_redis() -> Redis:
 
 
 def get_quota() -> DailyQuota:
-    return DailyQuota(get_redis(), global_daily_limit=get_settings().global_daily_limit)
+    settings = get_settings()
+    return DailyQuota(
+        get_redis(),
+        global_daily_limit=settings.global_daily_limit,
+        pause_percent=settings.global_pause_percent,
+    )
 
 
 class Enqueuer:

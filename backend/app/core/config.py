@@ -5,6 +5,7 @@ Secrets are never hardcoded here — only read from the environment (see CLAUDE.
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,6 +106,9 @@ class Settings(BaseSettings):
 
     # Global daily API budget (app-wide, Personal App = 5.000/day). Tenant budget is per-tenant.
     global_daily_limit: int = 5000
+    # New jobs pause once app-wide usage reaches this share of the limit (production-spec C).
+    # The rest is held back so jobs already running finish instead of dying at the wall.
+    global_pause_percent: int = Field(default=90, ge=1, le=100)
 
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"

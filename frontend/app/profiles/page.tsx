@@ -103,8 +103,12 @@ export default function ProfilesPage() {
           loadListings();
           return;
         }
-        if (s.status === "failed") {
+        if (s.status === "failed" || s.status === "cancelled") {
           setReplace({ id: listingId, status: `Failed: ${s.error ?? ""}` });
+          return;
+        }
+        if (s.pause) {
+          setReplace({ id: listingId, status: `Queued, not failed. ${s.pause.message}` });
           return;
         }
       }

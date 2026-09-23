@@ -84,6 +84,17 @@ case "$(get ETSY_REDIRECT_URI)" in
   *) fail "ETSY_REDIRECT_URI must end in /api/auth/etsy/callback" ;;
 esac
 
+limit="$(get GLOBAL_DAILY_LIMIT)"
+case "${limit:-5000}" in
+  5000) pass "GLOBAL_DAILY_LIMIT is Etsy's ceiling (5000)" ;;
+  *[!0-9]*) fail "GLOBAL_DAILY_LIMIT must be a number" ;;
+  *) if [ "$limit" -gt 5000 ]; then
+       fail "GLOBAL_DAILY_LIMIT above Etsy's 5000/day would send requests Etsy refuses"
+     else
+       warn "GLOBAL_DAILY_LIMIT is $limit, not 5000; the margin belongs in GLOBAL_PAUSE_PERCENT"
+     fi ;;
+esac
+
 echo "== tunnel"
 if grep -q '<TUNNEL_ID>' "$TUNNEL_CONFIG"; then
   fail "$TUNNEL_CONFIG still contains <TUNNEL_ID>"

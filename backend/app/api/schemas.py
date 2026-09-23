@@ -121,6 +121,14 @@ class QuotaDay(BaseModel):
     count: int
 
 
+class PauseOut(BaseModel):
+    """Why this seller's Etsy work is waiting, in words, and until when."""
+
+    reason: str  # global_quota | tenant_quota
+    message: str
+    resumes_at: datetime
+
+
 class QuotaOut(BaseModel):
     tenant_used: int
     tenant_limit: int
@@ -132,6 +140,10 @@ class QuotaOut(BaseModel):
     # Additive: the last 7 days of this tenant's usage, oldest first, for the
     # dashboard sparkline. Existing fields and their meanings are unchanged.
     history: list[QuotaDay] = Field(default_factory=list)
+    # App-wide count at which new jobs pause (production-spec C).
+    global_pause_at: int = 0
+    # Set while new work is paused for this seller, with the reason.
+    pause: PauseOut | None = None
 
 
 class AssetFailure(BaseModel):
@@ -177,6 +189,8 @@ class JobStatusOut(BaseModel):
     listing_id: int | None = None
     listing_url: str | None = None  # edit URL for a draft, public URL once active
     is_draft: bool = True
+    # A queued job waiting for the daily reset says so, rather than timing out.
+    pause: PauseOut | None = None
 
 
 class ProfileCreate(BaseModel):

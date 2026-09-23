@@ -30,6 +30,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.api import EtsyApiClient
+from app.workers.gate import start_job
 from app.workers.guards import owned, owned_optional, public_error
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
@@ -57,9 +58,9 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
         job = await session.get(Job, uuid.UUID(job_id))
         if job is None:
             return "missing"
-        job.status = JobStatus.running
-        job.started_at = datetime.now(timezone.utc)
-        await session.commit()
+        # Suspended tenant -> cancelled; no budget left -> paused until the reset.
+        if (early := await start_job(ctx, session, job, "run_publish_job")) is not None:
+            return early
 
         try:
             # Every row this job touches must belong to the job's tenant (B5).
@@ -209,9 +210,9 @@ async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
         job = await session.get(Job, uuid.UUID(job_id))
         if job is None:
             return "missing"
-        job.status = JobStatus.running
-        job.started_at = datetime.now(timezone.utc)
-        await session.commit()
+        # Suspended tenant -> cancelled; no budget left -> paused until the reset.
+        if (early := await start_job(ctx, session, job, "run_publish_live_job")) is not None:
+            return early
 
         try:
             content = owned(

@@ -24,3 +24,12 @@ export function etsyListingLink(listingId: number, state: string | null, url?: s
   if (state === "active") return url || `https://www.etsy.com/listing/${listingId}`;
   return `https://www.etsy.com/your/shops/me/listing-editor/edit/${listingId}`;
 }
+
+/** When paused work resumes, in the viewer's own time zone ("Thu 03:00"). */
+export function resumeTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}

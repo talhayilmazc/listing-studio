@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.accounts import EMAIL_RE
@@ -37,10 +37,13 @@ from app.db.models import (
     EtsyConnection,
     GeneratedContent,
     InviteCode,
+    Job,
+    JobStatus,
     Tenant,
     TenantStatus,
 )
 from app.etsy.rate_limiter import DailyQuota
+from app.workers.gate import SUSPENDED_MESSAGE
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -171,7 +174,26 @@ async def suspend_user(
     _not_self(admin, target, "you cannot suspend your own account")
     if target.status is not TenantStatus.suspended:
         target.status = TenantStatus.suspended
-        audit.record(session, "user.suspended", actor=admin, target_tenant_id=target.id)
+        # Queued work is cancelled, not left to run. A job already running
+        # finishes its current step; anything still in the queue is also
+        # refused by the worker, which re-checks the account before every job.
+        cancelled = await session.execute(
+            update(Job)
+            .where(Job.tenant_id == target.id, Job.status == JobStatus.queued)
+            .values(
+                status=JobStatus.cancelled,
+                last_error=SUSPENDED_MESSAGE,
+                paused_reason=None,
+                finished_at=datetime.now(timezone.utc),
+            )
+        )
+        audit.record(
+            session,
+            "user.suspended",
+            actor=admin,
+            target_tenant_id=target.id,
+            cancelled_jobs=cancelled.rowcount or 0,
+        )
         await session.commit()
     # Immediately, not at the next request: every open session ends now.
     await sessions.destroy_all(target.id)
@@ -415,6 +437,9 @@ class TenantUsage(BaseModel):
     email: str
     used_today: int
     daily_quota: int
+    # Set when this tenant has work waiting for the reset today (global_quota /
+    # tenant_quota), whichever stopped it.
+    paused_reason: str | None = None
     history: list[DayCount]
 
 
@@ -423,6 +448,8 @@ class UsageOut(BaseModel):
     global_used: int
     global_limit: int
     global_remaining: int
+    # New jobs stop being started at this app-wide count (production-spec C).
+    pause_at: int
     history: list[DayCount]  # app-wide, oldest first; today from the live counter
     tenants: list[TenantUsage]  # busiest first
 
@@ -469,6 +496,7 @@ async def usage(
                 email=t.email,
                 used_today=used_today,
                 daily_quota=t.daily_quota,
+                paused_reason=await quota.paused_reason(t.id),
                 history=history,
             )
         )
@@ -489,6 +517,7 @@ async def usage(
         global_used=global_used,
         global_limit=limit,
         global_remaining=max(0, limit - global_used),
+        pause_at=quota.pause_at,
         history=history,
         tenants=rows,
     )

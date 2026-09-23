@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Content, PublishJob } from "@/lib/types";
+import type { Content, Pause, PublishJob } from "@/lib/types";
+import { resumeTime } from "@/lib/format";
 import { ReviewCard } from "@/components/ReviewCard";
 
 interface Progress {
@@ -12,6 +13,9 @@ interface Progress {
   done: number;
   failed: number;
   skipped: number;
+  /** Queued, waiting for the daily Etsy reset; they run by themselves then. */
+  paused: number;
+  pause: Pause | null;
 }
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
@@ -38,7 +42,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   // Poll a set of queued jobs to completion, updating the progress counters.
   async function pollJobs(jobs: PublishJob[], label: string, skipped: number) {
-    setProgress({ label, total: jobs.length, done: 0, failed: 0, skipped });
+    setProgress({ label, total: jobs.length, done: 0, failed: 0, skipped, paused: 0, pause: null });
     await Promise.all(
       jobs.map(async (j) => {
         for (let i = 0; i < 60; i++) {
@@ -48,8 +52,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             setProgress((p) => p && { ...p, done: p.done + 1 });
             return;
           }
-          if (s.status === "failed") {
+          if (s.status === "failed" || s.status === "cancelled") {
             setProgress((p) => p && { ...p, failed: p.failed + 1 });
+            return;
+          }
+          if (s.pause) {
+            const pause = s.pause;
+            setProgress((p) => p && { ...p, paused: p.paused + 1, pause });
             return;
           }
         }
@@ -121,8 +130,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-700">{progress.label}…</span>
             <span className="text-xs text-slate-500">
-              {progress.done + progress.failed}/{progress.total}
+              {progress.done + progress.failed + progress.paused}/{progress.total}
               {progress.failed > 0 && ` · ${progress.failed} failed`}
+              {progress.paused > 0 && ` · ${progress.paused} waiting`}
               {progress.skipped > 0 && ` · ${progress.skipped} skipped`}
             </span>
           </div>
@@ -130,10 +140,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             <div
               className="progress-fill"
               style={{
-                width: `${progress.total ? ((progress.done + progress.failed) / progress.total) * 100 : 0}%`,
+                width: `${progress.total ? ((progress.done + progress.failed + progress.paused) / progress.total) * 100 : 0}%`,
               }}
             />
           </div>
+          {progress.pause && (
+            <p role="status" className="text-xs text-amber-800">
+              {progress.paused} {progress.paused === 1 ? "listing is" : "listings are"} queued, not
+              failed. {progress.pause.message} That is around{" "}
+              {resumeTime(progress.pause.resumes_at)} your time.
+            </p>
+          )}
         </div>
       )}
 

@@ -11,10 +11,13 @@ import type { AdminUsage } from "@/lib/types";
 
 type Severity = "ok" | "warn" | "danger";
 
-export function severity(used: number, limit: number): Severity {
-  if (limit <= 0) return "danger";
-  const share = used / limit;
-  return share >= 0.95 ? "danger" : share >= 0.8 ? "warn" : "ok";
+/**
+ * `pauseAt` is where new work stops being started (90% of Etsy's limit app-wide,
+ * production-spec C). Reaching it is the red state; approaching it is amber.
+ */
+export function severity(used: number, limit: number, pauseAt: number = limit): Severity {
+  if (limit <= 0 || used >= pauseAt) return "danger";
+  return used >= pauseAt * 0.85 ? "warn" : "ok";
 }
 
 const FILL: Record<Severity, string> = {
@@ -30,36 +33,50 @@ const TRACK: Record<Severity, string> = {
 };
 const STATE_LABEL: Record<Severity, string | null> = {
   ok: null,
-  warn: "running low",
-  danger: "nearly exhausted",
+  warn: "nearing the pause",
+  danger: "new work paused",
 };
 
 export function Meter({
   used,
   limit,
+  pauseAt,
   height = "h-2",
   label,
 }: {
   used: number;
   limit: number;
+  /** Draws the pause line and colours the meter against it. */
+  pauseAt?: number;
   height?: string;
   label: string;
 }) {
-  const sev = severity(used, limit);
+  const sev = severity(used, limit, pauseAt ?? limit);
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 100;
+  const markPct = pauseAt !== undefined && limit > 0 ? (pauseAt / limit) * 100 : null;
   return (
-    <div
-      role="meter"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={limit}
-      aria-valuenow={used}
-      className={`w-full overflow-hidden rounded-full ${height} ${TRACK[sev]}`}
-    >
+    <div className="relative">
       <div
-        className={`h-full rounded-full transition-all ${FILL[sev]}`}
-        style={{ width: `${pct}%` }}
-      />
+        role="meter"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={limit}
+        aria-valuenow={used}
+        className={`w-full overflow-hidden rounded-full ${height} ${TRACK[sev]}`}
+      >
+        <div
+          className={`h-full rounded-full transition-all ${FILL[sev]}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {markPct !== null && markPct < 100 && (
+        // The pause line: a 2px tick standing proud of the track, in ink, not a series colour.
+        <span
+          aria-hidden
+          className="absolute -inset-y-1 w-[2px] rounded-full bg-slate-700"
+          style={{ left: `calc(${markPct}% - 1px)` }}
+        />
+      )}
     </div>
   );
 }
@@ -75,7 +92,7 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
       </div>
     );
   }
-  const sev = severity(usage.global_used, usage.global_limit);
+  const sev = severity(usage.global_used, usage.global_limit, usage.pause_at);
   const busiest = usage.tenants.filter((t) => t.used_today > 0).slice(0, 3);
   return (
     <section className="card p-6" aria-labelledby="usage-summary">
@@ -107,11 +124,16 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
         <Meter
           used={usage.global_used}
           limit={usage.global_limit}
+          pauseAt={usage.pause_at}
           height="h-3"
           label="App-wide Etsy requests used today"
         />
       </div>
       <p className="mt-2 text-xs text-slate-500">
+        {usage.global_used >= usage.pause_at
+          ? `New jobs wait for the reset; the last ${(usage.global_limit - usage.pause_at).toLocaleString()} are held for work already running`
+          : `${Math.max(0, usage.pause_at - usage.global_used).toLocaleString()} until new work pauses at ${usage.pause_at.toLocaleString()}`}
+        {" · "}
         {usage.global_remaining.toLocaleString()} left today
         {busiest.length > 0 && (
           <>
@@ -261,8 +283,16 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
                 const share = usage.global_used ? t.used_today / usage.global_used : 0;
                 return (
                   <tr key={t.id} className="border-t border-slate-100 align-middle">
-                    <td className="max-w-[220px] truncate py-2.5 pr-4 text-slate-800" title={t.email}>
-                      {t.email}
+                    <td className="max-w-[240px] py-2.5 pr-4">
+                      <span className="block truncate text-slate-800" title={t.email}>
+                        {t.email}
+                      </span>
+                      {t.paused_reason && (
+                        <span className="text-xs text-amber-700">
+                          work waiting ·{" "}
+                          {t.paused_reason === "global_quota" ? "app-wide pause" : "own allowance used"}
+                        </span>
+                      )}
                     </td>
                     <td className="w-[40%] py-2.5 pr-4">
                       <div className="flex items-center gap-3">

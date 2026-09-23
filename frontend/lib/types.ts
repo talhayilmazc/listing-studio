@@ -130,6 +130,16 @@ export interface ShopListings {
   stale: boolean;
 }
 
+/**
+ * Why queued Etsy work is waiting for the daily reset (production-spec C): the
+ * app has used 90% of Etsy's shared daily limit, or this shop its own allowance.
+ */
+export interface Pause {
+  reason: "global_quota" | "tenant_quota";
+  message: string;
+  resumes_at: string;
+}
+
 export interface JobStatus {
   id: string;
   type: string;
@@ -138,6 +148,8 @@ export interface JobStatus {
   listing_id: number | null;
   listing_url: string | null;
   is_draft: boolean;
+  /** Set while the job waits for the reset. It is still queued and will run then. */
+  pause: Pause | null;
 }
 
 export interface Validation {
@@ -182,6 +194,10 @@ export interface Quota {
   usage_date: string;
   /** Last 7 days of this shop's API usage, oldest first. */
   history: QuotaDay[];
+  /** App-wide count at which new work pauses (90% of global_limit). */
+  global_pause_at: number;
+  /** Set while new Etsy work is paused for this shop. */
+  pause: Pause | null;
 }
 
 export interface Meta {
@@ -280,12 +296,16 @@ export interface AdminUsage {
   global_used: number;
   global_limit: number;
   global_remaining: number;
+  /** New jobs stop being started at this app-wide count. */
+  pause_at: number;
   history: DayCount[];
   tenants: {
     id: string;
     email: string;
     used_today: number;
     daily_quota: number;
+    /** Set when this tenant has work waiting for the reset today. */
+    paused_reason: Pause["reason"] | null;
     history: DayCount[];
   }[];
 }

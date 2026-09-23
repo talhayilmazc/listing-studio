@@ -61,7 +61,10 @@ Fill in `.env`:
   every page of the app and in both legal documents, so use an address you are
   happy to publish.
 - **`GLOBAL_DAILY_LIMIT=5000`.** This is Etsy's app-wide ceiling, and the Admin →
-  Usage screen measures against it. `TENANT_DAILY_QUOTA=1000` is the default
+  Usage screen measures against it. The safety margin is
+  `GLOBAL_PAUSE_PERCENT=90`, not a smaller limit. At 4,500, new jobs wait for
+  00:00 UTC, and every seller sees why in a banner. The last 500 requests let
+  work already running finish. `TENANT_DAILY_QUOTA=1000` is the default
   ceiling per seller; you can change it per seller in Admin → Users.
 
 ## 3. Cloudflare Tunnel

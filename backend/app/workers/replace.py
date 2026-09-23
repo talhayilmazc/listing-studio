@@ -32,6 +32,7 @@ from app.pipeline.storage import LocalStorage
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
+from app.workers.gate import start_job
 from app.workers.guards import owned, public_error
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,9 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
         job = await session.get(Job, uuid.UUID(job_id))
         if job is None:
             return "missing"
-        job.status = JobStatus.running
-        job.started_at = datetime.now(timezone.utc)
-        await session.commit()
+        # Suspended tenant -> cancelled; no budget left -> paused until the reset.
+        if (early := await start_job(ctx, session, job, "run_replace_images_job")) is not None:
+            return early
 
         try:
             if not settings.llm_api_key:

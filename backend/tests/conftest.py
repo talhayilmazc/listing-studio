@@ -37,6 +37,7 @@ def test_settings() -> Settings:
         app_env="test",
         llm_api_key="",  # no provider is reachable from tests
         global_daily_limit=5000,
+        global_pause_percent=90,
         etsy_client_id="",
         etsy_client_secret="",
         # The legal-identity fields decide whether production starts; tests set them explicitly.
