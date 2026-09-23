@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "./SessionProvider";
 
 /**
  * Top strip (docs/ui-direction-v2.md §1): page title on the left, primary action
@@ -18,11 +19,14 @@ const TITLES: [RegExp, string][] = [
   [/^\/profiles$/, "Profiles"],
   [/^\/upload$/, "Uploads"],
   [/^\/connect$/, "Connection"],
+  [/^\/admin$/, "Admin"],
   [/^\/terms$/, "Terms of Service"],
   [/^\/privacy$/, "Privacy Policy"],
 ];
 
-function titleFor(pathname: string): string {
+function titleFor(pathname: string, isAdmin: boolean): string {
+  // Non-admins get the same generic 404 as any unknown route: no title that says /admin exists.
+  if (pathname === "/admin" && !isAdmin) return "Listing Studio";
   for (const [re, title] of TITLES) if (re.test(pathname)) return title;
   // Batch detail keeps its short id, which the page no longer repeats.
   const batch = pathname.match(/^\/batches\/([^/]+)$/);
@@ -32,6 +36,7 @@ function titleFor(pathname: string): string {
 
 export function TopStrip({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname() ?? "/";
+  const { account } = useSession();
 
   return (
     <header className="border-b border-slate-200">
@@ -48,7 +53,7 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
         </button>
 
         <h1 className="flex-1 truncate font-display text-4xl font-normal text-slate-900">
-          {titleFor(pathname)}
+          {titleFor(pathname, Boolean(account?.is_admin))}
         </h1>
 
         <Link href="/upload" className="btn-primary shrink-0">

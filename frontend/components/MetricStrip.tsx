@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { BatchSummary, Profile, Quota, ShopSummary } from "@/lib/types";
+import { useSession } from "./SessionProvider";
 
 /**
  * Metric strip (docs/ui-direction-v2.md §3): a band of real figures above the
@@ -25,7 +26,11 @@ export function MetricStrip() {
   const [batches, setBatches] = useState<BatchSummary[] | null>(null);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
 
-  const hidden = HIDDEN.some((re) => re.test(pathname));
+  const { account } = useSession();
+  // /admin carries its own app-wide figures. For anyone else it is an ordinary
+  // 404, so it keeps the strip every unknown route has.
+  const hidden =
+    HIDDEN.some((re) => re.test(pathname)) || (pathname === "/admin" && Boolean(account?.is_admin));
 
   useEffect(() => {
     if (hidden) return;

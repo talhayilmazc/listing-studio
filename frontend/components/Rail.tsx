@@ -35,6 +35,11 @@ const SECTIONS: { title: string; items: Item[] }[] = [
   },
 ];
 
+const ADMIN_SECTION = {
+  title: "Operator",
+  items: [{ href: "/admin", label: "Admin", icon: IconShield }],
+};
+
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/" || pathname.startsWith("/batches");
   return pathname === href || pathname.startsWith(href + "/");
@@ -42,6 +47,7 @@ function isActive(pathname: string, href: string) {
 
 export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname() ?? "/";
+  const { account } = useSession();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
 
   useEffect(() => {
@@ -94,7 +100,8 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
         </div>
 
         <nav className="mt-1 flex-1 overflow-y-auto pb-4">
-          {SECTIONS.map((section) => (
+          {/* The entry is a convenience only; the server re-checks the role on every admin call. */}
+          {(account?.is_admin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS).map((section) => (
             <div key={section.title} className="mb-5">
               <p className="px-5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]/70">
                 {section.title}
@@ -377,6 +384,16 @@ function IconUpload({ active }: { active: boolean }) {
     <>
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <path d="M12 3v13M7 8l5-5 5 5" />
+    </>,
+    active,
+  );
+}
+
+function IconShield({ active }: { active: boolean }) {
+  return svg(
+    <>
+      <path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z" />
+      <path d="M9 12l2 2 4-4" />
     </>,
     active,
   );

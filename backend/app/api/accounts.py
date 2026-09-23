@@ -7,7 +7,6 @@ session token or an invite code.
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 import uuid
 import re
@@ -20,7 +19,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_tenant, get_session, get_session_store
+from app.core import audit
 from app.core.config import get_settings
+from app.core.invites import hash_code, redeemable_by
 from app.core.ratelimit import client_ip
 from app.core.passwords import (
     WeakPassword,
@@ -78,6 +79,8 @@ class AccountOut(BaseModel):
     email: str
     daily_quota: int
     must_change_password: bool
+    # Shows the Admin entry in the UI. Never trusted: /api/admin re-checks it.
+    is_admin: bool = False
 
 
 class InviteCreateRequest(BaseModel):
@@ -98,11 +101,6 @@ class TempPasswordOut(BaseModel):
 
 
 # --- Helpers ----------------------------------------------------------------
-def _hash_code(code: str) -> str:
-    """Invite codes are high-entropy, so a plain SHA-256 is the right primitive."""
-    return hashlib.sha256(code.strip().encode()).hexdigest()
-
-
 def _normalise_email(email: str) -> str:
     return email.strip().casefold()
 
@@ -133,16 +131,22 @@ def _out(tenant: Tenant) -> AccountOut:
         email=tenant.email,
         daily_quota=tenant.daily_quota,
         must_change_password=tenant.must_change_password,
+        is_admin=tenant.is_admin,
     )
 
 
-def _require_admin(token: str | None) -> None:
-    """Guard the admin endpoints with ADMIN_TOKEN, compared in constant time."""
+async def _require_bootstrap_token(session: AsyncSession, token: str | None) -> None:
+    """ADMIN_TOKEN guard for the bootstrap endpoints, compared in constant time.
+
+    Bootstrap only: once any admin account exists, these endpoints answer 404
+    whatever the token, and all administration goes through a signed-in admin's
+    session (/api/admin). Unset ADMIN_TOKEN means disabled, not open.
+    """
     configured = get_settings().admin_token
-    if not configured:
-        # Unset means disabled, not open.
+    if not configured or not token or not secrets.compare_digest(token, configured):
         raise HTTPException(status_code=404, detail="not found")
-    if not token or not secrets.compare_digest(token, configured):
+    admins = await session.scalar(select(func.count()).select_from(Tenant).where(Tenant.is_admin))
+    if admins:
         raise HTTPException(status_code=404, detail="not found")
 
 
@@ -163,15 +167,15 @@ async def register(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     row = await session.execute(
-        select(InviteCode).where(InviteCode.code_hash == _hash_code(body.invite_code))
+        select(InviteCode).where(InviteCode.code_hash == hash_code(body.invite_code))
     )
     invite = row.scalar_one_or_none()
     now = datetime.now(timezone.utc)
-    # One message for every bad-code case: never reveal which part was wrong.
-    if invite is None or invite.used_by_tenant_id is not None:
+    # One message for every bad-code case — unknown, used, expired, revoked, or
+    # bound to another address: never reveal which part was wrong.
+    if not redeemable_by(invite, email, now):
         raise HTTPException(status_code=400, detail="invalid or already used invite code")
-    if invite.expires_at is not None and _aware(invite.expires_at) < now:
-        raise HTTPException(status_code=400, detail="invalid or already used invite code")
+    assert invite is not None  # narrowed by redeemable_by
 
     tenant = Tenant(
         email=email,
@@ -301,7 +305,7 @@ async def create_invite(
     session: AsyncSession = Depends(get_session),
 ) -> InviteCreated:
     """Mint a single-use invite code. Returned once; only its hash is stored."""
-    _require_admin(x_admin_token)
+    await _require_bootstrap_token(session, x_admin_token)
 
     code = secrets.token_urlsafe(18)
     expires_at = (
@@ -310,7 +314,10 @@ async def create_invite(
         else None
     )
 
-    session.add(InviteCode(code_hash=_hash_code(code), note=body.note, expires_at=expires_at))
+    invite = InviteCode(code_hash=hash_code(code), note=body.note, expires_at=expires_at)
+    session.add(invite)
+    await session.flush()
+    audit.record(session, "invite.created", actor=None, target_invite_id=invite.id, via="bootstrap")
     await session.commit()
     return InviteCreated(code=code, expires_at=expires_at)
 
@@ -323,7 +330,7 @@ async def admin_reset_password(
     sessions: SessionStore = Depends(get_session_store),
 ) -> TempPasswordOut:
     """Issue a temporary password; the tenant must change it at next login (A4)."""
-    _require_admin(x_admin_token)
+    await _require_bootstrap_token(session, x_admin_token)
 
     target = _normalise_email(body.email)
     row = await session.execute(select(Tenant).where(func.lower(Tenant.email) == target))
@@ -334,15 +341,14 @@ async def admin_reset_password(
     temp = generate_temp_password()
     tenant.password_hash = hash_password(temp)
     tenant.must_change_password = True
+    audit.record(
+        session, "user.temporary_password", actor=None, target_tenant_id=tenant.id, via="bootstrap"
+    )
     await session.commit()
     # Any session opened with the old password is now void.
     await sessions.destroy_all(tenant.id)
     return TempPasswordOut(email=tenant.email, temporary_password=temp)
 
-
-def _aware(value: datetime) -> datetime:
-    """SQLite hands back naive datetimes; treat those as UTC."""
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 # A well-formed argon2id hash of a random secret, used to equalise timing when

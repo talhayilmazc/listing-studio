@@ -225,4 +225,67 @@ export interface Account {
   email: string;
   daily_quota: number;
   must_change_password: boolean;
+  /** Shows the Admin entry. Never trusted: the server re-checks every admin request. */
+  is_admin: boolean;
+}
+
+// --- Admin panel ------------------------------------------------------------
+export interface AdminUser {
+  id: string;
+  email: string;
+  is_admin: boolean;
+  status: "active" | "suspended";
+  must_change_password: boolean;
+  created_at: string;
+  shop_name: string | null;
+  shop_connected: boolean;
+  listings_published: number;
+  quota_used_today: number;
+  daily_quota: number;
+}
+
+export type InviteState = "unused" | "used" | "expired" | "revoked";
+
+export interface AdminInvite {
+  id: string;
+  note: string | null;
+  bound_email: string | null;
+  state: InviteState;
+  created_at: string;
+  expires_at: string | null;
+  used_at: string | null;
+  used_by_email: string | null;
+  created_by_email: string | null;
+}
+
+/** The code is readable only in this response; only its hash is stored. */
+export interface InviteIssued {
+  code: string;
+  invite: AdminInvite;
+}
+
+export interface TempPasswordIssued {
+  id: string;
+  email: string;
+  temporary_password: string;
+}
+
+export interface DayCount {
+  date: string;
+  count: number;
+}
+
+export interface AdminUsage {
+  usage_date: string;
+  global_used: number;
+  global_limit: number;
+  global_remaining: number;
+  history: DayCount[];
+  tenants: {
+    id: string;
+    email: string;
+    used_today: number;
+    daily_quota: number;
+    history: DayCount[];
+  }[];
 }
