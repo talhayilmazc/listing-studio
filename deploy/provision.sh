@@ -95,7 +95,9 @@ systemctl enable --now unattended-upgrades
 step "directories"
 install -d -m 0755 -o "$OPERATOR" -g "$OPERATOR" "$APP_DIR"
 install -d -m 0700 -o root -g root "$BACKUP_DIR"
-install -d -m 0700 -o root -g root "$CREDS_DIR"
+# Owned by the cloudflared container's user (the image runs as 65532, not root);
+# a root-only directory would leave the tunnel unable to read its credentials.
+install -d -m 0700 -o 65532 -g 65532 "$CREDS_DIR"
 
 step "cron: nightly backup, hourly disk check"
 cat > /etc/cron.d/listyro <<EOF

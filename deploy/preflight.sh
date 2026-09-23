@@ -90,8 +90,18 @@ if grep -q '<TUNNEL_ID>' "$TUNNEL_CONFIG"; then
 else
   tunnel_id="$(grep -E '^tunnel:' "$TUNNEL_CONFIG" | awk '{print $2}')"
   pass "tunnel id set"
-  [ -f "$CREDS_DIR/$tunnel_id.json" ] && pass "credentials file present" \
-    || fail "missing $CREDS_DIR/$tunnel_id.json (cloudflared tunnel create)"
+  creds="$CREDS_DIR/$tunnel_id.json"
+  # The directory is private to the tunnel container's user (65532), so only
+  # root can look inside it from the host.
+  if [ ! -x "$CREDS_DIR" ]; then
+    warn "cannot look inside $CREDS_DIR as $(id -un); run with sudo to check the tunnel credentials"
+  elif [ ! -f "$creds" ]; then
+    fail "missing $creds (cloudflared tunnel create)"
+  elif [ "$(stat -c %u "$creds")" != 65532 ] || [ "$(stat -c %u "$CREDS_DIR")" != 65532 ]; then
+    fail "the tunnel container (uid 65532) cannot read its credentials: chown -R 65532:65532 $CREDS_DIR"
+  else
+    pass "credentials file present and readable by the tunnel container"
+  fi
 fi
 
 echo "== host"

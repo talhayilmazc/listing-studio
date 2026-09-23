@@ -9,8 +9,9 @@ tunnel: <TUNNEL_ID>
 credentials-file: /etc/cloudflared/creds/<TUNNEL_ID>.json
 
 ingress:
-  # The admin endpoints (invite codes, temporary passwords) are never reachable
-  # from the internet. Run deploy/admin.sh on the server instead.
+  # The token-authenticated bootstrap endpoints are never reachable from the
+  # internet. Admin work goes through the session-protected /api/admin/* (the
+  # /admin screens), which the frontend proxies like any other /api call.
   - hostname: listyro.com
     path: ^/api/account/admin/
     service: http_status:404

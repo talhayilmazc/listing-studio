@@ -1,0 +1,9 @@
+# Files that run or are read on the Linux server keep LF line endings, even in a
+# Windows checkout: a CRLF bash script fails with "$'\r': command not found", and
+# a CRLF .env value carries a stray \r into every setting.
+*.sh                            text eol=lf
+*.yml                           text eol=lf
+*.yaml                          text eol=lf
+Dockerfile                      text eol=lf
+*.Dockerfile                    text eol=lf
+deploy/env.production.example   text eol=lf
