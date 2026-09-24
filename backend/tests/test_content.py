@@ -283,7 +283,7 @@ async def test_generator_prepends_profile_title_prefix() -> None:
 
     result = await gen.generate(ANALYSIS, sku="SKU1")
     assert result.attempts == 1
-    assert result.listing.title.startswith("COMFORT COLORS, ")
+    assert result.listing.title.startswith("COMFORT COLORS Motherhood")  # no comma (v6 §C)
     assert 110 <= len(result.listing.title) <= 140
     # The prompt tells the model about the prefix and the reduced budget.
     blocks = messages.calls[0]["messages"][0]["content"]
@@ -304,3 +304,28 @@ def test_title_110_is_accepted() -> None:
 def test_title_135_is_accepted() -> None:
     listing = GeneratedListing("x" * 135, _tags(13), "A description.")
     assert validate_listing(listing) == []
+
+
+# --- no comma after the prefix (docs/duzeltmeler-v6.md §C) --------------------------
+async def test_the_prefix_joins_the_first_phrase_without_a_comma() -> None:
+    from app.pipeline.content import join_prefix
+
+    assert join_prefix("Comfort Colors®", "Funny Nurse Shirt, Nurse Gift") == (
+        "Comfort Colors® Funny Nurse Shirt, Nurse Gift"
+    )
+    # The model wrote the prefix itself, with the old comma: it is kept once, without it.
+    assert join_prefix("Comfort Colors®", "Comfort Colors®, Funny Nurse Shirt") == (
+        "Comfort Colors® Funny Nurse Shirt"
+    )
+    assert join_prefix("", "Funny Nurse Shirt") == "Funny Nurse Shirt"
+
+    remainder = "Funny Nurse Shirt, Flu Season Humor Tee, Hand Washing Nurse Gift, Healthcare Worker Humor, Nurses Week"
+    tags = ["shirt", *[f"tag{i}" for i in range(12)]]
+    messages = FakeMessages([fake_response(_payload(title=remainder, tags=tags))])
+    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=messages)
+    gen = AnthropicContentGenerator(client, policy=APPAREL, title_prefix="Comfort Colors®")
+    result = await gen.generate(ANALYSIS)
+    assert result.listing.title == f"Comfort Colors® {remainder}"
+    assert "Comfort Colors®," not in result.listing.title
+    text = "\n".join(b["text"] for b in messages.calls[0]["messages"][0]["content"] if b["type"] == "text")
+    assert "no comma" in text

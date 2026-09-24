@@ -258,10 +258,14 @@ async def test_shops_are_listed_in_the_sellers_order_and_can_be_renamed(world) -
 # --- publishing to several shops --------------------------------------------------------
 def test_the_title_prefix_follows_the_shop() -> None:
     assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "").title == "Frog Tee"
-    assert retarget_title("Frog Tee", "", "Gildan").title == "Gildan, Frog Tee"
-    assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "Bella").title == "Bella, Frog Tee"
-    # Never twice, and a prefix written without its comma still comes off.
-    assert retarget_title("Bella, Frog Tee", "", "Bella").title == "Bella, Frog Tee"
+    # The prefix joins the first phrase with a space, never a comma (v6 §C).
+    assert retarget_title("Frog Tee", "", "Gildan").title == "Gildan Frog Tee"
+    assert retarget_title(f"{PREFIX_A} Frog Tee", PREFIX_A, "Bella").title == "Bella Frog Tee"
+    # Titles written with the old comma lose it when they move shop.
+    assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "Bella").title == "Bella Frog Tee"
+    # Never twice.
+    assert retarget_title("Bella, Frog Tee", "", "Bella").title == "Bella Frog Tee"
+    assert retarget_title("Bella Frog Tee", "", "Bella").title == "Bella Frog Tee"
     assert retarget_title("COMFORT COLORS Frog Tee, Pond Shirt", "COMFORT COLORS", "").title == (
         "Frog Tee, Pond Shirt"
     )
@@ -274,9 +278,9 @@ PHRASES = BODY.split(", ")
 def test_a_longer_prefix_drops_trailing_phrases_until_the_title_fits() -> None:
     long_prefix = "Bella Canvas Unisex Jersey Tee"  # 15 characters longer than PREFIX_A
     fitted = retarget_title(f"{PREFIX_A}, {BODY}", PREFIX_A, long_prefix)
-    assert len(f"{long_prefix}, {BODY}") > 140
+    assert len(f"{long_prefix} {BODY}") > 140
     assert len(fitted.title) <= 140
-    assert fitted.title == f"{long_prefix}, " + ", ".join(PHRASES[:-1])  # the last phrase went
+    assert fitted.title == f"{long_prefix} " + ", ".join(PHRASES[:-1])  # the last phrase went
     assert fitted.dropped == (PHRASES[-1],) and fitted.used_all is False
 
 
@@ -300,7 +304,7 @@ async def test_a_shop_is_not_refused_because_trimming_left_the_title_short(world
         assert len(content.title) <= 140
         target = await resolve_target(s, content, await s.get(EtsyConnection, world["a2"]))
     assert target.ok, target.reason
-    assert target.title == "Bella Canvas Unisex Jersey, Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck"
+    assert target.title == "Bella Canvas Unisex Jersey Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck"
     assert len(target.title) < 110  # short, but a draft rather than a refusal
 
 
