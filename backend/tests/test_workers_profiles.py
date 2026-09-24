@@ -319,3 +319,47 @@ async def test_refresh_ignores_shop_data_past_its_six_hour_limit(
     await _with_shop_cache(async_sm, tenant_id, age_hours=7)
 
     assert await _refresh_and_read_prefix(async_sm, monkeypatch, tenant_id, profile_id) is None
+
+
+# --- the whole shop, and nothing that has left it (docs/duzeltmeler-v6.md §A4) --------
+class PagedEtsy(FakeEtsy):
+    """A shop with 250 active listings and 3 drafts, served 100 at a time."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pages: list[tuple[str, int]] = []
+
+    async def get_listings_by_shop(self, shop_id: int, *, state: str, limit: int = 25, offset: int = 0, **_: Any):
+        self.pages.append((state, offset))
+        total = 250 if state == "active" else 3
+        start = 1000 if state == "active" else 5000
+        ids = range(start + offset, start + min(total, offset + limit))
+        return {"count": total, "results": [{"listing_id": i, "state": state} for i in ids]}
+
+
+async def test_sync_reads_every_page_of_a_large_shop(async_sm: async_sessionmaker, monkeypatch) -> None:
+    tenant_id, _ = await _seed(async_sm, with_profile=False)
+    fake = PagedEtsy()
+    _patch(monkeypatch, tenant_id, fake)
+    ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None}
+
+    assert await worker.sync_shop_listings(ctx, str(await _shop_of(async_sm, tenant_id))) == "synced:253"
+    assert fake.pages == [("active", 0), ("active", 100), ("active", 200), ("draft", 0)]
+
+
+async def test_sync_drops_listings_that_have_left_the_shop(async_sm: async_sessionmaker, monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    tenant_id, _ = await _seed(async_sm, with_profile=False)
+    shop = await _shop_of(async_sm, tenant_id)
+    async with async_sm() as s:  # a draft that has since been deleted on Etsy
+        s.add(ShopListingCache(tenant_id=tenant_id, connection_id=shop, listing_id=77,
+                               payload={"listing_id": 77, "state": "draft"},
+                               fetched_at=datetime.now(timezone.utc)))
+        await s.commit()
+    _patch(monkeypatch, tenant_id, FakeEtsy())
+    await worker.sync_shop_listings({"sessionmaker": async_sm, "bucket": None, "quota": None}, str(shop))
+
+    async with async_sm() as s:
+        ids = set((await s.execute(select(ShopListingCache.listing_id))).scalars())
+    assert ids == {1, 2}  # 77 is gone at once, not counted for up to six more hours

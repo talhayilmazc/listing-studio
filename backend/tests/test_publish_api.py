@@ -572,3 +572,44 @@ async def test_ticks_are_only_for_the_owners_drafts_and_known_settings(ctx) -> N
     assert (await ctx["client"].post(f"/api/batches/{batch}/manual-steps/done")).status_code == 404
     authenticate(ctx["client"], await open_session(ctx["redis"], ctx["tenant_id"]))
     assert (await _steps(ctx, draft))[0]["done"] is False
+
+
+# --- Approve all (docs/duzeltmeler-v6.md §D) -------------------------------------------
+async def test_approve_all_approves_only_listings_that_pass(ctx) -> None:
+    good = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
+    batch = await _batch_of(ctx, good)
+    async with ctx["sm"]() as s:  # two more in the same batch: one invalid, one already approved
+        base = await s.get(GeneratedContent, good)
+        made = []
+        for n, (title, approved) in enumerate([("too short", False), (VALID_TITLE, True)], start=2):
+            asset = Asset(batch_id=batch, tenant_id=ctx["tenant_id"], original_filename=f"x{n}.png",
+                          storage_key=f"k{n}", status=AssetStatus.processed, rank=n)
+            s.add(asset)
+            await s.flush()
+            content = GeneratedContent(tenant_id=ctx["tenant_id"], batch_id=batch, asset_id=asset.id,
+                                       title=title, tags=list(base.tags), description="d",
+                                       approved=approved, listing_profile_id=base.listing_profile_id)
+            s.add(content)
+            await s.flush()
+            made.append(content.id)
+        await s.commit()
+
+    body = (await ctx["client"].post(f"/api/batches/{batch}/approve-all")).json()
+    assert body["approved"] == 1 and body["already_approved"] == 1
+    [skip] = body["skipped"]
+    assert skip["content_id"] == str(made[0]) and skip["original_filename"] == "x2.png"
+    assert "at least 110" in skip["reason"]
+    async with ctx["sm"]() as s:
+        assert (await s.get(GeneratedContent, good)).approved is True
+        assert (await s.get(GeneratedContent, made[0])).approved is False  # invalid stays unapproved
+
+
+async def test_approve_all_is_only_for_the_owners_batch(ctx) -> None:
+    content = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
+    batch = await _batch_of(ctx, content)
+    other = await make_tenant(ctx["sm"], "other@example.com")
+    ctx["client"].cookies.clear()
+    authenticate(ctx["client"], await open_session(ctx["redis"], other))
+    assert (await ctx["client"].post(f"/api/batches/{batch}/approve-all")).status_code == 404
+    async with ctx["sm"]() as s:
+        assert (await s.get(GeneratedContent, content)).approved is False

@@ -823,3 +823,47 @@ async def test_publish_blocked_by_compliance(async_sm: async_sessionmaker) -> No
     assert fake.calls == []  # nothing was sent to Etsy
     async with async_sm() as s:
         assert await publication_for(s, content_id, conn_id) is None
+
+
+# --- an activation Etsy applies but answers late (docs/duzeltmeler-v6.md §A1) ------
+class SlowActivation(FakeEtsy):
+    """updateListing times out; the listing is (or is not) live when read back."""
+
+    def __init__(self, live: bool) -> None:
+        super().__init__(readback_override={"state": "active" if live else "draft"})
+
+    async def update_listing(self, shop_id: int, listing_id: int, *, updates, **_):  # noqa: ANN001
+        import httpx
+
+        self.calls.append("update_listing")
+        raise httpx.ReadTimeout("no answer in time")
+
+
+async def _go_live(async_sm, fake):
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    async with async_sm() as s:
+        content = await s.get(GeneratedContent, content_id)
+        s.add(ListingPublication(tenant_id=content.tenant_id, content_id=content_id,
+                                 connection_id=conn_id, etsy_listing_id=555, state="draft"))
+        await s.commit()
+    async with async_sm() as s:
+        await publish_live(
+            s, job_id=job_id, content=await s.get(GeneratedContent, content_id),
+            connection=await s.get(EtsyConnection, conn_id), client=fake,
+            access_token="tok", tenant_limit=2000, confirm_wait=0,
+        )
+    async with async_sm() as s:
+        return (await publication_for(s, content_id, conn_id)).state
+
+
+async def test_a_late_answer_is_not_a_failure_when_the_listing_is_live(async_sm: async_sessionmaker) -> None:
+    fake = SlowActivation(live=True)
+    assert await _go_live(async_sm, fake) == "active"
+    assert fake.calls.count("get_listing") == 1  # confirmed by reading it back
+
+
+async def test_a_late_answer_with_the_listing_still_a_draft_is_reported(async_sm: async_sessionmaker) -> None:
+    fake = SlowActivation(live=False)
+    with pytest.raises(ValueError, match="still a draft"):
+        await _go_live(async_sm, fake)
+    assert fake.calls.count("get_listing") == 3  # asked a few times before giving up

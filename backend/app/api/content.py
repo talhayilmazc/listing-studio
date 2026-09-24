@@ -296,3 +296,42 @@ async def approve_content(
     return schemas.ContentUpdateResult(
         content=(await contents_out(session, [(content, asset)]))[0], validation=validation
     )
+
+
+@router.post("/batches/{batch_id}/approve-all", response_model=schemas.ApproveAllResult)
+async def approve_all(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.ApproveAllResult:
+    """'Approve all' (docs/duzeltmeler-v6.md §D): every listing in the batch that
+    passes validation, exactly as approving it one by one would. The ones that do
+    not pass are left unapproved and reported with the reason."""
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+    rows = await session.execute(
+        select(GeneratedContent, Asset)
+        .join(Asset, Asset.id == GeneratedContent.asset_id)
+        .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
+        .order_by(Asset.rank, Asset.original_filename)
+    )
+    result = schemas.ApproveAllResult()
+    for content, asset in rows.all():
+        if content.approved:
+            result.already_approved += 1
+            continue
+        validation = await _validation(session, content)
+        if not validation.valid:
+            result.skipped.append(
+                schemas.ApproveSkipped(
+                    content_id=content.id,
+                    original_filename=asset.original_filename,
+                    reason="; ".join(validation.errors),
+                )
+            )
+            continue
+        content.approved = True
+        result.approved += 1
+    await session.commit()
+    return result

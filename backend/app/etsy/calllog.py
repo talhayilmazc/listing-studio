@@ -84,6 +84,6 @@ class CallLog:
             )
             return
         logger.info(
-            "etsy call %s %s %s job=%s status=%d attempt=%d waited=%.3fs calls_this_second=%s",
-            stamp, method, path, job, status, attempt, waited, in_second,
+            "etsy call %s %s %s job=%s status=%s attempt=%d waited=%.3fs calls_this_second=%s",
+            stamp, method, path, job, status or "no-answer", attempt, waited, in_second,
         )

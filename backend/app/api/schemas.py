@@ -115,6 +115,18 @@ class ApproveUpdate(BaseModel):
     approved: bool
 
 
+class ApproveSkipped(BaseModel):
+    content_id: uuid.UUID
+    original_filename: str
+    reason: str
+
+
+class ApproveAllResult(BaseModel):
+    approved: int = 0  # newly approved now
+    already_approved: int = 0
+    skipped: list[ApproveSkipped] = Field(default_factory=list)  # failed validation
+
+
 class ValidationInfo(BaseModel):
     valid: bool
     errors: list[str]

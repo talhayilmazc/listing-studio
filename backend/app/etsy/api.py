@@ -144,15 +144,23 @@ class EtsyApiClient:
             waited = time.monotonic() - waited
 
             sent_at, in_second = await self._calls.sent()
-            resp = await self._http.request(
-                method,
-                f"{self._base}{path}",
-                headers=auth_headers(self._client_id, self._shared_secret, access_token),
-                params=params,
-                data=_encode_form(data),
-                json=json,
-                files=files,
-            )
+            try:
+                resp = await self._http.request(
+                    method,
+                    f"{self._base}{path}",
+                    headers=auth_headers(self._client_id, self._shared_secret, access_token),
+                    params=params,
+                    data=_encode_form(data),
+                    json=json,
+                    files=files,
+                )
+            except httpx.TransportError:
+                # No answer (timeout, dropped connection): Etsy may still have acted.
+                await self._calls.record(
+                    sent_at=sent_at, in_second=in_second, method=method, path=path,
+                    status=0, waited=waited, attempt=attempt,
+                )
+                raise
             await self._calls.record(
                 sent_at=sent_at,
                 in_second=in_second,
@@ -272,11 +280,14 @@ class EtsyApiClient:
         access_token: str,
         state: str = "draft",
         limit: int = 25,
+        offset: int = 0,
         includes: list[str] | None = None,
         tenant_id: Any = None,
         tenant_limit: int | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {"state": state, "limit": limit}
+        if offset:
+            params["offset"] = offset
         if includes:
             params["includes"] = ",".join(includes)
         return await self._request(
