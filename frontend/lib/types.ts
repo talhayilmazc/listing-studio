@@ -407,3 +407,12 @@ export interface ApproveAllResult {
   already_approved: number;
   skipped: { content_id: string; original_filename: string; reason: string }[];
 }
+
+/** What one uploaded ZIP became (docs/duzeltmeler-v6.md §F). */
+export interface ArchiveResult {
+  assets: Asset[];
+  skipped_unsupported: number;
+  skipped_unsafe: number;
+  skipped_nested: number;
+  failed: { filename: string; error: string }[];
+}

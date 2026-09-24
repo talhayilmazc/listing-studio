@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 25 * 1024 * 1024  # per file
     max_batch_bytes: int = 1024 * 1024 * 1024  # per batch, all files
     max_image_pixels: int = 60_000_000  # decompression-bomb ceiling (~7746 x 7746)
+    # ZIP uploads (v6 §F). One archive per request: 95 MB stays under the 100 MB
+    # request cap of Cloudflare's tunnel; a larger set goes up as several ZIPs.
+    # 200 files keep the unpacking inside one request well under a minute.
+    max_archive_bytes: int = 95 * 1024 * 1024
+    max_archive_files: int = 200
+    max_archive_unpacked_bytes: int = 500 * 1024 * 1024
 
     # Optional error reporting (production-spec F6). Empty = off, and then the
     # Privacy Policy does not mention Sentry, because nothing is sent to it.

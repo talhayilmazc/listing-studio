@@ -195,6 +195,25 @@ class AssetFailure(BaseModel):
     error: str
 
 
+class ArchiveFailure(BaseModel):
+    filename: str
+    error: str
+
+
+class ArchiveResult(BaseModel):
+    """What one uploaded ZIP became (v6 §F)."""
+
+    assets: list[AssetOut] = []
+    #: Files that are not an accepted image (by content), or were encrypted.
+    skipped_unsupported: int = 0
+    #: Paths that tried to leave the archive (zip slip), and links.
+    skipped_unsafe: int = 0
+    #: Archives inside the archive; never opened.
+    skipped_nested: int = 0
+    #: Images the upload rules refused (too large, unreadable...), with why.
+    failed: list[ArchiveFailure] = []
+
+
 class GroupOrder(BaseModel):
     """A listing group's images in the order the seller chose (v6 §E): the first
     is the cover. ``group_key`` "" is the files at the root of the upload."""

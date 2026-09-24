@@ -3,12 +3,14 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, uploadAsset } from "@/lib/api";
+import { api, uploadArchive, uploadAsset } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
-import type { BatchSummary } from "@/lib/types";
+import type { ArchiveResult, BatchSummary } from "@/lib/types";
 
 interface Row {
+  /** Stable identity: a ZIP's row is replaced by its images once unpacked. */
+  key: string;
   name: string;
   pct: number;
   status: "pending" | "uploading" | "done" | "error";
@@ -26,6 +28,7 @@ interface Item {
 }
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
+const ZIP_RE = /\.zip$/i;
 // Formats a browser will not paint, so the tile shows a placeholder instead.
 const UNPREVIEWABLE_RE = /\.tiff?$/i;
 
@@ -43,6 +46,9 @@ export default function UploadPage() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [recent, setRecent] = useState<BatchSummary[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const zipRef = useRef<HTMLInputElement>(null);
+  // What each ZIP skipped or refused, so nothing disappears without a word (v6 §F).
+  const [notes, setNotes] = useState<string[]>([]);
   const previews = useRef<string[]>([]);
 
   // The last few uploads, so an empty page is not a single box in a void.
@@ -66,10 +72,12 @@ export default function UploadPage() {
   const runUpload = useCallback(
     async (items: Item[]) => {
       const images = items.filter((it) => IMAGE_RE.test(it.file.name));
-      if (images.length === 0) {
+      const archives = items.filter((it) => ZIP_RE.test(it.file.name));
+      if (images.length === 0 && archives.length === 0) {
         setRows([
           {
-            name: "No image files found in that folder.",
+            key: "none",
+            name: "No images or ZIP files found there.",
             pct: 0,
             status: "error",
             group: "",
@@ -78,17 +86,19 @@ export default function UploadPage() {
         return;
       }
       setBusy(true);
+      setNotes([]);
       previews.current.forEach((u) => URL.revokeObjectURL(u));
       previews.current = [];
 
-      setRows(
-        images.map((it) => {
+      setRows([
+        ...images.map((it, i) => {
           let preview: string | undefined;
           if (!UNPREVIEWABLE_RE.test(it.file.name)) {
             preview = URL.createObjectURL(it.file);
             previews.current.push(preview);
           }
           return {
+            key: `f${i}`,
             name: it.file.name,
             pct: 0,
             status: "pending" as const,
@@ -96,22 +106,31 @@ export default function UploadPage() {
             preview,
           };
         }),
-      );
+        // A ZIP shows as one row until the server has unpacked it.
+        ...archives.map((it, j) => ({
+          key: `z${j}`,
+          name: it.file.name,
+          pct: 0,
+          status: "pending" as const,
+          group: it.file.name,
+        })),
+      ]);
 
       const batch = await api.createBatch();
       setBatchId(batch.id);
 
       for (let i = 0; i < images.length; i++) {
-        setRows((r) => update(r, i, { status: "uploading" }));
+        const key = `f${i}`;
+        setRows((r) => update(r, key, { status: "uploading" }));
         try {
           const asset = await uploadAsset(
             batch.id,
             images[i].file,
-            (pct) => setRows((r) => update(r, i, { pct })),
+            (pct) => setRows((r) => update(r, key, { pct })),
             groupKeyOf(images[i].relpath),
           );
           setRows((r) =>
-            update(r, i, {
+            update(r, key, {
               status: "done",
               pct: 100,
               sku: asset.parsed_sku,
@@ -119,7 +138,22 @@ export default function UploadPage() {
             }),
           );
         } catch (e: any) {
-          setRows((r) => update(r, i, { status: "error", error: String(e.message ?? e) }));
+          setRows((r) => update(r, key, { status: "error", error: String(e.message ?? e) }));
+        }
+      }
+
+      for (let j = 0; j < archives.length; j++) {
+        const key = `z${j}`;
+        const name = archives[j].file.name;
+        setRows((r) => update(r, key, { status: "uploading" }));
+        try {
+          const res = await uploadArchive(batch.id, archives[j].file, (pct) =>
+            setRows((r) => update(r, key, { pct, name: pct >= 100 ? `${name}: unpacking…` : name })),
+          );
+          setRows((r) => r.flatMap((row) => (row.key === key ? archiveRows(key, res) : [row])));
+          setNotes((n) => [...n, ...archiveNotes(name, res)]);
+        } catch (e: any) {
+          setRows((r) => update(r, key, { status: "error", name, error: String(e.message ?? e) }));
         }
       }
 
@@ -184,6 +218,21 @@ export default function UploadPage() {
     />
   );
 
+  const zipInput = (
+    <input
+      ref={zipRef}
+      type="file"
+      multiple
+      accept=".zip,application/zip"
+      className="hidden"
+      onChange={(e) => {
+        const files = Array.from(e.target.files ?? []);
+        e.target.value = "";
+        if (files.length) runUpload(files.map((f) => ({ file: f, relpath: f.name })));
+      }}
+    />
+  );
+
   // Empty page: the drop zone leads, with recent uploads beneath it.
   if (empty) {
     return (
@@ -206,20 +255,32 @@ export default function UploadPage() {
             <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
           </svg>
         </div>
-        <h2 className="mt-4 font-display text-3xl text-slate-900">Drop a folder of designs</h2>
+        <h2 className="mt-4 font-display text-3xl text-slate-900">Drop a folder or ZIP of designs</h2>
         <p className="mt-1.5 max-w-md text-sm text-slate-500">
           Each subfolder becomes one listing group, and the SKU is read from the folder or file
-          name. PNG, JPG, WebP, GIF and TIFF are accepted.
+          name. PNG, JPG, WebP, GIF and TIFF are accepted. A ZIP keeps its folders; files at its
+          top level are one group.
         </p>
-        <button
-          type="button"
-          disabled={busy}
-          className="btn-secondary mt-5"
-          onClick={() => inputRef.current?.click()}
-        >
-          Choose a folder
-        </button>
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            className="btn-secondary"
+            onClick={() => inputRef.current?.click()}
+          >
+            Choose a folder
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="btn-secondary"
+            onClick={() => zipRef.current?.click()}
+          >
+            Choose ZIP files
+          </button>
+        </div>
         {folderInput}
+        {zipInput}
       </div>
 
       <RecentUploads batches={recent} />
@@ -261,6 +322,14 @@ export default function UploadPage() {
           >
             Choose a folder
           </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="btn-secondary"
+            onClick={() => zipRef.current?.click()}
+          >
+            Choose ZIP files
+          </button>
           {batchId && !busy && (
             <button className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)}>
               Open batch
@@ -268,7 +337,16 @@ export default function UploadPage() {
           )}
         </div>
         {folderInput}
+        {zipInput}
       </div>
+
+      {notes.length > 0 && (
+        <ul role="status" className="card space-y-1 p-3 text-xs text-slate-600">
+          {notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      )}
 
       {busy && (
         <div className="progress">
@@ -425,8 +503,39 @@ function GroupCard({ group }: { group: DetectedGroup }) {
   );
 }
 
-function update(rows: Row[], i: number, patch: Partial<Row>): Row[] {
-  return rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+function update(rows: Row[], key: string, patch: Partial<Row>): Row[] {
+  return rows.map((r) => (r.key === key ? { ...r, ...patch } : r));
+}
+
+/** A ZIP's images as rows, grouped by the folder each came from. */
+function archiveRows(key: string, res: ArchiveResult): Row[] {
+  return res.assets.map((a) => ({
+    key: `${key}-${a.id}`,
+    name: a.original_filename,
+    pct: 100,
+    status: "done" as const,
+    sku: a.parsed_sku,
+    group: a.group_key || "(root)",
+    assetStatus: a.status,
+    preview: a.status === "processed" ? api.assetImage(a.id, 224) : undefined,
+  }));
+}
+
+/** One line on what a ZIP held, then one per file it could not take. */
+function archiveNotes(name: string, res: ArchiveResult): string[] {
+  const groups = new Set(res.assets.map((a) => a.group_key ?? "")).size;
+  const skipped: string[] = [];
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (res.skipped_unsupported)
+    skipped.push(plural(res.skipped_unsupported, "file that is not an image", "files that are not images"));
+  if (res.skipped_nested)
+    skipped.push(plural(res.skipped_nested, "ZIP inside it (not opened)", "ZIPs inside it (not opened)"));
+  if (res.skipped_unsafe)
+    skipped.push(plural(res.skipped_unsafe, "file with an unsafe path", "files with unsafe paths"));
+  const head =
+    `${name}: ${plural(res.assets.length, "image", "images")} in ${plural(groups, "group", "groups")}` +
+    (skipped.length ? `; skipped ${skipped.join(", ")}.` : ".");
+  return [head, ...res.failed.map((f) => `${name} › ${f.filename}: ${f.error}`)];
 }
 
 async function walkEntry(entry: FileSystemEntry, out: Item[], prefix: string): Promise<void> {

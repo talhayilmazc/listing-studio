@@ -4,6 +4,7 @@ import type {
   AdminUsage,
   AdminUser,
   ApproveAllResult,
+  ArchiveResult,
   InviteIssued,
   TempPasswordIssued,
   Asset,
@@ -264,19 +265,34 @@ export function uploadAsset(
   onProgress: (pct: number) => void,
   groupKey?: string,
 ): Promise<Asset> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  // Folder-derived listing group (D1); empty string = root (single) group.
+  if (groupKey !== undefined) form.append("group_key", groupKey);
+  return postForm<Asset>(`${BASE}/batches/${batchId}/assets`, form, onProgress);
+}
+
+/** Upload a ZIP; the server unpacks it, keeping its folders as groups (v6 §F). */
+export function uploadArchive(
+  batchId: string,
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<ArchiveResult> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return postForm<ArchiveResult>(`${BASE}/batches/${batchId}/archive`, form, onProgress);
+}
+
+function postForm<T>(url: string, form: FormData, onProgress: (pct: number) => void): Promise<T> {
   return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append("file", file, file.name);
-    // Folder-derived listing group (D1); empty string = root (single) group.
-    if (groupKey !== undefined) form.append("group_key", groupKey);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${BASE}/batches/${batchId}/assets`);
+    xhr.open("POST", url);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText) as Asset);
+        resolve(JSON.parse(xhr.responseText) as T);
       } else {
         // Refusals (415 not an image, 413 too large) carry a readable `detail`;
         // show that, not the raw JSON envelope.
