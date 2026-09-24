@@ -48,6 +48,7 @@ REFERENCE = {
     "return_policy_id": 88,
     "readiness_state_id": 42,
     "production_partner_ids": [7],
+    "payload_version": 2,
     "should_auto_renew": True,
     "is_customizable": True,
     "is_personalizable": False,
@@ -74,13 +75,17 @@ REFERENCE = {
 
 
 class FakeEtsy:
-    def __init__(self, *, sections=None, properties=None, readback_taxonomy=None) -> None:
+    def __init__(
+        self, *, sections=None, properties=None, readback_taxonomy=None, readback_override=None
+    ) -> None:
         self.calls: list[str] = []
         self._sections = sections if sections is not None else {"results": []}
         self._properties = properties if properties is not None else {"results": []}
         # If set, get_listing returns this taxonomy (to simulate Etsy storing a
         # different/wrong category); otherwise it echoes what was submitted.
         self._readback_taxonomy = readback_taxonomy
+        # Fields to report differently from what was submitted on read-back.
+        self._readback_override = readback_override or {}
         self.last_listing: dict[str, Any] | None = None
         self.inventory: dict[str, Any] | None = None
         self.uploaded: list[tuple[int, str]] = []
@@ -96,7 +101,20 @@ class FakeEtsy:
             if self._readback_taxonomy is not None
             else (self.last_listing or {}).get("taxonomy_id")
         )
-        return {"listing_id": listing_id, "taxonomy_id": taxonomy}
+        submitted = self.last_listing or {}
+        # Echo what Etsy stores, in Etsy's response shape (production_partners objects).
+        stored = {
+            "listing_id": listing_id,
+            "taxonomy_id": taxonomy,
+            "who_made": submitted.get("who_made"),
+            "when_made": submitted.get("when_made"),
+            "production_partners": [
+                {"production_partner_id": pid, "partner_name": "Print Co"}
+                for pid in submitted.get("production_partner_ids") or []
+            ],
+        }
+        stored.update(self._readback_override)
+        return stored
 
     async def get_shop_by_owner_user_id(self, uid: int, **_: Any) -> dict[str, Any]:
         self.calls.append("shop")
@@ -420,6 +438,61 @@ async def test_publish_fails_when_stored_taxonomy_differs(async_sm: async_sessio
                 theme="x",
                 tenant_limit=2000,
             )
+
+
+async def _publish(async_sm, fake, reference=REFERENCE):
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+    async with async_sm() as s:
+        return await publish_content(
+            s,
+            job_id=job_id,
+            content=await s.get(GeneratedContent, content_id),
+            connection=await s.get(EtsyConnection, conn_id),
+            sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"),
+            client=fake,
+            access_token="tok",
+            config=CONFIG,
+            reference=reference,
+            theme="x",
+            tenant_limit=2000,
+        )
+
+
+async def test_production_details_are_copied_and_read_back(async_sm: async_sessionmaker) -> None:
+    """v5 §D: "How does your shop produce this item?" matches the reference."""
+    fake = FakeEtsy()
+    await _publish(async_sm, fake)
+    assert fake.last_listing["who_made"] == "i_did"
+    assert fake.last_listing["when_made"] == "made_to_order"
+    assert fake.last_listing["production_partner_ids"] == [7]
+    assert "get_listing" in fake.calls  # verified after creation
+
+
+@pytest.mark.parametrize(
+    ("stored", "named"),
+    [
+        ({"who_made": "someone_else"}, "who_made"),
+        ({"when_made": "2020_2025"}, "when_made"),
+        ({"production_partners": []}, "production partners"),
+    ],
+)
+async def test_publish_fails_when_stored_production_details_differ(
+    async_sm: async_sessionmaker, stored, named
+) -> None:
+    fake = FakeEtsy(readback_override=stored)
+    with pytest.raises(ValueError, match=named):
+        await _publish(async_sm, fake)
+
+
+async def test_a_profile_read_before_partners_were_copied_must_be_refreshed(
+    async_sm: async_sessionmaker,
+) -> None:
+    fake = FakeEtsy()
+    old = {k: v for k, v in REFERENCE.items() if k != "payload_version"}
+    with pytest.raises(ValueError, match="refresh the profile"):
+        await _publish(async_sm, fake, reference=old)
+    assert fake.last_listing is None  # nothing was created
 
 
 REQUIRED_NECKLINE = {

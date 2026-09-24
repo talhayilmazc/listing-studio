@@ -36,7 +36,11 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.pipeline.attributes import resolve_required_attributes
-from app.pipeline.reference import build_inventory_from_reference
+from app.pipeline.reference import (
+    PAYLOAD_VERSION,
+    build_inventory_from_reference,
+    production_partner_ids,
+)
 from app.pipeline.sections import choose_section
 
 logger = logging.getLogger(__name__)
@@ -230,6 +234,13 @@ async def publish_content(
         "return_policy_id": reference.get("return_policy_id"),
         "readiness_state_id": reference.get("readiness_state_id"),
     }
+    if int(reference.get("payload_version") or 1) < PAYLOAD_VERSION:
+        # Read before partners were copied: it would say "no partners" even when the
+        # reference has them, and the draft would quietly lose them (v5 §D).
+        raise ValueError(
+            "the reference profile was read by an older version that did not copy "
+            "production partners; refresh the profile, then try again"
+        )
     missing = [name for name, value in required.items() if value is None or value == ""]
     if missing:
         raise ValueError(
@@ -279,6 +290,21 @@ async def publish_content(
         raise ValueError(
             f"draft taxonomy_id {stored_taxonomy} does not match reference {taxonomy_id}; "
             "the listing would be in the wrong category"
+        )
+    # Same check for "How does your shop produce this item?" (v5 §D): who made it,
+    # when, and with which production partners, exactly as on the reference.
+    differs = [
+        field
+        for field in ("who_made", "when_made")
+        if readback.get(field) != listing.get(field)
+    ]
+    if production_partner_ids(readback) != sorted(listing.get("production_partner_ids") or []):
+        differs.append("production partners")
+    if differs:
+        raise ValueError(
+            "the draft's production details do not match the reference ("
+            + ", ".join(differs)
+            + "); check them in Shop Manager"
         )
 
     # 5b) Required category attributes (neckline, sleeve length, clothing style, ...):

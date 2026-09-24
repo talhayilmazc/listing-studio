@@ -44,7 +44,8 @@ REF_LISTING = {
     "taxonomy_id": 2078,
     "price": {"amount": 2599, "divisor": 100, "currency_code": "USD"},
     "shipping_profile_id": 55,
-    "production_partner_ids": [7],
+    # Etsy's response shape: objects, not the ids createDraftListing takes (v5 §D).
+    "production_partners": [{"production_partner_id": 7, "partner_name": "Print Co", "location": "US"}],
     "who_made": "i_did",
     "when_made": "made_to_order",
     "is_supply": False,
@@ -86,6 +87,7 @@ def test_build_profile_payload_copies_reference_fields() -> None:
     assert payload["currency"] == "USD"
     assert payload["shipping_profile_id"] == 55
     assert payload["production_partner_ids"] == [7]
+    assert payload["payload_version"] == 2
     assert payload["who_made"] == "i_did"
     assert payload["is_supply"] is False
     assert payload["processing_min"] == 1 and payload["processing_max"] == 3
@@ -288,7 +290,7 @@ def _row(listing_id: int, title: str, *, taxonomy: int = 2078, price: int = 2599
         "title": title,
         "taxonomy_id": taxonomy,
         "price": {"amount": price, "divisor": 100},
-        "production_partner_ids": list(partners),
+        "production_partners": [{"production_partner_id": p} for p in partners],
     }
 
 
