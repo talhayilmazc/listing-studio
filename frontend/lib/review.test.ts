@@ -2,17 +2,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyChange, cardKey, reviewActions } from "./review.ts";
-import type { Content } from "./types.ts";
+import type { Content, Publication } from "./types.ts";
 
 function item(id: string, over: Partial<Content> = {}): Content {
-  return {
-    id,
-    approved: false,
-    etsy_listing_id: null,
-    etsy_listing_state: null,
-    listing_link: null,
-    ...over,
-  } as Content;
+  return { id, approved: false, connection_id: "shop-1", publications: [], ...over } as Content;
+}
+
+function pub(shop: string, state = "draft", listing = 1): Publication {
+  return { connection_id: shop, shop_name: shop, etsy_listing_id: listing, state, listing_link: "x" };
 }
 
 test("nothing approved: neither bulk action has work", () => {
@@ -28,17 +25,28 @@ test("approving in a card makes 'Create drafts for all' available without a relo
 test("a finished draft job makes 'Publish all' available without a reload", () => {
   let items = [item("a", { approved: true }), item("b", { approved: true })];
   assert.equal(reviewActions(items).toPublish, 0);
-  items = applyChange(items, { id: "a", etsy_listing_id: 42, etsy_listing_state: "draft" });
+  items = applyChange(items, { id: "a", publications: [pub("shop-1")] });
   assert.deepEqual(reviewActions(items), { approved: 2, toDraft: 1, toPublish: 1 });
 });
 
 test("live listings are not offered for publishing again", () => {
-  const items = [item("a", { approved: true, etsy_listing_id: 1, etsy_listing_state: "active" })];
+  const items = [item("a", { approved: true, publications: [pub("shop-1", "active")] })];
   assert.equal(reviewActions(items).toPublish, 0);
 });
 
-test("a card remounts when its Etsy state changes, not when it is approved", () => {
+test("with two target shops, a draft in one still leaves work in the other", () => {
+  const items = [item("a", { approved: true, publications: [pub("shop-1")] })];
+  assert.equal(reviewActions(items).toDraft, 0); // its own shop is done
+  assert.equal(reviewActions(items, ["shop-1", "shop-2"]).toDraft, 1);
+  assert.equal(reviewActions(items, ["shop-1"]).toDraft, 0);
+});
+
+test("a card remounts when a draft changes, not when it is approved", () => {
   const before = item("a");
   assert.equal(cardKey(before), cardKey({ ...before, approved: true }));
-  assert.notEqual(cardKey(before), cardKey({ ...before, etsy_listing_id: 42, etsy_listing_state: "draft" }));
+  assert.notEqual(cardKey(before), cardKey({ ...before, publications: [pub("shop-2", "draft", 42)] }));
+  assert.notEqual(
+    cardKey({ ...before, publications: [pub("shop-2", "draft", 42)] }),
+    cardKey({ ...before, publications: [pub("shop-2", "active", 42)] }),
+  );
 });

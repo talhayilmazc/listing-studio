@@ -103,10 +103,36 @@ async def ctx() -> AsyncIterator[dict]:
     await engine.dispose()
 
 
+async def _shop(s, tenant_id) -> uuid.UUID:
+    rows = await s.execute(select(EtsyConnection.id).where(EtsyConnection.tenant_id == tenant_id))
+    return rows.scalars().first()
+
+
 async def _add_content(
-    sm, tenant_id, *, approved=True, valid=True, listing_id=None, listing_state=None
+    sm, tenant_id, *, approved=True, valid=True, listing_id=None, listing_state=None, profile=True
 ) -> uuid.UUID:
+    """A listing written with a fresh profile of the tenant's shop (so it has a shop
+    to go to); ``listing_id`` also records its draft there (v5 §E)."""
+    from datetime import datetime, timezone
+
+    from app.db.models import ListingProfile, ListingPublication
+
     async with sm() as s:
+        shop = await _shop(s, tenant_id)
+        profile_row = None
+        if profile:
+            profile_row = ListingProfile(
+                tenant_id=tenant_id,
+                connection_id=shop,
+                name="Standard Tee",
+                reference_listing_id=555,
+                content_template="digital_products",
+                confirmed=True,
+                cached_payload={"price": 25.0, "images": [], "description": "Ref\n\nBody"},
+                updated_at=datetime.now(timezone.utc),
+            )
+            s.add(profile_row)
+            await s.flush()
         batch = UploadBatch(tenant_id=tenant_id, status=UploadBatchStatus.ready, file_count=1)
         s.add(batch)
         await s.flush()
@@ -129,10 +155,21 @@ async def _add_content(
             tags=[f"tag{i}" for i in range(13)],
             description="Fixed description.",
             approved=approved,
-            etsy_listing_id=listing_id,
-            etsy_listing_state=listing_state,
+            listing_profile_id=profile_row.id if profile_row else None,
         )
         s.add(content)
+        await s.flush()
+        if listing_id is not None:
+            s.add(
+                ListingPublication(
+                    tenant_id=tenant_id,
+                    content_id=content.id,
+                    connection_id=shop,
+                    profile_id=profile_row.id if profile_row else None,
+                    etsy_listing_id=listing_id,
+                    state=listing_state or "draft",
+                )
+            )
         await s.commit()
         return content.id
 
@@ -141,7 +178,8 @@ async def test_publish_one_enqueues_job(ctx) -> None:
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"])
     res = await ctx["client"].post(f"/api/content/{content_id}/publish")
     assert res.status_code == 200
-    body = res.json()
+    # One job per shop; by default the listing goes to its own profile's shop.
+    [body] = res.json()["jobs"]
     assert body["content_id"] == str(content_id)
 
     # A create_draft job was created and enqueued.
@@ -159,7 +197,7 @@ async def test_asking_again_reuses_the_unfinished_job(ctx) -> None:
     first = (await ctx["client"].post(f"/api/content/{content_id}/publish")).json()
     second = (await ctx["client"].post(f"/api/content/{content_id}/publish")).json()
 
-    assert first["job_id"] == second["job_id"]
+    assert first["jobs"][0]["job_id"] == second["jobs"][0]["job_id"]
     assert len(ctx["enqueuer"].calls) == 1
     async with ctx["sm"]() as s:
         jobs = (await s.execute(select(Job))).scalars().all()
@@ -183,7 +221,7 @@ async def test_publish_one_rejects_already_published(ctx) -> None:
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=42)
     res = await ctx["client"].post(f"/api/content/{content_id}/publish")
     assert res.status_code == 409
-    assert "already published" in res.json()["detail"]
+    assert "already has a draft in this shop" in res.json()["detail"]
 
 
 async def test_publish_requires_connection(ctx) -> None:
@@ -318,12 +356,14 @@ async def _attach_profile(sm, content_id, *, age_hours: float, payload=True) -> 
         content = await s.get(GeneratedContent, content_id)
         profile = ListingProfile(
             tenant_id=content.tenant_id,
+            connection_id=await _shop(s, content.tenant_id),
+            confirmed=True,
             name="Standard Tee",
             reference_listing_id=555,
             # The seeded content is a digital print; an apparel template would
             # (rightly) reject its title under the apparel content policy.
             content_template="digital_products",
-            cached_payload={"price": 25.0, "images": []} if payload else None,
+            cached_payload={"price": 25.0, "images": [], "description": "Ref"} if payload else None,
             updated_at=datetime.now(timezone.utc) - timedelta(hours=age_hours),
         )
         s.add(profile)

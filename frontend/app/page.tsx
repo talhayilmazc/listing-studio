@@ -150,8 +150,9 @@ function BatchCard({
   // (creating a draft requires approval).
   const generated = content.length;
   const approved = content.filter((c) => c.approved).length;
-  const drafted = content.filter((c) => c.etsy_listing_id !== null).length;
-  const published = content.filter((c) => c.etsy_listing_state === "active").length;
+  // Per listing, in any shop: drafted somewhere, live somewhere (v5 §E).
+  const drafted = content.filter((c) => c.publications.length > 0).length;
+  const published = content.filter((c) => c.publications.some((p) => p.state === "active")).length;
 
   return (
     <Link

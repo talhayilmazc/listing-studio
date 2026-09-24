@@ -11,7 +11,8 @@ Sequence (every HTTP call is gated by the client's quota + token bucket):
 7. updateListingInventory with size variations + SKU,
 8. upload images in rank order: prepared thumbnail ``rank=1``, then the rest,
    with the optional size-chart image second-to-last,
-9. record ``etsy_listing_id`` on the content.
+9. record the draft as a :class:`ListingPublication` for this content in this shop
+   (one content can have a draft in each of several shops, v5 §E).
 
 Partial failure (e.g. an image upload) leaves the draft in place; the worker
 records which step failed. Nothing is ever auto-published.
@@ -32,6 +33,7 @@ from app.db.models import (
     ComplianceSeverity,
     EtsyConnection,
     GeneratedContent,
+    ListingPublication,
     ListingSnapshot,
 )
 from app.etsy.api import EtsyApiClient
@@ -127,6 +129,18 @@ async def _has_blocking_finding(session: AsyncSession, content_id: uuid.UUID) ->
     return rows.first() is not None
 
 
+async def publication_for(
+    session: AsyncSession, content_id: uuid.UUID, connection_id: uuid.UUID
+) -> ListingPublication | None:
+    rows = await session.execute(
+        select(ListingPublication).where(
+            ListingPublication.content_id == content_id,
+            ListingPublication.connection_id == connection_id,
+        )
+    )
+    return rows.scalar_one_or_none()
+
+
 async def publish_content(
     session: AsyncSession,
     *,
@@ -147,15 +161,26 @@ async def publish_content(
     profile_name: str = "",
     auto_create_sections: bool = False,
     tenant_limit: int,
+    profile_id: uuid.UUID | None = None,
+    title: str | None = None,
+    description: str | None = None,
 ) -> PublishResult:
+    """Create the draft in ``connection``'s shop from ``reference`` (that shop's profile).
+
+    ``title`` / ``description`` override the content's own when the draft goes to
+    a shop other than the one the content was written for: the title carries that
+    shop's prefix, the description that shop's reference body (v5 §E).
+    """
     extras = list(extra_images) if extra_images else []
     fixed = list(fixed_image_ids or [])
     tenant_id = connection.tenant_id
     ctx = {"access_token": access_token, "tenant_id": tenant_id, "tenant_limit": tenant_limit}
 
-    # 1) Compliance gate.
+    # 1) Compliance gate, and one draft per content per shop.
     if await _has_blocking_finding(session, content.id):
         raise PublishBlocked("content has a blocking compliance finding")
+    if await publication_for(session, content.id, connection.id) is not None:
+        raise ValueError("this listing already has a draft in this shop")
 
     # 2) Resolve the shop id.
     if connection.shop_id is None:
@@ -251,8 +276,8 @@ async def publish_content(
     taxonomy_id = required["taxonomy_id"]
     listing: dict[str, Any] = {
         "quantity": config.quantity,
-        "title": content.title or "",
-        "description": content.description or "",
+        "title": (title if title is not None else content.title) or "",
+        "description": (description if description is not None else content.description) or "",
         # Apparel is always a PHYSICAL listing. Sending type=download makes Etsy
         # create a digital listing and force the "Digital files" category (v4 §A).
         "type": "physical",
@@ -366,8 +391,16 @@ async def publish_content(
 
     # 8) Record the listing id. It is created as a DRAFT (state never set), so mark
     # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
-    content.etsy_listing_id = listing_id
-    content.etsy_listing_state = "draft"
+    session.add(
+        ListingPublication(
+            tenant_id=tenant_id,
+            content_id=content.id,
+            connection_id=connection.id,
+            profile_id=profile_id,
+            etsy_listing_id=listing_id,
+            state="draft",
+        )
+    )
     await session.commit()
 
     return PublishResult(
@@ -400,8 +433,9 @@ async def publish_live(
 
     if await _has_blocking_finding(session, content.id):
         raise PublishBlocked("content has a blocking compliance finding")
-    if content.etsy_listing_id is None:
-        raise ValueError("no draft listing to publish; create the draft first")
+    publication = await publication_for(session, content.id, connection.id)
+    if publication is None:
+        raise ValueError("no draft listing in this shop to publish; create the draft first")
 
     # updateListing is shop-scoped, so resolve (and cache) the shop id.
     if connection.shop_id is None:
@@ -411,7 +445,7 @@ async def publish_live(
         connection.shop_id = int(shop["shop_id"])
         await session.commit()
     shop_id = connection.shop_id
-    listing_id = content.etsy_listing_id
+    listing_id = publication.etsy_listing_id
 
     # Snapshot the pre-change state so the go-live can be rolled back to draft.
     session.add(
@@ -419,13 +453,13 @@ async def publish_live(
             tenant_id=tenant_id,
             listing_id=listing_id,
             job_id=job_id,
-            payload={"operation": "publish_live", "previous_state": content.etsy_listing_state or "draft"},
+            payload={"operation": "publish_live", "previous_state": publication.state},
         )
     )
     await session.commit()
 
     await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
-    content.etsy_listing_state = "active"
+    publication.state = "active"
     await session.commit()
 
     return PublishResult(

@@ -78,6 +78,7 @@ class Party:
     profile_id: uuid.UUID
     job_id: uuid.UUID
     listing_id: int
+    connection_id: uuid.UUID
 
 
 def _png() -> bytes:
@@ -121,6 +122,7 @@ async def _seed(sm, storage: LocalStorage, email: str, listing_id: int) -> Party
         )
         profile = ListingProfile(
             tenant_id=tenant_id,
+            connection_id=connection.id,
             name=f"{email} profile",
             reference_listing_id=listing_id,
             content_template="apparel",
@@ -151,6 +153,7 @@ async def _seed(sm, storage: LocalStorage, email: str, listing_id: int) -> Party
         s.add(
             ShopListingCache(
                 tenant_id=tenant_id,
+                connection_id=connection.id,
                 listing_id=listing_id,
                 payload={"listing_id": listing_id, "state": "active", "title": email},
             )
@@ -165,6 +168,7 @@ async def _seed(sm, storage: LocalStorage, email: str, listing_id: int) -> Party
             profile_id=profile.id,
             job_id=job.id,
             listing_id=listing_id,
+            connection_id=connection.id,
         )
 
 
@@ -442,7 +446,8 @@ async def test_every_endpoint_requires_a_session(two) -> None:
         ("POST", f"/api/shop/listings/{alice.listing_id}/replace-images"),
         ("GET", "/api/auth/etsy/status"),
         ("GET", "/api/auth/etsy/start"),
-        ("POST", "/api/auth/etsy/disconnect"),
+        ("GET", "/api/shops"),
+        ("POST", f"/api/shops/{uuid.uuid4()}/disconnect"),
     ]
     for method, path in paths:
         resp = await anon.request(method, path, json={})

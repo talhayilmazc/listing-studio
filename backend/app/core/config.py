@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     # The rest is held back so jobs already running finish instead of dying at the wall.
     global_pause_percent: int = Field(default=90, ge=1, le=100)
 
+    # Connected Etsy shops (docs/duzeltmeler-v5.md §E). Every shop costs daily
+    # budget just to keep in sync (~18 requests a day idle), and the 5,000/day is
+    # shared by all of them, so the app-wide ceiling is set by the budget, not by
+    # how many shops Etsy would allow. Per account, an admin can override the default.
+    max_shops_per_tenant: int = Field(default=8, ge=1)
+    max_shops_app_wide: int = Field(default=20, ge=1)
+
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"
 

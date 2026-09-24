@@ -13,6 +13,7 @@ import type {
   ShopListing,
 } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
+import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
@@ -28,6 +29,9 @@ export default function Dashboard() {
   const [thumbs, setThumbs] = useState<Thumbs>({});
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [usage, setUsage] = useState<Record<string, number> | null>(null);
+  // Shop figures follow the shop selected in the rail (v5 §E).
+  const { selected } = useShops();
+  const shopId = selected?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -36,14 +40,14 @@ export default function Dashboard() {
     };
 
     api.connection().then(set(setConnection)).catch(() => setConnection(null));
-    api.quota().then(set(setQuota)).catch(() => {});
+    api.quota(shopId).then(set(setQuota)).catch(() => {});
     api
-      .shopListings()
+      .shopListings(shopId)
       .then(set<{ listings: ShopListing[] }>((r) => setListings(r.listings)))
       .catch(() => setListings([]));
 
     api
-      .listProfiles()
+      .listProfiles(shopId)
       .then(set(setProfiles))
       .catch(() => setProfiles([]));
 
@@ -90,7 +94,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shopId]);
 
   return (
     <div className="space-y-6">

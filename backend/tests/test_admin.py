@@ -175,7 +175,10 @@ async def test_users_list_shows_metadata(world) -> None:
     assert set(bob) == {
         "id", "email", "is_admin", "status", "must_change_password", "created_at",
         "shop_name", "shop_connected", "listings_published", "quota_used_today", "daily_quota",
+        "shops", "shops_used", "shops_limit", "shops_limit_custom",
     }
+    # Shop names and counts only: never a shop's listings, profiles or cache (v5 §E).
+    assert bob["shops_used"] == 1 and bob["shops_limit"] == 8 and bob["shops_limit_custom"] is False
 
 
 async def test_suspend_ends_sessions_and_blocks_login_until_reactivated(world) -> None:

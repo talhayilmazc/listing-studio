@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { BatchSummary, Profile, Quota, ShopSummary } from "@/lib/types";
 import { useSession } from "./SessionProvider";
+import { useShops } from "./ShopProvider";
 
 /**
  * Metric strip (docs/ui-direction-v2.md §3): a band of real figures above the
@@ -27,6 +28,9 @@ export function MetricStrip() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
 
   const { account } = useSession();
+  // Shop figures follow the shop selected in the rail (v5 §E); batches are the account's.
+  const { selected } = useShops();
+  const shopId = selected?.id ?? null;
   // /admin carries its own app-wide figures. For anyone else it is an ordinary
   // 404, so it keeps the strip every unknown route has.
   const hidden =
@@ -35,14 +39,14 @@ export function MetricStrip() {
   useEffect(() => {
     if (hidden) return;
     let cancelled = false;
-    api.quota().then((q) => !cancelled && setQuota(q)).catch(() => {});
-    api.shopSummary().then((s) => !cancelled && setShop(s)).catch(() => {});
+    api.quota(shopId).then((q) => !cancelled && setQuota(q)).catch(() => {});
+    api.shopSummary(shopId).then((s) => !cancelled && setShop(s)).catch(() => {});
     api.listBatches().then((b) => !cancelled && setBatches(b)).catch(() => setBatches([]));
-    api.listProfiles().then((p) => !cancelled && setProfiles(p)).catch(() => setProfiles([]));
+    api.listProfiles(shopId).then((p) => !cancelled && setProfiles(p)).catch(() => setProfiles([]));
     return () => {
       cancelled = true;
     };
-  }, [hidden]);
+  }, [hidden, shopId]);
 
   if (hidden) return null;
 

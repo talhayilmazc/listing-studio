@@ -80,15 +80,15 @@ export function UsersTab({
                       {self && <span className="shrink-0 text-xs text-slate-400">you</span>}
                     </div>
                   </td>
-                  <td className="whitespace-nowrap px-3 py-3">
-                    {u.shop_connected ? (
-                      <span className="inline-flex items-center gap-1.5 text-slate-700">
-                        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                        {u.shop_name ?? "Connected"}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">Not connected</span>
-                    )}
+                  <td className="px-3 py-3">
+                    <ShopsCell
+                      user={u}
+                      onSave={async (n) => {
+                        const next = await run(() => api.admin.setShopLimit(u.id, n));
+                        if (next) onChanged(next);
+                        return Boolean(next);
+                      }}
+                    />
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-slate-600">{date(u.created_at)}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-slate-700">
@@ -184,6 +184,74 @@ function StatusBadge({ user }: { user: AdminUser }) {
 }
 
 /** Used today against this user's own ceiling, with the ceiling editable in place. */
+/**
+ * The account's shops (names only) and how many it may connect (v5 §E). The
+ * ceiling is editable here; empty resets it to the default.
+ */
+function ShopsCell({
+  user,
+  onSave,
+}: {
+  user: AdminUser;
+  onSave: (n: number | null) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(user.shops_limit_custom ? String(user.shops_limit) : "");
+  const n = value.trim() === "" ? null : Number(value);
+  const valid = n === null || (Number.isInteger(n) && n >= 1);
+
+  return (
+    <div className="min-w-[160px] space-y-1">
+      {user.shops.length ? (
+        <p className="truncate text-slate-700" title={user.shops.join(", ")}>
+          <span aria-hidden className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
+          {user.shops.join(", ")}
+        </p>
+      ) : (
+        <p className="text-slate-400">Not connected</p>
+      )}
+      {editing ? (
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!valid) return;
+            if (await onSave(n)) setEditing(false);
+          }}
+        >
+          <input
+            autoFocus
+            inputMode="numeric"
+            value={value}
+            placeholder="default"
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
+            aria-label={`Shop limit for ${user.email}`}
+            aria-invalid={!valid}
+            className="field w-16 py-0.5 text-xs tabular-nums"
+          />
+          <button type="submit" disabled={!valid} className="btn-primary px-2 py-0.5 text-xs">
+            Save
+          </button>
+          <button type="button" onClick={() => setEditing(false)} className="px-1 text-xs text-slate-500">
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          title="Change how many shops this account may connect"
+          className="text-xs tabular-nums text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900"
+        >
+          {user.shops_used} of {user.shops_limit} shops
+          {user.shops_limit_custom ? " (custom)" : ""}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function QuotaCell({
   user,
   globalLimit,

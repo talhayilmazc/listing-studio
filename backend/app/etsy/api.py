@@ -101,6 +101,7 @@ class EtsyApiClient:
         cache: Redis | None = None,
         call_log: CallLog | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
+        shop: Any = None,
     ) -> None:
         self._client_id = client_id
         self._shared_secret = shared_secret
@@ -112,6 +113,8 @@ class EtsyApiClient:
         self._usage = usage
         self._calls = call_log or CallLog(bucket.redis if bucket is not None else None)
         self._sleep = sleep or asyncio.sleep
+        # The connection this client works for, so usage can be shown per shop.
+        self._shop = shop
 
     async def _request(
         self,
@@ -133,7 +136,7 @@ class EtsyApiClient:
             # Every attempt, retries included, passes both: a refused request still
             # counts against Etsy's budget, and an unpaced retry makes more 429s.
             if self._quota is not None and tenant_id is not None and tenant_limit is not None:
-                if not await self._quota.reserve(tenant_id, tenant_limit):
+                if not await self._quota.reserve(tenant_id, tenant_limit, shop=self._shop):
                     raise RateLimitExceeded("daily Etsy API budget exhausted")
             waited = time.monotonic()
             if self._bucket is not None:

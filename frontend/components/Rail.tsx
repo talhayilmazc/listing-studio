@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "./SessionProvider";
-import type { Connection, Profile, Quota } from "@/lib/types";
+import type { Profile, Quota } from "@/lib/types";
+import { useShops } from "./ShopProvider";
 
 /**
  * Persistent dark left rail (docs/ui-direction-v2.md §1).
@@ -49,17 +50,21 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
   const pathname = usePathname() ?? "/";
   const { account } = useSession();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const { selected } = useShops();
+  const shopId = selected?.id ?? null;
 
+  // The selected shop's profiles: each shop has its own (v5 §E).
   useEffect(() => {
     let cancelled = false;
+    setProfiles(null);
     api
-      .listProfiles()
+      .listProfiles(shopId)
       .then((p) => !cancelled && setProfiles(p))
       .catch(() => setProfiles([]));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shopId]);
 
   return (
     <>
@@ -226,34 +231,29 @@ function ProfileChildren({
   );
 }
 
-/** Account, shop identity, and the ToU-required daily quota indicator. */
+/**
+ * Account, the shop switcher (v5 §E) and the ToU-required daily quota indicator.
+ *
+ * The selected shop decides which profiles, listings and figures the app shows;
+ * batches and uploads are the account's and do not change with it.
+ */
 function RailFooter() {
   const { account, signOut } = useSession();
-  const [conn, setConn] = useState<Connection | null>(null);
+  const { shops, slots, selected, select } = useShops();
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [open, setOpen] = useState(false);
+  const shopId = selected?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
     api
-      .connection()
-      .then((c) => !cancelled && setConn(c))
-      .catch(() => {});
-    api
-      .quota()
+      .quota(shopId)
       .then((q) => !cancelled && setQuota(q))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const name = conn?.shop_name ?? null;
-  const initials = (name ?? "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase())
-    .join("");
+  }, [shopId]);
 
   const used = quota ? quota.tenant_used / Math.max(1, quota.tenant_limit) : 0;
   const low = quota ? quota.tenant_remaining < quota.tenant_limit * 0.1 : false;
@@ -275,7 +275,7 @@ function RailFooter() {
         </button>
       </div>
 
-      {conn && !conn.connected ? (
+      {shops !== null && shops.length === 0 ? (
         <Link
           href="/connect"
           className="block rounded-lg border border-white/[0.12] px-3 py-2 text-center text-sm text-[var(--rail-active)] transition-colors hover:bg-white/[0.06]"
@@ -283,27 +283,78 @@ function RailFooter() {
           Connect shop
         </Link>
       ) : (
-        <Link
-          href="/connect"
-          className="flex items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-white/[0.04]"
-          title={name ? `Connected to ${name}` : "Etsy connection"}
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.08] text-[11px] font-semibold text-[var(--rail-active)]">
-            {initials || "—"}
-          </span>
-          <span className="min-w-0 flex-1">
-            {conn === null ? (
-              <span className="block h-3.5 w-24 animate-pulse rounded bg-white/[0.08]" />
-            ) : (
-              <span className="block truncate text-[13px] font-medium text-[var(--rail-active)]">
-                {name ?? "Your shop"}
-              </span>
-            )}
-          </span>
-          {conn?.connected && (
-            <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-white/[0.04]"
+            title={selected ? `Showing ${selected.name}` : "Your shops"}
+          >
+            <ShopBadge name={selected?.name ?? null} />
+            <span className="min-w-0 flex-1">
+              {selected === null ? (
+                <span className="block h-3.5 w-24 animate-pulse rounded bg-white/[0.08]" />
+              ) : (
+                <>
+                  <span className="block truncate text-[13px] font-medium text-[var(--rail-active)]">
+                    {selected.name}
+                  </span>
+                  {shops && shops.length > 1 && (
+                    <span className="block text-[11px] text-[var(--rail-text)]">
+                      {shops.length} shops · switch
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+            <svg aria-hidden width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-[var(--rail-text)]">
+              <path d="M7 10l5-5 5 5M7 14l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          {open && shops && (
+            <div
+              role="listbox"
+              aria-label="Your shops"
+              className="absolute inset-x-0 bottom-full z-10 mb-1 overflow-hidden rounded-lg border border-white/[0.1] bg-[var(--rail)] shadow-lg"
+            >
+              {shops.map((shop) => (
+                <button
+                  key={shop.id}
+                  type="button"
+                  role="option"
+                  aria-selected={shop.id === selected?.id}
+                  onClick={() => {
+                    select(shop.id);
+                    setOpen(false);
+                  }}
+                  className={
+                    "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/[0.06] " +
+                    (shop.id === selected?.id ? "text-[var(--rail-active)]" : "text-[var(--rail-text)]")
+                  }
+                >
+                  <ShopBadge name={shop.name} small />
+                  <span className="min-w-0 flex-1 truncate">{shop.name}</span>
+                  {shop.id === selected?.id && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                </button>
+              ))}
+              <Link
+                href="/connect"
+                onClick={() => setOpen(false)}
+                className="block border-t border-white/[0.08] px-3 py-2 text-[12px] text-[var(--rail-text)] transition-colors hover:bg-white/[0.06] hover:text-[var(--rail-active)]"
+              >
+                {slots?.can_add ? "Connect another shop · manage" : "Manage shops"}
+                {slots && (
+                  <span className="ml-1 text-[var(--rail-text)]/70">
+                    ({slots.used} of {slots.limit})
+                  </span>
+                )}
+              </Link>
+            </div>
           )}
-        </Link>
+        </div>
       )}
 
       <div className="mt-2 px-2 pb-1">
@@ -328,8 +379,32 @@ function RailFooter() {
             style={{ width: Math.min(100, used * 100) + "%" }}
           />
         </div>
+        {quota?.shop_used != null && shops && shops.length > 1 && (
+          <p className="mt-1 text-[11px] text-[var(--rail-text)]">
+            {quota.shop_used.toLocaleString()} used today by this shop; the limit is for all your shops
+          </p>
+        )}
       </div>
     </div>
+  );
+}
+
+function ShopBadge({ name, small }: { name: string | null; small?: boolean }) {
+  const initials = (name ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("");
+  return (
+    <span
+      className={
+        "flex shrink-0 items-center justify-center rounded-md bg-white/[0.08] font-semibold text-[var(--rail-active)] " +
+        (small ? "h-5 w-5 text-[9px]" : "h-7 w-7 text-[11px]")
+      }
+    >
+      {initials || "—"}
+    </span>
   );
 }
 

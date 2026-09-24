@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
-from app.db.models import EtsyConnection, ListingProfile, ShopListingCache, Tenant
+from app.db.models import ConnectionStatus, EtsyConnection, ListingProfile, ShopListingCache, Tenant
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
@@ -54,7 +54,9 @@ def _connection_service(settings) -> ConnectionService:  # noqa: ANN001
     )
 
 
-def _build_client(ctx: dict[str, Any], http: httpx.AsyncClient, settings) -> EtsyApiClient:  # noqa: ANN001
+def _build_client(
+    ctx: dict[str, Any], http: httpx.AsyncClient, settings, shop: uuid.UUID | None = None  # noqa: ANN001
+) -> EtsyApiClient:
     return EtsyApiClient(
         client_id=settings.etsy_client_id,
         shared_secret=settings.etsy_client_secret,
@@ -63,6 +65,7 @@ def _build_client(ctx: dict[str, Any], http: httpx.AsyncClient, settings) -> Ets
         quota=ctx["quota"],
         usage=ctx.get("usage"),
         cache=ctx.get("redis"),
+        shop=shop,
     )
 
 
@@ -116,6 +119,20 @@ async def _run_gated(
     return "deferred"
 
 
+async def _active_shop(session, connection_id: uuid.UUID) -> EtsyConnection | None:  # noqa: ANN001
+    """The shop a job works on, if it is still connected."""
+    connection = await session.get(EtsyConnection, connection_id)
+    if connection is None or connection.status is not ConnectionStatus.active:
+        return None
+    return connection
+
+
+async def _shop_owner(ctx: dict[str, Any], connection_id: str) -> uuid.UUID | None:
+    async with ctx["sessionmaker"]() as session:
+        connection = await _active_shop(session, uuid.UUID(connection_id))
+        return connection.tenant_id if connection is not None else None
+
+
 async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
     async with ctx["sessionmaker"]() as session:
         profile = await session.get(ListingProfile, uuid.UUID(profile_id))
@@ -136,14 +153,15 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
         profile = await session.get(ListingProfile, uuid.UUID(profile_id))
         if profile is None:
             return "missing"
-        connection = await service.get_active(session, profile.tenant_id)
-        if connection is None:
+        # The profile's own shop (v5 §E), never another of the account's shops.
+        connection = await _active_shop(session, profile.connection_id)
+        if connection is None or connection.tenant_id != profile.tenant_id:
             return "no-connection"
 
         tenant = await session.get(Tenant, profile.tenant_id)
         token = await service.get_valid_access_token(session, connection)
         async with httpx.AsyncClient(timeout=30.0) as http:
-            client = _build_client(ctx, http, settings)
+            client = _build_client(ctx, http, settings, shop=connection.id)
             kw = {
                 "access_token": token,
                 "tenant_id": profile.tenant_id,
@@ -169,7 +187,7 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
             )
             cached = await session.execute(
                 select(ShopListingCache.payload).where(
-                    ShopListingCache.tenant_id == profile.tenant_id,
+                    ShopListingCache.connection_id == profile.connection_id,
                     ShopListingCache.fetched_at >= fresh_since,
                 )
             )
@@ -223,31 +241,35 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
         return "refreshed"
 
 
-async def sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
+async def sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
+    """Cache one shop's own active and draft listings (6 hours)."""
+    tenant_id = await _shop_owner(ctx, connection_id)
+    if tenant_id is None:
+        return "no-connection"
     return await _run_gated(
         ctx,
         "sync_shop_listings",
+        connection_id,
         tenant_id,
-        uuid.UUID(tenant_id),
-        lambda: _sync_shop_listings(ctx, tenant_id),
+        lambda: _sync_shop_listings(ctx, connection_id),
     )
 
 
-async def _sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
+async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     service = _connection_service(settings)
-    tid = uuid.UUID(tenant_id)
 
     async with sessionmaker() as session:
-        connection = await service.get_active(session, tid)
+        connection = await _active_shop(session, uuid.UUID(connection_id))
         if connection is None:
             return "no-connection"
+        tid = connection.tenant_id
         tenant = await session.get(Tenant, tid)
         token = await service.get_valid_access_token(session, connection)
 
         async with httpx.AsyncClient(timeout=30.0) as http:
-            client = _build_client(ctx, http, settings)
+            client = _build_client(ctx, http, settings, shop=connection.id)
             kw = {
                 "access_token": token,
                 "tenant_id": tid,
@@ -268,27 +290,35 @@ async def _sync_shop_listings(ctx: dict[str, Any], tenant_id: str) -> str:
             if existing is None:
                 session.add(
                     ShopListingCache(
-                        tenant_id=tid, listing_id=listing_id, payload=row, fetched_at=now
+                        tenant_id=tid,
+                        connection_id=connection.id,
+                        listing_id=listing_id,
+                        payload=row,
+                        fetched_at=now,
                     )
                 )
             else:
+                existing.connection_id = connection.id
                 existing.payload = row
                 existing.fetched_at = now
         await session.commit()
         return f"synced:{len(rows)}"
 
 
-async def detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
+async def detect_profiles(ctx: dict[str, Any], connection_id: str) -> str:
+    tenant_id = await _shop_owner(ctx, connection_id)
+    if tenant_id is None:
+        return "no-connection"
     return await _run_gated(
         ctx,
         "detect_profiles",
+        connection_id,
         tenant_id,
-        uuid.UUID(tenant_id),
-        lambda: _detect_profiles(ctx, tenant_id),
+        lambda: _detect_profiles(ctx, connection_id),
     )
 
 
-async def _detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
+async def _detect_profiles(ctx: dict[str, Any], connection_id: str) -> str:
     """Auto-detect candidate profiles by clustering the seller's own active listings.
 
     Clusters by taxonomy + production partner + variation structure + price band,
@@ -299,17 +329,17 @@ async def _detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     service = _connection_service(settings)
-    tid = uuid.UUID(tenant_id)
 
     async with sessionmaker() as session:
-        connection = await service.get_active(session, tid)
+        connection = await _active_shop(session, uuid.UUID(connection_id))
         if connection is None:
             return "no-connection"
+        tid = connection.tenant_id
         tenant = await session.get(Tenant, tid)
         token = await service.get_valid_access_token(session, connection)
 
         async with httpx.AsyncClient(timeout=30.0) as http:
-            client = _build_client(ctx, http, settings)
+            client = _build_client(ctx, http, settings, shop=connection.id)
             kw = {
                 "access_token": token,
                 "tenant_id": tid,
@@ -348,7 +378,9 @@ async def _detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
 
         # Existing reference ids so we don't duplicate profiles on re-run.
         existing = await session.execute(
-            select(ListingProfile.reference_listing_id).where(ListingProfile.tenant_id == tid)
+            select(ListingProfile.reference_listing_id).where(
+                ListingProfile.connection_id == connection.id
+            )
         )
         known = set(existing.scalars())
 
@@ -370,6 +402,7 @@ async def _detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
             )
             profile = ListingProfile(
                 tenant_id=tid,
+                connection_id=connection.id,
                 name=name,
                 reference_listing_id=ref.listing_id,
                 content_template=template,

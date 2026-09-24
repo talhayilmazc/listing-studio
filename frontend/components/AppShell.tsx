@@ -6,6 +6,7 @@ import { Rail } from "./Rail";
 import { TopStrip } from "./TopStrip";
 import { MetricStrip } from "./MetricStrip";
 import { PauseNotice } from "./PauseNotice";
+import { ShopProvider } from "./ShopProvider";
 import { Footer } from "./Footer";
 import { isPublicRoute, useSession } from "./SessionProvider";
 
@@ -34,18 +35,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen">
-      <Rail open={navOpen} onClose={() => setNavOpen(false)} />
-      <div className="flex min-h-screen flex-col lg:pl-60">
-        <TopStrip onMenu={() => setNavOpen(true)} />
-        <PauseNotice />
-        <MetricStrip />
-        <main className="flex-1 px-6 py-8 lg:px-8">
-          <div className="mx-auto w-full max-w-[1800px]">{children}</div>
-        </main>
-        <Footer />
+    // The shops (and which one is selected) are known to the whole signed-in frame.
+    <ShopProvider>
+      <div className="min-h-screen">
+        <Rail open={navOpen} onClose={() => setNavOpen(false)} />
+        <div className="flex min-h-screen flex-col lg:pl-60">
+          <TopStrip onMenu={() => setNavOpen(true)} />
+          <PauseNotice />
+          <MetricStrip />
+          <main className="flex-1 px-6 py-8 lg:px-8">
+            <div className="mx-auto w-full max-w-[1800px]">{children}</div>
+          </main>
+          <Footer />
+        </div>
       </div>
-    </div>
+    </ShopProvider>
   );
 }
 
