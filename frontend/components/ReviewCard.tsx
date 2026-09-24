@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type {
   BatchPublishResult,
@@ -64,6 +64,12 @@ export function ReviewCard({
   // One draft per shop (v5 §E). A draft links to Shop Manager (editable); a live
   // listing to its public URL. The server resolves the URL (A4).
   const [publications, setPublications] = useState<Publication[]>(initial.publications);
+  // Ticks can change from outside ("Mark all as done" on the page): follow them
+  // without remounting, so text being edited here is kept.
+  const incoming = JSON.stringify(initial.publications);
+  useEffect(() => {
+    setPublications(JSON.parse(incoming));
+  }, [incoming]);
   const [publishState, setPublishState] = useState<"idle" | "publishing" | "paused" | "error">(
     "idle",
   );
@@ -171,6 +177,14 @@ export function ReviewCard({
       () => api.publishLive(initial.id, [shop]),
       "still working after 15 minutes; reload to check whether it is live.",
     );
+
+  // The seller confirms a Shop Manager setting on one draft; the page's summary follows.
+  async function tickStep(shop: string, key: string, done: boolean) {
+    const updated = await api.tickManualStep(initial.id, shop, key, done);
+    const next = publications.map((p) => (p.connection_id === shop ? updated : p));
+    setPublications(next);
+    onChange?.({ id: initial.id, publications: next });
+  }
 
   // Paused counts as busy: asking again would only return the same waiting job.
   const publishing = publishState === "publishing" || publishState === "paused";
@@ -333,7 +347,11 @@ export function ReviewCard({
                       </button>
                     )}
                     {p.state !== "active" && p.manual_steps.length > 0 && (
-                      <ManualSteps steps={p.manual_steps} link={p.listing_link} />
+                      <ManualSteps
+                        steps={p.manual_steps}
+                        link={p.listing_link}
+                        onTick={(key, done) => tickStep(p.connection_id, key, done)}
+                      />
                     )}
                   </li>
                 ))}
@@ -382,10 +400,51 @@ export function ReviewCard({
 }
 
 /**
- * Settings Etsy's API cannot make, listed on the draft before "Publish now" so the
- * seller sets them in Shop Manager first rather than finding out at publish time.
+ * Settings Etsy's API cannot make, listed on the draft before "Publish now". The
+ * seller ticks each one once it is set in Shop Manager. When all are ticked the
+ * reminder collapses to one line, which can be reopened to undo a tick.
  */
-function ManualSteps({ steps, link }: { steps: ManualStep[]; link: string }) {
+function ManualSteps({
+  steps,
+  link,
+  onTick,
+}: {
+  steps: ManualStep[];
+  link: string;
+  onTick: (key: string, done: boolean) => Promise<void>;
+}) {
+  const allDone = steps.every((s) => s.done);
+  const [open, setOpen] = useState(!allDone);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Collapse whenever the last one gets ticked, here or by "Mark all as done".
+  useEffect(() => {
+    if (allDone) setOpen(false);
+  }, [allDone]);
+
+  async function tick(key: string, done: boolean) {
+    setBusy(key);
+    setError(null);
+    try {
+      await onTick(key, done);
+      if (done && steps.every((s) => s.key === key || s.done)) setOpen(false);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (allDone && !open) {
+    return (
+      <p className="w-full text-xs text-slate-500">
+        <span className="text-emerald-700">✓</span> Shop Manager settings confirmed ·{" "}
+        <button type="button" className="underline hover:text-slate-800" onClick={() => setOpen(true)}>
+          change
+        </button>
+      </p>
+    );
+  }
   return (
     <div className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
       <p className="font-medium">
@@ -394,14 +453,29 @@ function ManualSteps({ steps, link }: { steps: ManualStep[]; link: string }) {
           open the draft ↗
         </a>
       </p>
-      <ul className="mt-1 space-y-1">
+      <ul className="mt-1.5 space-y-1.5">
         {steps.map((s) => (
           <li key={s.key}>
-            <span className="font-medium">{s.label}</span>
-            <span className="text-amber-800"> · {s.detail}</span>
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-3.5 w-3.5 rounded border-amber-300"
+                checked={s.done}
+                disabled={busy !== null}
+                onChange={(e) => tick(s.key, e.target.checked)}
+              />
+              <span>
+                <span className={"font-medium " + (s.done ? "line-through opacity-60" : "")}>
+                  {s.label}
+                </span>
+                <span className="text-amber-800"> · {s.detail}</span>
+                <span className="block text-amber-700">I&apos;ve set this</span>
+              </span>
+            </label>
           </li>
         ))}
       </ul>
+      {error && <p className="mt-1 text-rose-700">{error}</p>}
     </div>
   );
 }

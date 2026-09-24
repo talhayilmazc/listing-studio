@@ -18,6 +18,7 @@ import type {
   Group,
   Meta,
   Profile,
+  Publication,
   PublishPreview,
   PublishRequest,
   Quota,
@@ -193,6 +194,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body ?? {}),
     }),
+  /** The seller confirms (or un-confirms) setting one manual field on one draft. */
+  tickManualStep: (contentId: string, shopId: string, key: string, done: boolean) =>
+    req<Publication>(
+      `/content/${contentId}/publications/${shopId}/manual-steps/${encodeURIComponent(key)}`,
+      { method: "PUT", body: JSON.stringify({ done }) },
+    ),
+  /** "Mark all as done": every manual setting on every approved draft of the batch. */
+  markManualStepsDone: (batchId: string) =>
+    req<{ updated_drafts: number }>(`/batches/${batchId}/manual-steps/done`, { method: "POST" }),
   publishBatchLive: (id: string) =>
     req<BatchPublishResult>(`/batches/${id}/publish-live`, { method: "POST", body: "{}" }),
   jobStatus: (jobId: string) => req<JobStatus>(`/jobs/${jobId}`),

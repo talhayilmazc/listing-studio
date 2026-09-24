@@ -142,6 +142,20 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const overBudget = preview !== null && !preview.fits;
   // Settings Etsy's API cannot make, still to be set on the drafts in Shop Manager.
   const manual = pendingManualSteps(items ?? []);
+  const [marking, setMarking] = useState(false);
+  // For a seller who set them for the whole batch in Shop Manager at once.
+  async function markAllDone() {
+    setMarking(true);
+    setError(null);
+    try {
+      await api.markManualStepsDone(id);
+      load();
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setMarking(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -197,17 +211,29 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
       {manual.length > 0 && (
         <div role="status" className="card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="flex flex-wrap items-start justify-between gap-3">
           <p className="font-medium">
             Before {actions.toPublish > 1 ? "“Publish all”" : "publishing"}: set these on the
             drafts in Shop Manager. Etsy&apos;s API cannot set them for you.
           </p>
+          <button
+            type="button"
+            className="btn-secondary shrink-0 px-2.5 py-1 text-xs"
+            onClick={markAllDone}
+            disabled={marking}
+            title="Tick every setting on every approved draft in this batch"
+          >
+            {marking ? "Marking…" : "Mark all as done"}
+          </button>
+          </div>
           <ul className="mt-1.5 space-y-1 text-xs">
             {manual.map((m) => (
               <li key={m.key}>
                 <span className="font-medium">{m.label}</span>
                 <span className="text-amber-800">
                   {" "}
-                  · {m.drafts} draft{m.drafts === 1 ? "" : "s"}. Each listing below links to its draft.
+                  · {m.drafts} draft{m.drafts === 1 ? "" : "s"} still to confirm. Each listing below
+                  links to its draft; tick it there, or mark all as done once you have set them.
                 </span>
               </li>
             ))}

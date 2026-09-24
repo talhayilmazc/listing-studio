@@ -8,7 +8,7 @@ function item(id: string, over: Partial<Content> = {}): Content {
   return { id, approved: false, connection_id: "shop-1", publications: [], ...over } as Content;
 }
 
-const STEP = { key: "creativity_production", label: "How does your shop produce this item?", detail: "d" };
+const STEP = { key: "creativity_production", label: "How does your shop produce this item?", detail: "d", done: false };
 
 function pub(shop: string, state = "draft", listing = 1): Publication {
   const manual_steps = state === "active" ? [] : [STEP];
@@ -44,7 +44,9 @@ test("with two target shops, a draft in one still leaves work in the other", () 
   assert.equal(reviewActions(items, ["shop-1"]).toDraft, 0);
 });
 
-test("a card remounts when a draft changes, not when it is approved", () => {
+test("a card remounts when a draft changes, not when it is approved or ticked", () => {
+  const ticked = item("a", { publications: [{ ...pub("shop-1"), manual_steps: [{ ...STEP, done: true }] }] });
+  assert.equal(cardKey(ticked), cardKey(item("a", { publications: [pub("shop-1")] })));
   const before = item("a");
   assert.equal(cardKey(before), cardKey({ ...before, approved: true }));
   assert.notEqual(cardKey(before), cardKey({ ...before, publications: [pub("shop-2", "draft", 42)] }));
@@ -60,6 +62,15 @@ test("drafts still needing a Shop Manager setting are counted before Publish all
     item("b", { approved: true, publications: [pub("shop-1", "active")] }), // live: nothing left
     item("c", { approved: false, publications: [pub("shop-1")] }), // not approved: not offered
   ];
-  assert.deepEqual(pendingManualSteps(items), [{ ...STEP, drafts: 2 }]);
+  const { done: _done, ...rest } = STEP;
+  assert.deepEqual(pendingManualSteps(items), [{ ...rest, drafts: 2 }]);
   assert.deepEqual(pendingManualSteps([item("d")]), []);
+});
+
+test("ticked settings drop out of the count", () => {
+  const done = { ...pub("shop-2"), manual_steps: [{ ...STEP, done: true }] };
+  const items = [item("a", { approved: true, publications: [pub("shop-1"), done] })];
+  assert.equal(pendingManualSteps(items)[0].drafts, 1);
+  const all = [item("a", { approved: true, publications: [done] })];
+  assert.deepEqual(pendingManualSteps(all), []); // every draft ticked: no reminder
 });

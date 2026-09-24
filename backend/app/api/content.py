@@ -43,27 +43,120 @@ async def publications(
         .order_by(EtsyConnection.position, EtsyConnection.connected_at)
     )
     for publication, connection, template in rows.all():
-        found[publication.content_id].append(
-            schemas.PublicationOut(
-                connection_id=connection.id,
-                shop_name=shop_label(connection),
-                etsy_listing_id=publication.etsy_listing_id,
-                state=publication.state,
-                listing_link=link_for(publication.etsy_listing_id, publication.state),
-                manual_steps=manual_steps(publication.state, template),
-            )
-        )
+        found[publication.content_id].append(publication_out(publication, connection, template))
     return found
 
 
-def manual_steps(state: str, template: str | None) -> list[schemas.ManualStepOut]:
-    """What a draft still needs in Shop Manager; nothing once it is live."""
+def publication_out(
+    publication: ListingPublication, connection: EtsyConnection, template: str | None
+) -> schemas.PublicationOut:
+    from app.api.shops import shop_label
+
+    return schemas.PublicationOut(
+        connection_id=connection.id,
+        shop_name=shop_label(connection),
+        etsy_listing_id=publication.etsy_listing_id,
+        state=publication.state,
+        listing_link=link_for(publication.etsy_listing_id, publication.state),
+        manual_steps=manual_steps(publication.state, template, publication.manual_done_keys()),
+    )
+
+
+def manual_steps(
+    state: str, template: str | None, done: set[str] | frozenset[str] = frozenset()
+) -> list[schemas.ManualStepOut]:
+    """What a draft needs in Shop Manager, each with the seller's tick; nothing once live."""
     if state == "active":
         return []
     return [
-        schemas.ManualStepOut(key=f.key, label=f.label, detail=f.detail)
+        schemas.ManualStepOut(key=f.key, label=f.label, detail=f.detail, done=f.key in done)
         for f in manual_fields_for(template)
     ]
+
+
+async def _template_of(session: AsyncSession, publication: ListingPublication) -> str | None:
+    if publication.profile_id is None:
+        return None
+    profile = await session.get(ListingProfile, publication.profile_id)
+    return profile.content_template if profile is not None else None
+
+
+@router.put(
+    "/content/{content_id}/publications/{connection_id}/manual-steps/{key}",
+    response_model=schemas.PublicationOut,
+)
+async def tick_manual_step(
+    content_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    key: str,
+    body: schemas.ManualStepTick,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.PublicationOut:
+    """The seller confirms (or un-confirms) making one setting on one draft by hand."""
+    content = await _get(session, tenant, content_id)
+    rows = await session.execute(
+        select(ListingPublication, EtsyConnection)
+        .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
+        .where(
+            ListingPublication.content_id == content.id,
+            ListingPublication.connection_id == connection_id,
+            ListingPublication.tenant_id == tenant.id,
+        )
+    )
+    found = rows.first()
+    if found is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    publication, connection = found
+    template = await _template_of(session, publication)
+    if key not in {f.key for f in manual_fields_for(template)}:
+        raise HTTPException(status_code=404, detail="no such setting for this draft")
+    ticks = dict(publication.manual_done or {})  # a new dict, so the change is saved
+    if body.done:
+        ticks[key] = publication.etsy_listing_id
+    else:
+        ticks.pop(key, None)
+    publication.manual_done = ticks
+    await session.commit()
+    return publication_out(publication, connection, template)
+
+
+@router.post("/batches/{batch_id}/manual-steps/done", response_model=schemas.ManualStepsDone)
+async def mark_manual_steps_done(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.ManualStepsDone:
+    """'Mark all as done': every setting on every approved draft of this batch.
+
+    For a seller who set them in Shop Manager for the whole batch at once, rather
+    than ticking each draft. Live listings and unapproved content are left alone.
+    """
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+    rows = await session.execute(
+        select(ListingPublication)
+        .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
+        .where(
+            GeneratedContent.batch_id == batch_id,
+            GeneratedContent.tenant_id == tenant.id,
+            GeneratedContent.approved.is_(True),
+            ListingPublication.state != "active",
+        )
+    )
+    updated = 0
+    for publication in rows.scalars():
+        keys = {f.key for f in manual_fields_for(await _template_of(session, publication))}
+        missing = keys - publication.manual_done_keys()
+        if not missing:
+            continue
+        ticks = dict(publication.manual_done or {})
+        ticks.update({k: publication.etsy_listing_id for k in keys})
+        publication.manual_done = ticks
+        updated += 1
+    await session.commit()
+    return schemas.ManualStepsDone(updated_drafts=updated)
 
 
 async def _profile_shops(
