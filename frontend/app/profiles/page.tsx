@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
 import type { Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
+import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -95,24 +95,17 @@ export default function ProfilesPage() {
       await api.finalizeBatch(batch.id);
       setReplace({ id: listingId, status: "Updating listing…" });
       const { job_id } = await api.replaceImages(listingId, batch.id);
-      for (let i = 0; i < 80; i++) {
-        await sleep(1500);
-        const s = await api.jobStatus(job_id);
-        if (s.status === "succeeded") {
-          setReplace({ id: listingId, status: "Updated ✓" });
-          loadListings();
-          return;
-        }
-        if (s.status === "failed" || s.status === "cancelled") {
-          setReplace({ id: listingId, status: `Failed: ${s.error ?? ""}` });
-          return;
-        }
-        if (s.pause) {
-          setReplace({ id: listingId, status: `Queued, not failed. ${s.pause.message}` });
-          return;
-        }
+      const s = await waitForJob(job_id);
+      if (s === null) {
+        setReplace({ id: listingId, status: "Still working after 15 minutes; reload to check." });
+      } else if (s.pause) {
+        setReplace({ id: listingId, status: `Queued, not failed. ${s.pause.message}` });
+      } else if (s.status === "succeeded") {
+        setReplace({ id: listingId, status: "Updated ✓" });
+        loadListings();
+      } else {
+        setReplace({ id: listingId, status: `Failed: ${s.error ?? ""}` });
       }
-      setReplace({ id: listingId, status: "Timed out." });
     } catch (e: any) {
       setReplace({ id: listingId, status: e.message ?? String(e) });
     }
