@@ -78,12 +78,22 @@ class ContentOut(BaseModel):
     rank: int | None
 
 
+class ManualStepOut(BaseModel):
+    """A setting the seller must make on the draft in Shop Manager (not in the API)."""
+
+    key: str
+    label: str
+    detail: str
+
+
 class PublicationOut(BaseModel):
     connection_id: uuid.UUID
     shop_name: str | None = None
     etsy_listing_id: int
     state: str  # "draft" | "active"
     listing_link: str  # edit URL for a draft, public URL once active
+    # For a draft: what still has to be set in Shop Manager before publishing.
+    manual_steps: list[ManualStepOut] = Field(default_factory=list)
 
 
 class ContentUpdate(BaseModel):
@@ -257,6 +267,8 @@ class JobStatusOut(BaseModel):
     is_draft: bool = True
     connection_id: uuid.UUID | None = None
     shop_name: str | None = None
+    # For a finished draft: what still has to be set in Shop Manager before publishing.
+    manual_steps: list[ManualStepOut] = Field(default_factory=list)
     # A queued job waiting for the daily reset says so, rather than timing out.
     pause: PauseOut | None = None
 

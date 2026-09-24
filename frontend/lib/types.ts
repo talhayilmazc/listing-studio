@@ -64,6 +64,13 @@ export interface Content {
   rank: number | null;
 }
 
+/** A setting the seller must make on the draft in Shop Manager; Etsy's API cannot. */
+export interface ManualStep {
+  key: string;
+  label: string;
+  detail: string;
+}
+
 /** One draft of a listing, in one shop. */
 export interface Publication {
   connection_id: string;
@@ -72,6 +79,8 @@ export interface Publication {
   state: "draft" | "active" | string;
   /** Shop Manager for a draft; the public listing once active. */
   listing_link: string;
+  /** For a draft: what still has to be set in Shop Manager before publishing. */
+  manual_steps: ManualStep[];
 }
 
 export interface PublishJob {
@@ -214,6 +223,10 @@ export interface JobStatus {
   listing_id: number | null;
   listing_url: string | null;
   is_draft: boolean;
+  connection_id: string | null;
+  shop_name: string | null;
+  /** For a finished draft: what still has to be set in Shop Manager. */
+  manual_steps: ManualStep[];
   /** Set while the job waits for the reset. It is still queued and will run then. */
   pause: Pause | null;
 }

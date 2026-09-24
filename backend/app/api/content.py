@@ -19,6 +19,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
+from app.etsy.manual_fields import manual_fields_for
 from app.etsy.publisher import link_for
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
@@ -35,12 +36,13 @@ async def publications(
     if not content_ids:
         return found
     rows = await session.execute(
-        select(ListingPublication, EtsyConnection)
+        select(ListingPublication, EtsyConnection, ListingProfile.content_template)
         .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
+        .outerjoin(ListingProfile, ListingProfile.id == ListingPublication.profile_id)
         .where(ListingPublication.content_id.in_(content_ids))
         .order_by(EtsyConnection.position, EtsyConnection.connected_at)
     )
-    for publication, connection in rows.all():
+    for publication, connection, template in rows.all():
         found[publication.content_id].append(
             schemas.PublicationOut(
                 connection_id=connection.id,
@@ -48,9 +50,20 @@ async def publications(
                 etsy_listing_id=publication.etsy_listing_id,
                 state=publication.state,
                 listing_link=link_for(publication.etsy_listing_id, publication.state),
+                manual_steps=manual_steps(publication.state, template),
             )
         )
     return found
+
+
+def manual_steps(state: str, template: str | None) -> list[schemas.ManualStepOut]:
+    """What a draft still needs in Shop Manager; nothing once it is live."""
+    if state == "active":
+        return []
+    return [
+        schemas.ManualStepOut(key=f.key, label=f.label, detail=f.detail)
+        for f in manual_fields_for(template)
+    ]
 
 
 async def _profile_shops(

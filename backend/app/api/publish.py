@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
 from app.api.pauses import pause_out
+from app.api.content import manual_steps
 from app.api.shops import shop_label
 from app.db.models import (
     ComplianceFinding,
@@ -491,6 +492,7 @@ async def job_status(
     listing_id = None
     url = None
     is_draft = True
+    steps: list[schemas.ManualStepOut] = []
     content_id = (job.payload or {}).get("content_id")
     if content_id:
         publication = await publication_for(session, uuid.UUID(content_id), job.connection_id)
@@ -499,6 +501,12 @@ async def job_status(
             is_draft = publication.state != "active"
             # A draft links to Shop Manager (editable); active links to the public URL.
             url = link_for(listing_id, publication.state)
+            profile = (
+                await session.get(ListingProfile, publication.profile_id)
+                if publication.profile_id
+                else None
+            )
+            steps = manual_steps(publication.state, profile.content_template if profile else None)
     connection = await session.get(EtsyConnection, job.connection_id)
 
     return schemas.JobStatusOut(
@@ -511,6 +519,7 @@ async def job_status(
         is_draft=is_draft,
         connection_id=job.connection_id,
         shop_name=shop_label(connection) if connection is not None else None,
+        manual_steps=steps,
         pause=pause_out(
             job.paused_reason if job.status is JobStatus.queued else None,
             tenant_limit=tenant.daily_quota,

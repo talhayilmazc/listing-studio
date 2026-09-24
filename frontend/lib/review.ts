@@ -51,3 +51,26 @@ export function cardKey(c: Content): string {
     .join(",");
   return `${c.id}:${pubs}`;
 }
+
+/**
+ * What the approved drafts still need in Shop Manager (settings Etsy's API cannot
+ * make), grouped by setting with how many drafts need it: the reminder shown
+ * before "Publish all".
+ */
+export function pendingManualSteps(
+  items: Content[],
+): { key: string; label: string; detail: string; drafts: number }[] {
+  const byKey = new Map<string, { key: string; label: string; detail: string; drafts: number }>();
+  for (const c of items) {
+    if (!c.approved) continue;
+    for (const p of c.publications) {
+      if (p.state === "active") continue;
+      for (const s of p.manual_steps ?? []) {
+        const row = byKey.get(s.key) ?? { ...s, drafts: 0 };
+        row.drafts += 1;
+        byKey.set(s.key, row);
+      }
+    }
+  }
+  return Array.from(byKey.values());
+}

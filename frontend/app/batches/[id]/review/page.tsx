@@ -13,7 +13,7 @@ import type {
 } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
-import { applyChange, cardKey, reviewActions } from "@/lib/review";
+import { applyChange, cardKey, pendingManualSteps, reviewActions } from "@/lib/review";
 import { ReviewCard } from "@/components/ReviewCard";
 import { useShops } from "@/components/ShopProvider";
 
@@ -140,6 +140,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     targets?.map((t) => t.connection_id),
   );
   const overBudget = preview !== null && !preview.fits;
+  // Settings Etsy's API cannot make, still to be set on the drafts in Shop Manager.
+  const manual = pendingManualSteps(items ?? []);
 
   return (
     <div className="space-y-6">
@@ -191,6 +193,26 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       )}
       {items && items.length > 0 && (!shops || shops.length <= 1) && preview && !preview.fits && (
         <div className="card p-3 text-sm text-amber-800">{preview.message}</div>
+      )}
+
+      {manual.length > 0 && (
+        <div role="status" className="card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-medium">
+            Before {actions.toPublish > 1 ? "“Publish all”" : "publishing"}: set these on the
+            drafts in Shop Manager. Etsy&apos;s API cannot set them for you.
+          </p>
+          <ul className="mt-1.5 space-y-1 text-xs">
+            {manual.map((m) => (
+              <li key={m.key}>
+                <span className="font-medium">{m.label}</span>
+                <span className="text-amber-800">
+                  {" "}
+                  · {m.drafts} draft{m.drafts === 1 ? "" : "s"}. Each listing below links to its draft.
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {skipped.length > 0 && (
