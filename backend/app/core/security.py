@@ -44,6 +44,7 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 # JSON bodies here are small; only the upload endpoint takes files.
 DEFAULT_BODY_LIMIT = 1024 * 1024
 _UPLOAD_PATH = re.compile(r"^/api/batches/[^/]+/assets$")
+_ARCHIVE_PATH = re.compile(r"^/api/batches/[^/]+/archive$")
 _MULTIPART_ENVELOPE = 1024 * 1024  # boundaries, part headers, the group_key field
 
 # Always set, overriding anything a handler chose.
@@ -122,6 +123,8 @@ def _has_session_cookie(cookie_header: str) -> bool:
 def body_limit(path: str) -> int:
     if _UPLOAD_PATH.match(path):
         return get_settings().max_upload_bytes + _MULTIPART_ENVELOPE
+    if _ARCHIVE_PATH.match(path):
+        return get_settings().max_archive_bytes + _MULTIPART_ENVELOPE
     return DEFAULT_BODY_LIMIT
 
 

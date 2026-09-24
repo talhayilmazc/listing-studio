@@ -33,7 +33,8 @@ from app.pipeline.images import (
     resize_preview,
 )
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
-from app.pipeline.uploads import UploadRejected
+from app.pipeline.archive import read_archive
+from app.pipeline.uploads import UploadRejected, UploadTooLarge
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
@@ -142,6 +143,88 @@ async def add_asset(
         has_content=False,
         error=asset.error,
     )
+
+
+def _asset_out(asset: Asset) -> schemas.AssetOut:
+    return schemas.AssetOut(
+        id=asset.id,
+        original_filename=asset.original_filename,
+        parsed_sku=asset.parsed_sku,
+        group_key=asset.group_key,
+        rank=asset.rank,
+        status=asset.status.value,
+        mime_type=asset.mime_type,
+        width=asset.width,
+        height=asset.height,
+        has_content=False,
+        error=asset.error,
+    )
+
+
+@router.post("/batches/{batch_id}/archive", response_model=schemas.ArchiveResult, status_code=201)
+async def add_archive(
+    batch_id: uuid.UUID,
+    file: UploadFile,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    ingestor: BatchIngestor = Depends(get_ingestor),
+) -> schemas.ArchiveResult:
+    """Unpack a ZIP of designs into the batch (docs/duzeltmeler-v6.md §F).
+
+    Its folders become listing groups exactly as a folder upload's do; files at
+    its root are one group. Each image goes through the same admission as a
+    single upload. What was skipped is counted, not silently lost.
+    """
+    await _get_batch(session, tenant, batch_id)
+    settings = get_settings()
+    data = await file.read()  # bounded by the security middleware
+    if len(data) > settings.max_archive_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"a ZIP is limited to {settings.max_archive_bytes // (1024 * 1024)} MB",
+        )
+    try:
+        contents = read_archive(
+            data,
+            max_files=settings.max_archive_files,
+            max_total_bytes=settings.max_archive_unpacked_bytes,
+            max_file_bytes=settings.max_upload_bytes,
+        )
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    del data
+
+    result = schemas.ArchiveResult(
+        skipped_unsupported=contents.unsupported,
+        skipped_unsafe=contents.unsafe,
+        skipped_nested=contents.nested,
+        failed=[
+            schemas.ArchiveFailure(
+                filename=name,
+                error=f"files are limited to {settings.max_upload_bytes // (1024 * 1024)} MB",
+            )
+            for name in contents.too_large
+        ],
+    )
+    for entry in contents.files:
+        try:
+            asset = await ingestor.add_file(
+                session,
+                batch_id,
+                tenant.id,
+                IngestFile(filename=entry.filename, data=entry.data),
+                group_key=entry.group_key,
+            )
+        except UploadTooLarge as exc:
+            result.failed.append(schemas.ArchiveFailure(filename=entry.filename, error=str(exc)))
+            if "batch" in str(exc):
+                break  # the batch is full; the rest would fail the same way
+            continue
+        except UploadRejected as exc:
+            result.failed.append(schemas.ArchiveFailure(filename=entry.filename, error=str(exc)))
+            continue
+        result.assets.append(_asset_out(asset))
+    return result
 
 
 @router.put("/batches/{batch_id}/size-chart-profile", response_model=schemas.BatchSummary)
