@@ -1,0 +1,75 @@
+# Trademarked brand and character names refused in titles, tags and descriptions
+# while TRADEMARK_FILTER is on (docs/duzeltmeler-v6.md §B).
+#
+# One term per line; lines starting with # are comments. Matching ignores case
+# and accents ("Pokemon" also catches "Pokémon") and matches whole words only
+# ("Marvel" does not catch "marvelous"). Words of a multi-word term may be joined
+# by spaces, hyphens or nothing ("Star Wars", "star-wars", "starwars").
+#
+# Edits take effect on the next check, without a restart.
+#
+# Deliberately NOT listed: blank-garment brands a seller prints on and names
+# truthfully (Comfort Colors, Bella+Canvas, Gildan); they describe the product.
+
+# Disney and its franchises
+Disney
+Pixar
+Mickey
+Minnie Mouse
+Star Wars
+Mandalorian
+Baby Yoda
+Grogu
+Marvel
+Avengers
+Spider-Man
+Spiderman
+Lilo and Stitch
+
+# Warner Bros. / DC
+Harry Potter
+Hogwarts
+DC Comics
+Batman
+Superman
+Wonder Woman
+Looney Tunes
+Scooby Doo
+
+# Games
+Nintendo
+Super Mario
+Legend of Zelda
+Pokemon
+Pikachu
+Minecraft
+Fortnite
+
+# Toys and characters
+Barbie
+Hello Kitty
+Sanrio
+Snoopy
+Grinch
+Dr Seuss
+Sesame Street
+Paw Patrol
+Bluey
+
+# Sportswear and fashion
+Nike
+Adidas
+Under Armour
+Louis Vuitton
+Gucci
+Chanel
+
+# Leagues
+NFL
+NBA
+MLB
+NHL
+
+# Drinks and food
+Coca-Cola
+Starbucks

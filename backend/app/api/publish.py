@@ -40,20 +40,25 @@ from app.db.models import (
 from app.etsy.publisher import link_for, publication_for
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import owned_shop
+from app.compliance.scanner import rescan
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT, is_fresh, resolve_target, shop_profiles
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
 
-async def _blocking(session: AsyncSession, content_id: uuid.UUID) -> bool:
+async def _blocking(session: AsyncSession, content_id: uuid.UUID) -> str | None:
+    """The first blocking finding's detail, or None."""
     rows = await session.execute(
-        select(ComplianceFinding.id).where(
+        select(ComplianceFinding.detail).where(
             ComplianceFinding.generated_content_id == content_id,
             ComplianceFinding.severity == ComplianceSeverity.blocking,
         )
     )
-    return rows.first() is not None
+    row = rows.first()
+    if row is None:
+        return None
+    return row[0] or "blocking compliance finding"
 
 
 async def _content_problem(session: AsyncSession, content: GeneratedContent) -> str | None:
@@ -73,8 +78,12 @@ async def _content_problem(session: AsyncSession, content: GeneratedContent) -> 
     )
     if errors:
         return "; ".join(errors)
-    if await _blocking(session, content.id):
-        return "blocking compliance finding"
+    # Scan again now: the blocklist may have grown since the listing was approved,
+    # and the job that publishes it reads these findings (v6 §B).
+    await rescan(session, content)
+    blocked = await _blocking(session, content.id)
+    if blocked:
+        return f"compliance: {blocked}"
     return None
 
 
@@ -391,9 +400,11 @@ async def _publish_live(
     for content in contents:
         if not content.approved:
             continue  # only what the seller approved; skip the rest silently
-        if await _blocking(session, content.id):
+        await rescan(session, content)
+        blocked = await _blocking(session, content.id)
+        if blocked:
             result.skipped.append(
-                schemas.PublishSkipped(content_id=content.id, reason="blocking compliance finding")
+                schemas.PublishSkipped(content_id=content.id, reason=f"compliance: {blocked}")
             )
             continue
         rows = await session.execute(

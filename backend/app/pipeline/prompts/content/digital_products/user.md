@@ -1,6 +1,9 @@
 Design analysis:
 
 - Theme: $theme
+- Meaning (what it is about): $meaning
+- Recipient: $recipient
+- Occasion: $occasion
 - Embedded text: $embedded_text
 - Style: $style
 - Colors: $colors

@@ -96,6 +96,14 @@ class Settings(BaseSettings):
     # Default content prompt when the taxonomy doesn't say otherwise (apparel shop).
     default_content_template: str = "apparel"
 
+    # Trademark blocklist (v6 §B). On: listed brand and character names are refused
+    # in titles, tags and descriptions, and a generated listing that uses one is
+    # regenerated with a correction. TRADEMARK_FILTER=on|off. The terms live in a
+    # plain text file, one per line; TRADEMARK_LIST_PATH points at another copy
+    # (empty = app/compliance/trademarks.txt). Edits apply without a restart.
+    trademark_filter: bool = True
+    trademark_list_path: str = ""
+
     # LLM provider (Anthropic) for vision analysis + content generation.
     # Key is read from the environment only, never hardcoded (see CLAUDE.md).
     llm_api_key: str = ""

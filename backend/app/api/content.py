@@ -21,6 +21,7 @@ from app.db.models import (
 )
 from app.etsy.manual_fields import manual_fields_for
 from app.etsy.publisher import link_for
+from app.compliance.scanner import rescan
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
 router = APIRouter(prefix="/api", tags=["content"])
@@ -267,6 +268,7 @@ async def update_content(
         content.tags = body.tags
     if body.description is not None:
         content.description = body.description
+    await rescan(session, content)
     await session.commit()
     await session.refresh(content)
     asset = await session.get(Asset, content.asset_id)
@@ -283,6 +285,7 @@ async def approve_content(
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
+    await rescan(session, content)
     validation = await _validation(session, content)
     if body.approved and not validation.valid:
         raise HTTPException(
@@ -321,6 +324,7 @@ async def approve_all(
         if content.approved:
             result.already_approved += 1
             continue
+        await rescan(session, content)
         validation = await _validation(session, content)
         if not validation.valid:
             result.skipped.append(

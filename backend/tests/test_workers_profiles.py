@@ -240,6 +240,79 @@ async def test_detect_profiles_skips_existing_reference(
     assert result == "detected:1"  # only the mug is new
 
 
+class PagedDetectEtsy(DetectFakeEtsy):
+    """150 active tees, inventory attached to each page; the mug only on page two."""
+
+    def __init__(self) -> None:
+        self.offsets: list[int] = []
+        self.includes: list[list[str]] = []
+        self.inventory_reads = 0
+
+    async def get_listings_by_shop(
+        self, shop_id: int, *, state: str, limit: int = 100, offset: int = 0, includes=None, **_: Any
+    ) -> dict[str, Any]:
+        if state != "active":
+            return {"results": [], "count": 0}
+        self.offsets.append(offset)
+        self.includes.append(list(includes or []))
+        tee_inv = {"products": [{"property_values": [{"property_name": "Size"}]}]}
+        rows = [
+            {
+                "listing_id": 1000 + i,
+                "title": f"Comfort Colors Tee {i}",
+                "taxonomy_id": 100,
+                "price": {"amount": 2500, "divisor": 100},
+                "production_partners": [],
+                "images": [{}],
+                "inventory": tee_inv,
+            }
+            for i in range(149)
+        ] + [
+            {
+                "listing_id": 20,
+                "title": "Ceramic Coffee Mug Design",
+                "taxonomy_id": 200,
+                "price": {"amount": 1500, "divisor": 100},
+                "production_partners": [],
+                "images": [{}],
+                "inventory": {"products": [{"property_values": []}]},
+            }
+        ]
+        return {"results": rows[offset : offset + limit], "count": len(rows)}
+
+    async def get_listing_inventory(self, listing_id: int, **kw: Any) -> dict[str, Any]:
+        self.inventory_reads += 1
+        return await super().get_listing_inventory(listing_id, **kw)
+
+
+async def test_detect_reads_every_page_with_inventory_attached(
+    async_sm: async_sessionmaker, monkeypatch
+) -> None:
+    """v6 §B: detection is no longer capped at the first 100 active listings, and
+    it takes inventory from the page instead of one extra request per listing."""
+    tenant_id, _ = await _seed(async_sm, with_profile=False)
+    fake = PagedDetectEtsy()
+    _patch(monkeypatch, tenant_id, fake)
+    ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None, "enqueue": lambda *a: _noop()}
+    result = await worker.detect_profiles(ctx, str(await _shop_of(async_sm, tenant_id)))
+
+    assert fake.offsets == [0, 100]
+    assert all("Inventory" in inc for inc in fake.includes)
+    assert fake.inventory_reads == 0
+    assert result == "detected:2"  # the mug on page two became its own profile
+    async with async_sm() as s:
+        refs = set(
+            (
+                await s.execute(
+                    select(ListingProfile.reference_listing_id).where(
+                        ListingProfile.tenant_id == tenant_id
+                    )
+                )
+            ).scalars()
+        )
+    assert 20 in refs
+
+
 async def _noop():
     return None
 

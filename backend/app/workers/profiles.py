@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 # which is why workers/gate.py JOB_COST budgets 1 + 2 x SYNC_MAX_PAGES for it.
 SYNC_PAGE_SIZE = 100
 SYNC_MAX_PAGES = 10
+# Detection reads inventory with each page; a listing that comes back without it
+# is read separately, at most this many times per run (workers/gate.py JOB_COST).
+DETECT_MAX_INVENTORY_READS = 100
 
 
 def _llm_client(settings) -> AnthropicLLMClient | None:  # noqa: ANN001
@@ -384,18 +387,48 @@ async def _detect_profiles(ctx: dict[str, Any], connection_id: str) -> str:
                 "tenant_limit": tenant.daily_quota if tenant else None,
             }
             shop_id = await _resolve_shop_id(session, client, connection, kw)
-            resp = await client.get_listings_by_shop(
-                shop_id, state="active", limit=100, includes=["Images"], **kw
-            )
-            listings_raw = resp.get("results", [])
+            # Every active listing, a page at a time, with its inventory in the same
+            # request: one page of 100 missed most of a large shop, and one inventory
+            # read per listing would spend the day's budget on it (v6 §B).
+            listings_raw: list[dict[str, Any]] = []
+            for page in range(SYNC_MAX_PAGES):
+                resp = await client.get_listings_by_shop(
+                    shop_id,
+                    state="active",
+                    limit=SYNC_PAGE_SIZE,
+                    offset=page * SYNC_PAGE_SIZE,
+                    includes=["Images", "Inventory"],
+                    **kw,
+                )
+                results = resp.get("results", [])
+                listings_raw.extend(results)
+                total = resp.get("count")
+                if len(results) < SYNC_PAGE_SIZE or (
+                    total is not None and (page + 1) * SYNC_PAGE_SIZE >= int(total)
+                ):
+                    break
+            else:
+                logger.warning(
+                    "detect: shop %s has more than %d active listings; clustering the first %d",
+                    connection.id, SYNC_MAX_PAGES * SYNC_PAGE_SIZE, SYNC_MAX_PAGES * SYNC_PAGE_SIZE,
+                )
             # Taxonomy tree (cached) -> which taxonomy ids are under Clothing (apparel).
             nodes = await client.get_seller_taxonomy_nodes(**kw)
             clothing_ids = clothing_taxonomy_ids(nodes)
 
             forcluster: list[ListingForCluster] = []
+            separate_reads = 0
             for row in listings_raw:
                 lid = int(row["listing_id"])
-                inv = await client.get_listing_inventory(lid, **kw)
+                inv = row.get("inventory")
+                if not isinstance(inv, dict):
+                    # Not attached to the page: read it on its own, within the
+                    # budget JOB_COST allows for that; past it, cluster without.
+                    if separate_reads < DETECT_MAX_INVENTORY_READS:
+                        separate_reads += 1
+                        inv = await client.get_listing_inventory(lid, **kw)
+                    else:
+                        inv = {}
                 props = {
                     pv.get("property_name")
                     for product in (inv.get("products") or [])
