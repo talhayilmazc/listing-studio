@@ -20,11 +20,13 @@ records which step failed. Nothing is ever auto-published.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +39,7 @@ from app.db.models import (
     ListingSnapshot,
 )
 from app.etsy.api import EtsyApiClient
+from app.etsy.errors import EtsyServerError
 from app.pipeline.attributes import resolve_required_attributes
 from app.pipeline.reference import (
     PAYLOAD_VERSION,
@@ -127,6 +130,22 @@ async def _has_blocking_finding(session: AsyncSession, content_id: uuid.UUID) ->
         )
     )
     return rows.first() is not None
+
+
+async def _became_active(
+    client: EtsyApiClient, listing_id: int, ctx: dict[str, Any], *, attempts: int, wait: float
+) -> bool:
+    """Read the listing back until it shows active, a few times, spaced out."""
+    for attempt in range(attempts):
+        if attempt:
+            await asyncio.sleep(wait)
+        try:
+            listing = await client.get_listing(listing_id, **ctx)
+        except (httpx.TransportError, EtsyServerError):
+            continue
+        if listing.get("state") == "active":
+            return True
+    return False
 
 
 async def publication_for(
@@ -422,8 +441,15 @@ async def publish_live(
     client: EtsyApiClient,
     access_token: str,
     tenant_limit: int,
+    confirm_attempts: int = 3,
+    confirm_wait: float = 5.0,
 ) -> PublishResult:
     """Make an existing DRAFT listing ACTIVE (the explicit "Publish now" step, E).
+
+    Etsy can take longer to answer an activation than to apply it (docs/
+    duzeltmeler-v6.md §A1: requests timed out after 30 s while the listings went
+    live). So an activation that errors without a clear refusal is checked by
+    reading the listing back: live means published.
 
     Publishing is never automatic: this runs only from a deliberate user action on a
     draft the seller has already reviewed and approved. A blocking compliance finding
@@ -459,7 +485,18 @@ async def publish_live(
     )
     await session.commit()
 
-    await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
+    try:
+        await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
+    except (httpx.TransportError, EtsyServerError) as exc:
+        # No answer, or a server error: Etsy may still have applied it. Ask.
+        if not await _became_active(
+            client, listing_id, ctx, attempts=confirm_attempts, wait=confirm_wait
+        ):
+            raise ValueError(
+                "Etsy did not confirm the listing went live; it is still a draft. "
+                "Try Publish now again."
+            ) from exc
+        logger.info("publish-live: listing %s confirmed active after %s", listing_id, type(exc).__name__)
     publication.state = "active"
     await session.commit()
 

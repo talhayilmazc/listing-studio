@@ -3,6 +3,7 @@ import type {
   AdminInvite,
   AdminUsage,
   AdminUser,
+  ApproveAllResult,
   InviteIssued,
   TempPasswordIssued,
   Asset,
@@ -151,6 +152,9 @@ export const api = {
       body: JSON.stringify({ approved }),
     }),
   /** With `shop`, also that shop's share of today's requests (display only). */
+  /** Approve every listing in the batch that passes validation; the rest are listed with why. */
+  approveAll: (batchId: string) =>
+    req<ApproveAllResult>(`/batches/${batchId}/approve-all`, { method: "POST" }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

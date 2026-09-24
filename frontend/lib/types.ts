@@ -400,3 +400,10 @@ export interface AdminUsage {
     history: DayCount[];
   }[];
 }
+
+/** "Approve all" (docs/duzeltmeler-v6.md §D): listings that fail validation stay unapproved. */
+export interface ApproveAllResult {
+  approved: number;
+  already_approved: number;
+  skipped: { content_id: string; original_filename: string; reason: string }[];
+}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type {
+  ApproveAllResult,
   Content,
   Pause,
   PublishJob,
@@ -135,6 +136,22 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     runBulk("Creating drafts", () => api.publishBatch(id, { targets }));
   const publishAll = () => runBulk("Publishing", () => api.publishBatchLive(id));
 
+  // One click for the whole batch (v6 §D). The server approves only what passes
+  // validation; the rest stay as they are and are listed below with the reason.
+  const [approveResult, setApproveResult] = useState<ApproveAllResult | null>(null);
+  async function approveAll() {
+    setBusy(true);
+    setError(null);
+    try {
+      setApproveResult(await api.approveAll(id));
+      load();
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const actions = reviewActions(
     items ?? [],
     targets?.map((t) => t.connection_id),
@@ -176,6 +193,11 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               {items.length} approved
             </span>
             {/* Each action appears when it has work, from the listings as they are now. */}
+            {actions.approved < items.length && (
+              <button className="btn-primary" onClick={approveAll} disabled={busy}>
+                Approve all ({items.length - actions.approved})
+              </button>
+            )}
             {actions.toDraft > 0 && (
               <button
                 className="btn-secondary"
@@ -209,12 +231,44 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         <div className="card p-3 text-sm text-amber-800">{preview.message}</div>
       )}
 
+      {approveResult && (
+        <div role="status" className="card p-3 text-sm text-slate-700">
+          <div className="flex items-start justify-between gap-3">
+            <p>
+              Approved {approveResult.approved}
+              {approveResult.already_approved > 0 &&
+                ` · ${approveResult.already_approved} already approved`}
+              {approveResult.skipped.length > 0 &&
+                ` · ${approveResult.skipped.length} not approved, fix these first:`}
+            </p>
+            <button
+              type="button"
+              className="text-xs text-slate-400 hover:text-slate-700"
+              onClick={() => setApproveResult(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+          {approveResult.skipped.length > 0 && (
+            <ul className="mt-1.5 space-y-1 text-xs text-amber-800">
+              {approveResult.skipped.map((s) => (
+                <li key={s.content_id} className="break-words">
+                  <span className="font-mono">{s.original_filename}</span>: {s.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {manual.length > 0 && (
-        <div role="status" className="card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        // Information, not a gate (docs/duzeltmeler-v6.md §A2): publishing works without them.
+        <div role="status" className="card border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="font-medium">
-            Before {actions.toPublish > 1 ? "“Publish all”" : "publishing"}: set these on the
-            drafts in Shop Manager. Etsy&apos;s API cannot set them for you.
+          <p>
+            <span className="font-medium text-slate-900">Recommended in Shop Manager.</span>{" "}
+            Etsy&apos;s API cannot set these, so set them on the drafts yourself. They don&apos;t
+            block publishing: &ldquo;Publish all&rdquo; works either way.
           </p>
           <button
             type="button"
@@ -230,9 +284,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             {manual.map((m) => (
               <li key={m.key}>
                 <span className="font-medium">{m.label}</span>
-                <span className="text-amber-800">
+                <span className="text-slate-500">
                   {" "}
-                  · {m.drafts} draft{m.drafts === 1 ? "" : "s"} still to confirm. Each listing below
+                  · not yet ticked on {m.drafts} draft{m.drafts === 1 ? "" : "s"}. Each listing below
                   links to its draft; tick it there, or mark all as done once you have set them.
                 </span>
               </li>

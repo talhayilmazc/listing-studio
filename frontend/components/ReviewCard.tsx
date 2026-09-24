@@ -57,6 +57,10 @@ export function ReviewCard({
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
   const [approved, setApproved] = useState(initial.approved);
+  // "Approve all" on the page changes this without remounting the card.
+  useEffect(() => {
+    setApproved(initial.approved);
+  }, [initial.approved]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -400,7 +404,8 @@ export function ReviewCard({
 }
 
 /**
- * Settings Etsy's API cannot make, listed on the draft before "Publish now". The
+ * Settings Etsy's API cannot make, listed on the draft as a recommendation: they
+ * never block publishing (docs/duzeltmeler-v6.md §A2). The
  * seller ticks each one once it is set in Shop Manager. When all are ticked the
  * reminder collapses to one line, which can be reopened to undo a tick.
  */
@@ -446,9 +451,9 @@ function ManualSteps({
     );
   }
   return (
-    <div className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+    <div className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
       <p className="font-medium">
-        Set in Shop Manager before publishing{" "}
+        Recommended in Shop Manager (optional, doesn&apos;t block publishing){" "}
         <a href={link} target="_blank" rel="noreferrer" className="font-normal underline">
           open the draft ↗
         </a>
@@ -459,7 +464,7 @@ function ManualSteps({
             <label className="flex cursor-pointer items-start gap-2">
               <input
                 type="checkbox"
-                className="mt-0.5 h-3.5 w-3.5 rounded border-amber-300"
+                className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
                 checked={s.done}
                 disabled={busy !== null}
                 onChange={(e) => tick(s.key, e.target.checked)}
@@ -468,8 +473,8 @@ function ManualSteps({
                 <span className={"font-medium " + (s.done ? "line-through opacity-60" : "")}>
                   {s.label}
                 </span>
-                <span className="text-amber-800"> · {s.detail}</span>
-                <span className="block text-amber-700">I&apos;ve set this</span>
+                <span className="text-slate-500"> · {s.detail}</span>
+                <span className="block text-slate-500">I&apos;ve set this</span>
               </span>
             </label>
           </li>

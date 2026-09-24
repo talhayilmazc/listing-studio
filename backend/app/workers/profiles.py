@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select, true
 
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
@@ -37,6 +37,12 @@ from app.etsy.calllog import current_job
 from app.workers import gate
 
 logger = logging.getLogger(__name__)
+
+# The shop listing sync pages through the shop 100 at a time, up to this many
+# pages per state (active, draft): 1,000 each. Every page is one Etsy request,
+# which is why workers/gate.py JOB_COST budgets 1 + 2 x SYNC_MAX_PAGES for it.
+SYNC_PAGE_SIZE = 100
+SYNC_MAX_PAGES = 10
 
 
 def _llm_client(settings) -> AnthropicLLMClient | None:  # noqa: ANN001
@@ -277,13 +283,45 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
             }
             shop_id = await _resolve_shop_id(session, client, connection, kw)
             rows: list[dict[str, Any]] = []
+            complete = True
             for state in ("active", "draft"):
-                resp = await client.get_listings_by_shop(
-                    shop_id, state=state, limit=100, includes=["Images"], **kw
-                )
-                rows.extend(resp.get("results", []))
+                # Page through the whole shop. One page of 100 made any shop with
+                # more listings look smaller than it is (docs/duzeltmeler-v6.md §A4).
+                for page in range(SYNC_MAX_PAGES):
+                    resp = await client.get_listings_by_shop(
+                        shop_id,
+                        state=state,
+                        limit=SYNC_PAGE_SIZE,
+                        offset=page * SYNC_PAGE_SIZE,
+                        includes=["Images"],
+                        **kw,
+                    )
+                    results = resp.get("results", [])
+                    rows.extend(results)
+                    total = resp.get("count")
+                    if len(results) < SYNC_PAGE_SIZE or (
+                        total is not None and (page + 1) * SYNC_PAGE_SIZE >= int(total)
+                    ):
+                        break
+                else:
+                    complete = False  # more than the page cap: keep what we have
+                    logger.warning(
+                        "sync: shop %s has more than %d %s listings; showing the first %d",
+                        connection.id, SYNC_MAX_PAGES * SYNC_PAGE_SIZE, state,
+                        SYNC_MAX_PAGES * SYNC_PAGE_SIZE,
+                    )
 
         now = datetime.now(timezone.utc)
+        # Listings no longer in the shop (deleted, sold out, expired) leave the
+        # cache now, instead of being counted until their six hours run out.
+        if complete:
+            seen = {int(row["listing_id"]) for row in rows}
+            await session.execute(
+                delete(ShopListingCache).where(
+                    ShopListingCache.connection_id == connection.id,
+                    ShopListingCache.listing_id.not_in(seen) if seen else true(),
+                )
+            )
         for row in rows:
             listing_id = int(row["listing_id"])
             existing = await session.get(ShopListingCache, (tid, listing_id))

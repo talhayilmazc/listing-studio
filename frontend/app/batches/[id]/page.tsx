@@ -86,6 +86,43 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     }
   }
 
+  // "Generate content for all", one group per request (docs/duzeltmeler-v6.md §A3).
+  // A single request for the whole batch outlived the proxy's timeout on large
+  // batches: the page showed an error and never refreshed the cost panel while
+  // the server kept generating. Group by group, every result and the cost land
+  // as they happen.
+  async function generateAll() {
+    const todo = groups.filter((g) => !g.done);
+    if (todo.length === 0) {
+      setNotice("Every group already has content.");
+      return;
+    }
+    setBusy("__all__");
+    setFailures([]);
+    let generated = 0;
+    let failed = 0;
+    let skipped = 0;
+    const allFailures: { original_filename: string; error: string }[] = [];
+    for (const [i, g] of todo.entries()) {
+      setNotice(`Generating ${i + 1} of ${todo.length}: ${g.label}…`);
+      try {
+        const res = await api.generate(id, bulkProfileId || undefined, g.key);
+        generated += res.generated;
+        failed += res.failed;
+        skipped += res.skipped;
+        allFailures.push(...res.failures);
+      } catch (e: any) {
+        failed += 1;
+        allFailures.push({ original_filename: g.label, error: e.message ?? String(e) });
+      }
+      setFailures([...allFailures]);
+      await load();
+      setCostKey((k) => k + 1); // the cost panel follows each group
+    }
+    setNotice(`Generated ${generated}, failed ${failed}, skipped ${skipped}.`);
+    setBusy(null);
+  }
+
   async function generate(groupKey?: string) {
     setBusy(groupKey ?? "__all__");
     setNotice(null);
@@ -187,7 +224,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             </select>
           </div>
         )}
-        <button className="btn-secondary" onClick={() => generate()} disabled={anyBusy || noProfiles}>
+        <button className="btn-secondary" onClick={generateAll} disabled={anyBusy || noProfiles}>
           {busy === "__all__" ? "Generating all…" : "Generate content for all"}
         </button>
       </div>

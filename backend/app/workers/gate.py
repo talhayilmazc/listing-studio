@@ -37,8 +37,8 @@ JOB_COST: dict[str, int] = {
     "run_replace_images_job": 30,
     # shop, listing, inventory, images, properties
     "refresh_profile": 6,
-    # shop and two listing pages
-    "sync_shop_listings": 4,
+    # shop, and up to 10 pages of 100 for each of active and draft (profiles.SYNC_MAX_PAGES)
+    "sync_shop_listings": 21,
     # shop, listings, taxonomy, and an inventory read for each of up to 100 listings
     "detect_profiles": 110,
 }

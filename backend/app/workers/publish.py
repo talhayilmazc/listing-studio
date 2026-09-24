@@ -242,7 +242,7 @@ async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                 raise ValueError("publish-live job is missing content/connection/tenant")
 
             access_token = await connection_service.get_valid_access_token(session, connection)
-            async with httpx.AsyncClient(timeout=30.0) as http:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=90.0)) as http:
                 client = EtsyApiClient(
                     client_id=settings.etsy_client_id,
                     shared_secret=settings.etsy_client_secret,
