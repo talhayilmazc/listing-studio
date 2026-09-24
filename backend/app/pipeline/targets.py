@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile
 from app.pipeline.content import (
     MAX_TITLE_LENGTH,
+    join_prefix,
     TITLE_TOO_SHORT,
     GeneratedListing,
     policy_for,
@@ -78,25 +79,22 @@ def retarget_title(
 ) -> FittedTitle:
     """Swap one shop's title prefix for another's, adjusting by phrase.
 
-    Titles are comma-separated phrases. The source shop's prefix phrase comes off
-    and the target shop's goes on. If a longer prefix pushes the title past
-    ``max_length``, trailing phrases are dropped until it fits. A shorter
+    Titles are comma-separated phrases, and the prefix is part of the first one
+    ("Comfort Colors® Funny Nurse Shirt, ...", v6 §C). The source shop's prefix
+    comes off and the target shop's goes on. If a longer prefix pushes the title
+    past ``max_length``, trailing phrases are dropped until it fits. A shorter
     prefix leaves every phrase in place: the title is simply shorter.
     """
-    phrases = _phrases(title)
     source = (from_prefix or "").strip()
-    if source and phrases and phrases[0].casefold() == source.casefold():
-        phrases = phrases[1:]
-    elif source and title.strip().casefold().startswith(source.casefold()):
-        # A prefix without its comma ("COMFORT COLORS Retro Frog Tee, ...").
-        phrases = _phrases(title.strip()[len(source):])
+    stripped = title.strip()
+    if source and stripped.casefold().startswith(source.casefold()):
+        # With or without the comma earlier titles put after it.
+        stripped = stripped[len(source):].lstrip(" ,")
+    phrases = _phrases(stripped)
     target = (to_prefix or "").strip()
-    if target and phrases and phrases[0].casefold() == target.casefold():
-        phrases = phrases[1:]  # already there; never twice
-    head = [target] if target else []
 
     def join(kept: list[str]) -> str:
-        return ", ".join(head + kept)
+        return join_prefix(target, ", ".join(kept))
 
     kept = list(phrases)
     while len(kept) > 1 and len(join(kept)) > max_length:

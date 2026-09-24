@@ -296,7 +296,7 @@ async def test_prefixed_title_leads_the_description_and_counts_toward_the_length
     assert outcome.status == "generated", outcome
     async with async_sm() as session:
         row = await session.get(GeneratedContent, outcome.generated_content_id)
-    assert row.title.startswith("Comfort Colors®, Retro Frog Tee")
+    assert row.title.startswith("Comfort Colors® Retro Frog Tee")  # no comma (v6 §C)
     assert 110 <= len(row.title) <= 140
     assert row.description.split("\n")[0] == row.title
     assert "Size: S-3XL" in row.description

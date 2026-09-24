@@ -294,6 +294,21 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
     return errors
 
 
+def join_prefix(prefix: str | None, title: str) -> str:
+    """``prefix`` + the title's first phrase, joined by a space, never a comma.
+
+    A title that already starts with the prefix (with or without a comma after
+    it) gets it once, in the no-comma form.
+    """
+    prefix = (prefix or "").strip()
+    raw = title.strip()
+    if not prefix:
+        return raw
+    if raw.casefold().startswith(prefix.casefold()):
+        raw = raw[len(prefix):].lstrip(" ,")
+    return f"{prefix} {raw}".strip()
+
+
 class ContentGenerator(Protocol):
     async def generate(self, analysis: VisionAnalysis, sku: str | None = None) -> ContentResult: ...
 
@@ -334,13 +349,15 @@ class AnthropicContentGenerator:
         if self._title_prefix:
             # The prefix is prepended for us; the model writes only the remainder, to a
             # reduced budget so the FULL title still lands in MIN..MAX characters.
-            used = len(self._title_prefix) + 2  # the ", " separator
+            used = len(self._title_prefix) + 1  # the space after it
             blocks.append(
                 {
                     "type": "text",
                     "text": (
-                        f"The title will be prefixed with '{self._title_prefix}, ' "
-                        "automatically. Write ONLY the phrases after that prefix. The full "
+                        f"The title will begin with '{self._title_prefix} ' automatically, "
+                        "joined to your first phrase with a space and no comma (e.g. "
+                        f"'{self._title_prefix} Funny Nurse Shirt, ...'). Write ONLY the "
+                        "phrases after that prefix, starting with the product phrase. The full "
                         f"title (prefix included) must be {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH} "
                         f"characters, so write about {max(0, 130 - used)}-{MAX_TITLE_LENGTH - used} "
                         "characters and do not repeat the prefix."
@@ -350,13 +367,12 @@ class AnthropicContentGenerator:
         return blocks
 
     def _apply_prefix(self, listing: GeneratedListing) -> GeneratedListing:
-        """Prepend the fixed prefix to the generated title (v4: per-profile prefix)."""
-        if not self._title_prefix:
-            return listing
-        raw = listing.title.strip()
-        if raw.lower().startswith(self._title_prefix.lower()):
-            return listing  # model already included it; don't double it
-        listing.title = f"{self._title_prefix}, {raw}"
+        """Prepend the fixed prefix to the generated title (v4: per-profile prefix).
+
+        The prefix belongs to the first phrase, so no comma follows it (v6 §C):
+        "Comfort Colors® Funny Nurse Shirt, ...", not "Comfort Colors®, Funny ...".
+        """
+        listing.title = join_prefix(self._title_prefix, listing.title)
         return listing
 
     def build_params(self, analysis: VisionAnalysis, sku: str | None = None) -> dict[str, Any]:
