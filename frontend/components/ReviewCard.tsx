@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import type { BatchPublishResult, Content, Pause, Publication, PublishSkipped } from "@/lib/types";
+import type {
+  BatchPublishResult,
+  Content,
+  ManualStep,
+  Pause,
+  Publication,
+  PublishSkipped,
+} from "@/lib/types";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
@@ -126,6 +133,7 @@ export function ReviewCard({
               etsy_listing_id: job.listing_id,
               state: job.is_draft ? "draft" : "active",
               listing_link: job.listing_url,
+              manual_steps: job.manual_steps ?? [],
             };
             current = [...current.filter((p) => p.connection_id !== pub.connection_id), pub];
             setPublications(current);
@@ -324,6 +332,9 @@ export function ReviewCard({
                         {publishing ? "Publishing…" : "Publish now"}
                       </button>
                     )}
+                    {p.state !== "active" && p.manual_steps.length > 0 && (
+                      <ManualSteps steps={p.manual_steps} link={p.listing_link} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -366,6 +377,31 @@ export function ReviewCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Settings Etsy's API cannot make, listed on the draft before "Publish now" so the
+ * seller sets them in Shop Manager first rather than finding out at publish time.
+ */
+function ManualSteps({ steps, link }: { steps: ManualStep[]; link: string }) {
+  return (
+    <div className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <p className="font-medium">
+        Set in Shop Manager before publishing{" "}
+        <a href={link} target="_blank" rel="noreferrer" className="font-normal underline">
+          open the draft ↗
+        </a>
+      </p>
+      <ul className="mt-1 space-y-1">
+        {steps.map((s) => (
+          <li key={s.key}>
+            <span className="font-medium">{s.label}</span>
+            <span className="text-amber-800"> · {s.detail}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

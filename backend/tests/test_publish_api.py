@@ -430,3 +430,52 @@ async def test_batch_publish_skips_expired_references_with_the_reason(ctx) -> No
     assert [j["content_id"] for j in body["jobs"]] == [str(fresh)]
     assert body["skipped"][0]["content_id"] == str(stale)
     assert "more than a day old" in body["skipped"][0]["reason"]
+
+
+# --- settings the API cannot make (Etsy's Creativity Standards question) -------------
+async def _batch_of(ctx, content_id) -> uuid.UUID:
+    async with ctx["sm"]() as s:
+        return (await s.get(GeneratedContent, content_id)).batch_id
+
+
+async def test_a_draft_lists_what_still_has_to_be_set_in_shop_manager(ctx) -> None:
+    draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
+    rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, draft)}/content")).json()
+    [pub] = rows[0]["publications"]
+    assert pub["state"] == "draft"
+    assert pub["listing_link"].endswith("/listing-editor/edit/777")  # where to set it
+    assert [step["label"] for step in pub["manual_steps"]] == ["How does your shop produce this item?"]
+    assert "Shop Manager" in pub["manual_steps"][0]["detail"]
+
+
+async def test_a_live_listing_has_no_steps_left(ctx) -> None:
+    live = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=888, listing_state="active")
+    rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, live)}/content")).json()
+    assert rows[0]["publications"][0]["manual_steps"] == []
+
+
+async def test_the_finished_draft_job_carries_the_steps(ctx) -> None:
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
+    job_id = await _job_for(ctx, content_id)
+    body = (await ctx["client"].get(f"/api/jobs/{job_id}")).json()
+    assert [s["key"] for s in body["manual_steps"]] == ["creativity_production"]
+
+
+async def test_the_list_is_data_driven(ctx, monkeypatch) -> None:
+    """A new setting Etsy keeps out of the API is one entry in the registry."""
+    from app.etsy import manual_fields
+    from app.etsy.manual_fields import ManualField
+
+    monkeypatch.setattr(
+        manual_fields,
+        "MANUAL_FIELDS",
+        (
+            *manual_fields.MANUAL_FIELDS,
+            ManualField("apparel_only", "Apparel setting", "Set it by hand.", frozenset({"apparel"})),
+            ManualField("digital_only", "Digital setting", "Set it by hand.", frozenset({"digital_products"})),
+        ),
+    )
+    draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)  # a digital_products profile
+    rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, draft)}/content")).json()
+    keys = [s["key"] for s in rows[0]["publications"][0]["manual_steps"]]
+    assert keys == ["creativity_production", "digital_only"]
