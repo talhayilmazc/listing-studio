@@ -397,6 +397,50 @@ async def assign_group_profile(
     return await _batch_groups(session, batch_id)
 
 
+# --- Image order and cover (docs/duzeltmeler-v6.md §E) ----------------------------
+@router.put("/batches/{batch_id}/groups/order", response_model=schemas.BatchDetail)
+async def order_group(
+    batch_id: uuid.UUID,
+    body: schemas.GroupOrder,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.BatchDetail:
+    """Save one group's image order as ``rank``; the first image is the cover.
+
+    Etsy receives the images in this order, the cover first. Content already
+    written for the group moves to the new cover, so the review page and the
+    draft both lead with it (the text is about the design, not one photo).
+    """
+    await _get_batch(session, tenant, batch_id)
+    key = body.group_key or None
+    rows = await session.execute(
+        select(Asset).where(
+            Asset.batch_id == batch_id,
+            Asset.tenant_id == tenant.id,
+            Asset.group_key == key if key is not None else Asset.group_key.is_(None),
+        )
+    )
+    members = {a.id: a for a in rows.scalars()}
+    if not members:
+        raise HTTPException(status_code=404, detail="group not found")
+    if len(body.asset_ids) != len(members) or set(body.asset_ids) != set(members):
+        raise HTTPException(
+            status_code=422, detail="send every image of the group exactly once, in the new order"
+        )
+    cover = members[body.asset_ids[0]]
+    if cover.status is not AssetStatus.processed or cover.processed_key is None:
+        raise HTTPException(status_code=422, detail="the cover must be an image that processed")
+    for rank, asset_id in enumerate(body.asset_ids, start=1):
+        members[asset_id].rank = rank
+    contents = await session.execute(
+        select(GeneratedContent).where(GeneratedContent.asset_id.in_(list(members)))
+    )
+    for content in contents.scalars():
+        content.asset_id = cover.id
+    await session.commit()
+    return await get_batch(batch_id, session, tenant)
+
+
 # --- Content generation -----------------------------------------------------
 @router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)
 async def generate_content(
@@ -474,7 +518,7 @@ async def generate_content(
             members,
             key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()),
         )
-        if primary.id in already:
+        if any(m.id in already for m in members):
             skipped += 1
             continue
 

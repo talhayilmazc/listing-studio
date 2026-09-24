@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.crypto import get_cipher
@@ -44,6 +45,26 @@ logger = logging.getLogger(__name__)
 def publish_config(settings: Settings) -> PublishConfig:
     return PublishConfig(quantity=settings.default_quantity)
 
+
+
+async def group_siblings(session: AsyncSession, cover: Asset) -> list[Asset]:
+    """The other processed images of ``cover``'s listing group, in the order the
+    seller set (v6 §E). One folder = one listing (D1); the files at the root of
+    an upload are one group too."""
+    rows = await session.execute(
+        select(Asset)
+        .where(
+            Asset.batch_id == cover.batch_id,
+            Asset.group_key == cover.group_key
+            if cover.group_key is not None
+            else Asset.group_key.is_(None),
+            Asset.status == AssetStatus.processed,
+            Asset.id != cover.id,
+            Asset.processed_key.is_not(None),
+        )
+        .order_by(Asset.rank, Asset.original_filename)
+    )
+    return list(rows.scalars())
 
 async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
     settings = get_settings()
@@ -134,30 +155,18 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             )
             thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg")
 
-            # Same-folder-group siblings -> extra images (original ratio), rank order.
-            # One folder = one listing (D1), so the group defines the listing's images.
+            # Same-folder-group siblings -> extra images (original ratio), in the
+            # order the seller set (v6 §E). One folder = one listing (D1), and the
+            # files at the root of an upload are one group too.
             extras: list[PublishImage] = []
-            if asset.group_key is not None:
-                rows = await session.execute(
-                    select(Asset)
-                    .where(
-                        Asset.batch_id == asset.batch_id,
-                        Asset.group_key == asset.group_key,
-                        Asset.status == AssetStatus.processed,
-                        Asset.id != asset.id,
+            for sibling in await group_siblings(session, asset):
+                extras.append(
+                    PublishImage(
+                        data=storage.get(sibling.processed_key),
+                        filename=f"{sibling.id}.jpg",
+                        mime_type=sibling.mime_type or "image/jpeg",
                     )
-                    .order_by(Asset.rank)
                 )
-                for sibling in rows.scalars():
-                    if sibling.processed_key is None:
-                        continue
-                    extras.append(
-                        PublishImage(
-                            data=storage.get(sibling.processed_key),
-                            filename=f"{sibling.id}.jpg",
-                            mime_type=sibling.mime_type or "image/jpeg",
-                        )
-                    )
 
             vision = (content.attributes or {}).get("vision", {})
             async with httpx.AsyncClient(timeout=30.0) as http:

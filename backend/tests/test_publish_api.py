@@ -655,3 +655,85 @@ async def test_with_the_filter_off_the_same_listing_publishes(ctx, tmp_path, tes
 
     body = (await ctx["client"].post(f"/api/content/{content}/publish")).json()
     assert body["skipped"] == [] and len(body["jobs"]) == 1
+
+
+# --- Image order and cover (docs/duzeltmeler-v6.md §E) -----------------------------------
+async def _group(ctx, *, group_key=None, extra=("b.png", "c.png"), failed=()):
+    """The seeded listing's asset plus siblings in the same group; returns
+    (content id, batch id, [asset ids in their current rank order])."""
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
+    async with ctx["sm"]() as s:
+        content = await s.get(GeneratedContent, content_id)
+        first = await s.get(Asset, content.asset_id)
+        first.group_key, first.processed_key, first.original_filename = group_key, "p0", "a.png"
+        ids = [first.id]
+        for n, name in enumerate(extra, start=2):
+            bad = name in failed
+            asset = Asset(batch_id=content.batch_id, tenant_id=ctx["tenant_id"], original_filename=name,
+                          storage_key=f"k{n}", processed_key=None if bad else f"p{n}", group_key=group_key,
+                          status=AssetStatus.failed if bad else AssetStatus.processed, rank=n)
+            s.add(asset)
+            await s.flush()
+            ids.append(asset.id)
+        await s.commit()
+        return content_id, content.batch_id, ids
+
+
+async def test_the_chosen_order_is_saved_as_rank_and_the_content_follows_the_cover(ctx) -> None:
+    content_id, batch, (a, b, c) = await _group(ctx, group_key="BR5475")
+    resp = await ctx["client"].put(
+        f"/api/batches/{batch}/groups/order",
+        json={"group_key": "BR5475", "asset_ids": [str(c), str(a), str(b)]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert [x["id"] for x in resp.json()["assets"]] == [str(c), str(a), str(b)]
+    async with ctx["sm"]() as s:
+        assert [(await s.get(Asset, i)).rank for i in (c, a, b)] == [1, 2, 3]
+        # The listing now leads with the new cover, on the review page and on Etsy.
+        assert (await s.get(GeneratedContent, content_id)).asset_id == c
+
+        from app.workers.publish import group_siblings
+
+        cover = await s.get(Asset, c)
+        assert [x.id for x in await group_siblings(s, cover)] == [a, b]
+
+
+async def test_root_files_are_one_group_on_etsy_too(ctx) -> None:
+    _, batch, (a, b, c) = await _group(ctx, group_key=None)
+    resp = await ctx["client"].put(
+        f"/api/batches/{batch}/groups/order", json={"group_key": "", "asset_ids": [str(b), str(c), str(a)]}
+    )
+    assert resp.status_code == 200, resp.text
+    async with ctx["sm"]() as s:
+        from app.workers.publish import group_siblings
+
+        assert [x.id for x in await group_siblings(s, await s.get(Asset, b))] == [c, a]
+
+
+async def test_an_order_must_name_every_image_of_the_group_once(ctx) -> None:
+    _, batch, (a, b, c) = await _group(ctx, group_key="G")
+    url = f"/api/batches/{batch}/groups/order"
+    for ids in ([a, b], [a, b, c, c], [a, b, uuid.uuid4()]):
+        resp = await ctx["client"].put(url, json={"group_key": "G", "asset_ids": [str(i) for i in ids]})
+        assert resp.status_code == 422, ids
+    async with ctx["sm"]() as s:
+        assert [(await s.get(Asset, i)).rank for i in (a, b, c)] == [1, 2, 3]  # unchanged
+
+
+async def test_an_image_that_failed_cannot_be_the_cover(ctx) -> None:
+    _, batch, (a, b, c) = await _group(ctx, group_key="G", failed=("b.png",))
+    resp = await ctx["client"].put(
+        f"/api/batches/{batch}/groups/order", json={"group_key": "G", "asset_ids": [str(b), str(a), str(c)]}
+    )
+    assert resp.status_code == 422 and "cover" in resp.json()["detail"]
+
+
+async def test_ordering_is_only_for_the_owners_batch(ctx) -> None:
+    _, batch, ids = await _group(ctx, group_key="G")
+    other = await make_tenant(ctx["sm"], "other@example.com")
+    ctx["client"].cookies.clear()
+    authenticate(ctx["client"], await open_session(ctx["redis"], other))
+    resp = await ctx["client"].put(
+        f"/api/batches/{batch}/groups/order", json={"group_key": "G", "asset_ids": [str(i) for i in reversed(ids)]}
+    )
+    assert resp.status_code == 404
