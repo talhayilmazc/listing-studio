@@ -257,9 +257,63 @@ async def test_shops_are_listed_in_the_sellers_order_and_can_be_renamed(world) -
 
 # --- publishing to several shops --------------------------------------------------------
 def test_the_title_prefix_follows_the_shop() -> None:
-    assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "") == "Frog Tee"
-    assert retarget_title("Frog Tee", "", "Gildan") == "Gildan, Frog Tee"
-    assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "Bella") == "Bella, Frog Tee"
+    assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "").title == "Frog Tee"
+    assert retarget_title("Frog Tee", "", "Gildan").title == "Gildan, Frog Tee"
+    assert retarget_title(f"{PREFIX_A}, Frog Tee", PREFIX_A, "Bella").title == "Bella, Frog Tee"
+    # Never twice, and a prefix written without its comma still comes off.
+    assert retarget_title("Bella, Frog Tee", "", "Bella").title == "Bella, Frog Tee"
+    assert retarget_title("COMFORT COLORS Frog Tee, Pond Shirt", "COMFORT COLORS", "").title == (
+        "Frog Tee, Pond Shirt"
+    )
+
+
+# Phrases of a 129-character title with the 15-character prefix (112 without it).
+PHRASES = BODY.split(", ")
+
+
+def test_a_longer_prefix_drops_trailing_phrases_until_the_title_fits() -> None:
+    long_prefix = "Bella Canvas Unisex Jersey Tee"  # 15 characters longer than PREFIX_A
+    fitted = retarget_title(f"{PREFIX_A}, {BODY}", PREFIX_A, long_prefix)
+    assert len(f"{long_prefix}, {BODY}") > 140
+    assert len(fitted.title) <= 140
+    assert fitted.title == f"{long_prefix}, " + ", ".join(PHRASES[:-1])  # the last phrase went
+    assert fitted.dropped == (PHRASES[-1],) and fitted.used_all is False
+
+
+def test_a_shorter_prefix_keeps_every_phrase() -> None:
+    fitted = retarget_title(f"{PREFIX_A}, {BODY}", PREFIX_A, "")
+    assert fitted.title == BODY and fitted.used_all is True and fitted.dropped == ()
+
+
+async def test_a_shop_is_not_refused_because_trimming_left_the_title_short(world) -> None:
+    """Dropping a long last phrase can leave the title under 110. That is still a
+    draft in that shop, not a refused shop."""
+    long_tail = (
+        "Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck, "
+        "Handmade Vintage Frog Graphic Top For Pond And Nature Lovers"
+    )
+    async with world["sm"]() as s:
+        content = await s.get(GeneratedContent, world["contents"][0])
+        content.title = f"{PREFIX_A}, {long_tail}"
+        (await s.get(ListingProfile, world["pa2"])).title_prefix = "Bella Canvas Unisex Jersey"
+        await s.commit()
+        assert len(content.title) <= 140
+        target = await resolve_target(s, content, await s.get(EtsyConnection, world["a2"]))
+    assert target.ok, target.reason
+    assert target.title == "Bella Canvas Unisex Jersey, Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck"
+    assert len(target.title) < 110  # short, but a draft rather than a refusal
+
+
+async def test_a_title_still_short_with_every_phrase_refuses_that_shop(world) -> None:
+    short = "Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck, Frog Mom Gift, Nature Lover Top, Pond Gift"
+    async with world["sm"]() as s:
+        content = await s.get(GeneratedContent, world["contents"][0])
+        content.title = f"{PREFIX_A}, {short}"  # 110+ here, under 110 without the prefix
+        await s.commit()
+        assert len(content.title) >= 110 > len(short)
+        target = await resolve_target(s, content, await s.get(EtsyConnection, world["a2"]))
+    assert not target.ok
+    assert "at least 110" in target.reason
 
 
 async def test_each_shop_builds_its_draft_from_its_own_profile(world) -> None:

@@ -4,7 +4,9 @@ Etsy satıcılarının kendi orijinal tasarımlarından uyumlu **taslak listing*
 
 Aşama: kapalı beta, 5 kullanıcı. Etsy erişim seviyesi: Personal App.
 
-> Personal access **en fazla 5 mağazaya** bağlanabilir. 6. kullanıcıya geçmeden veya ücret almaya başlamadan önce Commercial Access başvurusu zorunludur.
+> Etsy bu uygulamayı **en fazla 80 bağlı mağaza** için onayladı. Ücret almaya başlamadan önce Commercial Access başvurusu zorunludur.
+>
+> **Kendi tavanlarımız daha düşük ve bilerek öyle: hesap başına 8 (`MAX_SHOPS_PER_TENANT`), uygulama geneli 20 (`MAX_SHOPS_APP_WIDE`).** Bunları Etsy'nin mağaza sınırı değil, **günlük 5.000 istek bütçesi** belirler: bütçe tüm mağazalar arasında paylaşılır ve her bağlı mağaza boşta bile günde ~18 istek harcar (senkronizasyon + profil yenileme; 20 mağaza ≈ 360/gün), üstüne her taslak ~15 istek. 80 mağazada bütçenin büyük kısmı yalnızca mağazaları güncel tutmaya giderdi. **Bu tavanlar, Etsy'den günlük kota artışı alınmadan yükseltilmez**; kota artarsa aynı hesapla birlikte yükseltilir.
 
 ---
 

@@ -3,12 +3,13 @@
 Each shop builds its draft from **its own** profile: category, price, variations,
 size charts and section all come from that shop's reference listing. The title
 and tags are written once. For another shop, the title's prefix is swapped for
-that shop's, and the description is that shop's reference body under the new
-title. A shop with no suitable profile cannot be chosen, and the reason is shown.
+that shop's (trailing phrases dropped if that pushes it past 140 characters),
+and the description is that shop's reference body under the new title. A shop with no suitable profile cannot be chosen, and the reason is shown.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,7 +18,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile
-from app.pipeline.content import GeneratedListing, policy_for, validate_listing
+from app.pipeline.content import (
+    MAX_TITLE_LENGTH,
+    TITLE_TOO_SHORT,
+    GeneratedListing,
+    policy_for,
+    validate_listing,
+)
 from app.pipeline.reference import replace_title_block
 
 # Typical Etsy requests to create one draft: create, read back, category
@@ -25,6 +32,8 @@ from app.pipeline.reference import replace_title_block
 # multi-shop publish ("3 shops x 5 listings = ~225 requests"). The worker's own
 # check before each job uses the worst case (workers/gate.py JOB_COST).
 ESTIMATED_CALLS_PER_DRAFT = 15
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -49,16 +58,50 @@ def is_fresh(profile: ListingProfile) -> bool:
     return (datetime.now(timezone.utc) - updated).total_seconds() < ListingProfile.CACHE_MAX_AGE_SECONDS
 
 
-def retarget_title(title: str, from_prefix: str | None, to_prefix: str | None) -> str:
-    """Swap one shop's title prefix for another's ("Comfort Colors®, ..." -> "...")."""
-    body = title.strip()
+@dataclass(frozen=True)
+class FittedTitle:
+    title: str
+    used_all: bool  # every phrase of the original title is still in it
+    dropped: tuple[str, ...] = ()
+
+
+def _phrases(text: str) -> list[str]:
+    return [p.strip() for p in text.split(",") if p.strip()]
+
+
+def retarget_title(
+    title: str,
+    from_prefix: str | None,
+    to_prefix: str | None,
+    *,
+    max_length: int = MAX_TITLE_LENGTH,
+) -> FittedTitle:
+    """Swap one shop's title prefix for another's, adjusting by phrase.
+
+    Titles are comma-separated phrases. The source shop's prefix phrase comes off
+    and the target shop's goes on. If a longer prefix pushes the title past
+    ``max_length``, trailing phrases are dropped until it fits. A shorter
+    prefix leaves every phrase in place: the title is simply shorter.
+    """
+    phrases = _phrases(title)
     source = (from_prefix or "").strip()
-    if source and body.lower().startswith(source.lower()):
-        body = body[len(source):].lstrip(" ,")
+    if source and phrases and phrases[0].casefold() == source.casefold():
+        phrases = phrases[1:]
+    elif source and title.strip().casefold().startswith(source.casefold()):
+        # A prefix without its comma ("COMFORT COLORS Retro Frog Tee, ...").
+        phrases = _phrases(title.strip()[len(source):])
     target = (to_prefix or "").strip()
-    if target and not body.lower().startswith(target.lower()):
-        body = f"{target}, {body}"
-    return body
+    if target and phrases and phrases[0].casefold() == target.casefold():
+        phrases = phrases[1:]  # already there; never twice
+    head = [target] if target else []
+
+    def join(kept: list[str]) -> str:
+        return ", ".join(head + kept)
+
+    kept = list(phrases)
+    while len(kept) > 1 and len(join(kept)) > max_length:
+        kept.pop()
+    return FittedTitle(join(kept), len(kept) == len(phrases), tuple(phrases[len(kept):]))
 
 
 async def shop_profiles(session: AsyncSession, connection_id: uuid.UUID) -> list[ListingProfile]:
@@ -122,15 +165,27 @@ async def resolve_target(
     if source is not None and chosen.id == source.id:
         title, description = content.title or "", content.description or ""
     else:
-        title = retarget_title(
+        fitted = retarget_title(
             content.title or "", source.title_prefix if source else None, chosen.title_prefix
         )
+        title = fitted.title
         body = str((chosen.cached_payload or {}).get("description", ""))
         description = replace_title_block(body, title)
         errors = validate_listing(
             GeneratedListing(title=title, tags=list(content.tags or []), description=description),
             policy_for(chosen.content_template),
         )
+        if not fitted.used_all:
+            # Phrases were dropped to fit 140, so the title is as long as this shop's
+            # prefix allows. A slightly short title beats refusing the whole shop;
+            # the minimum only refuses a title that is short with every phrase in it.
+            errors = [e for e in errors if not e.startswith(TITLE_TOO_SHORT)]
+        if fitted.dropped:
+            logger.info(
+                "title for shop %s shortened to fit its prefix; dropped %d trailing phrase(s)",
+                connection.id,
+                len(fitted.dropped),
+            )
         if errors:
             return Target(connection, chosen, "with this shop's title prefix: " + "; ".join(errors))
     return Target(connection, chosen, None, title, description)

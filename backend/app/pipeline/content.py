@@ -20,6 +20,8 @@ from app.pipeline.vision import VisionAnalysis
 REQUIRED_TAG_COUNT = 13
 MIN_TITLE_LENGTH = 110
 MAX_TITLE_LENGTH = 140
+# How the too-short title error begins (targets.py relaxes it for trimmed titles).
+TITLE_TOO_SHORT = "title must be at least"
 MAX_TAG_LENGTH = 20
 
 
@@ -131,7 +133,7 @@ def validate_listing(
         errors.append("title is empty")
     elif n < MIN_TITLE_LENGTH:
         errors.append(
-            f"title must be at least {MIN_TITLE_LENGTH} characters "
+            f"{TITLE_TOO_SHORT} {MIN_TITLE_LENGTH} characters "
             f"(yours was {n}); target {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH}"
         )
     if n > MAX_TITLE_LENGTH:
