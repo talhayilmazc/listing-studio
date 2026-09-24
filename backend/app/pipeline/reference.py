@@ -32,6 +32,31 @@ def _money_to_float(money: Any) -> float:
         return 0.0
 
 
+# Bumped when the payload gains something a publish depends on. v2: production
+# partners are read from Etsy's real field (docs/duzeltmeler-v5.md §D); a v1
+# payload says "no partners" even when the reference has them.
+PAYLOAD_VERSION = 2
+
+
+def production_partner_ids(listing: dict[str, Any]) -> list[int]:
+    """The production partner ids of an Etsy listing.
+
+    Etsy *returns* them as ``production_partners``, a list of objects
+    (``{"production_partner_id", "partner_name", "location"}``), and *accepts*
+    them on createDraftListing as ``production_partner_ids``. Reading the request
+    field name from a response always gave an empty list, so no draft ever got
+    the reference's partners.
+    """
+    ids = [
+        int(p["production_partner_id"])
+        for p in listing.get("production_partners") or []
+        if isinstance(p, dict) and p.get("production_partner_id") is not None
+    ]
+    if not ids:
+        ids = [int(x) for x in listing.get("production_partner_ids") or []]
+    return sorted(ids)
+
+
 def build_profile_payload(
     listing: dict[str, Any],
     inventory: dict[str, Any],
@@ -50,7 +75,8 @@ def build_profile_payload(
         # Etsy's processing/readiness profile; mandatory for physical listings and
         # the modern replacement for raw processing_min/max (v4 §A).
         "readiness_state_id": listing.get("readiness_state_id"),
-        "production_partner_ids": list(listing.get("production_partner_ids") or []),
+        "payload_version": PAYLOAD_VERSION,
+        "production_partner_ids": production_partner_ids(listing),
         "who_made": listing.get("who_made"),
         "when_made": listing.get("when_made"),
         "is_supply": listing.get("is_supply"),
@@ -136,7 +162,7 @@ def _kind(listing: dict[str, Any], band_width: float) -> tuple:
     price = _price_value(listing.get("price"))
     return (
         listing.get("taxonomy_id"),
-        tuple(sorted(listing.get("production_partner_ids") or [])),
+        tuple(production_partner_ids(listing)),
         int(price // band_width) if price is not None else None,
     )
 

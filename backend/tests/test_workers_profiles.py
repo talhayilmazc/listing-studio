@@ -144,7 +144,7 @@ class DetectFakeEtsy:
                     "title": "Comfort Colors Patriotic Tee",
                     "taxonomy_id": 100,
                     "price": {"amount": 2500, "divisor": 100},
-                    "production_partner_ids": [7],
+                    "production_partners": [{"production_partner_id": 7, "partner_name": "Print Co"}],
                     "images": [{}, {}, {}],
                 },
                 {
@@ -152,7 +152,7 @@ class DetectFakeEtsy:
                     "title": "Comfort Colors Retro Tee",
                     "taxonomy_id": 100,
                     "price": {"amount": 2600, "divisor": 100},
-                    "production_partner_ids": [7],
+                    "production_partners": [{"production_partner_id": 7, "partner_name": "Print Co"}],
                     "images": [{}, {}],
                 },
                 {
@@ -160,7 +160,7 @@ class DetectFakeEtsy:
                     "title": "Ceramic Coffee Mug Design",
                     "taxonomy_id": 200,
                     "price": {"amount": 1500, "divisor": 100},
-                    "production_partner_ids": [],
+                    "production_partners": [],
                     "images": [{}],
                 },
             ]

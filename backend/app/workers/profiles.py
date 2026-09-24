@@ -30,6 +30,7 @@ from app.pipeline.reference import (
     common_title_prefix,
     decode_etsy_text,
     prefix_from_shop,
+    production_partner_ids,
 )
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 from app.etsy.calllog import current_job
@@ -339,7 +340,7 @@ async def _detect_profiles(ctx: dict[str, Any], tenant_id: str) -> str:
                         title=str(row.get("title") or ""),
                         taxonomy_id=row.get("taxonomy_id"),
                         price=_price_float(row.get("price")),
-                        production_partner_ids=tuple(row.get("production_partner_ids") or []),
+                        production_partner_ids=tuple(production_partner_ids(row)),
                         variation_properties=tuple(sorted(props)),
                         image_count=len(row.get("images") or []),
                     )
