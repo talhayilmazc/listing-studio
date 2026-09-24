@@ -141,9 +141,13 @@ export function ProfileCard({
             {fetching
               ? "fetching reference…"
               : expired
-                ? "Etsy data is cleared after 24 hours — refresh the reference"
+                ? profile.confirmed
+                  ? "Etsy data expired; it refreshes automatically, or refresh now"
+                  : "Etsy data is cleared after 24 hours — refresh the reference"
                 : imagesHidden
-                  ? "Reference images are shown for 6 hours after each refresh"
+                  ? profile.confirmed
+                    ? "Reference images are renewing; they come back shortly"
+                    : "Reference images are shown for 6 hours after each refresh"
                   : "no reference image"}
           </div>
         )}
@@ -192,21 +196,29 @@ export function ProfileCard({
             <span>·</span>
             <span
               className={
-                profile.is_fresh
-                  ? "text-emerald-700"
-                  : fetching
-                    ? "text-brand-700"
-                    : "text-amber-700"
+                profile.refresh_error
+                  ? "text-rose-700"
+                  : profile.is_fresh
+                    ? "text-emerald-700"
+                    : fetching
+                      ? "text-brand-700"
+                      : "text-amber-700"
               }
             >
-              {profile.is_fresh
-                ? imagesHidden
-                  ? "usable · images hidden after 6 hours"
-                  : "reference cached"
+              {profile.refresh_error
+                ? "refresh failed · see below"
+                : profile.is_fresh
+                ? profile.confirmed
+                  ? "kept up to date automatically"
+                  : imagesHidden
+                    ? "usable · images hidden after 6 hours"
+                    : "reference cached · refreshes automatically once confirmed"
                 : fetching
                   ? "fetching reference…"
                   : expired
-                    ? "Etsy data expired — refresh to use"
+                    ? profile.confirmed
+                      ? "Etsy data expired · refreshing automatically"
+                      : "Etsy data expired — refresh to use"
                     : "not fetched"}
             </span>
           </p>
@@ -254,7 +266,7 @@ export function ProfileCard({
             title="Size charts"
             note={
               imagesHidden
-                ? "images hidden after 6 hours; your selection still applies"
+                ? "images renewing; your selection still applies"
                 : "appended to every draft using this profile"
             }
             images={charts}
@@ -270,7 +282,9 @@ export function ProfileCard({
             title="Other reference images"
             note={
               imagesHidden
-                ? "images hidden after 6 hours; refresh to see them"
+                ? profile.confirmed
+                  ? "images renewing; they come back shortly"
+                  : "images hidden after 6 hours; refresh to see them"
                 : "select any to append them too"
             }
             images={others}
@@ -278,6 +292,19 @@ export function ProfileCard({
             onToggle={toggleFixed}
             disabled={busy !== null}
           />
+        )}
+
+        {profile.refresh_error && (
+          // Auto-refresh could not renew this profile (v6 §H): say why, and when.
+          <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            <p className="font-medium">Couldn&apos;t refresh this profile</p>
+            <p className="mt-0.5">{profile.refresh_error}</p>
+            {profile.refresh_failed_at && (
+              <p className="mt-0.5 text-rose-700/80">
+                Last tried {new Date(profile.refresh_failed_at).toLocaleString()}
+              </p>
+            )}
+          </div>
         )}
 
         {error && <p className="text-xs text-rose-600">{error}</p>}
@@ -289,7 +316,7 @@ export function ProfileCard({
             </button>
           )}
           <button className="btn-secondary" onClick={refresh} disabled={busy !== null}>
-            {busy === "refresh" ? "Refreshing…" : "Refresh reference"}
+            {busy === "refresh" ? "Refreshing…" : profile.confirmed ? "Refresh now" : "Refresh reference"}
           </button>
           <button
             className="ml-auto text-xs text-rose-600 hover:text-rose-700"

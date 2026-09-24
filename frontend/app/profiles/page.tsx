@@ -126,6 +126,7 @@ export default function ProfilesPage() {
   const byListingId = new Map(listings.map((l) => [l.listing_id, l]));
   const detected = (profiles ?? []).filter((p) => !p.confirmed);
   const confirmed = (profiles ?? []).filter((p) => p.confirmed);
+  const failing = (profiles ?? []).filter((p) => p.refresh_error);
 
   return (
     <div className="space-y-8">
@@ -149,6 +150,25 @@ export default function ProfilesPage() {
       {error && <div className="card p-4 text-sm text-rose-700">{error}</div>}
 
       {profiles === null && <p className="text-sm text-slate-400">Loading…</p>}
+
+      {failing.length > 0 && (
+        // Profiles refresh on their own (v6 §H); the seller hears when one can't.
+        <div role="alert" className="card border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <p className="font-medium">
+            {failing.length === 1 ? "A profile couldn't refresh" : `${failing.length} profiles couldn't refresh`}
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {failing.map((p) => (
+              <li key={p.id}>
+                <a href={"#profile-" + p.id} className="font-medium underline">
+                  {p.name}
+                </a>
+                : {p.refresh_error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {detected.length > 0 && (
         <section className="space-y-3">

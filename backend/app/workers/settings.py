@@ -25,7 +25,13 @@ from app.etsy.client import UnavailableEtsyClient
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
 from app.workers.processor import JobProcessor, ProcessResult
-from app.workers.profiles import detect_profiles, refresh_profile, sync_shop_listings
+from app.workers.profiles import (
+    auto_refresh_profiles,
+    detect_profiles,
+    refresh_profile,
+    refresh_profile_images,
+    sync_shop_listings,
+)
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
@@ -87,6 +93,7 @@ class WorkerSettings:
         run_publish_job,
         run_publish_live_job,
         refresh_profile,
+        refresh_profile_images,
         sync_shop_listings,
         detect_profiles,
         run_replace_images_job,
@@ -96,6 +103,9 @@ class WorkerSettings:
         # Every 15 minutes, so a 6-hour cache row outlives its limit by at most
         # a quarter hour. Also on startup: a worker that was down catches up.
         cron(purge_expired, minute={0, 15, 30, 45}, second=0, run_at_startup=True),
+        # Profiles renew themselves ahead of their 6h/24h limits (v6 §H). Offset
+        # from the purge so a refresh never races the sweep that would clear it.
+        cron(auto_refresh_profiles, minute={5, 20, 35, 50}, second=0, run_at_startup=True),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

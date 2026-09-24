@@ -177,6 +177,10 @@ export interface Profile {
   reference_images: ReferenceImage[];
   /** Image links passed the 6h display limit; ids and classifications remain. */
   reference_images_expired: boolean;
+  images_updated_at: string | null;
+  /** The last refresh failed, worded for the seller (v6 §H); null once one succeeds. */
+  refresh_error: string | null;
+  refresh_failed_at: string | null;
 }
 
 export interface ShopListing {

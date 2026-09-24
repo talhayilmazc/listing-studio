@@ -625,7 +625,7 @@ async def generate_content(
             _fail("profile not found")
             continue
         if not _profile_is_fresh(profile):
-            _fail("profile has no fresh reference data; refresh it first")
+            _fail("profile has no fresh reference data yet; it refreshes automatically, or use Refresh now on the Profiles page")
             continue
 
         data = storage.get(primary.processed_key)

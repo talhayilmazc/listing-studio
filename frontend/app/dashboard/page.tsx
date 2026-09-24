@@ -545,6 +545,17 @@ function ProfilesCard({
 
 /** Reference cache state: fresh, stale, or never fetched. */
 function Freshness({ profile }: { profile: Profile }) {
+  // A failed auto-refresh (v6 §H) outranks everything: the seller must act.
+  if (profile.refresh_error) {
+    return (
+      <span
+        className="shrink-0 rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700"
+        title={profile.refresh_error}
+      >
+        refresh failed
+      </span>
+    );
+  }
   const label = !profile.confirmed
     ? "unconfirmed"
     : profile.is_fresh

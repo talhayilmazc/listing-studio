@@ -362,6 +362,10 @@ class ProfileOut(BaseModel):
     # True once the image links pass the 6h display limit: ids, ranks and
     # size-chart classifications are still returned, the links are not.
     reference_images_expired: bool = False
+    images_updated_at: datetime | None = None
+    # The last refresh failed, and why (v6 §H); None once a refresh succeeds.
+    refresh_error: str | None = None
+    refresh_failed_at: datetime | None = None
 
 
 class ShopListingOut(BaseModel):

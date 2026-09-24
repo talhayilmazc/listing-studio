@@ -33,7 +33,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, null, or_, select, update
+from sqlalchemy import delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job, ListingProfile, ListingPublication, ListingSnapshot, ShopListingCache
@@ -89,10 +89,12 @@ async def _strip_display_fields(session: AsyncSession, now: datetime) -> int:
     ORM would not notice. Returns how many profiles were changed.
     """
     cutoff = now - timedelta(seconds=ListingProfile.DISPLAY_MAX_AGE_SECONDS)
+    # The links have their own clock since auto-refresh renews them alone (v6 §H).
+    fetched = func.coalesce(ListingProfile.images_updated_at, ListingProfile.updated_at)
     rows = await session.execute(
         select(ListingProfile).where(
             ListingProfile.cached_payload.is_not(None),
-            or_(ListingProfile.updated_at.is_(None), ListingProfile.updated_at < cutoff),
+            or_(fetched.is_(None), fetched < cutoff),
         )
     )
     keys = ListingProfile.DISPLAY_IMAGE_KEYS
