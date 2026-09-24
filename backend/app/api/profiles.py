@@ -22,11 +22,11 @@ from app.etsy.shops import active_shops, owned_shop
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 
-def _payload_age(profile: ListingProfile) -> float | None:
+def _payload_age(profile: ListingProfile, stamp: datetime | None = None) -> float | None:
     """Seconds since the reference was fetched, or None if it holds nothing."""
-    if not profile.cached_payload or profile.updated_at is None:
+    updated = stamp if stamp is not None else profile.updated_at
+    if not profile.cached_payload or updated is None:
         return None
-    updated = profile.updated_at
     if updated.tzinfo is None:  # SQLite returns naive; treat as UTC.
         updated = updated.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - updated).total_seconds()
@@ -39,8 +39,9 @@ def _is_fresh(profile: ListingProfile) -> bool:
 
 
 def _images_displayable(profile: ListingProfile) -> bool:
-    """Reference image links are within the 6-hour display limit."""
-    age = _payload_age(profile)
+    """Reference image links are within the 6-hour display limit. Their clock is
+    their own: auto-refresh renews them more often than the rest (v6 §H)."""
+    age = _payload_age(profile, profile.images_updated_at or profile.updated_at)
     return age is not None and age < ListingProfile.DISPLAY_MAX_AGE_SECONDS
 
 
@@ -82,6 +83,9 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         is_fresh=_is_fresh(profile),
         reference_images=images,
         reference_images_expired=bool(images) and not displayable,
+        images_updated_at=profile.images_updated_at,
+        refresh_error=profile.refresh_error,
+        refresh_failed_at=profile.refresh_failed_at,
     )
 
 

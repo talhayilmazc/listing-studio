@@ -567,7 +567,20 @@ class ListingProfile(Base):
     #: Auto-detected profiles start unconfirmed; the seller confirms/renames them
     #: before use (never used silently). Manual creates are confirmed on creation.
     confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: When the structural payload was last fetched (24-hour limit).
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: When the image links were last fetched (6-hour display limit). Auto-refresh
+    #: renews them on their own, more often than the rest (v6 §H).
+    images_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Why the last refresh failed, worded for the seller; cleared by a success.
+    refresh_error: Mapped[str | None] = mapped_column(Text)
+    refresh_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    #: Auto-refresh renews each clock this long after it was set, ahead of its limit.
+    AUTO_REFRESH_IMAGES_SECONDS: ClassVar[int] = 5 * 3600
+    AUTO_REFRESH_SECONDS: ClassVar[int] = 20 * 3600
+    #: After a failed refresh, wait this long before auto-refresh tries again.
+    AUTO_REFRESH_RETRY_SECONDS: ClassVar[int] = 3 * 3600
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

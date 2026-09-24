@@ -100,16 +100,27 @@ def build_profile_payload(
         # `url` stays full-size: it is what size-chart classification downloads.
         # `display_url` is the 570px variant the UI renders, matching how
         # ShopListingOut.thumbnail_url already picks its source.
-        "images": [
-            {
-                "listing_image_id": row.get("listing_image_id"),
-                "rank": row.get("rank"),
-                "url": row.get("url_fullxfull") or row.get("url_570xN"),
-                "display_url": row.get("url_570xN") or row.get("url_fullxfull"),
-            }
-            for row in (image_rows or [])
-        ],
+        "images": image_entries(image_rows),
     }
+
+
+def image_entries(images: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """A reference listing's images as the payload stores them.
+
+    `url` stays full-size: it is what size-chart classification downloads.
+    `display_url` is the 570px variant the UI renders, matching how
+    ShopListingOut.thumbnail_url already picks its source.
+    """
+    rows = images.get("results", []) if isinstance(images, dict) else images
+    return [
+        {
+            "listing_image_id": row.get("listing_image_id"),
+            "rank": row.get("rank"),
+            "url": row.get("url_fullxfull") or row.get("url_570xN"),
+            "display_url": row.get("url_570xN") or row.get("url_fullxfull"),
+        }
+        for row in (rows or [])
+    ]
 
 
 def common_title_prefix(

@@ -19,8 +19,16 @@ from sqlalchemy import delete, select, true
 
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
-from app.db.models import ConnectionStatus, EtsyConnection, ListingProfile, ShopListingCache, Tenant
+from app.db.models import (
+    ConnectionStatus,
+    EtsyConnection,
+    ListingProfile,
+    ShopListingCache,
+    Tenant,
+    TenantStatus,
+)
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
+from app.etsy.errors import EtsyClientError
 from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
@@ -29,6 +37,7 @@ from app.pipeline.reference import (
     build_profile_payload,
     common_title_prefix,
     decode_etsy_text,
+    image_entries,
     prefix_from_shop,
     production_partner_ids,
 )
@@ -153,7 +162,77 @@ async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
     )
 
 
+class ShopAccessLost(Exception):
+    """The shop's sign-in could not be renewed; the seller must reconnect it."""
+
+
+NO_SHOP = (
+    "This profile's shop is no longer connected. Reconnect it to keep the profile up to date."
+)
+REFERENCE_GONE = (
+    "The reference listing is no longer on Etsy (deleted, sold out or expired). "
+    "Choose another reference listing for this profile."
+)
+ACCESS_LOST = "Etsy refused access to this shop. Reconnect the shop, then refresh the profile."
+TRANSIENT = "Etsy could not be reached to refresh this profile. It will try again automatically."
+
+
+def refresh_failure(exc: BaseException) -> str:
+    """What the seller is told about a failed refresh. Never Etsy's own text."""
+    if isinstance(exc, ShopAccessLost):
+        return ACCESS_LOST
+    if isinstance(exc, EtsyClientError):
+        if exc.status_code in (404, 410):
+            return REFERENCE_GONE
+        if exc.status_code in (401, 403):
+            return ACCESS_LOST
+    return TRANSIENT
+
+
+async def _record_refresh(
+    ctx: dict[str, Any], profile_id: str, error: str | None
+) -> None:
+    """Note a refresh's outcome on the profile, in a session of its own (the
+    failing one may be unusable). ``None`` clears an earlier failure."""
+    async with ctx["sessionmaker"]() as session:
+        profile = await session.get(ListingProfile, uuid.UUID(profile_id))
+        if profile is None:
+            return
+        profile.refresh_error = error
+        profile.refresh_failed_at = datetime.now(timezone.utc) if error else None
+        await session.commit()
+
+
+async def _reported(ctx: dict[str, Any], profile_id: str, body: Callable[[], Awaitable[str]]) -> str:
+    """Run a refresh, telling the seller when it fails (v6 §H).
+
+    Running out of daily budget is not a failure: the gate defers the job.
+    """
+    try:
+        result = await body()
+    except RateLimitExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 - every failure is reported, then logged
+        logger.warning("profile %s: refresh failed (%s)", profile_id, type(exc).__name__, exc_info=True)
+        await _record_refresh(ctx, profile_id, refresh_failure(exc))
+        return "failed"
+    if result == "no-connection":
+        await _record_refresh(ctx, profile_id, NO_SHOP)
+    return result
+
+
+async def _token(service: ConnectionService, session, connection: EtsyConnection) -> str:  # noqa: ANN001
+    try:
+        return await service.get_valid_access_token(session, connection)
+    except Exception:  # noqa: BLE001 - the renewal's own error may carry token detail
+        raise ShopAccessLost() from None
+
+
 async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
+    return await _reported(ctx, profile_id, lambda: _refresh_profile_body(ctx, profile_id))
+
+
+async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     service = _connection_service(settings)
@@ -168,7 +247,7 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
             return "no-connection"
 
         tenant = await session.get(Tenant, profile.tenant_id)
-        token = await service.get_valid_access_token(session, connection)
+        token = await _token(service, session, connection)
         async with httpx.AsyncClient(timeout=30.0) as http:
             client = _build_client(ctx, http, settings, shop=connection.id)
             kw = {
@@ -245,9 +324,121 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
             profile.fixed_image_ids = charts
 
         profile.cached_payload = payload
-        profile.updated_at = datetime.now(timezone.utc)
+        profile.updated_at = profile.images_updated_at = datetime.now(timezone.utc)
+        profile.refresh_error = profile.refresh_failed_at = None
         await session.commit()
         return "refreshed"
+
+
+async def refresh_profile_images(ctx: dict[str, Any], profile_id: str) -> str:
+    """Renew only a profile's image links (6-hour display limit), one request.
+
+    Auto-refresh runs this every 5 hours between the 20-hourly full refreshes
+    (v6 §H). If the reference's images changed, new ones need classifying, so
+    it does the full refresh instead.
+    """
+    async with ctx["sessionmaker"]() as session:
+        profile = await session.get(ListingProfile, uuid.UUID(profile_id))
+        if profile is None:
+            return "missing"
+        tenant_id = profile.tenant_id
+    return await _run_gated(
+        ctx,
+        "refresh_profile_images",
+        profile_id,
+        tenant_id,
+        lambda: _reported(ctx, profile_id, lambda: _refresh_images_body(ctx, profile_id)),
+    )
+
+
+async def _refresh_images_body(ctx: dict[str, Any], profile_id: str) -> str:
+    settings = get_settings()
+    service = _connection_service(settings)
+    async with ctx["sessionmaker"]() as session:
+        profile = await session.get(ListingProfile, uuid.UUID(profile_id))
+        if profile is None:
+            return "missing"
+        if not profile.cached_payload:  # the structure has lapsed too
+            return await _refresh_profile_body(ctx, profile_id)
+        connection = await _active_shop(session, profile.connection_id)
+        if connection is None or connection.tenant_id != profile.tenant_id:
+            return "no-connection"
+        tenant = await session.get(Tenant, profile.tenant_id)
+        token = await _token(service, session, connection)
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            client = _build_client(ctx, http, settings, shop=connection.id)
+            rows = await client.get_listing_images(
+                profile.reference_listing_id,
+                access_token=token,
+                tenant_id=profile.tenant_id,
+                tenant_limit=tenant.daily_quota if tenant else None,
+            )
+        fresh = image_entries(rows)
+        known = {img.get("listing_image_id"): img for img in profile.cached_payload.get("images", [])}
+        if {img["listing_image_id"] for img in fresh} != set(known):
+            return await _refresh_profile_body(ctx, profile_id)
+        # Same images: keep each one's classification, renew only the links.
+        payload = dict(profile.cached_payload)
+        payload["images"] = [
+            {**known[img["listing_image_id"]], **img} for img in fresh
+        ]
+        profile.cached_payload = payload
+        profile.images_updated_at = datetime.now(timezone.utc)
+        profile.refresh_error = profile.refresh_failed_at = None
+        await session.commit()
+        return "images-refreshed"
+
+
+async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
+    """Queue a refresh for every confirmed profile about to pass a limit (v6 §H).
+
+    Cron. The seller never has to press "Refresh": the structure (24-hour limit)
+    is renewed after 20 hours and the image links (6-hour limit) after 5, so a
+    profile never shows expired data and never has to wait for a refresh. Each
+    job still goes through the gate and the day's budget. Unconfirmed
+    (detected, not yet accepted) profiles are left alone, and a profile whose
+    refresh just failed waits a few hours before the next try.
+    """
+    now = datetime.now(timezone.utc)
+    due_full = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_SECONDS)
+    due_images = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_IMAGES_SECONDS)
+    retry_after = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_RETRY_SECONDS)
+    async with ctx["sessionmaker"]() as session:
+        rows = await session.execute(
+            select(ListingProfile)
+            .join(EtsyConnection, EtsyConnection.id == ListingProfile.connection_id)
+            .join(Tenant, Tenant.id == ListingProfile.tenant_id)
+            .where(
+                ListingProfile.confirmed.is_(True),
+                EtsyConnection.status == ConnectionStatus.active,
+                Tenant.status != TenantStatus.suspended,
+            )
+        )
+        profiles = list(rows.scalars())
+
+    def _older(stamp: datetime | None, cutoff: datetime) -> bool:
+        if stamp is None:
+            return True
+        if stamp.tzinfo is None:  # SQLite hands back naive datetimes
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        return stamp <= cutoff
+
+    queued = {"refresh_profile": 0, "refresh_profile_images": 0}
+    for p in profiles:
+        if p.refresh_failed_at is not None and not _older(p.refresh_failed_at, retry_after):
+            continue
+        if _older(p.updated_at, due_full) or not p.cached_payload:
+            function = "refresh_profile"
+        elif _older(p.images_updated_at, due_images):
+            function = "refresh_profile_images"
+        else:
+            continue
+        # One queued refresh per profile, however often the cron fires.
+        await _enqueue_job(ctx, function, str(p.id), _job_id=f"auto:{function}:{p.id}")
+        queued[function] += 1
+    if any(queued.values()):
+        logger.info("auto-refresh: queued %s", queued)
+    return queued
 
 
 async def sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
@@ -492,16 +683,16 @@ async def _detect_profiles(ctx: dict[str, Any], connection_id: str) -> str:
     return f"detected:{len(created)}"
 
 
-async def _enqueue_job(ctx: dict[str, Any], function: str, *args: Any) -> None:
+async def _enqueue_job(ctx: dict[str, Any], function: str, *args: Any, **kwargs: Any) -> None:
     """Enqueue a follow-up job. Tests inject ``ctx['enqueue']``; arq provides
     ``ctx['redis']`` (the pool) with ``enqueue_job``."""
     enqueue = ctx.get("enqueue")
     if enqueue is not None:
-        await enqueue(function, *args)
+        await enqueue(function, *args, **kwargs)
         return
     redis = ctx.get("redis")
     if redis is not None and hasattr(redis, "enqueue_job"):
-        await redis.enqueue_job(function, *args)
+        await redis.enqueue_job(function, *args, **kwargs)
 
 
 def _price_float(price: Any) -> float | None:
