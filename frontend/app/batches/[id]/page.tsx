@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { Asset, BatchDetail, Group, Profile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
+import { GroupImages } from "@/components/GroupImages";
 
 interface AssetGroup {
   key: string;
@@ -306,20 +307,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 </div>
               )}
 
-              <div className="mt-3 flex gap-2 overflow-x-auto">
-                {g.assets.map((a) => (
-                  <div key={a.id} className="h-16 w-16 shrink-0 overflow-hidden rounded bg-slate-100">
-                    {a.status === "processed" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={api.assetImage(a.id)}
-                        alt={a.original_filename}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+              <GroupImages batchId={id} groupKey={g.key} assets={g.assets} onSaved={setBatch} />
             </div>
           );
         })}

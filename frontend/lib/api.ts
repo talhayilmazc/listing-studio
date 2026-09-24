@@ -137,6 +137,12 @@ export const api = {
       }),
     }),
   // Per-group profile selection (v4 §E): omit group_key to bulk-apply to all groups.
+  /** Save a listing group's image order; the first is the cover (v6 §E). "" = root files. */
+  orderGroup: (batchId: string, groupKey: string, assetIds: string[]) =>
+    req<BatchDetail>(`/batches/${batchId}/groups/order`, {
+      method: "PUT",
+      body: JSON.stringify({ group_key: groupKey, asset_ids: assetIds }),
+    }),
   listGroups: (id: string) => req<Group[]>(`/batches/${id}/groups`),
   assignGroup: (
     id: string,

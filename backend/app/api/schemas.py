@@ -195,6 +195,14 @@ class AssetFailure(BaseModel):
     error: str
 
 
+class GroupOrder(BaseModel):
+    """A listing group's images in the order the seller chose (v6 §E): the first
+    is the cover. ``group_key`` "" is the files at the root of the upload."""
+
+    group_key: str = ""
+    asset_ids: list[uuid.UUID]
+
+
 class GenerateRequest(BaseModel):
     # Batch-level default profile; each group may override it via its group setting
     # (v4 §E). None => every group must have its own assigned profile.
