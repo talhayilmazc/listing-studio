@@ -45,6 +45,8 @@ export function applyChange(items: Content[], change: Partial<Content> & { id: s
  * state, while cards being edited keep their unsaved text.
  */
 export function cardKey(c: Content): string {
+  // Ticks are deliberately not part of it: ticking must not remount the card and
+  // lose unsaved edits. The card takes new ticks from its props instead.
   const pubs = c.publications
     .map((p) => `${p.connection_id}=${p.etsy_listing_id}/${p.state}`)
     .sort()
@@ -61,12 +63,14 @@ export function pendingManualSteps(
   items: Content[],
 ): { key: string; label: string; detail: string; drafts: number }[] {
   const byKey = new Map<string, { key: string; label: string; detail: string; drafts: number }>();
+  // Only what is still unticked counts.
   for (const c of items) {
     if (!c.approved) continue;
     for (const p of c.publications) {
       if (p.state === "active") continue;
       for (const s of p.manual_steps ?? []) {
-        const row = byKey.get(s.key) ?? { ...s, drafts: 0 };
+        if (s.done) continue; // the seller ticked it: nothing left to do
+        const row = byKey.get(s.key) ?? { key: s.key, label: s.label, detail: s.detail, drafts: 0 };
         row.drafts += 1;
         byKey.set(s.key, row);
       }

@@ -69,6 +69,8 @@ export interface ManualStep {
   key: string;
   label: string;
   detail: string;
+  /** The seller ticked it for this draft. */
+  done: boolean;
 }
 
 /** One draft of a listing, in one shop. */

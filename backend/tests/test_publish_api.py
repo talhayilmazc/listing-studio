@@ -479,3 +479,96 @@ async def test_the_list_is_data_driven(ctx, monkeypatch) -> None:
     rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, draft)}/content")).json()
     keys = [s["key"] for s in rows[0]["publications"][0]["manual_steps"]]
     assert keys == ["creativity_production", "digital_only"]
+
+
+# --- the seller's per-draft ticks ------------------------------------------------------
+async def _shop_id(ctx) -> uuid.UUID:
+    async with ctx["sm"]() as s:
+        return await _shop(s, ctx["tenant_id"])
+
+
+async def _steps(ctx, content_id) -> list[dict]:
+    rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, content_id)}/content")).json()
+    return next(r for r in rows if r["id"] == str(content_id))["publications"][0]["manual_steps"]
+
+
+def _tick_url(content_id, shop, key="creativity_production") -> str:
+    return f"/api/content/{content_id}/publications/{shop}/manual-steps/{key}"
+
+
+async def test_ticking_a_setting_marks_it_done_on_that_draft(ctx) -> None:
+    draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
+    shop = await _shop_id(ctx)
+    res = await ctx["client"].put(_tick_url(draft, shop), json={"done": True})
+    assert res.status_code == 200
+    assert res.json()["manual_steps"][0]["done"] is True
+    assert (await _steps(ctx, draft))[0]["done"] is True  # stored, not just echoed
+    await ctx["client"].put(_tick_url(draft, shop), json={"done": False})
+    assert (await _steps(ctx, draft))[0]["done"] is False
+
+
+async def test_a_regenerated_draft_starts_unticked(ctx) -> None:
+    from app.db.models import ListingPublication
+
+    draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
+    shop = await _shop_id(ctx)
+    await ctx["client"].put(_tick_url(draft, shop), json={"done": True})
+    async with ctx["sm"]() as s:  # the draft is recreated on Etsy under a new listing id
+        pub = (await s.execute(select(ListingPublication))).scalar_one()
+        pub.etsy_listing_id = 999
+        await s.commit()
+    assert (await _steps(ctx, draft))[0]["done"] is False
+
+
+async def test_mark_all_as_done_covers_every_approved_draft_of_the_batch(ctx) -> None:
+    from app.db.models import ListingPublication
+
+    first = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=1)
+    batch = await _batch_of(ctx, first)
+    async with ctx["sm"]() as s:  # three more in the same batch: approved, unapproved, live
+        shop = await _shop(s, ctx["tenant_id"])
+        base = await s.get(GeneratedContent, first)
+        ids = []
+        for n, (approved, state) in enumerate([(True, "draft"), (False, "draft"), (True, "active")], start=2):
+            asset = Asset(batch_id=batch, tenant_id=ctx["tenant_id"], original_filename=f"x{n}.png",
+                          storage_key=f"k{n}", status=AssetStatus.processed, rank=n)
+            s.add(asset)
+            await s.flush()
+            content = GeneratedContent(
+                tenant_id=ctx["tenant_id"], batch_id=batch, asset_id=asset.id, title=VALID_TITLE,
+                tags=list(base.tags), description="d", approved=approved,
+                listing_profile_id=base.listing_profile_id,
+            )
+            s.add(content)
+            await s.flush()
+            s.add(ListingPublication(tenant_id=ctx["tenant_id"], content_id=content.id, connection_id=shop,
+                                     profile_id=base.listing_profile_id, etsy_listing_id=n, state=state))
+            ids.append(content.id)
+        await s.commit()
+
+    res = await ctx["client"].post(f"/api/batches/{batch}/manual-steps/done")
+    assert res.json() == {"updated_drafts": 2}  # the two approved drafts
+    rows = {r["id"]: r for r in (await ctx["client"].get(f"/api/batches/{batch}/content")).json()}
+    done = lambda cid: [s["done"] for s in rows[str(cid)]["publications"][0]["manual_steps"]]  # noqa: E731
+    assert done(first) == [True] and done(ids[0]) == [True]
+    assert done(ids[1]) == [False]  # not approved: left alone
+    assert rows[str(ids[2])]["publications"][0]["manual_steps"] == []  # live: nothing to do
+    # Again: nothing left to update.
+    assert (await ctx["client"].post(f"/api/batches/{batch}/manual-steps/done")).json() == {"updated_drafts": 0}
+
+
+async def test_ticks_are_only_for_the_owners_drafts_and_known_settings(ctx) -> None:
+    draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
+    shop = await _shop_id(ctx)
+    assert (await ctx["client"].put(_tick_url(draft, shop, "no_such_setting"), json={"done": True})).status_code == 404
+    assert (await ctx["client"].put(_tick_url(draft, uuid.uuid4()), json={"done": True})).status_code == 404
+
+    # Another account: every tick and mark-all is a 404, and nothing changes.
+    other = await make_tenant(ctx["sm"], "other@example.com")
+    ctx["client"].cookies.clear()
+    authenticate(ctx["client"], await open_session(ctx["redis"], other))
+    assert (await ctx["client"].put(_tick_url(draft, shop), json={"done": True})).status_code == 404
+    batch = await _batch_of(ctx, draft)
+    assert (await ctx["client"].post(f"/api/batches/{batch}/manual-steps/done")).status_code == 404
+    authenticate(ctx["client"], await open_session(ctx["redis"], ctx["tenant_id"]))
+    assert (await _steps(ctx, draft))[0]["done"] is False

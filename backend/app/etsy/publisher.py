@@ -399,6 +399,7 @@ async def publish_content(
             profile_id=profile_id,
             etsy_listing_id=listing_id,
             state="draft",
+            manual_done={},  # a new draft: nothing has been set by hand on it yet
         )
     )
     await session.commit()

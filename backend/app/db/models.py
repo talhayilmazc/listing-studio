@@ -482,12 +482,26 @@ class ListingPublication(Base):
     etsy_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     #: "draft" on create; "active" once the seller explicitly publishes it.
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    #: Settings the seller confirmed making by hand in Shop Manager (etsy/manual_fields.py),
+    #: as {field key: the etsy_listing_id it was confirmed for}. A tick counts only
+    #: for that draft, so a regenerated draft starts unticked.
+    manual_done: Mapped[dict[str, Any]] = mapped_column(
+        JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    def manual_done_keys(self) -> set[str]:
+        """Settings ticked for *this* draft (ticks for an earlier draft do not count)."""
+        return {
+            key
+            for key, listing_id in (self.manual_done or {}).items()
+            if listing_id == self.etsy_listing_id
+        }
 
 
 class ListingProfile(Base):

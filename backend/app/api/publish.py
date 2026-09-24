@@ -506,7 +506,11 @@ async def job_status(
                 if publication.profile_id
                 else None
             )
-            steps = manual_steps(publication.state, profile.content_template if profile else None)
+            steps = manual_steps(
+                publication.state,
+                profile.content_template if profile else None,
+                publication.manual_done_keys(),
+            )
     connection = await session.get(EtsyConnection, job.connection_id)
 
     return schemas.JobStatusOut(

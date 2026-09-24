@@ -84,6 +84,15 @@ class ManualStepOut(BaseModel):
     key: str
     label: str
     detail: str
+    done: bool = False  # the seller ticked it for this draft
+
+
+class ManualStepTick(BaseModel):
+    done: bool
+
+
+class ManualStepsDone(BaseModel):
+    updated_drafts: int
 
 
 class PublicationOut(BaseModel):
