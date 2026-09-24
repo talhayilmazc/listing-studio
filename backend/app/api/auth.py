@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import (
+    Enqueuer,
     active_tenant,
     get_connection_service,
+    get_enqueuer,
     get_redis,
     get_session,
     get_token_http_factory,
@@ -28,6 +30,7 @@ from app.api.deps import (
 from app.core.config import get_settings
 from app.db.models import Tenant
 from app.etsy.connection import ConnectionService
+from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops
 from app.etsy.oauth import (
     OAuthError,
     build_authorize_url,
@@ -85,6 +88,7 @@ async def callback(
     redis: Redis = Depends(get_redis),
     service: ConnectionService = Depends(get_connection_service),
     client_factory: Callable[[], httpx.AsyncClient] = Depends(get_token_http_factory),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> RedirectResponse:
     """Handle Etsy's redirect back: validate state, exchange code, persist tokens."""
     settings = get_settings()
@@ -112,43 +116,38 @@ async def callback(
                 code=code,
                 verifier=verifier,
             )
-        await service.save_from_tokens(
+        connection = await service.save_from_tokens(
             session, tenant_id, tokens, settings.etsy_scopes.split()
         )
     except OAuthError:
         # Never surface token/exchange internals to the browser.
         return _redirect(f"{back}?status=error")
+    except ShopTaken:
+        return _redirect(f"{back}?status=taken")
+    except ShopLimitReached as exc:
+        return _redirect(f"{back}?status=limit_{exc.scope}")
 
-    return _redirect(f"{back}?status=connected")
+    # Fetch the shop's name and listings straight away, through the queue.
+    await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+    return _redirect(f"{back}?status=connected&shop={connection.id}")
 
 
 @router.get("/status", response_model=schemas.ConnectionOut)
 async def status(
     tenant: Tenant = Depends(active_tenant),
     session: AsyncSession = Depends(get_session),
-    service: ConnectionService = Depends(get_connection_service),
 ) -> schemas.ConnectionOut:
-    connection = await service.get_active(session, tenant.id)
-    if connection is None:
+    """Whether any shop is connected; the first shop's details. See /api/shops for all."""
+    shops = await active_shops(session, tenant.id)
+    if not shops:
         return schemas.ConnectionOut(connected=False)
+    connection = shops[0]
     return schemas.ConnectionOut(
         connected=True,
         status=connection.status.value,
         etsy_user_id=connection.etsy_user_id,
-        shop_name=connection.shop_name,
+        shop_name=connection.display_name or connection.shop_name,
         scopes=list(connection.scopes or []),
         connected_at=connection.connected_at,
         expires_at=connection.token_expires_at,
     )
-
-
-@router.post("/disconnect", response_model=schemas.ConnectionOut)
-async def disconnect(
-    tenant: Tenant = Depends(active_tenant),
-    session: AsyncSession = Depends(get_session),
-    service: ConnectionService = Depends(get_connection_service),
-) -> schemas.ConnectionOut:
-    connection = await service.get_active(session, tenant.id)
-    if connection is not None:
-        await service.disconnect(session, connection)
-    return schemas.ConnectionOut(connected=False)

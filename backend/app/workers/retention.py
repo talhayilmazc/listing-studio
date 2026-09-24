@@ -17,7 +17,7 @@ the Privacy Policy, so the policy stays true only while this module runs:
   charts) is the seller's own configuration and stays; a refresh repopulates
   the rest.
 
-:func:`purge_expired` runs on a cron in the worker. :func:`purge_tenant_etsy_content`
+:func:`purge_expired` runs on a cron in the worker. :func:`purge_shop_etsy_content`
 runs when a seller disconnects their shop, removing everything Etsy-sourced at
 once rather than waiting for it to age out.
 
@@ -36,7 +36,7 @@ from typing import Any
 from sqlalchemy import delete, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ListingProfile, ListingSnapshot, ShopListingCache
+from app.db.models import Job, ListingProfile, ListingPublication, ListingSnapshot, ShopListingCache
 
 logger = logging.getLogger(__name__)
 
@@ -111,27 +111,32 @@ async def _strip_display_fields(session: AsyncSession, now: datetime) -> int:
     return changed
 
 
-async def purge_tenant_etsy_content(session: AsyncSession, tenant_id: uuid.UUID) -> dict[str, int]:
-    """Remove everything Etsy-sourced for one tenant (on disconnect). Does not commit.
+async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUID) -> dict[str, int]:
+    """Remove everything Etsy-sourced for one shop (on disconnect). Does not commit.
 
-    Kept: the seller's uploads, the drafts we generated for them, and their
-    profile *settings*. Those are the seller's own work, not Etsy's content.
+    Deleted: that shop's cached listings, its profiles (built from its own
+    reference listings), the saved copies of its listings, and the links from
+    generated content to its drafts (v5 §E). Kept: the seller's uploads and
+    generated content, and everything belonging to the account's other shops.
     """
+    shop_jobs = select(Job.id).where(Job.connection_id == connection_id)
     snapshots = await session.execute(
-        delete(ListingSnapshot).where(ListingSnapshot.tenant_id == tenant_id)
+        delete(ListingSnapshot).where(ListingSnapshot.job_id.in_(shop_jobs))
     )
     listings = await session.execute(
-        delete(ShopListingCache).where(ShopListingCache.tenant_id == tenant_id)
+        delete(ShopListingCache).where(ShopListingCache.connection_id == connection_id)
+    )
+    publications = await session.execute(
+        delete(ListingPublication).where(ListingPublication.connection_id == connection_id)
     )
     profiles = await session.execute(
-        update(ListingProfile)
-        .where(ListingProfile.tenant_id == tenant_id, ListingProfile.cached_payload.is_not(None))
-        .values(cached_payload=null())
+        delete(ListingProfile).where(ListingProfile.connection_id == connection_id)
     )
     return {
         "snapshots": snapshots.rowcount or 0,
         "shop_listings": listings.rowcount or 0,
-        "profile_payloads": profiles.rowcount or 0,
+        "publications": publications.rowcount or 0,
+        "profiles": profiles.rowcount or 0,
     }
 
 

@@ -68,15 +68,15 @@ async def _seed(sm: async_sessionmaker, *, with_profile: bool = True):
         tenant = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", daily_quota=2000)
         s.add(tenant)
         await s.flush()
-        s.add(
-            EtsyConnection(
-                tenant_id=tenant.id, status=ConnectionStatus.active, etsy_user_id=900, shop_id=900
-            )
+        connection = EtsyConnection(
+            tenant_id=tenant.id, status=ConnectionStatus.active, etsy_user_id=900, shop_id=900
         )
+        s.add(connection)
+        await s.flush()
         profile_id = None
         if with_profile:
             profile = ListingProfile(
-                tenant_id=tenant.id, name="Tee", reference_listing_id=111
+                tenant_id=tenant.id, connection_id=connection.id, name="Tee", reference_listing_id=111
             )
             s.add(profile)
             await s.flush()
@@ -85,9 +85,15 @@ async def _seed(sm: async_sessionmaker, *, with_profile: bool = True):
         return tenant.id, profile_id
 
 
+async def _shop_of(sm: async_sessionmaker, tenant_id) -> uuid.UUID:
+    async with sm() as s:
+        rows = await s.execute(select(EtsyConnection.id).where(EtsyConnection.tenant_id == tenant_id))
+        return rows.scalars().first()
+
+
 def _patch(monkeypatch, tenant_id, fake_etsy) -> None:
     monkeypatch.setattr(worker, "_connection_service", lambda settings: FakeService(tenant_id))
-    monkeypatch.setattr(worker, "_build_client", lambda ctx, http, settings: fake_etsy)
+    monkeypatch.setattr(worker, "_build_client", lambda ctx, http, settings, **_: fake_etsy)
 
 
 async def test_refresh_profile_populates_cached_payload(
@@ -121,7 +127,7 @@ async def test_sync_shop_listings_caches_active_and_draft(
     _patch(monkeypatch, tenant_id, fake)
     ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None}
 
-    result = await worker.sync_shop_listings(ctx, str(tenant_id))
+    result = await worker.sync_shop_listings(ctx, str(await _shop_of(async_sm, tenant_id)))
     assert result == "synced:2"
     assert fake.listings_calls == ["active", "draft"]
 
@@ -194,7 +200,7 @@ async def test_detect_profiles_clusters_and_creates_unconfirmed(
         enqueued.append((func, args))
 
     ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None, "enqueue": _enqueue}
-    result = await worker.detect_profiles(ctx, str(tenant_id))
+    result = await worker.detect_profiles(ctx, str(await _shop_of(async_sm, tenant_id)))
     assert result == "detected:2"  # tees cluster into one, the mug the other
 
     async with async_sm() as s:
@@ -219,11 +225,18 @@ async def test_detect_profiles_skips_existing_reference(
 ) -> None:
     tenant_id, _ = await _seed(async_sm, with_profile=False)
     async with async_sm() as s:  # a profile already references listing 10
-        s.add(ListingProfile(tenant_id=tenant_id, name="Tee", reference_listing_id=10))
+        s.add(
+            ListingProfile(
+                tenant_id=tenant_id,
+                connection_id=await _shop_of(async_sm, tenant_id),
+                name="Tee",
+                reference_listing_id=10,
+            )
+        )
         await s.commit()
     _patch(monkeypatch, tenant_id, DetectFakeEtsy())
     ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None, "enqueue": lambda *a: _noop()}
-    result = await worker.detect_profiles(ctx, str(tenant_id))
+    result = await worker.detect_profiles(ctx, str(await _shop_of(async_sm, tenant_id)))
     assert result == "detected:1"  # only the mug is new
 
 
@@ -241,11 +254,13 @@ async def _with_shop_cache(sm: async_sessionmaker, tenant_id, *, age_hours: floa
         (502, "Comfort Colors Cat Mom Shirt"),
         (503, "COMFORT COLORS Pumpkin Tee"),
     ]
+    shop = await _shop_of(sm, tenant_id)
     async with sm() as s:
         for listing_id, title in rows:
             s.add(
                 ShopListingCache(
                     tenant_id=tenant_id,
+                    connection_id=shop,
                     listing_id=listing_id,
                     fetched_at=fetched,
                     payload={

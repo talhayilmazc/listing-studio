@@ -135,6 +135,13 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
           : `${Math.max(0, usage.pause_at - usage.global_used).toLocaleString()} until new work pauses at ${usage.pause_at.toLocaleString()}`}
         {" · "}
         {usage.global_remaining.toLocaleString()} left today
+        {" · "}
+        <span className="text-slate-700">
+          {usage.shops_used} of {usage.shops_limit} shops connected
+        </span>
+        {usage.shops_used < usage.shops_limit
+          ? ` (${usage.shops_limit - usage.shops_used} slots left)`
+          : " (no slots left)"}
         {busiest.length > 0 && (
           <>
             {" · most used by "}

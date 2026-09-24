@@ -8,6 +8,7 @@ Only the authenticated seller's own listings are ever read.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -17,7 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_session
-from app.db.models import Job, JobStatus, JobType, ListingProfile, ShopListingCache, Tenant, UploadBatch
+from app.api.shops import selected_shop
+from app.db.models import (
+    EtsyConnection,
+    Job,
+    JobStatus,
+    JobType,
+    ListingProfile,
+    ShopListingCache,
+    Tenant,
+    UploadBatch,
+)
 from app.etsy.connection import ConnectionService
 from app.pipeline.reference import decode_etsy_text
 
@@ -63,20 +74,34 @@ def _is_stale(fetched_at: datetime | None) -> bool:
     return age >= ShopListingCache.STALE_SECONDS
 
 
+async def _shop_rows(
+    session: AsyncSession, tenant: Tenant, connection: EtsyConnection
+) -> list[ShopListingCache]:
+    rows = await session.execute(
+        select(ShopListingCache).where(
+            ShopListingCache.tenant_id == tenant.id,
+            ShopListingCache.connection_id == connection.id,
+        )
+    )
+    return list(rows.scalars())
+
+
 @router.get("/listings", response_model=schemas.ShopListingsOut)
 async def list_shop_listings(
+    shop: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ShopListingsOut:
-    rows = await session.execute(
-        select(ShopListingCache).where(ShopListingCache.tenant_id == tenant.id)
-    )
-    cached = list(rows.scalars())
+    """One shop's own listings (``?shop=``, default the first shop)."""
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        return schemas.ShopListingsOut(listings=[], stale=False)
+    cached = await _shop_rows(session, tenant, connection)
     newest = max((c.fetched_at for c in cached), default=None)
     stale = _is_stale(newest)
     if stale:
-        await enqueuer.enqueue("sync_shop_listings", str(tenant.id))
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id))
     # Expired rows are never shown (CLAUDE.md: past its age, listing content is
     # re-fetched, not displayed). The retention job deletes them; this filter
     # covers the minutes between a row expiring and the next sweep.
@@ -88,14 +113,13 @@ async def list_shop_listings(
 
 @router.get("/summary", response_model=schemas.ShopSummaryOut)
 async def shop_summary(
+    shop: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ShopSummaryOut:
-    """Listing counts from the cache. Never triggers a sync (cf. ``/shop/listings``)."""
-    rows = await session.execute(
-        select(ShopListingCache).where(ShopListingCache.tenant_id == tenant.id)
-    )
-    everything = list(rows.scalars())
+    """One shop's listing counts from the cache. Never triggers a sync (cf. ``/shop/listings``)."""
+    connection = await selected_shop(session, tenant, shop)
+    everything = await _shop_rows(session, tenant, connection) if connection else []
     newest = max((c.fetched_at for c in everything), default=None)
     # Counts are derived from listing content, so expired rows do not count.
     cached = [c for c in everything if not _is_stale(c.fetched_at)]
@@ -135,6 +159,8 @@ async def shop_summary(
 
 @router.post("/detect-profiles", status_code=202)
 async def detect_profiles_endpoint(
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, str]:
@@ -143,8 +169,26 @@ async def detect_profiles_endpoint(
     Runs through the queue; detected profiles appear in GET /api/profiles as
     unconfirmed for the seller to confirm, rename or override (never used silently).
     """
-    await enqueuer.enqueue("detect_profiles", str(tenant.id))
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    await enqueuer.enqueue("detect_profiles", str(connection.id))
     return {"status": "detecting"}
+
+
+async def _listing_shop(
+    session: AsyncSession,
+    tenant: Tenant,
+    cached: ShopListingCache | None,
+    shop: uuid.UUID | None,
+) -> EtsyConnection:
+    """The shop a listing is in: its cache row says, else the ``?shop=`` asked for."""
+    connection = await selected_shop(
+        session, tenant, cached.connection_id if cached is not None else shop
+    )
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    return connection
 
 
 @router.post(
@@ -154,6 +198,7 @@ async def detect_profiles_endpoint(
 )
 async def use_listing_as_profile(
     listing_id: int,
+    shop: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -165,12 +210,14 @@ async def use_listing_as_profile(
     tuned afterwards via PATCH /api/profiles/{id}.
     """
     cached = await session.get(ShopListingCache, (tenant.id, listing_id))
+    connection = await _listing_shop(session, tenant, cached, shop)
     default_name = (
         decode_etsy_text((cached.payload or {}).get("title")) if cached is not None else None
     )
 
     profile = ListingProfile(
         tenant_id=tenant.id,
+        connection_id=connection.id,
         name=default_name or f"Listing {listing_id}",
         reference_listing_id=listing_id,
         source="manual",
@@ -181,15 +228,16 @@ async def use_listing_as_profile(
     await session.refresh(profile)
     await enqueuer.enqueue("refresh_profile", str(profile.id))
 
-    from app.api.profiles import _to_out
+    from app.api.profiles import _out
 
-    return _to_out(profile)
+    return await _out(session, tenant, profile)
 
 
 @router.post("/listings/{listing_id}/replace-images", response_model=schemas.ReplaceImagesOut)
 async def replace_listing_images_endpoint(
     listing_id: int,
     body: schemas.ReplaceImagesRequest,
+    shop: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
@@ -201,9 +249,8 @@ async def replace_listing_images_endpoint(
     uploads the new photos, and refreshes title/tags/description — state and all
     metadata untouched. Snapshots before any write.
     """
-    connection = await service.get_active(session, tenant.id)
-    if connection is None:
-        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    cached = await session.get(ShopListingCache, (tenant.id, listing_id))
+    connection = await _listing_shop(session, tenant, cached, shop)
     batch = await session.get(UploadBatch, body.batch_id)
     if batch is None or batch.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="batch not found")

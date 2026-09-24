@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.db.models import ListingProfile, Tenant
+from app.etsy.shops import active_shops, owned_shop
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
@@ -43,7 +44,13 @@ def _images_displayable(profile: ListingProfile) -> bool:
     return age is not None and age < ListingProfile.DISPLAY_MAX_AGE_SECONDS
 
 
-def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
+async def shop_names(session: AsyncSession, tenant: Tenant) -> dict[uuid.UUID, str]:
+    from app.api.shops import shop_label
+
+    return {c.id: shop_label(c) for c in await active_shops(session, tenant.id)}
+
+
+def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.ProfileOut:
     payload = profile.cached_payload or {}
     fixed = set(profile.fixed_image_ids or [])
     # Past 6 hours the links are withheld even before retention strips them, so
@@ -62,6 +69,8 @@ def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
     ]
     return schemas.ProfileOut(
         id=profile.id,
+        connection_id=profile.connection_id,
+        shop_name=shop_name,
         name=profile.name,
         reference_listing_id=profile.reference_listing_id,
         content_template=profile.content_template,
@@ -76,6 +85,10 @@ def _to_out(profile: ListingProfile) -> schemas.ProfileOut:
     )
 
 
+async def _out(session: AsyncSession, tenant: Tenant, profile: ListingProfile) -> schemas.ProfileOut:
+    return _to_out(profile, (await shop_names(session, tenant)).get(profile.connection_id))
+
+
 async def _get(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> ListingProfile:
     profile = await session.get(ListingProfile, profile_id)
     if profile is None or profile.tenant_id != tenant.id:
@@ -85,15 +98,19 @@ async def _get(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> 
 
 @router.get("", response_model=list[schemas.ProfileOut])
 async def list_profiles(
+    shop: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.ProfileOut]:
-    rows = await session.execute(
-        select(ListingProfile)
-        .where(ListingProfile.tenant_id == tenant.id)
-        .order_by(ListingProfile.created_at.desc())
-    )
-    return [_to_out(p) for p in rows.scalars()]
+    """Every profile of the account, or only one shop's with ``?shop=`` (v5 §E)."""
+    query = select(ListingProfile).where(ListingProfile.tenant_id == tenant.id)
+    if shop is not None:
+        if await owned_shop(session, tenant.id, shop) is None:
+            raise HTTPException(status_code=404, detail="shop not found")
+        query = query.where(ListingProfile.connection_id == shop)
+    rows = await session.execute(query.order_by(ListingProfile.created_at.desc()))
+    names = await shop_names(session, tenant)
+    return [_to_out(p, names.get(p.connection_id)) for p in rows.scalars()]
 
 
 @router.post("", response_model=schemas.ProfileOut, status_code=201)
@@ -103,8 +120,12 @@ async def create_profile(
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
+    # The reference listing is in this shop, which must be one of the caller's own.
+    if await owned_shop(session, tenant.id, body.connection_id) is None:
+        raise HTTPException(status_code=404, detail="shop not found")
     profile = ListingProfile(
         tenant_id=tenant.id,
+        connection_id=body.connection_id,
         name=body.name,
         reference_listing_id=body.reference_listing_id,
         content_template=body.content_template,
@@ -117,7 +138,7 @@ async def create_profile(
     await session.refresh(profile)
     # Populate the cached reference payload in the background (queued Etsy read).
     await enqueuer.enqueue("refresh_profile", str(profile.id))
-    return _to_out(profile)
+    return await _out(session, tenant, profile)
 
 
 @router.get("/{profile_id}", response_model=schemas.ProfileOut)
@@ -126,7 +147,7 @@ async def get_profile(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
-    return _to_out(await _get(session, tenant, profile_id))
+    return await _out(session, tenant, await _get(session, tenant, profile_id))
 
 
 @router.patch("/{profile_id}", response_model=schemas.ProfileOut)
@@ -149,7 +170,7 @@ async def update_profile(
         profile.title_prefix = body.title_prefix
     await session.commit()
     await session.refresh(profile)
-    return _to_out(profile)
+    return await _out(session, tenant, profile)
 
 
 @router.post("/{profile_id}/confirm", response_model=schemas.ProfileOut)
@@ -163,7 +184,7 @@ async def confirm_profile(
     profile.confirmed = True
     await session.commit()
     await session.refresh(profile)
-    return _to_out(profile)
+    return await _out(session, tenant, profile)
 
 
 @router.delete("/{profile_id}", status_code=204)
@@ -186,4 +207,4 @@ async def refresh_profile_endpoint(
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)
     await enqueuer.enqueue("refresh_profile", str(profile.id))
-    return _to_out(profile)
+    return await _out(session, tenant, profile)

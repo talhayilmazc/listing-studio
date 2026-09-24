@@ -61,11 +61,13 @@ export default function PrivacyPage() {
           the account was created and which invite code was used (the code is stored hashed).
         </p>
         <p>
-          <strong>Your Etsy connection.</strong> When you connect your shop, Etsy gives us access
-          and refresh tokens that let the Service act on your shop with the permissions you
-          granted. We store them encrypted, and they are never shown in the app, never sent to
-          your browser, and never written to logs. We also keep your Etsy user ID, shop ID, shop
-          name, and the permissions granted.
+          <strong>Your Etsy connections.</strong> You can connect more than one of your own
+          shops; each is connected separately, by signing in to Etsy as that shop&rsquo;s owner.
+          For each shop, Etsy gives us access and refresh tokens that let the Service act on that
+          shop with the permissions you granted. We store them encrypted, and they are never shown
+          in the app, never sent to your browser, and never written to logs. We also keep each
+          shop&rsquo;s Etsy user ID, shop ID, shop name, the name you give it in the app, and the
+          permissions granted.
         </p>
         <p>
           <strong>Data from your own Etsy shop.</strong> Your listings as Etsy returns them
@@ -273,7 +275,7 @@ export default function PrivacyPage() {
               />
               <Row
                 data="Your reference listing's details used to build drafts — category, attributes, price, shipping profile, variations, readiness state, description, and which of its images are size charts"
-                period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile"
+                period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile or disconnect its shop"
               />
               <Row
                 data="Copies of listings taken before we change them"
@@ -322,14 +324,15 @@ export default function PrivacyPage() {
 
       <Section id="disconnect" n={10} title="Disconnecting your shop">
         <p>
-          You can disconnect your Etsy shop at any time from the{" "}
+          You can disconnect any of your Etsy shops at any time from the{" "}
           <Link href="/connect" className="font-medium text-brand-700 hover:underline">
-            Connection
+            Shops
           </Link>{" "}
-          page. When you do, we <strong>immediately delete</strong> your Etsy tokens and every
-          piece of Etsy data we hold for you: the copy of your shop&rsquo;s listings, the
-          reference details of your profiles, and all saved copies of listings. Your uploads,
-          generated drafts and profile settings stay, so you can reconnect later and carry on.
+          page. When you do, we <strong>immediately delete</strong> that shop&rsquo;s Etsy tokens
+          and every piece of Etsy data we hold from it: the copy of its listings, its profiles
+          (which were built from its own listings), all saved copies of its listings, and the
+          links from your generated listings to its drafts. Your other shops are not affected, and
+          your uploads and generated listings stay, so you can reconnect later and carry on.
         </p>
         <p>
           Listings and drafts already created in your Etsy shop are not affected: they live in

@@ -66,6 +66,11 @@ Fill in `.env`:
   00:00 UTC, and every seller sees why in a banner. The last 500 requests let
   work already running finish. `TENANT_DAILY_QUOTA=1000` is the default
   ceiling per seller; you can change it per seller in Admin → Users.
+- **`MAX_SHOPS_PER_TENANT=8`, `MAX_SHOPS_APP_WIDE=20`.** A seller can connect
+  several shops. Every connected shop spends part of the shared budget just to
+  stay in sync, so the app-wide ceiling follows the budget. Raise it only if
+  the daily budget grows. The per-seller default can be changed in Admin →
+  Users, and Admin → Usage shows the slots left.
 
 ## 3. Cloudflare Tunnel
 

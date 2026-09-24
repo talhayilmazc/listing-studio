@@ -30,6 +30,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.api import EtsyApiClient
+from app.pipeline.targets import resolve_target
 from app.workers.gate import start_job
 from app.workers.guards import owned, owned_optional, public_error
 from app.etsy.connection import ConnectionService
@@ -76,19 +77,26 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             )
             asset = owned(await session.get(Asset, content.asset_id), job.tenant_id, "asset")
             tenant = await session.get(Tenant, job.tenant_id)
-            profile = owned_optional(
-                await session.get(ListingProfile, content.listing_profile_id)
-                if content.listing_profile_id
-                else None,
-                job.tenant_id,
-            )
             if tenant is None:
                 raise ValueError("publish job is missing its tenant")
-            if profile is None or not profile.cached_payload:
-                raise ValueError("publish job has no reference profile payload")
+            # This shop's own profile builds this shop's draft (v5 §E); resolved
+            # again here so the text and the freshness check are current.
+            chosen = job.payload.get("profile_id")
+            target = await resolve_target(
+                session,
+                content,
+                connection,
+                profile_id=uuid.UUID(chosen) if chosen else None,
+            )
+            if not target.ok:
+                raise ValueError(target.reason or "no profile for this shop")
+            profile = owned(target.profile, job.tenant_id, "profile")
+            if profile.connection_id != connection.id:
+                raise ValueError("the profile belongs to another shop")
 
             # Size charts (fixed images) may come from a different profile chosen per
-            # group (v4 §E), then per batch (Task 4), else this content's own profile.
+            # group (v4 §E), then per batch (Task 4), else this shop's own profile.
+            # Image ids belong to one shop, so an override only counts in its own shop.
             fixed_image_ids = profile.fixed_image_ids or []
             chart_profile_id = None
             group_setting = (
@@ -111,7 +119,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                 chart_profile = owned_optional(
                     await session.get(ListingProfile, chart_profile_id), job.tenant_id
                 )
-                if chart_profile is not None:
+                if chart_profile is not None and chart_profile.connection_id == connection.id:
                     fixed_image_ids = chart_profile.fixed_image_ids or []
 
             access_token = await connection_service.get_valid_access_token(session, connection)
@@ -161,6 +169,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     quota=ctx["quota"],
                     usage=ctx.get("usage"),
                     cache=ctx.get("redis"),
+                    shop=connection.id,
                 )
                 await publish_content(
                     session,
@@ -181,6 +190,9 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     profile_name=profile.name,
                     auto_create_sections=settings.auto_create_sections,
                     tenant_limit=tenant.daily_quota,
+                    profile_id=profile.id,
+                    title=target.title,
+                    description=target.description,
                 )
         except Exception as exc:  # noqa: BLE001 - record which step failed
             job.status = JobStatus.failed
@@ -239,6 +251,7 @@ async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                     quota=ctx["quota"],
                     usage=ctx.get("usage"),
                     cache=ctx.get("redis"),
+                    shop=connection.id,
                 )
                 await publish_live(
                     session,

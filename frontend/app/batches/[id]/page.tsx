@@ -110,14 +110,31 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const anyBusy = busy !== null;
   const noProfiles = profiles.length === 0;
 
+  // A group's profile picks the shop it is written for (v5 §E), so with several
+  // shops the choices are grouped by shop.
+  const byShop = new Map<string, typeof profiles>();
+  for (const p of profiles) {
+    const shop = p.shop_name ?? "Shop";
+    byShop.set(shop, [...(byShop.get(shop) ?? []), p]);
+  }
   const profileOptions = (empty: string) => (
     <>
       <option value="">{empty}</option>
-      {profiles.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name}
-        </option>
-      ))}
+      {byShop.size > 1
+        ? Array.from(byShop, ([shop, list]) => (
+            <optgroup key={shop} label={shop}>
+              {list.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </optgroup>
+          ))
+        : profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
     </>
   );
 

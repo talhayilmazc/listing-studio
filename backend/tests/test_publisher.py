@@ -15,6 +15,7 @@ from app.db.models import (
     ConnectionStatus,
     EtsyConnection,
     GeneratedContent,
+    ListingPublication,
     Job,
     JobType,
     ListingSnapshot,
@@ -23,6 +24,7 @@ from app.db.models import (
     UploadBatchStatus,
 )
 from app.etsy.publisher import (
+    publication_for,
     PublishBlocked,
     PublishConfig,
     PublishImage,
@@ -293,8 +295,9 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
     )
 
     async with async_sm() as s:
-        row = await s.get(GeneratedContent, content_id)
-        assert row.etsy_listing_id == 555
+        # The draft is recorded against this content in this shop (v5 §E).
+        pub = await publication_for(s, content_id, conn_id)
+        assert pub is not None and pub.etsy_listing_id == 555 and pub.state == "draft"
         snaps = await s.execute(
             select(ListingSnapshot).where(ListingSnapshot.listing_id == 555)
         )
@@ -645,8 +648,7 @@ async def test_publish_writes_sku_to_every_product_and_marks_draft(
     assert all(p["sku"] == "BR5475" for p in products)  # our SKU on every variation
 
     async with async_sm() as s:
-        row = await s.get(GeneratedContent, content_id)
-        assert row.etsy_listing_state == "draft"
+        assert (await publication_for(s, content_id, conn_id)).state == "draft"
 
 
 async def test_publish_live_makes_draft_active(async_sm: async_sessionmaker) -> None:
@@ -654,8 +656,15 @@ async def test_publish_live_makes_draft_active(async_sm: async_sessionmaker) -> 
     _, conn_id, content_id, job_id = await _seed(async_sm)
     async with async_sm() as s:
         content = await s.get(GeneratedContent, content_id)
-        content.etsy_listing_id = 555
-        content.etsy_listing_state = "draft"
+        s.add(
+            ListingPublication(
+                tenant_id=content.tenant_id,
+                content_id=content_id,
+                connection_id=conn_id,
+                etsy_listing_id=555,
+                state="draft",
+            )
+        )
         await s.commit()
 
     fake = FakeEtsy()
@@ -675,8 +684,7 @@ async def test_publish_live_makes_draft_active(async_sm: async_sessionmaker) -> 
     assert fake.last_update == {"state": "active"}
     assert result.listing_url == listing_url(555)  # active -> public URL
     async with async_sm() as s:
-        row = await s.get(GeneratedContent, content_id)
-        assert row.etsy_listing_state == "active"
+        assert (await publication_for(s, content_id, conn_id)).state == "active"
         snaps = await s.execute(select(ListingSnapshot).where(ListingSnapshot.listing_id == 555))
         assert "publish_live" in [sn.payload["operation"] for sn in snaps.scalars()]
 
@@ -685,8 +693,15 @@ async def test_publish_live_blocked_by_compliance(async_sm: async_sessionmaker) 
     _, conn_id, content_id, job_id = await _seed(async_sm, blocking=True)
     async with async_sm() as s:
         content = await s.get(GeneratedContent, content_id)
-        content.etsy_listing_id = 555
-        content.etsy_listing_state = "draft"
+        s.add(
+            ListingPublication(
+                tenant_id=content.tenant_id,
+                content_id=content_id,
+                connection_id=conn_id,
+                etsy_listing_id=555,
+                state="draft",
+            )
+        )
         await s.commit()
     fake = FakeEtsy()
     async with async_sm() as s:
@@ -807,4 +822,4 @@ async def test_publish_blocked_by_compliance(async_sm: async_sessionmaker) -> No
             )
     assert fake.calls == []  # nothing was sent to Etsy
     async with async_sm() as s:
-        assert (await s.get(GeneratedContent, content_id)).etsy_listing_id is None
+        assert await publication_for(s, content_id, conn_id) is None

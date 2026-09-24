@@ -207,7 +207,9 @@ async def test_disconnect_revokes_and_clears(async_sm: async_sessionmaker) -> No
         assert conn.status is ConnectionStatus.revoked
         assert conn.access_token_enc is None
         assert conn.refresh_token_enc is None
-        assert await service.get_active(s, tenant_id) is None
+        from app.etsy.shops import active_shops
+
+        assert await active_shops(s, tenant_id) == []
 
 
 # --- Router end-to-end ------------------------------------------------------
@@ -257,6 +259,15 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
     )
 
     app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(fake_redis)
+
+    class _Queue:
+        calls: list = []
+
+        async def enqueue(self, function: str, *args) -> None:
+            self.calls.append((function, args))
+
+    # A new shop syncs straight away; never through the real queue in a test.
+    app.dependency_overrides[deps.get_enqueuer] = lambda: _Queue()
     tenant_id = await make_tenant(sm, "owner@example.com")
 
     transport = httpx.ASGITransport(app=app)
@@ -285,7 +296,7 @@ async def test_full_oauth_flow(auth_client: httpx.AsyncClient) -> None:
     # /callback exchanges the code (mock token endpoint) and persists.
     cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
     assert cb.status_code == 302
-    assert cb.headers["location"].endswith("/connect?status=connected")
+    assert "/connect?status=connected&shop=" in cb.headers["location"]
     # No token leaks in the redirect.
     assert "555." not in cb.headers["location"]
 

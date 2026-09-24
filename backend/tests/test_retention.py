@@ -27,7 +27,7 @@ from app.db.models import (
     UploadBatch,
     UploadBatchStatus,
 )
-from app.workers.retention import purge_expired_rows, purge_tenant_etsy_content
+from app.workers.retention import purge_expired_rows, purge_shop_etsy_content
 from tests.auth_support import make_tenant
 
 NOW = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
@@ -40,7 +40,8 @@ async def _seed(sm, email: str) -> dict:
         conn = EtsyConnection(
             tenant_id=tenant_id,
             status=ConnectionStatus.active,
-            etsy_user_id=1,
+            # One Etsy user per shop, and a shop belongs to one account (v5 §E).
+            etsy_user_id=uuid.uuid5(uuid.NAMESPACE_DNS, email).int % 10**9,
             shop_id=1,
             access_token_enc=b"enc-access",
             refresh_token_enc=b"enc-refresh",
@@ -71,6 +72,7 @@ async def _seed(sm, email: str) -> dict:
             s.add(
                 ShopListingCache(
                     tenant_id=tenant_id,
+                    connection_id=conn.id,
                     listing_id=listing_id,
                     payload={"listing_id": listing_id, "state": "active"},
                     fetched_at=NOW - age,
@@ -78,6 +80,7 @@ async def _seed(sm, email: str) -> dict:
             )
         stale = ListingProfile(
             tenant_id=tenant_id,
+            connection_id=conn.id,
             name="stale",
             reference_listing_id=100,
             content_template="apparel",
@@ -88,6 +91,7 @@ async def _seed(sm, email: str) -> dict:
         )
         fresh = ListingProfile(
             tenant_id=tenant_id,
+            connection_id=conn.id,
             name="fresh",
             reference_listing_id=101,
             content_template="apparel",
@@ -193,38 +197,31 @@ async def test_disconnect_deletes_all_etsy_content_for_that_tenant_only(world) -
     async with sm() as s:
         await service.disconnect(s, await s.get(EtsyConnection, a["connection_id"]))
 
-    # Everything Etsy-sourced for A is gone at once — fresh or not.
+    # Everything Etsy-sourced for that shop is gone at once — fresh or not —
+    # including its profiles, which were built from its own listings (v5 §E).
     assert await _count(sm, ListingSnapshot, a["tenant_id"]) == 0
     assert await _count(sm, ShopListingCache, a["tenant_id"]) == 0
+    assert await _count(sm, ListingProfile, a["tenant_id"]) == 0
     async with sm() as s:
-        payloads = (
-            await s.execute(
-                select(ListingProfile.cached_payload).where(
-                    ListingProfile.tenant_id == a["tenant_id"]
-                )
-            )
-        ).scalars().all()
         conn = await s.get(EtsyConnection, a["connection_id"])
-    assert payloads == [None, None]
     assert conn.status is ConnectionStatus.revoked
     assert conn.access_token_enc is None and conn.refresh_token_enc is None
 
     # A's own work survives: uploads and generated drafts are not Etsy's.
     assert await _count(sm, Asset, a["tenant_id"]) == 1
     assert await _count(sm, GeneratedContent, a["tenant_id"]) == 1
-    assert await _count(sm, ListingProfile, a["tenant_id"]) == 2
 
     # B is untouched.
     assert await _count(sm, ListingSnapshot, b["tenant_id"]) == 2
     assert await _count(sm, ShopListingCache, b["tenant_id"]) == 2
 
 
-async def test_tenant_purge_reports_what_it_removed(world) -> None:
+async def test_shop_purge_reports_what_it_removed(world) -> None:
     sm, a = world["sm"], world["a"]
     async with sm() as s:
-        counts = await purge_tenant_etsy_content(s, a["tenant_id"])
+        counts = await purge_shop_etsy_content(s, a["connection_id"])
         await s.commit()
-    assert counts == {"snapshots": 2, "shop_listings": 2, "profile_payloads": 2}
+    assert counts == {"snapshots": 2, "shop_listings": 2, "publications": 0, "profiles": 2}
 
 
 # --- wiring -----------------------------------------------------------------
@@ -264,8 +261,12 @@ def _payload() -> dict:
 
 async def _profile_aged(sm, tenant_id, hours: float) -> uuid.UUID:
     async with sm() as s:
+        shop = (
+            await s.execute(select(EtsyConnection.id).where(EtsyConnection.tenant_id == tenant_id))
+        ).scalars().first()
         profile = ListingProfile(
             tenant_id=tenant_id,
+            connection_id=shop,
             name=f"aged {hours}h",
             reference_listing_id=int(hours * 100),
             content_template="apparel",

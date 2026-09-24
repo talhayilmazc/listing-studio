@@ -205,7 +205,16 @@ class DailyQuota:
             await self._redis.expire(key, self._ttl)
         return int(value)
 
-    async def reserve(self, tenant_id: uuid.UUID, tenant_limit: int) -> bool:
+    def _shop_key(self, shop: uuid.UUID, day: str) -> str:
+        return f"quota:shop:{shop}:{day}"
+
+    async def shop_usage(self, shop: uuid.UUID) -> int:
+        """Requests made for one shop today. Display only: limits are per account."""
+        return self._to_int(await self._redis.get(self._shop_key(shop, self._day())))
+
+    async def reserve(
+        self, tenant_id: uuid.UUID, tenant_limit: int, *, shop: uuid.UUID | None = None
+    ) -> bool:
         """Reserve one request slot against both budgets.
 
         Increments global then tenant counters; if either would exceed its
@@ -228,6 +237,8 @@ class DailyQuota:
             await self._redis.decr(global_key)
             return False
 
+        if shop is not None:
+            await self._incr(self._shop_key(shop, day))
         return True
 
     @staticmethod

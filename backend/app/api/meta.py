@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,7 @@ from app.core.config import get_settings
 from app.core.errortracking import is_enabled
 from app.db.models import ApiUsage, Tenant
 from app.api.pauses import pause_out
+from app.etsy.shops import owned_shop
 from app.etsy.rate_limiter import PAUSE_GLOBAL, PAUSE_TENANT, DailyQuota
 
 router = APIRouter(prefix="/api", tags=["meta"])
@@ -48,6 +51,7 @@ async def _usage_history(
 
 @router.get("/quota", response_model=schemas.QuotaOut)
 async def get_quota_status(
+    shop: uuid.UUID | None = None,
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     session: AsyncSession = Depends(get_session),
@@ -66,11 +70,23 @@ async def get_quota_status(
         usage_date=today.strftime("%Y-%m-%d"),
         history=await _usage_history(session, tenant.id, today, tenant_used),
         global_pause_at=quota.pause_at,
+        shop_used=await _shop_used(session, quota, tenant, shop),
         pause=pause_out(
             await _pause_reason(quota, tenant, tenant_used, global_used),
             tenant_limit=tenant.daily_quota,
         ),
     )
+
+
+async def _shop_used(
+    session: AsyncSession, quota: DailyQuota, tenant: Tenant, shop: uuid.UUID | None
+) -> int | None:
+    """That shop's share of today's requests; only for one of the caller's own shops."""
+    if shop is None:
+        return None
+    if await owned_shop(session, tenant.id, shop) is None:
+        raise HTTPException(status_code=404, detail="shop not found")
+    return await quota.shop_usage(shop)
 
 
 async def _pause_reason(

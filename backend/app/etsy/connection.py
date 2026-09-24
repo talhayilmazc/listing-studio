@@ -1,4 +1,4 @@
-"""Persistence and lifecycle for a tenant's Etsy connection.
+"""Persistence and lifecycle for a tenant's Etsy connections, one per shop.
 
 Tokens are encrypted at rest with :class:`TokenCipher` (Fernet) and only ever
 held in memory long enough to encrypt or to build an outbound request. They are
@@ -20,8 +20,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import TokenCipher
-from app.db.models import ConnectionStatus, EtsyConnection
+from app.db.models import ConnectionStatus, EtsyConnection, Tenant
 from app.etsy.oauth import TokenResponse, refresh_tokens
+from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops, shop_slots
+
+__all__ = ["ConnectionService", "ShopLimitReached", "ShopTaken"]
 
 
 def _parse_user_id(access_token: str) -> int | None:
@@ -56,14 +59,51 @@ class ConnectionService:
         *,
         now: datetime | None = None,
     ) -> EtsyConnection:
-        """Create or update the tenant's connection with encrypted tokens."""
+        """Connect a shop, or reconnect one this account already had.
+
+        One Etsy account owns one shop, so the Etsy user id in the token names the
+        shop. Raises :class:`ShopTaken` if another account has it connected, and
+        :class:`ShopLimitReached` if a new shop would pass a ceiling (v5 §E).
+        Nothing is written in either case.
+        """
         now = now or datetime.now(timezone.utc)
-        connection = await self._existing(session, tenant_id)
+        user_id = _parse_user_id(tokens.access_token)
+        tenant = await session.get(Tenant, tenant_id)
+        assert tenant is not None
+
+        connection = None
+        if user_id is not None:
+            elsewhere = await session.execute(
+                select(EtsyConnection.id).where(
+                    EtsyConnection.etsy_user_id == user_id,
+                    EtsyConnection.status == ConnectionStatus.active,
+                    EtsyConnection.tenant_id != tenant_id,
+                )
+            )
+            if elsewhere.first() is not None:
+                raise ShopTaken()
+            mine = await session.execute(
+                select(EtsyConnection)
+                .where(
+                    EtsyConnection.tenant_id == tenant_id,
+                    EtsyConnection.etsy_user_id == user_id,
+                )
+                .order_by(EtsyConnection.connected_at.desc())
+            )
+            connection = mine.scalars().first()
+
+        if connection is None or connection.status is not ConnectionStatus.active:
+            slots = await shop_slots(session, tenant)
+            if slots.used >= slots.limit:
+                raise ShopLimitReached("account")
+            if slots.app_used >= slots.app_limit:
+                raise ShopLimitReached("app")
         if connection is None:
-            connection = EtsyConnection(tenant_id=tenant_id)
+            last = max((c.position for c in await active_shops(session, tenant_id)), default=-1)
+            connection = EtsyConnection(tenant_id=tenant_id, position=last + 1)
             session.add(connection)
 
-        connection.etsy_user_id = _parse_user_id(tokens.access_token)
+        connection.etsy_user_id = user_id
         connection.access_token_enc = self._cipher.encrypt(tokens.access_token)
         connection.refresh_token_enc = self._cipher.encrypt(tokens.refresh_token)
         connection.token_expires_at = now + timedelta(seconds=tokens.expires_in)
@@ -74,16 +114,6 @@ class ConnectionService:
         await session.refresh(connection)
         return connection
 
-    async def get_active(
-        self, session: AsyncSession, tenant_id: uuid.UUID
-    ) -> EtsyConnection | None:
-        rows = await session.execute(
-            select(EtsyConnection).where(
-                EtsyConnection.tenant_id == tenant_id,
-                EtsyConnection.status == ConnectionStatus.active,
-            )
-        )
-        return rows.scalars().first()
 
     async def get_valid_access_token(
         self,
@@ -124,26 +154,17 @@ class ConnectionService:
         return tokens.access_token
 
     async def disconnect(self, session: AsyncSession, connection: EtsyConnection) -> None:
-        """Revoke a connection, drop its tokens, and delete Etsy-sourced content.
+        """Disconnect one shop: drop its tokens and delete its Etsy-sourced content.
 
         CLAUDE.md: when a seller disconnects, everything that came from Etsy for
-        them is deleted — not left to age out. One transaction, so a failure
-        cannot leave the tokens gone but the content behind, or the reverse.
+        that shop is deleted, not left to age out. The account's other shops, its
+        uploads and its generated content are untouched (v5 §E). One transaction,
+        so a failure cannot leave the tokens gone but the content behind.
         """
-        from app.workers.retention import purge_tenant_etsy_content
+        from app.workers.retention import purge_shop_etsy_content
 
         connection.status = ConnectionStatus.revoked
         connection.access_token_enc = None
         connection.refresh_token_enc = None
-        await purge_tenant_etsy_content(session, connection.tenant_id)
+        await purge_shop_etsy_content(session, connection.id)
         await session.commit()
-
-    async def _existing(
-        self, session: AsyncSession, tenant_id: uuid.UUID
-    ) -> EtsyConnection | None:
-        rows = await session.execute(
-            select(EtsyConnection)
-            .where(EtsyConnection.tenant_id == tenant_id)
-            .order_by(EtsyConnection.connected_at.desc())
-        )
-        return rows.scalars().first()

@@ -32,8 +32,10 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     Text,
+    UniqueConstraint,
     false,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -133,6 +135,9 @@ class Tenant(Base):
     # Operator access to /admin. Granted only by the CLI (app.cli create-admin);
     # no endpoint can set it, so no request can escalate itself.
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    # How many Etsy shops this account may connect. Null = MAX_SHOPS_PER_TENANT;
+    # an admin can set it per account (docs/duzeltmeler-v5.md §E).
+    max_shops: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -201,6 +206,16 @@ class AuditLog(Base):
 
 class EtsyConnection(Base):
     __tablename__ = "etsy_connection"
+    __table_args__ = (
+        # A shop (one Etsy user) belongs to one account at a time (v5 §E isolation).
+        Index(
+            "uq_connection_active_etsy_user",
+            "etsy_user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -209,6 +224,10 @@ class EtsyConnection(Base):
     etsy_user_id: Mapped[int | None] = mapped_column(BigInteger)
     shop_id: Mapped[int | None] = mapped_column(BigInteger)
     shop_name: Mapped[str | None] = mapped_column(Text)
+    #: The seller's own label for this shop in the shop switcher; falls back to shop_name.
+    display_name: Mapped[str | None] = mapped_column(Text)
+    #: Order in the shop switcher (ascending).
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     #: The app's shop section id, created lazily on first publish and reused.
     section_id: Mapped[int | None] = mapped_column(BigInteger)
     # Encrypted at rest (Fernet / AES-GCM). Never logged, never serialized.
@@ -427,13 +446,47 @@ class GeneratedContent(Base):
     listing_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
     )
-    #: Set once this approved content has been published as an Etsy DRAFT listing.
-    etsy_listing_id: Mapped[int | None] = mapped_column(BigInteger)
-    #: Etsy listing state after publishing: "draft" on create, "active" once the
-    #: seller explicitly publishes it. Null == never published (treated as draft).
-    etsy_listing_state: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ListingPublication(Base):
+    """One Etsy draft made from one piece of generated content, in one shop.
+
+    Publishing the same content to N shops makes N drafts (docs/duzeltmeler-v5.md
+    §E), each with its own row. Deleted when that shop is disconnected; the
+    generated content itself is the seller's work and stays.
+    """
+
+    __tablename__ = "listing_publication"
+    __table_args__ = (
+        UniqueConstraint("content_id", "connection_id", name="uq_publication_content_shop"),
+        Index("ix_publication_tenant", "tenant_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    content_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("generated_content.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: The profile of *that* shop the draft was built from.
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="SET NULL")
+    )
+    etsy_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: "draft" on create; "active" once the seller explicitly publishes it.
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
@@ -458,7 +511,10 @@ class ListingProfile(Base):
     """
 
     __tablename__ = "listing_profile"
-    __table_args__ = (Index("ix_listing_profile_tenant", "tenant_id"),)
+    __table_args__ = (
+        Index("ix_listing_profile_tenant", "tenant_id"),
+        Index("ix_listing_profile_connection", "connection_id"),
+    )
 
     #: Structural reference data: held to provide the service (ToU §1).
     CACHE_MAX_AGE_SECONDS: ClassVar[int] = 24 * 3600
@@ -470,6 +526,11 @@ class ListingProfile(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The shop this profile belongs to: each shop has its own reference listings
+    #: (docs/duzeltmeler-v5.md §E). Deleted with that shop's Etsy data on disconnect.
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     reference_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -514,6 +575,10 @@ class ShopListingCache(Base):
         ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True
     )
     listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    #: The shop the listing is in.
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -18,8 +18,11 @@ import type {
   Group,
   Meta,
   Profile,
-  PublishJob,
+  PublishPreview,
+  PublishRequest,
   Quota,
+  Shop,
+  ShopsOut,
   ReplaceImagesResult,
   ShopListings,
   ShopSummary,
@@ -27,6 +30,11 @@ import type {
 
 // Same-origin: Next rewrites /api/* to the FastAPI backend.
 const BASE = "/api";
+
+/** `?shop=<id>` for the shop-scoped endpoints; nothing = the account's first shop. */
+function shopQuery(shop?: string | null): string {
+  return shop ? `?shop=${encodeURIComponent(shop)}` : "";
+}
 
 // Full-page navigation target that begins the Etsy OAuth redirect flow.
 export const AUTH_START_URL = `${BASE}/auth/etsy/start`;
@@ -92,6 +100,12 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ daily_quota: dailyQuota }),
       }),
+    /** null = back to the default ceiling. */
+    setShopLimit: (id: string, maxShops: number | null) =>
+      req<AdminUser>(`/admin/users/${id}/shops`, {
+        method: "PUT",
+        body: JSON.stringify({ max_shops: maxShops }),
+      }),
     invites: () => req<AdminInvite[]>("/admin/invites"),
     createInvite: (body: { email?: string; note?: string; expires_in_days: number | null }) =>
       req<InviteIssued>("/admin/invites", { method: "POST", body: JSON.stringify(body) }),
@@ -135,7 +149,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ approved }),
     }),
-  quota: () => req<Quota>("/quota"),
+  /** With `shop`, also that shop's share of today's requests (display only). */
+  quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**
    * `width` requests a cached preview derivative; omit it for the full image.
@@ -146,22 +161,52 @@ export const api = {
     `${BASE}/assets/${id}/image` +
     (width ? `?w=${width}` + (aspect ? `&ar=${aspect}` : "") : ""),
   connection: () => req<Connection>("/auth/etsy/status"),
-  disconnect: () => req<Connection>("/auth/etsy/disconnect", { method: "POST" }),
-  publishContent: (id: string) =>
-    req<PublishJob>(`/content/${id}/publish`, { method: "POST" }),
-  publishLive: (id: string) =>
-    req<PublishJob>(`/content/${id}/publish-live`, { method: "POST" }),
+
+  // Connected shops (v5 §E). Each is one Etsy connection; ids are connection ids.
+  shops: () => req<ShopsOut>("/shops"),
+  renameShop: (id: string, displayName: string) =>
+    req<Shop>(`/shops/${id}`, { method: "PATCH", body: JSON.stringify({ display_name: displayName }) }),
+  orderShops: (ids: string[]) =>
+    req<ShopsOut>("/shops/order", { method: "POST", body: JSON.stringify({ ids }) }),
+  disconnectShop: (id: string) => req<ShopsOut>(`/shops/${id}/disconnect`, { method: "POST" }),
+
+  // Drafts: each listing to each chosen shop (default: the shop it was written for).
+  publishContent: (id: string, body?: PublishRequest) =>
+    req<BatchPublishResult>(`/content/${id}/publish`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+  publishLive: (id: string, connectionIds?: string[]) =>
+    req<BatchPublishResult>(`/content/${id}/publish-live`, {
+      method: "POST",
+      body: JSON.stringify(connectionIds ? { connection_ids: connectionIds } : {}),
+    }),
   // Bulk: create drafts / publish-live for every approved item in the batch (D3/E).
-  publishBatch: (id: string) =>
-    req<BatchPublishResult>(`/batches/${id}/publish`, { method: "POST" }),
+  publishBatch: (id: string, body?: PublishRequest) =>
+    req<BatchPublishResult>(`/batches/${id}/publish`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+  /** What a publish would do per shop, and whether it fits today's budget. */
+  publishPreview: (id: string, body?: PublishRequest) =>
+    req<PublishPreview>(`/batches/${id}/publish/preview`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
   publishBatchLive: (id: string) =>
-    req<BatchPublishResult>(`/batches/${id}/publish-live`, { method: "POST" }),
+    req<BatchPublishResult>(`/batches/${id}/publish-live`, { method: "POST", body: "{}" }),
   jobStatus: (jobId: string) => req<JobStatus>(`/jobs/${jobId}`),
 
   // Reference-listing profiles (Section B) + shop listings (B4).
-  listProfiles: () => req<Profile[]>("/profiles"),
+  /** Every profile of the account, or one shop's. */
+  listProfiles: (shop?: string | null) => req<Profile[]>(`/profiles${shopQuery(shop)}`),
   getProfile: (id: string) => req<Profile>(`/profiles/${id}`),
-  createProfile: (body: { name: string; reference_listing_id: number; content_template?: string }) =>
+  createProfile: (body: {
+    connection_id: string;
+    name: string;
+    reference_listing_id: number;
+    content_template?: string;
+  }) =>
     req<Profile>("/profiles", { method: "POST", body: JSON.stringify(body) }),
   updateProfile: (
     id: string,
@@ -176,14 +221,17 @@ export const api = {
   confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),
   refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),
   deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),
-  detectProfiles: () => req<{ status: string }>("/shop/detect-profiles", { method: "POST" }),
-  shopListings: () => req<ShopListings>("/shop/listings"),
+  detectProfiles: (shop?: string | null) =>
+    req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),
+  shopListings: (shop?: string | null) => req<ShopListings>(`/shop/listings${shopQuery(shop)}`),
   /** Cached counts only — unlike shopListings this never triggers a sync. */
-  shopSummary: () => req<ShopSummary>("/shop/summary"),
-  useListingAsProfile: (listingId: number) =>
-    req<Profile>(`/shop/listings/${listingId}/use-as-profile`, { method: "POST" }),
-  replaceImages: (listingId: number, batchId: string) =>
-    req<ReplaceImagesResult>(`/shop/listings/${listingId}/replace-images`, {
+  shopSummary: (shop?: string | null) => req<ShopSummary>(`/shop/summary${shopQuery(shop)}`),
+  useListingAsProfile: (listingId: number, shop?: string | null) =>
+    req<Profile>(`/shop/listings/${listingId}/use-as-profile${shopQuery(shop)}`, {
+      method: "POST",
+    }),
+  replaceImages: (listingId: number, batchId: string, shop?: string | null) =>
+    req<ReplaceImagesResult>(`/shop/listings/${listingId}/replace-images${shopQuery(shop)}`, {
       method: "POST",
       body: JSON.stringify({ batch_id: batchId }),
     }),

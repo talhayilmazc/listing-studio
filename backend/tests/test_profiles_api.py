@@ -17,6 +17,8 @@ from app.db.base import Base
 from app.db.models import (
     Asset,
     AssetStatus,
+    ConnectionStatus,
+    EtsyConnection,
     ListingProfile,
     ShopListingCache,
     Tenant,
@@ -54,8 +56,14 @@ async def ctx() -> AsyncIterator[dict]:
     async with sm() as s:
         tenant = Tenant(email=OWNER_EMAIL, password_hash="!", daily_quota=2000)
         s.add(tenant)
+        await s.flush()
+        shop = EtsyConnection(
+            tenant_id=tenant.id, status=ConnectionStatus.active, etsy_user_id=900, shop_id=900
+        )
+        s.add(shop)
         await s.commit()
         tenant_id = tenant.id
+        shop_id = shop.id
 
     enqueuer = StubEnqueuer()
 
@@ -82,6 +90,7 @@ async def ctx() -> AsyncIterator[dict]:
             "sm": sm,
             "enqueuer": enqueuer,
             "tenant_id": tenant_id,
+            "shop": shop_id,
             "redis": fake_redis,
             "app": app,
         }
@@ -91,7 +100,7 @@ async def ctx() -> AsyncIterator[dict]:
 async def test_create_profile_enqueues_refresh(ctx) -> None:
     res = await ctx["client"].post(
         "/api/profiles",
-        json={"name": "Standard Tee", "reference_listing_id": 111, "content_template": "apparel"},
+        json={"connection_id": str(ctx["shop"]), "name": "Standard Tee", "reference_listing_id": 111, "content_template": "apparel"},
     )
     assert res.status_code == 201
     body = res.json()
@@ -105,12 +114,13 @@ async def test_detect_and_confirm_flow(ctx) -> None:
     # Detection is enqueued...
     res = await ctx["client"].post("/api/shop/detect-profiles")
     assert res.status_code == 202
-    assert ("detect_profiles", (str(ctx["tenant_id"]),)) in ctx["enqueuer"].calls
+    assert ("detect_profiles", (str(ctx["shop"]),)) in ctx["enqueuer"].calls
 
     # ...a detected (unconfirmed) profile is confirmed by the seller before use.
     async with ctx["sm"]() as s:
         profile = ListingProfile(
             tenant_id=ctx["tenant_id"],
+            connection_id=ctx["shop"],
             name="Standard Tee",
             reference_listing_id=555,
             source="detected",
@@ -126,7 +136,7 @@ async def test_detect_and_confirm_flow(ctx) -> None:
 async def test_list_get_patch_delete_profile(ctx) -> None:
     created = (
         await ctx["client"].post(
-            "/api/profiles", json={"name": "Tee", "reference_listing_id": 222}
+            "/api/profiles", json={"connection_id": str(ctx["shop"]), "name": "Tee", "reference_listing_id": 222}
         )
     ).json()
     pid = created["id"]
@@ -149,7 +159,7 @@ async def test_list_get_patch_delete_profile(ctx) -> None:
 async def test_refresh_endpoint_reenqueues(ctx) -> None:
     pid = (
         await ctx["client"].post(
-            "/api/profiles", json={"name": "Tee", "reference_listing_id": 222}
+            "/api/profiles", json={"connection_id": str(ctx["shop"]), "name": "Tee", "reference_listing_id": 222}
         )
     ).json()["id"]
     ctx["enqueuer"].calls.clear()
@@ -162,6 +172,7 @@ async def test_profile_is_fresh_reflects_cached_payload(ctx) -> None:
     async with ctx["sm"]() as s:
         profile = ListingProfile(
             tenant_id=ctx["tenant_id"],
+            connection_id=ctx["shop"],
             name="Fresh",
             reference_listing_id=333,
             cached_payload={"description": "x", "taxonomy_id": 1, "images": []},
@@ -181,7 +192,7 @@ async def test_shop_listings_empty_triggers_sync(ctx) -> None:
     body = res.json()
     assert body["listings"] == []
     assert body["stale"] is True
-    assert ctx["enqueuer"].calls == [("sync_shop_listings", (str(ctx["tenant_id"]),))]
+    assert ctx["enqueuer"].calls == [("sync_shop_listings", (str(ctx["shop"]),))]
 
 
 async def test_shop_listings_returns_cached_rows(ctx) -> None:
@@ -189,6 +200,7 @@ async def test_shop_listings_returns_cached_rows(ctx) -> None:
         s.add(
             ShopListingCache(
                 tenant_id=ctx["tenant_id"],
+                connection_id=ctx["shop"],
                 listing_id=777,
                 payload={
                     "listing_id": 777,
@@ -230,6 +242,7 @@ async def test_shop_summary_counts_without_triggering_sync(ctx) -> None:
             s.add(
                 ShopListingCache(
                     tenant_id=ctx["tenant_id"],
+                    connection_id=ctx["shop"],
                     listing_id=listing_id,
                     payload={
                         "listing_id": listing_id,
@@ -269,6 +282,7 @@ async def test_shop_listing_carries_state_timestamp(ctx) -> None:
         s.add(
             ShopListingCache(
                 tenant_id=ctx["tenant_id"],
+                connection_id=ctx["shop"],
                 listing_id=778,
                 payload={"listing_id": 778, "state": "active", "state_timestamp": stamp},
                 fetched_at=datetime.now(timezone.utc),
@@ -281,7 +295,7 @@ async def test_shop_listing_carries_state_timestamp(ctx) -> None:
 
 async def test_profile_model_defaults_to_apparel(ctx) -> None:
     async with ctx["sm"]() as s:
-        p = ListingProfile(tenant_id=ctx["tenant_id"], name="X", reference_listing_id=7)
+        p = ListingProfile(tenant_id=ctx["tenant_id"], connection_id=ctx["shop"], name="X", reference_listing_id=7)
         s.add(p)
         await s.commit()
         await s.refresh(p)
@@ -293,7 +307,7 @@ async def test_set_and_clear_size_chart_profile(ctx) -> None:
         batch = UploadBatch(
             tenant_id=ctx["tenant_id"], status=UploadBatchStatus.ready, file_count=1
         )
-        profile = ListingProfile(tenant_id=ctx["tenant_id"], name="Charts", reference_listing_id=5)
+        profile = ListingProfile(tenant_id=ctx["tenant_id"], connection_id=ctx["shop"], name="Charts", reference_listing_id=5)
         s.add_all([batch, profile])
         await s.commit()
         batch_id, profile_id = batch.id, profile.id
@@ -331,8 +345,8 @@ async def test_per_group_profile_assignment_and_bulk(ctx) -> None:
                     rank=1,
                 )
             )
-        p1 = ListingProfile(tenant_id=ctx["tenant_id"], name="P1", reference_listing_id=1)
-        p2 = ListingProfile(tenant_id=ctx["tenant_id"], name="P2", reference_listing_id=2)
+        p1 = ListingProfile(tenant_id=ctx["tenant_id"], connection_id=ctx["shop"], name="P1", reference_listing_id=1)
+        p2 = ListingProfile(tenant_id=ctx["tenant_id"], connection_id=ctx["shop"], name="P2", reference_listing_id=2)
         s.add_all([p1, p2])
         await s.commit()
         batch_id, p1_id, p2_id = batch.id, str(p1.id), str(p2.id)
@@ -360,6 +374,7 @@ async def test_use_listing_as_profile_creates_and_enqueues(ctx) -> None:
         s.add(
             ShopListingCache(
                 tenant_id=ctx["tenant_id"],
+                connection_id=ctx["shop"],
                 listing_id=888,
                 payload={"listing_id": 888, "title": "Cool Hoodie"},
                 fetched_at=datetime.now(timezone.utc),
@@ -385,6 +400,7 @@ async def test_expired_shop_listings_are_never_shown(ctx) -> None:
             s.add(
                 ShopListingCache(
                     tenant_id=ctx["tenant_id"],
+                    connection_id=ctx["shop"],
                     listing_id=listing_id,
                     payload={"listing_id": listing_id, "state": "active", "state_timestamp": 1},
                     fetched_at=now - age,
@@ -414,6 +430,7 @@ async def test_reference_image_links_are_withheld_after_6_hours(ctx) -> None:
             s.add(
                 ListingProfile(
                     tenant_id=ctx["tenant_id"],
+                    connection_id=ctx["shop"],
                     name=name,
                     reference_listing_id=int(age.total_seconds()),
                     content_template="apparel",

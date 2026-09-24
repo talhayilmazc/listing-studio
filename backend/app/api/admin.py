@@ -33,16 +33,15 @@ from app.core.passwords import generate_temp_password, hash_password
 from app.core.sessions import SESSION_COOKIE, SessionStore
 from app.db.models import (
     ApiUsage,
-    ConnectionStatus,
-    EtsyConnection,
-    GeneratedContent,
     InviteCode,
+    ListingPublication,
     Job,
     JobStatus,
     Tenant,
     TenantStatus,
 )
 from app.etsy.rate_limiter import DailyQuota
+from app.etsy.shops import active_shops, app_shop_count, tenant_shop_limit
 from app.workers.gate import SUSPENDED_MESSAGE
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -97,11 +96,20 @@ class AdminUserOut(BaseModel):
     status: str  # active | suspended
     must_change_password: bool
     created_at: datetime
-    shop_name: str | None
+    shop_name: str | None  # the shops' names, comma-separated
     shop_connected: bool
+    shops: list[str]  # names only: an admin never sees a shop's listings or profiles
+    shops_used: int
+    shops_limit: int
+    shops_limit_custom: bool  # an admin override of MAX_SHOPS_PER_TENANT
     listings_published: int
     quota_used_today: int
     daily_quota: int
+
+
+class ShopLimitUpdate(BaseModel):
+    # None = back to the default (MAX_SHOPS_PER_TENANT).
+    max_shops: int | None = Field(default=None, ge=1)
 
 
 class QuotaUpdate(BaseModel):
@@ -123,42 +131,7 @@ async def list_users(
     quota: DailyQuota = Depends(get_quota),
 ) -> list[AdminUserOut]:
     tenants = (await session.execute(select(Tenant).order_by(Tenant.created_at))).scalars().all()
-    shops = {
-        c.tenant_id: c.shop_name
-        for c in (
-            await session.execute(
-                select(EtsyConnection).where(EtsyConnection.status == ConnectionStatus.active)
-            )
-        ).scalars()
-    }
-    # A count, not the listings: an admin sees how much, never what.
-    published = dict(
-        (
-            await session.execute(
-                select(GeneratedContent.tenant_id, func.count())
-                .where(GeneratedContent.etsy_listing_state == "active")
-                .group_by(GeneratedContent.tenant_id)
-            )
-        ).all()
-    )
-    out = []
-    for t in tenants:
-        used_today, _ = await quota.usage(t.id)
-        out.append(
-            AdminUserOut(
-                id=t.id,
-                email=t.email,
-                is_admin=t.is_admin,
-                status=t.status.value,
-                must_change_password=t.must_change_password,
-                created_at=t.created_at,
-                shop_name=shops.get(t.id),
-                shop_connected=t.id in shops,
-                listings_published=int(published.get(t.id, 0)),
-                quota_used_today=used_today,
-                daily_quota=t.daily_quota,
-            )
-        )
+    out = [await _user_out(session, quota, t) for t in tenants]
     return out
 
 
@@ -264,26 +237,17 @@ async def set_user_quota(
     return await _one(session, quota, target.id)
 
 
-async def _one(session: AsyncSession, quota: DailyQuota, tenant_id: uuid.UUID) -> AdminUserOut:
-    t = await session.get(Tenant, tenant_id)
-    await session.refresh(t)
-    conn = (
-        await session.execute(
-            select(EtsyConnection).where(
-                EtsyConnection.tenant_id == tenant_id,
-                EtsyConnection.status == ConnectionStatus.active,
-            )
-        )
-    ).scalars().first()
+async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> AdminUserOut:
+    """Account metadata and counts only: an admin sees how much, never what."""
+    from app.api.shops import shop_label
+
+    shops = [shop_label(c) for c in await active_shops(session, t.id)]
     published = await session.scalar(
         select(func.count())
-        .select_from(GeneratedContent)
-        .where(
-            GeneratedContent.tenant_id == tenant_id,
-            GeneratedContent.etsy_listing_state == "active",
-        )
+        .select_from(ListingPublication)
+        .where(ListingPublication.tenant_id == t.id, ListingPublication.state == "active")
     )
-    used_today, _ = await quota.usage(tenant_id)
+    used_today, _ = await quota.usage(t.id)
     return AdminUserOut(
         id=t.id,
         email=t.email,
@@ -291,12 +255,56 @@ async def _one(session: AsyncSession, quota: DailyQuota, tenant_id: uuid.UUID) -
         status=t.status.value,
         must_change_password=t.must_change_password,
         created_at=t.created_at,
-        shop_name=conn.shop_name if conn else None,
-        shop_connected=conn is not None,
+        shop_name=", ".join(shops) or None,
+        shop_connected=bool(shops),
+        shops=shops,
+        shops_used=len(shops),
+        shops_limit=tenant_shop_limit(t),
+        shops_limit_custom=t.max_shops is not None,
         listings_published=int(published or 0),
         quota_used_today=used_today,
         daily_quota=t.daily_quota,
     )
+
+
+async def _one(session: AsyncSession, quota: DailyQuota, tenant_id: uuid.UUID) -> AdminUserOut:
+    t = await session.get(Tenant, tenant_id)
+    await session.refresh(t)
+    return await _user_out(session, quota, t)
+
+
+@router.put("/users/{tenant_id}/shops", response_model=AdminUserOut)
+async def set_user_shop_limit(
+    tenant_id: uuid.UUID,
+    body: ShopLimitUpdate,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    quota: DailyQuota = Depends(get_quota),
+) -> AdminUserOut:
+    """How many shops this account may connect (v5 §E). Never above the app-wide ceiling.
+
+    Lowering it below the shops already connected disconnects nothing; it only
+    stops new ones.
+    """
+    app_limit = get_settings().max_shops_app_wide
+    if body.max_shops is not None and body.max_shops > app_limit:
+        raise HTTPException(
+            status_code=422, detail=f"cannot exceed the app-wide limit of {app_limit} shops"
+        )
+    target = await _target(session, tenant_id)
+    previous = target.max_shops
+    if previous != body.max_shops:
+        target.max_shops = body.max_shops
+        audit.record(
+            session,
+            "user.shop_limit_changed",
+            actor=admin,
+            target_tenant_id=target.id,
+            previous=previous,
+            new=body.max_shops,
+        )
+        await session.commit()
+    return await _one(session, quota, target.id)
 
 
 # --- Invites --------------------------------------------------------------------
@@ -450,6 +458,9 @@ class UsageOut(BaseModel):
     global_remaining: int
     # New jobs stop being started at this app-wide count (production-spec C).
     pause_at: int
+    # Connected shops across all accounts, against MAX_SHOPS_APP_WIDE (v5 §E).
+    shops_used: int
+    shops_limit: int
     history: list[DayCount]  # app-wide, oldest first; today from the live counter
     tenants: list[TenantUsage]  # busiest first
 
@@ -518,6 +529,8 @@ async def usage(
         global_limit=limit,
         global_remaining=max(0, limit - global_used),
         pause_at=quota.pause_at,
+        shops_used=await app_shop_count(session),
+        shops_limit=get_settings().max_shops_app_wide,
         history=history,
         tenants=rows,
     )

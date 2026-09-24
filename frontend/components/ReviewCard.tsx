@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import type { Content, Pause } from "@/lib/types";
+import type { BatchPublishResult, Content, Pause, Publication, PublishSkipped } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
@@ -35,8 +35,13 @@ function validate(title: string, tags: string[], description: string): string[] 
 export function ReviewCard({
   initial,
   onChange,
+  targets,
+  shopNames,
 }: {
   initial: Content;
+  /** Shops chosen on the review page; omitted = the listing's own shop. */
+  targets?: string[];
+  shopNames?: Record<string, string>;
   /** Tell the page what changed (approval, a draft created or published), so its
    * bulk actions update without a reload (docs/duzeltmeler-v5.md §C). */
   onChange?: (change: Partial<Content> & { id: string }) => void;
@@ -49,16 +54,22 @@ export function ReviewCard({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // A draft links to Shop Manager (editable); an active listing to the public URL.
-  // The server resolves the correct URL; drafts have no working public page (A4).
-  const [listingLink, setListingLink] = useState<string | null>(initial.listing_link);
-  const [isDraft, setIsDraft] = useState<boolean>(initial.etsy_listing_state !== "active");
-  const [publishState, setPublishState] = useState<
-    "idle" | "publishing" | "paused" | "done" | "error"
-  >(initial.etsy_listing_id ? "done" : "idle");
+  // One draft per shop (v5 §E). A draft links to Shop Manager (editable); a live
+  // listing to its public URL. The server resolves the URL (A4).
+  const [publications, setPublications] = useState<Publication[]>(initial.publications);
+  const [publishState, setPublishState] = useState<"idle" | "publishing" | "paused" | "error">(
+    "idle",
+  );
   const [publishError, setPublishError] = useState<string | null>(null);
+  // Shops this listing could not go to, and why.
+  const [skipped, setSkipped] = useState<PublishSkipped[]>([]);
   // A job waiting for the daily Etsy reset: still queued, runs by itself later.
   const [pause, setPause] = useState<Pause | null>(null);
+
+  // Where "Create draft" sends it: the review page's chosen shops, else its own shop.
+  const wanted = targets ?? (initial.connection_id ? [initial.connection_id] : []);
+  const drafted = new Set(publications.map((p) => p.connection_id));
+  const missing = wanted.filter((shop) => !drafted.has(shop));
 
   const errors = useMemo(() => validate(title, tags, description), [title, tags, description]);
   const valid = errors.length === 0;
@@ -89,37 +100,47 @@ export function ReviewCard({
     }
   }
 
-  // Run a queued publish job (create-draft or publish-live) and poll to completion.
-  async function runJob(
-    start: () => Promise<{ job_id: string }>,
-    timeoutMsg: string,
-  ) {
+  // Run queued publish jobs (one per shop) and watch them settle. Each shop that
+  // lands updates the card at once; one shop failing does not stop the others.
+  async function runJobs(start: () => Promise<BatchPublishResult>, timeoutMsg: string) {
     if (dirty) await save();
     setPublishState("publishing");
     setPublishError(null);
     setPause(null);
     try {
-      const { job_id } = await start();
-      const job = await waitForJob(job_id);
-      if (job === null) {
-        setPublishError(timeoutMsg);
+      const res = await start();
+      setSkipped(res.skipped);
+      let current = publications;
+      const failures: string[] = [];
+      let paused: Pause | null = null;
+      await Promise.all(
+        res.jobs.map(async (j) => {
+          const job = await waitForJob(j.job_id);
+          const shop = j.shop_name ?? "this shop";
+          if (job === null) failures.push(`${shop}: ${timeoutMsg}`);
+          else if (job.pause) paused = job.pause;
+          else if (job.status === "succeeded" && job.listing_id && job.listing_url) {
+            const pub: Publication = {
+              connection_id: j.connection_id ?? "",
+              shop_name: j.shop_name,
+              etsy_listing_id: job.listing_id,
+              state: job.is_draft ? "draft" : "active",
+              listing_link: job.listing_url,
+            };
+            current = [...current.filter((p) => p.connection_id !== pub.connection_id), pub];
+            setPublications(current);
+          } else failures.push(`${shop}: ${job.error ?? "the job failed"}`);
+        }),
+      );
+      onChange?.({ id: initial.id, publications: current });
+      if (failures.length) {
+        setPublishError(failures.join(" "));
         setPublishState("error");
-      } else if (job.pause) {
-        setPause(job.pause);
+      } else if (paused) {
+        setPause(paused);
         setPublishState("paused");
-      } else if (job.status === "succeeded" && job.listing_id) {
-        setListingLink(job.listing_url);
-        setIsDraft(job.is_draft);
-        setPublishState("done");
-        onChange?.({
-          id: initial.id,
-          etsy_listing_id: job.listing_id,
-          etsy_listing_state: job.is_draft ? "draft" : "active",
-          listing_link: job.listing_url,
-        });
       } else {
-        setPublishError(job.error ?? "The job failed.");
-        setPublishState("error");
+        setPublishState("idle");
       }
     } catch (e: any) {
       setPublishError(e.message ?? String(e));
@@ -127,17 +148,20 @@ export function ReviewCard({
     }
   }
 
-  // Step 1: create the draft (never published automatically).
+  // Step 1: create the drafts (never published automatically).
   const createDraft = () =>
-    runJob(
-      () => api.publishContent(initial.id),
-      "Still working after 15 minutes. The draft will appear here once it is done; reload to check.",
+    runJobs(
+      () =>
+        api.publishContent(initial.id, {
+          targets: missing.map((connection_id) => ({ connection_id })),
+        }),
+      "still working after 15 minutes; reload to check.",
     );
-  // Step 2 (explicit): flip the reviewed, approved draft to active.
-  const publishNow = () =>
-    runJob(
-      () => api.publishLive(initial.id),
-      "Still working after 15 minutes. Reload to check whether it is live.",
+  // Step 2 (explicit): make one shop's reviewed, approved draft active.
+  const publishNow = (shop: string) =>
+    runJobs(
+      () => api.publishLive(initial.id, [shop]),
+      "still working after 15 minutes; reload to check whether it is live.",
     );
 
   // Paused counts as busy: asking again would only return the same waiting job.
@@ -248,55 +272,79 @@ export function ReviewCard({
               </div>
 
               <div className="flex items-center gap-2">
-                {!listingLink && (
+                {missing.length > 0 && (
                   <button
                     type="button"
                     className="btn-primary"
                     onClick={createDraft}
                     disabled={!approved || publishing}
-                    title={approved ? "Create an Etsy draft listing" : "Approve first"}
+                    title={approved ? "Create Etsy draft listings" : "Approve first"}
                   >
                     {publishState === "paused"
                       ? "Draft queued"
                       : publishing
                         ? "Creating draft…"
-                        : "Create draft"}
+                        : missing.length > 1
+                          ? `Create drafts in ${missing.length} shops`
+                          : publications.length
+                            ? `Create draft in ${shopNames?.[missing[0]] ?? "this shop"}`
+                            : "Create draft"}
                   </button>
-                )}
-                {listingLink && isDraft && (
-                  <>
-                    <a href={listingLink} target="_blank" rel="noreferrer" className="btn-secondary">
-                      Edit draft ↗
-                    </a>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={publishNow}
-                      disabled={publishing}
-                      title="Make this draft active on Etsy"
-                    >
-                      {publishState === "paused"
-                        ? "Publish queued"
-                        : publishing
-                          ? "Publishing…"
-                          : "Publish now"}
-                    </button>
-                  </>
-                )}
-                {listingLink && !isDraft && (
-                  <a href={listingLink} target="_blank" rel="noreferrer" className="btn-primary">
-                    View on Etsy ↗
-                  </a>
                 )}
               </div>
             </div>
+            {publications.length > 0 && (
+              <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                {publications.map((p) => (
+                  <li key={p.connection_id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                      {p.shop_name ?? "Shop"}
+                      <span
+                        className={
+                          "ml-2 rounded-md border px-1.5 py-0.5 text-xs font-medium " +
+                          (p.state === "active"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-50 text-slate-600")
+                        }
+                      >
+                        {p.state === "active" ? "Live" : "Draft"}
+                      </span>
+                    </span>
+                    <a href={p.listing_link} target="_blank" rel="noreferrer" className="btn-secondary px-2.5 py-1 text-xs">
+                      {p.state === "active" ? "View on Etsy ↗" : "Edit draft ↗"}
+                    </a>
+                    {p.state !== "active" && (
+                      <button
+                        type="button"
+                        className="btn-primary px-2.5 py-1 text-xs"
+                        onClick={() => publishNow(p.connection_id)}
+                        disabled={publishing}
+                        title="Make this draft active on Etsy"
+                      >
+                        {publishing ? "Publishing…" : "Publish now"}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {skipped.length > 0 && (
+              <ul className="mt-2 space-y-0.5 text-right text-xs text-amber-800">
+                {skipped.map((s, i) => (
+                  <li key={i}>
+                    {s.shop_name ? `${s.shop_name}: ` : ""}
+                    {s.reason}
+                  </li>
+                ))}
+              </ul>
+            )}
             {publishError && <p className="mt-2 text-right text-xs text-rose-700">{publishError}</p>}
             {pause && publishState === "paused" && (
               <p role="status" className="mt-2 text-right text-xs text-amber-800">
                 Queued, not failed. {pause.message} That is around {resumeTime(pause.resumes_at)} your time.
               </p>
             )}
-            {listingLink && !isDraft ? (
+            {publications.some((p) => p.state === "active") ? (
               <p className="mt-2 text-right text-xs text-slate-400">
                 Published. To promote it, open{" "}
                 <a

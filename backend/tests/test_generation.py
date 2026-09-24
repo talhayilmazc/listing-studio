@@ -52,10 +52,12 @@ async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID
         await session.flush()
         conn = EtsyConnection(tenant_id=tenant.id, status=ConnectionStatus.active)
         session.add(conn)
+        await session.flush()
         batch = UploadBatch(tenant_id=tenant.id, status=UploadBatchStatus.ready, file_count=1)
         session.add(batch)
         profile = ListingProfile(
             tenant_id=tenant.id,
+            connection_id=conn.id,
             name="Standard Tee",
             reference_listing_id=111,
             content_template="digital_products",

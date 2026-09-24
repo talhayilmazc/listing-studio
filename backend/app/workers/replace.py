@@ -112,6 +112,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     quota=ctx["quota"],
                     usage=ctx.get("usage"),
                     cache=ctx.get("redis"),
+                    shop=connection.id,
                 )
                 kw = {
                     "access_token": token,

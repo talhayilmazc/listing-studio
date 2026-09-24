@@ -55,27 +55,90 @@ export interface Content {
   model_used: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
-  etsy_listing_id: number | null;
-  etsy_listing_state: string | null;
-  listing_link: string | null;
+  /** The shop this listing was written for (its profile's shop). */
+  connection_id: string | null;
+  /** Its drafts: one per shop it was sent to (v5 §E). */
+  publications: Publication[];
   original_filename: string;
   parsed_sku: string | null;
   rank: number | null;
 }
 
+/** One draft of a listing, in one shop. */
+export interface Publication {
+  connection_id: string;
+  shop_name: string | null;
+  etsy_listing_id: number;
+  state: "draft" | "active" | string;
+  /** Shop Manager for a draft; the public listing once active. */
+  listing_link: string;
+}
+
 export interface PublishJob {
   content_id: string;
   job_id: string;
+  connection_id: string | null;
+  shop_name: string | null;
 }
 
 export interface PublishSkipped {
   content_id: string;
   reason: string;
+  connection_id: string | null;
+  shop_name: string | null;
 }
 
 export interface BatchPublishResult {
   jobs: PublishJob[];
   skipped: PublishSkipped[];
+}
+
+export interface PublishTarget {
+  connection_id: string;
+  /** Which of that shop's profiles to use; omitted = chosen for you. */
+  profile_id?: string | null;
+}
+
+export interface PublishRequest {
+  /** Omitted = each listing goes to the shop it was written for. */
+  targets?: PublishTarget[];
+  content_ids?: string[];
+}
+
+export interface ShopTarget {
+  connection_id: string;
+  shop_name: string | null;
+  ready: number;
+  blocked: PublishSkipped[];
+  profiles: { id: string; name: string; content_template: string; is_fresh: boolean }[];
+}
+
+/** What a publish would do, before it is confirmed (v5 §E quota protection). */
+export interface PublishPreview {
+  shops: ShopTarget[];
+  drafts: number;
+  estimated_calls: number;
+  calls_per_draft: number;
+  budget_remaining: number;
+  fits: boolean;
+  listings_that_fit: number;
+  message: string | null;
+}
+
+/** A connected Etsy shop. `id` is what every shop filter and target refers to. */
+export interface Shop {
+  id: string;
+  name: string;
+  shop_name: string | null;
+  display_name: string | null;
+  shop_id: number | null;
+  position: number;
+  connected_at: string;
+}
+
+export interface ShopsOut {
+  shops: Shop[];
+  slots: { used: number; limit: number; app_used: number; app_limit: number; can_add: boolean };
 }
 
 export interface ReferenceImage {
@@ -88,6 +151,9 @@ export interface ReferenceImage {
 
 export interface Profile {
   id: string;
+  /** The shop this profile belongs to: each shop has its own reference listings. */
+  connection_id: string;
+  shop_name: string | null;
   name: string;
   reference_listing_id: number;
   content_template: string;
@@ -198,6 +264,8 @@ export interface Quota {
   global_pause_at: number;
   /** Set while new Etsy work is paused for this shop. */
   pause: Pause | null;
+  /** With ?shop=: that shop's share of today's requests. */
+  shop_used: number | null;
 }
 
 export interface Meta {
@@ -255,6 +323,11 @@ export interface AdminUser {
   created_at: string;
   shop_name: string | null;
   shop_connected: boolean;
+  /** Shop names only: an admin never sees a shop's listings or profiles. */
+  shops: string[];
+  shops_used: number;
+  shops_limit: number;
+  shops_limit_custom: boolean;
   listings_published: number;
   quota_used_today: number;
   daily_quota: number;
@@ -298,6 +371,9 @@ export interface AdminUsage {
   global_remaining: number;
   /** New jobs stop being started at this app-wide count. */
   pause_at: number;
+  /** Connected shops across all accounts, against the app-wide ceiling. */
+  shops_used: number;
+  shops_limit: number;
   history: DayCount[];
   tenants: {
     id: string;

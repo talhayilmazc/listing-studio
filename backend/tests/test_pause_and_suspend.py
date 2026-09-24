@@ -186,7 +186,7 @@ async def test_every_job_with_a_row_is_gated(world, monkeypatch, module, functio
 @pytest.mark.parametrize("function", ["sync_shop_listings", "detect_profiles", "refresh_profile"])
 async def test_jobs_without_a_row_pause_once_and_skip_suspended_tenants(world, monkeypatch, function) -> None:  # noqa: F811
     monkeypatch.setattr(profile_worker, "_build_client", _no_etsy)
-    arg = str(world["bob"].profile_id if function == "refresh_profile" else world["bob"].tenant_id)
+    arg = str(world["bob"].profile_id if function == "refresh_profile" else world["bob"].connection_id)
     run = getattr(profile_worker, function)
     enqueue = _Enqueue()
 
@@ -211,7 +211,7 @@ async def test_a_read_job_that_meets_the_wall_midway_is_retried_after_the_reset(
     enqueue = _Enqueue()
     await _use(world["redis"], tenant=world["bob"].tenant_id, tenant_used=999)
 
-    result = await profile_worker.sync_shop_listings(_ctx(world, enqueue), str(world["bob"].tenant_id))
+    result = await profile_worker.sync_shop_listings(_ctx(world, enqueue), str(world["bob"].connection_id))
 
     assert result == "deferred"
     assert enqueue.calls[0][0] == "sync_shop_listings"

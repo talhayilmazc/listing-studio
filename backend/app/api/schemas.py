@@ -68,13 +68,22 @@ class ContentOut(BaseModel):
     model_used: str | None
     input_tokens: int | None
     output_tokens: int | None
-    etsy_listing_id: int | None = None  # set once published as a draft
-    etsy_listing_state: str | None = None  # "draft" | "active" | null
-    listing_link: str | None = None  # edit URL for a draft, public URL once active
+    # The shop this content was written for (its profile's shop).
+    connection_id: uuid.UUID | None = None
+    # One draft per shop it was sent to (v5 §E).
+    publications: list["PublicationOut"] = Field(default_factory=list)
     # asset context for the review screen
     original_filename: str
     parsed_sku: str | None
     rank: int | None
+
+
+class PublicationOut(BaseModel):
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    etsy_listing_id: int
+    state: str  # "draft" | "active"
+    listing_link: str  # edit URL for a draft, public URL once active
 
 
 class ContentUpdate(BaseModel):
@@ -144,6 +153,9 @@ class QuotaOut(BaseModel):
     global_pause_at: int = 0
     # Set while new work is paused for this seller, with the reason.
     pause: PauseOut | None = None
+    # With ?shop=: that shop's share of today's requests. Display only; the
+    # limits are per account and app-wide.
+    shop_used: int | None = None
 
 
 class AssetFailure(BaseModel):
@@ -169,16 +181,70 @@ class GenerateResult(BaseModel):
 class PublishJobOut(BaseModel):
     content_id: uuid.UUID
     job_id: uuid.UUID
+    connection_id: uuid.UUID | None = None
+    shop_name: str | None = None
 
 
 class PublishSkipped(BaseModel):
     content_id: uuid.UUID
     reason: str
+    connection_id: uuid.UUID | None = None
+    shop_name: str | None = None
 
 
 class BatchPublishResult(BaseModel):
     jobs: list[PublishJobOut] = Field(default_factory=list)
     skipped: list[PublishSkipped] = Field(default_factory=list)
+
+
+class PublishTarget(BaseModel):
+    connection_id: uuid.UUID
+    # Which of that shop's profiles builds its draft; omitted = chosen for you
+    # (the content's own profile in its own shop, else a same-named one, else the
+    # only one of the same kind).
+    profile_id: uuid.UUID | None = None
+
+
+class PublishRequest(BaseModel):
+    # Omitted = each listing goes to the shop it was written for.
+    targets: list[PublishTarget] | None = Field(default=None, max_length=50)
+    # Limit to these listings (a single card); omitted = every approved one.
+    content_ids: list[uuid.UUID] | None = None
+
+
+class LiveRequest(BaseModel):
+    # Omitted = every shop that has a draft of it.
+    connection_ids: list[uuid.UUID] | None = None
+    content_ids: list[uuid.UUID] | None = None
+
+
+class ShopTargetOut(BaseModel):
+    connection_id: uuid.UUID
+    shop_name: str | None
+    # Listings this shop can take, and why the others cannot (first reason each).
+    ready: int
+    blocked: list[PublishSkipped] = Field(default_factory=list)
+    profiles: list["ProfileChoiceOut"] = Field(default_factory=list)
+
+
+class ProfileChoiceOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    content_template: str
+    is_fresh: bool
+
+
+class PublishPreviewOut(BaseModel):
+    """What a publish would do, before it is confirmed (v5 §E quota protection)."""
+
+    shops: list[ShopTargetOut]
+    drafts: int  # drafts that would be created
+    estimated_calls: int  # ~15 Etsy requests per draft
+    calls_per_draft: int
+    budget_remaining: int  # what may still be spent today (account and app-wide)
+    fits: bool
+    listings_that_fit: int  # per the selected shops, if it does not all fit
+    message: str | None = None
 
 
 class JobStatusOut(BaseModel):
@@ -189,11 +255,14 @@ class JobStatusOut(BaseModel):
     listing_id: int | None = None
     listing_url: str | None = None  # edit URL for a draft, public URL once active
     is_draft: bool = True
+    connection_id: uuid.UUID | None = None
+    shop_name: str | None = None
     # A queued job waiting for the daily reset says so, rather than timing out.
     pause: PauseOut | None = None
 
 
 class ProfileCreate(BaseModel):
+    connection_id: uuid.UUID  # the shop whose listing is the reference
     name: str
     reference_listing_id: int
     content_template: str = "apparel"
@@ -218,6 +287,8 @@ class ReferenceImageOut(BaseModel):
 
 class ProfileOut(BaseModel):
     id: uuid.UUID
+    connection_id: uuid.UUID
+    shop_name: str | None = None
     name: str
     reference_listing_id: int
     content_template: str
@@ -286,6 +357,39 @@ class ConnectionOut(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     connected_at: datetime | None = None
     expires_at: datetime | None = None
+
+
+class ShopOut(BaseModel):
+    """One connected shop. Never includes tokens."""
+
+    id: uuid.UUID  # the connection id: what every ?shop= and target refers to
+    name: str  # display name, else the Etsy shop name, else a placeholder
+    shop_name: str | None = None  # the name on Etsy, once known
+    display_name: str | None = None
+    shop_id: int | None = None
+    position: int
+    connected_at: datetime
+
+
+class ShopSlotsOut(BaseModel):
+    used: int
+    limit: int
+    app_used: int
+    app_limit: int
+    can_add: bool
+
+
+class ShopsOut(BaseModel):
+    shops: list[ShopOut]
+    slots: ShopSlotsOut
+
+
+class ShopUpdate(BaseModel):
+    display_name: str | None = Field(default=None, max_length=80)
+
+
+class ShopOrder(BaseModel):
+    ids: list[uuid.UUID] = Field(max_length=100)
 
 
 class MetaOut(BaseModel):

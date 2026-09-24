@@ -6,6 +6,7 @@ import type { Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
+import { useShops } from "@/components/ShopProvider";
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
 
@@ -18,18 +19,22 @@ export default function ProfilesPage() {
   const [replace, setReplace] = useState<{ id: number; status: string } | null>(null);
   const pendingListing = useRef<number | null>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
+  // Everything on this page is the selected shop's: each shop has its own
+  // profiles and listings (v5 §E). Switch shops in the rail.
+  const { selected } = useShops();
+  const shopId = selected?.id ?? null;
 
   const loadProfiles = useCallback(async () => {
     try {
-      setProfiles(await api.listProfiles());
+      setProfiles(await api.listProfiles(shopId));
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
-  }, []);
+  }, [shopId]);
 
   const loadListings = useCallback(async () => {
     try {
-      const res = await api.shopListings();
+      const res = await api.shopListings(shopId);
       setListings(res.listings);
       setSyncing(res.stale);
       // If a background sync was triggered, poll once more shortly for the results.
@@ -37,9 +42,11 @@ export default function ProfilesPage() {
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
-  }, []);
+  }, [shopId]);
 
   useEffect(() => {
+    setProfiles(null);
+    setListings([]);
     loadProfiles();
     loadListings();
   }, [loadProfiles, loadListings]);
@@ -48,7 +55,7 @@ export default function ProfilesPage() {
     setDetecting(true);
     setError(null);
     try {
-      await api.detectProfiles();
+      await api.detectProfiles(shopId);
       // Detection runs in the background; poll for the new profiles a few times.
       for (let i = 0; i < 6; i++) {
         await new Promise((r) => setTimeout(r, 3000));
@@ -63,7 +70,7 @@ export default function ProfilesPage() {
 
   async function useAsProfile(listingId: number) {
     try {
-      await api.useListingAsProfile(listingId);
+      await api.useListingAsProfile(listingId, shopId);
       await loadProfiles();
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -94,7 +101,7 @@ export default function ProfilesPage() {
       }
       await api.finalizeBatch(batch.id);
       setReplace({ id: listingId, status: "Updating listing…" });
-      const { job_id } = await api.replaceImages(listingId, batch.id);
+      const { job_id } = await api.replaceImages(listingId, batch.id, shopId);
       const s = await waitForJob(job_id);
       if (s === null) {
         setReplace({ id: listingId, status: "Still working after 15 minutes; reload to check." });
@@ -126,9 +133,16 @@ export default function ProfilesPage() {
         <p className="max-w-2xl text-sm text-slate-500">
           Profiles copy category, price, variations and description from your own listings. New
           drafts reuse them instead of inventing metadata.
+          {selected && (
+            <>
+              {" "}
+              Showing <span className="font-medium text-slate-700">{selected.name}</span>; each
+              shop has its own profiles. Switch shops at the bottom of the menu.
+            </>
+          )}
         </p>
-        <button className="btn-primary shrink-0" onClick={detect} disabled={detecting}>
-          {detecting ? "Detecting…" : "Detect from my shop"}
+        <button className="btn-primary shrink-0" onClick={detect} disabled={detecting || !shopId}>
+          {detecting ? "Detecting…" : `Detect from ${selected?.name ?? "my shop"}`}
         </button>
       </div>
 

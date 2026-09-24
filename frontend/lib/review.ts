@@ -3,25 +3,33 @@ import type { Content } from "./types";
 /**
  * What the review screen's bulk actions can do right now, derived from the
  * listings as they currently are, never from what they were when the page
- * loaded (docs/duzeltmeler-v5.md §C).
+ * loaded (docs/duzeltmeler-v5.md §C). With several shops (§E), a listing can
+ * have a draft in each; "Create drafts" has work where a chosen shop still
+ * lacks one, "Publish all" wherever a draft is not yet live.
  */
 export interface ReviewActions {
   approved: number;
-  /** Approved, no Etsy draft yet: "Create drafts for all" has work. */
+  /** Approved listings still missing a draft in at least one target shop. */
   toDraft: number;
-  /** Approved drafts on Etsy, not yet live: "Publish all" has work. */
+  /** Approved listings with at least one draft that is not live yet. */
   toPublish: number;
 }
 
-export function reviewActions(items: Content[]): ReviewActions {
+/**
+ * `targets`: the shops chosen for "Create drafts"; omitted = each listing's own
+ * shop (the shop its profile belongs to).
+ */
+export function reviewActions(items: Content[], targets?: string[]): ReviewActions {
   let approved = 0;
   let toDraft = 0;
   let toPublish = 0;
   for (const c of items) {
     if (!c.approved) continue;
     approved += 1;
-    if (c.etsy_listing_id == null) toDraft += 1;
-    else if (c.etsy_listing_state !== "active") toPublish += 1;
+    const drafted = new Set(c.publications.map((p) => p.connection_id));
+    const wanted = targets ?? (c.connection_id ? [c.connection_id] : []);
+    if (wanted.some((shop) => !drafted.has(shop))) toDraft += 1;
+    if (c.publications.some((p) => p.state !== "active")) toPublish += 1;
   }
   return { approved, toDraft, toPublish };
 }
@@ -32,10 +40,14 @@ export function applyChange(items: Content[], change: Partial<Content> & { id: s
 }
 
 /**
- * Card identity. It changes when the listing's Etsy state changes (a bulk job
- * created the draft, or published it), so that card remounts with the new
+ * Card identity. It changes when any of the listing's drafts changes (a bulk
+ * job created one, or published it), so that card remounts with the new
  * state, while cards being edited keep their unsaved text.
  */
 export function cardKey(c: Content): string {
-  return `${c.id}:${c.etsy_listing_id ?? "none"}:${c.etsy_listing_state ?? ""}`;
+  const pubs = c.publications
+    .map((p) => `${p.connection_id}=${p.etsy_listing_id}/${p.state}`)
+    .sort()
+    .join(",");
+  return `${c.id}:${pubs}`;
 }
