@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { Content, Pause } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
+import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
 
 const MIN_TITLE = 110;
@@ -31,7 +32,15 @@ function validate(title: string, tags: string[], description: string): string[] 
   return errors;
 }
 
-export function ReviewCard({ initial }: { initial: Content }) {
+export function ReviewCard({
+  initial,
+  onChange,
+}: {
+  initial: Content;
+  /** Tell the page what changed (approval, a draft created or published), so its
+   * bulk actions update without a reload (docs/duzeltmeler-v5.md §C). */
+  onChange?: (change: Partial<Content> & { id: string }) => void;
+}) {
   const [title, setTitle] = useState(initial.title ?? "");
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
@@ -73,6 +82,7 @@ export function ReviewCard({ initial }: { initial: Content }) {
     try {
       const res = await api.approve(initial.id, !approved);
       setApproved(res.content.approved);
+      onChange?.({ id: initial.id, approved: res.content.approved });
       setMessage(res.content.approved ? "Approved" : "Approval cleared");
     } catch (e: any) {
       setMessage(e.message ?? String(e));
@@ -90,28 +100,27 @@ export function ReviewCard({ initial }: { initial: Content }) {
     setPause(null);
     try {
       const { job_id } = await start();
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const job = await api.jobStatus(job_id);
-        if (job.status === "succeeded" && job.listing_id) {
-          setListingLink(job.listing_url);
-          setIsDraft(job.is_draft);
-          setPublishState("done");
-          return;
-        }
-        if (job.status === "failed" || job.status === "cancelled") {
-          setPublishError(job.error ?? "The job failed.");
-          setPublishState("error");
-          return;
-        }
-        if (job.pause) {
-          setPause(job.pause);
-          setPublishState("paused");
-          return;
-        }
+      const job = await waitForJob(job_id);
+      if (job === null) {
+        setPublishError(timeoutMsg);
+        setPublishState("error");
+      } else if (job.pause) {
+        setPause(job.pause);
+        setPublishState("paused");
+      } else if (job.status === "succeeded" && job.listing_id) {
+        setListingLink(job.listing_url);
+        setIsDraft(job.is_draft);
+        setPublishState("done");
+        onChange?.({
+          id: initial.id,
+          etsy_listing_id: job.listing_id,
+          etsy_listing_state: job.is_draft ? "draft" : "active",
+          listing_link: job.listing_url,
+        });
+      } else {
+        setPublishError(job.error ?? "The job failed.");
+        setPublishState("error");
       }
-      setPublishError(timeoutMsg);
-      setPublishState("error");
     } catch (e: any) {
       setPublishError(e.message ?? String(e));
       setPublishState("error");
@@ -120,10 +129,16 @@ export function ReviewCard({ initial }: { initial: Content }) {
 
   // Step 1: create the draft (never published automatically).
   const createDraft = () =>
-    runJob(() => api.publishContent(initial.id), "Timed out waiting for the draft.");
+    runJob(
+      () => api.publishContent(initial.id),
+      "Still working after 15 minutes. The draft will appear here once it is done; reload to check.",
+    );
   // Step 2 (explicit): flip the reviewed, approved draft to active.
   const publishNow = () =>
-    runJob(() => api.publishLive(initial.id), "Timed out waiting for publishing.");
+    runJob(
+      () => api.publishLive(initial.id),
+      "Still working after 15 minutes. Reload to check whether it is live.",
+    );
 
   // Paused counts as busy: asking again would only return the same waiting job.
   const publishing = publishState === "publishing" || publishState === "paused";

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Content, Pause, PublishJob } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
+import { waitForJob } from "@/lib/jobs";
+import { applyChange, cardKey, reviewActions } from "@/lib/review";
 import { ReviewCard } from "@/components/ReviewCard";
 
 interface Progress {
@@ -13,6 +15,8 @@ interface Progress {
   done: number;
   failed: number;
   skipped: number;
+  /** Still running when we stopped watching; the list refreshes when they land. */
+  running: number;
   /** Queued, waiting for the daily Etsy reset; they run by themselves then. */
   paused: number;
   pause: Pause | null;
@@ -21,48 +25,50 @@ interface Progress {
 export default function ReviewPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const [items, setItems] = useState<Content[] | null>(null);
-  const [version, setVersion] = useState(0); // bump to remount cards after bulk actions
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Cards are keyed by their Etsy state (cardKey): a reload remounts only the cards
+  // whose draft or live state changed, so text being edited elsewhere survives.
   const load = useCallback(() => {
     api
       .listContent(id)
-      .then((c) => {
-        setItems(c);
-        setVersion((v) => v + 1);
-      })
+      .then(setItems)
       .catch((e) => setError(String(e.message ?? e)));
   }, [id]);
+
+  // A card approved something or finished its own job: the bulk buttons follow.
+  const onCardChange = useCallback(
+    (change: Partial<Content> & { id: string }) =>
+      setItems((cur) => (cur ? applyChange(cur, change) : cur)),
+    [],
+  );
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Poll a set of queued jobs to completion, updating the progress counters.
+  // Watch a set of queued jobs until each settles. Every job that lands refreshes
+  // the list at once, so its card and the bulk buttons change without a reload.
   async function pollJobs(jobs: PublishJob[], label: string, skipped: number) {
-    setProgress({ label, total: jobs.length, done: 0, failed: 0, skipped, paused: 0, pause: null });
+    setProgress({
+      label, total: jobs.length, done: 0, failed: 0, skipped, running: 0, paused: 0, pause: null,
+    });
     await Promise.all(
       jobs.map(async (j) => {
-        for (let i = 0; i < 60; i++) {
-          await new Promise((r) => setTimeout(r, 1500));
-          const s = await api.jobStatus(j.job_id);
-          if (s.status === "succeeded") {
-            setProgress((p) => p && { ...p, done: p.done + 1 });
-            return;
-          }
-          if (s.status === "failed" || s.status === "cancelled") {
-            setProgress((p) => p && { ...p, failed: p.failed + 1 });
-            return;
-          }
-          if (s.pause) {
-            const pause = s.pause;
-            setProgress((p) => p && { ...p, paused: p.paused + 1, pause });
-            return;
-          }
+        const s = await waitForJob(j.job_id);
+        if (s === null) {
+          setProgress((p) => p && { ...p, running: p.running + 1 });
+        } else if (s.pause) {
+          const pause = s.pause;
+          setProgress((p) => p && { ...p, paused: p.paused + 1, pause });
+        } else if (s.status === "succeeded") {
+          setProgress((p) => p && { ...p, done: p.done + 1 });
+        } else {
+          setProgress((p) => p && { ...p, failed: p.failed + 1 });
         }
-        setProgress((p) => p && { ...p, failed: p.failed + 1 });
+        load();
       }),
     );
   }
@@ -76,7 +82,6 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     try {
       const res = await call();
       await pollJobs(res.jobs, label, res.skipped.length);
-      load(); // reflect new draft/active links on the cards
     } catch (e: any) {
       setError(e.message ?? String(e));
     } finally {
@@ -87,7 +92,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const createDraftsAll = () => runBulk("Creating drafts", () => api.publishBatch(id));
   const publishAll = () => runBulk("Publishing", () => api.publishBatchLive(id));
 
-  const approvedCount = (items ?? []).filter((c) => c.approved).length;
+  const actions = reviewActions(items ?? []);
 
   return (
     <div className="space-y-6">
@@ -104,23 +109,20 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         {items && items.length > 0 && (
           <div className="flex items-center gap-3">
             <span className="text-xs tabular-nums text-slate-500">
-              <span className="font-medium text-slate-700">{approvedCount}</span> of {items.length}{" "}
-              approved
+              <span className="font-medium text-slate-700">{actions.approved}</span> of{" "}
+              {items.length} approved
             </span>
-            <button
-              className="btn-secondary"
-              onClick={createDraftsAll}
-              disabled={busy || approvedCount === 0}
-            >
-              Create drafts for all
-            </button>
-            <button
-              className="btn-primary"
-              onClick={publishAll}
-              disabled={busy || approvedCount === 0}
-            >
-              Publish all
-            </button>
+            {/* Each action appears when it has work, from the listings as they are now. */}
+            {actions.toDraft > 0 && (
+              <button className="btn-secondary" onClick={createDraftsAll} disabled={busy}>
+                Create drafts for all ({actions.toDraft})
+              </button>
+            )}
+            {actions.toPublish > 0 && (
+              <button className="btn-primary" onClick={publishAll} disabled={busy}>
+                Publish all ({actions.toPublish})
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -130,9 +132,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-700">{progress.label}…</span>
             <span className="text-xs text-slate-500">
-              {progress.done + progress.failed + progress.paused}/{progress.total}
+              {progress.done + progress.failed + progress.paused + progress.running}/{progress.total}
               {progress.failed > 0 && ` · ${progress.failed} failed`}
               {progress.paused > 0 && ` · ${progress.paused} waiting`}
+              {progress.running > 0 && ` · ${progress.running} still running`}
               {progress.skipped > 0 && ` · ${progress.skipped} skipped`}
             </span>
           </div>
@@ -140,7 +143,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             <div
               className="progress-fill"
               style={{
-                width: `${progress.total ? ((progress.done + progress.failed + progress.paused) / progress.total) * 100 : 0}%`,
+                width: `${progress.total ? ((progress.done + progress.failed + progress.paused + progress.running) / progress.total) * 100 : 0}%`,
               }}
             />
           </div>
@@ -170,7 +173,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       {items && items.length > 0 && (
         <div className="space-y-5">
           {items.map((c) => (
-            <ReviewCard key={`${c.id}-${version}`} initial={c} />
+            <ReviewCard key={cardKey(c)} initial={c} onChange={onCardChange} />
           ))}
         </div>
       )}
