@@ -8,6 +8,10 @@ Return a structured analysis with these fields:
 - **colors**: the dominant colors, as short descriptive names or hex codes.
 - **target_audience**: who this design would appeal to (e.g. "hikers and campers", "cat lovers", "new parents").
 - **product_type_hints**: product formats this design would suit (e.g. "t-shirt", "mug", "wall art print", "sticker", "digital download").
+- **occasion**: the holiday, event or season the design suits (e.g. "christmas", "4th of july", "nurses week", "back to school"); empty string if none.
+- **meaning**: what the design is about, in your own plain words, as a buyer would describe it: the joke, message or subject, NOT the printed words. E.g. for a shirt printed "So is the flu — wash your hands": "nurse humor about flu season and hand washing". For "Deliver, Labor and Delivery": "pun for labor and delivery nurses".
+- **recipient**: who would wear it or be given it, as specifically as the design shows (a profession, relationship, hobby or community: "labor and delivery nurse", "new dad", "teacher", "dog mom"); empty string if the design is general.
+- **humor**: the kind of humor, if the design is funny ("nurse humor", "sarcastic", "pun", "dad joke", "dark humor"); empty string if it is not.
 
 If the image is a garment mockup (a shirt, sweatshirt, hoodie, tank, etc.), also read these from the garment shown — leave each an empty string if it is not clearly visible:
 

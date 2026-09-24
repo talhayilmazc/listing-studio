@@ -39,8 +39,9 @@ JOB_COST: dict[str, int] = {
     "refresh_profile": 6,
     # shop, and up to 10 pages of 100 for each of active and draft (profiles.SYNC_MAX_PAGES)
     "sync_shop_listings": 21,
-    # shop, listings, taxonomy, and an inventory read for each of up to 100 listings
-    "detect_profiles": 110,
+    # shop, up to 10 pages of active listings (inventory included), taxonomy, and
+    # up to 100 separate inventory reads for listings a page returned without it
+    "detect_profiles": 112,
 }
 
 # Resume a little after midnight, so the new day's counters are in place.

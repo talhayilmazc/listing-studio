@@ -24,6 +24,11 @@ VISION_SCHEMA: dict[str, Any] = {
         "target_audience": {"type": "string"},
         "product_type_hints": {"type": "array", "items": {"type": "string"}},
         "occasion": {"type": "string"},
+        # What the design is about, for the title (v6 §B): the joke or message in
+        # the analyst's words, who would buy it for whom, and the kind of humor.
+        "meaning": {"type": "string"},
+        "recipient": {"type": "string"},
+        "humor": {"type": "string"},
         # Garment attributes read from the mockup (v4 §B) -> Etsy clothing attributes.
         "neckline": {"type": "string"},
         "sleeve_length": {"type": "string"},
@@ -51,6 +56,12 @@ class VisionAnalysis:
     product_type_hints: list[str]
     #: Holiday/event the design suits (e.g. "christmas", "4th of july"); "" if none.
     occasion: str = ""
+    #: What the design means, in plain words (never the printed text itself).
+    meaning: str = ""
+    #: Who it would be bought for (e.g. "labor and delivery nurse", "new dad").
+    recipient: str = ""
+    #: The kind of humor, if any (e.g. "nurse humor", "sarcastic", "pun").
+    humor: str = ""
     #: Garment attributes seen in the mockup (v4 §B); "" when not visible.
     neckline: str = ""
     sleeve_length: str = ""
@@ -110,6 +121,9 @@ def _to_analysis(data: dict[str, Any]) -> VisionAnalysis:
             target_audience=str(data["target_audience"]),
             product_type_hints=[str(h) for h in data["product_type_hints"]],
             occasion=str(data.get("occasion", "")),
+            meaning=str(data.get("meaning", "")),
+            recipient=str(data.get("recipient", "")),
+            humor=str(data.get("humor", "")),
             neckline=str(data.get("neckline", "")),
             sleeve_length=str(data.get("sleeve_length", "")),
             clothing_style=str(data.get("clothing_style", "")),

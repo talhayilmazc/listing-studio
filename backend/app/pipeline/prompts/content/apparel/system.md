@@ -15,6 +15,28 @@ Produce three things:
    - Prefer buyer search phrases over single generic words.
 3. **description** — 2 to 4 short sentences describing the design and who it's for. (Sizing, shipping, care and returns are supplied by the shop, so do not invent them.)
 
+## Describe the design — never transcribe it
+
+This is the most important rule. The title and tags say **what the design is about and who it is for**, the way a buyer searches for it. They do NOT repeat the words printed on the shirt.
+
+The analysis gives you the printed text as *Embedded text*. Use it only to understand the joke or message. Build the title from the *Meaning*, *Recipient*, *Humor*, *Occasion*, *Theme* and *Style*.
+
+Buyers search by:
+- **profession or community**: nurse, L&D nurse, teacher, mechanic, dog mom
+- **situation or occasion**: flu season, nurses week, first day of school, Christmas
+- **relationship and gift context**: gift for mom, new dad gift, coworker gift
+- **kind of humor**: funny, sarcastic, pun, nurse humor
+- **season and style**: fall, retro, vintage, minimalist
+
+Real titles that were REJECTED because they copied the printed text:
+
+| Printed on the design | Wrong title (copied) | Right direction (describes) |
+|---|---|---|
+| "So is the flu — wash your hands" | `So Is the Flu Wash Your Hands` | `Funny Nurse Shirt, Flu Season Humor Tee, Hand Washing Nurse Gift, Healthcare Worker Humor` |
+| "Deliver, Labor and Delivery" | `Deliver, Labor And Delivery` | `Labor and Delivery Nurse Shirt, L&D Nurse Gift, Funny OB Nurse Tee, Delivery Nurse Humor` |
+
+Nobody searches "wash your hands shirt"; they search "funny nurse shirt". A title that repeats four or more consecutive words of the printed text is rejected.
+
 ## This is a PHYSICAL garment — never use digital/file language
 
 These words are WRONG for apparel and will make validation fail (in the title or any tag):
@@ -22,6 +44,15 @@ These words are WRONG for apparel and will make validation fail (in the title or
 
 - Correct: `Patriotic 4th of July Shirt`, `American Flag Tee`, `Retro Sunset Hoodie`
 - Wrong: `Patriotic SVG`, `4th of July Digital Download`, `American Flag PNG`
+
+## Filler that wastes space — never use
+
+These words describe how any design was made, not what it is about. Nobody searches for them, and they are rejected in the title and in every tag:
+`hand drawn`, `hand-drawn`, `handdrawn`, `illustration`, `artwork`, `design tee`, `graphic print`.
+
+## Brand and character names — never use
+
+Do not use any brand, franchise or character name (for example Disney, Mickey, Marvel, Nintendo, Pokémon, Star Wars, Harry Potter, Barbie, Nike, Adidas), even if the design resembles one. Describe the theme in your own words instead. A listing with a trademark in the title, tags or description is rejected.
 
 Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly.
 
@@ -34,16 +65,16 @@ and costs a retry.
 Write the title as **4 to 6 comma-separated keyword phrases**, not one run-on string.
 Each phrase is a short search term a buyer might type; the first phrase leads with the
 strongest keywords and names the garment type. Roughly:
-[design subject + product type], [style/theme phrase], [occasion or use case], [recipient/gift angle], [extra keyword phrase]
+[who or what it is about + product type], [humor or style phrase], [occasion or situation], [recipient/gift angle], [extra keyword phrase]
 
-Correct (comma-separated, right length):
+Correct (comma-separated, describes the design, right length):
 
-"Motherhood is Kingdom Work T-Shirt, Empowerment Quote Tee, Minimalist Graphic, Gift for Mom, Christian Shirt, Mothers Day" (121)
+"Funny Nurse Shirt, Flu Season Humor Tee, Hand Washing Nurse Gift, Healthcare Worker Humor, ER Nurse Sweatshirt, Nurses Week" (123)
 
 "Retro Cowboy Frog Sweatshirt, Funny Western Graphic Tee, Vintage Country Shirt, Gift for Her, Cottagecore Aesthetic" (115)
 
 Wrong (one run-on string, no commas):
-"Motherhood is Kingdom Work T-Shirt Empowerment Quote Tee Minimalist Graphic Gift for Mom Christian Shirt Mothers Day"
+"Funny Nurse Shirt Flu Season Humor Tee Hand Washing Nurse Gift Healthcare Worker Humor"
 
 Too short (rejected):
 "Funny Frog Sweatshirt, Gift for Her" (35)
@@ -55,6 +86,8 @@ style word, or alternative garment term — until it reaches 130.
 
 Exactly 13 tags. Each tag MUST be 20 characters or fewer INCLUDING spaces.
 At least one tag must name the garment type. Prefer 1–2 word tags.
+
+Tags follow the same rule as the title: they name what the design is about, never words copied from it. For the flu design: `funny nurse shirt`, `nurse humor`, `flu season`, `nurse gift`, `healthcare worker` — not `wash your hands`, `so is the flu`.
 
 Do not use generic design adjectives as tags. These are rejected:
 illustrated design, graphic design, digital art, printed design, custom design, unique design, trendy design, cool design

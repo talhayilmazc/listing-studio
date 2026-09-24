@@ -613,3 +613,45 @@ async def test_approve_all_is_only_for_the_owners_batch(ctx) -> None:
     assert (await ctx["client"].post(f"/api/batches/{batch}/approve-all")).status_code == 404
     async with ctx["sm"]() as s:
         assert (await s.get(GeneratedContent, content)).approved is False
+
+
+# --- Trademark blocklist and the compliance scanner (docs/duzeltmeler-v6.md §B) ----------
+async def test_a_trademark_blocks_approval_and_is_recorded(ctx) -> None:
+    from app.db.models import ComplianceFinding
+
+    content = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
+    title = ("Disney Castle " + VALID_TITLE)[:135]
+    assert (await ctx["client"].patch(f"/api/content/{content}", json={"title": title})).status_code == 200
+
+    resp = await ctx["client"].post(f"/api/content/{content}/approve", json={"approved": True})
+    assert resp.status_code == 422
+    assert any("trademark 'Disney'" in e for e in resp.json()["detail"]["errors"])
+    async with ctx["sm"]() as s:
+        findings = (
+            await s.execute(select(ComplianceFinding).where(ComplianceFinding.generated_content_id == content))
+        ).scalars().all()
+    assert [(f.rule, f.severity.value, f.detail) for f in findings] == [
+        ("trademark", "blocking", "trademark 'Disney' in the title")
+    ]
+
+
+async def test_a_term_added_after_approval_stops_publishing(ctx, tmp_path, test_settings) -> None:
+    content = await _add_content(ctx["sm"], ctx["tenant_id"], approved=True)
+    marks = tmp_path / "marks.txt"
+    marks.write_text("Adventure Awaits\n", encoding="utf-8")  # in VALID_TITLE
+    test_settings.trademark_list_path = str(marks)
+
+    resp = await ctx["client"].post(f"/api/content/{content}/publish")
+    assert resp.status_code == 409
+    assert "trademark 'Adventure Awaits' from the title" in str(resp.json()["detail"])
+
+
+async def test_with_the_filter_off_the_same_listing_publishes(ctx, tmp_path, test_settings) -> None:
+    content = await _add_content(ctx["sm"], ctx["tenant_id"], approved=True)
+    marks = tmp_path / "marks.txt"
+    marks.write_text("Adventure Awaits\n", encoding="utf-8")
+    test_settings.trademark_list_path = str(marks)
+    test_settings.trademark_filter = False
+
+    body = (await ctx["client"].post(f"/api/content/{content}/publish")).json()
+    assert body["skipped"] == [] and len(body["jobs"]) == 1

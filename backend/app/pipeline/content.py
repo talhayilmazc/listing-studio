@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.compliance.trademarks import Blocklist, configured_blocklist, trademark_errors
 from app.pipeline.llm import LLMClient, LLMError, Usage
 from app.pipeline.templates import PromptTemplate, load_template
 from app.pipeline.vision import VisionAnalysis
@@ -38,6 +39,12 @@ class ContentPolicy:
     required_type_terms: tuple[str, ...] = ()
     #: Generic, no-search-value phrases banned in TAGS only (title may differ).
     forbidden_tag_terms: tuple[str, ...] = ()
+    #: Filler that spends a slot without being searched, banned in the title AND
+    #: the tags (v6 §B).
+    forbidden_filler_terms: tuple[str, ...] = ()
+    #: The title describes the design; it must not transcribe the words printed
+    #: on it (v6 §B). Checked at generation, where the design's text is known.
+    describe_not_transcribe: bool = False
 
 
 # File-format / delivery words that must never appear on a physical apparel listing.
@@ -66,8 +73,26 @@ _GENERIC_DESIGN_TAGS = (
     "cool design",
 )
 
+# Words that describe how any printed design was made, not what it is about:
+# nobody searches "illustration shirt" (v6 §B).
+_FILLER = (
+    "hand drawn",
+    "hand-drawn",
+    "handdrawn",
+    "illustration",
+    "artwork",
+    "design tee",
+    "graphic print",
+)
+
 _POLICIES: dict[str, ContentPolicy] = {
-    "apparel": ContentPolicy(_APPAREL_FORBIDDEN, _APPAREL_TYPES, _GENERIC_DESIGN_TAGS),
+    "apparel": ContentPolicy(
+        _APPAREL_FORBIDDEN,
+        _APPAREL_TYPES,
+        _GENERIC_DESIGN_TAGS,
+        forbidden_filler_terms=_FILLER,
+        describe_not_transcribe=True,
+    ),
     # Digital sellers may legitimately use "digital download", "SVG", etc.
     "digital_products": ContentPolicy(),
 }
@@ -81,6 +106,46 @@ def policy_for(content_template: str) -> ContentPolicy:
 def _has_term(text: str, term: str) -> bool:
     """Whole-word (case-insensitive) match, so 'png' won't fire inside 'opening'."""
     return re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE) is not None
+
+
+# A title that repeats this many consecutive words of the design's printed text
+# is transcribing it. Three is allowed: "Labor and Delivery Nurse Shirt" names the
+# job, and a short phrase is often exactly what buyers search for.
+COPIED_RUN_WORDS = 4
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower().replace("'", "").replace("\u2019", ""))
+
+
+def copied_design_text(title: str, embedded_text: str) -> str | None:
+    """The longest run of at least COPIED_RUN_WORDS consecutive words of the
+    design's text that the title repeats, or None."""
+    source = _words(embedded_text)
+    target = _words(title)
+    if len(source) < COPIED_RUN_WORDS or len(target) < COPIED_RUN_WORDS:
+        return None
+    best: list[str] = []
+    for i in range(len(source)):
+        for j in range(len(target)):
+            k = 0
+            while i + k < len(source) and j + k < len(target) and source[i + k] == target[j + k]:
+                k += 1
+            if k > len(best):
+                best = source[i : i + k]
+    return " ".join(best) if len(best) >= COPIED_RUN_WORDS else None
+
+
+def copied_text_errors(title: str, embedded_text: str) -> list[str]:
+    run = copied_design_text(title, embedded_text)
+    if run is None:
+        return []
+    return [
+        f"the title copies the words printed on the design ('{run}'). Buyers do not "
+        "search for a shirt's slogan: describe what the design is about instead (the "
+        "profession, occasion, recipient, kind of humor or style), e.g. 'Funny Nurse "
+        "Shirt, Flu Season Humor' rather than the printed joke"
+    ]
 
 CONTENT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -118,12 +183,17 @@ class ContentValidationError(Exception):
 
 
 def validate_listing(
-    listing: GeneratedListing, policy: ContentPolicy | None = None
+    listing: GeneratedListing,
+    policy: ContentPolicy | None = None,
+    *,
+    trademarks: Blocklist | None = None,
 ) -> list[str]:
     """Return validation errors (empty if valid).
 
     Structural Etsy limits always apply; ``policy`` adds product-type rules
     (forbidden format words, required product-type wording) scoped to the profile.
+    The trademark blocklist applies to every product type; ``trademarks=None``
+    means the configured one (empty while TRADEMARK_FILTER is off).
     """
     errors: list[str] = []
 
@@ -166,6 +236,11 @@ def validate_listing(
     if policy is not None:
         errors.extend(_policy_errors(listing, policy))
 
+    blocklist = configured_blocklist() if trademarks is None else trademarks
+    errors.extend(
+        trademark_errors(listing.title, list(listing.tags), listing.description, blocklist)
+    )
+
     return errors
 
 
@@ -193,6 +268,20 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
             errors.append(
                 f"replace the generic tag(s) {bad}: '{term}' has no search value — "
                 "each tag must name the subject, occasion, recipient, garment type or style"
+            )
+
+    # Filler with no search value, in the title or a tag (v6 §B).
+    for term in policy.forbidden_filler_terms:
+        if _has_term(title, term):
+            errors.append(
+                f"remove '{term}' from the title: it has no search value and wastes "
+                "space; use a phrase a buyer would type (subject, occasion, recipient)"
+            )
+        bad = [t for t in tags if _has_term(t, term)]
+        if bad:
+            errors.append(
+                f"replace the tag(s) {bad}: '{term}' has no search value — each tag "
+                "must name the subject, occasion, recipient, garment type or style"
             )
 
     if policy.required_type_terms:
@@ -229,10 +318,14 @@ class AnthropicContentGenerator:
         text = self._template.render_user(
             {
                 "theme": analysis.theme,
+                "meaning": analysis.meaning or "(not given)",
                 "embedded_text": analysis.embedded_text or "(none)",
                 "style": analysis.style,
                 "colors": ", ".join(analysis.colors),
                 "target_audience": analysis.target_audience,
+                "occasion": analysis.occasion or "(none)",
+                "recipient": analysis.recipient or "(not given)",
+                "humor": analysis.humor or "(none)",
                 "product_type_hints": ", ".join(analysis.product_type_hints),
                 "sku": sku or "(none)",
             }
@@ -328,6 +421,8 @@ class AnthropicContentGenerator:
             usages.append(usage)
             listing = self._apply_prefix(listing)  # prepend the profile's title prefix
             errors = validate_listing(listing, self._policy)
+            if self._policy is not None and self._policy.describe_not_transcribe:
+                errors.extend(copied_text_errors(listing.title, analysis.embedded_text))
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
             last_errors = errors

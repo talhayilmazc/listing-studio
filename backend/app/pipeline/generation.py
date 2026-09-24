@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.compliance.scanner import rescan
 from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
@@ -141,6 +142,10 @@ async def generate_listing_content(
         approved=False,
     )
     session.add(content)
+    await session.flush()
+    # The compliance scanner records what it finds (a trademark in the reference
+    # description, say); a blocking finding keeps this listing from Etsy (v6 §B).
+    await rescan(session, content)
     # Clear any prior failure reason now that generation succeeded.
     asset = await session.get(Asset, asset_id)
     if asset is not None:
