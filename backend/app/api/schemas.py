@@ -103,6 +103,49 @@ class PublicationOut(BaseModel):
     listing_link: str  # edit URL for a draft, public URL once active
     # For a draft: what still has to be set in Shop Manager before publishing.
     manual_steps: list[ManualStepOut] = Field(default_factory=list)
+    # When the seller scheduled it to go live (v6 §G), and where that stands.
+    scheduled_for: datetime | None = None
+    schedule_status: str | None = None
+    schedule_note: str | None = None
+
+
+class ScheduleItem(BaseModel):
+    content_id: uuid.UUID
+    connection_id: uuid.UUID
+    #: When to go live, with its time zone (the browser sends UTC).
+    run_at: datetime
+
+
+class ScheduleRequest(BaseModel):
+    items: list[ScheduleItem] = Field(max_length=1000)
+    #: False (bulk scheduling): leave a draft that already has a time as it is.
+    replace: bool = True
+
+
+class ScheduleOut(BaseModel):
+    content_id: uuid.UUID
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    title: str | None = None
+    asset_id: uuid.UUID
+    batch_id: uuid.UUID
+    etsy_listing_id: int
+    listing_link: str
+    scheduled_for: datetime
+    #: "scheduled" | "publishing" | "waiting" | "published" | "failed" | "not_published"
+    status: str
+    note: str | None = None
+
+
+class ScheduleSkipped(BaseModel):
+    content_id: uuid.UUID
+    connection_id: uuid.UUID
+    reason: str
+
+
+class ScheduleResult(BaseModel):
+    scheduled: list[ScheduleOut] = []
+    skipped: list[ScheduleSkipped] = []
 
 
 class ContentUpdate(BaseModel):

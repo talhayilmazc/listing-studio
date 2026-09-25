@@ -1,5 +1,6 @@
 "use client";
 
+import { ScheduleControl } from "./ScheduleControl";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type {
@@ -350,6 +351,19 @@ export function ReviewCard({
                         {publishing ? "Publishing…" : "Publish now"}
                       </button>
                     )}
+                    <ScheduleControl
+                      contentId={initial.id}
+                      publication={p}
+                      approved={approved}
+                      onChange={(patch) => {
+                        const next = publications.map((x) =>
+                          x.connection_id === p.connection_id ? { ...x, ...patch } : x,
+                        );
+                        setPublications(next);
+                        // The page's bulk scheduling must see it too, or it would move it.
+                        onChange?.({ id: initial.id, publications: next });
+                      }}
+                    />
                     {p.state !== "active" && p.manual_steps.length > 0 && (
                       <ManualSteps
                         steps={p.manual_steps}

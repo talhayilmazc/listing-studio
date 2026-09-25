@@ -18,6 +18,7 @@ const TITLES: [RegExp, string][] = [
   [/^\/batches\/[^/]+\/review$/, "Review"],
   [/^\/profiles$/, "Profiles"],
   [/^\/upload$/, "Uploads"],
+  [/^\/scheduled$/, "Scheduled"],
   [/^\/connect$/, "Shops"],
   [/^\/admin$/, "Admin"],
   [/^\/terms$/, "Terms of Service"],

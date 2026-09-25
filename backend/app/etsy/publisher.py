@@ -451,13 +451,16 @@ async def publish_live(
     live). So an activation that errors without a clear refusal is checked by
     reading the listing back: live means published.
 
-    Publishing is never automatic: this runs only from a deliberate user action on a
-    draft the seller has already reviewed and approved. A blocking compliance finding
-    still prevents it.
+    Publishing is never automatic: this runs only from the seller's explicit
+    confirmation on a draft they reviewed and approved, either "Publish now" or a
+    time they scheduled for it (CLAUDE.md rule 3, v6 §G). A listing that is no
+    longer approved, or has a blocking compliance finding, is not published.
     """
     tenant_id = connection.tenant_id
     ctx = {"access_token": access_token, "tenant_id": tenant_id, "tenant_limit": tenant_limit}
 
+    if not content.approved:
+        raise PublishBlocked("the listing is no longer approved")
     if await _has_blocking_finding(session, content.id):
         raise PublishBlocked("content has a blocking compliance finding")
     publication = await publication_for(session, content.id, connection.id)

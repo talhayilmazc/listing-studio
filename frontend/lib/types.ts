@@ -83,6 +83,10 @@ export interface Publication {
   listing_link: string;
   /** For a draft: what still has to be set in Shop Manager before publishing. */
   manual_steps: ManualStep[];
+  /** When the seller scheduled it to go live (UTC ISO), and where that stands (v6 §G). */
+  scheduled_for?: string | null;
+  schedule_status?: string | null;
+  schedule_note?: string | null;
 }
 
 export interface PublishJob {
@@ -419,4 +423,32 @@ export interface ArchiveResult {
   skipped_unsafe: number;
   skipped_nested: number;
   failed: { filename: string; error: string }[];
+}
+
+/** A scheduled go-live (docs/duzeltmeler-v6.md §G). */
+export interface Schedule {
+  content_id: string;
+  connection_id: string;
+  shop_name: string | null;
+  title: string | null;
+  asset_id: string;
+  batch_id: string;
+  etsy_listing_id: number;
+  /** The draft in Shop Manager, or the live listing: every listing shown links back. */
+  listing_link: string;
+  scheduled_for: string;
+  status: string;
+  note: string | null;
+}
+
+export interface ScheduleItem {
+  content_id: string;
+  connection_id: string;
+  /** UTC ISO time. */
+  run_at: string;
+}
+
+export interface ScheduleResult {
+  scheduled: Schedule[];
+  skipped: { content_id: string; connection_id: string; reason: string }[];
 }

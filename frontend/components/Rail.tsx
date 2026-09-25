@@ -28,6 +28,7 @@ const SECTIONS: { title: string; items: Item[] }[] = [
       { href: "/dashboard", label: "Overview", icon: IconGrid },
       { href: "/", label: "Batches", icon: IconLayers },
       { href: "/upload", label: "Uploads", icon: IconUpload },
+      { href: "/scheduled", label: "Scheduled", icon: IconClock },
     ],
   },
   {
@@ -459,6 +460,16 @@ function IconUpload({ active }: { active: boolean }) {
     <>
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <path d="M12 3v13M7 8l5-5 5 5" />
+    </>,
+    active,
+  );
+}
+
+function IconClock({ active }: { active: boolean }) {
+  return svg(
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
     </>,
     active,
   );
