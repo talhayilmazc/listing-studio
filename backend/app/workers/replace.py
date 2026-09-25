@@ -26,7 +26,7 @@ from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
-from app.pipeline.images import prepare_thumbnail
+from app.pipeline.images import cover_image
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.reference import decode_etsy_text, replace_title_block
 from app.pipeline.storage import LocalStorage
@@ -93,8 +93,10 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             primary = assets[0]
             primary_bytes = storage.get(primary.processed_key)
 
-            thumb = prepare_thumbnail(
+            # The cover's crop, when the seller set one (as on draft creation).
+            thumb = cover_image(
                 primary_bytes,
+                primary.cover_crop,
                 padding_pct=settings.thumbnail_padding_pct,
                 size=settings.thumbnail_size,
                 mode=settings.thumbnail_mode,

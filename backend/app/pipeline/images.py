@@ -281,6 +281,46 @@ def prepare_thumbnail(
     return ProcessedImage(out.getvalue(), size, size, "JPEG")
 
 
+def crop_cover(data: bytes, crop: dict[str, float], *, size: int = 2000) -> ProcessedImage:
+    """The seller's own square crop of the cover, as the listing's main photo.
+
+    ``crop`` is ``{x, y, size, width, height}``: a square chosen on an image of
+    ``width`` x ``height`` pixels (the processed derivative the seller saw). It is
+    scaled to these bytes, so it lands in the same place whatever their size,
+    and kept inside the image. Etsy's API takes no crop, so this square *is* the
+    photo it gets (docs: cover thumbnail adjuster).
+    """
+    from PIL import Image
+
+    img = _open(data).convert("RGB")
+    ref_w = float(crop.get("width") or img.width)
+    ref_h = float(crop.get("height") or img.height)
+    sx, sy = img.width / ref_w, img.height / ref_h
+    side = min(float(crop["size"]) * sx, float(img.width), float(img.height))
+    left = min(max(0.0, float(crop["x"]) * sx), img.width - side)
+    top = min(max(0.0, float(crop["y"]) * sy), img.height - side)
+    box = (round(left), round(top), round(left + side), round(top + side))
+    canvas = img.crop(box).resize((size, size), Image.LANCZOS)
+    out = io.BytesIO()
+    canvas.save(out, format="JPEG", quality=90)
+    return ProcessedImage(out.getvalue(), size, size, "JPEG")
+
+
+def cover_image(
+    data: bytes,
+    crop: dict[str, float] | None,
+    *,
+    padding_pct: int = 8,
+    size: int = 2000,
+    mode: str = "crop",
+) -> ProcessedImage:
+    """The listing's first photo: the seller's crop if they set one, else the
+    automatic square thumbnail."""
+    if crop:
+        return crop_cover(data, crop, size=size)
+    return prepare_thumbnail(data, padding_pct=padding_pct, size=size, mode=mode)
+
+
 # --- UI preview derivatives -------------------------------------------------
 # The batch grid renders small tiles; serving the full processed JPEG for each
 # one costs ~600KB a tile. `resize_preview` produces a small JPEG that the API

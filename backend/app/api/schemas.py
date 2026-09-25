@@ -9,6 +9,17 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class CoverCrop(BaseModel):
+    """A square on the processed image, in its pixels: where the cover is cut."""
+
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    size: float = Field(gt=0)
+    #: The processed image's size when the crop was chosen (set by the server).
+    width: int | None = None
+    height: int | None = None
+
+
 class AssetOut(BaseModel):
     id: uuid.UUID
     original_filename: str
@@ -21,6 +32,8 @@ class AssetOut(BaseModel):
     height: int | None
     has_content: bool = False
     error: str | None = None  # last content-generation failure reason, if any
+    #: The seller's square crop for when this image is the cover, or None (auto).
+    cover_crop: CoverCrop | None = None
 
 
 class BatchSummary(BaseModel):

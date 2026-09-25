@@ -13,6 +13,8 @@ export interface Asset {
   height: number | null;
   has_content: boolean;
   error: string | null;
+  /** The seller's square for when this image is the cover; null = automatic. */
+  cover_crop?: { x: number; y: number; size: number; width: number | null; height: number | null } | null;
 }
 
 export interface BatchSummary {
