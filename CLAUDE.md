@@ -6,7 +6,7 @@ Aşama: kapalı beta, 5 kullanıcı. Etsy erişim seviyesi: Personal App.
 
 > Etsy bu uygulamayı **en fazla 80 bağlı mağaza** için onayladı. Ücret almaya başlamadan önce Commercial Access başvurusu zorunludur.
 >
-> **Kendi tavanlarımız daha düşük ve bilerek öyle: hesap başına 8 (`MAX_SHOPS_PER_TENANT`), uygulama geneli 20 (`MAX_SHOPS_APP_WIDE`).** Bunları Etsy'nin mağaza sınırı değil, **günlük 5.000 istek bütçesi** belirler: bütçe tüm mağazalar arasında paylaşılır ve her bağlı mağaza boşta bile günde ~18 istek harcar (senkronizasyon + profil yenileme; 20 mağaza ≈ 360/gün), üstüne her taslak ~15 istek. 80 mağazada bütçenin büyük kısmı yalnızca mağazaları güncel tutmaya giderdi. **Bu tavanlar, Etsy'den günlük kota artışı alınmadan yükseltilmez**; kota artarsa aynı hesapla birlikte yükseltilir.
+> **Kendi tavanlarımız daha düşük ve bilerek öyle: hesap başına 8 (`MAX_SHOPS_PER_TENANT`), uygulama geneli 20 (`MAX_SHOPS_APP_WIDE`).** Bunları Etsy'nin mağaza sınırı değil, **günlük 5.000 istek bütçesi** belirler: bütçe tüm mağazalar arasında paylaşılır. Kullanılmayan bir mağaza arka planda istek harcamaz. Her gün kullanılan bir mağaza, görüntülendikçe senkronizasyon (önbellek 6 saatten eskiyse, ~3 istek; günde en fazla ~12) ve **son 14 günde kullanılan her profil için ~12 istek** (görsel linkleri 5 saatte bir 1 istek, yapısal veri 20 saatte bir 6 istek) harcar: 2 profilli aktif bir mağaza ≈ 36/gün, 20 aktif mağaza ≈ 720/gün (bütçenin ~%15'i); üstüne her taslak ~15 istek. 80 aktif mağazada (~2.900/gün) bütçenin çoğu yalnızca mağazaları güncel tutmaya giderdi. **Bu tavanlar, Etsy'den günlük kota artışı alınmadan yükseltilmez**; kota artarsa aynı hesapla birlikte yükseltilir.
 
 ---
 
@@ -37,6 +37,7 @@ ToU Bölüm 1'den gelir, ihlali doğrudan sözleşme ihlalidir.
 - `listing_snapshot` tablosu Member Content içerir. **Retention politikası zorunlu: 90 gün sonra otomatik silinir.** Bunu yapan periyodik bir temizlik job'ı olmalıdır.
 - Kullanıcı bağlantısını kestiğinde (`etsy_connection` → `revoked`) o kullanıcıya ait tüm Etsy kaynaklı içerik silinir.
 - Cache yaşı arayüzde gösterilen her listing için kontrol edilir; süresi geçmişse gösterilmez, yeniden çekilir.
+- **Profil yenileme (v6 §H):** son 14 günde listing yazan veya taslak oluşturan onaylı profiller arka planda, sınırları dolmadan yenilenir (görseller 5 saatte, yapı 20 saatte bir). Kullanılmayan profiller arka planda yenilenmez; Profiles sayfası açılınca, bir batch için seçilince veya onunla içerik üretilirken yenilenir (`app/etsy/refresh.py`).
 - **Referans görsel baytları saklanmaz.** Beden tablosu sınıflandırması için satıcının kendi referans listing görselleri API'nin verdiği CDN URL'inden çekilir, **yalnızca bellekte** sınıflandırılır (yerel sezgisel; belirsizse vision fallback) ve baytlar hemen atılır. Yalnızca **sınıflandırma sonucu** (`size_chart`/`artwork`) ve türetilen `fixed_image_ids` saklanır. Görsel baytı diske/DB'ye yazılmadığı için 6 saatlik görsel cache yükümlülüğü doğmaz; saklanan sonuç, profilin 24 saatlik `cached_payload` yenilenmesine tabidir.
 
 ## Zorunlu uyum unsurları (arayüzde bulunacak)

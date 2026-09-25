@@ -207,9 +207,13 @@ export function ProfileCard({
             >
               {profile.refresh_error
                 ? "refresh failed · see below"
+                : profile.refreshing
+                ? "refreshing from Etsy…"
                 : profile.is_fresh
                 ? profile.confirmed
-                  ? "kept up to date automatically"
+                  ? profile.in_use
+                    ? "kept up to date automatically"
+                    : "refreshed when opened or used · not used in 2 weeks"
                   : imagesHidden
                     ? "usable · images hidden after 6 hours"
                     : "reference cached · refreshes automatically once confirmed"

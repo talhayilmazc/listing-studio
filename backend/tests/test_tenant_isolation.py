@@ -62,7 +62,7 @@ class StubEnqueuer:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple]] = []
 
-    async def enqueue(self, function: str, *args) -> None:
+    async def enqueue(self, function: str, *args, **kwargs) -> None:
         self.calls.append((function, args))
 
 

@@ -6,7 +6,18 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models import ConnectionStatus, EtsyConnection, ListingProfile, Tenant, TenantStatus
+from app.db.models import (
+    Asset,
+    AssetStatus,
+    ConnectionStatus,
+    EtsyConnection,
+    GeneratedContent,
+    ListingProfile,
+    Tenant,
+    TenantStatus,
+    UploadBatch,
+    UploadBatchStatus,
+)
 from app.etsy.errors import EtsyClientError
 from app.workers import profiles as worker
 from app.workers.retention import purge_expired_rows
@@ -29,8 +40,11 @@ PAYLOAD = {
 _next_shop = iter(range(10_000, 20_000))
 
 
-async def _profile(sm, *, structure_h: float | None, images_h: float | None, confirmed=True, **extra):
-    """A tenant with its own shop (each a distinct Etsy user) and one profile."""
+async def _profile(
+    sm, *, structure_h: float | None, images_h: float | None, confirmed=True, used_days_ago: float | None = 1, **extra
+):
+    """A tenant with its own shop (each a distinct Etsy user) and one profile,
+    which wrote a listing ``used_days_ago`` (None: never used)."""
     async with sm() as s:
         tenant = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", daily_quota=2000)
         s.add(tenant)
@@ -51,6 +65,16 @@ async def _profile(sm, *, structure_h: float | None, images_h: float | None, con
         p.images_updated_at = _ago(images_h) if images_h is not None else None
         for k, v in extra.items():
             setattr(p, k, v)
+        if used_days_ago is not None:
+            batch = UploadBatch(tenant_id=tenant.id, status=UploadBatchStatus.ready, file_count=1)
+            s.add(batch)
+            await s.flush()
+            asset = Asset(batch_id=batch.id, tenant_id=tenant.id, original_filename="a.png", storage_key="k",
+                          status=AssetStatus.processed, rank=1)
+            s.add(asset)
+            await s.flush()
+            s.add(GeneratedContent(tenant_id=tenant.id, batch_id=batch.id, asset_id=asset.id, title="t",
+                                   listing_profile_id=p.id, created_at=_ago(used_days_ago * 24)))
         await s.commit()
     return tenant_id, profile_id
 
@@ -94,6 +118,17 @@ async def test_the_cron_queues_what_is_due_and_nothing_else(async_sm: async_sess
     assert str(unconfirmed) not in {a[0] for _, a, _ in queue.calls}
     # One queued job per profile, however often the cron fires.
     assert all(kw["_job_id"] == f"auto:{f}:{a[0]}" for f, a, kw in queue.calls)
+
+
+async def test_only_profiles_used_in_the_last_two_weeks_stay_warm(async_sm: async_sessionmaker) -> None:
+    """A profile nobody publishes with is refreshed on demand, not in the background."""
+    _, recent = await _profile(async_sm, structure_h=21, images_h=21, used_days_ago=13)
+    await _profile(async_sm, structure_h=21, images_h=21, used_days_ago=15)
+    await _profile(async_sm, structure_h=21, images_h=21, used_days_ago=None)
+
+    queue = _Queue()
+    await worker.auto_refresh_profiles(_ctx(async_sm, queue))
+    assert [(f, a[0]) for f, a, _ in queue.calls] == [("refresh_profile", str(recent))]
 
 
 async def test_suspended_accounts_disconnected_shops_and_recent_failures_wait(

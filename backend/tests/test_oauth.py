@@ -263,7 +263,7 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
     class _Queue:
         calls: list = []
 
-        async def enqueue(self, function: str, *args) -> None:
+        async def enqueue(self, function: str, *args, **kwargs) -> None:
             self.calls.append((function, args))
 
     # A new shop syncs straight away; never through the real queue in a test.

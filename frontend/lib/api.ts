@@ -132,12 +132,24 @@ export const api = {
     }),
   // Generate content for a batch; pass a groupKey to limit to one folder group (D3).
   // profileId is optional — each group can carry its own assigned profile (v4 §E).
-  generate: (id: string, profileId?: string, groupKey?: string) =>
+  /**
+   * `replace`: "Regenerate", new content for a group that has some; approved
+   * content needs `replaceApproved` too. A group whose draft is on Etsy is never
+   * replaced (the server says why in `skipped_groups`).
+   */
+  generate: (
+    id: string,
+    profileId?: string,
+    groupKey?: string,
+    opts: { replace?: boolean; replaceApproved?: boolean } = {},
+  ) =>
     req<GenerateResult>(`/batches/${id}/generate`, {
       method: "POST",
       body: JSON.stringify({
         ...(profileId ? { profile_id: profileId } : {}),
         ...(groupKey != null ? { group_key: groupKey } : {}),
+        ...(opts.replace ? { replace: true } : {}),
+        ...(opts.replaceApproved ? { replace_approved: true } : {}),
       }),
     }),
   // Per-group profile selection (v4 §E): omit group_key to bulk-apply to all groups.
@@ -230,7 +242,9 @@ export const api = {
 
   // Reference-listing profiles (Section B) + shop listings (B4).
   /** Every profile of the account, or one shop's. */
-  listProfiles: (shop?: string | null) => req<Profile[]>(`/profiles${shopQuery(shop)}`),
+  /** `refresh`: the Profiles page opening, which refreshes what it shows if due. */
+  listProfiles: (shop?: string | null, refresh = false) =>
+    req<Profile[]>(`/profiles${shopQuery(shop)}${refresh ? (shop ? "&" : "?") + "refresh=1" : ""}`),
   getProfile: (id: string) => req<Profile>(`/profiles/${id}`),
   createProfile: (body: {
     connection_id: string;
@@ -261,10 +275,11 @@ export const api = {
     req<Profile>(`/shop/listings/${listingId}/use-as-profile${shopQuery(shop)}`, {
       method: "POST",
     }),
-  replaceImages: (listingId: number, batchId: string, shop?: string | null) =>
+  /** `groupKey`: only that listing group's photos, in its order ("" = root files). */
+  replaceImages: (listingId: number, batchId: string, shop?: string | null, groupKey?: string) =>
     req<ReplaceImagesResult>(`/shop/listings/${listingId}/replace-images${shopQuery(shop)}`, {
       method: "POST",
-      body: JSON.stringify({ batch_id: batchId }),
+      body: JSON.stringify({ batch_id: batchId, ...(groupKey != null ? { group_key: groupKey } : {}) }),
     }),
 };
 

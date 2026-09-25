@@ -11,7 +11,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import active_tenant, get_cost_calculator, get_ingestor, get_session, get_storage
+from app.api.deps import (
+    Enqueuer,
+    active_tenant,
+    get_cost_calculator,
+    get_enqueuer,
+    get_ingestor,
+    get_session,
+    get_storage,
+)
 from app.core.config import get_settings
 from app.db.models import (
     Asset,
@@ -19,9 +27,11 @@ from app.db.models import (
     GeneratedContent,
     ListingGroupSetting,
     ListingProfile,
+    ListingPublication,
     Tenant,
     UploadBatch,
 )
+from app.etsy.refresh import request_refresh
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
@@ -425,6 +435,7 @@ async def assign_group_profile(
     body: schemas.GroupAssign,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.GroupOut]:
     """Assign a profile (and size-chart profile) to one group, or bulk-apply to all.
 
@@ -477,6 +488,12 @@ async def assign_group_profile(
             if body.size_chart_profile_id is not None:
                 setting.size_chart_profile_id = body.size_chart_profile_id
     await session.commit()
+    # Chosen for generation: bring its reference up to date now, since a profile
+    # not used lately is not kept warm in the background (etsy/refresh.py).
+    if body.profile_id is not None:
+        chosen = await session.get(ListingProfile, body.profile_id)
+        if chosen is not None:
+            await request_refresh(enqueuer.enqueue, chosen, origin="use")
     return await _batch_groups(session, batch_id)
 
 
@@ -532,6 +549,7 @@ async def generate_content(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.GenerateResult:
     # Ownership first: a caller with no claim on this batch must learn nothing
     # about it, not even whether the service is configured (production-spec B3).
@@ -578,8 +596,27 @@ async def generate_content(
 
     # One folder group = one listing (D1). Generate once per group, from its
     # primary (rank-1, alphabetically-first) image; the whole group's images are
-    # attached at publish time. A group whose primary already has content is skipped.
-    already = await _content_asset_ids(session, batch_id)
+    # attached at publish time. A group that already has content is skipped,
+    # unless this is "Regenerate" (``replace``).
+    existing_rows = await session.execute(
+        select(GeneratedContent).where(
+            GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id
+        )
+    )
+    content_by_asset: dict[uuid.UUID, list[GeneratedContent]] = {}
+    for c in existing_rows.scalars():
+        content_by_asset.setdefault(c.asset_id, []).append(c)
+    on_etsy = set(
+        (
+            await session.execute(
+                select(ListingPublication.content_id).where(
+                    ListingPublication.content_id.in_(
+                        [c.id for cs in content_by_asset.values() for c in cs]
+                    )
+                )
+            )
+        ).scalars()
+    )
     rows = await session.execute(
         select(Asset).where(
             Asset.batch_id == batch_id, Asset.status == AssetStatus.processed
@@ -594,6 +631,7 @@ async def generate_content(
 
     generated = failed = skipped = 0
     failures: list[schemas.AssetFailure] = []
+    skipped_groups: list[schemas.GroupSkipped] = []
     for key, members in groups.items():
         if not members:
             continue
@@ -601,9 +639,22 @@ async def generate_content(
             members,
             key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()),
         )
-        if any(m.id in already for m in members):
-            skipped += 1
-            continue
+        old = [c for m in members for c in content_by_asset.get(m.id, [])]
+        if old:
+            if not body.replace:  # generating "for all": groups with content are done
+                skipped += 1
+                continue
+            reason = None
+            if any(c.id in on_etsy for c in old):
+                # Its draft is on Etsy: new text here would not reach it. Replace
+                # images on Etsy changes the listing itself.
+                reason = "its draft is already on Etsy; use Replace images to change it there"
+            elif any(c.approved for c in old) and not body.replace_approved:
+                reason = "its content is approved; confirm to replace it"
+            if reason is not None:
+                skipped += 1
+                skipped_groups.append(schemas.GroupSkipped(group_key=key, reason=reason))
+                continue
 
         def _fail(reason: str) -> None:
             nonlocal failed
@@ -625,7 +676,12 @@ async def generate_content(
             _fail("profile not found")
             continue
         if not _profile_is_fresh(profile):
-            _fail("profile has no fresh reference data yet; it refreshes automatically, or use Refresh now on the Profiles page")
+            # Not used lately, so not kept warm: fetch it now (etsy/refresh.py).
+            await request_refresh(enqueuer.enqueue, profile, origin="use")
+            _fail(
+                "this profile's reference is being refreshed from Etsy now; "
+                "generate again in a minute"
+            )
             continue
 
         data = storage.get(primary.processed_key)
@@ -643,6 +699,8 @@ async def generate_content(
         )
         if outcome.status == "generated":
             generated += 1
+            if old:
+                await _retire(session, old, outcome.generated_content_id)
         else:
             failed += 1
             failures.append(
@@ -654,8 +712,30 @@ async def generate_content(
             )
 
     return schemas.GenerateResult(
-        generated=generated, failed=failed, skipped=skipped, failures=failures
+        generated=generated,
+        failed=failed,
+        skipped=skipped,
+        failures=failures,
+        skipped_groups=skipped_groups,
     )
+
+
+async def _retire(
+    session: AsyncSession, old: list[GeneratedContent], new_id: uuid.UUID | None
+) -> None:
+    """Remove the content a regenerate replaced, once the new one is saved.
+
+    Its token counts move to the new content, so the batch's cost still shows
+    what was spent (a replacement is a second LLM call, not a free one). Only
+    content with no draft on Etsy gets here.
+    """
+    new = await session.get(GeneratedContent, new_id) if new_id else None
+    for c in old:
+        if new is not None:
+            new.input_tokens = (new.input_tokens or 0) + (c.input_tokens or 0)
+            new.output_tokens = (new.output_tokens or 0) + (c.output_tokens or 0)
+        await session.delete(c)
+    await session.commit()
 
 
 # --- Cost -------------------------------------------------------------------

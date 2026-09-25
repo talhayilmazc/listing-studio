@@ -32,6 +32,21 @@ export default function ProfilesPage() {
     }
   }, [shopId]);
 
+  // Opening the page refreshes what it shows: profiles not used in two weeks are
+  // not kept warm in the background. Look again once the refreshes have landed.
+  const openProfiles = useCallback(async () => {
+    try {
+      const list = await api.listProfiles(shopId, true);
+      setProfiles(list);
+      if (list.some((p) => p.refreshing)) {
+        setTimeout(loadProfiles, 5000);
+        setTimeout(loadProfiles, 15000);
+      }
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }, [shopId, loadProfiles]);
+
   const loadListings = useCallback(async () => {
     try {
       const res = await api.shopListings(shopId);
@@ -47,9 +62,9 @@ export default function ProfilesPage() {
   useEffect(() => {
     setProfiles(null);
     setListings([]);
-    loadProfiles();
+    openProfiles();
     loadListings();
-  }, [loadProfiles, loadListings]);
+  }, [openProfiles, loadListings]);
 
   async function detect() {
     setDetecting(true);

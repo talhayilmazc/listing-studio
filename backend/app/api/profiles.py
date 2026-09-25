@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.db.models import ListingProfile, Tenant
+from app.etsy.refresh import in_use, request_refresh
 from app.etsy.shops import active_shops, owned_shop
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -103,18 +104,36 @@ async def _get(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> 
 @router.get("", response_model=list[schemas.ProfileOut])
 async def list_profiles(
     shop: uuid.UUID | None = None,
+    refresh: bool = False,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.ProfileOut]:
-    """Every profile of the account, or only one shop's with ``?shop=`` (v5 §E)."""
+    """Every profile of the account, or only one shop's with ``?shop=`` (v5 §E).
+
+    ``?refresh=1`` is the Profiles page opening: each profile shown there that
+    has passed a refresh point is refreshed now, since profiles not in use are
+    not kept warm in the background (etsy/refresh.py). Those come back marked
+    ``refreshing`` for the page to look again shortly.
+    """
     query = select(ListingProfile).where(ListingProfile.tenant_id == tenant.id)
     if shop is not None:
         if await owned_shop(session, tenant.id, shop) is None:
             raise HTTPException(status_code=404, detail="shop not found")
         query = query.where(ListingProfile.connection_id == shop)
     rows = await session.execute(query.order_by(ListingProfile.created_at.desc()))
+    profiles = list(rows.scalars())
     names = await shop_names(session, tenant)
-    return [_to_out(p, names.get(p.connection_id)) for p in rows.scalars()]
+    warm = await in_use(session, (p.id for p in profiles))
+    out = []
+    for p in profiles:
+        item = _to_out(p, names.get(p.connection_id))
+        item.in_use = p.id in warm
+        # Only profiles of a connected shop: a disconnected one cannot be read.
+        if refresh and p.connection_id in names:
+            item.refreshing = await request_refresh(enqueuer.enqueue, p, origin="view")
+        out.append(item)
+    return out
 
 
 @router.post("", response_model=schemas.ProfileOut, status_code=201)
