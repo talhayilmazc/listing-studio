@@ -25,6 +25,7 @@ from app.api.pauses import pause_out
 from app.api.content import manual_steps
 from app.api.shops import shop_label
 from app.db.models import (
+    Asset,
     EtsyConnection,
     GeneratedContent,
     Job,
@@ -106,6 +107,8 @@ async def _plan_drafts(
     tenant: Tenant,
     contents: list[GeneratedContent],
     request: schemas.PublishRequest,
+    *,
+    report_unapproved: bool = False,
 ) -> _Plan:
     plan = _Plan()
     targets = await _targets(session, tenant, request)
@@ -113,7 +116,11 @@ async def _plan_drafts(
         plan.shops[connection.id] = connection
     for content in contents:
         if not content.approved:
-            continue  # only what the seller approved; the rest is skipped silently
+            # Only what the seller approved (CLAUDE.md rule 3). Within one batch
+            # the rest is passed over; across batches it is listed with why.
+            if report_unapproved:
+                plan.skip(content, "not approved")
+            continue
         problem = await _content_problem(session, content)
         if problem:
             plan.skip(content, problem)
@@ -356,13 +363,22 @@ async def _publish_live(
     enqueuer: Enqueuer,
     contents: list[GeneratedContent],
     request: schemas.LiveRequest,
+    *,
+    report_unapproved: bool = False,
+    planned: list[tuple[GeneratedContent, EtsyConnection]] | None = None,
 ) -> schemas.BatchPublishResult:
-    """Make approved drafts active: the explicit "Publish now", per shop."""
+    """Make approved drafts active: the explicit "Publish now", per shop.
+
+    With ``planned`` it is a dry run: what would go live is added to that list
+    and nothing is queued.
+    """
     only = set(request.connection_ids) if request.connection_ids else None
     result = schemas.BatchPublishResult()
     for content in contents:
         if not content.approved:
-            continue  # only what the seller approved; skip the rest silently
+            if report_unapproved:
+                result.skipped.append(schemas.PublishSkipped(content_id=content.id, reason="not approved"))
+            continue  # only what the seller approved
         await rescan(session, content)
         blocked = await blocking_finding(session, content)
         if blocked:
@@ -393,6 +409,9 @@ async def _publish_live(
             )
             continue
         for _, connection in waiting:
+            if planned is not None:
+                planned.append((content, connection))
+                continue
             job = await _enqueue(
                 session,
                 enqueuer,
@@ -451,6 +470,95 @@ async def publish_batch_live(
                 raise HTTPException(status_code=404, detail="shop not found")
     contents = await _batch_contents(session, tenant, batch_id, request.content_ids)
     return await _publish_live(session, tenant, enqueuer, contents, request)
+
+
+# --- Several batches at once, from the Batches page --------------------------------
+async def _action_contents(
+    session: AsyncSession, tenant: Tenant, batch_ids: list[uuid.UUID]
+) -> tuple[list[GeneratedContent], dict[uuid.UUID, str]]:
+    """Every listing of these batches (each must be the caller's), and file names."""
+    contents: list[GeneratedContent] = []
+    for batch_id in dict.fromkeys(batch_ids):
+        contents.extend(await _batch_contents(session, tenant, batch_id, None))
+    names: dict[uuid.UUID, str] = {}
+    if contents:
+        rows = await session.execute(
+            select(Asset.id, Asset.original_filename).where(
+                Asset.id.in_([c.asset_id for c in contents])
+            )
+        )
+        names = {asset_id: name for asset_id, name in rows.all()}
+    return contents, names
+
+
+def _item(
+    content: GeneratedContent,
+    names: dict[uuid.UUID, str],
+    *,
+    shop_name: str | None = None,
+    reason: str | None = None,
+) -> schemas.BatchActionItem:
+    return schemas.BatchActionItem(
+        batch_id=content.batch_id,
+        content_id=content.id,
+        original_filename=names.get(content.asset_id, ""),
+        title=content.title,
+        shop_name=shop_name,
+        reason=reason,
+    )
+
+
+@router.post("/batch-actions/preview", response_model=schemas.BatchActionPreview)
+async def batch_action_preview(
+    body: schemas.BatchActionRequest,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    quota: DailyQuota = Depends(get_quota),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.BatchActionPreview:
+    """What "create drafts" or "publish" would do across these batches, before
+    anything is queued: each listing that would be acted on, and each that would
+    be skipped with the reason. Only approved listings are ever acted on, and
+    publishing only makes existing drafts live (CLAUDE.md rule 3)."""
+    contents, names = await _action_contents(session, tenant, body.batch_ids)
+    by_id = {c.id: c for c in contents}
+    out = schemas.BatchActionPreview(action=body.action)
+    if body.action == "drafts":
+        plan = await _plan_drafts(session, tenant, contents, schemas.PublishRequest(), report_unapproved=True)
+        for content, connection, _ in plan.jobs:
+            out.act.append(_item(content, names, shop_name=shop_label(connection)))
+        for s in plan.skipped:
+            out.skipped.append(_item(by_id[s.content_id], names, shop_name=s.shop_name, reason=s.reason))
+        budget = await _budget(quota, tenant, plan)
+        out.estimated_calls, out.fits, out.message = budget.estimated, budget.fits, budget.message
+    else:
+        planned: list[tuple[GeneratedContent, EtsyConnection]] = []
+        result = await _publish_live(
+            session, tenant, enqueuer, contents, schemas.LiveRequest(), report_unapproved=True, planned=planned
+        )
+        for content, connection in planned:
+            out.act.append(_item(content, names, shop_name=shop_label(connection)))
+        for s in result.skipped:
+            out.skipped.append(_item(by_id[s.content_id], names, shop_name=s.shop_name, reason=s.reason))
+    # Nothing was sent to Etsy or queued; drop what planning touched (rescans).
+    await session.rollback()
+    return out
+
+
+@router.post("/batch-actions/run", response_model=schemas.BatchPublishResult)
+async def batch_action_run(
+    body: schemas.BatchActionRequest,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    quota: DailyQuota = Depends(get_quota),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.BatchPublishResult:
+    """Do it: the same checks as the preview, then queue the work. Drafts that
+    would not fit in today's budget are refused as a whole, as on the review page."""
+    contents, _ = await _action_contents(session, tenant, body.batch_ids)
+    if body.action == "drafts":
+        return await _publish(session, tenant, quota, enqueuer, contents, schemas.PublishRequest())
+    return await _publish_live(session, tenant, enqueuer, contents, schemas.LiveRequest())
 
 
 @router.get("/jobs/{job_id}", response_model=schemas.JobStatusOut)
