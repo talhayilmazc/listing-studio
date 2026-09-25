@@ -35,6 +35,7 @@ from app.workers.profiles import (
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
+from app.workers.schedule import release_scheduled_publishes
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -106,6 +107,8 @@ class WorkerSettings:
         # Profiles renew themselves ahead of their 6h/24h limits (v6 §H). Offset
         # from the purge so a refresh never races the sweep that would clear it.
         cron(auto_refresh_profiles, minute={5, 20, 35, 50}, second=0, run_at_startup=True),
+        # Scheduled publishing (v6 §G): due schedules become publish-live jobs.
+        cron(release_scheduled_publishes, second=30, run_at_startup=True),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -14,6 +14,7 @@ from app.db.models import (
     Asset,
     EtsyConnection,
     GeneratedContent,
+    Job,
     ListingProfile,
     ListingPublication,
     Tenant,
@@ -22,6 +23,7 @@ from app.db.models import (
 from app.etsy.manual_fields import manual_fields_for
 from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
+from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
 router = APIRouter(prefix="/api", tags=["content"])
@@ -37,23 +39,31 @@ async def publications(
     if not content_ids:
         return found
     rows = await session.execute(
-        select(ListingPublication, EtsyConnection, ListingProfile.content_template)
+        select(ListingPublication, EtsyConnection, ListingProfile.content_template, Job)
         .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
         .outerjoin(ListingProfile, ListingProfile.id == ListingPublication.profile_id)
+        .outerjoin(Job, Job.id == ListingPublication.schedule_job_id)
         .where(ListingPublication.content_id.in_(content_ids))
         .order_by(EtsyConnection.position, EtsyConnection.connected_at)
     )
-    for publication, connection, template in rows.all():
-        found[publication.content_id].append(publication_out(publication, connection, template))
+    for publication, connection, template, job in rows.all():
+        found[publication.content_id].append(publication_out(publication, connection, template, job))
     return found
 
 
 def publication_out(
-    publication: ListingPublication, connection: EtsyConnection, template: str | None
+    publication: ListingPublication,
+    connection: EtsyConnection,
+    template: str | None,
+    job: Job | None = None,
 ) -> schemas.PublicationOut:
     from app.api.shops import shop_label
 
+    schedule = state_of(publication, job)
     return schemas.PublicationOut(
+        scheduled_for=publication.scheduled_for,
+        schedule_status=schedule.status if schedule else None,
+        schedule_note=schedule.note if schedule else None,
         connection_id=connection.id,
         shop_name=shop_label(connection),
         etsy_listing_id=publication.etsy_listing_id,
@@ -119,7 +129,8 @@ async def tick_manual_step(
         ticks.pop(key, None)
     publication.manual_done = ticks
     await session.commit()
-    return publication_out(publication, connection, template)
+    job = await session.get(Job, publication.schedule_job_id) if publication.schedule_job_id else None
+    return publication_out(publication, connection, template, job)
 
 
 @router.post("/batches/{batch_id}/manual-steps/done", response_model=schemas.ManualStepsDone)
@@ -293,6 +304,10 @@ async def approve_content(
             detail={"message": "cannot approve invalid content", "errors": validation.errors},
         )
     content.approved = body.approved
+    if not body.approved:
+        # A schedule is the seller's confirmation of an approved listing (v6 §G):
+        # withdrawing the approval withdraws its schedules.
+        await cancel_for_content(session, content.id)
     await session.commit()
     await session.refresh(content)
     asset = await session.get(Asset, content.asset_id)

@@ -5,6 +5,9 @@ import type {
   AdminUser,
   ApproveAllResult,
   ArchiveResult,
+  Schedule,
+  ScheduleItem,
+  ScheduleResult,
   InviteIssued,
   TempPasswordIssued,
   Asset,
@@ -162,6 +165,13 @@ export const api = {
   /** Approve every listing in the batch that passes validation; the rest are listed with why. */
   approveAll: (batchId: string) =>
     req<ApproveAllResult>(`/batches/${batchId}/approve-all`, { method: "POST" }),
+  /** Scheduled go-lives, soonest first (v6 §G). */
+  listSchedules: (shop?: string | null) => req<Schedule[]>(`/schedules${shopQuery(shop)}`),
+  /** Schedule or move drafts' go-live; each must be an approved listing's draft. */
+  schedule: (items: ScheduleItem[], replace = true) =>
+    req<ScheduleResult>("/schedules", { method: "POST", body: JSON.stringify({ items, replace }) }),
+  cancelSchedule: (contentId: string, shopId: string) =>
+    req<void>(`/schedules/${contentId}/${shopId}`, { method: "DELETE" }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

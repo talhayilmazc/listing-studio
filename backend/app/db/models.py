@@ -488,6 +488,16 @@ class ListingPublication(Base):
     manual_done: Mapped[dict[str, Any]] = mapped_column(
         JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
     )
+    #: When the seller chose for this draft to go live (UTC), v6 §G. Setting it is
+    #: the seller's explicit confirmation (CLAUDE.md rule 3); only an approved
+    #: listing's existing draft can be scheduled. Cleared when cancelled.
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    #: The publish-live job the schedule released at its time; None while waiting.
+    schedule_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("job.id", ondelete="SET NULL")
+    )
+    #: Why a due schedule did not publish (no longer approved, compliance), for the seller.
+    schedule_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

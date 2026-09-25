@@ -16,6 +16,7 @@ import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { applyChange, cardKey, pendingManualSteps, reviewActions } from "@/lib/review";
 import { ReviewCard } from "@/components/ReviewCard";
+import { BulkSchedule, schedulableDrafts } from "@/components/BulkSchedule";
 import { useShops } from "@/components/ShopProvider";
 
 interface Progress {
@@ -139,6 +140,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   // One click for the whole batch (v6 §D). The server approves only what passes
   // validation; the rest stay as they are and are listed below with the reason.
   const [approveResult, setApproveResult] = useState<ApproveAllResult | null>(null);
+  // Scheduling many drafts at once (v6 §G).
+  const [scheduling, setScheduling] = useState(false);
   async function approveAll() {
     setBusy(true);
     setError(null);
@@ -213,6 +216,16 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 Publish all ({actions.toPublish})
               </button>
             )}
+            {(scheduling || schedulableDrafts(items).length > 0) && (
+              <button
+                className="btn-secondary"
+                onClick={() => setScheduling((v) => !v)}
+                aria-expanded={scheduling}
+                title="Choose when approved drafts go live"
+              >
+                {scheduling ? "Close scheduling" : `Schedule… (${schedulableDrafts(items).length})`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -230,6 +243,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       {items && items.length > 0 && (!shops || shops.length <= 1) && preview && !preview.fits && (
         <div className="card p-3 text-sm text-amber-800">{preview.message}</div>
       )}
+
+      {scheduling && items && <BulkSchedule items={items} onDone={load} />}
 
       {approveResult && (
         <div role="status" className="card p-3 text-sm text-slate-700">

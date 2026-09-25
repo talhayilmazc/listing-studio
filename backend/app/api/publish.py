@@ -25,8 +25,6 @@ from app.api.pauses import pause_out
 from app.api.content import manual_steps
 from app.api.shops import shop_label
 from app.db.models import (
-    ComplianceFinding,
-    ComplianceSeverity,
     EtsyConnection,
     GeneratedContent,
     Job,
@@ -40,51 +38,16 @@ from app.db.models import (
 from app.etsy.publisher import link_for, publication_for
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import owned_shop
+from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
-from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT, is_fresh, resolve_target, shop_profiles
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
 
-async def _blocking(session: AsyncSession, content_id: uuid.UUID) -> str | None:
-    """The first blocking finding's detail, or None."""
-    rows = await session.execute(
-        select(ComplianceFinding.detail).where(
-            ComplianceFinding.generated_content_id == content_id,
-            ComplianceFinding.severity == ComplianceSeverity.blocking,
-        )
-    )
-    row = rows.first()
-    if row is None:
-        return None
-    return row[0] or "blocking compliance finding"
-
-
 async def _content_problem(session: AsyncSession, content: GeneratedContent) -> str | None:
     """Why this listing cannot go to any shop (its own text), or None."""
-    policy = None
-    if content.listing_profile_id is not None:
-        profile = await session.get(ListingProfile, content.listing_profile_id)
-        if profile is not None:
-            policy = policy_for(profile.content_template)
-    errors = validate_listing(
-        GeneratedListing(
-            title=content.title or "",
-            tags=list(content.tags or []),
-            description=content.description or "",
-        ),
-        policy,
-    )
-    if errors:
-        return "; ".join(errors)
-    # Scan again now: the blocklist may have grown since the listing was approved,
-    # and the job that publishes it reads these findings (v6 §B).
-    await rescan(session, content)
-    blocked = await _blocking(session, content.id)
-    if blocked:
-        return f"compliance: {blocked}"
-    return None
+    return await listing_problem(session, content)
 
 
 async def _own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConnection | None:
@@ -401,7 +364,7 @@ async def _publish_live(
         if not content.approved:
             continue  # only what the seller approved; skip the rest silently
         await rescan(session, content)
-        blocked = await _blocking(session, content.id)
+        blocked = await blocking_finding(session, content)
         if blocked:
             result.skipped.append(
                 schemas.PublishSkipped(content_id=content.id, reason=f"compliance: {blocked}")
