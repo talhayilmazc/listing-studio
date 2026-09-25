@@ -458,3 +458,23 @@ export interface ScheduleResult {
   scheduled: Schedule[];
   skipped: { content_id: string; connection_id: string; reason: string }[];
 }
+
+/** Several batches at once, from the Batches page. */
+export interface BatchActionItem {
+  batch_id: string;
+  content_id: string;
+  original_filename: string;
+  title: string | null;
+  shop_name: string | null;
+  /** Why it is skipped; null for what will be acted on. */
+  reason: string | null;
+}
+
+export interface BatchActionPreview {
+  action: "drafts" | "publish";
+  act: BatchActionItem[];
+  skipped: BatchActionItem[];
+  estimated_calls: number;
+  fits: boolean;
+  message: string | null;
+}

@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
+import { BatchActions } from "@/components/BatchActions";
 
 /** Per-batch detail loaded after the list paints, so the page never waits on it. */
 interface Enrichment {
@@ -19,6 +20,10 @@ export default function Home() {
   const [extra, setExtra] = useState<Record<string, Enrichment>>({});
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Batches ticked for a bulk action (create drafts / publish).
+  const [selected, setSelected] = useState<string[]>([]);
+  // Bumped after a bulk action, so the cards reload their progress.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +72,10 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
+
+  const toggle = (id: string) =>
+    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
   return (
     <div className="space-y-6">
@@ -93,11 +101,51 @@ export default function Home() {
       )}
 
       {batches && batches.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {batches.map((b) => (
-            <BatchCard key={b.id} batch={b} extra={extra[b.id]} profiles={profiles} />
-          ))}
-        </div>
+        <>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300"
+                checked={selected.length === batches.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = selected.length > 0 && selected.length < batches.length;
+                }}
+                onChange={(e) => setSelected(e.target.checked ? batches.map((b) => b.id) : [])}
+              />
+              Select all
+            </label>
+            <span>Tick batches to create drafts or publish without opening each one.</span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {batches.map((b) => (
+              <div key={b.id} className="relative">
+                <BatchCard batch={b} extra={extra[b.id]} profiles={profiles} selected={selected.includes(b.id)} />
+                {/* Outside the card's link, so ticking never opens the batch. */}
+                <label
+                  className="absolute left-3 top-3 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md bg-white/90 shadow-sm ring-1 ring-slate-200"
+                  title="Select for a bulk action"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={selected.includes(b.id)}
+                    onChange={() => toggle(b.id)}
+                    aria-label={`Select batch ${b.id.slice(0, 8)}`}
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+          <BatchActions
+            selected={selected}
+            onClear={() => setSelected([])}
+            onDone={() => {
+              setSelected([]);
+              setReloadKey((k) => k + 1);
+            }}
+          />
+        </>
       )}
     </div>
   );
@@ -107,10 +155,12 @@ function BatchCard({
   batch,
   extra,
   profiles,
+  selected = false,
 }: {
   batch: BatchSummary;
   extra?: Enrichment;
   profiles: Record<string, string>;
+  selected?: boolean;
 }) {
   const assets = extra?.assets ?? [];
   const groups = extra?.groups ?? [];
@@ -157,7 +207,10 @@ function BatchCard({
   return (
     <Link
       href={"/batches/" + batch.id}
-      className="card group flex flex-col overflow-hidden transition-colors hover:border-brand-600"
+      className={
+        "card group flex h-full flex-col overflow-hidden transition-colors hover:border-brand-600 " +
+        (selected ? "border-brand-600 ring-2 ring-brand-500/30" : "")
+      }
     >
       <Mosaic tiles={tiles} more={more} pending={!extra} />
 
@@ -241,12 +294,13 @@ function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pendin
   if (tiles.length < 3) {
     return (
       <div className="overflow-hidden bg-slate-100">
-        <div className="aspect-[16/10] w-full transition-transform duration-200 group-hover:scale-[1.02]">
+        <div className="relative aspect-[16/10] w-full transition-transform duration-200 group-hover:scale-[1.02]">
+          <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={api.assetImage(tiles[0].id, 896, "16:10")}
             alt={tiles[0].original_filename}
-            className="h-full w-full object-cover"
+            className="relative h-full w-full object-cover"
             loading="lazy"
             decoding="async"
           />
@@ -271,11 +325,12 @@ function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pendin
             >
               {asset ? (
                 <>
+                  <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={api.assetImage(asset.id, i === 0 ? 448 : 224, "4:5")}
                     alt={asset.original_filename}
-                    className="h-full w-full object-cover"
+                    className="relative h-full w-full object-cover"
                     loading="lazy"
                     decoding="async"
                   />

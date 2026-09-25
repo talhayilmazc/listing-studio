@@ -5,6 +5,7 @@ import type {
   AdminUser,
   ApproveAllResult,
   ArchiveResult,
+  BatchActionPreview,
   Schedule,
   ScheduleItem,
   ScheduleResult,
@@ -184,6 +185,17 @@ export const api = {
     req<ScheduleResult>("/schedules", { method: "POST", body: JSON.stringify({ items, replace }) }),
   cancelSchedule: (contentId: string, shopId: string) =>
     req<void>(`/schedules/${contentId}/${shopId}`, { method: "DELETE" }),
+  /** What creating drafts / publishing would do across these batches; nothing is queued. */
+  batchActionPreview: (batchIds: string[], action: "drafts" | "publish") =>
+    req<BatchActionPreview>("/batch-actions/preview", {
+      method: "POST",
+      body: JSON.stringify({ batch_ids: batchIds, action }),
+    }),
+  batchActionRun: (batchIds: string[], action: "drafts" | "publish") =>
+    req<BatchPublishResult>("/batch-actions/run", {
+      method: "POST",
+      body: JSON.stringify({ batch_ids: batchIds, action }),
+    }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

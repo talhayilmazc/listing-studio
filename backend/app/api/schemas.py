@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -308,6 +309,35 @@ class PublishSkipped(BaseModel):
 class BatchPublishResult(BaseModel):
     jobs: list[PublishJobOut] = Field(default_factory=list)
     skipped: list[PublishSkipped] = Field(default_factory=list)
+
+
+class BatchActionRequest(BaseModel):
+    """Create drafts or publish across several batches at once, from the Batches page."""
+
+    batch_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+    #: "drafts": create drafts of approved listings; "publish": make existing
+    #: drafts of approved listings live.
+    action: Literal["drafts", "publish"]
+
+
+class BatchActionItem(BaseModel):
+    batch_id: uuid.UUID
+    content_id: uuid.UUID
+    original_filename: str
+    title: str | None = None
+    shop_name: str | None = None
+    #: Why it is skipped; None for what will be acted on.
+    reason: str | None = None
+
+
+class BatchActionPreview(BaseModel):
+    action: str
+    act: list[BatchActionItem] = Field(default_factory=list)
+    skipped: list[BatchActionItem] = Field(default_factory=list)
+    #: Drafts only: the day's budget check, as the review page shows it.
+    estimated_calls: int = 0
+    fits: bool = True
+    message: str | None = None
 
 
 class PublishTarget(BaseModel):
