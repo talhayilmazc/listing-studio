@@ -25,6 +25,7 @@ from app.db.models import (
     JobStatus,
     JobType,
     ListingProfile,
+    ListingPublication,
     ShopListingCache,
     Tenant,
     UploadBatch,
@@ -255,11 +256,30 @@ async def replace_listing_images_endpoint(
     if batch is None or batch.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="batch not found")
 
+    payload: dict[str, object] = {"listing_id": listing_id, "batch_id": str(body.batch_id)}
+    if body.group_key is not None:
+        payload["group_key"] = body.group_key
+    # A draft this app made: keep its shop's title prefix, and bring the listing's
+    # text on the review page in line with what Etsy gets.
+    made = (
+        await session.execute(
+            select(ListingPublication).where(
+                ListingPublication.tenant_id == tenant.id,
+                ListingPublication.connection_id == connection.id,
+                ListingPublication.etsy_listing_id == listing_id,
+            )
+        )
+    ).scalars().first()
+    if made is not None:
+        payload["content_id"] = str(made.content_id)
+        profile = await session.get(ListingProfile, made.profile_id) if made.profile_id else None
+        if profile is not None and profile.title_prefix:
+            payload["title_prefix"] = profile.title_prefix
     job = Job(
         tenant_id=tenant.id,
         connection_id=connection.id,
         type=JobType.replace_images,
-        payload={"listing_id": listing_id, "batch_id": str(body.batch_id)},
+        payload=payload,
         batch_id=body.batch_id,
         status=JobStatus.queued,
     )

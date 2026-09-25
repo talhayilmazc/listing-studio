@@ -122,13 +122,14 @@ class Enqueuer:
         self._url = redis_url
         self._pool = None
 
-    async def enqueue(self, function: str, *args: object) -> None:
+    async def enqueue(self, function: str, *args: object, **options: object) -> None:
+        """``options`` are arq's own (e.g. ``_job_id``, so a job is queued once)."""
         if self._pool is None:
             from arq import create_pool
             from arq.connections import RedisSettings
 
             self._pool = await create_pool(RedisSettings.from_dsn(self._url))
-        await self._pool.enqueue_job(function, *args)
+        await self._pool.enqueue_job(function, *args, **options)
 
 
 @lru_cache

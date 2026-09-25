@@ -270,6 +270,16 @@ class GenerateRequest(BaseModel):
     # (v4 §E). None => every group must have its own assigned profile.
     profile_id: uuid.UUID | None = None
     group_key: str | None = None  # limit to one folder group; None = all groups (D3)
+    #: "Regenerate": write new content for groups that already have some. The old
+    #: content is removed only once the new one is saved.
+    replace: bool = False
+    #: The seller confirmed replacing content they had already approved.
+    replace_approved: bool = False
+
+
+class GroupSkipped(BaseModel):
+    group_key: str
+    reason: str
 
 
 class GenerateResult(BaseModel):
@@ -277,6 +287,8 @@ class GenerateResult(BaseModel):
     failed: int
     skipped: int
     failures: list[AssetFailure] = Field(default_factory=list)
+    #: Groups a regenerate left alone on purpose, and why.
+    skipped_groups: list[GroupSkipped] = Field(default_factory=list)
 
 
 class PublishJobOut(BaseModel):
@@ -409,6 +421,11 @@ class ProfileOut(BaseModel):
     # The last refresh failed, and why (v6 §H); None once a refresh succeeds.
     refresh_error: str | None = None
     refresh_failed_at: datetime | None = None
+    # Kept warm in the background: it wrote a listing or made a draft in the
+    # last two weeks. Otherwise it refreshes when viewed or used.
+    in_use: bool = False
+    # A refresh was queued by this request; the data lands shortly.
+    refreshing: bool = False
 
 
 class ShopListingOut(BaseModel):
@@ -447,6 +464,9 @@ class ShopSummaryOut(BaseModel):
 
 class ReplaceImagesRequest(BaseModel):
     batch_id: uuid.UUID  # the uploaded batch of new product photos
+    #: Only this listing group's photos, in the order the seller set ("" = the
+    #: files at the root of the upload). None: every photo in the batch (B4).
+    group_key: str | None = None
 
 
 class ReplaceImagesOut(BaseModel):

@@ -29,6 +29,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.errors import EtsyClientError
+from app.etsy.refresh import FULL, IMAGES, refresh_due, used_recently
 from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
@@ -390,19 +391,15 @@ async def _refresh_images_body(ctx: dict[str, Any], profile_id: str) -> str:
 
 
 async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
-    """Queue a refresh for every confirmed profile about to pass a limit (v6 §H).
+    """Queue a refresh for every profile in use that is about to pass a limit (v6 §H).
 
-    Cron. The seller never has to press "Refresh": the structure (24-hour limit)
-    is renewed after 20 hours and the image links (6-hour limit) after 5, so a
-    profile never shows expired data and never has to wait for a refresh. Each
-    job still goes through the gate and the day's budget. Unconfirmed
-    (detected, not yet accepted) profiles are left alone, and a profile whose
-    refresh just failed waits a few hours before the next try.
+    Cron. The structure (24-hour limit) is renewed after 20 hours and the image
+    links (6-hour limit) after 5, so a profile in use never shows expired data.
+    Only confirmed profiles that wrote a listing or made a draft in the last two
+    weeks are kept warm (etsy/refresh.py); the rest refresh on demand, when the
+    Profiles page opens or they are chosen for a batch. Each job still goes
+    through the gate, and a profile whose refresh just failed waits a few hours.
     """
-    now = datetime.now(timezone.utc)
-    due_full = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_SECONDS)
-    due_images = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_IMAGES_SECONDS)
-    retry_after = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_RETRY_SECONDS)
     async with ctx["sessionmaker"]() as session:
         rows = await session.execute(
             select(ListingProfile)
@@ -412,26 +409,15 @@ async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
                 ListingProfile.confirmed.is_(True),
                 EtsyConnection.status == ConnectionStatus.active,
                 Tenant.status != TenantStatus.suspended,
+                used_recently(),
             )
         )
         profiles = list(rows.scalars())
 
-    def _older(stamp: datetime | None, cutoff: datetime) -> bool:
-        if stamp is None:
-            return True
-        if stamp.tzinfo is None:  # SQLite hands back naive datetimes
-            stamp = stamp.replace(tzinfo=timezone.utc)
-        return stamp <= cutoff
-
-    queued = {"refresh_profile": 0, "refresh_profile_images": 0}
+    queued = {FULL: 0, IMAGES: 0}
     for p in profiles:
-        if p.refresh_failed_at is not None and not _older(p.refresh_failed_at, retry_after):
-            continue
-        if _older(p.updated_at, due_full) or not p.cached_payload:
-            function = "refresh_profile"
-        elif _older(p.images_updated_at, due_images):
-            function = "refresh_profile_images"
-        else:
+        function = refresh_due(p)
+        if function is None:
             continue
         # One queued refresh per profile, however often the cron fires.
         await _enqueue_job(ctx, function, str(p.id), _job_id=f"auto:{function}:{p.id}")
@@ -439,7 +425,6 @@ async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
     if any(queued.values()):
         logger.info("auto-refresh: queued %s", queued)
     return queued
-
 
 async def sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
     """Cache one shop's own active and draft listings (6 hours)."""

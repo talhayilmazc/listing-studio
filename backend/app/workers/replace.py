@@ -19,7 +19,8 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
-from app.db.models import Asset, AssetStatus, EtsyConnection, Job, JobStatus, Tenant
+from app.compliance.scanner import rescan
+from app.db.models import Asset, AssetStatus, EtsyConnection, GeneratedContent, Job, JobStatus, Tenant
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
@@ -70,16 +71,22 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
 
             token = await service.get_valid_access_token(session, connection)
 
-            # New photos for this listing, alphabetical (D1). Primary = first.
-            rows = await session.execute(
-                select(Asset)
-                .where(
-                    Asset.batch_id == batch_id,
-                    Asset.tenant_id == job.tenant_id,  # B5
-                    Asset.status == AssetStatus.processed,
-                )
-                .order_by(Asset.original_filename)
+            # New photos for this listing. One listing group of a batch comes in
+            # the order the seller set, cover first (v6 §E); a whole batch (B4)
+            # alphabetically. Primary = first.
+            query = select(Asset).where(
+                Asset.batch_id == batch_id,
+                Asset.tenant_id == job.tenant_id,  # B5
+                Asset.status == AssetStatus.processed,
             )
+            if "group_key" in job.payload:
+                key = job.payload["group_key"] or None
+                query = query.where(
+                    Asset.group_key == key if key is not None else Asset.group_key.is_(None)
+                ).order_by(Asset.rank, Asset.original_filename)
+            else:
+                query = query.order_by(Asset.original_filename)
+            rows = await session.execute(query)
             assets = [a for a in rows.scalars() if a.processed_key is not None]
             if not assets:
                 raise ValueError("no processed images uploaded for the replacement")
@@ -166,7 +173,10 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 )
                 analyzer = AnthropicVisionAnalyzer(llm)
                 generator = AnthropicContentGenerator(
-                    llm, template=load_template(f"content/{template}"), policy=policy_for(template)
+                    llm,
+                    template=load_template(f"content/{template}"),
+                    policy=policy_for(template),
+                    title_prefix=str(job.payload.get("title_prefix") or ""),
                 )
                 vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
                 result = await generator.generate(vision.analysis, primary.parsed_sku)
@@ -201,6 +211,12 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             logger.exception("replace-images failed for job %s", job_id)
             return "failed"
 
+        # The review page shows what the listing now says on Etsy.
+        if job.payload.get("content_id"):
+            content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
+            if content is not None and content.tenant_id == job.tenant_id:
+                content.title, content.tags, content.description = new_title, new_tags, new_description
+                await rescan(session, content)
         job.status = JobStatus.succeeded
         job.finished_at = datetime.now(timezone.utc)
         await session.commit()

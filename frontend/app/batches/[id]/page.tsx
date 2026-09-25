@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import type { Asset, BatchDetail, Group, Profile } from "@/lib/types";
+import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
+import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
 import { GroupImages } from "@/components/GroupImages";
@@ -27,10 +28,15 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
   const [costKey, setCostKey] = useState(0);
+  // The groups' content: whether it is approved, and whether its draft is on Etsy.
+  const [contents, setContents] = useState<Content[]>([]);
+  // A group waiting for the seller to confirm replacing something.
+  const [confirming, setConfirming] = useState<{ key: string; kind: "regenerate" | "replace" } | null>(null);
 
   const load = useCallback(async () => {
     try {
       setBatch(await api.getBatch(id));
+      setContents(await api.listContent(id));
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -134,6 +140,66 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       setFailures(res.failures);
       await load();
       setCostKey((k) => k + 1);
+    } catch (e: any) {
+      setNotice(e.message ?? String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // "Regenerate": new content in place of the group's current one. One more LLM
+  // call; approved content needs the seller's confirmation, and a group whose
+  // draft is on Etsy is never replaced here (the server refuses it too).
+  async function regenerate(g: AssetGroup, approved: boolean) {
+    setConfirming(null);
+    setBusy(g.key);
+    setNotice(null);
+    setFailures([]);
+    try {
+      const res = await api.generate(id, bulkProfileId || undefined, g.key, {
+        replace: true,
+        replaceApproved: approved,
+      });
+      const why = (res.skipped_groups ?? []).map((s) => s.reason).join("; ");
+      setNotice(
+        res.generated
+          ? `New content written for ${g.label}${approved ? "; approve it again on the review page" : ""}.`
+          : why || `Nothing regenerated for ${g.label}.`,
+      );
+      setFailures(res.failures);
+      await load();
+      setCostKey((k) => k + 1);
+    } catch (e: any) {
+      setNotice(e.message ?? String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // A group already on Etsy: put this group's photos on its listing(s) instead,
+  // in the order shown, and rewrite the listing's title and tags there.
+  async function replaceOnEtsy(g: AssetGroup, pubs: Publication[]) {
+    setConfirming(null);
+    setBusy(g.key);
+    setNotice(`Replacing the photos on Etsy for ${g.label}…`);
+    try {
+      const jobs = await Promise.all(
+        pubs.map((p) => api.replaceImages(p.etsy_listing_id, id, p.connection_id, g.key)),
+      );
+      const done = await Promise.all(jobs.map((j) => waitForJob(j.job_id)));
+      const failed = done.filter((d) => d && d.status === "failed");
+      const waiting = done.find((d) => d?.pause);
+      const pending = done.filter((d) => d === null).length;
+      setNotice(
+        failed.length
+          ? `Replacing the photos failed: ${failed.map((d) => d?.error ?? "unknown error").join("; ")}`
+          : waiting?.pause
+            ? `Queued, not failed. ${waiting.pause.message}`
+            : pending
+              ? "Still replacing the photos on Etsy; this page updates when you come back."
+              : `Photos, title and tags replaced on Etsy for ${g.label}.`,
+      );
+      await load();
     } catch (e: any) {
       setNotice(e.message ?? String(e));
     } finally {
@@ -251,6 +317,10 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       <div className="space-y-3">
         {groups.map((g) => {
           const s = settings[g.key];
+          const mine = contents.filter((c) => g.assets.some((a) => a.id === c.asset_id));
+          const approved = mine.some((c) => c.approved);
+          const pubs = mine.flatMap((c) => c.publications);
+          const asking = confirming?.key === g.key ? confirming.kind : null;
           return (
             <div key={g.key} className="card p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -262,16 +332,74 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   <span className="text-xs text-slate-400">
                     {g.assets.length} image{g.assets.length === 1 ? "" : "s"}
                   </span>
-                  {g.done && <span className="text-xs text-emerald-600">✓ content ready</span>}
+                  {g.done && pubs.length === 0 && (
+                    <span className="text-xs text-emerald-600">
+                      ✓ content ready{approved ? " · approved" : ""}
+                    </span>
+                  )}
+                  {pubs.length > 0 && (
+                    <span className="text-xs text-emerald-700">
+                      ✓ on Etsy{pubs.length > 1 ? ` in ${pubs.length} shops` : ""}
+                    </span>
+                  )}
                 </div>
-                <button
-                  className="btn-secondary py-1 text-xs"
-                  onClick={() => generate(g.key)}
-                  disabled={anyBusy || noProfiles}
-                >
-                  {busy === g.key ? "Generating…" : g.done ? "Regenerate" : "Generate"}
-                </button>
+                {pubs.length > 0 ? (
+                  <button
+                    className="btn-secondary py-1 text-xs"
+                    onClick={() => setConfirming({ key: g.key, kind: "replace" })}
+                    disabled={anyBusy}
+                    title="Put this group's photos on the Etsy listing"
+                  >
+                    {busy === g.key ? "Replacing…" : "Replace images on Etsy"}
+                  </button>
+                ) : (
+                  <button
+                    className="btn-secondary py-1 text-xs"
+                    onClick={() =>
+                      !g.done
+                        ? generate(g.key)
+                        : approved
+                          ? setConfirming({ key: g.key, kind: "regenerate" })
+                          : regenerate(g, false)
+                    }
+                    disabled={anyBusy || noProfiles}
+                  >
+                    {busy === g.key ? "Generating…" : g.done ? "Regenerate" : "Generate"}
+                  </button>
+                )}
               </div>
+
+              {asking && (
+                <div role="alertdialog" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {asking === "regenerate" ? (
+                    <p>
+                      This group&apos;s content is approved. Regenerating writes a new title, tags and
+                      description (one more AI generation), replaces the approved text, and the new
+                      one needs approving again.
+                    </p>
+                  ) : (
+                    <p>
+                      This listing is already on Etsy
+                      {pubs.length > 1 ? ` in ${pubs.length} shops` : ""}. Its photos will be replaced
+                      with this group&apos;s, in the order shown, and its title and tags rewritten
+                      (one more AI generation). Its category, price, variations and whether it is live
+                      stay as they are.
+                    </p>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-primary px-2.5 py-1 text-xs"
+                      onClick={() => (asking === "regenerate" ? regenerate(g, true) : replaceOnEtsy(g, pubs))}
+                    >
+                      {asking === "regenerate" ? "Replace the approved content" : "Replace on Etsy"}
+                    </button>
+                    <button type="button" className="text-amber-900 underline" onClick={() => setConfirming(null)}>
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {!noProfiles && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
