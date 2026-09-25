@@ -36,7 +36,7 @@ from app.workers.gate import start_job
 from app.workers.guards import owned, owned_optional, public_error
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
-from app.pipeline.images import prepare_thumbnail
+from app.pipeline.images import cover_image
 from app.pipeline.storage import LocalStorage
 
 logger = logging.getLogger(__name__)
@@ -147,8 +147,10 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
 
             # Primary image -> prepared thumbnail (rank=1).
             primary_bytes = storage.get(asset.processed_key or asset.storage_key)
-            thumb = prepare_thumbnail(
+            # The seller's crop if they set one, else the automatic square.
+            thumb = cover_image(
                 primary_bytes,
+                asset.cover_crop,
                 padding_pct=settings.thumbnail_padding_pct,
                 size=settings.thumbnail_size,
                 mode=settings.thumbnail_mode,

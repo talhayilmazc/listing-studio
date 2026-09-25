@@ -196,6 +196,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ batch_ids: batchIds, action }),
     }),
+  /** Where the cover is cut for Etsy: a square in the processed image's pixels. */
+  setCoverCrop: (assetId: string, crop: { x: number; y: number; size: number }) =>
+    req<unknown>(`/assets/${assetId}/cover-crop`, { method: "PUT", body: JSON.stringify(crop) }),
+  resetCoverCrop: (assetId: string) => req<void>(`/assets/${assetId}/cover-crop`, { method: "DELETE" }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

@@ -168,6 +168,7 @@ def _asset_out(asset: Asset) -> schemas.AssetOut:
         height=asset.height,
         has_content=False,
         error=asset.error,
+        cover_crop=asset.cover_crop,
     )
 
 
@@ -306,6 +307,7 @@ async def get_batch(
             height=a.height,
             has_content=a.id in with_content,
             error=a.error,
+            cover_crop=a.cover_crop,
         )
         for a in rows.scalars()
     ]
@@ -495,6 +497,59 @@ async def assign_group_profile(
         if chosen is not None:
             await request_refresh(enqueuer.enqueue, chosen, origin="use")
     return await _batch_groups(session, batch_id)
+
+
+# --- Cover crop (the seller's square for the listing's main photo) ------------------
+#: Zooming further than this would upload a very soft photo.
+MAX_COVER_ZOOM = 5
+
+
+async def _own_asset(session: AsyncSession, tenant: Tenant, asset_id: uuid.UUID) -> Asset:
+    asset = await session.get(Asset, asset_id)
+    if asset is None or asset.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="image not found")
+    return asset
+
+
+@router.put("/assets/{asset_id}/cover-crop", response_model=schemas.CoverCrop)
+async def set_cover_crop(
+    asset_id: uuid.UUID,
+    body: schemas.CoverCrop,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.CoverCrop:
+    """Save where the cover photo is cut: a square on the processed image.
+
+    Etsy's API takes no crop, so when this image is a listing's cover the
+    cropped square itself is uploaded as the first photo (on draft creation
+    and on "Replace images"); the uncropped image is not added separately.
+    """
+    asset = await _own_asset(session, tenant, asset_id)
+    if asset.status is not AssetStatus.processed or not asset.width or not asset.height:
+        raise HTTPException(status_code=422, detail="only an image that processed can be cropped")
+    w, h = asset.width, asset.height
+    shortest = min(w, h)
+    if body.size > shortest + 1 or body.size < shortest / MAX_COVER_ZOOM - 1:
+        raise HTTPException(status_code=422, detail=f"the square must be between 1/{MAX_COVER_ZOOM} of the image and all of it")
+    if body.x + body.size > w + 1 or body.y + body.size > h + 1:
+        raise HTTPException(status_code=422, detail="the square must lie within the image")
+    size = min(body.size, shortest)
+    crop = {"x": min(body.x, w - size), "y": min(body.y, h - size), "size": size, "width": w, "height": h}
+    asset.cover_crop = crop
+    await session.commit()
+    return schemas.CoverCrop(**crop)
+
+
+@router.delete("/assets/{asset_id}/cover-crop", status_code=204)
+async def reset_cover_crop(
+    asset_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> None:
+    """Back to the automatic square."""
+    asset = await _own_asset(session, tenant, asset_id)
+    asset.cover_crop = None
+    await session.commit()
 
 
 # --- Image order and cover (docs/duzeltmeler-v6.md §E) ----------------------------

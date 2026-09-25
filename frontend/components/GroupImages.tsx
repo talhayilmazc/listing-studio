@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { makeCover, moveBefore, nudge, sameOrder } from "@/lib/order";
+import { cropStyle } from "@/lib/crop";
+import { CoverCropper } from "./CoverCropper";
 import type { Asset, BatchDetail } from "@/lib/types";
 
 /**
@@ -27,12 +29,14 @@ export function GroupImages({
   const [over, setOver] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cropping, setCropping] = useState(false);
   const incomingKey = incoming.join(",");
   useEffect(() => {
     setOrder(incomingKey ? incomingKey.split(",") : []);
   }, [incomingKey]);
 
   const byId = new Map(assets.map((a) => [a.id, a]));
+  const coverAsset = byId.get(order[0]);
   const usable = (id: string) => byId.get(id)?.status === "processed";
 
   async function save(next: string[]) {
@@ -98,13 +102,27 @@ export function GroupImages({
                   {/* Skeleton under the image: a fast scroll shows it, never blank space. */}
                   <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={api.assetImage(a.id, 224)}
-                    alt={a.original_filename}
-                    draggable={false}
-                    decoding="async"
-                    className="relative h-full w-full object-cover"
-                  />
+                  {cover && a.cover_crop && a.width && a.height ? (
+                    // The cover as Etsy will get it: the seller's square.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={api.assetImage(a.id, 224)}
+                      alt={a.original_filename}
+                      draggable={false}
+                      decoding="async"
+                      className="absolute max-w-none"
+                      style={cropStyle(a.cover_crop, a.width, a.height, 92)}
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={api.assetImage(a.id, 224)}
+                      alt={a.original_filename}
+                      draggable={false}
+                      decoding="async"
+                      className="relative h-full w-full object-cover"
+                    />
+                  )}
                 </>
               ) : (
                 <span className="flex h-full items-center justify-center p-1 text-center text-[10px] text-rose-700">
@@ -150,6 +168,36 @@ export function GroupImages({
           );
         })}
       </ul>
+      {coverAsset && coverAsset.status === "processed" && coverAsset.width && coverAsset.height && (
+        <p className="mt-1 text-xs">
+          <button
+            type="button"
+            className="font-medium text-brand-700 underline hover:text-brand-800"
+            onClick={() => setCropping((v) => !v)}
+            aria-expanded={cropping}
+          >
+            {cropping ? "Close the crop" : "Adjust cover crop"}
+          </button>
+          {coverAsset.cover_crop && !cropping && (
+            <span className="ml-2 text-slate-500">cropped by you · this square is the listing&apos;s main photo on Etsy</span>
+          )}
+        </p>
+      )}
+      {cropping && coverAsset && (
+        <CoverCropper
+          key={coverAsset.id}
+          asset={coverAsset}
+          onCancel={() => setCropping(false)}
+          onDone={async () => {
+            setCropping(false);
+            try {
+              onSaved(await api.getBatch(batchId));
+            } catch (e: any) {
+              setError(e.message ?? String(e));
+            }
+          }}
+        />
+      )}
       <p className="mt-1 text-xs text-slate-400">
         {saving
           ? "Saving order…"

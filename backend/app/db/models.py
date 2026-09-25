@@ -412,6 +412,10 @@ class Asset(Base):
     rank: Mapped[int | None] = mapped_column(Integer)
     #: Last content-generation failure reason (safe text, no tokens); null when ok.
     error: Mapped[str | None] = mapped_column(Text)
+    #: The seller's square crop for when this image is a listing's cover:
+    #: {x, y, size, width, height} in pixels of the processed image. Etsy's API
+    #: takes no crop, so the cropped square is what is uploaded as photo 1.
+    cover_crop: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     status: Mapped[AssetStatus] = mapped_column(
         _enum(AssetStatus, "asset_status"), nullable=False, default=AssetStatus.uploaded
     )
