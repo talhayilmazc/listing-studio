@@ -44,6 +44,13 @@ def _haiku_price() -> ModelPrice:
 DEFAULT_PRICES: dict[str, ModelPrice] = {
     "claude-haiku-4-5-20251001": _haiku_price(),
     "claude-haiku-4-5": _haiku_price(),
+    # Claude Sonnet 5: $2 / $10 per million tokens; cache write 1.25x, read 0.1x.
+    "claude-sonnet-5": ModelPrice(
+        input=Decimal("2.00"),
+        output=Decimal("10.00"),
+        cache_write=Decimal("2.50"),
+        cache_read=Decimal("0.20"),
+    ),
 }
 
 

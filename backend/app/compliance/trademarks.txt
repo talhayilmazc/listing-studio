@@ -25,6 +25,12 @@ Avengers
 Spider-Man
 Spiderman
 Lilo and Stitch
+Winnie the Pooh
+Toy Story
+Lion King
+Disneyland
+Magic Kingdom
+Epcot
 
 # Warner Bros. / DC
 Harry Potter

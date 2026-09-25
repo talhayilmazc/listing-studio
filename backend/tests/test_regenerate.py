@@ -45,9 +45,9 @@ def llm(ctx, monkeypatch, tmp_path, test_settings):  # noqa: F811
     messages = FakeMessages([])
     monkeypatch.setattr(
         batches_api,
-        "AnthropicLLMClient",
-        lambda api_key, model: AnthropicLLMClient(
-            api_key=api_key, model="claude-haiku-4-5-20251001", messages_client=messages
+        "client_for",
+        lambda settings, role: AnthropicLLMClient(
+            api_key="test-key", model="claude-haiku-4-5-20251001", messages_client=messages
         ),
     )
     return messages

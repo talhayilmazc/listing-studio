@@ -737,3 +737,22 @@ async def test_ordering_is_only_for_the_owners_batch(ctx) -> None:
         f"/api/batches/{batch}/groups/order", json={"group_key": "G", "asset_ids": [str(i) for i in reversed(ids)]}
     )
     assert resp.status_code == 404
+
+
+async def test_an_account_with_the_filter_off_may_use_brand_names(ctx) -> None:
+    """v7 §A4: the admin's per-account switch decides, not only TRADEMARK_FILTER."""
+    content = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
+    title = ("Disney Castle " + VALID_TITLE)[:135]
+    await ctx["client"].patch(f"/api/content/{content}", json={"title": title})
+    assert (await ctx["client"].post(f"/api/content/{content}/approve", json={"approved": True})).status_code == 422
+
+    async with ctx["sm"]() as s:
+        (await s.get(Tenant, ctx["tenant_id"])).trademark_filter = False
+        await s.commit()
+    resp = await ctx["client"].post(f"/api/content/{content}/approve", json={"approved": True})
+    assert resp.status_code == 200, resp.text
+    from app.db.models import ComplianceFinding
+
+    async with ctx["sm"]() as s:
+        rows = (await s.execute(select(ComplianceFinding).where(ComplianceFinding.generated_content_id == content))).scalars().all()
+    assert rows == []  # the scanner follows the account too

@@ -8,7 +8,7 @@ the original upload — the caller passes the processed bytes.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.pipeline.llm import LLMClient, LLMError, Usage
@@ -17,6 +17,9 @@ from app.pipeline.templates import PromptTemplate, load_template
 VISION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        # Every searchable subject, most dominant first (v7 §A1): a nurse
+        # Christmas design is ["christmas", "nurse"], not just "christmas".
+        "themes": {"type": "array", "items": {"type": "string"}},
         "theme": {"type": "string"},
         "embedded_text": {"type": "string"},
         "style": {"type": "string"},
@@ -28,14 +31,16 @@ VISION_SCHEMA: dict[str, Any] = {
         # the analyst's words, who would buy it for whom, and the kind of humor.
         "meaning": {"type": "string"},
         "recipient": {"type": "string"},
-        "humor": {"type": "string"},
+        "humor_type": {"type": "string"},
+        "profession": {"type": "string"},
+        "season": {"type": "string"},
         # Garment attributes read from the mockup (v4 §B) -> Etsy clothing attributes.
         "neckline": {"type": "string"},
         "sleeve_length": {"type": "string"},
         "clothing_style": {"type": "string"},
     },
     "required": [
-        "theme",
+        "themes",
         "embedded_text",
         "style",
         "colors",
@@ -48,6 +53,7 @@ VISION_SCHEMA: dict[str, Any] = {
 
 @dataclass
 class VisionAnalysis:
+    #: The dominant theme (``themes[0]``); kept for section matching and old rows.
     theme: str
     embedded_text: str
     style: str
@@ -62,6 +68,12 @@ class VisionAnalysis:
     recipient: str = ""
     #: The kind of humor, if any (e.g. "nurse humor", "sarcastic", "pun").
     humor: str = ""
+    #: Every searchable theme, most dominant first (v7 §A1).
+    themes: list[str] = field(default_factory=list)
+    #: The profession the design is about or for, if any ("nurse", "teacher").
+    profession: str = ""
+    #: The season it suits, if any ("winter", "fall").
+    season: str = ""
     #: Garment attributes seen in the mockup (v4 §B); "" when not visible.
     neckline: str = ""
     sleeve_length: str = ""
@@ -113,8 +125,16 @@ class AnthropicVisionAnalyzer:
 
 def _to_analysis(data: dict[str, Any]) -> VisionAnalysis:
     try:
+        themes = [str(t).strip() for t in (data.get("themes") or []) if str(t).strip()]
+        if not themes and data.get("theme"):
+            themes = [str(data["theme"])]
+        if not themes:
+            raise KeyError("themes")
         return VisionAnalysis(
-            theme=str(data["theme"]),
+            theme=themes[0],
+            themes=themes,
+            profession=str(data.get("profession", "")),
+            season=str(data.get("season", "")),
             embedded_text=str(data["embedded_text"]),
             style=str(data["style"]),
             colors=[str(c) for c in data["colors"]],
@@ -123,7 +143,7 @@ def _to_analysis(data: dict[str, Any]) -> VisionAnalysis:
             occasion=str(data.get("occasion", "")),
             meaning=str(data.get("meaning", "")),
             recipient=str(data.get("recipient", "")),
-            humor=str(data.get("humor", "")),
+            humor=str(data.get("humor_type") or data.get("humor") or ""),
             neckline=str(data.get("neckline", "")),
             sleeve_length=str(data.get("sleeve_length", "")),
             clothing_style=str(data.get("clothing_style", "")),

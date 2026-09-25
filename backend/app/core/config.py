@@ -114,6 +114,15 @@ class Settings(BaseSettings):
     # Key is read from the environment only, never hardcoded (see CLAUDE.md).
     llm_api_key: str = ""
     llm_model: str = "claude-haiku-4-5-20251001"
+    # Separate models for the image analysis and the listing text (v7 §A2);
+    # empty = LLM_MODEL. E.g. VISION_MODEL=claude-sonnet-5 for better theme
+    # detection while CONTENT_MODEL stays on Haiku, or the other way round.
+    vision_model: str = ""
+    content_model: str = ""
+    # Thinking on models that support it: "off" (cheapest, what Haiku does) or
+    # "adaptive". LLM_EFFORT (low|medium|high) applies where the model takes it.
+    llm_thinking: str = "off"
+    llm_effort: str = ""
 
     # Object storage root for uploaded originals + processed derivatives.
     storage_dir: str = "./storage"

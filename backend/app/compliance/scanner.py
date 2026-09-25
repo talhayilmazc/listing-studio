@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.compliance.trademarks import Blocklist, configured_blocklist
+from app.compliance.trademarks import Blocklist, configured_blocklist, tenant_blocklist
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent
 
 TRADEMARK = "trademark"
@@ -51,7 +51,12 @@ async def rescan(session: AsyncSession, content: GeneratedContent) -> list[Findi
 
     The caller commits. Run whenever the text changes or is about to be used.
     """
-    findings = scan(content.title or "", list(content.tags or []), content.description or "")
+    findings = scan(
+        content.title or "",
+        list(content.tags or []),
+        content.description or "",
+        await tenant_blocklist(session, content.tenant_id),
+    )
     await session.execute(
         delete(ComplianceFinding).where(ComplianceFinding.generated_content_id == content.id)
     )

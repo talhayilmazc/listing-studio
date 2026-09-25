@@ -58,6 +58,9 @@ export function UsersTab({
               <th className="px-3 py-3 font-medium">Registered</th>
               <th className="px-3 py-3 text-right font-medium">Published</th>
               <th className="px-3 py-3 font-medium">Quota today</th>
+              <th className="px-3 py-3 font-medium" title="Refuse brand and character names in this seller's listings">
+                Trademarks
+              </th>
               <th className="px-3 py-3 font-medium">Status</th>
               <th className="px-3 py-3 text-right font-medium">Actions</th>
             </tr>
@@ -104,6 +107,35 @@ export function UsersTab({
                         return Boolean(next);
                       }}
                     />
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3">
+                    {/* v7 §A4: off lets brand names through, at the seller's own risk. */}
+                    <select
+                      className={
+                        "field w-auto py-1 text-xs " +
+                        (u.trademark_filter_effective ? "" : "border-amber-400 text-amber-800")
+                      }
+                      value={u.trademark_filter === null ? "default" : u.trademark_filter ? "on" : "off"}
+                      aria-label={`Trademark filter for ${u.email}`}
+                      title={
+                        u.trademark_filter_effective
+                          ? "Brand and character names are refused in this seller's listings"
+                          : "Off: brand names may appear; Etsy's IP policy risk is the seller's"
+                      }
+                      onChange={async (e) => {
+                        const v = e.target.value;
+                        const next = await run(() =>
+                          api.admin.setTrademarkFilter(u.id, v === "default" ? null : v === "on"),
+                        );
+                        if (next) onChanged(next);
+                      }}
+                    >
+                      <option value="default">
+                        Default ({u.trademark_filter === null ? (u.trademark_filter_effective ? "on" : "off") : "app"})
+                      </option>
+                      <option value="on">Filter on</option>
+                      <option value="off">Filter off</option>
+                    </select>
                   </td>
                   <td className="whitespace-nowrap px-3 py-3">
                     <StatusBadge user={u} />

@@ -113,6 +113,12 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ max_shops: maxShops }),
       }),
+    /** null = back to the app default (TRADEMARK_FILTER). */
+    setTrademarkFilter: (id: string, enabled: boolean | null) =>
+      req<AdminUser>(`/admin/users/${id}/trademark-filter`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }),
     invites: () => req<AdminInvite[]>("/admin/invites"),
     createInvite: (body: { email?: string; note?: string; expires_in_days: number | null }) =>
       req<InviteIssued>("/admin/invites", { method: "POST", body: JSON.stringify(body) }),

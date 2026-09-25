@@ -1,6 +1,6 @@
 Design analysis:
 
-- Theme: $theme
+- Themes, most dominant first: $themes
 - Meaning (what it is about): $meaning
 - Recipient: $recipient
 - Occasion: $occasion
