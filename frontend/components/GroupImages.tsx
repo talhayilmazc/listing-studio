@@ -94,13 +94,18 @@ export function GroupImages({
               title={a.original_filename}
             >
               {a.status === "processed" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={api.assetImage(a.id, 224)}
-                  alt={a.original_filename}
-                  draggable={false}
-                  className="h-full w-full object-cover"
-                />
+                <>
+                  {/* Skeleton under the image: a fast scroll shows it, never blank space. */}
+                  <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={api.assetImage(a.id, 224)}
+                    alt={a.original_filename}
+                    draggable={false}
+                    decoding="async"
+                    className="relative h-full w-full object-cover"
+                  />
+                </>
               ) : (
                 <span className="flex h-full items-center justify-center p-1 text-center text-[10px] text-rose-700">
                   failed
