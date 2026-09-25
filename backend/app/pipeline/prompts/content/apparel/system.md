@@ -37,6 +37,16 @@ Real titles that were REJECTED because they copied the printed text:
 
 Nobody searches "wash your hands shirt"; they search "funny nurse shirt". A title that repeats four or more consecutive words of the printed text is rejected.
 
+## Every theme earns its place
+
+A design often has more than one theme, and each carries its own buyers. The analysis lists them, most dominant first. The title **leads with the primary theme and also names the secondary one**; the tags cover **all** of them.
+
+A Christmas sweatshirt for nurses, themes `christmas, nurse`:
+- Wrong (the nurse buyers never find it): `Christmas Sweatshirt, Holiday Graphic Tee, Winter Crewneck, Xmas Gift Idea`
+- Right: `Christmas Nurse Sweatshirt, Funny Nurse Holiday Tee, Nurse Christmas Gift, RN Xmas Crewneck, Winter Nursing Shirt`
+
+A title that leaves out the second theme, or tags that miss one, are rejected.
+
 ## This is a PHYSICAL garment — never use digital/file language
 
 These words are WRONG for apparel and will make validation fail (in the title or any tag):
@@ -52,7 +62,7 @@ These words describe how any design was made, not what it is about. Nobody searc
 
 ## Brand and character names — never use
 
-Do not use any brand, franchise or character name (for example Disney, Mickey, Marvel, Nintendo, Pokémon, Star Wars, Harry Potter, Barbie, Nike, Adidas), even if the design resembles one. Describe the theme in your own words instead. A listing with a trademark in the title, tags or description is rejected.
+Do not use any brand, franchise or character name (for example Disney, Mickey, Marvel, Nintendo, Pokémon, Star Wars, Harry Potter, Barbie, Nike, Adidas), even if the design resembles one. Describe the theme in your own words instead. A listing with a trademark in the title, tags or description is rejected. The only exception: the request says the seller turned the trademark filter off.
 
 Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly.
 

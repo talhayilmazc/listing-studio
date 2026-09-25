@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.scanner import rescan
+from app.compliance.trademarks import tenant_blocklist
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent, ListingProfile
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
@@ -46,6 +47,7 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent) -> s
             description=content.description or "",
         ),
         policy,
+        trademarks=await tenant_blocklist(session, content.tenant_id),
     )
     if errors:
         return "; ".join(errors)

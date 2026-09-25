@@ -108,6 +108,26 @@ def configured_blocklist() -> Blocklist:
     return blocklist
 
 
+def blocklist_for(setting: bool | None) -> Blocklist:
+    """The blocklist for an account: its own setting if an admin set one (v7 §A4),
+    else TRADEMARK_FILTER."""
+    if setting is False:
+        return Blocklist()
+    if setting is True:
+        settings = get_settings()
+        path = Path(settings.trademark_list_path) if settings.trademark_list_path else DEFAULT_LIST_PATH
+        return compile_blocklist(read_terms(path if path.exists() else DEFAULT_LIST_PATH))
+    return configured_blocklist()
+
+
+async def tenant_blocklist(session, tenant_id) -> Blocklist:  # noqa: ANN001
+    """The blocklist in force for this account now."""
+    from app.db.models import Tenant
+
+    tenant = await session.get(Tenant, tenant_id)
+    return blocklist_for(tenant.trademark_filter if tenant is not None else None)
+
+
 def trademark_errors(
     title: str, tags: list[str], description: str, blocklist: Blocklist
 ) -> list[str]:

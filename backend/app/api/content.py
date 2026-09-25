@@ -23,6 +23,7 @@ from app.db.models import (
 from app.etsy.manual_fields import manual_fields_for
 from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
+from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 
@@ -232,7 +233,7 @@ async def _validation(
         tags=list(content.tags or []),
         description=content.description or "",
     )
-    errors = validate_listing(listing, policy)
+    errors = validate_listing(listing, policy, trademarks=await tenant_blocklist(session, content.tenant_id))
     return schemas.ValidationInfo(valid=not errors, errors=errors)
 
 

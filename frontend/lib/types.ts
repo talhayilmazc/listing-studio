@@ -362,6 +362,9 @@ export interface AdminUser {
   listings_published: number;
   quota_used_today: number;
   daily_quota: number;
+  /** This account's trademark filter (v7 §A4): null follows TRADEMARK_FILTER. */
+  trademark_filter: boolean | null;
+  trademark_filter_effective: boolean;
 }
 
 export type InviteState = "unused" | "used" | "expired" | "revoked";

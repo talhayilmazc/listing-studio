@@ -138,6 +138,10 @@ class Tenant(Base):
     # How many Etsy shops this account may connect. Null = MAX_SHOPS_PER_TENANT;
     # an admin can set it per account (docs/duzeltmeler-v5.md §E).
     max_shops: Mapped[int | None] = mapped_column(Integer)
+    # The trademark filter for this account (v7 §A4): None follows TRADEMARK_FILTER;
+    # an admin can turn it on or off per account. Off, brand names may appear in
+    # this seller's listings, at the seller's own risk under Etsy's IP policy.
+    trademark_filter: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.compliance.scanner import rescan
+from app.compliance.trademarks import blocklist_for
 from app.db.models import Asset, AssetStatus, EtsyConnection, GeneratedContent, Job, JobStatus, Tenant
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
@@ -27,7 +28,7 @@ from app.etsy.publisher import PublishImage, replace_listing_images
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.images import cover_image
-from app.pipeline.llm import AnthropicLLMClient
+from app.pipeline.llm import client_for
 from app.pipeline.reference import decode_etsy_text, replace_title_block
 from app.pipeline.storage import LocalStorage
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
@@ -111,7 +112,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     )
                 )
 
-            llm = AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
+            llm = client_for(settings, "content")
             async with httpx.AsyncClient(timeout=30.0) as http:
                 client = EtsyApiClient(
                     client_id=settings.etsy_client_id,
@@ -173,12 +174,13 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     clothing_taxonomy_ids(nodes),
                     default=settings.default_content_template,
                 )
-                analyzer = AnthropicVisionAnalyzer(llm)
+                analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
                 generator = AnthropicContentGenerator(
                     llm,
                     template=load_template(f"content/{template}"),
                     policy=policy_for(template),
                     title_prefix=str(job.payload.get("title_prefix") or ""),
+                    trademarks=blocklist_for(tenant.trademark_filter),
                 )
                 vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
                 result = await generator.generate(vision.analysis, primary.parsed_sku)

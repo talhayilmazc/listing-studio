@@ -120,6 +120,7 @@ def _user_endpoints(target_id) -> list:
         ("POST", f"/api/admin/users/{target_id}/reactivate", None),
         ("POST", f"/api/admin/users/{target_id}/temporary-password", None),
         ("PUT", f"/api/admin/users/{target_id}/quota", {"daily_quota": 5}),
+        ("PUT", f"/api/admin/users/{target_id}/trademark-filter", {"enabled": False}),
     ]
 
 
@@ -176,6 +177,8 @@ async def test_users_list_shows_metadata(world) -> None:
         "id", "email", "is_admin", "status", "must_change_password", "created_at",
         "shop_name", "shop_connected", "listings_published", "quota_used_today", "daily_quota",
         "shops", "shops_used", "shops_limit", "shops_limit_custom",
+        # An account setting, not the seller's content (v7 §A4).
+        "trademark_filter", "trademark_filter_effective",
     }
     # Shop names and counts only: never a shop's listings, profiles or cache (v5 §E).
     assert bob["shops_used"] == 1 and bob["shops_limit"] == 8 and bob["shops_limit_custom"] is False
@@ -458,3 +461,16 @@ async def test_admin_responses_carry_no_tenant_work(world) -> None:
         assert str(resource_id) not in blob
     for trace in ("SKU1", "design.jpg", "processed/", "storage_key", "title", "tags", "description"):
         assert trace not in blob, trace
+
+
+
+async def test_the_trademark_filter_is_set_per_account_and_audited(world) -> None:
+    """v7 §A4: a beta user who does not want the risk keeps it on; one who does can have it off."""
+    bob = world["bob"].tenant_id
+    url = f"/api/admin/users/{bob}/trademark-filter"
+    body = (await world["a"].put(url, json={"enabled": False})).json()
+    assert body["trademark_filter"] is False and body["trademark_filter_effective"] is False
+    body = (await world["a"].put(url, json={"enabled": None})).json()
+    assert body["trademark_filter"] is None and body["trademark_filter_effective"] is True  # the app default
+    actions = [(e.action, e.details) for e in await _audit(world["sm"]) if e.action == "user.trademark_filter_changed"]
+    assert [d for _, d in actions] == [{"previous": None, "new": False}, {"previous": False, "new": None}]

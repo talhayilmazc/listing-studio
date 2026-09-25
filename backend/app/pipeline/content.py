@@ -136,6 +136,57 @@ def copied_design_text(title: str, embedded_text: str) -> str | None:
     return " ".join(best) if len(best) >= COPIED_RUN_WORDS else None
 
 
+# Words that say nothing about which theme a phrase is (v7 §A1 matching).
+_NOT_THEME_WORDS = {
+    "the", "and", "for", "with", "funny", "cute", "gift", "gifts", "design", "shirt", "tee",
+    "tshirt", "sweatshirt", "hoodie", "graphic", "humor", "humour", "theme", "themed", "day",
+    "lover", "lovers", "life", "season", "vintage", "retro",
+}
+
+
+def _theme_words(theme: str) -> list[str]:
+    return [w for w in _words(theme) if len(w) >= 3 and w not in _NOT_THEME_WORDS]
+
+
+def _mentions(text: str, theme: str) -> bool:
+    """Whether ``text`` names ``theme``, allowing inflections ("nurse"/"nursing")."""
+    words = _words(text)
+    for key in _theme_words(theme):
+        stem = key[: max(4, len(key) - 3)] if len(key) >= 5 else key
+        if any(w == key or (len(stem) >= 4 and w.startswith(stem)) for w in words):
+            return True
+    return False
+
+
+def theme_errors(
+    listing: GeneratedListing, themes: list[str], blocklist: Blocklist | None = None
+) -> list[str]:
+    """A design with a second theme must carry it too (v7 §A1).
+
+    The title names the second theme as well as the first, and the tags cover
+    both. Only the two most dominant themes are required; a theme made only of
+    generic words, or one on the trademark list, is not checked.
+    """
+    # A theme that is a trademark (the design shows a brand's character) can
+    # never be named, so it is not asked for; the next theme takes its place.
+    blocklist = configured_blocklist() if blocklist is None else blocklist
+    top = [t for t in themes if _theme_words(t) and not blocklist.find(t)][:2]
+    if len(top) < 2:
+        return []
+    errors: list[str] = []
+    primary, secondary = top
+    if not _mentions(listing.title, secondary):
+        errors.append(
+            f"the design has a second theme, '{secondary}', and buyers search for it too: "
+            f"keep '{primary}' first and name '{secondary}' in the title as well "
+            f"(e.g. a phrase combining both)"
+        )
+    for theme in top:
+        if not any(_mentions(tag, theme) for tag in listing.tags):
+            errors.append(f"add tags for the theme '{theme}': none of the tags names it")
+    return errors
+
+
 def copied_text_errors(title: str, embedded_text: str) -> list[str]:
     run = copied_design_text(title, embedded_text)
     if run is None:
@@ -294,6 +345,39 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
     return errors
 
 
+def fit_title(title: str, min_length: int = MIN_TITLE_LENGTH, max_length: int = MAX_TITLE_LENGTH) -> str:
+    """Bring a too-long title within ``max_length`` instead of failing it (v7 §A3).
+
+    Titles are comma-separated phrases. Trailing phrases are dropped until it
+    fits; if that leaves it under ``min_length``, the last dropped phrase comes
+    back shortened word by word to the longest length that fits. A title that
+    cannot land in the range either way is returned unchanged, for validation
+    to report. The prefix is part of the first phrase, so it is never cut off.
+    """
+    title = title.strip()
+    if len(title) <= max_length:
+        return title
+    phrases = [p.strip() for p in title.split(",") if p.strip()]
+    join = ", ".join
+    kept = list(phrases)
+    dropped = ""
+    while len(kept) > 1 and len(join(kept)) > max_length:
+        dropped = kept.pop()
+    if len(join(kept)) <= max_length and len(join(kept)) >= min_length:
+        return join(kept)
+    # Too short without the dropped phrase (or one phrase too long by itself):
+    # the longest word-by-word cut of that phrase that fits.
+    if len(join(kept)) > max_length:  # a single phrase: cut its own words
+        dropped, kept = kept[0], []
+    words = dropped.split()
+    while words:
+        candidate = join([*kept, " ".join(words)])
+        if len(candidate) <= max_length:
+            return candidate if len(candidate) >= min_length else title
+        words.pop()
+    return title
+
+
 def join_prefix(prefix: str | None, title: str) -> str:
     """``prefix`` + the title's first phrase, joined by a space, never a comma.
 
@@ -322,7 +406,10 @@ class AnthropicContentGenerator:
         max_tokens: int = 1024,
         policy: ContentPolicy | None = None,
         title_prefix: str = "",
+        trademarks: Blocklist | None = None,
     ) -> None:
+        #: The account's trademark blocklist (v7 §A4); None = TRADEMARK_FILTER.
+        self._trademarks = trademarks
         self._client = client
         self._template = template or load_template("content/digital_products")
         self._max_tokens = max_tokens
@@ -333,6 +420,9 @@ class AnthropicContentGenerator:
         text = self._template.render_user(
             {
                 "theme": analysis.theme,
+                "themes": ", ".join(analysis.themes or [analysis.theme]),
+                "profession": analysis.profession or "(none)",
+                "season": analysis.season or "(none)",
                 "meaning": analysis.meaning or "(not given)",
                 "embedded_text": analysis.embedded_text or "(none)",
                 "style": analysis.style,
@@ -346,6 +436,16 @@ class AnthropicContentGenerator:
             }
         )
         blocks = [{"type": "text", "text": text}]
+        if self._trademarks is not None and not self._trademarks:
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": (
+                        "This seller has turned the trademark filter off for their account: a "
+                        "brand or character name may be used where the design itself shows it."
+                    ),
+                }
+            )
         if self._title_prefix:
             # The prefix is prepended for us; the model writes only the remainder, to a
             # reduced budget so the FULL title still lands in MIN..MAX characters.
@@ -436,9 +536,12 @@ class AnthropicContentGenerator:
             listing, usage = await self._generate_once(analysis, sku, correction=correction)
             usages.append(usage)
             listing = self._apply_prefix(listing)  # prepend the profile's title prefix
-            errors = validate_listing(listing, self._policy)
+            # One character over is not a reason to throw the listing away (v7 §A3).
+            listing.title = fit_title(listing.title)
+            errors = validate_listing(listing, self._policy, trademarks=self._trademarks)
             if self._policy is not None and self._policy.describe_not_transcribe:
                 errors.extend(copied_text_errors(listing.title, analysis.embedded_text))
+                errors.extend(theme_errors(listing, analysis.themes, self._trademarks))
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
             last_errors = errors

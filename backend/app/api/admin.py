@@ -105,6 +105,14 @@ class AdminUserOut(BaseModel):
     listings_published: int
     quota_used_today: int
     daily_quota: int
+    # This account's trademark filter (v7 §A4): None = the app default.
+    trademark_filter: bool | None = None
+    trademark_filter_effective: bool = True
+
+
+class TrademarkFilterUpdate(BaseModel):
+    # None = back to the app default (TRADEMARK_FILTER).
+    enabled: bool | None = None
 
 
 class ShopLimitUpdate(BaseModel):
@@ -264,6 +272,10 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         listings_published=int(published or 0),
         quota_used_today=used_today,
         daily_quota=t.daily_quota,
+        trademark_filter=t.trademark_filter,
+        trademark_filter_effective=(
+            t.trademark_filter if t.trademark_filter is not None else get_settings().trademark_filter
+        ),
     )
 
 
@@ -302,6 +314,36 @@ async def set_user_shop_limit(
             target_tenant_id=target.id,
             previous=previous,
             new=body.max_shops,
+        )
+        await session.commit()
+    return await _one(session, quota, target.id)
+
+
+@router.put("/users/{tenant_id}/trademark-filter", response_model=AdminUserOut)
+async def set_user_trademark_filter(
+    tenant_id: uuid.UUID,
+    body: TrademarkFilterUpdate,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    quota: DailyQuota = Depends(get_quota),
+) -> AdminUserOut:
+    """Turn the trademark filter on or off for one account (v7 §A4).
+
+    Off, brand and character names may appear in that seller's listings; the
+    risk under Etsy's intellectual property policy is theirs. None returns the
+    account to TRADEMARK_FILTER.
+    """
+    target = await _target(session, tenant_id)
+    previous = target.trademark_filter
+    if previous != body.enabled:
+        target.trademark_filter = body.enabled
+        audit.record(
+            session,
+            "user.trademark_filter_changed",
+            actor=admin,
+            target_tenant_id=target.id,
+            previous=previous,
+            new=body.enabled,
         )
         await session.commit()
     return await _one(session, quota, target.id)

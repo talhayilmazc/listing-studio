@@ -31,6 +31,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
+from app.compliance.trademarks import blocklist_for
 from app.etsy.refresh import request_refresh
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.cost import CostCalculator, UnknownModelError
@@ -45,7 +46,7 @@ from app.pipeline.images import (
 from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
 from app.pipeline.archive import read_archive
 from app.pipeline.uploads import UploadRejected, UploadTooLarge
-from app.pipeline.llm import AnthropicLLMClient
+from app.pipeline.llm import client_for
 from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
@@ -621,8 +622,9 @@ async def generate_content(
             detail="LLM_API_KEY is not configured; content generation is unavailable.",
         )
 
-    client = AnthropicLLMClient(api_key=settings.llm_api_key, model=settings.llm_model)
-    analyzer = AnthropicVisionAnalyzer(client)
+    # Image analysis and listing text may run on different models (v7 §A2).
+    analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
+    client = client_for(settings, "content")
 
     # Per-group profile selection (v4 §E): each group uses its own assigned profile,
     # falling back to the batch-level default in the request body.
@@ -639,6 +641,8 @@ async def generate_content(
             profile_cache[profile_id] = p if p and p.tenant_id == tenant.id else None
         return profile_cache[profile_id]
 
+    trademarks = blocklist_for(tenant.trademark_filter)  # the account's setting (v7 §A4)
+
     def _generator(p: ListingProfile) -> AnthropicContentGenerator:
         if p.id not in generator_cache:
             generator_cache[p.id] = AnthropicContentGenerator(
@@ -646,6 +650,7 @@ async def generate_content(
                 template=load_template(f"content/{p.content_template}"),
                 policy=policy_for(p.content_template),
                 title_prefix=p.title_prefix or "",
+                trademarks=trademarks,
             )
         return generator_cache[p.id]
 

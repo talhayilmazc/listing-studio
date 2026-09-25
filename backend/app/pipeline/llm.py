@@ -75,6 +75,39 @@ class LLMClient(Protocol):
     ) -> LLMResult: ...
 
 
+# How each model family treats thinking (see the Claude API model table):
+# - Haiku 4.5 runs without thinking unless given a token budget, and takes no
+#   ``effort``: send neither.
+# - Fable, Mythos and Opus 5.5 always think; ``{"type": "disabled"}`` is a 400,
+#   so "off" means leaving the parameter out and asking for low effort.
+# - The rest (Sonnet 5, Opus 5, Opus 4.x, Sonnet 4.6) think adaptively when the
+#   parameter is omitted, so "off" must be said explicitly.
+_NO_THINKING_PARAM = ("claude-haiku",)
+_ALWAYS_THINKING = ("claude-fable", "claude-mythos", "claude-opus-5-5")
+#: Room for thinking plus the JSON answer; thinking counts against max_tokens.
+THINKING_MAX_TOKENS = 8000
+
+
+def thinking_params(model: str, mode: str, effort: str = "") -> dict[str, Any]:
+    """The ``thinking`` / ``output_config.effort`` request fields for this model."""
+    if model.startswith(_NO_THINKING_PARAM):
+        return {}
+    out: dict[str, Any] = {}
+    if model.startswith(_ALWAYS_THINKING):
+        out["effort"] = effort or ("low" if mode != "adaptive" else "")
+    elif mode == "adaptive":
+        out["thinking"] = {"type": "adaptive"}
+        if effort:
+            out["effort"] = effort
+    else:
+        out["thinking"] = {"type": "disabled"}
+        if effort:
+            out["effort"] = effort
+    if not out.get("effort"):
+        out.pop("effort", None)
+    return out
+
+
 class AnthropicLLMClient:
     """Concrete client backed by the Anthropic Messages API."""
 
@@ -85,9 +118,12 @@ class AnthropicLLMClient:
         model: str,
         messages_client: MessagesClient | None = None,
         max_tokens: int = 1024,
+        thinking: str = "off",
+        effort: str = "",
     ) -> None:
         self.model = model
         self._max_tokens = max_tokens
+        self._thinking = thinking_params(model, thinking, effort)
         if messages_client is not None:
             self._messages = messages_client
         else:
@@ -104,7 +140,10 @@ class AnthropicLLMClient:
         schema: dict[str, Any],
         max_tokens: int | None = None,
     ) -> dict[str, Any]:
-        return {
+        output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": schema}}
+        if "effort" in self._thinking:
+            output_config["effort"] = self._thinking["effort"]
+        params: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens or self._max_tokens,
             "system": [
@@ -115,8 +154,13 @@ class AnthropicLLMClient:
                 }
             ],
             "messages": [{"role": "user", "content": content_blocks}],
-            "output_config": {"format": {"type": "json_schema", "schema": schema}},
+            "output_config": output_config,
         }
+        if "thinking" in self._thinking:
+            params["thinking"] = self._thinking["thinking"]
+        if self._thinking.get("thinking", {}).get("type") == "adaptive" or self.model.startswith(_ALWAYS_THINKING):
+            params["max_tokens"] = max(params["max_tokens"], THINKING_MAX_TOKENS)
+        return params
 
     async def complete_json(
         self,
@@ -134,6 +178,18 @@ class AnthropicLLMClient:
         )
         response = await self._messages.create(**params)
         return LLMResult(data=_parse_json(response), usage=_usage(response, self.model))
+
+
+def client_for(settings: Any, role: str) -> AnthropicLLMClient:
+    """The client for ``role`` ("vision" or "content"), per VISION_MODEL /
+    CONTENT_MODEL (each falls back to LLM_MODEL)."""
+    model = (settings.vision_model if role == "vision" else settings.content_model) or settings.llm_model
+    return AnthropicLLMClient(
+        api_key=settings.llm_api_key,
+        model=model,
+        thinking=settings.llm_thinking,
+        effort=settings.llm_effort,
+    )
 
 
 def _parse_json(response: Any) -> dict[str, Any]:
