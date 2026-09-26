@@ -81,6 +81,8 @@ class AccountOut(BaseModel):
     must_change_password: bool
     # Shows the Admin entry in the UI. Never trusted: /api/admin re-checks it.
     is_admin: bool = False
+    # Features an admin turned on for this account (v7 §B); the server re-checks each.
+    features: dict[str, bool] = {}
 
 
 class InviteCreateRequest(BaseModel):
@@ -132,6 +134,7 @@ def _out(tenant: Tenant) -> AccountOut:
         daily_quota=tenant.daily_quota,
         must_change_password=tenant.must_change_password,
         is_admin=tenant.is_admin,
+        features={k: bool(v) for k, v in (tenant.features or {}).items()},
     )
 
 

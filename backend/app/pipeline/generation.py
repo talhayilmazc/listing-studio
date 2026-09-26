@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,6 +61,7 @@ async def generate_listing_content(
     analyzer: VisionAnalyzer,
     generator: ContentGenerator,
     profile: ListingProfile,
+    pattern: dict[str, Any] | None = None,
 ) -> GenerationOutcome:
     """Analyze the processed derivative, generate the listing, and persist it.
 
@@ -74,7 +76,8 @@ async def generate_listing_content(
         vision = await analyzer.analyze(image_data, media_type)
         usages.append(vision.usage)
         analysis = vision.analysis
-        result = await generator.generate(vision.analysis, sku)
+        # With ``pattern``, the listing follows one of the seller's own (v7 §B).
+        result = await generator.generate(vision.analysis, sku, pattern) if pattern else await generator.generate(vision.analysis, sku)
         usages.extend(result.usages)
     except ContentValidationError as exc:
         usages.extend(exc.usages)

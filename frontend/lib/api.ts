@@ -8,6 +8,7 @@ import type {
   BatchActionPreview,
   BatchDeleteResult,
   Personalization,
+  PatternListing,
   Schedule,
   ScheduleItem,
   ScheduleResult,
@@ -115,6 +116,8 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ max_shops: maxShops }),
       }),
+    setFeatures: (id: string, features: Record<string, boolean>) =>
+      req<AdminUser>(`/admin/users/${id}/features`, { method: "PUT", body: JSON.stringify({ features }) }),
     /** null = back to the app default (TRADEMARK_FILTER). */
     setTrademarkFilter: (id: string, enabled: boolean | null) =>
       req<AdminUser>(`/admin/users/${id}/trademark-filter`, {
@@ -215,6 +218,14 @@ export const api = {
   /** Refresh this shop's listings from Etsy now (upkeep, not the seller's quota). */
   syncShopListings: (shop?: string | null) =>
     req<{ queued: boolean }>(`/shop/listings/sync${shopQuery(shop)}`, { method: "POST" }),
+  /** The seller's own active listings to model new ones on (v7 §B). */
+  patternListings: (shop?: string | null, q = "") =>
+    req<PatternListing[]>(`/shop/pattern-listings${shopQuery(shop)}${q ? (shop ? "&" : "?") + "q=" + encodeURIComponent(q) : ""}`),
+  setGroupPattern: (batchId: string, groupKey: string, listingId: number | null) =>
+    req<Group[]>(`/batches/${batchId}/groups/pattern`, {
+      method: "PUT",
+      body: JSON.stringify({ group_key: groupKey, pattern_listing_id: listingId }),
+    }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

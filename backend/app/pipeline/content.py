@@ -187,6 +187,36 @@ def theme_errors(
     return errors
 
 
+def copied_design_run(title: str, source: str, min_words: int) -> str | None:
+    """The longest run of at least ``min_words`` consecutive words of ``source``
+    that ``title`` repeats, or None."""
+    a, b = _words(source), _words(title)
+    best: list[str] = []
+    for i in range(len(a)):
+        for j in range(len(b)):
+            k = 0
+            while i + k < len(a) and j + k < len(b) and a[i + k] == b[j + k]:
+                k += 1
+            if k > len(best):
+                best = a[i : i + k]
+    return " ".join(best) if len(best) >= min_words else None
+
+
+#: Following an example's pattern may repeat short stock phrases ("Gift for Her");
+#: five words in a row is copying its title (v7 §B).
+EXAMPLE_RUN_WORDS = 5
+
+
+def example_errors(title: str, example_title: str) -> list[str]:
+    run = copied_design_run(title, example_title, EXAMPLE_RUN_WORDS)
+    if run is None and title.strip().casefold() != example_title.strip().casefold():
+        return []
+    return [
+        f"the title copies the example listing ('{run or example_title}'): keep its pattern "
+        "(the kinds of phrases and their order) but take every subject from this design"
+    ]
+
+
 def copied_text_errors(title: str, embedded_text: str) -> list[str]:
     run = copied_design_text(title, embedded_text)
     if run is None:
@@ -394,7 +424,9 @@ def join_prefix(prefix: str | None, title: str) -> str:
 
 
 class ContentGenerator(Protocol):
-    async def generate(self, analysis: VisionAnalysis, sku: str | None = None) -> ContentResult: ...
+    async def generate(
+        self, analysis: VisionAnalysis, sku: str | None = None, pattern: dict[str, Any] | None = None
+    ) -> ContentResult: ...
 
 
 class AnthropicContentGenerator:
@@ -415,6 +447,24 @@ class AnthropicContentGenerator:
         self._max_tokens = max_tokens
         self._policy = policy
         self._title_prefix = (title_prefix or "").strip()
+
+    def _pattern_block(self, pattern: dict[str, Any]) -> dict[str, Any]:
+        """The seller's own listing to follow (v7 §B): its pattern, not its subject."""
+        tags = ", ".join(pattern.get("tags") or [])
+        return {
+            "type": "text",
+            "text": (
+                "Model this listing on one of the seller's own listings that has worked in "
+                "their shop. Keep its pattern: the kinds of phrases in the title and their "
+                "order (for example: subject and garment, then the humor, then the occasion, "
+                "then a gift phrase for the recipient), and the kinds of tags it uses "
+                "(occasion tags, recipient tags, garment tags, style tags). Take every "
+                "subject, theme, profession and recipient from THIS design's analysis above, "
+                "never from the example, and do not copy its title.\n"
+                f"Example title: {pattern.get('title') or ''}\n"
+                f"Example tags: {tags}"
+            ),
+        }
 
     def _content_blocks(self, analysis: VisionAnalysis, sku: str | None) -> list[dict[str, Any]]:
         text = self._template.render_user(
@@ -511,8 +561,11 @@ class AnthropicContentGenerator:
         sku: str | None,
         *,
         correction: dict[str, Any] | None = None,
+        pattern: dict[str, Any] | None = None,
     ) -> tuple[GeneratedListing, Usage]:
         blocks = self._content_blocks(analysis, sku)
+        if pattern:
+            blocks = [*blocks, self._pattern_block(pattern)]
         if correction is not None:
             blocks = [*blocks, correction]
         result = await self._client.complete_json(
@@ -523,7 +576,9 @@ class AnthropicContentGenerator:
         )
         return _to_listing(result.data), result.usage
 
-    async def generate(self, analysis: VisionAnalysis, sku: str | None = None) -> ContentResult:
+    async def generate(
+        self, analysis: VisionAnalysis, sku: str | None = None, pattern: dict[str, Any] | None = None
+    ) -> ContentResult:
         """Generate + validate, regenerating once on failure before giving up.
 
         The retry prompt carries the previous attempt's validation errors so the
@@ -533,7 +588,7 @@ class AnthropicContentGenerator:
         last_errors: list[str] = []
         correction: dict[str, Any] | None = None
         for attempt in range(2):
-            listing, usage = await self._generate_once(analysis, sku, correction=correction)
+            listing, usage = await self._generate_once(analysis, sku, correction=correction, pattern=pattern)
             usages.append(usage)
             listing = self._apply_prefix(listing)  # prepend the profile's title prefix
             # One character over is not a reason to throw the listing away (v7 §A3).
@@ -542,6 +597,8 @@ class AnthropicContentGenerator:
             if self._policy is not None and self._policy.describe_not_transcribe:
                 errors.extend(copied_text_errors(listing.title, analysis.embedded_text))
                 errors.extend(theme_errors(listing, analysis.themes, self._trademarks))
+            if pattern and pattern.get("title"):
+                errors.extend(example_errors(listing.title, str(pattern["title"])))
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
             last_errors = errors

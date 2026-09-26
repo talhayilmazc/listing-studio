@@ -142,6 +142,10 @@ class Tenant(Base):
     # an admin can turn it on or off per account. Off, brand names may appear in
     # this seller's listings, at the seller's own risk under Etsy's IP policy.
     trademark_filter: Mapped[bool | None] = mapped_column(Boolean)
+    # Features an admin turned on for this account (v7 §B), e.g. {"own_patterns": true}.
+    features: Mapped[dict[str, Any]] = mapped_column(
+        JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -387,6 +391,10 @@ class ListingGroupSetting(Base):
     )
     #: Set by the seller directly (a bulk apply-to-all won't overwrite it).
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: One of the seller's OWN listings whose title and tag pattern this group's
+    #: listing follows (v7 §B). Only the id is kept; its text is read from the
+    #: shop's own 6-hour listing cache when content is generated.
+    pattern_listing_id: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class Asset(Base):

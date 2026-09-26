@@ -108,6 +108,17 @@ class AdminUserOut(BaseModel):
     # This account's trademark filter (v7 §A4): None = the app default.
     trademark_filter: bool | None = None
     trademark_filter_effective: bool = True
+    # Features an admin turned on for this account (v7 §B).
+    features: dict[str, bool] = {}
+
+
+class FeaturesUpdate(BaseModel):
+    # Only the named features change; the rest stay as they are.
+    features: dict[str, bool]
+
+
+#: Features an admin can turn on per account.
+KNOWN_FEATURES = frozenset({"own_patterns"})
 
 
 class TrademarkFilterUpdate(BaseModel):
@@ -273,6 +284,7 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         quota_used_today=used_today,
         daily_quota=t.daily_quota,
         trademark_filter=t.trademark_filter,
+        features={k: bool(v) for k, v in (t.features or {}).items()},
         trademark_filter_effective=(
             t.trademark_filter if t.trademark_filter is not None else get_settings().trademark_filter
         ),
@@ -314,6 +326,35 @@ async def set_user_shop_limit(
             target_tenant_id=target.id,
             previous=previous,
             new=body.max_shops,
+        )
+        await session.commit()
+    return await _one(session, quota, target.id)
+
+
+@router.put("/users/{tenant_id}/features", response_model=AdminUserOut)
+async def set_user_features(
+    tenant_id: uuid.UUID,
+    body: FeaturesUpdate,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    quota: DailyQuota = Depends(get_quota),
+) -> AdminUserOut:
+    """Turn features on or off for one account (v7 §B), audited."""
+    unknown = set(body.features) - KNOWN_FEATURES
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"unknown feature: {', '.join(sorted(unknown))}")
+    target = await _target(session, tenant_id)
+    previous = dict(target.features or {})
+    merged = {**previous, **body.features}
+    if merged != previous:
+        target.features = merged
+        audit.record(
+            session,
+            "user.features_changed",
+            actor=admin,
+            target_tenant_id=target.id,
+            previous=previous,
+            new=merged,
         )
         await session.commit()
     return await _one(session, quota, target.id)

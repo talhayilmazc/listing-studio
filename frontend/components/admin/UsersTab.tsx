@@ -136,6 +136,18 @@ export function UsersTab({
                       <option value="on">Filter on</option>
                       <option value="off">Filter off</option>
                     </select>
+                    {/* v7 §B: model new listings on the seller's own. */}
+                    <label className="mt-1 flex items-center gap-1.5 text-xs text-slate-600" title="Let this seller model new listings on their own best listings">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(u.features?.own_patterns)}
+                        onChange={async (e) => {
+                          const next = await run(() => api.admin.setFeatures(u.id, { own_patterns: e.target.checked }));
+                          if (next) onChanged(next);
+                        }}
+                      />
+                      Own-listing patterns
+                    </label>
                   </td>
                   <td className="whitespace-nowrap px-3 py-3">
                     <StatusBadge user={u} />

@@ -41,6 +41,8 @@ export interface Group {
   profile_id: string | null;
   size_chart_profile_id: string | null;
   manual: boolean;
+  /** One of the seller's own listings this group follows (v7 §B). */
+  pattern_listing_id?: number | null;
 }
 
 export interface BatchDetail extends BatchSummary {
@@ -366,6 +368,19 @@ export interface Account {
   must_change_password: boolean;
   /** Shows the Admin entry. Never trusted: the server re-checks every admin request. */
   is_admin: boolean;
+  /** Features an admin turned on for this account (v7 §B). */
+  features?: Record<string, boolean>;
+}
+
+/** One of the seller's own listings a new listing can be modelled on (v7 §B). */
+export interface PatternListing {
+  listing_id: number;
+  title: string | null;
+  tags: string[];
+  state: string | null;
+  thumbnail_url: string | null;
+  url: string;
+  units_90d: number | null;
 }
 
 // --- Admin panel ------------------------------------------------------------
@@ -389,6 +404,7 @@ export interface AdminUser {
   /** This account's trademark filter (v7 §A4): null follows TRADEMARK_FILTER. */
   trademark_filter: boolean | null;
   trademark_filter_effective: boolean;
+  features?: Record<string, boolean>;
 }
 
 export type InviteState = "unused" | "used" | "expired" | "revoked";
