@@ -151,6 +151,10 @@ class Tenant(Base):
     features: Mapped[dict[str, Any]] = mapped_column(
         JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
     )
+    #: The seller's IANA time zone ("America/Chicago"): schedules are entered and
+    #: shown in it (app/core/timezones.py). Detected from the browser on first
+    #: sign-in; editable in Settings. None until then.
+    time_zone: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -1,5 +1,7 @@
 /** Presentation helpers shared across screens. No API or state logic here. */
 
+import { zoneAbbreviation } from "./schedule";
+
 /** "2 hours ago". Pair with `title={new Date(iso).toLocaleString()}` for the exact date. */
 export function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -25,11 +27,9 @@ export function etsyListingLink(listingId: number, state: string | null, url?: s
   return `https://www.etsy.com/your/shops/me/listing-editor/edit/${listingId}`;
 }
 
-/** When paused work resumes, in the viewer's own time zone ("Thu 03:00"). */
-export function resumeTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/** When paused work resumes, in the account's time zone, with it ("Thu 7:00 PM CDT"). */
+export function resumeTime(iso: string, zone: string): string {
+  const d = new Date(iso);
+  const text = d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: zone });
+  return `${text} ${zoneAbbreviation(d, zone)}`;
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "./SessionProvider";
 import type { Profile, Quota } from "@/lib/types";
@@ -110,7 +110,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
           {/* The entry is a convenience only; the server re-checks the role on every admin call. */}
           {(account?.is_admin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS).map((section) => (
             <div key={section.title} className="mb-5">
-              <p className="px-5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]/70">
+              <p className="px-5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-stone-400/70">
                 {section.title}
               </p>
               {section.items.map((item) => (
@@ -223,7 +223,7 @@ function ProfileChildren({
           onClick={onClose}
           className={
             "block py-[5px] pl-[46px] pr-5 text-[13px] transition-colors hover:text-[var(--rail-active)] " +
-            (onProfiles ? "text-[var(--rail-text)]" : "text-[var(--rail-text)]/70")
+            (onProfiles ? "text-[var(--rail-text)]" : "text-stone-400/70")
           }
         >
           <span>+<span>{profiles.length - 6}</span> more</span>
@@ -244,7 +244,23 @@ function RailFooter() {
   const { shops, slots, selected, select } = useShops();
   const [quota, setQuota] = useState<Quota | null>(null);
   const [open, setOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
   const shopId = selected?.id ?? null;
+
+  // The list closes on Escape or a click anywhere else.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onDown = (e: MouseEvent) => {
+      if (!switcherRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [open]);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +283,12 @@ function RailFooter() {
         <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--rail-text)]" title={account?.email}>
           {account?.email ?? ""}
         </span>
+        <Link
+          href="/settings"
+          className="shrink-0 rounded px-1 text-[11px] font-medium text-[var(--rail-text)] transition-colors hover:text-[var(--rail-active)]"
+        >
+          Settings
+        </Link>
         <button
           type="button"
           onClick={signOut}
@@ -285,71 +307,109 @@ function RailFooter() {
           Connect shop
         </Link>
       ) : (
-        <div className="relative">
+        <div className="relative" ref={switcherRef}>
+          <p className="mb-1 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]">
+            Shop
+          </p>
+          {/* The shop decides what most pages show, so the switcher reads as a
+              control: bordered, the name at full weight, and a visible way in. */}
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
             aria-haspopup="listbox"
-            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-white/[0.04]"
+            className={
+              "flex w-full items-center gap-3 rounded-xl border px-2.5 py-2.5 text-left transition-colors " +
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 " +
+              (open
+                ? "border-white/25 bg-white/[0.1]"
+                : "border-white/15 bg-white/[0.05] hover:border-white/25 hover:bg-white/[0.09]")
+            }
             title={selected ? `Showing ${selected.name}` : "Your shops"}
           >
-            <ShopBadge name={selected?.name ?? null} />
+            <ShopBadge name={selected?.name ?? null} active />
             <span className="min-w-0 flex-1">
               {selected === null ? (
-                <span className="block h-3.5 w-24 animate-pulse rounded bg-white/[0.08]" />
+                <span className="block h-4 w-28 animate-pulse rounded bg-white/[0.08]" />
               ) : (
                 <>
-                  <span className="block truncate text-[13px] font-medium text-[var(--rail-active)]">
+                  <span className="block truncate text-sm font-semibold text-[var(--rail-active)]">
                     {selected.name}
                   </span>
-                  {shops && shops.length > 1 && (
-                    <span key="span-306-18" className="block text-[11px] text-[var(--rail-text)]">
-                      <span><span>{shops.length}</span> shops · switch</span>
-                    </span>
-                  )}
+                  <span className="block text-[11px] text-white/70">
+                    {shops && shops.length > 1 ? (
+                      <span key="many">
+                        <span>Switch · </span>
+                        <span translate="no">{shops.length}</span>
+                        <span> shops</span>
+                      </span>
+                    ) : (
+                      <span key="one">Manage shops</span>
+                    )}
+                  </span>
                 </>
               )}
             </span>
-            <svg aria-hidden width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-[var(--rail-text)]">
-              <path d="M7 10l5-5 5 5M7 14l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <span
+              aria-hidden
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/[0.1] text-[var(--rail-active)]"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M7 10l5-5 5 5M7 14l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
           </button>
 
           {open && shops && (
-            <div key="div-319-10"
+            <div key="shop-list"
               role="listbox"
               aria-label="Your shops"
-              className="absolute inset-x-0 bottom-full z-10 mb-1 overflow-hidden rounded-lg border border-white/[0.1] bg-[var(--rail)] shadow-lg"
+              className="absolute inset-x-0 bottom-full z-10 mb-2 overflow-hidden rounded-xl border border-white/15 bg-[#26221f] shadow-2xl"
             >
-              {shops.map((shop) => (
-                <button
-                  key={shop.id}
-                  type="button"
-                  role="option"
-                  aria-selected={shop.id === selected?.id}
-                  onClick={() => {
-                    select(shop.id);
-                    setOpen(false);
-                  }}
-                  className={
-                    "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/[0.06] " +
-                    (shop.id === selected?.id ? "text-[var(--rail-active)]" : "text-[var(--rail-text)]")
-                  }
-                >
-                  <ShopBadge name={shop.name} small />
-                  <span className="min-w-0 flex-1 truncate">{shop.name}</span>
-                  {shop.id === selected?.id && <span key="span-342-18" aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-                </button>
-              ))}
+              <p className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]">
+                Your shops
+              </p>
+              {shops.map((shop) => {
+                const current = shop.id === selected?.id;
+                return (
+                  <button
+                    key={shop.id}
+                    type="button"
+                    role="option"
+                    aria-selected={current}
+                    onClick={() => {
+                      select(shop.id);
+                      setOpen(false);
+                    }}
+                    className={
+                      "relative flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors " +
+                      (current
+                        ? "bg-white/[0.08] font-semibold text-[var(--rail-active)]"
+                        : "text-white/85 hover:bg-white/[0.06] hover:text-[var(--rail-active)]")
+                    }
+                  >
+                    {current && <span key="bar" aria-hidden className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-brand-500" />}
+                    <ShopBadge name={shop.name} active={current} />
+                    <span className="min-w-0 flex-1 truncate">{shop.name}</span>
+                    {current ? (
+                      <span key="cur" className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-400">
+                        <svg aria-hidden width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <path d="M5 12l5 5L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span>Current</span>
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
               <Link
                 href="/connect"
                 onClick={() => setOpen(false)}
-                className="block border-t border-white/[0.08] px-3 py-2 text-[12px] text-[var(--rail-text)] transition-colors hover:bg-white/[0.06] hover:text-[var(--rail-active)]"
+                className="block border-t border-white/[0.08] px-3 py-2.5 text-[12px] text-[var(--rail-text)] transition-colors hover:bg-white/[0.06] hover:text-[var(--rail-active)]"
               >
                 <span>{slots?.can_add ? "Connect another shop · manage" : "Manage shops"}</span>
                 {slots && (
-                  <span key="span-351-16" className="ml-1 text-[var(--rail-text)]/70">
+                  <span key="slots" translate="no" className="ml-1 text-stone-400/70">
                     <span>(<span>{slots.used}</span> of <span>{slots.limit}</span>)</span>
                   </span>
                 )}
@@ -391,7 +451,7 @@ function RailFooter() {
   );
 }
 
-function ShopBadge({ name, small }: { name: string | null; small?: boolean }) {
+function ShopBadge({ name, active }: { name: string | null; active?: boolean }) {
   const initials = (name ?? "")
     .split(/\s+/)
     .filter(Boolean)
@@ -401,8 +461,8 @@ function ShopBadge({ name, small }: { name: string | null; small?: boolean }) {
   return (
     <span
       className={
-        "flex shrink-0 items-center justify-center rounded-md bg-white/[0.08] font-semibold text-[var(--rail-active)] " +
-        (small ? "h-5 w-5 text-[9px]" : "h-7 w-7 text-[11px]")
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[12px] font-semibold " +
+        (active ? "bg-brand-500 text-white" : "bg-white/[0.1] text-[var(--rail-active)]")
       }
     >
       {initials || "—"}

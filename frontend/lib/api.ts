@@ -109,6 +109,9 @@ export class ApiError extends Error {
 export const api = {
   // --- Account (production-spec A). Session travels in an HttpOnly cookie,
   // which same-origin fetch sends automatically.
+  /** The account's time zone; `detected` only fills it when empty (first sign-in). */
+  setTimeZone: (timeZone: string, detected = false) =>
+    req<Account>("/account/time-zone", { method: "PUT", body: JSON.stringify({ time_zone: timeZone, detected }) }),
   me: () => req<Account>("/account/me"),
   login: (email: string, password: string) =>
     req<Account>("/account/login", {

@@ -20,6 +20,7 @@ import { BulkSchedule, schedulableDrafts } from "@/components/BulkSchedule";
 import { useShops } from "@/components/ShopProvider";
 
 import { Txt } from "@/components/Txt";
+import { useSession } from "@/components/SessionProvider";
 interface Progress {
   label: string;
   total: number;
@@ -45,6 +46,7 @@ interface Outcome {
 }
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
+  const { timeZone } = useSession();
   const { id } = params;
   const [items, setItems] = useState<Content[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -383,7 +385,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             <p key="p-381-10" role="status" translate="no" className="text-xs text-amber-800">
               <span><span>{progress.paused}</span> <span>{progress.paused === 1 ? "listing is" : "listings are"}</span> queued, not
               failed. <span>{progress.pause.message}</span> That is around{" "}
-              <span>{resumeTime(progress.pause.resumes_at)}</span> your time.</span>
+              <span>{resumeTime(progress.pause.resumes_at, timeZone)}</span>.</span>
             </p>
           )}
         </div>
@@ -528,6 +530,7 @@ function PublishResult({
   titleOf: (contentId: string) => string;
   onDismiss: () => void;
 }) {
+  const { timeZone } = useSession();
   const publishing = progress.label.startsWith("Publish");
   const ok = progress.outcomes.filter((o) => o.ok);
   const bad = progress.outcomes.filter((o) => !o.ok);
@@ -597,7 +600,7 @@ function PublishResult({
       )}
       {progress.pause && (
         <p key="p-597-6" className="text-xs text-amber-800">
-          <span>Queued, not failed: <span>{progress.pause.message}</span> That is around <span>{resumeTime(progress.pause.resumes_at)}</span> your time.</span>
+          <span>Queued, not failed: <span>{progress.pause.message}</span> That is around <span>{resumeTime(progress.pause.resumes_at, timeZone)}</span>.</span>
         </p>
       )}
     </div>

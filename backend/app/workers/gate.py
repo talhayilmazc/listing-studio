@@ -12,6 +12,11 @@ Run first by every worker entry point:
   Pausing *before* the first request means a multi-request job such as a publish
   is never cut off halfway at the hard wall. The reason is recorded on the job
   row and in a per-tenant marker, so the seller is told why their work waits.
+* **Scheduled go-lives come first.** The requests the seller's scheduled
+  publishes still need before the reset are held back from every other job, so
+  a batch run earlier in the day can't use them up and push a scheduled listing
+  to the reset (00:00 UTC is 7 PM in US Central summer time: a 5 PM schedule
+  would go out two hours late).
 """
 
 from __future__ import annotations
@@ -20,9 +25,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Job, JobStatus, Tenant, TenantStatus
+from app.db.models import Job, JobStatus, ListingPublication, Tenant, TenantStatus
 from app.etsy.calllog import current_job
 from app.etsy.rate_limiter import PAUSE_TENANT
 
@@ -82,6 +88,32 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+#: The job a due schedule releases; it may use what is held back for it.
+SCHEDULED_GO_LIVE = "run_publish_live_job"
+
+
+async def scheduled_reserve(ctx: dict[str, Any], tenant_id: Any) -> int:
+    """Requests this tenant's scheduled go-lives still need before the next reset."""
+    sessionmaker = ctx.get("sessionmaker")
+    if sessionmaker is None:
+        return 0
+    until = next_reset(_now())
+    async with sessionmaker() as session:
+        due = await session.scalar(
+            select(func.count())
+            .select_from(ListingPublication)
+            .where(
+                ListingPublication.tenant_id == tenant_id,
+                ListingPublication.scheduled_for.is_not(None),
+                ListingPublication.scheduled_for < until,
+                ListingPublication.schedule_job_id.is_(None),
+                ListingPublication.schedule_note.is_(None),
+                ListingPublication.state != "active",
+            )
+        )
+    return int(due or 0) * JOB_COST[SCHEDULED_GO_LIVE]
+
+
 async def check(ctx: dict[str, Any], tenant: Tenant | None, function: str) -> Verdict:
     """May this tenant's job start now?"""
     if tenant is None or tenant.status is TenantStatus.suspended:
@@ -92,7 +124,16 @@ async def check(ctx: dict[str, Any], tenant: Tenant | None, function: str) -> Ve
     if function in UPKEEP:
         reason = await quota.admission_upkeep(JOB_COST[function])
     else:
-        reason = await quota.admission(tenant.id, tenant.daily_quota, JOB_COST[function])
+        cost = JOB_COST[function]
+        reason = await quota.admission(tenant.id, tenant.daily_quota, cost)
+        if reason is None and function != SCHEDULED_GO_LIVE:
+            # With go-lives waiting, the whole job must fit beside them (no
+            # first-job-of-the-day allowance), or it could eat what they need.
+            reserve = await scheduled_reserve(ctx, tenant.id)
+            if reserve:
+                tenant_used, _ = await quota.usage(tenant.id)
+                if tenant_used + cost + reserve > tenant.daily_quota:
+                    reason = PAUSE_TENANT
     if reason is None:
         return RUN
     await quota.mark_paused(tenant.id, reason)

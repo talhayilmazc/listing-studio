@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { dayKey, fromLocalInput, scheduleLabel, toLocalInput } from "@/lib/schedule";
+import { addDays, dayKey, formatTime, formatWhen, scheduleLabel, toWallClock, wallToInstant } from "@/lib/schedule";
+import { useSession } from "@/components/SessionProvider";
+import { ZoneNote } from "@/components/ZoneNote";
 import type { Schedule } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
 
@@ -25,6 +27,7 @@ const DAYS_SHOWN = 14;
  */
 export default function ScheduledPage() {
   const { shops } = useShops();
+  const { timeZone } = useSession();
   const [rows, setRows] = useState<Schedule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,11 +48,11 @@ export default function ScheduledPage() {
   const byDay = useMemo(() => {
     const m = new Map<string, Schedule[]>();
     for (const r of rows ?? []) {
-      const k = dayKey(new Date(r.scheduled_for));
+      const k = dayKey(new Date(r.scheduled_for), timeZone);
       m.set(k, [...(m.get(k) ?? []), r]);
     }
     return m;
-  }, [rows]);
+  }, [rows, timeZone]);
 
   const upcoming = (rows ?? []).filter((r) => r.status === "scheduled" || r.status === "waiting").length;
   const multiShop = (shops?.length ?? 0) > 1;
@@ -57,17 +60,18 @@ export default function ScheduledPage() {
   return (
     <div className="space-y-6">
       <p className="max-w-2xl text-sm text-slate-500">
-        Drafts you approved and chose a time for. Each goes live at its time (your time zone) unless
-        you cancel it; if the day&apos;s Etsy budget is used up, it waits for the next day and says so
-        here. Schedule drafts from a batch&apos;s review page.
+        Drafts you approved and chose a time for. Each goes live at its time in your account&apos;s
+        time zone unless you cancel it; the budget scheduled go-lives need is kept for them. Schedule
+        drafts from a batch&apos;s review page.
       </p>
+      <ZoneNote />
 
       {error && <div key="div-64-6" className="card p-3 text-sm text-rose-700">{error}</div>}
       {rows === null && !error && <p key="p-65-6" className="text-sm text-slate-400">Loading…</p>}
 
       {rows !== null && (
         <>
-          <DayStrip byDay={byDay} />
+          <DayStrip byDay={byDay} timeZone={timeZone} />
           {rows.length === 0 ? (
             <div className="card p-6 text-sm text-slate-600">
               Nothing is scheduled. On a batch&apos;s review page, use <b>Schedule</b> on a draft, or{" "}
@@ -85,10 +89,11 @@ export default function ScheduledPage() {
           {[...byDay.entries()].map(([day, list]) => (
             <section key={day} className="space-y-2">
               <h2 className="border-b border-slate-200 pb-1 font-display text-lg text-slate-900">
-                <span>{new Date(day + "T00:00").toLocaleDateString(undefined, {
+                <span>{new Date(day + "T12:00:00Z").toLocaleDateString(undefined, {
                   weekday: "long",
                   day: "numeric",
                   month: "long",
+                  timeZone: "UTC",
                 })}</span>
                 <span className="ml-2 text-xs font-normal text-slate-400">{list.length}</span>
               </h2>
@@ -106,17 +111,15 @@ export default function ScheduledPage() {
 }
 
 /** The next two weeks, with how many go live each day. */
-function DayStrip({ byDay }: { byDay: Map<string, Schedule[]> }) {
-  const days = Array.from({ length: DAYS_SHOWN }, (_, i) => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
+function DayStrip({ byDay, timeZone }: { byDay: Map<string, Schedule[]>; timeZone: string }) {
+  // Today and the next days on the account zone's calendar; each day is drawn
+  // from its calendar date at noon UTC, so no zone can shift it a day.
+  const today = toWallClock(new Date(), timeZone).slice(0, 10) + "T12:00";
+  const days = Array.from({ length: DAYS_SHOWN }, (_, i) => new Date(addDays(today, i) + ":00Z"));
   return (
     <div className="grid grid-cols-7 gap-1.5" aria-label="Next two weeks">
       {days.map((d) => {
-        const n = (byDay.get(dayKey(d)) ?? []).length;
+        const n = (byDay.get(d.toISOString().slice(0, 10)) ?? []).length;
         return (
           <div
             key={d.toISOString()}
@@ -127,9 +130,9 @@ function DayStrip({ byDay }: { byDay: Map<string, Schedule[]> }) {
             title={`${n} scheduled`}
           >
             <div className="text-[10px] uppercase tracking-wide text-slate-400">
-              {d.toLocaleDateString(undefined, { weekday: "short" })}
+              {d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })}
             </div>
-            <div className="text-sm text-slate-700">{d.getDate()}</div>
+            <div className="text-sm text-slate-700">{d.getUTCDate()}</div>
             <div translate="no" className={"text-xs tabular-nums " + (n > 0 ? "font-medium text-brand-700" : "text-slate-300")}>
               {n || "–"}
             </div>
@@ -141,21 +144,22 @@ function DayStrip({ byDay }: { byDay: Map<string, Schedule[]> }) {
 }
 
 function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; onChanged: () => void }) {
+  const { timeZone } = useSession();
   const at = new Date(row.scheduled_for);
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(toLocalInput(at));
+  const [value, setValue] = useState(toWallClock(at, timeZone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const changeable = row.status === "scheduled" || row.status === "not_published";
 
   async function save() {
-    const when = fromLocalInput(value);
-    if (!when) return setError("Choose a date and time.");
+    if (!value) return setError("Choose a date and time.");
+    if (!wallToInstant(value, timeZone)) return setError("That time doesn't exist in your time zone (the clocks skip it).");
     setBusy(true);
     setError(null);
     try {
       const res = await api.schedule([
-        { content_id: row.content_id, connection_id: row.connection_id, run_at: when.toISOString() },
+        { content_id: row.content_id, connection_id: row.connection_id, local_time: value },
       ]);
       if (res.skipped.length) setError(res.skipped[0].reason);
       else {
@@ -183,8 +187,8 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
 
   return (
     <li className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-      <span translate="no" className="w-20 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800">
-        {at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+      <span translate="no" className="w-28 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800">
+        {formatTime(at, timeZone)}
       </span>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={api.assetImage(row.asset_id, 112)} alt="" className="h-10 w-10 shrink-0 rounded object-cover" />
@@ -202,7 +206,12 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
             review
           </Link>
         </span>
-        {row.note && <span key="span-204-8" className="block text-xs text-amber-800">{row.note}</span>}
+        {row.status === "waiting" && row.resumes_at && (
+          <span key="resumes" translate="no" className="block text-xs text-amber-800">
+            {`The day's Etsy budget ran out; it goes live after the reset, at ${formatWhen(row.resumes_at, timeZone)}.`}
+          </span>
+        )}
+        {row.note && row.status !== "waiting" && <span key="span-204-8" className="block text-xs text-amber-800">{row.note}</span>}
         {error && <span key="span-205-8" className="block text-xs text-rose-700">{error}</span>}
       </span>
       <span translate="no" className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium " + (TONE[row.status] ?? TONE.scheduled)}>
@@ -219,12 +228,12 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
         </span>
       )}
       {editing && (
-        <span key="span-220-6" className="flex w-full flex-wrap items-center gap-2 pl-[5.75rem] text-xs">
+        <span key="span-220-6" className="flex w-full flex-wrap items-center gap-2 pl-[7.75rem] text-xs">
           <input
             type="datetime-local"
             className="field w-auto py-1 text-xs"
             value={value}
-            min={toLocalInput(new Date())}
+            min={toWallClock(new Date(), timeZone)}
             onChange={(e) => setValue(e.target.value)}
             aria-label="New time"
           />

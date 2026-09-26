@@ -16,6 +16,7 @@ import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
 
 import { Txt } from "@/components/Txt";
+import { useSession } from "./SessionProvider";
 const MIN_TITLE = 110;
 const MAX_TITLE = 140;
 const MAX_TAG = 20;
@@ -55,6 +56,7 @@ export function ReviewCard({
    * bulk actions update without a reload (docs/duzeltmeler-v5.md §C). */
   onChange?: (change: Partial<Content> & { id: string }) => void;
 }) {
+  const { timeZone } = useSession();
   const [title, setTitle] = useState(initial.title ?? "");
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
@@ -407,7 +409,7 @@ export function ReviewCard({
             {publishError && <p key="p-406-12" className="mt-2 text-right text-xs text-rose-700">{publishError}</p>}
             {pause && publishState === "paused" && (
               <p key="p-407-12" role="status" translate="no" className="mt-2 text-right text-xs text-amber-800">
-                <span>Queued, not failed. <span>{pause.message}</span> That is around <span>{resumeTime(pause.resumes_at)}</span> your time.</span>
+                <span>Queued, not failed. <span>{pause.message}</span> That is around <span>{resumeTime(pause.resumes_at, timeZone)}</span>.</span>
               </p>
             )}
             {publications.some((p) => p.state === "active") ? (

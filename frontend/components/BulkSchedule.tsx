@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { fromLocalInput, nextHour, spreadTimes, toLocalInput } from "@/lib/schedule";
+import { formatWhen, nextHour, spreadTimes, toWallClock, wallToInstant } from "@/lib/schedule";
+import { useSession } from "./SessionProvider";
+import { ZoneNote } from "./ZoneNote";
 import type { Content, ScheduleItem, ScheduleResult } from "@/lib/types";
 
 import { Txt } from "@/components/Txt";
@@ -19,8 +21,6 @@ export function schedulableDrafts(items: Content[]): { content: Content; connect
   return out;
 }
 
-const fmt = (d: Date) => d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-
 /**
  * Schedule many approved drafts at once (v6 §G): one start time, optionally so
  * many a day, optionally spaced apart. The times are worked out here in the
@@ -28,17 +28,21 @@ const fmt = (d: Date) => d.toLocaleString(undefined, { dateStyle: "medium", time
  */
 export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () => void }) {
   const drafts = useMemo(() => schedulableDrafts(items), [items]);
-  const [start, setStart] = useState(() => toLocalInput(nextHour()));
+  const { timeZone } = useSession();
+  const [start, setStart] = useState(() => nextHour(timeZone));
   const [perDay, setPerDay] = useState("");
   const [spacing, setSpacing] = useState("0");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ScheduleResult | null>(null);
 
-  const startAt = fromLocalInput(start);
+  // Worked out on the account zone's calendar: "the next day at 17:00" stays 17:00
+  // across a daylight-saving change. The server converts each time once.
+  const startAt = start ? wallToInstant(start, timeZone) : null;
   const daily = perDay ? Math.max(1, parseInt(perDay, 10) || 0) : null;
   const gap = Math.max(0, parseInt(spacing, 10) || 0);
-  const times = startAt ? spreadTimes(startAt, drafts.length, daily, gap) : [];
+  const times = startAt ? spreadTimes(start, drafts.length, daily, gap) : [];
+  const instants = times.map((w) => wallToInstant(w, timeZone));
   const past = startAt !== null && startAt.getTime() < Date.now() - 60_000;
 
   async function confirm() {
@@ -49,7 +53,7 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
       const payload: ScheduleItem[] = drafts.map((d, i) => ({
         content_id: d.content.id,
         connection_id: d.connectionId,
-        run_at: times[i].toISOString(),
+        local_time: times[i],
       }));
       // Never moves a draft that already has a time (set on its card meanwhile).
       setResult(await api.schedule(payload, false));
@@ -99,8 +103,9 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
     <div className="card space-y-3 p-4 text-sm">
       <p className="text-slate-700">
         <span><span>Schedule </span><span>{drafts.length}</span><span> approved draft</span><Txt>{drafts.length === 1 ? "" : "s"}</Txt><span> to go live. Times
-        are in your time zone; each can still be changed or cancelled on its own.</span></span>
+        are in your account&apos;s time zone; each can still be changed or cancelled on its own.</span></span>
       </p>
+      <ZoneNote />
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-500">
           First one at
@@ -108,7 +113,7 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
             type="datetime-local"
             className="field mt-1 block w-auto py-1 text-sm"
             value={start}
-            min={toLocalInput(new Date())}
+            min={toWallClock(new Date(), timeZone)}
             onChange={(e) => setStart(e.target.value)}
           />
         </label>
@@ -143,7 +148,9 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
         <ol key="ol-141-6" className="max-h-48 space-y-0.5 overflow-y-auto text-xs text-slate-600">
           {drafts.map((d, i) => (
             <li key={`${d.content.id}-${d.connectionId}`} className="flex gap-3">
-              <span translate="no" className="w-44 shrink-0 tabular-nums text-slate-800">{fmt(times[i])}</span>
+              <span translate="no" className="w-52 shrink-0 tabular-nums text-slate-800">
+                {instants[i] ? formatWhen(instants[i]!, timeZone) : "skipped by the clock change"}
+              </span>
               <span className="truncate">
                 <Txt>{d.content.title ?? d.content.original_filename}</Txt>
                 <span className="text-slate-400"><span> · <span>{d.shop}</span></span></span>

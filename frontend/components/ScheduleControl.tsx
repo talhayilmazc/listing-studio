@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { fromLocalInput, nextHour, scheduleLabel, toLocalInput } from "@/lib/schedule";
+import { formatWhen, nextHour, scheduleLabel, toWallClock, wallToInstant } from "@/lib/schedule";
+import { useSession } from "./SessionProvider";
+import { ZoneNote } from "./ZoneNote";
 import type { Publication } from "@/lib/types";
 
 /**
@@ -25,24 +27,27 @@ export function ScheduleControl({
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { timeZone } = useSession();
   const at = publication.scheduled_for ? new Date(publication.scheduled_for) : null;
   const status = publication.schedule_status;
   const pending = at !== null && (status === "scheduled" || status === "not_published" || !status);
 
   function open() {
-    setValue(toLocalInput(at && at > new Date() ? at : nextHour()));
+    // The input holds the account zone's wall clock, whatever this computer's zone.
+    setValue(at && at > new Date() ? toWallClock(at, timeZone) : nextHour(timeZone));
     setError(null);
     setEditing(true);
   }
 
   async function save() {
-    const when = fromLocalInput(value);
-    if (!when) return setError("Choose a date and time.");
+    if (!value) return setError("Choose a date and time.");
+    if (!wallToInstant(value, timeZone)) return setError("That time doesn't exist in your time zone (the clocks skip it).");
     setBusy(true);
     setError(null);
     try {
+      // Sent as the wall-clock time; the server converts it to UTC once.
       const res = await api.schedule([
-        { content_id: contentId, connection_id: publication.connection_id, run_at: when.toISOString() },
+        { content_id: contentId, connection_id: publication.connection_id, local_time: value },
       ]);
       if (res.skipped.length) {
         setError(res.skipped[0].reason);
@@ -84,7 +89,7 @@ export function ScheduleControl({
           type="datetime-local"
           className="field w-auto py-1 text-xs"
           value={value}
-          min={toLocalInput(new Date())}
+          min={toWallClock(new Date(), timeZone)}
           onChange={(e) => setValue(e.target.value)}
         />
         <button type="button" className="btn-primary px-2.5 py-1 text-xs" onClick={save} disabled={busy}>
@@ -93,7 +98,7 @@ export function ScheduleControl({
         <button type="button" className="text-slate-500 hover:text-slate-800" onClick={() => setEditing(false)}>
           Cancel
         </button>
-        <span className="text-slate-400">your time zone</span>
+        <ZoneNote />
         {error && <span key="span-97-8" className="w-full text-rose-700">{error}</span>}
       </span>
     );
@@ -105,7 +110,7 @@ export function ScheduleControl({
         <span>
           <span className="font-medium text-slate-800">{scheduleLabel(status)}</span>
           <span>{" · "}
-          <span>{at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></span>
+          <span translate="no">{formatWhen(at, timeZone)}</span></span>
         </span>
         {publication.schedule_note && <span key="span-110-8" className="text-amber-800">{publication.schedule_note}</span>}
         {pending && (

@@ -370,6 +370,8 @@ export interface Account {
   is_admin: boolean;
   /** Features an admin turned on for this account (v7 §B). */
   features?: Record<string, boolean>;
+  /** IANA zone schedules are entered and shown in; null until detected. */
+  time_zone?: string | null;
 }
 
 /** One of the seller's own listings a new listing can be modelled on (v7 §B). */
@@ -490,13 +492,18 @@ export interface Schedule {
   scheduled_for: string;
   status: string;
   note: string | null;
+  /** The account zone the time is shown in, and its abbreviation then ("CDT"). */
+  time_zone?: string | null;
+  zone_abbreviation?: string | null;
+  /** While waiting for the daily budget: when it goes out instead. */
+  resumes_at?: string | null;
 }
 
 export interface ScheduleItem {
   content_id: string;
   connection_id: string;
-  /** UTC ISO time. */
-  run_at: string;
+  /** Wall-clock time in the account's zone ("2026-09-28T17:00"); the server converts it. */
+  local_time: string;
 }
 
 export interface ScheduleResult {

@@ -156,8 +156,11 @@ class PublicationOut(BaseModel):
 class ScheduleItem(BaseModel):
     content_id: uuid.UUID
     connection_id: uuid.UUID
-    #: When to go live, with its time zone (the browser sends UTC).
-    run_at: datetime
+    #: When to go live as a wall-clock time in the account's time zone
+    #: ("2026-09-28T17:00"); converted to UTC once, on save.
+    local_time: str | None = Field(default=None, max_length=32)
+    #: Or the exact instant, with its zone (API clients).
+    run_at: datetime | None = None
 
 
 class ScheduleRequest(BaseModel):
@@ -179,6 +182,12 @@ class ScheduleOut(BaseModel):
     #: "scheduled" | "publishing" | "waiting" | "published" | "failed" | "not_published"
     status: str
     note: str | None = None
+    #: The account's time zone the time is shown in (IANA name), and its
+    #: abbreviation at that instant ("CDT").
+    time_zone: str | None = None
+    zone_abbreviation: str | None = None
+    #: While waiting for the daily budget: when it goes out instead (UTC).
+    resumes_at: datetime | None = None
 
 
 class ScheduleSkipped(BaseModel):

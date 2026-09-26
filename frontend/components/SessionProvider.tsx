@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { browserZone } from "@/lib/schedule";
 import type { Account } from "@/lib/types";
 
 /**
@@ -26,6 +27,8 @@ export function isPublicRoute(pathname: string): boolean {
 
 interface SessionValue {
   account: Account | null;
+  /** The zone schedules are entered and shown in: the account's, else this computer's. */
+  timeZone: string;
   /** True until the first /account/me answer lands. */
   loading: boolean;
   setAccount: (account: Account | null) => void;
@@ -35,6 +38,7 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue>({
   account: null,
+  timeZone: "UTC",
   loading: true,
   setAccount: () => {},
   refresh: async () => {},
@@ -64,6 +68,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // First sign-in: take the account's time zone from this computer. Only fills
+  // an empty value; a zone chosen in Settings is never overridden.
+  useEffect(() => {
+    if (!account || account.time_zone || account.must_change_password) return;
+    api
+      .setTimeZone(browserZone(), true)
+      .then(setAccount)
+      .catch(() => {});
+  }, [account]);
 
   const signOut = useCallback(async () => {
     try {
@@ -96,7 +110,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [account, loading, pathname, router]);
 
   return (
-    <SessionContext.Provider value={{ account, loading, setAccount, refresh, signOut }}>
+    <SessionContext.Provider
+      value={{ account, timeZone: account?.time_zone || browserZone(), loading, setAccount, refresh, signOut }}
+    >
       {children}
     </SessionContext.Provider>
   );

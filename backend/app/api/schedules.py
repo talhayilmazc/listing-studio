@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import active_tenant, get_session
+from app.core.timezones import TimeRefused, to_utc, zone_abbreviation
 from app.compliance.check import listing_problem
 from app.db.models import EtsyConnection, GeneratedContent, Job, ListingPublication, Tenant
 from app.etsy.publisher import link_for
@@ -35,6 +36,7 @@ def schedule_out(
     content: GeneratedContent,
     connection: EtsyConnection,
     job: Job | None,
+    zone: str | None = None,
 ) -> schemas.ScheduleOut:
     from app.api.shops import shop_label
 
@@ -53,6 +55,9 @@ def schedule_out(
         scheduled_for=publication.scheduled_for,
         status=state.status,
         note=state.note,
+        time_zone=zone,
+        zone_abbreviation=zone_abbreviation(publication.scheduled_for, zone) if zone else None,
+        resumes_at=job.scheduled_at if job is not None and state.status == "waiting" else None,
     )
 
 
@@ -103,7 +108,7 @@ async def list_schedules(
     if shop is not None:
         query = query.where(ListingPublication.connection_id == shop)
     rows = await session.execute(query)
-    return [schedule_out(p, c, conn, job) for p, c, conn, job in rows.all()]
+    return [schedule_out(p, c, conn, job, tenant.time_zone) for p, c, conn, job in rows.all()]
 
 
 @router.post("/schedules", response_model=schemas.ScheduleResult)
@@ -136,13 +141,28 @@ async def schedule(
         if problem:
             skip(problem)
             continue
+        # The one conversion to UTC: the seller's wall-clock time in their zone.
+        if item.local_time is not None:
+            if not tenant.time_zone:
+                skip("set your time zone in Settings first")
+                continue
+            try:
+                run_at = to_utc(item.local_time, tenant.time_zone)
+            except TimeRefused as exc:
+                skip(str(exc))
+                continue
+        elif item.run_at is not None:
+            run_at = item.run_at
+        else:
+            skip("choose a date and time")
+            continue
         try:
-            await set_schedule(session, content, publication, item.run_at)
+            await set_schedule(session, content, publication, run_at)
         except ScheduleRefused as exc:
             skip(str(exc))
             continue
         await session.flush()
-        result.scheduled.append(schedule_out(publication, content, connection, None))
+        result.scheduled.append(schedule_out(publication, content, connection, None, tenant.time_zone))
     await session.commit()
     return result
 

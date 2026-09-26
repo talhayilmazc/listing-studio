@@ -32,6 +32,7 @@ from app.core.passwords import (
     verify_password,
 )
 from app.core.sessions import SESSION_COOKIE, SessionStore
+from app.core.timezones import valid_zone
 from app.db.models import InviteCode, Tenant, TenantStatus
 
 router = APIRouter(prefix="/api/account", tags=["account"])
@@ -83,6 +84,15 @@ class AccountOut(BaseModel):
     is_admin: bool = False
     # Features an admin turned on for this account (v7 §B); the server re-checks each.
     features: dict[str, bool] = {}
+    # IANA time zone schedules are entered and shown in; None until first set.
+    time_zone: str | None = None
+
+
+class TimeZoneRequest(BaseModel):
+    time_zone: str = Field(min_length=1, max_length=64)
+    #: True when the browser sets it on first sign-in: only fills an empty value,
+    #: so it never overrides a zone the seller chose in Settings.
+    detected: bool = False
 
 
 class InviteCreateRequest(BaseModel):
@@ -135,6 +145,7 @@ def _out(tenant: Tenant) -> AccountOut:
         must_change_password=tenant.must_change_password,
         is_admin=tenant.is_admin,
         features={k: bool(v) for k, v in (tenant.features or {}).items()},
+        time_zone=tenant.time_zone,
     )
 
 
@@ -269,6 +280,24 @@ async def logout(
 @router.get("/me", response_model=AccountOut)
 async def me(tenant: Tenant = Depends(current_tenant)) -> AccountOut:
     """Who this session belongs to. 401 without one."""
+    return _out(tenant)
+
+
+@router.put("/time-zone", response_model=AccountOut)
+async def set_time_zone(
+    body: TimeZoneRequest,
+    tenant: Tenant = Depends(current_tenant),
+    session: AsyncSession = Depends(get_session),
+) -> AccountOut:
+    """The account's time zone for scheduling. Existing schedules keep their instant;
+    they are shown in the new zone from now on."""
+    if not valid_zone(body.time_zone):
+        raise HTTPException(status_code=422, detail="unknown time zone")
+    if body.detected and tenant.time_zone:
+        return _out(tenant)
+    tenant.time_zone = body.time_zone
+    await session.commit()
+    await session.refresh(tenant)
     return _out(tenant)
 
 

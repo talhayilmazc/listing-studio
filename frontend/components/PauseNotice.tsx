@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { resumeTime } from "@/lib/format";
 import type { Pause } from "@/lib/types";
+import { useSession } from "./SessionProvider";
 
 /**
  * Says so when this seller's Etsy work is paused for the day (production-spec C):
@@ -18,6 +19,7 @@ import type { Pause } from "@/lib/types";
 const REFRESH_MS = 60_000;
 
 export function PauseNotice() {
+  const { timeZone } = useSession();
   const pathname = usePathname();
   const [pause, setPause] = useState<Pause | null>(null);
 
@@ -56,7 +58,7 @@ export function PauseNotice() {
         </svg>
         <span>
           <span className="font-medium">Etsy work is paused.</span><span>{" "}
-          <span>{pause.message}</span> That is around <span>{resumeTime(pause.resumes_at)}</span> your time.</span>
+          <span>{pause.message}</span> That is around <span>{resumeTime(pause.resumes_at, timeZone)}</span>.</span>
         </span>
       </p>
     </div>
