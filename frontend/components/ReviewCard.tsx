@@ -233,6 +233,24 @@ export function ReviewCard({
         {/* Editable fields */}
         <div className="flex flex-col">
           <div className="space-y-5 p-5">
+            {(initial.findings ?? []).filter((f) => f.rule === "character_artwork").map((f, i) => (
+              // The artwork, not the wording, is the risk: say so before anything is sent.
+              <div
+                key={i}
+                role="alert"
+                className={
+                  "rounded-md border px-3 py-2 text-xs " +
+                  (f.severity === "blocking"
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : "border-amber-200 bg-amber-50 text-amber-900")
+                }
+              >
+                <p className="font-medium">
+                  {f.severity === "blocking" ? "Not sent to Etsy: recognisable characters" : "Recognisable characters in the artwork"}
+                </p>
+                <p className="mt-0.5">{f.detail}</p>
+              </div>
+            ))}
             <div>
               <span className="label">Title</span>
               <div className="relative">

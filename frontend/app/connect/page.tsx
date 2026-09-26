@@ -166,6 +166,15 @@ function ShopRow({
             {shop.shop_name ? `On Etsy: ${shop.shop_name}` : "Fetching the shop's name…"} ·
             connected {new Date(shop.connected_at).toLocaleDateString()}
           </p>
+          {(shop.missing_scopes ?? []).includes("transactions_r") && (
+            <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              Reconnect this shop once to let the Service read its sales (which listing sold,
+              how many, the price and the date; never anything about your buyers).{" "}
+              <a href={AUTH_START_URL} className="font-medium underline">
+                Reconnect
+              </a>
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-1">
           <button

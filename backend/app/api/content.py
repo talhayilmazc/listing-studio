@@ -12,6 +12,7 @@ from app.api import schemas
 from app.api.deps import active_tenant, get_session
 from app.db.models import (
     Asset,
+    ComplianceFinding,
     EtsyConnection,
     GeneratedContent,
     Job,
@@ -189,9 +190,21 @@ async def contents_out(
 ) -> list[schemas.ContentOut]:
     pubs = await publications(session, [c.id for c, _ in pairs])
     shops = await _profile_shops(session, [c for c, _ in pairs])
-    return [
-        _to_out(c, a, pubs[c.id], shops.get(c.listing_profile_id)) for c, a in pairs
-    ]
+    findings: dict[uuid.UUID, list[schemas.FindingOut]] = {c.id: [] for c, _ in pairs}
+    if pairs:
+        rows = await session.execute(
+            select(ComplianceFinding).where(
+                ComplianceFinding.generated_content_id.in_([c.id for c, _ in pairs])
+            )
+        )
+        for f in rows.scalars():
+            findings[f.generated_content_id].append(
+                schemas.FindingOut(rule=f.rule, severity=f.severity.value, detail=f.detail)
+            )
+    outs = [_to_out(c, a, pubs[c.id], shops.get(c.listing_profile_id)) for c, a in pairs]
+    for out in outs:
+        out.findings = findings.get(out.id, [])
+    return outs
 
 
 def _to_out(

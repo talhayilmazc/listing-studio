@@ -31,6 +31,7 @@ Lion King
 Disneyland
 Magic Kingdom
 Epcot
+World Showcase
 
 # Warner Bros. / DC
 Harry Potter

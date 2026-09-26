@@ -16,6 +16,8 @@ Return a structured analysis with these fields:
 - **season**: the season it suits ("winter", "summer", "fall", "spring"); empty string if none.
 - **humor_type**: the kind of humor, if the design is funny ("nurse humor", "sarcastic", "pun", "dad joke", "dark humor"); empty string if it is not.
 
+- **characters**: every recognisable character, franchise or brand imagery, or theme park the artwork shows, by name ("Minnie Mouse", "Winnie the Pooh", "Disney castle", "Epcot"). Include look-alikes that a buyer would read as that character (a mouse with round black ears and a bow). An empty list when the design is original. This is for the seller's protection: be complete. Anything you name in **themes** that is a character, franchise, brand or park must be in **characters** too.
+
 If the image is a garment mockup (a shirt, sweatshirt, hoodie, tank, etc.), also read these from the garment shown — leave each an empty string if it is not clearly visible:
 
 - **neckline**: the neckline of the garment (e.g. "crew neck", "v-neck", "scoop neck").
@@ -26,5 +28,5 @@ Rules:
 
 - Describe only what is actually visible in this image. Do not invent details.
 - Do not reference, compare to, or infer anything about other sellers' products, listings, or brands.
-- Do not identify real people, and do not assert trademarks or brand affiliations.
+- Do not identify real people. Name fictional characters and brand imagery only in **characters**; everywhere else, do not assert trademarks or brand affiliations.
 - Keep every field concise. Output must match the provided JSON schema exactly.

@@ -62,7 +62,9 @@ These words describe how any design was made, not what it is about. Nobody searc
 
 ## Brand and character names — never use
 
-Do not use any brand, franchise or character name (for example Disney, Mickey, Marvel, Nintendo, Pokémon, Star Wars, Harry Potter, Barbie, Nike, Adidas), even if the design resembles one. Describe the theme in your own words instead. A listing with a trademark in the title, tags or description is rejected. The only exception: the request says the seller turned the trademark filter off.
+Do not use any brand, franchise or character name (for example Disney, Mickey, Marvel, Nintendo, Pokémon, Star Wars, Harry Potter, Barbie, Nike, Adidas). A listing with a trademark in the title, tags or description is rejected. The only exception: the request says the seller turned the trademark filter off.
+
+Never write around a mark either. If the artwork shows a brand's characters or places, do not use coded stand-ins that point buyers to them ("mouse ears", "the castle park", "lion movie fan", "honey bear friends"): describe only what is the seller's own (the season, the pun, the colours, the garment). The app flags such designs to the seller separately.
 
 Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly.
 

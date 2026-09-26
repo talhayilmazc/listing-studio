@@ -53,6 +53,12 @@ ToU Bölüm 1'den gelir, ihlali doğrudan sözleşme ihlalidir.
 - Etsy logosu veya markası kullanılırsa, uygulamanın kendi markasından **daha az belirgin** olmalı; hiçbir şekilde onay/ortaklık ima edilmez
 - Uygulama adında ve web sitesi başlığında "Etsy" kelimesi **kullanılamaz**
 
+## Marka filtresi ve karakter içeren tasarımlar
+
+- `TRADEMARK_FILTER` (varsayılan açık) marka/karakter adlarını başlık, tag ve açıklamada reddeder; admin hesap bazında açıp kapatabilir (`tenant.trademark_filter`, audit'lenir).
+- Vision tanınabilir karakter, franchise görseli veya tema parkı görürse (`characters`) listing işaretlenir, çünkü **çizimin kendisi** başlık nasıl yazılırsa yazılsın ihlal edebilir. Filtre **açıksa bu engelleyicidir** (metin filtresi modelin markayı "mouse ears" gibi dolaylı ifadelerle yazmasına yol açmamalı; kaçış yolu değil). Filtre **kapalıysa** (satıcı riski kabul etti) yayın öncesi kartta **uyarı** gösterilir.
+- İçerik prompt'u markanın etrafından dolaşmayı (dolaylı ifade) açıkça yasaklar.
+
 ## Mimari kuralı
 
 **Her Etsy API çağrısı kuyruk üzerinden geçer.** Servis katmanından doğrudan `httpx` ile Etsy'ye istek atılmaz. Tek istisna: OAuth token değişimi.
@@ -74,7 +80,8 @@ Job → queue → tenant kota kontrolü → global token bucket (3 req/s, burst 
 
 - **`x-api-key` başlığı `{keystring}:{shared_secret}` biçiminde gönderilir**, yalnızca keystring değil. Sadece keystring gönderilirse `openapi-ping` **403** döner. İki değer de `.env`'den (`ETSY_CLIENT_ID` = keystring, `ETSY_CLIENT_SECRET` = shared secret) okunur; asla loglanmaz.
 - OAuth 2.0 PKCE: authorization + token endpoint'i client_id (keystring) ve `code_verifier` ile çalışır; token değişiminde `x-api-key` gerekmez. `x-api-key` yukarıdaki biçimde yalnızca **API v3 çağrılarında** kullanılır.
-- Scope'lar: `listings_r listings_w shops_r shops_w`. Redirect URI: `http://localhost:8000/api/auth/etsy/callback`.
+- Scope'lar: `listings_r listings_w shops_r shops_w transactions_r`. Redirect URI: `http://localhost:8000/api/auth/etsy/callback`.
+- **`transactions_r` (2026-09-26'da eklendi) yalnızca satıcının kendi satış analizi için.** Satıştan yalnızca listing id, adet, fiyat ve tarih okunur. **Alıcı alanları (isim, adres, e-posta, mesaj) hiçbir yere yazılmaz**; ham yanıt aynı job içinde okunur, toplanır ve atılır (kural #2). Bu tarihten önce bağlanan mağazalar izni vermek için bir kez yeniden bağlanır (`missing_scopes`); o zamana kadar satış verisi gösterilmez.
 
 ## Yığın
 

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.scanner import rescan
+from app.compliance.trademarks import characters_seen
 from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
@@ -123,6 +124,9 @@ async def generate_listing_content(
                 "neckline": analysis.neckline,
                 "sleeve_length": analysis.sleeve_length,
                 "clothing_style": analysis.clothing_style,
+                # Recognisable characters in the artwork: the compliance scanner
+                # flags the listing, whatever its title says.
+                "characters": characters_seen(analysis.characters, analysis.themes),
             }
         }
 

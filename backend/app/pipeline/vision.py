@@ -32,6 +32,9 @@ VISION_SCHEMA: dict[str, Any] = {
         "meaning": {"type": "string"},
         "recipient": {"type": "string"},
         "humor_type": {"type": "string"},
+        # Recognisable characters, franchise imagery or theme parks in the artwork:
+        # the design itself may infringe, however the listing is worded.
+        "characters": {"type": "array", "items": {"type": "string"}},
         "profession": {"type": "string"},
         "season": {"type": "string"},
         # Garment attributes read from the mockup (v4 §B) -> Etsy clothing attributes.
@@ -74,6 +77,8 @@ class VisionAnalysis:
     profession: str = ""
     #: The season it suits, if any ("winter", "fall").
     season: str = ""
+    #: Recognisable characters, franchises or theme parks the artwork shows.
+    characters: list[str] = field(default_factory=list)
     #: Garment attributes seen in the mockup (v4 §B); "" when not visible.
     neckline: str = ""
     sleeve_length: str = ""
@@ -135,6 +140,7 @@ def _to_analysis(data: dict[str, Any]) -> VisionAnalysis:
             themes=themes,
             profession=str(data.get("profession", "")),
             season=str(data.get("season", "")),
+            characters=[str(c).strip() for c in (data.get("characters") or []) if str(c).strip()],
             embedded_text=str(data["embedded_text"]),
             style=str(data["style"]),
             colors=[str(c) for c in data["colors"]],

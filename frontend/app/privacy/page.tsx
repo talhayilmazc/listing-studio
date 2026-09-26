@@ -38,7 +38,7 @@ function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="23 September 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated="26 September 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listing Studio (&ldquo;the Service&rdquo;) is operated by{" "}
@@ -185,13 +185,29 @@ export default function PrivacyPage() {
         <p>
           We get Etsy data only from <strong>your own shop</strong>, only through{" "}
           <strong>Etsy&rsquo;s official Open API</strong>, and only with the permissions you
-          grant when you connect: reading and writing your listings and your shop. We never
-          scrape Etsy&rsquo;s website, and we never access another seller&rsquo;s shop.
+          grant when you connect: reading and writing your listings and your shop, and reading
+          your shop&rsquo;s sales. We never scrape Etsy&rsquo;s website, and we never access
+          another seller&rsquo;s shop.
+        </p>
+        <p>
+          <strong>Your sales.</strong> From each sale we read only four things: which listing
+          sold, how many, the price and the date. We use them to show which of your listings
+          sell and what they earn. We never store anything about your buyers: no names,
+          addresses, email addresses or messages. Etsy&rsquo;s answer includes some of these, and
+          it is discarded as soon as those four things have been read from it; nothing from it is
+          written anywhere.
+        </p>
+        <p>
+          Reading sales is a permission added on 26 September 2026. If you connected your shop
+          before then, the Service asks you to reconnect it once to grant it; until you do,
+          everything else keeps working and sales figures are simply not shown.
         </p>
         <p>
           We write to your shop only to do what you asked: create drafts, upload their images,
-          set their variations and SKUs, publish a draft when you press <em>Publish now</em>, and
-          replace a listing&rsquo;s images when you ask for that. We never publish on our own.
+          set their variations and SKUs, publish a draft when you press <em>Publish now</em> or at a
+          time you scheduled for a draft you approved, and replace a listing&rsquo;s images when you
+          ask for that. We never publish anything you did not approve and schedule or publish
+          yourself.
         </p>
         <p>
           Etsy limits how long an application may keep its data, and we follow those limits; see{" "}
