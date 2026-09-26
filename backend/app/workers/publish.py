@@ -35,6 +35,7 @@ from app.pipeline.targets import resolve_target
 from app.workers.gate import start_job
 from app.workers.guards import owned, owned_optional, public_error
 from app.etsy.connection import ConnectionService
+from app.pipeline.personalization import effective as effective_personalization
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
 from app.pipeline.images import cover_image
 from app.pipeline.storage import LocalStorage
@@ -195,6 +196,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     access_token=access_token,
                     config=publish_config(settings),
                     reference=profile.cached_payload,
+                    personalization=effective_personalization(profile.personalization, profile.cached_payload),
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),
                     vision=vision,

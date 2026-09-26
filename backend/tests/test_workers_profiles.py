@@ -56,6 +56,12 @@ class FakeEtsy:
     async def get_listing_properties(self, shop_id: int, listing_id: int, **_: Any) -> dict[str, Any]:
         return {"results": [{"property_id": 100, "property_name": "Neckline", "values": ["Crew Neck"]}]}
 
+    async def get_listing_personalization(self, listing_id: int, **_: Any) -> dict[str, Any]:
+        return {"personalization_questions": [
+            {"question_type": "text_input", "question_text": "Name to print", "instructions": "Up to 12 letters",
+             "required": True, "max_allowed_characters": 12},
+        ]}
+
     async def get_listings_by_shop(self, shop_id: int, *, state: str, **_: Any) -> dict[str, Any]:
         self.listings_calls.append(state)
         if state == "active":

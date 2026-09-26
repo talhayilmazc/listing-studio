@@ -18,6 +18,8 @@ from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.db.models import ListingProfile, Tenant
 from app.etsy.refresh import in_use, request_refresh
+from app.pipeline.personalization import effective as effective_personalization
+from app.pipeline.personalization import validate as validate_personalization
 from app.etsy.shops import active_shops, owned_shop
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -50,6 +52,19 @@ async def shop_names(session: AsyncSession, tenant: Tenant) -> dict[uuid.UUID, s
     from app.api.shops import shop_label
 
     return {c.id: shop_label(c) for c in await active_shops(session, tenant.id)}
+
+
+def _personalization_out(profile: ListingProfile) -> schemas.PersonalizationOut | None:
+    setting = effective_personalization(profile.personalization, profile.cached_payload)
+    if setting is None:
+        return None
+    return schemas.PersonalizationOut(
+        enabled=bool(setting.get("enabled")),
+        question_text=setting.get("question_text"),
+        instructions=setting.get("instructions") or None,
+        required=bool(setting.get("required")),
+        max_allowed_characters=setting.get("max_allowed_characters"),
+    )
 
 
 def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.ProfileOut:
@@ -85,6 +100,12 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         reference_images=images,
         reference_images_expired=bool(images) and not displayable,
         images_updated_at=profile.images_updated_at,
+        personalization=_personalization_out(profile),
+        personalization_source=(
+            "custom" if profile.personalization is not None
+            else "reference" if "personalization" in (profile.cached_payload or {})
+            else "unknown"
+        ),
         refresh_error=profile.refresh_error,
         refresh_failed_at=profile.refresh_failed_at,
     )
@@ -191,6 +212,15 @@ async def update_profile(
         profile.confirmed = body.confirmed
     if body.title_prefix is not None:
         profile.title_prefix = body.title_prefix
+    if "personalization" in body.model_fields_set:
+        # null: back to the reference's question; otherwise the seller's own (v7 §D4).
+        if body.personalization is None:
+            profile.personalization = None
+        else:
+            try:
+                profile.personalization = validate_personalization(body.personalization)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
     await session.commit()
     await session.refresh(profile)
     return await _out(session, tenant, profile)

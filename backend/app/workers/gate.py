@@ -30,21 +30,27 @@ from app.etsy.rate_limiter import PAUSE_TENANT
 # if this fits in what the tenant has left today.
 JOB_COST: dict[str, int] = {
     # shop, section, create, read-back, properties, ~8 attribute writes,
-    # inventory, up to 10 new images and the fixed ones
-    "run_publish_job": 30,
+    # inventory, up to 10 new images and the fixed ones, and personalization with
+    # its read-back (v7 §D4)
+    "run_publish_job": 32,
     "run_publish_live_job": 3,
     # listing, images, up to 10 deletes and 10 uploads, update, inventory
     "run_replace_images_job": 30,
-    # shop, listing, inventory, images, properties
-    "refresh_profile": 6,
+    # shop, listing, inventory, images, properties, personalization (v7 §D4)
+    "refresh_profile": 7,
     # the reference's images; when they changed, the full refresh as well (v6 §H)
-    "refresh_profile_images": 7,
+    "refresh_profile_images": 8,
     # shop, and up to 10 pages of 100 for each of active and draft (profiles.SYNC_MAX_PAGES)
     "sync_shop_listings": 21,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,
 }
+
+# Keeping shops and profiles current is the app's upkeep, not the seller's work:
+# it counts against Etsy's app-wide budget (and waits at the 90% pause) but not
+# against the seller's own daily limit (v7 §D3).
+UPKEEP = frozenset({"refresh_profile", "refresh_profile_images", "sync_shop_listings", "detect_profiles"})
 
 # Resume a little after midnight, so the new day's counters are in place.
 RESUME_SLACK_SECONDS = 60
@@ -79,7 +85,10 @@ async def check(ctx: dict[str, Any], tenant: Tenant | None, function: str) -> Ve
     quota = ctx.get("quota")
     if quota is None:  # no budget wired (unit tests of the job bodies)
         return RUN
-    reason = await quota.admission(tenant.id, tenant.daily_quota, JOB_COST[function])
+    if function in UPKEEP:
+        reason = await quota.admission_upkeep(JOB_COST[function])
+    else:
+        reason = await quota.admission(tenant.id, tenant.daily_quota, JOB_COST[function])
     if reason is None:
         return RUN
     await quota.mark_paused(tenant.id, reason)

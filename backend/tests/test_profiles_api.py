@@ -452,3 +452,10 @@ async def test_reference_image_links_are_withheld_after_6_hours(ctx) -> None:
     assert [i["kind"] for i in older["reference_images"]] == ["artwork", "size_chart"]
     # Still usable for generating and publishing: that follows the 24h limit.
     assert older["is_fresh"] is True
+
+
+async def test_sync_shop_listings_on_demand(ctx) -> None:
+    """v7 §D2: the seller changed something on Etsy and wants it now."""
+    res = await ctx["client"].post("/api/shop/listings/sync")
+    assert res.status_code == 202
+    assert ("sync_shop_listings", (str(ctx["shop"]),)) in ctx["enqueuer"].calls

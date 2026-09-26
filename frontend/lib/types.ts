@@ -202,6 +202,17 @@ export interface Profile {
   in_use: boolean;
   /** A refresh was queued when the list was fetched; look again shortly. */
   refreshing: boolean;
+  /** What new drafts get (v7 §D4); null until the reference is read for it. */
+  personalization: Personalization | null;
+  personalization_source: "reference" | "custom" | "unknown" | string;
+}
+
+export interface Personalization {
+  enabled: boolean;
+  question_text: string | null;
+  instructions: string | null;
+  required: boolean;
+  max_allowed_characters: number | null;
 }
 
 export interface ShopListing {
@@ -304,6 +315,8 @@ export interface Quota {
   global_pause_at: number;
   /** Set while new Etsy work is paused for this shop. */
   pause: Pause | null;
+  /** Requests today keeping shops and profiles current: not in tenant_used (v7 §D3). */
+  upkeep_used?: number;
   /** With ?shop=: that shop's share of today's requests. */
   shop_used: number | null;
 }

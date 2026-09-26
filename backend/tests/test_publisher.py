@@ -275,7 +275,9 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
     assert fake.last_listing["readiness_state_id"] == 42
     assert fake.last_listing["should_auto_renew"] is True
     assert fake.last_listing["is_customizable"] is True
-    assert fake.last_listing["is_personalizable"] is False  # False copied, not dropped
+    # createDraftListing no longer takes is_personalizable: personalization has its own
+    # endpoint (v7 §D4), so it is not sent with the listing.
+    assert "is_personalizable" not in fake.last_listing
     # Raw processing_min/max are superseded by readiness_state_id and not sent.
     assert "processing_min" not in fake.last_listing
     # Section resolved from the theme rule to the existing section.

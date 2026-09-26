@@ -41,6 +41,7 @@ from app.db.models import (
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyServerError
 from app.pipeline.attributes import resolve_required_attributes
+from app.pipeline.personalization import questions_for
 from app.pipeline.reference import (
     PAYLOAD_VERSION,
     build_inventory_from_reference,
@@ -183,8 +184,12 @@ async def publish_content(
     profile_id: uuid.UUID | None = None,
     title: str | None = None,
     description: str | None = None,
+    personalization: dict[str, Any] | None = None,
 ) -> PublishResult:
     """Create the draft in ``connection``'s shop from ``reference`` (that shop's profile).
+
+    ``personalization`` is the profile's effective setting (pipeline/personalization.py):
+    when enabled, the draft gets that question, verified on read-back.
 
     ``title`` / ``description`` override the content's own when the draft goes to
     a shop other than the one the content was written for: the title carries that
@@ -307,7 +312,9 @@ async def publish_content(
     if reference.get("production_partner_ids"):
         listing["production_partner_ids"] = reference["production_partner_ids"]
     # Tri-state flags: include when explicitly set (False is meaningful, don't drop).
-    for key in ("is_supply", "is_customizable", "is_personalizable", "should_auto_renew"):
+    # is_personalizable is not a createDraftListing field any more: personalization
+    # is set through its own endpoint below (v7 §D4).
+    for key in ("is_supply", "is_customizable", "should_auto_renew"):
         if reference.get(key) is not None:
             listing[key] = reference[key]
     if section_id is not None:
@@ -350,6 +357,18 @@ async def publish_content(
             + ", ".join(differs)
             + "); check them in Shop Manager"
         )
+
+    # 5a2) Personalization, as the profile says (v7 §D4), checked on read-back.
+    if personalization and personalization.get("enabled"):
+        await client.update_listing_personalization(
+            shop_id, listing_id, questions=questions_for(personalization), **ctx
+        )
+        back = await client.get_listing_personalization(listing_id, **ctx)
+        texts = [q.get("question_text") for q in back.get("personalization_questions") or []]
+        if personalization["question_text"] not in texts:
+            raise ValueError(
+                "the draft's personalization question did not save; check it in Shop Manager"
+            )
 
     # 5b) Required category attributes (neckline, sleeve length, clothing style, ...):
     # copy from the reference, else derive from the mockup vision, else fail with the
