@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonalizationEditor } from "./PersonalizationEditor";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Profile, ReferenceImage, ShopListing } from "@/lib/types";
@@ -264,6 +265,12 @@ export function ProfileCard({
             />
           </div>
         </div>
+
+        <PersonalizationEditor
+          profile={profile}
+          busy={busy !== null}
+          onSave={(setting) => run("personalization", () => api.updateProfile(profile.id, { personalization: setting }))}
+        />
 
         {charts.length > 0 && (
           <ImageRow

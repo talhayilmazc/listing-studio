@@ -211,7 +211,14 @@ function QuotaCell({ quota }: { quota: Quota | null }) {
               </span>
             </span>
           )}
-          <p className="mt-1.5 h-4 text-xs text-slate-400">
+          <p
+            className="mt-1.5 h-4 text-xs text-slate-400"
+            title={
+              quota?.upkeep_used
+                ? `Plus ${quota.upkeep_used.toLocaleString()} requests today keeping your shop and profiles current; those don't count toward your limit.`
+                : "Keeping your shop and profiles current doesn't count toward your limit."
+            }
+          >
             {quota === null
               ? ""
               : average != null

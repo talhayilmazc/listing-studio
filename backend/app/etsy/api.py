@@ -102,6 +102,7 @@ class EtsyApiClient:
         call_log: CallLog | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
         shop: Any = None,
+        upkeep: bool = False,
     ) -> None:
         self._client_id = client_id
         self._shared_secret = shared_secret
@@ -115,6 +116,9 @@ class EtsyApiClient:
         self._sleep = sleep or asyncio.sleep
         # The connection this client works for, so usage can be shown per shop.
         self._shop = shop
+        # Upkeep (profile refresh, shop sync) counts app-wide, not in the
+        # seller's own daily limit (v7 §D3).
+        self._upkeep = upkeep
 
     async def _request(
         self,
@@ -135,7 +139,10 @@ class EtsyApiClient:
             # 1) daily quota  2) token bucket  3) Etsy API  (order per CLAUDE.md).
             # Every attempt, retries included, passes both: a refused request still
             # counts against Etsy's budget, and an unpaced retry makes more 429s.
-            if self._quota is not None and tenant_id is not None and tenant_limit is not None:
+            if self._quota is not None and tenant_id is not None and self._upkeep:
+                if not await self._quota.reserve_upkeep(tenant_id, shop=self._shop):
+                    raise RateLimitExceeded("daily Etsy API budget exhausted")
+            elif self._quota is not None and tenant_id is not None and tenant_limit is not None:
                 if not await self._quota.reserve(tenant_id, tenant_limit, shop=self._shop):
                     raise RateLimitExceeded("daily Etsy API budget exhausted")
             waited = time.monotonic()
@@ -191,7 +198,8 @@ class EtsyApiClient:
             raise_for_etsy_status(
                 resp.status_code, _retry_after(resp), body=body, path=path, method=method
             )
-        if self._usage is not None and tenant_id is not None:
+        # The seller's usage history is their own requests; upkeep is the app's.
+        if self._usage is not None and tenant_id is not None and not self._upkeep:
             self._usage.record(tenant_id, date.today())
         return resp.json() if resp.content else {}
 
@@ -350,7 +358,44 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def get_listing_personalization(
+        self,
+        listing_id: int,
+        *,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """getListingPersonalization: the listing's personalization questions (v7 §D4)."""
+        return await self._request(
+            "GET",
+            f"/application/listings/{listing_id}/personalization",
+            access_token=access_token,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     # --- Writes ------------------------------------------------------------
+    async def update_listing_personalization(
+        self,
+        shop_id: int,
+        listing_id: int,
+        *,
+        questions: list[dict[str, Any]],
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """updateListingPersonalization: set the listing's questions (JSON body)."""
+        return await self._request(
+            "POST",
+            f"/application/shops/{shop_id}/listings/{listing_id}/personalization",
+            access_token=access_token,
+            json={"personalization_questions": questions},
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     async def create_draft_listing(
         self,
         shop_id: int,

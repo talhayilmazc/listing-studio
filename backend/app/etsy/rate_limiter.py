@@ -205,6 +205,38 @@ class DailyQuota:
             await self._redis.expire(key, self._ttl)
         return int(value)
 
+    def _upkeep_key(self, tenant_id: uuid.UUID, day: str) -> str:
+        return f"quota:upkeep:{tenant_id}:{day}"
+
+    async def reserve_upkeep(self, tenant_id: uuid.UUID, *, shop: uuid.UUID | None = None) -> bool:
+        """Reserve one slot for keeping a shop's data current (v7 §D3).
+
+        Profile refreshes and shop syncs are the app's upkeep, not the seller's
+        work: they count against Etsy's app-wide budget (every request does) but
+        not against the seller's own daily limit. They are counted per account
+        separately, so the upkeep stays visible.
+        """
+        day = self._day()
+        global_key = self._global_key(day)
+        if await self._incr(global_key) > self._global_limit:
+            await self._redis.decr(global_key)
+            return False
+        await self._incr(self._upkeep_key(tenant_id, day))
+        if shop is not None:
+            await self._incr(self._shop_key(shop, day))
+        return True
+
+    async def upkeep_usage(self, tenant_id: uuid.UUID) -> int:
+        """Upkeep requests made for this account today (not in its own limit)."""
+        return self._to_int(await self._redis.get(self._upkeep_key(tenant_id, self._day())))
+
+    async def admission_upkeep(self, cost: int) -> str | None:
+        """Whether upkeep may start: only the app-wide pause applies."""
+        global_used = self._to_int(await self._redis.get(self._global_key(self._day())))
+        if global_used >= self._pause_at:
+            return PAUSE_GLOBAL
+        return None
+
     def _shop_key(self, shop: uuid.UUID, day: str) -> str:
         return f"quota:shop:{shop}:{day}"
 

@@ -7,6 +7,7 @@ import type {
   ArchiveResult,
   BatchActionPreview,
   BatchDeleteResult,
+  Personalization,
   Schedule,
   ScheduleItem,
   ScheduleResult,
@@ -211,6 +212,9 @@ export const api = {
   deleteBatch: (id: string) => req<BatchDeleteResult>(`/batches/${id}`, { method: "DELETE" }),
   deleteBatches: (ids: string[]) =>
     req<BatchDeleteResult>("/batch-actions/delete", { method: "POST", body: JSON.stringify({ batch_ids: ids }) }),
+  /** Refresh this shop's listings from Etsy now (upkeep, not the seller's quota). */
+  syncShopListings: (shop?: string | null) =>
+    req<{ queued: boolean }>(`/shop/listings/sync${shopQuery(shop)}`, { method: "POST" }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**
@@ -288,6 +292,8 @@ export const api = {
       fixed_image_ids: number[];
       confirmed: boolean;
       title_prefix: string;
+      /** null: back to the reference's question (v7 §D4). */
+      personalization: Personalization | null;
     }>,
   ) => req<Profile>(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),

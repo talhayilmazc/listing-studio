@@ -30,6 +30,7 @@ from app.db.models import (
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.errors import EtsyClientError
 from app.etsy.refresh import FULL, IMAGES, refresh_due, used_recently
+from app.pipeline.personalization import from_reference as personalization_from_reference
 from app.etsy.connection import ConnectionService
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
@@ -85,6 +86,8 @@ def _build_client(
         usage=ctx.get("usage"),
         cache=ctx.get("redis"),
         shop=shop,
+        # Every job in this module is upkeep: app-wide budget, not the seller's (v7 §D3).
+        upkeep=True,
     )
 
 
@@ -263,8 +266,11 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
             images = await client.get_listing_images(ref_id, **kw)
             # Category attributes (neckline, sleeve length, ...) for v4 §B.
             properties = await client.get_listing_properties(shop_id, ref_id, **kw)
+            # Personalization is its own resource now (v7 §D4).
+            personalization = await client.get_listing_personalization(ref_id, **kw)
 
         payload = build_profile_payload(listing, inventory, images, properties)
+        payload["personalization"] = personalization_from_reference(personalization)
 
         # Title prefix (docs/duzeltmeler-v5.md §B). Detection sets it from its cluster.
         # A profile made by hand starts with none (NULL), so fill it here, once, from

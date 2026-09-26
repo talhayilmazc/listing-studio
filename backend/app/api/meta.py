@@ -70,6 +70,7 @@ async def get_quota_status(
         usage_date=today.strftime("%Y-%m-%d"),
         history=await _usage_history(session, tenant.id, today, tenant_used),
         global_pause_at=quota.pause_at,
+        upkeep_used=await quota.upkeep_usage(tenant.id),
         shop_used=await _shop_used(session, quota, tenant, shop),
         pause=pause_out(
             await _pause_reason(quota, tenant, tenant_used, global_used),

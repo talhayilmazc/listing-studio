@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -250,6 +250,9 @@ class QuotaOut(BaseModel):
     global_pause_at: int = 0
     # Set while new work is paused for this seller, with the reason.
     pause: PauseOut | None = None
+    # Requests made today to keep this seller's shops and profiles current:
+    # counted app-wide, not in tenant_used (v7 §D3).
+    upkeep_used: int = 0
     # With ?shop=: that shop's share of today's requests. Display only; the
     # limits are per account and app-wide.
     shop_used: int | None = None
@@ -457,6 +460,17 @@ class ProfileUpdate(BaseModel):
     fixed_image_ids: list[int] | None = None
     confirmed: bool | None = None
     title_prefix: str | None = None
+    #: The seller's personalization override (v7 §D4). Sending null resets it to
+    #: the reference's question; leaving it out changes nothing.
+    personalization: dict[str, Any] | None = None
+
+
+class PersonalizationOut(BaseModel):
+    enabled: bool
+    question_text: str | None = None
+    instructions: str | None = None
+    required: bool = False
+    max_allowed_characters: int | None = None
 
 
 class ReferenceImageOut(BaseModel):
@@ -485,6 +499,10 @@ class ProfileOut(BaseModel):
     # size-chart classifications are still returned, the links are not.
     reference_images_expired: bool = False
     images_updated_at: datetime | None = None
+    # What new drafts get for personalization (v7 §D4), and whether it is the
+    # reference's ("reference"), the seller's own ("custom") or not read yet.
+    personalization: PersonalizationOut | None = None
+    personalization_source: str = "unknown"
     # The last refresh failed, and why (v6 §H); None once a refresh succeeds.
     refresh_error: str | None = None
     refresh_failed_at: datetime | None = None

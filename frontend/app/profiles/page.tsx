@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
+import { matchesProfile } from "@/lib/profileSearch";
 import type { Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
@@ -14,6 +15,8 @@ export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [listings, setListings] = useState<ShopListing[]>([]);
   const [syncing, setSyncing] = useState(false);
+  // Find a profile among many (v7 §D1).
+  const [query, setQuery] = useState("");
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replace, setReplace] = useState<{ id: number; status: string } | null>(null);
@@ -139,8 +142,24 @@ export default function ProfilesPage() {
     setProfiles((cur) => (cur ?? []).filter((x) => x.id !== id));
 
   const byListingId = new Map(listings.map((l) => [l.listing_id, l]));
-  const detected = (profiles ?? []).filter((p) => !p.confirmed);
-  const confirmed = (profiles ?? []).filter((p) => p.confirmed);
+  const shown = (profiles ?? []).filter((p) =>
+    matchesProfile(p, query, byListingId.get(p.reference_listing_id)?.title),
+  );
+  const detected = shown.filter((p) => !p.confirmed);
+  const confirmed = shown.filter((p) => p.confirmed);
+
+  // "Sync shop listings" (v7 §D2): changes made on Etsy show here without waiting
+  // for the six-hour cache. Look again once the sync has had time to land.
+  async function syncNow() {
+    try {
+      await api.syncShopListings(shopId);
+      setSyncing(true);
+      setTimeout(loadListings, 5000);
+      setTimeout(loadListings, 15000);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
   const failing = (profiles ?? []).filter((p) => p.refresh_error);
 
   return (
@@ -165,6 +184,24 @@ export default function ProfilesPage() {
       {error && <div className="card p-4 text-sm text-rose-700">{error}</div>}
 
       {profiles === null && <p className="text-sm text-slate-400">Loading…</p>}
+
+      {profiles !== null && profiles.length > 3 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="search"
+            className="field w-full max-w-md py-1.5 text-sm"
+            placeholder="Search by name, template or reference listing title…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search profiles"
+          />
+          {query && (
+            <span className="text-xs text-slate-500">
+              {shown.length} of {profiles.length}
+            </span>
+          )}
+        </div>
+      )}
 
       {failing.length > 0 && (
         // Profiles refresh on their own (v6 §H); the seller hears when one can't.
@@ -229,12 +266,23 @@ export default function ProfilesPage() {
       </section>
 
       <section className="space-y-3">
-        <SectionHead
-          title="Your listings"
-          count={listings.length}
-          note={syncing ? "syncing…" : undefined}
-          tone={syncing ? "amber" : undefined}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SectionHead
+            title="Your listings"
+            count={listings.length}
+            note={syncing ? "syncing…" : undefined}
+            tone={syncing ? "amber" : undefined}
+          />
+          <button
+            type="button"
+            className="btn-secondary px-2.5 py-1 text-xs"
+            onClick={syncNow}
+            disabled={syncing || !shopId}
+            title="Fetch this shop's listings from Etsy now, e.g. after publishing or reactivating one there"
+          >
+            {syncing ? "Syncing…" : "Sync shop listings"}
+          </button>
+        </div>
         {listings.length === 0 ? (
           <p className="text-sm text-slate-400">No listings cached yet.</p>
         ) : (

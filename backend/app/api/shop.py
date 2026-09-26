@@ -112,6 +112,23 @@ async def list_shop_listings(
     )
 
 
+@router.post("/listings/sync", status_code=202)
+async def sync_shop_listings_now(
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> dict[str, bool]:
+    """ "Sync shop listings" (v7 §D2): the seller changed something on Etsy and
+    wants it here now, not when the six-hour cache runs out. One queued sync per
+    shop, however often it is pressed; it is upkeep, not the seller's quota."""
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"manual-sync:{connection.id}")
+    return {"queued": True}
+
+
 @router.get("/summary", response_model=schemas.ShopSummaryOut)
 async def shop_summary(
     shop: uuid.UUID | None = None,

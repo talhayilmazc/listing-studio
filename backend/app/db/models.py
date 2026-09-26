@@ -576,6 +576,9 @@ class ListingProfile(Base):
     content_template: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="apparel"
     )
+    #: The seller's personalization override (v7 §D4): None copies the reference's
+    #: question; {"enabled": false} turns it off; otherwise the question to use.
+    personalization: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: Fixed prefix prepended to every generated title (e.g. "COMFORT COLORS").
     #: Auto-filled from the reference title's leading words; editable. Null = not yet
     #: derived; "" = deliberately none.
