@@ -144,7 +144,7 @@ export default function ProfilesPage() {
 
   const byListingId = new Map(listings.map((l) => [l.listing_id, l]));
   const shown = (profiles ?? []).filter((p) =>
-    matchesProfile(p, query, byListingId.get(p.reference_listing_id)?.title),
+    matchesProfile(p, query, p.reference_title ?? byListingId.get(p.reference_listing_id)?.title),
   );
   const detected = shown.filter((p) => !p.confirmed);
   const confirmed = shown.filter((p) => p.confirmed);
@@ -186,7 +186,7 @@ export default function ProfilesPage() {
 
       {profiles === null && <p key="p-186-6" className="text-sm text-slate-400">Loading…</p>}
 
-      {profiles !== null && profiles.length > 3 && (
+      {profiles !== null && profiles.length > 0 && (
         <div key="div-188-6" className="flex flex-wrap items-center gap-3">
           <input
             type="search"

@@ -207,6 +207,8 @@ export interface Profile {
   /** What new drafts get (v7 §D4); null until the reference is read for it. */
   personalization: Personalization | null;
   personalization_source: "reference" | "custom" | "unknown" | string;
+  /** The reference listing's title while the listing cache is fresh (for search). */
+  reference_title?: string | null;
 }
 
 export interface Personalization {

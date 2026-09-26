@@ -16,11 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
-from app.db.models import ListingProfile, Tenant
+from app.db.models import ListingProfile, ShopListingCache, Tenant
 from app.etsy.refresh import in_use, request_refresh
 from app.pipeline.personalization import effective as effective_personalization
 from app.pipeline.personalization import validate as validate_personalization
 from app.etsy.shops import active_shops, owned_shop
+from app.pipeline.reference import decode_etsy_text
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
@@ -115,6 +116,25 @@ async def _out(session: AsyncSession, tenant: Tenant, profile: ListingProfile) -
     return _to_out(profile, (await shop_names(session, tenant)).get(profile.connection_id))
 
 
+async def _reference_titles(session: AsyncSession, tenant: Tenant, listing_ids: list[int]) -> dict[int, str]:
+    """Reference listings' titles from the seller's own listing cache, while fresh."""
+    if not listing_ids:
+        return {}
+    rows = await session.execute(
+        select(ShopListingCache).where(
+            ShopListingCache.tenant_id == tenant.id, ShopListingCache.listing_id.in_(set(listing_ids))
+        )
+    )
+    now = datetime.now(timezone.utc)
+    out: dict[int, str] = {}
+    for row in rows.scalars():
+        fetched = row.fetched_at if row.fetched_at.tzinfo else row.fetched_at.replace(tzinfo=timezone.utc)
+        title = decode_etsy_text((row.payload or {}).get("title"))
+        if title and (now - fetched).total_seconds() < ShopListingCache.STALE_SECONDS:
+            out[row.listing_id] = title
+    return out
+
+
 async def _get(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> ListingProfile:
     profile = await session.get(ListingProfile, profile_id)
     if profile is None or profile.tenant_id != tenant.id:
@@ -146,10 +166,12 @@ async def list_profiles(
     profiles = list(rows.scalars())
     names = await shop_names(session, tenant)
     warm = await in_use(session, (p.id for p in profiles))
+    titles = await _reference_titles(session, tenant, [p.reference_listing_id for p in profiles])
     out = []
     for p in profiles:
         item = _to_out(p, names.get(p.connection_id))
         item.in_use = p.id in warm
+        item.reference_title = titles.get(p.reference_listing_id)
         # Only profiles of a connected shop: a disconnected one cannot be read.
         if refresh and p.connection_id in names:
             item.refreshing = await request_refresh(enqueuer.enqueue, p, origin="view")

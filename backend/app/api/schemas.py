@@ -541,6 +541,9 @@ class ProfileOut(BaseModel):
     in_use: bool = False
     # A refresh was queued by this request; the data lands shortly.
     refreshing: bool = False
+    # The reference listing's title, for finding a profile by it (v7 §D1). From
+    # the six-hour listing cache only, so never older than listing content may be.
+    reference_title: str | None = None
 
 
 class ShopListingOut(BaseModel):

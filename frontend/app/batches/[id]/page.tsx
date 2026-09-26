@@ -7,7 +7,7 @@ import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@
 import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
-import { matchesProfile } from "@/lib/profileSearch";
+import { ProfilePicker } from "@/components/ProfilePicker";
 import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
 import { useSession } from "@/components/SessionProvider";
 import { GroupImages } from "@/components/GroupImages";
@@ -32,7 +32,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
   const [costKey, setCostKey] = useState(0);
-  const [profileQuery, setProfileQuery] = useState("");
   // Modelling listings on the seller's own (v7 §B), when an admin turned it on.
   const { account } = useSession();
   const patternsOn = Boolean(account?.features?.own_patterns);
@@ -223,38 +222,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const anyBusy = busy !== null;
   const noProfiles = profiles.length === 0;
 
-  // A group's profile picks the shop it is written for (v5 §E), so with several
-  // shops the choices are grouped by shop. "Find a profile" narrows every picker
-  // (v7 §D1); a picker always keeps the profile it has chosen.
-  const shopCount = new Set(profiles.map((p) => p.shop_name ?? "Shop")).size;
-  const profileOptions = (empty: string, keep?: string | null) => {
-    const list = profiles.filter((p) => p.id === keep || matchesProfile(p, profileQuery));
-    const byShop = new Map<string, typeof profiles>();
-    for (const p of list) {
-      const shop = p.shop_name ?? "Shop";
-      byShop.set(shop, [...(byShop.get(shop) ?? []), p]);
-    }
-    return (
-      <>
-        <option value="">{empty}</option>
-        {shopCount > 1
-          ? Array.from(byShop, ([shop, items]) => (
-              <optgroup key={shop} label={shop}>
-                {items.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))
-          : list.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-      </>
-    );
-  };
+  // A group's profile picks the shop it is written for (v5 §E); each picker
+  // searches by name, template and reference listing title (v7 §D1).
 
   return (
     <div className="space-y-6">
@@ -285,35 +254,25 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm text-slate-600">Profile (all)</label>
-            <select
-              className="field w-auto py-1 text-sm"
-              value={bulkProfileId}
-              onChange={(e) => {
-                setBulkProfileId(e.target.value);
-                if (e.target.value) assign({ profile_id: e.target.value });
+            <ProfilePicker
+              profiles={profiles}
+              value={bulkProfileId || null}
+              emptyLabel="Choose…"
+              label="Profile for all groups"
+              onChange={(pid) => {
+                setBulkProfileId(pid ?? "");
+                if (pid) assign({ profile_id: pid });
               }}
-            >
-              {profileOptions("Choose…", bulkProfileId)}
-            </select>
+            />
             <label className="ml-3 text-sm text-slate-600">Size charts (all)</label>
-            <select
-              className="field w-auto py-1 text-sm"
-              defaultValue=""
-              onChange={(e) => e.target.value && assign({ size_chart_profile_id: e.target.value })}
-            >
-              {profileOptions("Each group’s own")}
-            </select>
+            <ProfilePicker
+              profiles={profiles}
+              value={null}
+              emptyLabel="Each group’s own"
+              label="Size charts for all groups"
+              onChange={(pid) => pid && assign({ size_chart_profile_id: pid })}
+            />
           </div>
-        )}
-        {profiles.length > 5 && (
-          <input key="input-307-8"
-            type="search"
-            className="field w-48 py-1 text-sm"
-            placeholder="Find a profile…"
-            value={profileQuery}
-            onChange={(e) => setProfileQuery(e.target.value)}
-            aria-label="Narrow the profile lists by name or template"
-          />
         )}
         <button className="btn-secondary" onClick={generateAll} disabled={anyBusy || noProfiles}>
           {busy === "__all__" ? "Generating all…" : "Generate content for all"}
@@ -428,33 +387,35 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               {!noProfiles && (
                 <div key="div-427-14" className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                   <label className="text-slate-500">Profile</label>
-                  <select
-                    className="field w-auto py-1 text-xs"
-                    value={s?.profile_id ?? ""}
-                    onChange={(e) =>
+                  <ProfilePicker
+                    profiles={profiles}
+                    value={s?.profile_id ?? null}
+                    emptyLabel="Choose…"
+                    label={`Profile for ${g.label}`}
+                    size="xs"
+                    onChange={(pid) =>
                       assign({
                         group_key: g.key,
-                        profile_id: e.target.value || null,
+                        profile_id: pid,
                         size_chart_profile_id: s?.size_chart_profile_id ?? null,
                       })
                     }
-                  >
-                    {profileOptions("Choose…", s?.profile_id)}
-                  </select>
+                  />
                   <label className="ml-2 text-slate-500">Size charts</label>
-                  <select
-                    className="field w-auto py-1 text-xs"
-                    value={s?.size_chart_profile_id ?? ""}
-                    onChange={(e) =>
+                  <ProfilePicker
+                    profiles={profiles}
+                    value={s?.size_chart_profile_id ?? null}
+                    emptyLabel="Own profile"
+                    label={`Size charts for ${g.label}`}
+                    size="xs"
+                    onChange={(pid) =>
                       assign({
                         group_key: g.key,
                         profile_id: s?.profile_id ?? null,
-                        size_chart_profile_id: e.target.value || null,
+                        size_chart_profile_id: pid,
                       })
                     }
-                  >
-                    {profileOptions("Own profile", s?.size_chart_profile_id)}
-                  </select>
+                  />
                   {s?.manual && <span key="span-457-18" className="text-slate-400">· set manually</span>}
                 </div>
               )}
