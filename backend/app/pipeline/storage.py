@@ -19,6 +19,8 @@ class Storage(Protocol):
 
     def exists(self, key: str) -> bool: ...
 
+    def delete_prefix(self, prefix: str) -> None: ...
+
 
 class LocalStorage:
     """Filesystem-backed storage rooted at ``base_dir``. Keys map to paths."""
@@ -39,3 +41,20 @@ class LocalStorage:
 
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
+
+    def delete_prefix(self, prefix: str) -> None:
+        """Delete everything stored under ``prefix`` (a folder of keys).
+
+        Refuses an empty prefix or one that would leave the storage root, so a
+        bad key can never remove more than one batch's files.
+        """
+        import shutil
+
+        prefix = prefix.strip("/")
+        if not prefix or ".." in prefix.split("/"):
+            raise ValueError("refusing to delete outside a batch's own folder")
+        base = self._base.resolve()
+        target = (self._base / prefix).resolve()
+        if base not in target.parents:
+            raise ValueError("refusing to delete outside the storage root")
+        shutil.rmtree(target, ignore_errors=True)

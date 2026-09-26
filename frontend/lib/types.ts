@@ -494,3 +494,11 @@ export interface BatchActionPreview {
   fits: boolean;
   message: string | null;
 }
+
+/** What deleting batches removed, and what it left alone on Etsy (v7 §E3). */
+export interface BatchDeleteResult {
+  deleted: number;
+  files_removed: number;
+  listings_left_on_etsy: number;
+  jobs_cancelled: number;
+}

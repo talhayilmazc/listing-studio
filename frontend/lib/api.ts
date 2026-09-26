@@ -6,6 +6,7 @@ import type {
   ApproveAllResult,
   ArchiveResult,
   BatchActionPreview,
+  BatchDeleteResult,
   Schedule,
   ScheduleItem,
   ScheduleResult,
@@ -206,6 +207,10 @@ export const api = {
   setCoverCrop: (assetId: string, crop: { x: number; y: number; size: number }) =>
     req<unknown>(`/assets/${assetId}/cover-crop`, { method: "PUT", body: JSON.stringify(crop) }),
   resetCoverCrop: (assetId: string) => req<void>(`/assets/${assetId}/cover-crop`, { method: "DELETE" }),
+  /** Delete batches: uploads and content here; nothing on Etsy is touched. */
+  deleteBatch: (id: string) => req<BatchDeleteResult>(`/batches/${id}`, { method: "DELETE" }),
+  deleteBatches: (ids: string[]) =>
+    req<BatchDeleteResult>("/batch-actions/delete", { method: "POST", body: JSON.stringify({ batch_ids: ids }) }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

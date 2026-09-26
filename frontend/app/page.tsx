@@ -7,6 +7,7 @@ import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
+import { DeleteBatches } from "@/components/DeleteBatches";
 
 /** Per-batch detail loaded after the list paints, so the page never waits on it. */
 interface Enrichment {
@@ -24,6 +25,17 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>([]);
   // Bumped after a bulk action, so the cards reload their progress.
   const [reloadKey, setReloadKey] = useState(0);
+  // Batches waiting for the delete confirmation (v7 §E3), and what happened.
+  const [deleting, setDeleting] = useState<string[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const summaryOf = (ids: string[]) => ({
+    batches: ids.length,
+    files: ids.reduce((n, id) => n + (batches?.find((b) => b.id === id)?.asset_count ?? 0), 0),
+    onEtsy: ids.reduce(
+      (n, id) => n + (extra[id]?.content ?? []).reduce((m, c) => m + c.publications.length, 0),
+      0,
+    ),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +103,15 @@ export default function Home() {
         </div>
       )}
 
+      {notice && (
+        <div role="status" className="card flex items-start justify-between gap-3 p-3 text-sm text-slate-700">
+          <span>{notice}</span>
+          <button type="button" className="text-xs text-slate-400 underline" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {batches && batches.length === 0 && (
         <div className="card flex flex-col items-center gap-3 p-12 text-center">
           <p className="text-slate-500">No batches yet.</p>
@@ -122,6 +143,17 @@ export default function Home() {
               <div key={b.id} className="relative">
                 <BatchCard batch={b} extra={extra[b.id]} profiles={profiles} selected={selected.includes(b.id)} />
                 {/* Outside the card's link, so ticking never opens the batch. */}
+                <button
+                  type="button"
+                  onClick={() => setDeleting([b.id])}
+                  aria-label={`Delete batch ${b.id.slice(0, 8)}`}
+                  title="Delete this batch (nothing on Etsy is touched)"
+                  className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md bg-white/90 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-rose-700"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
                 <label
                   className="absolute left-3 top-3 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md bg-white/90 shadow-sm ring-1 ring-slate-200"
                   title="Select for a bulk action"
@@ -137,6 +169,21 @@ export default function Home() {
               </div>
             ))}
           </div>
+          {deleting && (
+            <div className="sticky bottom-4 z-30">
+              <DeleteBatches
+                ids={deleting}
+                summary={summaryOf(deleting)}
+                onClose={() => setDeleting(null)}
+                onDeleted={(message) => {
+                  setDeleting(null);
+                  setSelected((cur) => cur.filter((id) => !deleting.includes(id)));
+                  setNotice(message);
+                  setReloadKey((k) => k + 1);
+                }}
+              />
+            </div>
+          )}
           <BatchActions
             selected={selected}
             onClear={() => setSelected([])}
@@ -144,6 +191,7 @@ export default function Home() {
               setSelected([]);
               setReloadKey((k) => k + 1);
             }}
+            onDelete={() => setDeleting(selected)}
           />
         </>
       )}
