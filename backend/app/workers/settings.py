@@ -36,6 +36,7 @@ from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
 from app.workers.schedule import release_scheduled_publishes
+from app.workers.sales import sync_all_sales, sync_sales
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -96,6 +97,7 @@ class WorkerSettings:
         refresh_profile,
         refresh_profile_images,
         sync_shop_listings,
+        sync_sales,
         detect_profiles,
         run_replace_images_job,
     ]
@@ -109,6 +111,8 @@ class WorkerSettings:
         cron(auto_refresh_profiles, minute={5, 20, 35, 50}, second=0, run_at_startup=True),
         # Scheduled publishing (v6 §G): due schedules become publish-live jobs.
         cron(release_scheduled_publishes, second=30, run_at_startup=True),
+        # The seller's own sales, once a day (v7 §C1).
+        cron(sync_all_sales, hour={2}, minute={30}, second=0, run_at_startup=False),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

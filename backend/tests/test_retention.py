@@ -182,6 +182,8 @@ async def test_purge_is_idempotent(world) -> None:
         "shop_listings": 0,
         "profile_image_links": 0,
         "profile_payloads": 0,
+        "sales_days": 0,
+        "ad_spend": 0,
     }
 
 
@@ -221,7 +223,9 @@ async def test_shop_purge_reports_what_it_removed(world) -> None:
     async with sm() as s:
         counts = await purge_shop_etsy_content(s, a["connection_id"])
         await s.commit()
-    assert counts == {"snapshots": 2, "shop_listings": 2, "publications": 0, "profiles": 2}
+    assert counts == {
+        "snapshots": 2, "shop_listings": 2, "publications": 0, "profiles": 2, "sales_days": 0, "ad_spend": 0,
+    }
 
 
 # --- wiring -----------------------------------------------------------------

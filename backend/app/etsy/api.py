@@ -375,6 +375,30 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def get_shop_transactions(
+        self,
+        shop_id: int,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """getShopReceiptTransactionsByShop (transactions_r), newest first.
+
+        The response carries buyer fields; callers read only listing id,
+        quantity, price and date from it (pipeline/sales.py) and keep nothing else.
+        """
+        return await self._request(
+            "GET",
+            f"/application/shops/{shop_id}/transactions",
+            access_token=access_token,
+            params={"limit": limit, "offset": offset},
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     # --- Writes ------------------------------------------------------------
     async def update_listing_personalization(
         self,

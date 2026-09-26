@@ -142,6 +142,11 @@ class Tenant(Base):
     # an admin can turn it on or off per account. Off, brand names may appear in
     # this seller's listings, at the seller's own risk under Etsy's IP policy.
     trademark_filter: Mapped[bool | None] = mapped_column(Boolean)
+    # The seller's own costs for profit figures (v7 §C2): Etsy fee rates, product,
+    # shipping and fixed costs. Editable, since fee rates change.
+    cost_settings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
+    )
     # Features an admin turned on for this account (v7 §B), e.g. {"own_patterns": true}.
     features: Mapped[dict[str, Any]] = mapped_column(
         JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
@@ -637,6 +642,65 @@ class ShopListingCache(Base):
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SalesDaily(Base):
+    """One row per listing per day: units sold, orders and revenue (v7 §C1).
+
+    Our own metric over the seller's own shop, derived from getShopReceiptTransactionsByShop:
+    only listing id, quantity, price and date are read, the raw response is
+    discarded in the same job, and nothing about buyers is ever stored. Kept
+    :attr:`RETENTION_DAYS` (13 months, so a Christmas design's history is there
+    the next November), then deleted; deleted at once when the shop disconnects.
+    """
+
+    __tablename__ = "sales_daily"
+    __table_args__ = (Index("ix_sales_daily_tenant_day", "tenant_id", "day"),)
+
+    RETENTION_DAYS: ClassVar[int] = 396
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    units: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    orders: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: In the shop's currency, in minor units (cents).
+    revenue_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    currency: Mapped[str | None] = mapped_column(Text)
+
+
+class AdSpend(Base):
+    """Etsy Ads spend the seller uploaded as CSV, per listing and period (v7 §C1).
+
+    The Open API has no Ads data; the seller exports it from Shop Manager and
+    maps its columns here. Kept 13 months like sales; deleted with the shop.
+    """
+
+    __tablename__ = "ad_spend"
+    __table_args__ = (Index("ix_ad_spend_tenant_period", "tenant_id", "period_end"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    upload_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    spend_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    ad_orders: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    ad_revenue_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
