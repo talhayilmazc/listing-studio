@@ -30,10 +30,12 @@ export function BatchActions({
   selected,
   onClear,
   onDone,
+  onDelete,
 }: {
   selected: string[];
   onClear: () => void;
   onDone: () => void;
+  onDelete: () => void;
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const [preview, setPreview] = useState<BatchActionPreview | null>(null);
@@ -176,6 +178,14 @@ export function BatchActions({
             </button>
             <button type="button" className="btn-primary" onClick={() => ask("publish")} disabled={busy}>
               Publish…
+            </button>
+            <button
+              type="button"
+              className="rounded-md px-2.5 py-1.5 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              onClick={onDelete}
+              disabled={busy}
+            >
+              Delete…
             </button>
             <button type="button" className="text-xs text-slate-500 underline" onClick={onClear} disabled={busy}>
               Clear selection

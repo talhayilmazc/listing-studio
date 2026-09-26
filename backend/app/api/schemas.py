@@ -342,6 +342,21 @@ class BatchActionRequest(BaseModel):
     action: Literal["drafts", "publish"]
 
 
+class BatchDeleteRequest(BaseModel):
+    batch_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+
+
+class BatchDeleteResult(BaseModel):
+    """What deleting batches removed, and what it left alone on Etsy (v7 §E3)."""
+
+    deleted: int = 0
+    files_removed: int = 0
+    #: Drafts or live listings made from these batches: left on Etsy, untouched.
+    listings_left_on_etsy: int = 0
+    #: Queued jobs of these batches (drafts, go-lives, schedules) that were cancelled.
+    jobs_cancelled: int = 0
+
+
 class BatchActionItem(BaseModel):
     batch_id: uuid.UUID
     content_id: uuid.UUID

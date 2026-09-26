@@ -30,6 +30,17 @@ interface Progress {
   /** Queued, waiting for the daily Etsy reset; they run by themselves then. */
   paused: number;
   pause: Pause | null;
+  /** Every job that settled, for the result shown when all have (v7 §E2). */
+  outcomes: Outcome[];
+  finished: boolean;
+}
+
+interface Outcome {
+  contentId: string;
+  shop: string | null;
+  url: string | null;
+  ok: boolean;
+  error: string | null;
 }
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
@@ -97,6 +108,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   async function pollJobs(jobs: PublishJob[], label: string, skipped: number) {
     setProgress({
       label, total: jobs.length, done: 0, failed: 0, skipped, running: 0, paused: 0, pause: null,
+      outcomes: [], finished: false,
     });
     await Promise.all(
       jobs.map(async (j) => {
@@ -106,14 +118,28 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         } else if (s.pause) {
           const pause = s.pause;
           setProgress((p) => p && { ...p, paused: p.paused + 1, pause });
-        } else if (s.status === "succeeded") {
-          setProgress((p) => p && { ...p, done: p.done + 1 });
         } else {
-          setProgress((p) => p && { ...p, failed: p.failed + 1 });
+          const ok = s.status === "succeeded";
+          const outcome: Outcome = {
+            contentId: j.content_id,
+            shop: s.shop_name,
+            url: s.listing_url,
+            ok,
+            error: ok ? null : s.error,
+          };
+          setProgress((p) =>
+            p && {
+              ...p,
+              done: p.done + (ok ? 1 : 0),
+              failed: p.failed + (ok ? 0 : 1),
+              outcomes: [...p.outcomes, outcome],
+            },
+          );
         }
         load();
       }),
     );
+    setProgress((p) => p && { ...p, finished: true });
   }
 
   async function runBulk(
@@ -324,7 +350,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {progress && (
+      {progress?.finished && (
+        <PublishResult
+          progress={progress}
+          titleOf={(cid) => items?.find((c) => c.id === cid)?.title ?? items?.find((c) => c.id === cid)?.original_filename ?? "Listing"}
+          onDismiss={() => setProgress(null)}
+        />
+      )}
+
+      {progress && !progress.finished && (
         <div className="card space-y-2 p-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-700">{progress.label}…</span>
@@ -480,5 +514,91 @@ function TargetPanel({
         </p>
       )}
     </section>
+  );
+}
+
+/** What a publish or draft run ended with (v7 §E2): how many, their links, and why any failed. */
+function PublishResult({
+  progress,
+  titleOf,
+  onDismiss,
+}: {
+  progress: Progress;
+  titleOf: (contentId: string) => string;
+  onDismiss: () => void;
+}) {
+  const publishing = progress.label.startsWith("Publish");
+  const ok = progress.outcomes.filter((o) => o.ok);
+  const bad = progress.outcomes.filter((o) => !o.ok);
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  const head = publishing
+    ? ok.length
+      ? `Published ${n(ok.length, "listing", "listings")} on Etsy`
+      : "Nothing was published"
+    : ok.length
+      ? `Created ${n(ok.length, "draft", "drafts")} on Etsy`
+      : "No drafts were created";
+  return (
+    <div
+      role="status"
+      className={
+        "card space-y-3 p-4 text-sm " +
+        (bad.length ? "border-amber-200" : ok.length ? "border-emerald-200 bg-emerald-50/40" : "")
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-slate-900">
+            {ok.length > 0 && <span className="text-emerald-700">✓ </span>}
+            {head}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {[
+              bad.length && n(bad.length, "failed", "failed"),
+              progress.paused && `${progress.paused} waiting for the daily budget`,
+              progress.running && `${progress.running} still running`,
+              progress.skipped && `${progress.skipped} skipped`,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "Everything went through."}
+          </p>
+        </div>
+        <button type="button" className="text-xs text-slate-400 underline hover:text-slate-700" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
+      {ok.length > 0 && (
+        <ul className="max-h-60 space-y-1 overflow-y-auto text-xs">
+          {ok.map((o, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-slate-700">
+                {titleOf(o.contentId)}
+                {o.shop && <span className="text-slate-400"> · {o.shop}</span>}
+              </span>
+              {o.url && (
+                <a href={o.url} target="_blank" rel="noreferrer" className="shrink-0 font-medium text-brand-700 hover:underline">
+                  {publishing ? "View on Etsy ↗" : "Edit draft ↗"}
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {bad.length > 0 && (
+        <ul className="space-y-1 text-xs text-rose-800">
+          {bad.map((o, i) => (
+            <li key={i}>
+              <span className="font-medium">{titleOf(o.contentId)}</span>
+              {o.shop && <span> · {o.shop}</span>}: {o.error ?? "failed"}
+            </li>
+          ))}
+        </ul>
+      )}
+      {progress.pause && (
+        <p className="text-xs text-amber-800">
+          Queued, not failed: {progress.pause.message} That is around {resumeTime(progress.pause.resumes_at)} your time.
+        </p>
+      )}
+    </div>
   );
 }

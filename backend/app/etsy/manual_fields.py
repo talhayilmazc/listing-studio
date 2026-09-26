@@ -8,8 +8,12 @@ they are not first discovered when Etsy refuses to publish.
 
 The first is Etsy's Creativity Standards question, "How does your shop produce
 this item?". Checked against Etsy's published OpenAPI document (Open API v3,
-spec 3.0.0, fetched 2026-09-24): no request or response field carries it, and it
-is not among the category attributes for the apparel taxonomy either.
+spec 3.0.0, fetched 2026-09-24 and again 2026-09-26): no request or response
+field carries it, and it is not among the category attributes for the apparel
+taxonomy either. It is not "who made it / when was it made" (who_made,
+when_made) or production partners: those are in the API, copied from the
+reference and verified on read-back (etsy/publisher.py), and recent drafts show
+them stored exactly as sent (v7 §E1).
 
 To add another, append a ManualField below. If Etsy later exposes one of these
 through the API, copy it from the reference like every other setting instead,
@@ -39,8 +43,9 @@ MANUAL_FIELDS: tuple[ManualField, ...] = (
         detail=(
             "Etsy's Creativity Standards question: made from scratch, assembled from "
             "purchased parts, altered by your shop, a curated set of purchased goods, or a "
-            "natural material. Etsy's API cannot set it, so choose it on the draft in Shop "
-            "Manager."
+            "natural material. Who made it, when, and any production partner are copied from "
+            "your reference and checked; this question is separate, and Etsy's API cannot set "
+            "it, so choose it on the draft in Shop Manager."
         ),
     ),
 )

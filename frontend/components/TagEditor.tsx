@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-const MAX_TAG = 20;
-const REQUIRED = 13;
+import { MAX_TAG_LENGTH as MAX_TAG, TAG_COUNT as REQUIRED, addTags, editTag, tagProblems } from "@/lib/tags";
 
 export function TagEditor({
   tags,
@@ -14,10 +12,10 @@ export function TagEditor({
 }) {
   const [draft, setDraft] = useState("");
 
-  function add() {
-    const value = draft.trim();
-    if (!value) return;
-    onChange([...tags, value]);
+  // "nurse, winter, sweatshirt" is three tags, typed or pasted (v7 §E4).
+  function add(text = draft) {
+    if (!text.trim()) return;
+    onChange(addTags(tags, text));
     setDraft("");
   }
 
@@ -26,8 +24,10 @@ export function TagEditor({
   }
 
   function edit(i: number, value: string) {
-    onChange(tags.map((t, idx) => (idx === i ? value : t)));
+    onChange(editTag(tags, i, value));
   }
+
+  const problems = tagProblems(tags);
 
   const countTone = tags.length === REQUIRED ? "text-emerald-700" : "text-amber-700";
 
@@ -41,7 +41,8 @@ export function TagEditor({
       </div>
       <div className="flex flex-wrap gap-1.5">
         {tags.map((t, i) => {
-          const tooLong = t.length > MAX_TAG;
+          const problem = problems[i];
+          const tooLong = problem !== null;
           return (
             <span
               key={i}
@@ -60,8 +61,8 @@ export function TagEditor({
               />
               {/* Each chip carries its own length, so the 20-char limit is visible per tag. */}
               <span
-                className={`tabular-nums ${tooLong ? "font-medium text-amber-700" : "text-slate-400"}`}
-                title={`${t.length} of ${MAX_TAG} characters`}
+                className={`tabular-nums ${t.length > MAX_TAG ? "font-medium text-amber-700" : "text-slate-400"}`}
+                title={problem ? `${t.length} of ${MAX_TAG} characters: ${problem}` : `${t.length} of ${MAX_TAG} characters`}
               >
                 {t.length}
               </span>
@@ -78,18 +79,42 @@ export function TagEditor({
         })}
         <input
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            // A pasted or typed list becomes tags at once; the last piece keeps typing.
+            const v = e.target.value;
+            if (/[,;\n]/.test(v)) {
+              const parts = v.split(/[,;\n]/);
+              const rest = parts.pop() ?? "";
+              onChange(addTags(tags, parts.join(",")));
+              setDraft(rest.trimStart());
+            } else {
+              setDraft(v);
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text");
+            if (/[,;\n]/.test(text)) {
+              e.preventDefault();
+              add(draft + text);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
               add();
             }
           }}
-          onBlur={add}
-          placeholder="add tag…"
+          onBlur={() => add()}
+          placeholder="add tags, separated by commas…"
           className="min-w-[8ch] flex-1 rounded-full border border-dashed border-slate-300 px-2 py-1 text-xs focus:border-brand-500 focus:outline-none"
         />
       </div>
+      {problems.some(Boolean) && (
+        <p className="mt-1 text-xs text-amber-700">
+          {problems.filter((p) => p === "duplicate").length > 0 && "Duplicate tags are counted once by Etsy. "}
+          {problems.some((p) => p?.startsWith("over")) && `Tags over ${MAX_TAG} characters are refused.`}
+        </p>
+      )}
     </div>
   );
 }

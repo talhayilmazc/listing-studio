@@ -25,6 +25,8 @@ from app.db.models import (
     Asset,
     AssetStatus,
     GeneratedContent,
+    Job,
+    JobStatus,
     ListingGroupSetting,
     ListingProfile,
     ListingPublication,
@@ -551,6 +553,71 @@ async def reset_cover_crop(
     asset = await _own_asset(session, tenant, asset_id)
     asset.cover_crop = None
     await session.commit()
+
+
+# --- Deleting batches (docs/duzeltmeler-v7.md §E3) ---------------------------------
+async def _delete_batch(
+    session: AsyncSession, storage: Storage, tenant: Tenant, batch: UploadBatch, result: schemas.BatchDeleteResult
+) -> None:
+    """Delete one batch: its uploads, their derivatives and previews, its generated
+    content and settings. Drafts and live listings on Etsy made from it are not
+    touched (only our link to them goes); queued work for it is cancelled."""
+    content_ids = select(GeneratedContent.id).where(GeneratedContent.batch_id == batch.id)
+    on_etsy = await session.scalar(
+        select(func.count()).select_from(ListingPublication).where(ListingPublication.content_id.in_(content_ids))
+    )
+    files = await session.scalar(select(func.count()).select_from(Asset).where(Asset.batch_id == batch.id))
+    queued = (
+        await session.execute(
+            select(Job).where(
+                Job.tenant_id == tenant.id,
+                Job.batch_id == batch.id,
+                Job.status == JobStatus.queued,
+            )
+        )
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    for job in queued:
+        job.status = JobStatus.cancelled
+        job.finished_at = now
+        job.last_error = "cancelled: the batch was deleted"
+    await session.delete(batch)  # assets, content, group settings and drafts' links cascade
+    await session.flush()
+    storage.delete_prefix(f"{tenant.id}/{batch.id}")
+    result.deleted += 1
+    result.files_removed += int(files or 0)
+    result.listings_left_on_etsy += int(on_etsy or 0)
+    result.jobs_cancelled += len(queued)
+
+
+@router.delete("/batches/{batch_id}", response_model=schemas.BatchDeleteResult)
+async def delete_batch(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> schemas.BatchDeleteResult:
+    batch = await _get_batch(session, tenant, batch_id)
+    result = schemas.BatchDeleteResult()
+    await _delete_batch(session, storage, tenant, batch, result)
+    await session.commit()
+    return result
+
+
+@router.post("/batch-actions/delete", response_model=schemas.BatchDeleteResult)
+async def delete_batches(
+    body: schemas.BatchDeleteRequest,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> schemas.BatchDeleteResult:
+    """Delete several batches. Every one must be the caller's, or none is deleted."""
+    batches = [await _get_batch(session, tenant, b) for b in dict.fromkeys(body.batch_ids)]
+    result = schemas.BatchDeleteResult()
+    for batch in batches:
+        await _delete_batch(session, storage, tenant, batch, result)
+    await session.commit()
+    return result
 
 
 # --- Image order and cover (docs/duzeltmeler-v6.md §E) ----------------------------
