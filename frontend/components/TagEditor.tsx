@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { MAX_TAG_LENGTH as MAX_TAG, TAG_COUNT as REQUIRED, addTags, editTag, tagProblems } from "@/lib/tags";
 
+import { Txt } from "@/components/Txt";
 export function TagEditor({
   tags,
   onChange,
@@ -36,7 +37,7 @@ export function TagEditor({
       <div className="mb-1 flex items-center justify-between">
         <span className="label mb-0">Tags</span>
         <span className={`text-xs font-medium ${countTone}`}>
-          {tags.length} / {REQUIRED}
+          <span><span>{tags.length}</span> / <span>{REQUIRED}</span></span>
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -60,7 +61,7 @@ export function TagEditor({
                 aria-label={`Tag ${i + 1}`}
               />
               {/* Each chip carries its own length, so the 20-char limit is visible per tag. */}
-              <span
+              <span translate="no"
                 className={`tabular-nums ${t.length > MAX_TAG ? "font-medium text-amber-700" : "text-slate-400"}`}
                 title={problem ? `${t.length} of ${MAX_TAG} characters: ${problem}` : `${t.length} of ${MAX_TAG} characters`}
               >
@@ -110,9 +111,9 @@ export function TagEditor({
         />
       </div>
       {problems.some(Boolean) && (
-        <p className="mt-1 text-xs text-amber-700">
-          {problems.filter((p) => p === "duplicate").length > 0 && "Duplicate tags are counted once by Etsy. "}
-          {problems.some((p) => p?.startsWith("over")) && `Tags over ${MAX_TAG} characters are refused.`}
+        <p key="p-112-6" className="mt-1 text-xs text-amber-700">
+          <span><Txt>{problems.filter((p) => p === "duplicate").length > 0 && "Duplicate tags are counted once by Etsy. "}</Txt>
+          <Txt>{problems.some((p) => p?.startsWith("over")) && `Tags over ${MAX_TAG} characters are refused.`}</Txt></span>
         </p>
       )}
     </div>

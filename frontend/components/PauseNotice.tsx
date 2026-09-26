@@ -38,7 +38,7 @@ export function PauseNotice() {
 
   if (!pause) return null;
   return (
-    <div role="status" className="border-b border-amber-200 bg-amber-50 px-6 py-3 lg:px-8">
+    <div role="status" translate="no" className="border-b border-amber-200 bg-amber-50 px-6 py-3 lg:px-8">
       <p className="mx-auto flex w-full max-w-[1800px] items-start gap-2.5 text-sm text-amber-800">
         <svg
           aria-hidden
@@ -55,8 +55,8 @@ export function PauseNotice() {
           <path d="M10 9v6M14 9v6" />
         </svg>
         <span>
-          <span className="font-medium">Etsy work is paused.</span>{" "}
-          {pause.message} That is around {resumeTime(pause.resumes_at)} your time.
+          <span className="font-medium">Etsy work is paused.</span><span>{" "}
+          <span>{pause.message}</span> That is around <span>{resumeTime(pause.resumes_at)}</span> your time.</span>
         </span>
       </p>
     </div>

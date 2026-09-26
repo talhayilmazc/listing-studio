@@ -5,6 +5,7 @@ import { CLASS_ORDER, filterRows, money, percent, type SortKey } from "@/lib/ana
 import type { AnalyticsRow, ListingClass } from "@/lib/types";
 import { ClassBadge, Delta, ListingCell } from "./Shared";
 
+import { Txt } from "@/components/Txt";
 const PAGE = 50;
 
 const COLUMNS: { key: SortKey; label: string; title?: string }[] = [
@@ -83,17 +84,17 @@ export function ListingTable({
             }
           >
             <ClassBadge klass={k} />
-            <span className="tabular-nums text-slate-600">{counts[k]}</span>
+            <span translate="no" className="tabular-nums text-slate-600">{counts[k]}</span>
           </button>
         ))}
         {classes.length > 0 && (
-          <button type="button" className="text-xs text-slate-500 underline" onClick={() => onClasses([])}>
+          <button key="button-89-8" type="button" className="text-xs text-slate-500 underline" onClick={() => onClasses([])}>
             all classes
           </button>
         )}
         <span className="ml-auto text-xs text-slate-500">
-          {shown.length.toLocaleString()} listing{shown.length === 1 ? "" : "s"}
-          {sort === "attention" && " · most in need of attention first"}
+          <span><span>{shown.length.toLocaleString()}</span><span> listing</span><Txt>{shown.length === 1 ? "" : "s"}</Txt>
+          <Txt>{sort === "attention" && " · most in need of attention first"}</Txt></span>
         </span>
       </div>
 
@@ -103,14 +104,14 @@ export function ListingTable({
             <tr>
               <th className="px-3 py-2 font-medium">
                 <button type="button" onClick={() => sortBy("attention")} className="hover:text-slate-900">
-                  Listing {sort === "attention" && "↓"}
+                  <span><span>Listing </span><Txt>{sort === "attention" && "↓"}</Txt></span>
                 </button>
               </th>
               <th className="px-3 py-2 font-medium">Class</th>
               {COLUMNS.map((c) => (
                 <th key={c.key} className="px-3 py-2 text-right font-medium" title={c.title}>
                   <button type="button" onClick={() => sortBy(c.key)} className="hover:text-slate-900">
-                    {c.label} {sort === c.key && (desc ? "↓" : "↑")}
+                    <span><span>{c.label}</span> <Txt>{sort === c.key && (desc ? "↓" : "↑")}</Txt></span>
                   </button>
                 </th>
               ))}
@@ -139,7 +140,7 @@ export function ListingTable({
               </tr>
             ))}
             {shown.length === 0 && (
-              <tr>
+              <tr key="tr-141-12">
                 <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
                   No listing matches.
                 </td>
@@ -150,12 +151,12 @@ export function ListingTable({
       </div>
 
       {pages > 1 && (
-        <div className="flex items-center justify-end gap-2 text-sm">
+        <div key="div-152-6" className="flex items-center justify-end gap-2 text-sm">
           <button type="button" className="btn-secondary px-2 py-1" disabled={current === 0} onClick={() => setPage(current - 1)}>
             Previous
           </button>
-          <span className="tabular-nums text-slate-500">
-            {current + 1} / {pages}
+          <span translate="no" className="tabular-nums text-slate-500">
+            <span><span>{current + 1}</span> / <span>{pages}</span></span>
           </span>
           <button type="button" className="btn-secondary px-2 py-1" disabled={current >= pages - 1} onClick={() => setPage(current + 1)}>
             Next
@@ -167,5 +168,5 @@ export function ListingTable({
 }
 
 function Num({ children, tone = "text-slate-700" }: { children: React.ReactNode; tone?: string }) {
-  return <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${tone}`}>{children}</td>;
+  return <td translate="no" className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${tone}`}>{children}</td>;
 }

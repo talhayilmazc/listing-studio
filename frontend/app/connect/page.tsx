@@ -5,6 +5,7 @@ import { AUTH_START_URL, api } from "@/lib/api";
 import type { Shop } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
 
+import { Txt } from "@/components/Txt";
 // Full literal class strings so Tailwind's JIT keeps them.
 const OK = "border-emerald-200 bg-emerald-50 text-emerald-700";
 const WARN = "border-amber-200 bg-amber-50 text-amber-700";
@@ -74,15 +75,15 @@ export default function ConnectPage() {
         </p>
       </div>
 
-      {b && <div className={`card p-3 text-sm ${b.cls}`}>{b.text}</div>}
-      {error && <div className={`card p-3 text-sm ${BAD}`}>{error}</div>}
+      {b && <div key="div-77-6" className={`card p-3 text-sm ${b.cls}`}>{b.text}</div>}
+      {error && <div key="div-78-6" className={`card p-3 text-sm ${BAD}`}>{error}</div>}
 
       {shops === null ? (
         <div className="card h-40 animate-pulse bg-slate-50" />
       ) : (
         <div className="card divide-y divide-slate-100">
           {shops.length === 0 && (
-            <p className="p-6 text-sm text-slate-600">
+            <p key="p-84-10" className="p-6 text-sm text-slate-600">
               No shop connected yet. You&apos;ll be sent to Etsy to sign in and approve access to
               your shop&apos;s listings.
             </p>
@@ -110,16 +111,16 @@ export default function ConnectPage() {
               </button>
             )}
             {slots && (
-              <p className="text-xs text-slate-500">
-                {slots.used} of {slots.limit} shops connected
-                {!slots.can_add &&
+              <p key="p-112-12" className="text-xs text-slate-500">
+                <span><span>{slots.used}</span><span> of </span><span>{slots.limit}</span><span> shops connected</span>
+                <Txt>{!slots.can_add &&
                   (slots.used >= slots.limit
                     ? ". Your account is at its limit."
-                    : ". The service is at its limit for now.")}
+                    : ". The service is at its limit for now.")}</Txt></span>
               </p>
             )}
             {shops.length > 0 && (
-              <p className="text-xs text-slate-400">
+              <p key="p-121-12" className="text-xs text-slate-400">
                 On Etsy, each shop has its own account. To connect another shop, sign in to Etsy as
                 that shop&apos;s owner when you are sent there.
               </p>
@@ -163,11 +164,11 @@ function ShopRow({
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-slate-900">{shop.name}</p>
           <p className="text-xs text-slate-500">
-            {shop.shop_name ? `On Etsy: ${shop.shop_name}` : "Fetching the shop's name…"} ·
-            connected {new Date(shop.connected_at).toLocaleDateString()}
+            <span><span>{shop.shop_name ? `On Etsy: ${shop.shop_name}` : "Fetching the shop's name…"}</span> ·
+            connected <span>{new Date(shop.connected_at).toLocaleDateString()}</span></span>
           </p>
           {(shop.missing_scopes ?? []).includes("transactions_r") && (
-            <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+            <p key="p-169-10" className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
               Reconnect this shop once to let the Service read its sales (which listing sold,
               how many, the price and the date; never anything about your buyers).{" "}
               <a href={AUTH_START_URL} className="font-medium underline">
@@ -234,7 +235,7 @@ function ShopRow({
         </div>
       </div>
       {confirming && (
-        <p className="text-xs text-slate-500">
+        <p key="p-236-6" className="text-xs text-slate-500">
           Disconnecting deletes this shop&apos;s tokens and everything we hold from it: its cached
           listings, its profiles and the links to its drafts. Your other shops, your uploads and
           your generated listings stay. Listings on Etsy are not touched.

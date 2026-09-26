@@ -152,10 +152,10 @@ function ShopCard({
                 {name ?? "Your shop"}
               </h2>
             )}
-            {connection?.connected && <StatusPill status="ready" />}
+            {connection?.connected && <StatusPill key="statuspill-155-12" status="ready" />}
           </div>
           {connection?.connected_at && (
-            <p className="mt-1 text-xs text-slate-500">
+            <p key="p-157-10" className="mt-1 text-xs text-slate-500">
               Connected{" "}
               <span title={new Date(connection.connected_at).toLocaleString()}>
                 {relativeTime(connection.connected_at)}
@@ -228,7 +228,7 @@ function Metric({ label, value }: { label: string; value: number | null }) {
   return (
     <div>
       <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="text-lg font-semibold tabular-nums text-slate-900">
+      <dd translate="no" className="text-lg font-semibold tabular-nums text-slate-900">
         {value === null ? <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-100" /> : value}
       </dd>
     </div>
@@ -254,11 +254,11 @@ function QuotaCard({ quota }: { quota: Quota | null }) {
     <section className="card p-6">
       <div className="flex items-baseline justify-between">
         <h2 className="label mb-0">Etsy API quota</h2>
-        <span className="text-xs tabular-nums text-slate-400">{quota.usage_date}</span>
+        <span translate="no" className="text-xs tabular-nums text-slate-400">{quota.usage_date}</span>
       </div>
 
       <p className="mt-3 flex items-baseline gap-1.5">
-        <span
+        <span translate="no"
           className={
             "font-display text-3xl font-normal tabular-nums " +
             (low ? "text-amber-700" : "text-slate-900")
@@ -308,9 +308,9 @@ function Meter({
     <div>
       <div className="mb-1.5 flex items-baseline justify-between text-xs">
         <span className="text-slate-500">{label}</span>
-        <span className="tabular-nums text-slate-500">
-          <span className="font-medium text-slate-700">{used.toLocaleString()}</span> /{" "}
-          {limit.toLocaleString()}
+        <span translate="no" className="tabular-nums text-slate-500">
+          <span className="font-medium text-slate-700">{used.toLocaleString()}</span><span> /{" "}
+          <span>{limit.toLocaleString()}</span></span>
         </span>
       </div>
       <div className="progress">
@@ -333,7 +333,7 @@ function ActivityCard({ batches, thumbs }: { batches: BatchSummary[] | null; thu
       </div>
 
       {batches === null && (
-        <div className="mt-4 space-y-4">
+        <div key="div-335-6" className="mt-4 space-y-4">
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex items-center gap-4">
               <div className="h-12 w-12 animate-pulse rounded-lg bg-slate-100" />
@@ -347,13 +347,13 @@ function ActivityCard({ batches, thumbs }: { batches: BatchSummary[] | null; thu
       )}
 
       {batches?.length === 0 && (
-        <p className="mt-4 text-sm text-slate-500">
+        <p key="p-349-6" className="mt-4 text-sm text-slate-500">
           Nothing uploaded yet. Your batches will appear here.
         </p>
       )}
 
       {batches && batches.length > 0 && (
-        <ol className="mt-4">
+        <ol key="ol-355-6" className="mt-4">
           {batches.slice(0, RECENT).map((b, i, arr) => (
             <ActivityRow
               key={b.id}
@@ -396,7 +396,7 @@ function ActivityRow({
   return (
     <li className="relative flex gap-4 pb-5 last:pb-0">
       {/* Timeline rail */}
-      {!last && <span aria-hidden className="absolute left-[5px] top-4 h-full w-px bg-slate-200" />}
+      {!last && <span key="span-399-6" aria-hidden className="absolute left-[5px] top-4 h-full w-px bg-slate-200" />}
       <span
         aria-hidden
         className="relative z-[1] mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full border-2 border-white bg-slate-300 ring-1 ring-slate-200"
@@ -414,7 +414,7 @@ function ActivityRow({
             <StatusPill status={batch.status} />
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
-            <span className="tabular-nums">{batch.asset_count}</span> files ·{" "}
+            <span translate="no" className="tabular-nums">{batch.asset_count}</span> files ·{" "}
             <span title={new Date(batch.created_at).toLocaleString()}>
               {relativeTime(batch.created_at)}
             </span>
@@ -473,7 +473,7 @@ function ProfilesCard({
       </div>
 
       {profiles === null && (
-        <div className="mt-4 space-y-4">
+        <div key="div-475-6" className="mt-4 space-y-4">
           {[0, 1].map((i) => (
             <div key={i} className="flex items-center gap-3">
               <div className="h-12 w-12 animate-pulse rounded-lg bg-slate-100" />
@@ -487,13 +487,13 @@ function ProfilesCard({
       )}
 
       {profiles?.length === 0 && (
-        <p className="mt-4 text-sm text-slate-500">
+        <p key="p-489-6" className="mt-4 text-sm text-slate-500">
           No profiles yet. They copy category, price and variations from your own listings.
         </p>
       )}
 
       {profiles && profiles.length > 0 && (
-        <ul className="mt-4 divide-y divide-slate-100">
+        <ul key="ul-495-6" className="mt-4 divide-y divide-slate-100">
           {profiles.map((p) => {
             const hero = p.reference_images.find((i) => i.kind !== "size_chart" && i.url);
             const used = usage?.[p.id];
@@ -524,12 +524,12 @@ function ProfilesCard({
                         <span className="text-slate-400">counting listings…</span>
                       ) : (
                         <>
-                          <span className="tabular-nums">{used ?? 0}</span>{" "}
-                          {used === 1 ? "listing" : "listings"}
+                          <span translate="no" className="tabular-nums">{used ?? 0}</span><span>{" "}
+                          <span>{used === 1 ? "listing" : "listings"}</span></span>
                         </>
                       )}
-                      {" · "}
-                      {p.content_template}
+                      <span>{" · "}
+                      <span>{p.content_template}</span></span>
                     </span>
                   </span>
                   <Freshness profile={p} />

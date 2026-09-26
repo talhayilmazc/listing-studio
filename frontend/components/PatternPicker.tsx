@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { PatternListing } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 /**
  * "Model on one of my listings" (v7 §B): the new listing keeps the title and
  * tag pattern of one of the seller's OWN listings, with this design's subject.
@@ -42,10 +43,10 @@ export function PatternPicker({
         {chosen != null ? (
           <>
             <span className="max-w-[28rem] truncate text-slate-800" title={current?.title ?? undefined}>
-              modelled on &ldquo;{current?.title ?? `listing ${chosen}`}&rdquo;
+              <span><span>modelled on &ldquo;</span><Txt>{current?.title ?? `listing ${chosen}`}</Txt><span>&rdquo;</span></span>
             </span>
             {current && (
-              <a href={current.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
+              <a key="a-47-12" href={current.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
                 ↗
               </a>
             )}
@@ -63,7 +64,7 @@ export function PatternPicker({
         )}
       </div>
       {open && (
-        <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+        <div key="div-65-6" className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2">
           <p className="mb-1.5 text-slate-500">
             Keeps the chosen listing&apos;s title and tag pattern; the subject comes from this design.
             Only your own shop&apos;s active listings.
@@ -78,7 +79,7 @@ export function PatternPicker({
               autoFocus
             />
             {hasSales && (
-              <select
+              <select key="select-80-12"
                 className="field w-auto py-1 text-xs"
                 value={order}
                 onChange={(e) => setOrder(e.target.value as "best" | "title")}
@@ -109,9 +110,9 @@ export function PatternPicker({
                     </span>
                     <span className="block truncate text-slate-400">
                       {l.units_90d ? (
-                        <span className="font-medium text-emerald-700">{l.units_90d} sold in 90 days · </span>
+                        <span className="font-medium text-emerald-700"><span><span>{l.units_90d}</span> sold in 90 days · </span></span>
                       ) : null}
-                      {l.tags.slice(0, 6).join(" · ")}
+                      <span>{l.tags.slice(0, 6).join(" · ")}</span>
                     </span>
                   </span>
                   <a href={l.url} target="_blank" rel="noreferrer" className="shrink-0 text-brand-700 hover:underline" title="View on Etsy">

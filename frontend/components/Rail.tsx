@@ -123,7 +123,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
                     onClose={onClose}
                   />
                   {item.href === "/profiles" && (
-                    <ProfileChildren profiles={profiles} pathname={pathname} onClose={onClose} />
+                    <ProfileChildren key="profilechildren-125-18" profiles={profiles} pathname={pathname} onClose={onClose} />
                   )}
                 </div>
               ))}
@@ -166,7 +166,7 @@ function RailLink({
           : "text-[var(--rail-text)] hover:bg-white/[0.03] hover:text-[var(--rail-active)]")
       }
     >
-      {active && <span aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-brand-500" />}
+      {active && <span key="span-169-6" aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-brand-500" />}
       <Icon active={active} />
       <span className="truncate">{label}</span>
     </Link>
@@ -218,7 +218,7 @@ function ProfileChildren({
         </Link>
       ))}
       {profiles.length > 6 && (
-        <Link
+        <Link key="link-220-6"
           href="/profiles"
           onClick={onClose}
           className={
@@ -226,7 +226,7 @@ function ProfileChildren({
             (onProfiles ? "text-[var(--rail-text)]" : "text-[var(--rail-text)]/70")
           }
         >
-          +{profiles.length - 6} more
+          <span>+<span>{profiles.length - 6}</span> more</span>
         </Link>
       )}
     </div>
@@ -304,8 +304,8 @@ function RailFooter() {
                     {selected.name}
                   </span>
                   {shops && shops.length > 1 && (
-                    <span className="block text-[11px] text-[var(--rail-text)]">
-                      {shops.length} shops · switch
+                    <span key="span-306-18" className="block text-[11px] text-[var(--rail-text)]">
+                      <span><span>{shops.length}</span> shops · switch</span>
                     </span>
                   )}
                 </>
@@ -317,7 +317,7 @@ function RailFooter() {
           </button>
 
           {open && shops && (
-            <div
+            <div key="div-319-10"
               role="listbox"
               aria-label="Your shops"
               className="absolute inset-x-0 bottom-full z-10 mb-1 overflow-hidden rounded-lg border border-white/[0.1] bg-[var(--rail)] shadow-lg"
@@ -339,7 +339,7 @@ function RailFooter() {
                 >
                   <ShopBadge name={shop.name} small />
                   <span className="min-w-0 flex-1 truncate">{shop.name}</span>
-                  {shop.id === selected?.id && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                  {shop.id === selected?.id && <span key="span-342-18" aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
                 </button>
               ))}
               <Link
@@ -347,10 +347,10 @@ function RailFooter() {
                 onClick={() => setOpen(false)}
                 className="block border-t border-white/[0.08] px-3 py-2 text-[12px] text-[var(--rail-text)] transition-colors hover:bg-white/[0.06] hover:text-[var(--rail-active)]"
               >
-                {slots?.can_add ? "Connect another shop · manage" : "Manage shops"}
+                <span>{slots?.can_add ? "Connect another shop · manage" : "Manage shops"}</span>
                 {slots && (
-                  <span className="ml-1 text-[var(--rail-text)]/70">
-                    ({slots.used} of {slots.limit})
+                  <span key="span-351-16" className="ml-1 text-[var(--rail-text)]/70">
+                    <span>(<span>{slots.used}</span> of <span>{slots.limit}</span>)</span>
                   </span>
                 )}
               </Link>
@@ -362,13 +362,13 @@ function RailFooter() {
       <div className="mt-2 px-2 pb-1">
         <div className="flex items-baseline justify-between text-[11px]">
           <span className="text-[var(--rail-text)]">API quota</span>
-          <span className="tabular-nums text-[var(--rail-text)]">
+          <span translate="no" className="tabular-nums text-[var(--rail-text)]">
             {quota ? (
               <>
                 <span className={low ? "font-medium text-amber-400" : "font-medium text-[var(--rail-active)]"}>
                   {quota.tenant_remaining.toLocaleString()}
-                </span>{" "}
-                / {quota.tenant_limit.toLocaleString()}
+                </span><span>{" "}
+                / <span>{quota.tenant_limit.toLocaleString()}</span></span>
               </>
             ) : (
               "—"
@@ -382,8 +382,8 @@ function RailFooter() {
           />
         </div>
         {quota?.shop_used != null && shops && shops.length > 1 && (
-          <p className="mt-1 text-[11px] text-[var(--rail-text)]">
-            {quota.shop_used.toLocaleString()} used today by this shop; the limit is for all your shops
+          <p key="p-384-8" className="mt-1 text-[11px] text-[var(--rail-text)]">
+            <span><span>{quota.shop_used.toLocaleString()}</span> used today by this shop; the limit is for all your shops</span>
           </p>
         )}
       </div>

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { AdminInvite, InviteIssued, InviteState } from "@/lib/types";
 import { Confirm, Reveal } from "./Reveal";
 
+import { Txt } from "@/components/Txt";
 const EXPIRY: { label: string; days: number | null }[] = [
   { label: "7 days", days: 7 },
   { label: "30 days", days: 30 },
@@ -110,16 +111,16 @@ export function InvitesTab({
       </form>
 
       {issued && (
-        <Reveal
+        <Reveal key="reveal-112-6"
           title="Invite code"
           detail={
             <>
-              {issued.invite.bound_email
+              <span><span>{issued.invite.bound_email
                 ? `Only ${issued.invite.bound_email} can register with it. `
-                : "Anyone with the code can register once. "}
-              {issued.invite.expires_at
+                : "Anyone with the code can register once. "}</span>
+              <span>{issued.invite.expires_at
                 ? `Expires ${date(issued.invite.expires_at)}.`
-                : "Does not expire."}
+                : "Does not expire."}</span></span>
             </>
           }
           value={issued.code}
@@ -159,12 +160,12 @@ export function InvitesTab({
                   </td>
                   <td className="max-w-[260px] px-4 py-3">
                     <p className="truncate text-slate-800">{inv.bound_email ?? "Anyone"}</p>
-                    {inv.note && <p className="truncate text-xs text-slate-500">{inv.note}</p>}
+                    {inv.note && <p key="p-162-20" className="truncate text-xs text-slate-500">{inv.note}</p>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                    {date(inv.created_at)}
+                    <Txt>{date(inv.created_at)}</Txt>
                     {inv.created_by_email && (
-                      <span className="block text-xs text-slate-400">by {inv.created_by_email}</span>
+                      <span key="span-166-20" className="block text-xs text-slate-400"><span>by <span>{inv.created_by_email}</span></span></span>
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">

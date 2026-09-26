@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { Profile, ReferenceImage, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 
+import { Txt } from "@/components/Txt";
 const TEMPLATES = ["apparel", "digital_products"];
 
 export function ProfileCard({
@@ -158,7 +159,7 @@ export function ProfileCard({
           ) : (
             <Chip tone="amber">needs confirmation</Chip>
           )}
-          {profile.source === "detected" && <Chip tone="slate">detected</Chip>}
+          {profile.source === "detected" && <Chip key="chip-161-10" tone="slate">detected</Chip>}
         </div>
         {/* ToU: product imagery always links back to the listing on Etsy. */}
         <a
@@ -186,13 +187,13 @@ export function ProfileCard({
             aria-label="Profile name"
           />
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
-            <a
+            <a translate="no"
               href={backLink}
               target="_blank"
               rel="noopener noreferrer"
               className="tabular-nums hover:text-brand-700 hover:underline"
             >
-              Listing #{profile.reference_listing_id} ↗
+              <span>Listing #<span>{profile.reference_listing_id}</span> ↗</span>
             </a>
             <span>·</span>
             <span
@@ -273,7 +274,7 @@ export function ProfileCard({
         />
 
         {charts.length > 0 && (
-          <ImageRow
+          <ImageRow key="imagerow-275-8"
             title="Size charts"
             note={
               imagesHidden
@@ -289,7 +290,7 @@ export function ProfileCard({
         )}
 
         {others.length > 0 && (
-          <ImageRow
+          <ImageRow key="imagerow-291-8"
             title="Other reference images"
             note={
               imagesHidden
@@ -307,22 +308,22 @@ export function ProfileCard({
 
         {profile.refresh_error && (
           // Auto-refresh could not renew this profile (v6 §H): say why, and when.
-          <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          <div key="div-308-8" role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
             <p className="font-medium">Couldn&apos;t refresh this profile</p>
             <p className="mt-0.5">{profile.refresh_error}</p>
             {profile.refresh_failed_at && (
-              <p className="mt-0.5 text-rose-700/80">
-                Last tried {new Date(profile.refresh_failed_at).toLocaleString()}
+              <p key="p-313-12" className="mt-0.5 text-rose-700/80">
+                <span>Last tried <span>{new Date(profile.refresh_failed_at).toLocaleString()}</span></span>
               </p>
             )}
           </div>
         )}
 
-        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {error && <p key="p-321-8" className="text-xs text-rose-600">{error}</p>}
 
         <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           {!profile.confirmed && (
-            <button className="btn-primary" onClick={confirm} disabled={busy !== null}>
+            <button key="button-324-10" className="btn-primary" onClick={confirm} disabled={busy !== null}>
               {busy === "confirm" ? "Confirming…" : "Confirm"}
             </button>
           )}
@@ -402,12 +403,12 @@ function ImageRow({
               ) : (
                 // Link withheld past the 6-hour display limit: keep the slot and
                 // its position so the selection still reads.
-                <span className="flex h-full w-full items-center justify-center bg-slate-100 text-[11px] tabular-nums text-slate-400">
-                  #{img.rank ?? "?"}
+                <span translate="no" className="flex h-full w-full items-center justify-center bg-slate-100 text-[11px] tabular-nums text-slate-400">
+                  <span><span>#</span><Txt>{img.rank ?? "?"}</Txt></span>
                 </span>
               )}
               {on && (
-                <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-bold text-white">
+                <span key="span-409-14" className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-bold text-white">
                   ✓
                 </span>
               )}

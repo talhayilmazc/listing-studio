@@ -6,6 +6,7 @@ import { money } from "@/lib/analytics";
 import { relativeTime } from "@/lib/format";
 import type { AdsField, AdsImportResult, AdsPreview, AdsUpload as Upload } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 const FIELD_LABEL: Record<AdsField, string> = {
   listing_id: "Listing number",
   title: "Listing title",
@@ -113,28 +114,28 @@ export function AdsUpload({ shopId, currency, onImported }: { shopId: string | n
             onChange={(e) => choose(e.target.files?.[0] ?? null)}
             className="block text-sm file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm hover:file:bg-slate-50"
           />
-          {busy && !preview && <p className="text-slate-400">Reading the file…</p>}
-          {error && <p className="text-rose-700">{error}</p>}
+          {busy && !preview && <p key="p-116-10" className="text-slate-400">Reading the file…</p>}
+          {error && <p key="p-117-10" className="text-rose-700">{error}</p>}
         </section>
 
         {result && (
-          <section className="card space-y-2 p-5 text-sm">
+          <section key="section-120-8" className="card space-y-2 p-5 text-sm">
             <p className="text-slate-800">
-              <b className="tabular-nums">{result.matched}</b> row{result.matched === 1 ? "" : "s"} matched to your listings,{" "}
-              {money(result.spend, currency)} of ad spend.
-              {result.replaced > 0 && ` Replaced ${result.replaced} earlier row${result.replaced === 1 ? "" : "s"} for the same period.`}
-              {result.skipped > 0 && ` ${result.skipped} row${result.skipped === 1 ? "" : "s"} without spend or totals were skipped.`}
+              <b translate="no" className="tabular-nums">{result.matched}</b><span><span> row</span><Txt>{result.matched === 1 ? "" : "s"}</Txt><span> matched to your listings,</span>{" "}
+              <span>{money(result.spend, currency)}</span><span> of ad spend.</span>
+              <Txt>{result.replaced > 0 && ` Replaced ${result.replaced} earlier row${result.replaced === 1 ? "" : "s"} for the same period.`}</Txt>
+              <Txt>{result.skipped > 0 && ` ${result.skipped} row${result.skipped === 1 ? "" : "s"} without spend or totals were skipped.`}</Txt></span>
             </p>
             {result.unmatched_total > 0 && (
-              <div>
+              <div key="div-128-12">
                 <p className="text-amber-800">
-                  {result.unmatched_total} row{result.unmatched_total === 1 ? "" : "s"} didn&apos;t match any of your listings
-                  {result.titles_refreshing && " (your listing titles are being refreshed from Etsy; upload again in a minute to match by title)"}:
+                  <span><span>{result.unmatched_total}</span><span> row</span><Txt>{result.unmatched_total === 1 ? "" : "s"}</Txt><span> didn&apos;t match any of your listings</span>
+                  <Txt>{result.titles_refreshing && " (your listing titles are being refreshed from Etsy; upload again in a minute to match by title)"}</Txt><span>:</span></span>
                 </p>
                 <ul className="mt-1 max-h-48 overflow-y-auto text-xs text-slate-600">
                   {result.unmatched.map((u) => (
                     <li key={u.line}>
-                      line {u.line}: {u.label} — {u.why}
+                      <span>line <span>{u.line}</span>: <span>{u.label}</span> — <span>{u.why}</span></span>
                     </li>
                   ))}
                 </ul>
@@ -143,11 +144,11 @@ export function AdsUpload({ shopId, currency, onImported }: { shopId: string | n
           </section>
         )}
         {preview && mapping && (
-          <section className="card space-y-4 p-5">
+          <section key="section-145-8" className="card space-y-4 p-5">
             <div>
               <h2 className="text-sm font-semibold text-slate-800">Which column is which?</h2>
               <p className="text-xs text-slate-500">
-                {preview.rows.toLocaleString()} rows. Filled in from the column names; check them against the rows below.
+                <span><span>{preview.rows.toLocaleString()}</span> rows. Filled in from the column names; check them against the rows below.</span>
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -171,7 +172,7 @@ export function AdsUpload({ shopId, currency, onImported }: { shopId: string | n
               ))}
             </div>
             {!mapping.date && (
-              <div className="flex flex-wrap items-end gap-3">
+              <div key="div-173-12" className="flex flex-wrap items-end gap-3">
                 <label>
                   <span className="label">Report covers from</span>
                   <input type="date" className="field py-1.5" value={start} onChange={(e) => setStart(e.target.value)} />
@@ -233,10 +234,10 @@ export function AdsUpload({ shopId, currency, onImported }: { shopId: string | n
               <li key={u.upload_id} className="flex items-start justify-between gap-2 py-2">
                 <div>
                   <p className="text-slate-800">
-                    {u.period_start} → {u.period_end}
+                    <span><span>{u.period_start}</span> → <span>{u.period_end}</span></span>
                   </p>
                   <p className="text-xs text-slate-500">
-                    {u.listings} listing{u.listings === 1 ? "" : "s"} · {money(u.spend, currency)} · uploaded {relativeTime(u.created_at)}
+                    <span><span>{u.listings}</span><span> listing</span><Txt>{u.listings === 1 ? "" : "s"}</Txt><span> · </span><span>{money(u.spend, currency)}</span><span> · uploaded </span><span>{relativeTime(u.created_at)}</span></span>
                   </p>
                 </div>
                 <button type="button" className="text-xs text-slate-500 underline hover:text-rose-700" onClick={() => remove(u.upload_id)}>

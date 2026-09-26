@@ -65,7 +65,7 @@ export function LegalShell({
           </Link>
 
           <h1 className="font-display text-4xl text-slate-900">{title}</h1>
-          <p className="mt-2 text-sm text-slate-500">Last updated {updated}</p>
+          <p className="mt-2 text-sm text-slate-500"><span>Last updated <span>{updated}</span></span></p>
 
           <nav aria-label="Contents" className="card mt-8 p-5">
             <p className="label">Contents</p>
@@ -73,7 +73,7 @@ export function LegalShell({
               {sections.map((s, i) => (
                 <li key={s.id}>
                   <a href={`#${s.id}`} className="text-slate-600 hover:text-brand-700">
-                    <span className="tabular-nums text-slate-400">{i + 1}.</span> {s.title}
+                    <span translate="no" className="tabular-nums text-slate-400"><span><span>{i + 1}</span>.</span></span> <span><span>{s.title}</span></span>
                   </a>
                 </li>
               ))}
@@ -114,7 +114,7 @@ export function Section({
   return (
     <section id={id} className="scroll-mt-8">
       <h2 className="font-display text-2xl text-slate-900">
-        <span className="tabular-nums text-slate-400">{n}.</span> {title}
+        <span translate="no" className="tabular-nums text-slate-400"><span><span>{n}</span>.</span></span> <span><span>{title}</span></span>
       </h2>
       <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-slate-700">{children}</div>
     </section>
@@ -133,7 +133,7 @@ export function Fact({
   if (!value) {
     return (
       <span className="rounded bg-amber-100 px-1 font-medium text-amber-800">
-        [{field.replace(/_/g, " ")} not configured]
+        <span>[<span>{field.replace(/_/g, " ")}</span> not configured]</span>
       </span>
     );
   }

@@ -12,6 +12,7 @@ import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
 import { useSession } from "@/components/SessionProvider";
 import { GroupImages } from "@/components/GroupImages";
 
+import { Txt } from "@/components/Txt";
 interface AssetGroup {
   key: string;
   label: string;
@@ -266,8 +267,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             <StatusPill status={batch.status} />
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            {groups.length} listing group{groups.length === 1 ? "" : "s"} · {batch.processed_count}{" "}
-            processed · {withContent} with content · {batch.approved_count} approved
+            <span><span>{groups.length}</span><span> listing group</span><Txt>{groups.length === 1 ? "" : "s"}</Txt><span> · </span><span>{batch.processed_count}</span>{" "}
+            <span>processed · </span><span>{withContent}</span><span> with content · </span><span>{batch.approved_count}</span><span> approved</span></span>
           </p>
         </div>
         <Link href={`/batches/${id}/review`} className="btn-primary">
@@ -305,7 +306,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           </div>
         )}
         {profiles.length > 5 && (
-          <input
+          <input key="input-307-8"
             type="search"
             className="field w-48 py-1 text-sm"
             placeholder="Find a profile…"
@@ -320,16 +321,16 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       </div>
 
       {notice && (
-        <div className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">{notice}</div>
+        <div key="div-322-6" role="status" translate="no" className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">{notice}</div>
       )}
 
       {failures.length > 0 && (
-        <div className="card border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+        <div key="div-326-6" className="card border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           <p className="font-medium">Generation failures</p>
           <ul className="mt-1 space-y-1">
             {failures.map((f, i) => (
               <li key={i} className="break-words">
-                <span className="font-mono text-xs">{f.original_filename}</span>: {f.error}
+                <span className="font-mono text-xs">{f.original_filename}</span><span>: <span>{f.error}</span></span>
               </li>
             ))}
           </ul>
@@ -351,18 +352,18 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-sm text-slate-600">
                     {g.label}
                   </span>
-                  {g.sku && <span className="font-mono text-xs text-slate-500">SKU {g.sku}</span>}
+                  {g.sku && <span key="span-354-18" className="font-mono text-xs text-slate-500"><span>SKU <span>{g.sku}</span></span></span>}
                   <span className="text-xs text-slate-400">
-                    {g.assets.length} image{g.assets.length === 1 ? "" : "s"}
+                    <span><span>{g.assets.length}</span><span> image</span><Txt>{g.assets.length === 1 ? "" : "s"}</Txt></span>
                   </span>
                   {g.done && pubs.length === 0 && (
-                    <span className="text-xs text-emerald-600">
-                      ✓ content ready{approved ? " · approved" : ""}
+                    <span key="span-358-18" className="text-xs text-emerald-600">
+                      <span><span>✓ content ready</span><Txt>{approved ? " · approved" : ""}</Txt></span>
                     </span>
                   )}
                   {pubs.length > 0 && (
-                    <span className="text-xs text-emerald-700">
-                      ✓ on Etsy{pubs.length > 1 ? ` in ${pubs.length} shops` : ""}
+                    <span key="span-363-18" className="text-xs text-emerald-700">
+                      <span><span>✓ on Etsy</span><Txt>{pubs.length > 1 ? ` in ${pubs.length} shops` : ""}</Txt></span>
                     </span>
                   )}
                 </div>
@@ -393,7 +394,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               </div>
 
               {asking && (
-                <div role="alertdialog" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <div key="div-395-14" role="alertdialog" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   {asking === "regenerate" ? (
                     <p>
                       This group&apos;s content is approved. Regenerating writes a new title, tags and
@@ -402,11 +403,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     </p>
                   ) : (
                     <p>
-                      This listing is already on Etsy
-                      {pubs.length > 1 ? ` in ${pubs.length} shops` : ""}. Its photos will be replaced
+                      <span><span>This listing is already on Etsy</span>
+                      <Txt>{pubs.length > 1 ? ` in ${pubs.length} shops` : ""}</Txt><span>. Its photos will be replaced
                       with this group&apos;s, in the order shown, and its title and tags rewritten
                       (one more AI generation). Its category, price, variations and whether it is live
-                      stay as they are.
+                      stay as they are.</span></span>
                     </p>
                   )}
                   <div className="mt-2 flex gap-2">
@@ -425,7 +426,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               )}
 
               {!noProfiles && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <div key="div-427-14" className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                   <label className="text-slate-500">Profile</label>
                   <select
                     className="field w-auto py-1 text-xs"
@@ -454,11 +455,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   >
                     {profileOptions("Own profile", s?.size_chart_profile_id)}
                   </select>
-                  {s?.manual && <span className="text-slate-400">· set manually</span>}
+                  {s?.manual && <span key="span-457-18" className="text-slate-400">· set manually</span>}
                 </div>
               )}
               {patternsOn && (
-                <PatternPicker
+                <PatternPicker key="patternpicker-460-14"
                   chosen={s?.pattern_listing_id ?? null}
                   listings={patternListings}
                   busy={anyBusy}

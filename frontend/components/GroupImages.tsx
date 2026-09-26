@@ -130,7 +130,7 @@ export function GroupImages({
                 </span>
               )}
               {cover && (
-                <span className="absolute left-1 top-1 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                <span key="span-132-14" className="absolute left-1 top-1 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
                   Cover
                 </span>
               )}
@@ -145,7 +145,7 @@ export function GroupImages({
                   ◀
                 </button>
                 {!cover && (
-                  <button
+                  <button key="button-147-16"
                     type="button"
                     className="text-[10px] font-medium text-brand-700 hover:underline disabled:opacity-30"
                     onClick={() => save(makeCover(order, id))}
@@ -169,7 +169,7 @@ export function GroupImages({
         })}
       </ul>
       {coverAsset && coverAsset.status === "processed" && coverAsset.width && coverAsset.height && (
-        <p className="mt-1 text-xs">
+        <p key="p-171-6" className="mt-1 text-xs">
           <button
             type="button"
             className="font-medium text-brand-700 underline hover:text-brand-800"
@@ -179,7 +179,7 @@ export function GroupImages({
             {cropping ? "Close the crop" : "Adjust cover crop"}
           </button>
           {coverAsset.cover_crop && !cropping && (
-            <span className="ml-2 text-slate-500">cropped by you · this square is the listing&apos;s main photo on Etsy</span>
+            <span key="span-181-10" className="ml-2 text-slate-500">cropped by you · this square is the listing&apos;s main photo on Etsy</span>
           )}
         </p>
       )}
@@ -203,7 +203,7 @@ export function GroupImages({
           ? "Saving order…"
           : "Drag to reorder. The cover is the first photo on Etsy; drafts created from now on use this order."}
       </p>
-      {error && <p className="mt-1 text-xs text-rose-700">{error}</p>}
+      {error && <p key="p-206-6" className="mt-1 text-xs text-rose-700">{error}</p>}
     </div>
   );
 }

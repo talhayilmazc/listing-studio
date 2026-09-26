@@ -6,6 +6,7 @@ import type { AdminUser, TempPasswordIssued } from "@/lib/types";
 import { Confirm, Reveal } from "./Reveal";
 import { Meter } from "./Usage";
 
+import { Txt } from "@/components/Txt";
 const SELF_REASON = "You can't do this to your own account";
 
 function date(iso: string) {
@@ -41,7 +42,7 @@ export function UsersTab({
   return (
     <div className="space-y-4">
       {issued && (
-        <Reveal
+        <Reveal key="reveal-43-6"
           title={`Temporary password for ${issued.email}`}
           detail="Their sessions were signed out. They must choose a new password when they next sign in. Send it over a channel you trust."
           value={issued.temporary_password}
@@ -76,11 +77,11 @@ export function UsersTab({
                         {u.email}
                       </span>
                       {u.is_admin && (
-                        <span className="shrink-0 rounded border border-slate-200 px-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                        <span key="span-78-22" className="shrink-0 rounded border border-slate-200 px-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
                           admin
                         </span>
                       )}
-                      {self && <span className="shrink-0 text-xs text-slate-400">you</span>}
+                      {self && <span key="span-83-22" className="shrink-0 text-xs text-slate-400">you</span>}
                     </div>
                   </td>
                   <td className="px-3 py-3">
@@ -94,7 +95,7 @@ export function UsersTab({
                     />
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-slate-600">{date(u.created_at)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">
+                  <td translate="no" className="px-3 py-3 text-right tabular-nums text-slate-700">
                     {u.listings_published.toLocaleString()}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3">
@@ -249,7 +250,7 @@ function ShopsCell({
       {user.shops.length ? (
         <p className="truncate text-slate-700" title={user.shops.join(", ")}>
           <span aria-hidden className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
-          {user.shops.join(", ")}
+          <span>{user.shops.join(", ")}</span>
         </p>
       ) : (
         <p className="text-slate-400">Not connected</p>
@@ -282,14 +283,14 @@ function ShopsCell({
           </button>
         </form>
       ) : (
-        <button
+        <button translate="no"
           type="button"
           onClick={() => setEditing(true)}
           title="Change how many shops this account may connect"
           className="text-xs tabular-nums text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900"
         >
-          {user.shops_used} of {user.shops_limit} shops
-          {user.shops_limit_custom ? " (custom)" : ""}
+          <span><span>{user.shops_used}</span><span> of </span><span>{user.shops_limit}</span><span> shops</span>
+          <Txt>{user.shops_limit_custom ? " (custom)" : ""}</Txt></span>
         </button>
       )}
     </div>
@@ -346,7 +347,7 @@ function QuotaCell({
           Cancel
         </button>
         {!valid && (
-          <span className="text-xs text-rose-600">0–{globalLimit.toLocaleString()}</span>
+          <span key="span-348-8" className="text-xs text-rose-600"><span>0–<span>{globalLimit.toLocaleString()}</span></span></span>
         )}
       </form>
     );
@@ -357,7 +358,7 @@ function QuotaCell({
       <div className="w-20">
         <Meter used={user.quota_used_today} limit={user.daily_quota} label={`${user.email} quota used today`} />
       </div>
-      <button
+      <button translate="no"
         type="button"
         onClick={() => {
           setValue(String(user.daily_quota));
@@ -366,7 +367,7 @@ function QuotaCell({
         title="Change this user's daily ceiling"
         className="rounded px-1 text-xs tabular-nums text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900"
       >
-        {user.quota_used_today.toLocaleString()} / {user.daily_quota.toLocaleString()}
+        <span><span>{user.quota_used_today.toLocaleString()}</span> / <span>{user.daily_quota.toLocaleString()}</span></span>
       </button>
     </div>
   );

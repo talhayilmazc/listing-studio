@@ -51,19 +51,19 @@ export function DeleteBatches({
   return (
     <div role="alertdialog" aria-label="Delete batches" className="card space-y-3 border-rose-200 p-4 text-sm shadow-lg">
       <p className="font-medium text-slate-900">
-        Delete {plural(summary.batches, "batch", "batches")}?
+        <span>Delete <span>{plural(summary.batches, "batch", "batches")}</span>?</span>
       </p>
       <p className="text-slate-600">
-        This removes {plural(summary.files, "uploaded file", "uploaded files")} and every title, tag
-        and description written for them, here in the app. It cannot be undone.
+        <span>This removes <span>{plural(summary.files, "uploaded file", "uploaded files")}</span> and every title, tag
+        and description written for them, here in the app. It cannot be undone.</span>
       </p>
       <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-        <strong>Nothing on Etsy is touched.</strong>{" "}
-        {summary.onEtsy
+        <strong>Nothing on Etsy is touched.</strong><span>{" "}
+        <span>{summary.onEtsy
           ? `${plural(summary.onEtsy, "listing", "listings")} made from ${summary.batches === 1 ? "it" : "them"} ${summary.onEtsy === 1 ? "is" : "are"} on Etsy as a draft or live, and stay${summary.onEtsy === 1 ? "s" : ""} exactly as ${summary.onEtsy === 1 ? "it is" : "they are"}; manage ${summary.onEtsy === 1 ? "it" : "them"} in Shop Manager. Scheduled go-lives from ${summary.batches === 1 ? "it" : "them"} are cancelled.`
-          : "Drafts and live listings are only ever changed on Etsy by you."}
+          : "Drafts and live listings are only ever changed on Etsy by you."}</span></span>
       </p>
-      {error && <p className="text-xs text-rose-700">{error}</p>}
+      {error && <p key="p-66-6" className="text-xs text-rose-700">{error}</p>}
       <div className="flex gap-2">
         <button
           type="button"

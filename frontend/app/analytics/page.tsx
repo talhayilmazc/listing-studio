@@ -116,13 +116,13 @@ export default function AnalyticsPage() {
         </nav>
       </div>
 
-      {status && <StatusBar status={status} reading={reading} onRead={readNow} />}
-      {error && <div className="card p-3 text-sm text-rose-700">{error}</div>}
-      {!overview && !error && <p className="text-sm text-slate-400">Loading…</p>}
+      {status && <StatusBar key="statusbar-119-6" status={status} reading={reading} onRead={readNow} />}
+      {error && <div key="div-120-6" className="card p-3 text-sm text-rose-700">{error}</div>}
+      {!overview && !error && <p key="p-121-6" className="text-sm text-slate-400">Loading…</p>}
 
       <div className={loading && overview ? "opacity-60 transition-opacity" : "transition-opacity"}>
         {overview && tab === "overview" && status?.connected && (
-          <Overview
+          <Overview key="overview-124-8"
             data={overview}
             onClass={(k) => {
               setClasses([k]);
@@ -132,10 +132,10 @@ export default function AnalyticsPage() {
           />
         )}
         {listings && tab === "listings" && status?.connected && (
-          <ListingTable rows={listings.listings} currency={currency} days={days} classes={classes} onClasses={setClasses} />
+          <ListingTable key="listingtable-134-8" rows={listings.listings} currency={currency} days={days} classes={classes} onClasses={setClasses} />
         )}
-        {tab === "ads" && status?.connected && <AdsUpload shopId={shopId} currency={currency} onImported={load} />}
-        {tab === "costs" && <CostSettings shopId={shopId} currency={currency} onSaved={load} />}
+        {tab === "ads" && status?.connected && <AdsUpload key="adsupload-137-8" shopId={shopId} currency={currency} onImported={load} />}
+        {tab === "costs" && <CostSettings key="costsettings-138-8" shopId={shopId} currency={currency} onSaved={load} />}
       </div>
 
       <p className="text-xs text-slate-400">

@@ -84,7 +84,7 @@ export function CostSettings({ shopId, currency, onSaved }: { shopId: string | n
             Reset the Etsy fees to Etsy&apos;s US rates
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">Amounts in {ccy}. Etsy changes its rates; keep them matching your own bill.</p>
+        <p className="mt-1 text-xs text-slate-500"><span>Amounts in <span>{ccy}</span>. Etsy changes its rates; keep them matching your own bill.</span></p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {RATES.map((r) => (
             <label key={r.key} className="block">
@@ -166,7 +166,7 @@ export function CostSettings({ shopId, currency, onSaved }: { shopId: string | n
         <button type="button" className="btn-primary" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save"}
         </button>
-        {message && <p className={`text-sm ${message.ok ? "text-emerald-700" : "text-rose-700"}`}>{message.text}</p>}
+        {message && <p key="p-169-8" className={`text-sm ${message.ok ? "text-emerald-700" : "text-rose-700"}`}>{message.text}</p>}
       </div>
     </div>
   );

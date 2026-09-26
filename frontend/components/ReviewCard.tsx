@@ -15,6 +15,7 @@ import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
 
+import { Txt } from "@/components/Txt";
 const MIN_TITLE = 110;
 const MAX_TITLE = 140;
 const MAX_TAG = 20;
@@ -226,7 +227,7 @@ export function ReviewCard({
             <Meta label="File" value={initial.original_filename} truncate />
             <Meta label="SKU" value={initial.parsed_sku ?? "—"} />
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
-            {initial.model_used && <Meta label="Model" value={initial.model_used} truncate />}
+            {initial.model_used && <Meta key="meta-229-12" label="Model" value={initial.model_used} truncate />}
           </dl>
         </div>
 
@@ -269,11 +270,11 @@ export function ReviewCard({
                   className={"counter " + (titleOut ? "text-amber-700" : "text-slate-400")}
                   title={`${MIN_TITLE}-${MAX_TITLE} characters`}
                 >
-                  {title.length} / {MAX_TITLE}
+                  <span><span>{title.length}</span> / <span>{MAX_TITLE}</span></span>
                 </span>
               </div>
               {titleOut && (
-                <p className="mt-1 text-xs text-amber-700">
+                <p key="p-275-14" className="mt-1 text-xs text-amber-700">
                   {title.length < MIN_TITLE
                     ? `${MIN_TITLE - title.length} short of the ${MIN_TITLE} minimum`
                     : `${title.length - MAX_TITLE} over the ${MAX_TITLE} maximum`}
@@ -286,7 +287,7 @@ export function ReviewCard({
             <Description value={description} onChange={change(setDescription)} />
 
             {!valid && (
-              <ul className="space-y-0.5 text-xs text-rose-700">
+              <ul key="ul-288-12" className="space-y-0.5 text-xs text-rose-700">
                 {errors.map((e, i) => (
                   <li key={i}>{e}</li>
                 ))}
@@ -313,7 +314,7 @@ export function ReviewCard({
                     {approved ? "Approved" : "Approve for draft"}
                   </span>
                 </label>
-                {message && <span className="text-xs text-slate-400">{message}</span>}
+                {message && <span key="span-316-16" className="text-xs text-slate-400">{message}</span>}
               </div>
 
               <div className="flex items-center gap-2">
@@ -339,11 +340,11 @@ export function ReviewCard({
               </div>
             </div>
             {publications.length > 0 && (
-              <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+              <ul key="ul-341-12" className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
                 {publications.map((p) => (
                   <li key={p.connection_id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                      {p.shop_name ?? "Shop"}
+                      <Txt>{p.shop_name ?? "Shop"}</Txt>
                       <span
                         className={
                           "ml-2 rounded-md border px-1.5 py-0.5 text-xs font-medium " +
@@ -359,7 +360,7 @@ export function ReviewCard({
                       {p.state === "active" ? "View on Etsy ↗" : "Edit draft ↗"}
                     </a>
                     {p.state !== "active" && (
-                      <button
+                      <button key="button-361-20"
                         type="button"
                         className="btn-primary px-2.5 py-1 text-xs"
                         onClick={() => publishNow(p.connection_id)}
@@ -383,7 +384,7 @@ export function ReviewCard({
                       }}
                     />
                     {p.state !== "active" && p.manual_steps.length > 0 && (
-                      <ManualSteps
+                      <ManualSteps key="manualsteps-385-20"
                         steps={p.manual_steps}
                         link={p.listing_link}
                         onTick={(key, done) => tickStep(p.connection_id, key, done)}
@@ -394,19 +395,19 @@ export function ReviewCard({
               </ul>
             )}
             {skipped.length > 0 && (
-              <ul className="mt-2 space-y-0.5 text-right text-xs text-amber-800">
+              <ul key="ul-396-12" className="mt-2 space-y-0.5 text-right text-xs text-amber-800">
                 {skipped.map((s, i) => (
                   <li key={i}>
-                    {s.shop_name ? `${s.shop_name}: ` : ""}
-                    {s.reason}
+                    <span><Txt>{s.shop_name ? `${s.shop_name}: ` : ""}</Txt>
+                    <span>{s.reason}</span></span>
                   </li>
                 ))}
               </ul>
             )}
-            {publishError && <p className="mt-2 text-right text-xs text-rose-700">{publishError}</p>}
+            {publishError && <p key="p-406-12" className="mt-2 text-right text-xs text-rose-700">{publishError}</p>}
             {pause && publishState === "paused" && (
-              <p role="status" className="mt-2 text-right text-xs text-amber-800">
-                Queued, not failed. {pause.message} That is around {resumeTime(pause.resumes_at)} your time.
+              <p key="p-407-12" role="status" translate="no" className="mt-2 text-right text-xs text-amber-800">
+                <span>Queued, not failed. <span>{pause.message}</span> That is around <span>{resumeTime(pause.resumes_at)}</span> your time.</span>
               </p>
             )}
             {publications.some((p) => p.state === "active") ? (
@@ -505,14 +506,14 @@ function ManualSteps({
                 <span className={"font-medium " + (s.done ? "line-through opacity-60" : "")}>
                   {s.label}
                 </span>
-                <span className="text-slate-500"> · {s.detail}</span>
+                <span className="text-slate-500"><span> · <span>{s.detail}</span></span></span>
                 <span className="block text-slate-500">I&apos;ve set this</span>
               </span>
             </label>
           </li>
         ))}
       </ul>
-      {error && <p className="mt-1 text-rose-700">{error}</p>}
+      {error && <p key="p-515-6" className="mt-1 text-rose-700">{error}</p>}
     </div>
   );
 }

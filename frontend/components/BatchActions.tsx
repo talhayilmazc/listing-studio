@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import type { BatchActionItem, BatchActionPreview, BatchPublishResult } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 type Action = "drafts" | "publish";
 
 const VERB: Record<Action, { button: string; confirm: string; acting: string; noun: string }> = {
@@ -84,11 +85,11 @@ export function BatchActions({
   return (
     <div className="sticky bottom-4 z-20 space-y-2">
       {(preview || error || result || (busy && action)) && (
-        <div role="dialog" aria-label="Confirm the bulk action" className="card max-h-[50vh] space-y-3 overflow-y-auto p-4 text-sm shadow-lg">
-          {busy && !preview && <p className="text-slate-500">Checking the selected batches…</p>}
-          {error && <p className="text-rose-700">{error}</p>}
+        <div key="div-86-6" role="dialog" aria-label="Confirm the bulk action" className="card max-h-[50vh] space-y-3 overflow-y-auto p-4 text-sm shadow-lg">
+          {busy && !preview && <p key="p-88-10" className="text-slate-500">Checking the selected batches…</p>}
+          {error && <p key="p-89-10" className="text-rose-700">{error}</p>}
           {result && (
-            <div className="flex items-start justify-between gap-3">
+            <div key="div-90-10" className="flex items-start justify-between gap-3">
               <p className="text-slate-700">{result}</p>
               <button type="button" className="text-xs text-slate-400 underline" onClick={() => setResult(null)}>
                 Dismiss
@@ -98,11 +99,11 @@ export function BatchActions({
           {preview && action && (
             <>
               <p className="font-medium text-slate-900">
-                {preview.act.length
+                <span>{preview.act.length
                   ? `${VERB[action].confirm} ${plural(preview.act.length, VERB[action].noun)} from ${plural(selected.length, "batch", "batches")}`
-                  : `Nothing to ${action === "drafts" ? "draft" : "publish"} in ${plural(selected.length, "batch", "batches")}`}
+                  : `Nothing to ${action === "drafts" ? "draft" : "publish"} in ${plural(selected.length, "batch", "batches")}`}</span>
                 {preview.skipped.length > 0 && (
-                  <span className="font-normal text-slate-500"> · {preview.skipped.length} skipped</span>
+                  <span key="span-104-16" className="font-normal text-slate-500"><span> · <span>{preview.skipped.length}</span> skipped</span></span>
                 )}
               </p>
               <p className="text-xs text-slate-500">
@@ -111,33 +112,33 @@ export function BatchActions({
                   : "Only drafts of listings you approved go live. Anything without a draft is left alone."}
               </p>
               {preview.act.length > 0 && (
-                <details className="text-xs text-slate-600">
+                <details key="details-113-14" className="text-xs text-slate-600">
                   <summary className="cursor-pointer text-slate-700">
-                    Will {action === "drafts" ? "draft" : "publish"} ({preview.act.length})
+                    <span>Will <span>{action === "drafts" ? "draft" : "publish"}</span> (<span>{preview.act.length}</span>)</span>
                   </summary>
                   <ul className="mt-1 space-y-0.5 pl-4">
                     {preview.act.map((i) => (
                       <li key={`${i.content_id}-${i.shop_name}`} className="truncate">
-                        {i.title ?? i.original_filename}
-                        {i.shop_name && <span className="text-slate-400"> · {i.shop_name}</span>}
+                        <Txt>{i.title ?? i.original_filename}</Txt>
+                        {i.shop_name && <span key="span-122-24" className="text-slate-400"><span> · <span>{i.shop_name}</span></span></span>}
                       </li>
                     ))}
                   </ul>
                 </details>
               )}
               {preview.skipped.length > 0 && (
-                <div className="space-y-1 text-xs">
+                <div key="div-128-14" className="space-y-1 text-xs">
                   <p className="text-slate-700">Skipped, and why</p>
                   {byReason(preview.skipped).map(([reason, items]) => (
                     <details key={reason} className="text-amber-900">
                       <summary className="cursor-pointer">
-                        <span className="tabular-nums font-medium">{items.length}</span> · {reason}
+                        <span translate="no" className="tabular-nums font-medium">{items.length}</span><span> · <span>{reason}</span></span>
                       </summary>
                       <ul className="mt-0.5 space-y-0.5 pl-4 text-slate-600">
                         {items.map((i) => (
                           <li key={`${i.content_id}-${i.shop_name}`} className="truncate">
                             <span className="font-mono">{i.original_filename}</span>
-                            {i.shop_name && <span className="text-slate-400"> · {i.shop_name}</span>}
+                            {i.shop_name && <span key="span-140-28" className="text-slate-400"><span> · <span>{i.shop_name}</span></span></span>}
                           </li>
                         ))}
                       </ul>
@@ -146,7 +147,7 @@ export function BatchActions({
                 </div>
               )}
               {action === "drafts" && !preview.fits && preview.message && (
-                <p className="text-xs text-amber-800">{preview.message}</p>
+                <p key="p-148-14" className="text-xs text-amber-800">{preview.message}</p>
               )}
               <div className="flex gap-2">
                 <button
@@ -168,9 +169,9 @@ export function BatchActions({
         </div>
       )}
       {selected.length > 0 && (
-        <div className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-lg">
+        <div key="div-170-6" className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-lg">
           <span className="text-sm text-slate-700">
-            <span className="tabular-nums font-medium">{selected.length}</span> {selected.length === 1 ? "batch" : "batches"} selected
+            <span translate="no" className="tabular-nums font-medium">{selected.length}</span> <span><span>{selected.length === 1 ? "batch" : "batches"}</span> selected</span>
           </span>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary" onClick={() => ask("drafts")} disabled={busy}>

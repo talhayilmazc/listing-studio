@@ -32,11 +32,11 @@ export function Reveal({
   }
 
   return (
-    <div role="status" className="rounded-xl border border-brand-100 bg-brand-50 p-4">
+    <div role="status" translate="no" className="rounded-xl border border-brand-100 bg-brand-50 p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-900">{title}</p>
-          {detail && <p className="mt-0.5 text-xs text-slate-500">{detail}</p>}
+          {detail && <p key="p-39-10" className="mt-0.5 text-xs text-slate-500">{detail}</p>}
         </div>
         <button
           type="button"

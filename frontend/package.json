@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test \"lib/**/*.test.ts\""
+    "test": "node --test \"lib/**/*.test.ts\"",
+    "check:translation": "node scripts/translation-safety.cjs"
   },
   "dependencies": {
     "next": "14.2.5",

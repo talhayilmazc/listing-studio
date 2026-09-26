@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { money } from "@/lib/analytics";
 
+import { Txt } from "@/components/Txt";
 type Week = { start: string; units: number; revenue: number };
 
 /** Clean ticks for the y axis: 0 and up to three round steps above the max. */
@@ -40,7 +41,7 @@ export function WeeklyChart({ weeks, currency, periodStart }: { weeks: Week[]; c
     <div>
       <div className="relative mt-3 flex h-44 gap-2">
         {/* y axis */}
-        <div className="relative w-14 shrink-0 text-right text-[11px] tabular-nums text-slate-400">
+        <div translate="no" className="relative w-14 shrink-0 text-right text-[11px] tabular-nums text-slate-400">
           {ys.map((v) => (
             <span key={v} className="absolute right-1 translate-y-1/2" style={{ bottom: `${(v / top) * 100}%` }}>
               {money(v, currency).replace(/\.00$/, "")}
@@ -76,15 +77,15 @@ export function WeeklyChart({ weeks, currency, periodStart }: { weeks: Week[]; c
             ))}
           </div>
           {hover !== null && weeks[hover] && (
-            <div
+            <div key="div-78-10"
               className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-xs shadow-card"
               style={{ left: `${((hover + 0.5) / weeks.length) * 100}%` }}
-              role="status"
+              role="status" translate="no"
             >
-              <span className="font-semibold tabular-nums text-slate-900">{money(weeks[hover].revenue, currency)}</span>
+              <span translate="no" className="font-semibold tabular-nums text-slate-900">{money(weeks[hover].revenue, currency)}</span>
               <span className="text-slate-500">
-                {" "}
-                · {weeks[hover].units} sold · week of {label(weeks[hover])}
+                <span>{" "}
+                · <span>{weeks[hover].units}</span> sold · week of <span>{label(weeks[hover])}</span></span>
               </span>
             </div>
           )}
@@ -102,8 +103,8 @@ export function WeeklyChart({ weeks, currency, periodStart }: { weeks: Week[]; c
               <span key={w.start} className="relative flex-1">
                 {first && i < weeks.length - 2 ? (
                   <span className={"absolute left-0 whitespace-nowrap " + (month % 3 ? "hidden sm:inline" : "")}>
-                    {d.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" })}
-                    {d.getUTCMonth() === 0 || i === 0 ? ` ${String(d.getUTCFullYear()).slice(2)}` : ""}
+                    <span><span>{d.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" })}</span>
+                    <Txt>{d.getUTCMonth() === 0 || i === 0 ? ` ${String(d.getUTCFullYear()).slice(2)}` : ""}</Txt></span>
                   </span>
                 ) : null}
               </span>
@@ -126,8 +127,8 @@ export function WeeklyChart({ weeks, currency, periodStart }: { weeks: Week[]; c
               {[...weeks].reverse().map((w) => (
                 <tr key={w.start}>
                   <td className="px-2 py-1 text-slate-700">{w.start}</td>
-                  <td className="px-2 py-1 text-right tabular-nums">{w.units}</td>
-                  <td className="px-2 py-1 text-right tabular-nums">{money(w.revenue, currency)}</td>
+                  <td translate="no" className="px-2 py-1 text-right tabular-nums">{w.units}</td>
+                  <td translate="no" className="px-2 py-1 text-right tabular-nums">{money(w.revenue, currency)}</td>
                 </tr>
               ))}
             </tbody>

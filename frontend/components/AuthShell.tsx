@@ -39,12 +39,12 @@ export function AuthShell({
 
         <div className="card p-7">
           <h1 className="font-display text-2xl leading-tight text-slate-900">{title}</h1>
-          {subtitle && <p className="mt-1.5 text-sm text-slate-500">{subtitle}</p>}
+          {subtitle && <p key="p-42-10" className="mt-1.5 text-sm text-slate-500">{subtitle}</p>}
           <div className="mt-6">{children}</div>
         </div>
 
-        {betaNotice && <BetaNotice />}
-        {footer && <div className="mt-5 text-center text-sm text-slate-500">{footer}</div>}
+        {betaNotice && <BetaNotice key="betanotice-46-8" />}
+        {footer && <div key="div-47-8" className="mt-5 text-center text-sm text-slate-500">{footer}</div>}
         <AuthFooter />
       </div>
     </div>
@@ -117,7 +117,7 @@ export function Field({
         {label}
       </label>
       {children}
-      {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      {hint && <p key="p-120-6" className="mt-1 text-xs text-slate-400">{hint}</p>}
     </div>
   );
 }

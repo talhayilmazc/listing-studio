@@ -7,6 +7,7 @@ import { dayKey, fromLocalInput, scheduleLabel, toLocalInput } from "@/lib/sched
 import type { Schedule } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
 
+import { Txt } from "@/components/Txt";
 const TONE: Record<string, string> = {
   scheduled: "border-brand-100 bg-brand-50 text-brand-700",
   publishing: "border-brand-100 bg-brand-50 text-brand-700",
@@ -61,8 +62,8 @@ export default function ScheduledPage() {
         here. Schedule drafts from a batch&apos;s review page.
       </p>
 
-      {error && <div className="card p-3 text-sm text-rose-700">{error}</div>}
-      {rows === null && !error && <p className="text-sm text-slate-400">Loading…</p>}
+      {error && <div key="div-64-6" className="card p-3 text-sm text-rose-700">{error}</div>}
+      {rows === null && !error && <p key="p-65-6" className="text-sm text-slate-400">Loading…</p>}
 
       {rows !== null && (
         <>
@@ -77,18 +78,18 @@ export default function ScheduledPage() {
             </div>
           ) : (
             <p className="text-xs text-slate-500">
-              <span className="tabular-nums font-medium text-slate-700">{upcoming}</span> still to go
+              <span translate="no" className="tabular-nums font-medium text-slate-700">{upcoming}</span> still to go
               live · finished ones stay here for a week
             </p>
           )}
           {[...byDay.entries()].map(([day, list]) => (
             <section key={day} className="space-y-2">
               <h2 className="border-b border-slate-200 pb-1 font-display text-lg text-slate-900">
-                {new Date(day + "T00:00").toLocaleDateString(undefined, {
+                <span>{new Date(day + "T00:00").toLocaleDateString(undefined, {
                   weekday: "long",
                   day: "numeric",
                   month: "long",
-                })}
+                })}</span>
                 <span className="ml-2 text-xs font-normal text-slate-400">{list.length}</span>
               </h2>
               <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
@@ -129,7 +130,7 @@ function DayStrip({ byDay }: { byDay: Map<string, Schedule[]> }) {
               {d.toLocaleDateString(undefined, { weekday: "short" })}
             </div>
             <div className="text-sm text-slate-700">{d.getDate()}</div>
-            <div className={"text-xs tabular-nums " + (n > 0 ? "font-medium text-brand-700" : "text-slate-300")}>
+            <div translate="no" className={"text-xs tabular-nums " + (n > 0 ? "font-medium text-brand-700" : "text-slate-300")}>
               {n || "–"}
             </div>
           </div>
@@ -182,7 +183,7 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
 
   return (
     <li className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-      <span className="w-20 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800">
+      <span translate="no" className="w-20 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800">
         {at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
       </span>
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -192,23 +193,23 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
           {row.title ?? `Listing ${row.etsy_listing_id}`}
         </span>
         <span className="block text-xs text-slate-400">
-          {showShop && <>{row.shop_name ?? "Shop"} · </>}
+          {showShop && <><span><Txt>{row.shop_name ?? "Shop"}</Txt><span> · </span></span></>}
           <a href={row.listing_link} target="_blank" rel="noreferrer" className="hover:text-brand-700 hover:underline">
             {row.status === "published" ? "View on Etsy ↗" : "Edit draft ↗"}
           </a>
-          {" · "}
+          <span>{" · "}</span>
           <Link href={`/batches/${row.batch_id}/review`} className="hover:text-brand-700 hover:underline">
             review
           </Link>
         </span>
-        {row.note && <span className="block text-xs text-amber-800">{row.note}</span>}
-        {error && <span className="block text-xs text-rose-700">{error}</span>}
+        {row.note && <span key="span-204-8" className="block text-xs text-amber-800">{row.note}</span>}
+        {error && <span key="span-205-8" className="block text-xs text-rose-700">{error}</span>}
       </span>
-      <span className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium " + (TONE[row.status] ?? TONE.scheduled)}>
+      <span translate="no" className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium " + (TONE[row.status] ?? TONE.scheduled)}>
         {scheduleLabel(row.status)}
       </span>
       {changeable && !editing && (
-        <span className="flex shrink-0 gap-2 text-xs">
+        <span key="span-210-6" className="flex shrink-0 gap-2 text-xs">
           <button type="button" className="text-slate-500 underline hover:text-slate-900" onClick={() => setEditing(true)}>
             change
           </button>
@@ -218,7 +219,7 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
         </span>
       )}
       {editing && (
-        <span className="flex w-full flex-wrap items-center gap-2 pl-[5.75rem] text-xs">
+        <span key="span-220-6" className="flex w-full flex-wrap items-center gap-2 pl-[5.75rem] text-xs">
           <input
             type="datetime-local"
             className="field w-auto py-1 text-xs"

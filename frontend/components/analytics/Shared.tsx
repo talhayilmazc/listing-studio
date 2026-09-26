@@ -6,6 +6,7 @@ import { CLASS_LABEL, CLASS_STYLE, changeLabel, changeTone } from "@/lib/analyti
 import { relativeTime } from "@/lib/format";
 import type { AnalyticsStatus, ListingClass } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 export const PERIODS = [7, 30, 90] as const;
 
 export function ClassBadge({ klass }: { klass: ListingClass }) {
@@ -20,7 +21,7 @@ export function ClassBadge({ klass }: { klass: ListingClass }) {
 export function Delta({ change, current, upIsGood = true }: { change: number | null; current: number; upIsGood?: boolean }) {
   const tone = changeTone(change, upIsGood);
   const cls = tone === "up" ? "text-emerald-700" : tone === "down" ? "text-rose-700" : "text-slate-500";
-  return <span className={`tabular-nums ${cls}`}>{changeLabel(change, current)}</span>;
+  return <span translate="no" className={`tabular-nums ${cls}`}>{changeLabel(change, current)}</span>;
 }
 
 export function PeriodPicker({ days, onChange }: { days: number; onChange: (d: number) => void }) {
@@ -37,7 +38,7 @@ export function PeriodPicker({ days, onChange }: { days: number; onChange: (d: n
             (days === d ? "bg-brand-600 font-medium text-white" : "text-slate-600 hover:bg-slate-100")
           }
         >
-          Last {d} days
+          <span>Last <span>{d}</span> days</span>
         </button>
       ))}
     </div>
@@ -85,10 +86,10 @@ export function StatusBar({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
       {reading ? (
-        <span className="text-brand-700">Reading your sales from Etsy… the figures update when it finishes.</span>
+        <span translate="no" className="text-brand-700">Reading your sales from Etsy… the figures update when it finishes.</span>
       ) : status.synced_at ? (
         <span title={new Date(status.synced_at).toLocaleString()}>
-          Sales read {relativeTime(status.synced_at)} · read again every night
+          <span>Sales read <span translate="no">{relativeTime(status.synced_at)}</span> · read again every night</span>
         </span>
       ) : (
         <span>Your sales haven&apos;t been read yet; the first read covers the last 13 months.</span>
@@ -97,7 +98,7 @@ export function StatusBar({
         {status.synced_at ? "Read now" : "Read sales now"}
       </button>
       {status.titles_refreshing && (
-        <span>· Listing titles are being refreshed from Etsy; until then listings show by number.</span>
+        <span key="span-99-6">· Listing titles are being refreshed from Etsy; until then listings show by number.</span>
       )}
     </div>
   );
@@ -128,7 +129,7 @@ export function ListingCell({
           {row.title ?? `Listing ${row.listing_id}`}
         </Link>
         <span className="block truncate text-xs text-slate-400">
-          {row.sku ? `${row.sku} · ` : ""}
+          <Txt>{row.sku ? `${row.sku} · ` : ""}</Txt>
           <a href={row.url} target="_blank" rel="noreferrer" className="hover:text-brand-700 hover:underline">
             View on Etsy ↗
           </a>

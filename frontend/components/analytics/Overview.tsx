@@ -4,6 +4,7 @@ import { CLASS_LABEL, CLASS_ORDER, money, moneyCompact, percent } from "@/lib/an
 import type { AnalyticsOverview, AnalyticsRow, ListingClass, ShopTotals } from "@/lib/types";
 import { ClassBadge, Delta, ListingCell } from "./Shared";
 
+import { Txt } from "@/components/Txt";
 function change(cur: number, prev: number | undefined): number | null {
   if (!prev) return null;
   return (cur - prev) / Math.abs(prev);
@@ -39,19 +40,19 @@ export function Overview({
         <div className="grid gap-5 sm:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Net profit</p>
-            <p className={`mt-1 text-5xl font-semibold ${cur.net < 0 ? "text-rose-700" : "text-slate-900"}`}>
+            <p translate="no" className={`mt-1 text-5xl font-semibold ${cur.net < 0 ? "text-rose-700" : "text-slate-900"}`}>
               {moneyCompact(cur.net, ccy)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              <Delta change={change(cur.net, prev?.net)} current={cur.net} /> vs the previous {data.days} days (
-              {money(prev?.net ?? 0, ccy)})
+              <Delta change={change(cur.net, prev?.net)} current={cur.net} /><span> vs the previous <span>{data.days}</span> days (
+              <span>{money(prev?.net ?? 0, ccy)}</span>)</span>
             </p>
           </div>
           <Tile label="Revenue" value={moneyCompact(cur.revenue, ccy)} delta={<Delta change={change(cur.revenue, prev?.revenue)} current={cur.revenue} />} />
           <Tile label="Costs" value={moneyCompact(cur.costs, ccy)} delta={<Delta change={change(cur.costs, prev?.costs)} current={cur.costs} upIsGood={false} />} />
-          <Tile label="Margin" value={percent(cur.margin)} delta={<span className="text-slate-500">was {percent(prev?.margin)}</span>} />
+          <Tile label="Margin" value={percent(cur.margin)} delta={<span className="text-slate-500"><span>was <span>{percent(prev?.margin)}</span></span></span>} />
           <Tile label="Items sold" value={cur.units.toLocaleString()} delta={<Delta change={change(cur.units, prev?.units)} current={cur.units} />} />
-          <Tile label="Average order" value={money(cur.aov, ccy)} delta={<span className="text-slate-500">was {money(prev?.aov, ccy)}</span>} />
+          <Tile label="Average order" value={money(cur.aov, ccy)} delta={<span className="text-slate-500"><span>was <span>{money(prev?.aov, ccy)}</span></span></span>} />
           <Tile
             label="Ad spend"
             value={money(cur.ad_spend, ccy)}
@@ -60,13 +61,13 @@ export function Overview({
           <Tile
             label="ACOS"
             value={percent(cur.acos)}
-            delta={<span className="text-slate-500">ad spend ÷ ad revenue{cur.roas ? ` · ROAS ${cur.roas.toFixed(1)}×` : ""}</span>}
+            delta={<span className="text-slate-500"><span><span>ad spend ÷ ad revenue</span><Txt>{cur.roas ? ` · ROAS ${cur.roas.toFixed(1)}×` : ""}</Txt></span></span>}
           />
         </div>
         <Breakdown totals={cur} currency={ccy} onCosts={() => onTab("costs")} />
         <Approximations />
         {!data.status.ads_until && (
-          <p className="mt-3 text-xs text-slate-500">
+          <p key="p-68-8" className="mt-3 text-xs text-slate-500">
             No Etsy Ads report uploaded, so ad spend counts as zero.{" "}
             <button type="button" className="text-brand-700 underline" onClick={() => onTab("ads")}>
               Upload one
@@ -86,14 +87,14 @@ export function Overview({
               title={`Show the ${CLASS_LABEL[k]} listings`}
             >
               <ClassBadge klass={k} />
-              <span className="tabular-nums font-medium text-slate-800">{data.classes[k]}</span>
+              <span translate="no" className="tabular-nums font-medium text-slate-800">{data.classes[k]}</span>
             </button>
           ))}
         </div>
       </section>
 
       {data.attention.length > 0 && (
-        <section className="card p-5">
+        <section key="section-95-6" className="card p-5">
           <h2 className="text-sm font-semibold text-slate-800">Look at these first</h2>
           <ul className="mt-3 divide-y divide-slate-100">
             {data.attention.map((r) => (
@@ -135,7 +136,7 @@ function Tile({ label, value, delta }: { label: string; value: string; delta: Re
   return (
     <div>
       <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-slate-900">{value}</p>
+      <p translate="no" className="mt-1 text-xl font-semibold text-slate-900">{value}</p>
       <p className="mt-0.5 text-xs">{delta}</p>
     </div>
   );
@@ -153,11 +154,11 @@ function Breakdown({ totals, currency, onCosts }: { totals: ShopTotals; currency
     <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
       {parts.map(([k, v], i) => (
         <span key={k}>
-          {i > 0 && " · "}
-          {k} <span className="tabular-nums text-slate-700">{money(v, currency)}</span>
+          <span><Txt>{i > 0 && " · "}</Txt>
+          <span>{k}</span> </span><span translate="no" className="tabular-nums text-slate-700">{money(v, currency)}</span>
         </span>
-      ))}{" "}
-      ·{" "}
+      ))}<span>{" "}
+      ·{" "}</span>
       <button type="button" className="text-brand-700 underline" onClick={onCosts}>
         Your fees and costs
       </button>
@@ -175,12 +176,12 @@ export function Advice({ row, days }: { row: AnalyticsRow; days: number }) {
         </div>
       </div>
       <p className="mt-1.5 text-sm text-slate-700">
-        {row.verdict.reason} <span className="font-medium">{row.verdict.action}</span>
+        <span><span>{row.verdict.reason}</span> </span><span className="font-medium">{row.verdict.action}</span>
       </p>
       <p className="mt-1 flex flex-wrap gap-3 text-xs">
         {row.verdict.links.map((l) => (
           <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
-            {l.label} ↗
+            <span><span>{l.label}</span> ↗</span>
           </a>
         ))}
       </p>
@@ -209,8 +210,8 @@ function FiveTable({ title, rows, currency, days }: { title: string; rows: Analy
                 <td className="py-2 pr-2">
                   <ListingCell row={r} days={days} />
                 </td>
-                <td className="py-2 text-right tabular-nums text-slate-600">{r.current.units}</td>
-                <td className={`py-2 text-right tabular-nums ${r.current.net < 0 ? "text-rose-700" : "text-slate-800"}`}>
+                <td translate="no" className="py-2 text-right tabular-nums text-slate-600">{r.current.units}</td>
+                <td translate="no" className={`py-2 text-right tabular-nums ${r.current.net < 0 ? "text-rose-700" : "text-slate-800"}`}>
                   {money(r.current.net, currency)}
                 </td>
               </tr>

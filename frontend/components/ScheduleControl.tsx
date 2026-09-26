@@ -94,7 +94,7 @@ export function ScheduleControl({
           Cancel
         </button>
         <span className="text-slate-400">your time zone</span>
-        {error && <span className="w-full text-rose-700">{error}</span>}
+        {error && <span key="span-97-8" className="w-full text-rose-700">{error}</span>}
       </span>
     );
   }
@@ -104,10 +104,10 @@ export function ScheduleControl({
       <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
         <span>
           <span className="font-medium text-slate-800">{scheduleLabel(status)}</span>
-          {" · "}
-          {at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+          <span>{" · "}
+          <span>{at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></span>
         </span>
-        {publication.schedule_note && <span className="text-amber-800">{publication.schedule_note}</span>}
+        {publication.schedule_note && <span key="span-110-8" className="text-amber-800">{publication.schedule_note}</span>}
         {pending && (
           <>
             <button type="button" className="underline hover:text-slate-900" onClick={open} disabled={busy}>
@@ -118,7 +118,7 @@ export function ScheduleControl({
             </button>
           </>
         )}
-        {error && <span className="w-full text-rose-700">{error}</span>}
+        {error && <span key="span-121-8" className="w-full text-rose-700">{error}</span>}
       </span>
     );
   }

@@ -120,6 +120,7 @@ docs/             # data-model.md ve diğer spesifikasyonlar
 - Sır/anahtar kodda tutulmaz, `.env` üzerinden okunur, `.env` gitignore'da
 - Hata mesajlarında kullanıcı verisi veya token bulunmaz
 - Member Content saklayan her tabloda retention stratejisi tanımlı olmalı
+- **Frontend: tarayıcı çevirisine dayanıklı metin.** Çeviri eklentileri (Chrome çevirisi vb.) metin düğümlerini kendi elemanlarıyla değiştirir; React sonra o düğümü silmeye/önüne eleman eklemeye çalışınca `removeChild` hatasıyla sayfa çöker, değişen bir değer ise eskide kalır. Bu yüzden: iki+ çocuklu bir listede **dinamik metin** kendi elemanında (`<span>`; boş olabiliyorsa `<Txt>`, `components/Txt.tsx`), koşullu bir kardeşin yanındaki **sabit metin** de bir `<span>` içinde; bitişik metin parçaları tek bir `<span>`'de toplanır (flex/grid düzeni değişmesin); `cond && <X/>` elemanlarına sabit `key`. Çalışma anında değişen durum satırları, sayaçlar ve iş ilerlemesi `translate="no"`; sabit metnin çevirisi engellenmez. `npm run check:translation` (ve `npm test`) bunu denetler; `node scripts/translation-safety.cjs --apply` düzeltir.
 
 ## Geliştirme notları
 

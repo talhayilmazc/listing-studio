@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { fromLocalInput, nextHour, spreadTimes, toLocalInput } from "@/lib/schedule";
 import type { Content, ScheduleItem, ScheduleResult } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 /** The approved listings' drafts that are not live and not yet scheduled, in page order. */
 export function schedulableDrafts(items: Content[]): { content: Content; connectionId: string; shop: string }[] {
   const out: { content: Content; connectionId: string; shop: string }[] = [];
@@ -62,20 +63,20 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
 
   if (result) {
     return (
-      <div role="status" className="card p-4 text-sm text-slate-700">
+      <div role="status" translate="no" className="card p-4 text-sm text-slate-700">
         <p>
-          Scheduled {result.scheduled.length} draft{result.scheduled.length === 1 ? "" : "s"}.{" "}
+          <span><span>Scheduled </span><span>{result.scheduled.length}</span><span> draft</span><Txt>{result.scheduled.length === 1 ? "" : "s"}</Txt><span>.</span>{" "}</span>
           <a href="/scheduled" className="font-medium text-brand-700 underline">
             See the schedule
           </a>
         </p>
         {result.skipped.length > 0 && (
-          <ul className="mt-1.5 space-y-0.5 text-xs text-amber-800">
+          <ul key="ul-72-8" className="mt-1.5 space-y-0.5 text-xs text-amber-800">
             {result.skipped.map((s, i) => {
               const title = items.find((c) => c.id === s.content_id)?.original_filename ?? s.content_id;
               return (
                 <li key={i}>
-                  <span className="font-mono">{title}</span>: {s.reason}
+                  <span className="font-mono">{title}</span><span>: <span>{s.reason}</span></span>
                 </li>
               );
             })}
@@ -97,8 +98,8 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
   return (
     <div className="card space-y-3 p-4 text-sm">
       <p className="text-slate-700">
-        Schedule {drafts.length} approved draft{drafts.length === 1 ? "" : "s"} to go live. Times
-        are in your time zone; each can still be changed or cancelled on its own.
+        <span><span>Schedule </span><span>{drafts.length}</span><span> approved draft</span><Txt>{drafts.length === 1 ? "" : "s"}</Txt><span> to go live. Times
+        are in your time zone; each can still be changed or cancelled on its own.</span></span>
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-500">
@@ -137,21 +138,21 @@ export function BulkSchedule({ items, onDone }: { items: Content[]; onDone: () =
           {busy ? "Scheduling…" : `Schedule ${drafts.length}`}
         </button>
       </div>
-      {past && <p className="text-xs text-rose-700">That time has already passed.</p>}
+      {past && <p key="p-140-6" className="text-xs text-rose-700">That time has already passed.</p>}
       {times.length > 0 && !past && (
-        <ol className="max-h-48 space-y-0.5 overflow-y-auto text-xs text-slate-600">
+        <ol key="ol-141-6" className="max-h-48 space-y-0.5 overflow-y-auto text-xs text-slate-600">
           {drafts.map((d, i) => (
             <li key={`${d.content.id}-${d.connectionId}`} className="flex gap-3">
-              <span className="w-44 shrink-0 tabular-nums text-slate-800">{fmt(times[i])}</span>
+              <span translate="no" className="w-44 shrink-0 tabular-nums text-slate-800">{fmt(times[i])}</span>
               <span className="truncate">
-                {d.content.title ?? d.content.original_filename}
-                <span className="text-slate-400"> · {d.shop}</span>
+                <Txt>{d.content.title ?? d.content.original_filename}</Txt>
+                <span className="text-slate-400"><span> · <span>{d.shop}</span></span></span>
               </span>
             </li>
           ))}
         </ol>
       )}
-      {error && <p className="text-xs text-rose-700">{error}</p>}
+      {error && <p key="p-154-6" className="text-xs text-rose-700">{error}</p>}
     </div>
   );
 }

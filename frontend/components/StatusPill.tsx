@@ -15,6 +15,7 @@ export function StatusPill({ status }: { status: string }) {
   const cls = STYLES[status] ?? "border-slate-200 bg-slate-50 text-slate-600";
   return (
     <span
+      translate="no"
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium leading-5 ${cls}`}
     >
       {status}

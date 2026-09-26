@@ -92,11 +92,11 @@ export default function Home() {
   return (
     <div className="space-y-6">
       {error && (
-        <div className="card border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
+        <div key="div-94-6" className="card border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
       )}
 
       {batches === null && !error && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div key="div-98-6" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <BatchSkeleton key={i} />
           ))}
@@ -104,7 +104,7 @@ export default function Home() {
       )}
 
       {notice && (
-        <div role="status" className="card flex items-start justify-between gap-3 p-3 text-sm text-slate-700">
+        <div key="div-106-6" role="status" translate="no" className="card flex items-start justify-between gap-3 p-3 text-sm text-slate-700">
           <span>{notice}</span>
           <button type="button" className="text-xs text-slate-400 underline" onClick={() => setNotice(null)}>
             Dismiss
@@ -113,7 +113,7 @@ export default function Home() {
       )}
 
       {batches && batches.length === 0 && (
-        <div className="card flex flex-col items-center gap-3 p-12 text-center">
+        <div key="div-115-6" className="card flex flex-col items-center gap-3 p-12 text-center">
           <p className="text-slate-500">No batches yet.</p>
           <Link href="/upload" className="btn-primary">
             Upload your first folder
@@ -170,7 +170,7 @@ export default function Home() {
             ))}
           </div>
           {deleting && (
-            <div className="sticky bottom-4 z-30">
+            <div key="div-172-10" className="sticky bottom-4 z-30">
               <DeleteBatches
                 ids={deleting}
                 summary={summaryOf(deleting)}
@@ -271,7 +271,7 @@ function BatchCard({
         </div>
 
         {profileNames.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div key="div-273-8" className="mt-2 flex flex-wrap gap-1.5">
             {profileNames.map((n) => (
               <span
                 key={n}
@@ -297,9 +297,9 @@ function BatchCard({
 
         <div className="mt-4 flex items-baseline justify-between gap-3 text-xs text-slate-400">
           <span>
-            <span className="tabular-nums">{listings || batch.asset_count}</span>{" "}
-            {listings === 1 ? "listing" : "listings"} ·{" "}
-            <span className="tabular-nums">{batch.asset_count}</span> files ·{" "}
+            <span translate="no" className="tabular-nums">{listings || batch.asset_count}</span><span>{" "}
+            <span>{listings === 1 ? "listing" : "listings"}</span> ·{" "}</span>
+            <span translate="no" className="tabular-nums">{batch.asset_count}</span> files ·{" "}
             <span title={new Date(batch.created_at).toLocaleString()}>
               {relativeTime(batch.created_at)}
             </span>
@@ -384,8 +384,8 @@ function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pendin
                   />
                   {/* Overflow count sits on the last tile rather than stealing a slot. */}
                   {more > 0 && i === cells.length - 1 && (
-                    <span className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-sm font-medium tabular-nums text-white">
-                      +{more}
+                    <span translate="no" key="span-386-18" className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-sm font-medium tabular-nums text-white">
+                      <span>+<span>{more}</span></span>
                     </span>
                   )}
                 </>
@@ -449,8 +449,8 @@ function Progress({
         <div className="progress">
           <div className="progress-fill" style={{ width: pct + "%" }} />
         </div>
-        <p className="mt-1.5 text-xs tabular-nums text-slate-500">
-          {done} / {listings} generated
+        <p translate="no" className="mt-1.5 text-xs tabular-nums text-slate-500">
+          <span><span>{done}</span> / <span>{listings}</span> generated</span>
         </p>
       </div>
     );
@@ -462,12 +462,12 @@ function Progress({
 
   return (
     <p className="text-xs">
-      <span className="font-medium tabular-nums text-brand-700">{count}</span>{" "}
+      <span translate="no" className="font-medium tabular-nums text-brand-700">{count}</span>{" "}
       <span className="text-brand-700">{noun}</span>
       {published > 0 && drafted > published && (
-        <span className="text-slate-400">
+        <span key="span-467-6" className="text-slate-400">
           {" · "}
-          <span className="tabular-nums">{drafted - published}</span> awaiting publish
+          <span translate="no" className="tabular-nums">{drafted - published}</span> awaiting publish
         </span>
       )}
     </p>

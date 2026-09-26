@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Personalization, Profile } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 const SOURCE: Record<string, string> = {
   reference: "copied from your reference listing",
   custom: "your own setting",
@@ -45,15 +46,15 @@ export function PersonalizationEditor({
         <span className="text-slate-400">{SOURCE[profile.personalization_source] ?? ""}</span>
       </div>
       {!editing && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
+        <div key="div-47-6" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
           {current == null ? (
             <span>Not read yet.</span>
           ) : current.enabled ? (
             <span>
-              &ldquo;{current.question_text}&rdquo;
-              {current.required ? " · required" : " · optional"}
-              {current.max_allowed_characters ? ` · up to ${current.max_allowed_characters} characters` : ""}
-              {current.instructions ? ` · ${current.instructions}` : ""}
+              <span><span>&ldquo;</span><Txt>{current.question_text}</Txt><span>&rdquo;</span>
+              <span>{current.required ? " · required" : " · optional"}</span>
+              <Txt>{current.max_allowed_characters ? ` · up to ${current.max_allowed_characters} characters` : ""}</Txt>
+              <Txt>{current.instructions ? ` · ${current.instructions}` : ""}</Txt></span>
             </span>
           ) : (
             <span>Off: new drafts are not personalizable.</span>
@@ -62,7 +63,7 @@ export function PersonalizationEditor({
             edit
           </button>
           {current?.enabled && (
-            <button
+            <button key="button-64-10"
               type="button"
               className="underline hover:text-slate-900"
               onClick={() => onSave({ enabled: false, question_text: null, instructions: null, required: false, max_allowed_characters: null })}
@@ -72,14 +73,14 @@ export function PersonalizationEditor({
             </button>
           )}
           {profile.personalization_source === "custom" && (
-            <button type="button" className="underline hover:text-slate-900" onClick={() => onSave(null)} disabled={busy}>
+            <button key="button-74-10" type="button" className="underline hover:text-slate-900" onClick={() => onSave(null)} disabled={busy}>
               use the reference&apos;s
             </button>
           )}
         </div>
       )}
       {editing && (
-        <form
+        <form key="form-81-6"
           className="mt-2 space-y-2"
           onSubmit={async (e) => {
             e.preventDefault();

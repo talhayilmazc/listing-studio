@@ -9,6 +9,7 @@ import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
 import { useShops } from "@/components/ShopProvider";
 
+import { Txt } from "@/components/Txt";
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
 
 export default function ProfilesPage() {
@@ -166,8 +167,8 @@ export default function ProfilesPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-slate-500">
-          Profiles copy category, price, variations and description from your own listings. New
-          drafts reuse them instead of inventing metadata.
+          <span>Profiles copy category, price, variations and description from your own listings. New
+          drafts reuse them instead of inventing metadata.</span>
           {selected && (
             <>
               {" "}
@@ -181,12 +182,12 @@ export default function ProfilesPage() {
         </button>
       </div>
 
-      {error && <div className="card p-4 text-sm text-rose-700">{error}</div>}
+      {error && <div key="div-184-6" className="card p-4 text-sm text-rose-700">{error}</div>}
 
-      {profiles === null && <p className="text-sm text-slate-400">Loading…</p>}
+      {profiles === null && <p key="p-186-6" className="text-sm text-slate-400">Loading…</p>}
 
       {profiles !== null && profiles.length > 3 && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div key="div-188-6" className="flex flex-wrap items-center gap-3">
           <input
             type="search"
             className="field w-full max-w-md py-1.5 text-sm"
@@ -196,8 +197,8 @@ export default function ProfilesPage() {
             aria-label="Search profiles"
           />
           {query && (
-            <span className="text-xs text-slate-500">
-              {shown.length} of {profiles.length}
+            <span key="span-198-10" className="text-xs text-slate-500">
+              <span><span>{shown.length}</span> of <span>{profiles.length}</span></span>
             </span>
           )}
         </div>
@@ -205,7 +206,7 @@ export default function ProfilesPage() {
 
       {failing.length > 0 && (
         // Profiles refresh on their own (v6 §H); the seller hears when one can't.
-        <div role="alert" className="card border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <div key="div-206-6" role="alert" className="card border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <p className="font-medium">
             {failing.length === 1 ? "A profile couldn't refresh" : `${failing.length} profiles couldn't refresh`}
           </p>
@@ -215,7 +216,7 @@ export default function ProfilesPage() {
                 <a href={"#profile-" + p.id} className="font-medium underline">
                   {p.name}
                 </a>
-                : {p.refresh_error}
+                <span><span>: </span><Txt>{p.refresh_error}</Txt></span>
               </li>
             ))}
           </ul>
@@ -223,7 +224,7 @@ export default function ProfilesPage() {
       )}
 
       {detected.length > 0 && (
-        <section className="space-y-3">
+        <section key="section-225-6" className="space-y-3">
           <SectionHead
             title="Detected"
             note="confirm or rename before use"
@@ -329,7 +330,7 @@ export default function ProfilesPage() {
                     {l.title ?? `#${l.listing_id}`}
                   </p>
                   <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
-                    <span className="truncate tabular-nums" title={l.sku ?? ""}>
+                    <span translate="no" className="truncate tabular-nums" title={l.sku ?? ""}>
                       {l.sku ?? "—"}
                     </span>
                     {/* ToU: every listing card links back to Etsy. */}
@@ -343,7 +344,7 @@ export default function ProfilesPage() {
                     </a>
                   </div>
                   {replace?.id === l.listing_id && (
-                    <p className="text-[11px] text-slate-500">{replace.status}</p>
+                    <p key="p-345-18" className="text-[11px] text-slate-500">{replace.status}</p>
                   )}
                 </div>
               </div>
@@ -385,9 +386,9 @@ function SectionHead({
   return (
     <div className="flex items-baseline gap-2 border-b border-slate-200 pb-2">
       <h2 className="font-display text-lg text-slate-900">{title}</h2>
-      <span className="text-xs tabular-nums text-slate-400">{count}</span>
+      <span translate="no" className="text-xs tabular-nums text-slate-400">{count}</span>
       {note && (
-        <span className={"text-xs " + (tone === "amber" ? "text-amber-700" : "text-slate-400")}>
+        <span key="span-389-6" className={"text-xs " + (tone === "amber" ? "text-amber-700" : "text-slate-400")}>
           {note}
         </span>
       )}

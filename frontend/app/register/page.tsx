@@ -98,11 +98,11 @@ export default function RegisterPage() {
               required
             />
             {password.length > 0 && (
-              <span
+              <span key="span-100-12"
                 className={"counter " + (tooShort ? "text-amber-700" : "text-slate-400")}
                 title={`${MIN_PASSWORD} characters minimum`}
               >
-                {password.length} / {MIN_PASSWORD}
+                <span><span>{password.length}</span> / <span>{MIN_PASSWORD}</span></span>
               </span>
             )}
           </div>

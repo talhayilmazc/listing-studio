@@ -141,8 +141,8 @@ export function CoverCropper({
             full image. It applies to drafts created from now on and to Replace images.
           </p>
           {crop.size < SOFT_BELOW && (
-            <p className="text-amber-800">
-              Zoomed in to {Math.round(crop.size)} px of your image: Etsy will show a softer photo.
+            <p key="p-143-10" className="text-amber-800">
+              <span>Zoomed in to <span>{Math.round(crop.size)}</span> px of your image: Etsy will show a softer photo.</span>
             </p>
           )}
 
@@ -157,7 +157,7 @@ export function CoverCropper({
               Cancel
             </button>
           </div>
-          {error && <p className="text-rose-700">{error}</p>}
+          {error && <p key="p-160-10" className="text-rose-700">{error}</p>}
         </div>
       </div>
     </div>

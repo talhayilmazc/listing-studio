@@ -78,8 +78,8 @@ export default function PasswordPage() {
               required
             />
             {newPassword.length > 0 && (
-              <span className={"counter " + (tooShort ? "text-amber-700" : "text-slate-400")}>
-                {newPassword.length} / {MIN_PASSWORD}
+              <span key="span-80-12" className={"counter " + (tooShort ? "text-amber-700" : "text-slate-400")}>
+                <span><span>{newPassword.length}</span> / <span>{MIN_PASSWORD}</span></span>
               </span>
             )}
           </div>

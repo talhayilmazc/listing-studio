@@ -2,6 +2,7 @@
 
 import type { AdminUsage } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 /**
  * The scarce resource: Etsy's app-wide budget of 5,000 requests a day, shared by
  * every tenant. Colour carries one job only — severity on the meters (accent,
@@ -71,7 +72,7 @@ export function Meter({
       </div>
       {markPct !== null && markPct < 100 && (
         // The pause line: a 2px tick standing proud of the track, in ink, not a series colour.
-        <span
+        <span key="span-72-6"
           aria-hidden
           className="absolute -inset-y-1 w-[2px] rounded-full bg-slate-700"
           style={{ left: `calc(${markPct}% - 1px)` }}
@@ -100,15 +101,15 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
         <h2 id="usage-summary" className="text-sm font-medium text-slate-600">
           Etsy API requests today, all tenants
         </h2>
-        <span className="text-xs text-slate-400">resets 00:00 UTC · {usage.usage_date}</span>
+        <span className="text-xs text-slate-400"><span>resets 00:00 UTC · <span>{usage.usage_date}</span></span></span>
       </div>
       <p className="mt-2 flex flex-wrap items-baseline gap-x-3">
         <span className="font-display text-5xl leading-none text-slate-900">
           {usage.global_used.toLocaleString()}
         </span>
-        <span className="text-lg text-slate-400">of {usage.global_limit.toLocaleString()}</span>
+        <span className="text-lg text-slate-400"><span>of <span>{usage.global_limit.toLocaleString()}</span></span></span>
         {STATE_LABEL[sev] && (
-          <span
+          <span key="span-110-8"
             className={
               "rounded-md border px-1.5 py-0.5 text-xs font-medium " +
               (sev === "danger"
@@ -130,26 +131,26 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
         />
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        {usage.global_used >= usage.pause_at
+        <span><span>{usage.global_used >= usage.pause_at
           ? `New jobs wait for the reset; the last ${(usage.global_limit - usage.pause_at).toLocaleString()} are held for work already running`
-          : `${Math.max(0, usage.pause_at - usage.global_used).toLocaleString()} until new work pauses at ${usage.pause_at.toLocaleString()}`}
+          : `${Math.max(0, usage.pause_at - usage.global_used).toLocaleString()} until new work pauses at ${usage.pause_at.toLocaleString()}`}</span>
         {" · "}
-        {usage.global_remaining.toLocaleString()} left today
-        {" · "}
+        <span>{usage.global_remaining.toLocaleString()}</span> left today
+        {" · "}</span>
         <span className="text-slate-700">
-          {usage.shops_used} of {usage.shops_limit} shops connected
+          <span><span>{usage.shops_used}</span> of <span>{usage.shops_limit}</span> shops connected</span>
         </span>
-        {usage.shops_used < usage.shops_limit
+        <span>{usage.shops_used < usage.shops_limit
           ? ` (${usage.shops_limit - usage.shops_used} slots left)`
-          : " (no slots left)"}
+          : " (no slots left)"}</span>
         {busiest.length > 0 && (
           <>
-            {" · most used by "}
+            <span>{" · most used by "}</span>
             {busiest.map((t, i) => (
               <span key={t.id}>
-                {i > 0 && ", "}
+                <Txt>{i > 0 && ", "}</Txt>
                 <span className="text-slate-700">{t.email}</span>{" "}
-                <span className="tabular-nums">({t.used_today.toLocaleString()})</span>
+                <span translate="no" className="tabular-nums"><span>(<span>{t.used_today.toLocaleString()}</span>)</span></span>
               </span>
             ))}
           </>
@@ -184,7 +185,7 @@ function HistoryChart({ history }: { history: AdminUsage["history"] }) {
               title={`${d.date}: ${d.count.toLocaleString()} requests`}
             >
               {labelled && (
-                <span className="mb-1 text-xs tabular-nums text-slate-600">
+                <span translate="no" key="span-186-14" className="mb-1 text-xs tabular-nums text-slate-600">
                   {d.count.toLocaleString()}
                 </span>
               )}
@@ -219,8 +220,8 @@ function HistoryChart({ history }: { history: AdminUsage["history"] }) {
           <tbody>
             {history.map((d) => (
               <tr key={d.date} className="border-t border-slate-100">
-                <td className="py-1 tabular-nums">{d.date}</td>
-                <td className="py-1 text-right tabular-nums text-slate-700">
+                <td translate="no" className="py-1 tabular-nums">{d.date}</td>
+                <td translate="no" className="py-1 text-right tabular-nums text-slate-700">
                   {d.count.toLocaleString()}
                 </td>
               </tr>
@@ -262,8 +263,8 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
           <h2 id="usage-history" className="text-sm font-medium text-slate-600">
             App-wide requests, last 7 days
           </h2>
-          <span className="text-xs tabular-nums text-slate-400">
-            {week.toLocaleString()} this week
+          <span translate="no" className="text-xs tabular-nums text-slate-400">
+            <span><span>{week.toLocaleString()}</span> this week</span>
           </span>
         </div>
         <div className="mt-5">
@@ -295,22 +296,22 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
                         {t.email}
                       </span>
                       {t.paused_reason && (
-                        <span className="text-xs text-amber-700">
-                          work waiting ·{" "}
-                          {t.paused_reason === "global_quota" ? "app-wide pause" : "own allowance used"}
+                        <span key="span-297-22" className="text-xs text-amber-700">
+                          <span>work waiting ·{" "}
+                          <span>{t.paused_reason === "global_quota" ? "app-wide pause" : "own allowance used"}</span></span>
                         </span>
                       )}
                     </td>
                     <td className="w-[40%] py-2.5 pr-4">
                       <div className="flex items-center gap-3">
                         <Meter used={t.used_today} limit={t.daily_quota} label={`${t.email} requests today`} />
-                        <span className="shrink-0 text-xs tabular-nums text-slate-500">
-                          {t.used_today.toLocaleString()} / {t.daily_quota.toLocaleString()}
+                        <span translate="no" className="shrink-0 text-xs tabular-nums text-slate-500">
+                          <span><span>{t.used_today.toLocaleString()}</span> / <span>{t.daily_quota.toLocaleString()}</span></span>
                         </span>
                       </div>
                     </td>
-                    <td className="py-2.5 text-right text-xs tabular-nums text-slate-500">
-                      {Math.round(share * 100)}%
+                    <td translate="no" className="py-2.5 text-right text-xs tabular-nums text-slate-500">
+                      <span><span>{Math.round(share * 100)}</span>%</span>
                     </td>
                     <td className="py-2.5 pl-4">
                       <Spark history={t.history} />

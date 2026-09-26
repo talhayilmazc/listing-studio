@@ -158,12 +158,12 @@ function Cell({
         {value === null ? (
           <span className="inline-block h-8 w-14 animate-pulse rounded bg-slate-100" />
         ) : (
-          <span className="font-display text-3xl leading-none tabular-nums text-slate-900">
+          <span translate="no" className="font-display text-3xl leading-none tabular-nums text-slate-900">
             {value.toLocaleString()}
           </span>
         )}
         {delta != null && delta !== 0 && (
-          <span
+          <span translate="no" key="span-165-8"
             className={
               "flex items-baseline gap-0.5 text-xs font-medium tabular-nums " +
               (delta > 0 ? "text-emerald-700" : "text-slate-500")
@@ -171,7 +171,7 @@ function Cell({
             title={deltaNote}
           >
             <span aria-hidden>{delta > 0 ? "↑" : "↓"}</span>
-            {Math.abs(delta)}%
+            <span><span>{Math.abs(delta)}</span>%</span>
           </span>
         )}
       </dd>
@@ -198,16 +198,16 @@ function QuotaCell({ quota }: { quota: Quota | null }) {
           {quota === null ? (
             <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />
           ) : (
-            <span
+            <span translate="no"
               className={
                 "font-display text-3xl leading-none tabular-nums " +
                 (low ? "text-amber-700" : "text-slate-900")
               }
             >
-              {quota.tenant_remaining.toLocaleString()}
+              <span>{quota.tenant_remaining.toLocaleString()}</span>
               <span className="text-lg text-slate-400">
-                {" / "}
-                {quota.tenant_limit.toLocaleString()}
+                <span>{" / "}
+                <span>{quota.tenant_limit.toLocaleString()}</span></span>
               </span>
             </span>
           )}
@@ -226,7 +226,7 @@ function QuotaCell({ quota }: { quota: Quota | null }) {
                 : `${quota.tenant_used.toLocaleString()} used today`}
           </p>
         </div>
-        {quota && <UsageChart history={quota.history} />}
+        {quota && <UsageChart key="usagechart-229-8" history={quota.history} />}
       </dd>
     </div>
   );

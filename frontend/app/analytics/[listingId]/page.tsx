@@ -10,6 +10,7 @@ import { Approximations } from "@/components/analytics/Overview";
 import { ClassBadge, Delta, PeriodPicker } from "@/components/analytics/Shared";
 import { WeeklyChart } from "@/components/analytics/WeeklyChart";
 
+import { Txt } from "@/components/Txt";
 /** One listing: its weekly sales over 13 months, where its money goes, and what to do. */
 export default function ListingAnalytics({
   params,
@@ -50,8 +51,8 @@ export default function ListingAnalytics({
           <PeriodPicker days={days} onChange={setDays} />
         </div>
       </div>
-      {error && <div className="card p-4 text-sm text-slate-600">{error}</div>}
-      {!data && !error && <p className="text-sm text-slate-400">Loading…</p>}
+      {error && <div key="div-53-6" className="card p-4 text-sm text-slate-600">{error}</div>}
+      {!data && !error && <p key="p-54-6" className="text-sm text-slate-400">Loading…</p>}
 
       {row && data && (
         <>
@@ -65,8 +66,8 @@ export default function ListingAnalytics({
             <div className="min-w-0">
               <h1 className="text-lg font-semibold text-slate-900">{listingName(row)}</h1>
               <p className="mt-0.5 text-xs text-slate-500">
-                {row.sku && `${row.sku} · `}
-                {row.profile_name && `profile ${row.profile_name} · `}
+                <span><Txt>{row.sku && `${row.sku} · `}</Txt>
+                <Txt>{row.profile_name && `profile ${row.profile_name} · `}</Txt></span>
                 <a href={row.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
                   View on Etsy ↗
                 </a>
@@ -77,14 +78,14 @@ export default function ListingAnalytics({
           <section className="card p-5">
             <div className="flex items-center gap-2">
               <ClassBadge klass={row.verdict.klass} />
-              <span className="text-xs text-slate-500">last {days} days</span>
+              <span className="text-xs text-slate-500"><span>last <span>{days}</span> days</span></span>
             </div>
             <p className="mt-2 text-sm text-slate-700">{row.verdict.reason}</p>
             <p className="mt-1 text-sm font-medium text-slate-900">{row.verdict.action}</p>
             <p className="mt-2 flex flex-wrap gap-3 text-xs">
               {row.verdict.links.map((l) => (
                 <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
-                  {l.label} ↗
+                  <span><span>{l.label}</span> ↗</span>
                 </a>
               ))}
             </p>
@@ -92,7 +93,7 @@ export default function ListingAnalytics({
 
           <section className="card p-5">
             <h2 className="text-sm font-semibold text-slate-800">Weekly revenue, last 13 months</h2>
-            <p className="mb-4 text-xs text-slate-500">The last {days} days in colour; the same weeks last year show whether it&apos;s seasonal.</p>
+            <p className="mb-4 text-xs text-slate-500"><span>The last <span>{days}</span> days in colour; the same weeks last year show whether it&apos;s seasonal.</span></p>
             <WeeklyChart weeks={data.weeks} currency={ccy} periodStart={periodStart} />
           </section>
 
@@ -123,10 +124,10 @@ export default function ListingAnalytics({
                         <td className="py-1.5 text-slate-700">
                           {a.period_start === a.period_end ? a.period_start : `${a.period_start} → ${a.period_end}`}
                         </td>
-                        <td className="py-1.5 text-right tabular-nums">{money(a.spend, ccy)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{a.ad_orders}</td>
-                        <td className="py-1.5 text-right tabular-nums">{money(a.ad_revenue, ccy)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{a.ad_views ? a.ad_views.toLocaleString() : "—"}</td>
+                        <td translate="no" className="py-1.5 text-right tabular-nums">{money(a.spend, ccy)}</td>
+                        <td translate="no" className="py-1.5 text-right tabular-nums">{a.ad_orders}</td>
+                        <td translate="no" className="py-1.5 text-right tabular-nums">{money(a.ad_revenue, ccy)}</td>
+                        <td translate="no" className="py-1.5 text-right tabular-nums">{a.ad_views ? a.ad_views.toLocaleString() : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -169,38 +170,38 @@ function Breakdown({
       <thead className="text-left text-xs text-slate-400">
         <tr>
           <th className="pb-1 font-medium" />
-          <th className="pb-1 text-right font-medium">Last {days} days</th>
+          <th className="pb-1 text-right font-medium"><span>Last <span>{days}</span> days</span></th>
           <th className="pb-1 text-right font-medium">Before</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
         <tr>
           <td className="py-1.5 text-slate-800">
-            Revenue <span className="text-xs text-slate-400">({cur.units} sold, {cur.orders} order lines)</span>
+            Revenue <span className="text-xs text-slate-400"><span>(<span>{cur.units}</span> sold, <span>{cur.orders}</span> order lines)</span></span>
           </td>
-          <td className="py-1.5 text-right tabular-nums text-slate-900">{money(cur.revenue, currency)}</td>
-          <td className="py-1.5 text-right tabular-nums text-slate-500">{money(prev.revenue, currency)}</td>
+          <td translate="no" className="py-1.5 text-right tabular-nums text-slate-900">{money(cur.revenue, currency)}</td>
+          <td translate="no" className="py-1.5 text-right tabular-nums text-slate-500">{money(prev.revenue, currency)}</td>
         </tr>
         {lines.map(([label, a, b, note]) => (
           <tr key={label}>
             <td className="py-1.5 text-slate-600">
-              − {label} {note && <span className="block text-xs text-slate-400">{note}</span>}
+              <span>− <span>{label}</span> </span>{note && <span key="span-187-24" className="block text-xs text-slate-400">{note}</span>}
             </td>
-            <td className="py-1.5 text-right tabular-nums text-slate-700">{money(a, currency)}</td>
-            <td className="py-1.5 text-right tabular-nums text-slate-500">{money(b, currency)}</td>
+            <td translate="no" className="py-1.5 text-right tabular-nums text-slate-700">{money(a, currency)}</td>
+            <td translate="no" className="py-1.5 text-right tabular-nums text-slate-500">{money(b, currency)}</td>
           </tr>
         ))}
         <tr className="font-semibold">
           <td className="py-2 text-slate-900">
-            Net profit <span className="text-xs font-normal">({percent(cur.margin)} margin)</span>
+            Net profit <span className="text-xs font-normal"><span>(<span>{percent(cur.margin)}</span> margin)</span></span>
           </td>
-          <td className={`py-2 text-right tabular-nums ${cur.net < 0 ? "text-rose-700" : "text-slate-900"}`}>{money(cur.net, currency)}</td>
-          <td className="py-2 text-right tabular-nums text-slate-500">{money(prev.net, currency)}</td>
+          <td translate="no" className={`py-2 text-right tabular-nums ${cur.net < 0 ? "text-rose-700" : "text-slate-900"}`}>{money(cur.net, currency)}</td>
+          <td translate="no" className="py-2 text-right tabular-nums text-slate-500">{money(prev.net, currency)}</td>
         </tr>
         <tr>
           <td className="pt-1 text-xs text-slate-500" colSpan={3}>
-            Net vs before: <Delta change={change(cur.net, prev.net)} current={cur.net} /> · ACOS {percent(cur.acos)} · average order{" "}
-            {money(cur.aov, currency)}
+            Net vs before: <Delta change={change(cur.net, prev.net)} current={cur.net} /><span> · ACOS <span>{percent(cur.acos)}</span> · average order{" "}
+            <span>{money(cur.aov, currency)}</span></span>
           </td>
         </tr>
       </tbody>

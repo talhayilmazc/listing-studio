@@ -19,6 +19,7 @@ import { ReviewCard } from "@/components/ReviewCard";
 import { BulkSchedule, schedulableDrafts } from "@/components/BulkSchedule";
 import { useShops } from "@/components/ShopProvider";
 
+import { Txt } from "@/components/Txt";
 interface Progress {
   label: string;
   total: number;
@@ -208,7 +209,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <Link href={`/batches/${id}`} className="text-sm text-slate-400 hover:text-slate-600">
-            ← Batch {id.slice(0, 8)}
+            <span>← Batch <span>{id.slice(0, 8)}</span></span>
           </Link>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Edit and approve each listing, then create drafts. Publishing is always a separate,
@@ -216,34 +217,34 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           </p>
         </div>
         {items && items.length > 0 && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs tabular-nums text-slate-500">
-              <span className="font-medium text-slate-700">{actions.approved}</span> of{" "}
-              {items.length} approved
+          <div key="div-218-8" className="flex items-center gap-3">
+            <span translate="no" className="text-xs tabular-nums text-slate-500">
+              <span className="font-medium text-slate-700">{actions.approved}</span><span> of{" "}
+              <span>{items.length}</span> approved</span>
             </span>
             {/* Each action appears when it has work, from the listings as they are now. */}
             {actions.approved < items.length && (
-              <button className="btn-primary" onClick={approveAll} disabled={busy}>
-                Approve all ({items.length - actions.approved})
+              <button key="button-225-12" className="btn-primary" onClick={approveAll} disabled={busy}>
+                <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
               </button>
             )}
             {actions.toDraft > 0 && (
-              <button
+              <button key="button-230-12"
                 className="btn-secondary"
                 onClick={createDraftsAll}
                 disabled={busy || overBudget || (mode === "chosen" && !targets?.length)}
                 title={overBudget ? preview?.message ?? undefined : undefined}
               >
-                Create drafts for all ({actions.toDraft})
+                <span>Create drafts for all (<span>{actions.toDraft}</span>)</span>
               </button>
             )}
             {actions.toPublish > 0 && (
-              <button className="btn-primary" onClick={publishAll} disabled={busy}>
-                Publish all ({actions.toPublish})
+              <button key="button-240-12" className="btn-primary" onClick={publishAll} disabled={busy}>
+                <span>Publish all (<span>{actions.toPublish}</span>)</span>
               </button>
             )}
             {(scheduling || schedulableDrafts(items).length > 0) && (
-              <button
+              <button key="button-245-12"
                 className="btn-secondary"
                 onClick={() => setScheduling((v) => !v)}
                 aria-expanded={scheduling}
@@ -257,7 +258,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       </div>
 
       {items && items.length > 0 && shops && shops.length > 1 && (
-        <TargetPanel
+        <TargetPanel key="targetpanel-259-6"
           shops={shops.map((s) => ({ id: s.id, name: s.name }))}
           mode={mode}
           setMode={setMode}
@@ -267,20 +268,20 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         />
       )}
       {items && items.length > 0 && (!shops || shops.length <= 1) && preview && !preview.fits && (
-        <div className="card p-3 text-sm text-amber-800">{preview.message}</div>
+        <div key="div-269-6" className="card p-3 text-sm text-amber-800">{preview.message}</div>
       )}
 
-      {scheduling && items && <BulkSchedule items={items} onDone={load} />}
+      {scheduling && items && <BulkSchedule key="bulkschedule-273-6" items={items} onDone={load} />}
 
       {approveResult && (
-        <div role="status" className="card p-3 text-sm text-slate-700">
+        <div key="div-275-6" role="status" translate="no" className="card p-3 text-sm text-slate-700">
           <div className="flex items-start justify-between gap-3">
             <p>
-              Approved {approveResult.approved}
-              {approveResult.already_approved > 0 &&
-                ` · ${approveResult.already_approved} already approved`}
-              {approveResult.skipped.length > 0 &&
-                ` · ${approveResult.skipped.length} not approved, fix these first:`}
+              <span><span>Approved </span><span>{approveResult.approved}</span>
+              <Txt>{approveResult.already_approved > 0 &&
+                ` · ${approveResult.already_approved} already approved`}</Txt>
+              <Txt>{approveResult.skipped.length > 0 &&
+                ` · ${approveResult.skipped.length} not approved, fix these first:`}</Txt></span>
             </p>
             <button
               type="button"
@@ -291,10 +292,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             </button>
           </div>
           {approveResult.skipped.length > 0 && (
-            <ul className="mt-1.5 space-y-1 text-xs text-amber-800">
+            <ul key="ul-293-10" className="mt-1.5 space-y-1 text-xs text-amber-800">
               {approveResult.skipped.map((s) => (
                 <li key={s.content_id} className="break-words">
-                  <span className="font-mono">{s.original_filename}</span>: {s.reason}
+                  <span className="font-mono">{s.original_filename}</span><span>: <span>{s.reason}</span></span>
                 </li>
               ))}
             </ul>
@@ -304,7 +305,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
       {manual.length > 0 && (
         // Information, not a gate (docs/duzeltmeler-v6.md §A2): publishing works without them.
-        <div role="status" className="card border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <div key="div-305-6" role="status" className="card border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
           <p>
             <span className="font-medium text-slate-900">Recommended in Shop Manager.</span>{" "}
@@ -326,9 +327,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               <li key={m.key}>
                 <span className="font-medium">{m.label}</span>
                 <span className="text-slate-500">
-                  {" "}
-                  · not yet ticked on {m.drafts} draft{m.drafts === 1 ? "" : "s"}. Each listing below
-                  links to its draft; tick it there, or mark all as done once you have set them.
+                  <span>{" "}
+                  <span>· not yet ticked on </span><span>{m.drafts}</span><span> draft</span><Txt>{m.drafts === 1 ? "" : "s"}</Txt><span>. Each listing below
+                  links to its draft; tick it there, or mark all as done once you have set them.</span></span>
                 </span>
               </li>
             ))}
@@ -337,13 +338,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       )}
 
       {skipped.length > 0 && (
-        <div className="card space-y-1 p-3 text-xs text-amber-800">
+        <div key="div-339-6" className="card space-y-1 p-3 text-xs text-amber-800">
           <p className="font-medium">Not sent:</p>
           <ul className="space-y-0.5">
             {skipped.map((s, i) => (
               <li key={i}>
-                {items?.find((c) => c.id === s.content_id)?.original_filename ?? "A listing"}
-                {s.shop_name ? ` → ${s.shop_name}` : ""}: {s.reason}
+                <span><Txt>{items?.find((c) => c.id === s.content_id)?.original_filename ?? "A listing"}</Txt>
+                <Txt>{s.shop_name ? ` → ${s.shop_name}` : ""}</Txt><span>: </span><span>{s.reason}</span></span>
               </li>
             ))}
           </ul>
@@ -351,7 +352,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       )}
 
       {progress?.finished && (
-        <PublishResult
+        <PublishResult key="publishresult-353-6"
           progress={progress}
           titleOf={(cid) => items?.find((c) => c.id === cid)?.title ?? items?.find((c) => c.id === cid)?.original_filename ?? "Listing"}
           onDismiss={() => setProgress(null)}
@@ -359,15 +360,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       )}
 
       {progress && !progress.finished && (
-        <div className="card space-y-2 p-3">
+        <div key="div-361-6" translate="no" className="card space-y-2 p-3">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-700">{progress.label}…</span>
+            <span className="text-slate-700"><span><span>{progress.label}</span>…</span></span>
             <span className="text-xs text-slate-500">
-              {progress.done + progress.failed + progress.paused + progress.running}/{progress.total}
-              {progress.failed > 0 && ` · ${progress.failed} failed`}
-              {progress.paused > 0 && ` · ${progress.paused} waiting`}
-              {progress.running > 0 && ` · ${progress.running} still running`}
-              {progress.skipped > 0 && ` · ${progress.skipped} skipped`}
+              <span><span>{progress.done + progress.failed + progress.paused + progress.running}</span><span>/</span><span>{progress.total}</span>
+              <Txt>{progress.failed > 0 && ` · ${progress.failed} failed`}</Txt>
+              <Txt>{progress.paused > 0 && ` · ${progress.paused} waiting`}</Txt>
+              <Txt>{progress.running > 0 && ` · ${progress.running} still running`}</Txt>
+              <Txt>{progress.skipped > 0 && ` · ${progress.skipped} skipped`}</Txt></span>
             </span>
           </div>
           <div className="progress">
@@ -379,21 +380,21 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             />
           </div>
           {progress.pause && (
-            <p role="status" className="text-xs text-amber-800">
-              {progress.paused} {progress.paused === 1 ? "listing is" : "listings are"} queued, not
-              failed. {progress.pause.message} That is around{" "}
-              {resumeTime(progress.pause.resumes_at)} your time.
+            <p key="p-381-10" role="status" translate="no" className="text-xs text-amber-800">
+              <span><span>{progress.paused}</span> <span>{progress.paused === 1 ? "listing is" : "listings are"}</span> queued, not
+              failed. <span>{progress.pause.message}</span> That is around{" "}
+              <span>{resumeTime(progress.pause.resumes_at)}</span> your time.</span>
             </p>
           )}
         </div>
       )}
 
-      {error && <div className="card p-4 text-sm text-rose-700">{error}</div>}
+      {error && <div key="div-391-6" className="card p-4 text-sm text-rose-700">{error}</div>}
 
-      {items === null && !error && <p className="text-sm text-slate-400">Loading…</p>}
+      {items === null && !error && <p key="p-393-6" className="text-sm text-slate-400">Loading…</p>}
 
       {items && items.length === 0 && (
-        <div className="card flex flex-col items-center gap-3 p-12 text-center">
+        <div key="div-395-6" className="card flex flex-col items-center gap-3 p-12 text-center">
           <p className="text-slate-500">No generated content yet for this batch.</p>
           <Link href={`/batches/${id}`} className="btn-primary">
             Generate content
@@ -402,7 +403,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       )}
 
       {items && items.length > 0 && (
-        <div className="space-y-5">
+        <div key="div-404-6" className="space-y-5">
           {items.map((c) => (
             <ReviewCard
               key={cardKey(c)}
@@ -462,7 +463,7 @@ function TargetPanel({
       </div>
 
       {mode === "chosen" && (
-        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+        <ul key="ul-464-6" className="divide-y divide-slate-100 rounded-lg border border-slate-200">
           {shops.map((shop) => {
             const on = shop.id in chosen;
             const info = byShop[shop.id];
@@ -474,13 +475,13 @@ function TargetPanel({
                   <span className="truncate">{shop.name}</span>
                 </label>
                 {on && info && (
-                  <span className="text-xs text-slate-500">
-                    {info.ready} ready
-                    {info.blocked.length > 0 && ` · ${info.blocked.length} cannot go`}
+                  <span key="span-476-16" className="text-xs text-slate-500">
+                    <span><span>{info.ready}</span><span> ready</span>
+                    <Txt>{info.blocked.length > 0 && ` · ${info.blocked.length} cannot go`}</Txt></span>
                   </span>
                 )}
                 {on && info && info.profiles.length > 0 && (
-                  <select
+                  <select key="select-482-16"
                     className="field w-48 py-1 text-xs"
                     aria-label={`Profile for ${shop.name}`}
                     value={chosen[shop.id] ?? ""}
@@ -496,7 +497,7 @@ function TargetPanel({
                   </select>
                 )}
                 {on && info && info.blocked.length > 0 && (
-                  <p className="w-full text-xs text-amber-800">
+                  <p key="p-498-16" className="w-full text-xs text-amber-800">
                     {Array.from(new Set(info.blocked.map((b) => b.reason))).join("; ")}
                   </p>
                 )}
@@ -507,7 +508,7 @@ function TargetPanel({
       )}
 
       {preview && (
-        <p className={"text-xs " + (preview.fits ? "text-slate-500" : "text-amber-800")}>
+        <p key="p-509-6" className={"text-xs " + (preview.fits ? "text-slate-500" : "text-amber-800")}>
           {preview.fits
             ? `${preview.drafts} draft${preview.drafts === 1 ? "" : "s"} ≈ ${preview.estimated_calls.toLocaleString()} Etsy requests (about ${preview.calls_per_draft} each); ${preview.budget_remaining.toLocaleString()} can still be spent today.`
             : preview.message}
@@ -540,7 +541,7 @@ function PublishResult({
       : "No drafts were created";
   return (
     <div
-      role="status"
+      role="status" translate="no"
       className={
         "card space-y-3 p-4 text-sm " +
         (bad.length ? "border-amber-200" : ok.length ? "border-emerald-200 bg-emerald-50/40" : "")
@@ -549,8 +550,8 @@ function PublishResult({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-medium text-slate-900">
-            {ok.length > 0 && <span className="text-emerald-700">✓ </span>}
-            {head}
+            {ok.length > 0 && <span key="span-552-12" className="text-emerald-700">✓ </span>}
+            <span>{head}</span>
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
             {[
@@ -568,15 +569,15 @@ function PublishResult({
         </button>
       </div>
       {ok.length > 0 && (
-        <ul className="max-h-60 space-y-1 overflow-y-auto text-xs">
+        <ul key="ul-570-6" className="max-h-60 space-y-1 overflow-y-auto text-xs">
           {ok.map((o, i) => (
             <li key={i} className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-slate-700">
-                {titleOf(o.contentId)}
-                {o.shop && <span className="text-slate-400"> · {o.shop}</span>}
+                <span>{titleOf(o.contentId)}</span>
+                {o.shop && <span key="span-576-16" className="text-slate-400"><span> · <span>{o.shop}</span></span></span>}
               </span>
               {o.url && (
-                <a href={o.url} target="_blank" rel="noreferrer" className="shrink-0 font-medium text-brand-700 hover:underline">
+                <a key="a-578-14" href={o.url} target="_blank" rel="noreferrer" className="shrink-0 font-medium text-brand-700 hover:underline">
                   {publishing ? "View on Etsy ↗" : "Edit draft ↗"}
                 </a>
               )}
@@ -585,18 +586,18 @@ function PublishResult({
         </ul>
       )}
       {bad.length > 0 && (
-        <ul className="space-y-1 text-xs text-rose-800">
+        <ul key="ul-587-6" className="space-y-1 text-xs text-rose-800">
           {bad.map((o, i) => (
             <li key={i}>
               <span className="font-medium">{titleOf(o.contentId)}</span>
-              {o.shop && <span> · {o.shop}</span>}: {o.error ?? "failed"}
+              {o.shop && <span key="span-592-14"><span> · <span>{o.shop}</span></span></span>}<span><span>: </span><Txt>{o.error ?? "failed"}</Txt></span>
             </li>
           ))}
         </ul>
       )}
       {progress.pause && (
-        <p className="text-xs text-amber-800">
-          Queued, not failed: {progress.pause.message} That is around {resumeTime(progress.pause.resumes_at)} your time.
+        <p key="p-597-6" className="text-xs text-amber-800">
+          <span>Queued, not failed: <span>{progress.pause.message}</span> That is around <span>{resumeTime(progress.pause.resumes_at)}</span> your time.</span>
         </p>
       )}
     </div>

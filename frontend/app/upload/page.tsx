@@ -18,6 +18,7 @@ import {
 } from "@/lib/staging";
 import { smallPreview } from "@/lib/thumbs";
 
+import { Txt } from "@/components/Txt";
 interface Row {
   /** Stable identity: a ZIP's row is replaced by its images once unpacked. */
   key: string;
@@ -363,15 +364,15 @@ export default function UploadPage() {
           <div className="min-w-0">
             <p className="text-sm font-medium text-slate-800">Ready to upload</p>
             <p className="mt-0.5 text-xs text-slate-500">
-              <span className="tabular-nums">{staged.length}</span> {staged.length === 1 ? "folder" : "folders"} ·{" "}
-              <span className="tabular-nums">{imageCount}</span> {imageCount === 1 ? "image" : "images"}
+              <span translate="no" className="tabular-nums">{staged.length}</span> <span><span>{staged.length === 1 ? "folder" : "folders"}</span> ·{" "}</span>
+              <span translate="no" className="tabular-nums">{imageCount}</span> <span><span>{imageCount === 1 ? "image" : "images"}</span></span>
               {archives.length > 0 && (
                 <>
-                  {" · "}
-                  <span className="tabular-nums">{archives.length}</span> ZIP{archives.length === 1 ? "" : "s"}
+                  <span>{" · "}</span>
+                  <span translate="no" className="tabular-nums">{archives.length}</span><span><span> ZIP</span><Txt>{archives.length === 1 ? "" : "s"}</Txt></span>
                 </>
               )}
-              {ignored > 0 && <> · {ignored} other file{ignored === 1 ? "" : "s"} left out (not images)</>}
+              {ignored > 0 && <><span><span> · </span><span>{ignored}</span><span> other file</span><Txt>{ignored === 1 ? "" : "s"}</Txt><span> left out (not images)</span></span></>}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -386,7 +387,7 @@ export default function UploadPage() {
               disabled={undecided.length > 0}
               title={undecided.length ? "Merge or skip the folders added twice first" : undefined}
             >
-              Upload {staged.length + archives.length} {staged.length + archives.length === 1 ? "item" : "items"}
+              <span>Upload <span>{staged.length + archives.length}</span> <span>{staged.length + archives.length === 1 ? "item" : "items"}</span></span>
             </button>
           </div>
           {folderInput}
@@ -394,9 +395,9 @@ export default function UploadPage() {
         </div>
 
         {undecided.length > 0 && (
-          <p role="status" className="text-xs text-amber-800">
-            {undecided.length === 1 ? "A folder was" : `${undecided.length} folders were`} added twice.
-            Merge or skip {undecided.length === 1 ? "it" : "each"} before uploading.
+          <p key="p-396-8" role="status" translate="no" className="text-xs text-amber-800">
+            <span><span>{undecided.length === 1 ? "A folder was" : `${undecided.length} folders were`}</span> added twice.
+            Merge or skip <span>{undecided.length === 1 ? "it" : "each"}</span> before uploading.</span>
           </p>
         )}
 
@@ -417,7 +418,7 @@ export default function UploadPage() {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-slate-800">{z.name}</span>
                 <span className="block text-xs text-slate-400">
-                  {(z.size / (1024 * 1024)).toFixed(1)} MB · unpacked on upload, its folders kept
+                  <span><span>{(z.size / (1024 * 1024)).toFixed(1)}</span> MB · unpacked on upload, its folders kept</span>
                 </span>
               </span>
               <RemoveButton label={z.name} onClick={() => setArchives((a) => a.filter((x) => x !== z))} />
@@ -442,13 +443,13 @@ export default function UploadPage() {
             {busy ? "Uploading…" : failed > 0 ? "Finished with errors" : "Upload complete"}
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
-            <span className="tabular-nums">{done}</span> / {rows.length} files ·{" "}
-            <span className="tabular-nums">{groups.length}</span>{" "}
-            {groups.length === 1 ? "listing group" : "listing groups"}
+            <span translate="no" className="tabular-nums">{done}</span><span> / <span>{rows.length}</span> files ·{" "}</span>
+            <span translate="no" className="tabular-nums">{groups.length}</span><span>{" "}
+            <span>{groups.length === 1 ? "listing group" : "listing groups"}</span></span>
             {failed > 0 && (
-              <span className="text-rose-700">
+              <span key="span-448-12" className="text-rose-700">
                 {" · "}
-                <span className="tabular-nums">{failed}</span> failed
+                <span translate="no" className="tabular-nums">{failed}</span> failed
               </span>
             )}
           </p>
@@ -456,7 +457,7 @@ export default function UploadPage() {
         <div className="flex items-center gap-2">
           {!busy && pickers}
           {batchId && !busy && (
-            <button className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)}>
+            <button key="button-458-10" className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)}>
               Open batch
             </button>
           )}
@@ -466,7 +467,7 @@ export default function UploadPage() {
       </div>
 
       {notes.length > 0 && (
-        <ul role="status" className="card space-y-1 p-3 text-xs text-slate-600">
+        <ul key="ul-468-6" role="status" translate="no" className="card space-y-1 p-3 text-xs text-slate-600">
           {notes.map((n, i) => (
             <li key={i}>{n}</li>
           ))}
@@ -474,7 +475,7 @@ export default function UploadPage() {
       )}
 
       {busy && (
-        <div className="progress">
+        <div key="div-476-6" className="progress">
           <div
             className="progress-fill"
             style={{ width: (rows.length ? (done / rows.length) * 100 : 0) + "%" }}
@@ -535,13 +536,13 @@ function StagedCard({
           {label}
         </h2>
         <span className="text-xs text-slate-400">
-          <span className="tabular-nums">{n}</span> {n === 1 ? "image" : "images"} · SKU read on upload
+          <span translate="no" className="tabular-nums">{n}</span> <span><span>{n === 1 ? "image" : "images"}</span> · SKU read on upload</span>
         </span>
         {group.pending.length > 0 && (
-          <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <div key="div-540-8" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             <p>
-              Added again: a folder with this name is already here. The new copy has{" "}
-              {group.pending.length} image{group.pending.length === 1 ? "" : "s"} not in it.
+              <span><span>Added again: a folder with this name is already here. The new copy has</span>{" "}
+              <span>{group.pending.length}</span><span> image</span><Txt>{group.pending.length === 1 ? "" : "s"}</Txt><span> not in it.</span></span>
             </p>
             <div className="mt-1.5 flex gap-3">
               <button type="button" className="font-medium underline" onClick={onMerge}>
@@ -582,7 +583,7 @@ function Tiles({ tiles, more }: { tiles: Tile[]; more: number }) {
           >
             {/* The skeleton sits under the image: seen until it has decoded, never blank. */}
             {t && (t.preview || t.loading) && (
-              <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
+              <span key="span-584-12" className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
             )}
             {t?.preview ? (
               <>
@@ -597,7 +598,7 @@ function Tiles({ tiles, more }: { tiles: Tile[]; more: number }) {
                   decoding="async"
                   draggable={false}
                 />
-                {t.status === "error" && <span className="absolute inset-0 bg-rose-900/30" aria-hidden />}
+                {t.status === "error" && <span key="span-600-16" className="absolute inset-0 bg-rose-900/30" aria-hidden />}
               </>
             ) : t && !t.loading ? (
               <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-wide text-slate-400">
@@ -605,8 +606,8 @@ function Tiles({ tiles, more }: { tiles: Tile[]; more: number }) {
               </div>
             ) : null}
             {more > 0 && i === 4 && (
-              <span className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-sm font-medium tabular-nums text-white">
-                +{more}
+              <span translate="no" key="span-607-12" className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-sm font-medium tabular-nums text-white">
+                <span>+<span>{more}</span></span>
               </span>
             )}
           </div>
@@ -663,12 +664,12 @@ function GroupCard({ group }: { group: DetectedGroup }) {
           >
             {group.key === "(root)" ? "Root folder" : group.key}
           </h2>
-          {complete && <StatusPill status={rows[0]?.assetStatus ?? "uploaded"} />}
+          {complete && <StatusPill key="statuspill-666-10" status={rows[0]?.assetStatus ?? "uploaded"} />}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {group.sku ? (
-            <span className="rounded-md border border-brand-100 bg-brand-50 px-1.5 py-0.5 font-medium tabular-nums text-brand-700">
+            <span translate="no" className="rounded-md border border-brand-100 bg-brand-50 px-1.5 py-0.5 font-medium tabular-nums text-brand-700">
               {group.sku}
             </span>
           ) : (
@@ -677,13 +678,13 @@ function GroupCard({ group }: { group: DetectedGroup }) {
             </span>
           )}
           <span className="text-slate-400">
-            <span className="tabular-nums">{rows.length}</span>{" "}
-            {rows.length === 1 ? "image" : "images"}
+            <span translate="no" className="tabular-nums">{rows.length}</span><span>{" "}
+            <span>{rows.length === 1 ? "image" : "images"}</span></span>
           </span>
         </div>
 
         {!complete && (
-          <div className="mt-1">
+          <div key="div-685-8" className="mt-1">
             <div className="progress">
               <div
                 className={
@@ -693,20 +694,20 @@ function GroupCard({ group }: { group: DetectedGroup }) {
                 style={{ width: pct + "%" }}
               />
             </div>
-            <p className="mt-1.5 text-xs tabular-nums text-slate-500">
-              {done} / {rows.length} uploaded
+            <p translate="no" className="mt-1.5 text-xs tabular-nums text-slate-500">
+              <span><span>{done}</span> / <span>{rows.length}</span> uploaded</span>
             </p>
           </div>
         )}
 
         {errors.length > 0 && (
-          <ul className="mt-auto space-y-0.5 pt-1 text-xs text-rose-700">
+          <ul key="ul-702-8" className="mt-auto space-y-0.5 pt-1 text-xs text-rose-700">
             {errors.slice(0, 3).map((r, i) => (
               <li key={i} className="truncate" title={r.error}>
-                {r.name}: {r.error}
+                <span><span>{r.name}</span><span>: </span><Txt>{r.error}</Txt></span>
               </li>
             ))}
-            {errors.length > 3 && <li>+{errors.length - 3} more failed</li>}
+            {errors.length > 3 && <li key="li-709-12"><span>+<span>{errors.length - 3}</span> more failed</span></li>}
           </ul>
         )}
       </div>
@@ -792,11 +793,11 @@ function RecentUploads({ batches }: { batches: BatchSummary[] | null }) {
                 <span className="flex min-w-0 items-center gap-2.5">
                   <StatusPill status={b.status} />
                   <span className="truncate text-sm text-slate-700 group-hover:text-brand-700">
-                    Batch {b.id.slice(0, 8)}
+                    <span>Batch <span>{b.id.slice(0, 8)}</span></span>
                   </span>
                 </span>
                 <span className="shrink-0 text-xs text-slate-400">
-                  <span className="tabular-nums">{b.asset_count}</span> files ·{" "}
+                  <span translate="no" className="tabular-nums">{b.asset_count}</span> files ·{" "}
                   <span title={new Date(b.created_at).toLocaleString()}>
                     {relativeTime(b.created_at)}
                   </span>

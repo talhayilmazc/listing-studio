@@ -67,7 +67,7 @@ export default function AdminPage() {
       <UsageSummary usage={usage} />
 
       {error && (
-        <div
+        <div key="div-69-6"
           role="alert"
           className="flex items-start justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
         >
@@ -96,13 +96,13 @@ export default function AdminPage() {
                   : "border-transparent text-slate-500 hover:text-slate-800")
               }
             >
-              {t.label}
+              <span>{t.label}</span>
               {t.id === "users" && users && (
-                <span className="ml-1.5 text-xs tabular-nums text-slate-400">{users.length}</span>
+                <span translate="no" key="span-100-14" className="ml-1.5 text-xs tabular-nums text-slate-400">{users.length}</span>
               )}
               {t.id === "invites" && invites && (
-                <span className="ml-1.5 text-xs tabular-nums text-slate-400">
-                  {invites.filter((i) => i.state === "unused").length} open
+                <span translate="no" key="span-103-14" className="ml-1.5 text-xs tabular-nums text-slate-400">
+                  <span><span>{invites.filter((i) => i.state === "unused").length}</span> open</span>
                 </span>
               )}
             </button>
@@ -111,7 +111,7 @@ export default function AdminPage() {
 
         <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="pt-5">
           {tab === "users" && (
-            <UsersTab
+            <UsersTab key="userstab-113-10"
               users={users}
               selfId={account!.id}
               globalLimit={usage?.global_limit ?? 5000}
@@ -123,7 +123,7 @@ export default function AdminPage() {
             />
           )}
           {tab === "invites" && (
-            <InvitesTab
+            <InvitesTab key="invitestab-125-10"
               invites={invites}
               onError={setError}
               onCreated={(inv) => setInvites((prev) => [inv, ...(prev ?? [])])}
@@ -132,7 +132,7 @@ export default function AdminPage() {
               }
             />
           )}
-          {tab === "usage" && <UsageTab usage={usage} />}
+          {tab === "usage" && <UsageTab key="usagetab-135-10" usage={usage} />}
         </div>
       </div>
     </div>
