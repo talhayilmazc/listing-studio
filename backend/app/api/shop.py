@@ -112,6 +112,57 @@ async def list_shop_listings(
     )
 
 
+def has_feature(tenant: Tenant, name: str) -> bool:
+    return bool((tenant.features or {}).get(name))
+
+
+@router.get("/pattern-listings", response_model=list[schemas.PatternListingOut])
+async def pattern_listings(
+    shop: uuid.UUID | None = None,
+    q: str = "",
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> list[schemas.PatternListingOut]:
+    """The seller's OWN active listings to model a new listing on (v7 §B).
+
+    Only this account's shop, from its 6-hour listing cache: never another
+    seller's listing (ToU §1 and §5). Needs the feature turned on by an admin.
+    """
+    if not has_feature(tenant, "own_patterns"):
+        raise HTTPException(status_code=404, detail="not available for this account")
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        return []
+    cached = await _shop_rows(session, tenant, connection)
+    if _is_stale(max((c.fetched_at for c in cached), default=None)):
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+    words = [w for w in q.casefold().split() if w]
+    out: list[schemas.PatternListingOut] = []
+    for c in cached:
+        row = c.payload or {}
+        if _is_stale(c.fetched_at) or row.get("state") != "active":
+            continue
+        title = decode_etsy_text(row.get("title")) or ""
+        tags = [str(t) for t in row.get("tags") or []]
+        hay = (title + " " + " ".join(tags)).casefold()
+        if words and not all(w in hay for w in words):
+            continue
+        item = _listing_out(row)
+        out.append(
+            schemas.PatternListingOut(
+                listing_id=item.listing_id,
+                title=title or None,
+                tags=tags,
+                state=item.state,
+                thumbnail_url=item.thumbnail_url,
+                url=item.url or f"https://www.etsy.com/listing/{item.listing_id}",
+            )
+        )
+    out.sort(key=lambda x: (x.title or "").casefold())
+    return out
+
+
 @router.post("/listings/sync", status_code=202)
 async def sync_shop_listings_now(
     shop: uuid.UUID | None = None,

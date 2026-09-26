@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -30,12 +31,14 @@ from app.db.models import (
     ListingGroupSetting,
     ListingProfile,
     ListingPublication,
+    ShopListingCache,
     Tenant,
     UploadBatch,
 )
 from app.compliance.trademarks import blocklist_for
 from app.etsy.refresh import request_refresh
 from app.pipeline.content import AnthropicContentGenerator, policy_for
+from app.pipeline.reference import decode_etsy_text
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.images import (
@@ -419,6 +422,7 @@ async def _batch_groups(
                 profile_id=s.profile_id if s else None,
                 size_chart_profile_id=s.size_chart_profile_id if s else None,
                 manual=s.manual if s else False,
+                pattern_listing_id=s.pattern_listing_id if s else None,
             )
         )
     return out
@@ -553,6 +557,62 @@ async def reset_cover_crop(
     asset = await _own_asset(session, tenant, asset_id)
     asset.cover_crop = None
     await session.commit()
+
+
+# --- Following one of the seller's own listings (docs/duzeltmeler-v7.md §B) -------------
+@router.put("/batches/{batch_id}/groups/pattern", response_model=list[schemas.GroupOut])
+async def assign_group_pattern(
+    batch_id: uuid.UUID,
+    body: schemas.PatternAssign,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> list[schemas.GroupOut]:
+    """Model one group's listing on one of the seller's OWN listings, or clear it.
+
+    The listing must be in this account's own shop cache: another seller's
+    listing, or another account's, is never accepted (ToU §1 and §5).
+    """
+    if not (tenant.features or {}).get("own_patterns"):
+        raise HTTPException(status_code=404, detail="not available for this account")
+    await _get_batch(session, tenant, batch_id)
+    if body.pattern_listing_id is not None:
+        own = await session.get(ShopListingCache, (tenant.id, body.pattern_listing_id))
+        if own is None:
+            raise HTTPException(status_code=404, detail="not one of your shop's listings")
+    setting = (
+        await session.execute(
+            select(ListingGroupSetting).where(
+                ListingGroupSetting.batch_id == batch_id,
+                ListingGroupSetting.group_key == body.group_key,
+            )
+        )
+    ).scalars().first()
+    if setting is None:
+        setting = ListingGroupSetting(tenant_id=tenant.id, batch_id=batch_id, group_key=body.group_key)
+        session.add(setting)
+    setting.pattern_listing_id = body.pattern_listing_id
+    await session.commit()
+    return await _batch_groups(session, batch_id)
+
+
+async def _pattern_for(
+    session: AsyncSession, tenant: Tenant, listing_id: int | None, enqueuer: Enqueuer
+) -> tuple[dict[str, Any] | None, str | None]:
+    """The example listing's title and tags from the seller's own cache, or why not."""
+    if listing_id is None or not (tenant.features or {}).get("own_patterns"):
+        return None, None
+    row = await session.get(ShopListingCache, (tenant.id, listing_id))
+    if row is None:
+        return None, "the example listing is no longer in your shop; choose another"
+    fetched = row.fetched_at if row.fetched_at.tzinfo else row.fetched_at.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - fetched).total_seconds() >= ShopListingCache.STALE_SECONDS:
+        await enqueuer.enqueue("sync_shop_listings", str(row.connection_id))
+        return None, "your shop's listings are being refreshed from Etsy; generate again in a minute"
+    payload = row.payload or {}
+    return {
+        "title": decode_etsy_text(payload.get("title")) or "",
+        "tags": [str(t) for t in payload.get("tags") or []],
+    }, None
 
 
 # --- Deleting batches (docs/duzeltmeler-v7.md §E3) ---------------------------------
@@ -698,7 +758,9 @@ async def generate_content(
     group_rows = await session.execute(
         select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id)
     )
-    group_profile = {s.group_key: s.profile_id for s in group_rows.scalars()}
+    group_settings = list(group_rows.scalars())
+    group_profile = {s.group_key: s.profile_id for s in group_settings}
+    group_pattern = {s.group_key: s.pattern_listing_id for s in group_settings}
     profile_cache: dict[uuid.UUID, ListingProfile] = {}
     generator_cache: dict[uuid.UUID, AnthropicContentGenerator] = {}
 
@@ -811,6 +873,11 @@ async def generate_content(
             )
             continue
 
+        pattern, why = await _pattern_for(session, tenant, group_pattern.get(key), enqueuer)
+        if why:
+            _fail(why)
+            continue
+
         data = storage.get(primary.processed_key)
         outcome = await generate_listing_content(
             session,
@@ -823,6 +890,7 @@ async def generate_content(
             analyzer=analyzer,
             generator=_generator(profile),
             profile=profile,
+            pattern=pattern,
         )
         if outcome.status == "generated":
             generated += 1

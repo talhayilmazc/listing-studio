@@ -8,6 +8,8 @@ import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
 import { matchesProfile } from "@/lib/profileSearch";
+import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
+import { useSession } from "@/components/SessionProvider";
 import { GroupImages } from "@/components/GroupImages";
 
 interface AssetGroup {
@@ -30,6 +32,10 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
   const [costKey, setCostKey] = useState(0);
   const [profileQuery, setProfileQuery] = useState("");
+  // Modelling listings on the seller's own (v7 §B), when an admin turned it on.
+  const { account } = useSession();
+  const patternsOn = Boolean(account?.features?.own_patterns);
+  const patternListings = usePatternListings(patternsOn);
   // The groups' content: whether it is approved, and whether its draft is on Etsy.
   const [contents, setContents] = useState<Content[]>([]);
   // A group waiting for the seller to confirm replacing something.
@@ -450,6 +456,21 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   </select>
                   {s?.manual && <span className="text-slate-400">· set manually</span>}
                 </div>
+              )}
+              {patternsOn && (
+                <PatternPicker
+                  chosen={s?.pattern_listing_id ?? null}
+                  listings={patternListings}
+                  busy={anyBusy}
+                  onChoose={async (listingId) => {
+                    try {
+                      const gs = await api.setGroupPattern(id, g.key, listingId);
+                      setSettings(Object.fromEntries(gs.map((x) => [x.group_key, x])));
+                    } catch (e: any) {
+                      setNotice(e.message ?? String(e));
+                    }
+                  }}
+                />
               )}
 
               <GroupImages batchId={id} groupKey={g.key} assets={g.assets} onSaved={setBatch} />

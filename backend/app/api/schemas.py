@@ -59,6 +59,8 @@ class GroupOut(BaseModel):
     profile_id: uuid.UUID | None = None
     size_chart_profile_id: uuid.UUID | None = None
     manual: bool = False
+    # One of the seller's own listings this group's listing is modelled on (v7 §B).
+    pattern_listing_id: int | None = None
 
 
 class GroupAssign(BaseModel):
@@ -66,6 +68,25 @@ class GroupAssign(BaseModel):
     group_key: str | None = None
     profile_id: uuid.UUID | None = None
     size_chart_profile_id: uuid.UUID | None = None
+
+
+class PatternAssign(BaseModel):
+    """Model one group's listing on one of the seller's own listings (v7 §B); null clears it."""
+
+    group_key: str
+    pattern_listing_id: int | None = None
+
+
+class PatternListingOut(BaseModel):
+    listing_id: int
+    title: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    state: str | None = None
+    thumbnail_url: str | None = None
+    #: The listing on Etsy (every listing shown links back to it).
+    url: str
+    #: Units sold in the last 90 days, once sales are read (C).
+    units_90d: int | None = None
 
 
 class BatchDetail(BatchSummary):

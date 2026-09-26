@@ -178,7 +178,7 @@ async def test_users_list_shows_metadata(world) -> None:
         "shop_name", "shop_connected", "listings_published", "quota_used_today", "daily_quota",
         "shops", "shops_used", "shops_limit", "shops_limit_custom",
         # An account setting, not the seller's content (v7 §A4).
-        "trademark_filter", "trademark_filter_effective",
+        "trademark_filter", "trademark_filter_effective", "features",
     }
     # Shop names and counts only: never a shop's listings, profiles or cache (v5 §E).
     assert bob["shops_used"] == 1 and bob["shops_limit"] == 8 and bob["shops_limit_custom"] is False
@@ -474,3 +474,15 @@ async def test_the_trademark_filter_is_set_per_account_and_audited(world) -> Non
     assert body["trademark_filter"] is None and body["trademark_filter_effective"] is True  # the app default
     actions = [(e.action, e.details) for e in await _audit(world["sm"]) if e.action == "user.trademark_filter_changed"]
     assert [d for _, d in actions] == [{"previous": None, "new": False}, {"previous": False, "new": None}]
+
+
+async def test_features_are_turned_on_per_account_and_audited(world) -> None:
+    """v7 §B: own-listing patterns are an admin-enabled feature."""
+    bob = world["bob"].tenant_id
+    url = f"/api/admin/users/{bob}/features"
+    body = (await world["a"].put(url, json={"features": {"own_patterns": True}})).json()
+    assert body["features"] == {"own_patterns": True}
+    assert (await world["b"].get("/api/account/me")).json()["features"] == {"own_patterns": True}
+    assert (await world["a"].put(url, json={"features": {"anything": True}})).status_code == 422
+    assert (await world["b"].put(url, json={"features": {"own_patterns": True}})).status_code == 404  # not an admin
+    assert [e.action for e in await _audit(world["sm"])].count("user.features_changed") == 1
