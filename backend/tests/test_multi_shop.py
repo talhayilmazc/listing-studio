@@ -478,3 +478,13 @@ async def test_disconnecting_one_shop_leaves_the_others_and_the_sellers_work(wor
     # ...and the seller's own work stays.
     assert await count(GeneratedContent, tenant_id=world["alice"]) == 2
     assert await count(Asset, tenant_id=world["alice"]) == 2
+
+
+async def test_a_shop_connected_before_the_sales_permission_is_asked_to_reconnect(world) -> None:
+    """transactions_r was added on 2026-09-26: older grants lack it, and say so."""
+    async with world["sm"]() as s:
+        shop = await s.get(EtsyConnection, world["a1"])
+        shop.scopes = ["listings_r", "listings_w", "shops_r", "shops_w"]
+        await s.commit()
+    shops = {x["id"]: x for x in (await world["a"].get("/api/shops")).json()["shops"]}
+    assert shops[str(world["a1"])]["missing_scopes"] == ["transactions_r"]

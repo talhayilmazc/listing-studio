@@ -108,6 +108,27 @@ def configured_blocklist() -> Blocklist:
     return blocklist
 
 
+def bundled_blocklist() -> Blocklist:
+    """The full list, whatever any account's filter says: for recognising what a
+    design shows, not for refusing words."""
+    return compile_blocklist(read_terms(DEFAULT_LIST_PATH))
+
+
+def characters_seen(characters: list[str], themes: list[str]) -> list[str]:
+    """The characters, franchises and parks a design shows (v7 follow-up).
+
+    The image analysis sometimes names them only as themes ("minnie mouse",
+    "epcot") and leaves ``characters`` empty, so any theme the bundled list
+    recognises counts too.
+    """
+    seen = [c for c in characters if c.strip()]
+    known = bundled_blocklist()
+    for theme in themes:
+        if known.find(theme) and theme.casefold() not in {c.casefold() for c in seen}:
+            seen.append(theme)
+    return seen
+
+
 def blocklist_for(setting: bool | None) -> Blocklist:
     """The blocklist for an account: its own setting if an admin set one (v7 §A4),
     else TRADEMARK_FILTER."""

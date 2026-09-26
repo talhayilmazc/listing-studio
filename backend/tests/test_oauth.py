@@ -305,7 +305,7 @@ async def test_full_oauth_flow(auth_client: httpx.AsyncClient) -> None:
     body = status.json()
     assert body["connected"] is True
     assert body["etsy_user_id"] == 555
-    assert body["scopes"] == ["listings_r", "listings_w", "shops_r", "shops_w"]
+    assert body["scopes"] == ["listings_r", "listings_w", "shops_r", "shops_w", "transactions_r"]
     assert "555.acc" not in status.text
     assert "access_token" not in body and "refresh_token" not in body
 

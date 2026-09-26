@@ -345,6 +345,18 @@ async def set_user_trademark_filter(
             previous=previous,
             new=body.enabled,
         )
+        await session.flush()
+        # Their listings' findings follow the new setting at once (a blocking
+        # finding becomes a warning, or the reverse). Nothing is read or shown to
+        # the admin: the scan runs on the seller's own rows.
+        from app.compliance.scanner import rescan
+        from app.db.models import GeneratedContent
+
+        rows = await session.execute(
+            select(GeneratedContent).where(GeneratedContent.tenant_id == target.id)
+        )
+        for content in rows.scalars():
+            await rescan(session, content)
         await session.commit()
     return await _one(session, quota, target.id)
 

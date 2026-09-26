@@ -79,7 +79,10 @@ class Settings(BaseSettings):
     etsy_oauth_authorize_url: str = "https://www.etsy.com/oauth/connect"
     etsy_oauth_token_url: str = "https://api.etsy.com/v3/public/oauth/token"
     etsy_redirect_uri: str = "http://localhost:8000/api/auth/etsy/callback"
-    etsy_scopes: str = "listings_r listings_w shops_r shops_w"
+    # transactions_r (added 2026-09-26): read the shop's own sales for the seller's
+    # analytics. Only listing id, quantity, price and date are read; buyer fields
+    # (names, addresses, emails, messages) are never stored (CLAUDE.md rule 2).
+    etsy_scopes: str = "listings_r listings_w shops_r shops_w transactions_r"
 
     # Where to send the browser back to after the OAuth callback completes.
     frontend_url: str = "http://localhost:3000"

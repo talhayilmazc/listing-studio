@@ -90,6 +90,15 @@ class ContentOut(BaseModel):
     original_filename: str
     parsed_sku: str | None
     rank: int | None
+    # What the compliance scanner found (trademarks, character artwork), shown
+    # on the card before anything is sent to Etsy.
+    findings: list["FindingOut"] = Field(default_factory=list)
+
+
+class FindingOut(BaseModel):
+    rule: str
+    severity: str  # "blocking" | "warning" | "info"
+    detail: str | None = None
 
 
 class ManualStepOut(BaseModel):
@@ -539,6 +548,9 @@ class ShopOut(BaseModel):
     shop_id: int | None = None
     position: int
     connected_at: datetime
+    # Permissions the app now asks for that this shop has not granted (connected
+    # before they were added): the seller reconnects once to grant them.
+    missing_scopes: list[str] = Field(default_factory=list)
 
 
 class ShopSlotsOut(BaseModel):

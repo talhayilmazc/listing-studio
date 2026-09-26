@@ -47,6 +47,13 @@ export interface BatchDetail extends BatchSummary {
   assets: Asset[];
 }
 
+/** What the compliance scanner found on a listing (trademarks, character artwork). */
+export interface Finding {
+  rule: string;
+  severity: "blocking" | "warning" | "info" | string;
+  detail: string | null;
+}
+
 export interface Content {
   id: string;
   asset_id: string;
@@ -64,6 +71,8 @@ export interface Content {
   original_filename: string;
   parsed_sku: string | null;
   rank: number | null;
+  /** Compliance findings, shown on the card before publishing. */
+  findings?: Finding[];
 }
 
 /** A setting the seller must make on the draft in Shop Manager; Etsy's API cannot. */
@@ -151,6 +160,8 @@ export interface Shop {
   shop_id: number | null;
   position: number;
   connected_at: string;
+  /** Permissions added since this shop connected; reconnect once to grant them. */
+  missing_scopes?: string[];
 }
 
 export interface ShopsOut {

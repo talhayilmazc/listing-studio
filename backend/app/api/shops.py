@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
+from app.core.config import get_settings
 from app.api.deps import active_tenant, get_connection_service, get_session
 from app.db.models import EtsyConnection, Tenant
 from app.etsy.connection import ConnectionService
@@ -37,7 +38,14 @@ def shop_out(connection: EtsyConnection) -> schemas.ShopOut:
         shop_id=connection.shop_id,
         position=connection.position,
         connected_at=connection.connected_at,
+        missing_scopes=missing_scopes(connection),
     )
+
+
+def missing_scopes(connection: EtsyConnection) -> list[str]:
+    """What the app asks for now that this shop's grant does not include."""
+    granted = set(connection.scopes or [])
+    return [s for s in get_settings().etsy_scopes.split() if s not in granted]
 
 
 async def selected_shop(
