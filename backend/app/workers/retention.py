@@ -36,7 +36,15 @@ from typing import Any
 from sqlalchemy import delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Job, ListingProfile, ListingPublication, ListingSnapshot, ShopListingCache
+from app.db.models import (
+    AdSpend,
+    Job,
+    ListingProfile,
+    ListingPublication,
+    ListingSnapshot,
+    SalesDaily,
+    ShopListingCache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +64,11 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
             < now - timedelta(seconds=ShopListingCache.STALE_SECONDS)
         )
     )
+    # Sales totals and uploaded ad spend: 13 months (v7 §C1), long enough for
+    # last year's season.
+    oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
+    sales = await session.execute(delete(SalesDaily).where(SalesDaily.day < oldest))
+    ads = await session.execute(delete(AdSpend).where(AdSpend.period_end < oldest))
     image_links = await _strip_display_fields(session, now)
     profiles = await session.execute(
         update(ListingProfile)
@@ -75,6 +88,8 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
         "shop_listings": listings.rowcount or 0,
         "profile_image_links": image_links,
         "profile_payloads": profiles.rowcount or 0,
+        "sales_days": sales.rowcount or 0,
+        "ad_spend": ads.rowcount or 0,
     }
     if any(counts.values()):
         logger.info("retention: purged %s", counts)
@@ -134,7 +149,11 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     profiles = await session.execute(
         delete(ListingProfile).where(ListingProfile.connection_id == connection_id)
     )
+    sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
+    ads = await session.execute(delete(AdSpend).where(AdSpend.connection_id == connection_id))
     return {
+        "sales_days": sales.rowcount or 0,
+        "ad_spend": ads.rowcount or 0,
         "snapshots": snapshots.rowcount or 0,
         "shop_listings": listings.rowcount or 0,
         "publications": publications.rowcount or 0,

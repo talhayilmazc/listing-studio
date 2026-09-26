@@ -294,6 +294,14 @@ export default function PrivacyPage() {
                 period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile or disconnect its shop"
               />
               <Row
+                data="Daily sales totals per listing (units sold, orders and revenue) worked out from your shop's sales"
+                period="13 months, so last year's season can be compared, then deleted automatically; deleted at once when you disconnect the shop. The sales themselves are never stored"
+              />
+              <Row
+                data="Etsy Ads figures you upload as a CSV file"
+                period="13 months, then deleted automatically; deleted at once when you disconnect the shop"
+              />
+              <Row
                 data="Copies of listings taken before we change them"
                 period="90 days, then deleted automatically"
               />
