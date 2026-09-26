@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { AUTH_START_URL } from "@/lib/api";
 import { CLASS_LABEL, CLASS_STYLE, changeLabel, changeTone } from "@/lib/analytics";
-import { relativeTime } from "@/lib/format";
 import type { AnalyticsStatus, ListingClass } from "@/lib/types";
+import { SalesPanel } from "./SalesPanel";
 
 import { Txt } from "@/components/Txt";
 export const PERIODS = [7, 30, 90] as const;
@@ -46,18 +46,17 @@ export function PeriodPicker({ days, onChange }: { days: number; onChange: (d: n
 }
 
 /**
- * Where the figures come from and how fresh they are: the reconnect prompt when
- * the shop hasn't allowed reading sales, when they were last read, and the button
- * to read them now.
+ * Where the figures come from: the connect or reconnect prompt, or the sales
+ * read itself (its cost, progress and freshness; SalesPanel).
  */
 export function StatusBar({
   status,
-  reading,
-  onRead,
+  shopId,
+  onProgress,
 }: {
   status: AnalyticsStatus;
-  reading: boolean;
-  onRead: () => void;
+  shopId: string | null;
+  onProgress: () => void;
 }) {
   if (!status.connected) {
     return (
@@ -84,21 +83,12 @@ export function StatusBar({
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-      {reading ? (
-        <span translate="no" className="text-brand-700">Reading your sales from Etsy… the figures update when it finishes.</span>
-      ) : status.synced_at ? (
-        <span title={new Date(status.synced_at).toLocaleString()}>
-          <span>Sales read <span translate="no">{relativeTime(status.synced_at)}</span> · read again every night</span>
-        </span>
-      ) : (
-        <span>Your sales haven&apos;t been read yet; the first read covers the last 13 months.</span>
-      )}
-      <button type="button" className="underline hover:text-slate-900 disabled:opacity-50" onClick={onRead} disabled={reading}>
-        {status.synced_at ? "Read now" : "Read sales now"}
-      </button>
+    <div className="space-y-1">
+      <SalesPanel shopId={shopId} onProgress={onProgress} />
       {status.titles_refreshing && (
-        <span key="span-99-6">· Listing titles are being refreshed from Etsy; until then listings show by number.</span>
+        <p key="titles" className="text-xs text-slate-500">
+          Listing titles are being refreshed from Etsy; until then listings show by number.
+        </p>
       )}
     </div>
   );

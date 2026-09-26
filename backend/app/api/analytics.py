@@ -14,6 +14,7 @@ app has no Ads endpoint and changes nothing on Etsy from here.
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -35,11 +36,13 @@ from app.db.models import (
     ListingProfile,
     ListingPublication,
     SalesDaily,
+    SalesSync,
     ShopListingCache,
     Tenant,
 )
 from app.pipeline import ads_csv, profit
 from app.pipeline.reference import decode_etsy_text
+from app.workers import sales as sales_worker
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -121,6 +124,123 @@ async def put_costs(
 # --- Reading sales now ---------------------------------------------------------------
 
 
+class SalesSyncOut(BaseModel):
+    """Where reading the shop's sales stands, and what it costs."""
+
+    can_read: bool
+    #: "none" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed"
+    state: str
+    total_count: int | None = None
+    #: Sales in the 13 months read, and the requests reading them takes.
+    window_count: int | None = None
+    pages_estimate: int | None = None
+    #: Days the first read takes at the daily pace (from today's remaining share).
+    days_estimate: int | None = None
+    daily_requests: int = SalesSync.DAILY_REQUESTS
+    read_count: int = 0
+    requests_used: int = 0
+    requests_today: int = 0
+    last_update_requests: int | None = None
+    resumes_at: datetime | None = None
+    note: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    synced_at: datetime | None = None
+
+
+def _sync_out(connection: EtsyConnection, sync: SalesSync | None) -> SalesSyncOut:
+    can = SALES_SCOPE not in missing_scopes(connection)
+    if sync is None:
+        return SalesSyncOut(can_read=can, state="none", synced_at=connection.sales_synced_at)
+    today = _today()
+    used_today = sync.requests_today if sync.requests_day == today else 0
+    # Requests still to go: the whole estimate before starting, else what is unread.
+    remaining = None
+    if sync.state == "estimated":
+        remaining = sync.pages_estimate
+    elif sync.state in ("reading", "waiting") and sync.window_count is not None:
+        remaining = math.ceil(max(0, sync.window_count - sync.read_count) / sales_worker.PAGE_SIZE)
+    return SalesSyncOut(
+        can_read=can,
+        state=sync.state,
+        total_count=sync.total_count,
+        window_count=sync.window_count,
+        pages_estimate=sync.pages_estimate,
+        days_estimate=sales_worker.days_needed(remaining, used_today) if remaining is not None else None,
+        read_count=sync.read_count,
+        requests_used=sync.requests_used,
+        requests_today=used_today,
+        last_update_requests=sync.last_update_requests,
+        resumes_at=sync.resumes_at,
+        note=sync.note,
+        started_at=sync.started_at,
+        finished_at=sync.finished_at,
+        synced_at=connection.sales_synced_at,
+    )
+
+
+async def _sales_shop(session: AsyncSession, tenant: Tenant, shop: uuid.UUID | None) -> EtsyConnection:
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    if SALES_SCOPE in missing_scopes(connection):
+        raise HTTPException(status_code=409, detail="reconnect your shop to allow reading its sales")
+    return connection
+
+
+@router.get("/sales/status", response_model=SalesSyncOut)
+async def sales_status(
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> SalesSyncOut:
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    return _sync_out(connection, await session.get(SalesSync, connection.id))
+
+
+@router.post("/sales/estimate", response_model=SalesSyncOut, status_code=202)
+async def estimate_sales(
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> SalesSyncOut:
+    """Work out what reading the shop's sales costs, before starting (a few requests)."""
+    connection = await _sales_shop(session, tenant, shop)
+    sync = await session.get(SalesSync, connection.id)
+    if sync is not None and sync.state in ("reading", "waiting"):
+        raise HTTPException(status_code=409, detail="your sales are being read already")
+    if sync is None:
+        sync = SalesSync(connection_id=connection.id, tenant_id=tenant.id)
+        session.add(sync)
+    sync.state = "estimating"
+    sync.requests_used = 0
+    sync.note = None
+    await session.commit()
+    await enqueuer.enqueue("estimate_sales", str(connection.id), _job_id=f"sales-estimate:{connection.id}:{_today()}")
+    return _sync_out(connection, sync)
+
+
+@router.post("/sales/start", response_model=SalesSyncOut, status_code=202)
+async def start_sales_read(
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> SalesSyncOut:
+    """The seller saw the estimate and starts the read. It runs in the background."""
+    connection = await _sales_shop(session, tenant, shop)
+    sync = await session.get(SalesSync, connection.id)
+    if sync is None or sync.state not in ("estimated", "complete", "failed") or sync.pages_estimate is None:
+        raise HTTPException(status_code=409, detail="see what reading your sales costs first")
+    await sales_worker.begin_first_read(session, sync)
+    await session.commit()
+    await enqueuer.enqueue("sync_sales", str(connection.id), _job_id=f"sales-read:{connection.id}:start:{sync.started_at}")
+    return _sync_out(connection, sync)
+
+
 @router.post("/sales/refresh", status_code=202)
 async def refresh_sales(
     shop: uuid.UUID | None = None,
@@ -128,16 +248,15 @@ async def refresh_sales(
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, bool]:
-    """Read the shop's latest sales now instead of at the nightly run.
+    """Take the sales made since the last read now, instead of at the nightly run.
 
-    One queued read per shop however often it is pressed; it is upkeep, not the
-    seller's own quota.
+    Only after the first read; usually one request. One queued read per shop
+    however often it is pressed; it is upkeep, not the seller's own quota.
     """
-    connection = await selected_shop(session, tenant, shop)
-    if connection is None:
-        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
-    if SALES_SCOPE in missing_scopes(connection):
-        raise HTTPException(status_code=409, detail="reconnect your shop to allow reading its sales")
+    connection = await _sales_shop(session, tenant, shop)
+    sync = await session.get(SalesSync, connection.id)
+    if sync is None or sync.state != "complete":
+        raise HTTPException(status_code=409, detail="read your sales once first")
     await enqueuer.enqueue("sync_sales", str(connection.id), _job_id=f"manual-sales:{connection.id}")
     return {"queued": True}
 

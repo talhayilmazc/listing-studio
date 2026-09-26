@@ -43,6 +43,7 @@ from app.db.models import (
     ListingPublication,
     ListingSnapshot,
     SalesDaily,
+    SalesSync,
     ShopListingCache,
 )
 
@@ -151,6 +152,7 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     )
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
     ads = await session.execute(delete(AdSpend).where(AdSpend.connection_id == connection_id))
+    await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     return {
         "sales_days": sales.rowcount or 0,
         "ad_spend": ads.rowcount or 0,

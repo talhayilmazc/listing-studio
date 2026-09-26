@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { AnalyticsListings, AnalyticsOverview, ListingClass } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
@@ -19,8 +19,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "costs", label: "Fees & costs" },
 ];
 
-const POLL_MS = 5000;
-const POLL_TRIES = 36;
 
 /**
  * Profit and what to do about each listing (v7 §C), over the seller's own sales,
@@ -36,8 +34,6 @@ export default function AnalyticsPage() {
   const [classes, setClasses] = useState<ListingClass[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [reading, setReading] = useState(false);
-  const readFrom = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,32 +54,6 @@ export default function AnalyticsPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // While a sales read runs, look again every few seconds until it has finished.
-  useEffect(() => {
-    if (!reading) return;
-    let tries = 0;
-    const t = setInterval(async () => {
-      tries += 1;
-      const o = await api.analyticsOverview(shopId, days).catch(() => null);
-      if ((o && o.status.synced_at !== readFrom.current) || tries >= POLL_TRIES) {
-        clearInterval(t);
-        setReading(false);
-        load();
-      }
-    }, POLL_MS);
-    return () => clearInterval(t);
-  }, [reading, shopId, days, load]);
-
-  const readNow = async () => {
-    readFrom.current = overview?.status.synced_at ?? null;
-    try {
-      await api.refreshSales(shopId);
-      setReading(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start reading your sales.");
-    }
-  };
 
   const status = overview?.status;
   const currency = status?.currency ?? null;
@@ -116,7 +86,7 @@ export default function AnalyticsPage() {
         </nav>
       </div>
 
-      {status && <StatusBar key="statusbar-119-6" status={status} reading={reading} onRead={readNow} />}
+      {status && <StatusBar key="statusbar-119-6" status={status} shopId={shopId} onProgress={load} />}
       {error && <div key="div-120-6" className="card p-3 text-sm text-rose-700">{error}</div>}
       {!overview && !error && <p key="p-121-6" className="text-sm text-slate-400">Loading…</p>}
 

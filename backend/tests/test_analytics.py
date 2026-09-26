@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.db.models import AdSpend, EtsyConnection, SalesDaily, ShopListingCache, Tenant
+from app.db.models import AdSpend, EtsyConnection, SalesDaily, SalesSync, ShopListingCache, Tenant
 from app.pipeline import ads_csv, profit
 from app.pipeline.profit import AdRow, CostSettings, DaySales, ListingFacts, Metrics, Window
 from tests.auth_support import authenticate, make_tenant, open_session
@@ -238,13 +238,33 @@ async def test_expired_listing_content_is_not_shown(ctx) -> None:  # noqa: F811
     assert any(c[0] == "sync_shop_listings" for c in ctx["enqueuer"].calls)
 
 
-async def test_reading_sales_needs_the_permission(ctx) -> None:  # noqa: F811
+async def test_reading_sales_needs_the_permission_an_estimate_and_a_start(ctx) -> None:  # noqa: F811
     await _seed(ctx, scopes=("listings_r",))
-    r = await ctx["client"].post("/api/analytics/sales/refresh")
+    c = ctx["client"]
+    r = await c.post("/api/analytics/sales/estimate")
     assert r.status_code == 409 and "reconnect" in r.json()["detail"]
     await _seed_scope(ctx, ["listings_r", "transactions_r"])
-    assert (await ctx["client"].post("/api/analytics/sales/refresh")).status_code == 202
+    assert (await c.get("/api/analytics/sales/status")).json()["state"] == "none"
+
+    # Starting before the seller has seen the cost is refused.
+    assert (await c.post("/api/analytics/sales/start")).status_code == 409
+    r = await c.post("/api/analytics/sales/estimate")
+    assert r.status_code == 202 and r.json()["state"] == "estimating"
+    assert ctx["enqueuer"].calls[-1][0] == "estimate_sales"
+
+    # The estimate job fills this in; the page shows cost and days before starting.
+    async with ctx["sm"]() as s:
+        sync = await s.get(SalesSync, await _shop(s, ctx["tenant_id"]))
+        sync.state, sync.total_count, sync.window_count, sync.pages_estimate = "estimated", 60000, 52000, 521
+        await s.commit()
+    body = (await c.get("/api/analytics/sales/status")).json()
+    assert (body["window_count"], body["pages_estimate"], body["days_estimate"], body["daily_requests"]) == (52000, 521, 3, 250)
+
+    r = await c.post("/api/analytics/sales/start")
+    assert r.status_code == 202 and r.json()["state"] == "reading"
     assert ctx["enqueuer"].calls[-1][0] == "sync_sales"
+    # "Read now" is for bringing a finished read up to date.
+    assert (await c.post("/api/analytics/sales/refresh")).status_code == 409
 
 
 async def _seed_scope(ctx, scopes) -> None:  # noqa: F811

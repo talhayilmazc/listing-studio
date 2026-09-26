@@ -36,7 +36,7 @@ from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
 from app.workers.schedule import release_scheduled_publishes
-from app.workers.sales import sync_all_sales, sync_sales
+from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -98,6 +98,7 @@ class WorkerSettings:
         refresh_profile_images,
         sync_shop_listings,
         sync_sales,
+        estimate_sales,
         detect_profiles,
         run_replace_images_job,
     ]

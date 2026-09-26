@@ -1,10 +1,12 @@
 """Turning the seller's own sales into daily totals per listing (v7 §C1).
 
 This is the only code that reads Etsy's transaction objects, and it reads four
-fields from each: ``listing_id``, ``quantity``, ``price`` and the date
-(``created_timestamp``). Everything else in the response — buyer ids, names,
-addresses, messages, coupons, variations — is never read and never stored
-(CLAUDE.md rule 2); the caller discards the raw response in the same job.
+fields from each for the totals: ``listing_id``, ``quantity``, ``price`` and the
+date (``created_timestamp``), plus the ``transaction_id`` only as a position
+marker, so a resumed read never counts a sale twice. Everything else in the
+response — buyer ids, names, addresses, messages, coupons, variations — is never
+read and never stored (CLAUDE.md rule 2); the caller discards the raw response
+in the same job.
 """
 
 from __future__ import annotations
@@ -30,6 +32,12 @@ def _minor(price: Any, quantity: int) -> tuple[int, str | None]:
     per_unit = Decimal(int(price.get("amount") or 0)) / Decimal(int(price["divisor"]))
     minor = (per_unit * quantity * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     return int(minor), price.get("currency_code")
+
+
+def sale_key(transaction: dict[str, Any]) -> tuple[int, int]:
+    """Where a sale sits in Etsy's order: (created time, transaction id)."""
+    stamp = transaction.get("created_timestamp") or transaction.get("create_timestamp") or 0
+    return int(stamp), int(transaction.get("transaction_id") or 0)
 
 
 def sale_day(transaction: dict[str, Any]) -> date | None:

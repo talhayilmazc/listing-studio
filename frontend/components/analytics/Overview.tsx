@@ -28,8 +28,7 @@ export function Overview({
   if (!data.status.has_sales && data.status.can_read_sales) {
     return (
       <div className="card p-6 text-sm text-slate-600">
-        No sales yet in the last 13 months, or they haven&apos;t been read. Use <b>Read sales now</b> above;
-        the figures appear here when it finishes.
+        No sales from the last 13 months have been read yet. They appear here as your sales are read (above).
       </div>
     );
   }

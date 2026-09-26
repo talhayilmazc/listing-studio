@@ -680,3 +680,23 @@ export interface AdsUpload {
   listings: number;
   spend: number;
 }
+
+/** Where reading the shop's sales stands, and what it costs (v7 §C1). */
+export interface SalesSync {
+  can_read: boolean;
+  state: "none" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed";
+  total_count: number | null;
+  window_count: number | null;
+  pages_estimate: number | null;
+  days_estimate: number | null;
+  daily_requests: number;
+  read_count: number;
+  requests_used: number;
+  requests_today: number;
+  last_update_requests: number | null;
+  resumes_at: string | null;
+  note: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  synced_at: string | null;
+}

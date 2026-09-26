@@ -7,6 +7,7 @@ import type {
   AnalyticsListings,
   AnalyticsOverview,
   CostSettings,
+  SalesSync,
   AdminInvite,
   AdminUsage,
   AdminUser,
@@ -266,6 +267,11 @@ export const api = {
     req<AnalyticsListings>(`/analytics/listings${query({ shop, days })}`),
   analyticsListing: (listingId: number, shop: string | null, days: number) =>
     req<AnalyticsDetail>(`/analytics/listings/${listingId}${query({ shop, days })}`),
+  salesStatus: (shop: string | null) => req<SalesSync>(`/analytics/sales/status${shopQuery(shop)}`),
+  /** Work out what the first read costs (a few requests), before starting it. */
+  estimateSales: (shop: string | null) =>
+    req<SalesSync>(`/analytics/sales/estimate${shopQuery(shop)}`, { method: "POST" }),
+  startSales: (shop: string | null) => req<SalesSync>(`/analytics/sales/start${shopQuery(shop)}`, { method: "POST" }),
   /** Read the shop's latest sales now (upkeep, not the seller's quota). */
   refreshSales: (shop: string | null) =>
     req<{ queued: boolean }>(`/analytics/sales/refresh${shopQuery(shop)}`, { method: "POST" }),

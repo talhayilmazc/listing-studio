@@ -682,6 +682,64 @@ class SalesDaily(Base):
     currency: Mapped[str | None] = mapped_column(Text)
 
 
+class SalesSync(Base):
+    """Where reading one shop's sales stands (v7 §C1): resumable, paced, measured.
+
+    The first read of a shop covers 13 months and can take many requests, so it
+    runs in chunks, adds each page to ``sales_daily`` as it goes, and stops for
+    the day at :attr:`DAILY_REQUESTS`. ``next_offset`` and the cursors make it
+    resume exactly: a sale already counted is skipped by its (created time,
+    transaction id) even when new sales shift the pages during the read. After
+    that, reads take only sales newer than ``newest_*``. Holds counts and those
+    two cursors only: nothing about buyers. Deleted with the shop.
+    """
+
+    __tablename__ = "sales_sync"
+
+    #: Requests one shop's sales reading may use per UTC day.
+    DAILY_REQUESTS: ClassVar[int] = 250
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    #: "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed"
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="estimating")
+    #: "desc" (newest first, what Etsy returns) or "asc"; learned from the data.
+    direction: Mapped[str | None] = mapped_column(Text)
+    #: All of the shop's sales Etsy reports, and how many fall in the 13 months read.
+    total_count: Mapped[int | None] = mapped_column(Integer)
+    window_count: Mapped[int | None] = mapped_column(Integer)
+    #: Requests the first read needs (estimate), and where the read is.
+    pages_estimate: Mapped[int | None] = mapped_column(Integer)
+    start_offset: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    next_offset: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    read_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    window_start: Mapped[date | None] = mapped_column(Date)
+    #: Cursors: the oldest and newest sale counted, as (created time, transaction id).
+    oldest_ts: Mapped[int | None] = mapped_column(BigInteger)
+    oldest_id: Mapped[int | None] = mapped_column(BigInteger)
+    newest_ts: Mapped[int | None] = mapped_column(BigInteger)
+    newest_id: Mapped[int | None] = mapped_column(BigInteger)
+    #: Requests used: by this read (estimate included), and today (the daily pace).
+    requests_used: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    requests_day: Mapped[date | None] = mapped_column(Date)
+    requests_today: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: The last incremental read's request count (usually 1).
+    last_update_requests: Mapped[int | None] = mapped_column(Integer)
+    resumes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
+    #: Held by the run reading this shop now, so two runs never read it at once.
+    lock_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AdSpend(Base):
     """Etsy Ads spend the seller uploaded as CSV, per listing and period (v7 §C1).
 
