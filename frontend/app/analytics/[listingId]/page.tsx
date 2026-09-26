@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { listingName, money, percent } from "@/lib/analytics";
 import type { AnalyticsDetail, Figures } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
+import { Approximations } from "@/components/analytics/Overview";
 import { ClassBadge, Delta, PeriodPicker } from "@/components/analytics/Shared";
 import { WeeklyChart } from "@/components/analytics/WeeklyChart";
 
@@ -99,6 +100,7 @@ export default function ListingAnalytics({
             <section className="card p-5">
               <h2 className="text-sm font-semibold text-slate-800">Where the money goes</h2>
               <Breakdown cur={row.current} prev={row.previous} currency={ccy} unitCost={data.unit_cost} source={data.unit_cost_source} days={days} />
+              <Approximations />
             </section>
             <section className="card p-5">
               <h2 className="text-sm font-semibold text-slate-800">Etsy Ads</h2>
@@ -112,6 +114,7 @@ export default function ListingAnalytics({
                       <th className="pb-1 text-right font-medium">Spend</th>
                       <th className="pb-1 text-right font-medium">Orders</th>
                       <th className="pb-1 text-right font-medium">Revenue</th>
+                      <th className="pb-1 text-right font-medium">Views</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -123,6 +126,7 @@ export default function ListingAnalytics({
                         <td className="py-1.5 text-right tabular-nums">{money(a.spend, ccy)}</td>
                         <td className="py-1.5 text-right tabular-nums">{a.ad_orders}</td>
                         <td className="py-1.5 text-right tabular-nums">{money(a.ad_revenue, ccy)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{a.ad_views ? a.ad_views.toLocaleString() : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

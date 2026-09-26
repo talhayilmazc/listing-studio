@@ -13,6 +13,7 @@ const FIELD_LABEL: Record<AdsField, string> = {
   spend: "Spend",
   orders: "Orders",
   revenue: "Revenue",
+  views: "Views",
 };
 
 const FIELD_HELP: Record<AdsField, string> = {
@@ -22,6 +23,7 @@ const FIELD_HELP: Record<AdsField, string> = {
   spend: "required",
   orders: "orders the ads brought in",
   revenue: "revenue the ads brought in",
+  views: "views of the ad; a new listing with views is judged from day 30",
 };
 
 function isoDay(d: Date): string {

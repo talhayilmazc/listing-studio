@@ -64,6 +64,7 @@ export function Overview({
           />
         </div>
         <Breakdown totals={cur} currency={ccy} onCosts={() => onTab("costs")} />
+        <Approximations />
         {!data.status.ads_until && (
           <p className="mt-3 text-xs text-slate-500">
             No Etsy Ads report uploaded, so ad spend counts as zero.{" "}
@@ -106,6 +107,26 @@ export function Overview({
         <FiveTable title="Most profitable" rows={data.best} currency={ccy} days={data.days} />
         <FiveTable title="Least profitable" rows={data.worst} currency={ccy} days={data.days} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where these figures knowingly differ from Etsy's own, so a seller comparing
+ * the two doesn't take the difference for a mistake. Both follow from reading
+ * only listing, quantity, price and date from each sale (nothing about orders).
+ */
+export function Approximations() {
+  return (
+    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+      <p className="font-medium text-slate-700">Why these may differ from Etsy&apos;s figures</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        <li>Revenue is the item price only; what buyers paid for shipping isn&apos;t included, so it is lower than Etsy&apos;s sales total.</li>
+        <li>
+          Per-order fixed fees (payment processing, and your shipping cost) are counted once for each listing in an order,
+          so orders with several different items are slightly over-charged.
+        </li>
+      </ul>
     </div>
   );
 }

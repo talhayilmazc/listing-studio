@@ -702,6 +702,8 @@ class AdSpend(Base):
     spend_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     ad_orders: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     ad_revenue_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    #: Views the listing's ad got, when the report has them (judging new listings).
+    ad_views: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

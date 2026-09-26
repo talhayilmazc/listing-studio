@@ -627,7 +627,7 @@ export interface AnalyticsDetail {
   unit_cost: string;
   unit_cost_source: string;
   weeks: { start: string; units: number; revenue: number }[];
-  ads: { period_start: string; period_end: string; spend: number; ad_orders: number; ad_revenue: number }[];
+  ads: { period_start: string; period_end: string; spend: number; ad_orders: number; ad_revenue: number; ad_views: number }[];
 }
 
 export interface CostSettings {
@@ -643,7 +643,7 @@ export interface CostSettings {
   defaults?: Record<string, string>;
 }
 
-export type AdsField = "listing_id" | "title" | "date" | "spend" | "orders" | "revenue";
+export type AdsField = "listing_id" | "title" | "date" | "spend" | "orders" | "revenue" | "views";
 
 export interface AdsPreview {
   headers: string[];
