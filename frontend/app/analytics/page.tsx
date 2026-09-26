@@ -141,7 +141,7 @@ export default function AnalyticsPage() {
       <p className="text-xs text-slate-400">
         Classes: <b>Winner</b> — among your top fifth by net profit with 3+ sales · <b>Fading</b> — half or less of the
         previous period&apos;s sales (from 3+) · <b>Ad sink</b> — 5 or more (in your currency) spent on ads with no sale or a loss · <b>Loser</b> — no sale in
-        90 days, or selling at a loss · <b>Steady</b> — selling at a profit · <b>New</b> — under 90 days old, no sale yet.
+        90 days, or selling at a loss · <b>Steady</b> — selling at a profit · <b>New</b> — no sale yet and live under 45 days, or under 30 once its ad has views or spend; too early to judge.
       </p>
     </div>
   );

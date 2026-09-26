@@ -72,13 +72,14 @@ def test_cost_settings_are_checked_and_defaults_fill_the_rest() -> None:
 # --- Classification (C4) --------------------------------------------------------------
 
 
-def _facts(lid=1, *, units=0, net=0, spend=0, prev_units=0, long_units=None, age=None, ly=(0, 0)) -> ListingFacts:
+def _facts(lid=1, *, units=0, net=0, spend=0, prev_units=0, long_units=None, age=None, ly=(0, 0),
+           spend_total=0, views=0) -> ListingFacts:
     # Ad spend is the only cost here, so net = revenue - spend.
     cur = Metrics(units=units, orders=units, revenue=(net + spend) if units else 0, ad_spend=spend)
     return ListingFacts(
         listing_id=lid, current=cur, previous=Metrics(units=prev_units, orders=prev_units),
         units_long=units if long_units is None else long_units, age_days=age,
-        last_year_current=ly[0], last_year_previous=ly[1],
+        last_year_current=ly[0], last_year_previous=ly[1], ad_spend_total=spend_total, ad_views_total=views,
     )
 
 
@@ -112,11 +113,31 @@ def test_winners_are_the_top_earners_with_enough_sales() -> None:
     assert _klass(facts[-2], top) == profit.WINNER and _klass(facts[0], top) == profit.STEADY
 
 
-def test_losers_new_listings_and_losses() -> None:
+def test_losers_and_losses() -> None:
     assert _klass(_facts(long_units=0)) == profit.LOSER
-    assert _klass(_facts(long_units=0, age=89)) == profit.NEW
-    assert _klass(_facts(long_units=0, age=90)) == profit.LOSER
+    assert profit.classify(_facts(long_units=0), set(), 30, MONEY).reason == "No sale in the last 90 days."
     assert _klass(_facts(units=2, net=-400)) == profit.LOSER  # sells at a loss
+
+
+def test_a_listing_is_new_until_it_has_had_a_fair_chance() -> None:
+    # 45 days live without ad traffic...
+    assert _klass(_facts(long_units=0, age=44)) == profit.NEW
+    assert _klass(_facts(long_units=0, age=45)) == profit.LOSER
+    # ...or 30 days once it has ad views or ad spend.
+    assert _klass(_facts(long_units=0, age=29, views=300)) == profit.NEW
+    assert _klass(_facts(long_units=0, age=30, views=300)) == profit.LOSER
+    assert _klass(_facts(long_units=0, age=30, spend_total=200)) == profit.LOSER
+    later = profit.classify(_facts(long_units=0, age=50), set(), 30, MONEY)
+    assert later.reason == "No sale in the 50 days it has been live."
+
+    # Not told to stop its ads or remove it before then: only that it's too early.
+    young = profit.classify(_facts(long_units=0, age=12, spend=800, spend_total=800), set(), 30, MONEY)
+    assert young.klass == profit.NEW and young.links == []
+    assert young.reason == "Live 12 days with no sale yet and $8.00 of ads."
+    assert young.action.startswith("Too early to judge.")
+    assert "remove" not in young.action.lower() and "ad off" not in young.action.lower()
+    # A young listing that sells is judged on its sales like any other.
+    assert _klass(_facts(units=4, net=900, age=10)) == profit.STEADY
 
 
 # --- Etsy Ads CSV (C1) ----------------------------------------------------------------
@@ -140,7 +161,7 @@ def test_money_dates_and_mapping_guesses() -> None:
     table = ads_csv.read_table(CSV)
     assert ads_csv.guess_mapping(table.headers) == {
         "listing_id": "Listing ID", "title": "Listing", "date": None,
-        "spend": "Spend", "orders": "Orders", "revenue": "Revenue",
+        "spend": "Spend", "orders": "Orders", "revenue": "Revenue", "views": "Views",
     }
 
 
@@ -150,12 +171,13 @@ def test_rows_match_only_the_sellers_own_listings() -> None:
     period = (TODAY - timedelta(days=29), TODAY)
     titles = ads_csv.own_title_index({4001: "Funny Nurse Tee", 4002: "Teacher  shirt", 4003: "Idle Listing"})
     out = ads_csv.parse_rows(table, mapping, {4001, 4002, 4003}, titles, period)
-    assert [(r.listing_id, r.spend_minor, r.ad_orders, r.ad_revenue_minor) for r in out.rows] == [
-        (4001, 1240, 1, 2500),
-        (4002, 100250, 0, 0),  # matched by title (spacing and case ignored)
+    assert [(r.listing_id, r.spend_minor, r.ad_orders, r.ad_revenue_minor, r.ad_views) for r in out.rows] == [
+        (4001, 1240, 1, 2500, 100),
+        (4002, 100250, 0, 0, 50),  # matched by title (spacing and case ignored)
+        (4003, 0, 0, 0, 5),  # no spend, but views count toward judging a new listing
     ]
     assert [(u.line, u.why) for u in out.unmatched] == [(4, "not one of your shop's listings")]
-    assert out.skipped == 2  # the zero row and the totals row
+    assert out.skipped == 1  # the totals row
 
     # A title two of the seller's listings share matches neither.
     assert ads_csv.own_title_index({1: "Same", 2: "same"}) == {}
@@ -239,16 +261,16 @@ async def test_ads_csv_upload_matches_and_replaces(ctx) -> None:  # noqa: F811
     form = {"mapping": json.dumps(preview["mapping"]),
             "period_start": str(TODAY - timedelta(days=29)), "period_end": str(TODAY)}
     first = (await ctx["client"].post("/api/analytics/ads/import", files={"file": ("ads.csv", CSV, "text/csv")}, data=form)).json()
-    assert (first["matched"], first["unmatched_total"], first["spend"]) == (2, 1, 1240 + 100250)
+    assert (first["matched"], first["unmatched_total"], first["spend"]) == (3, 1, 1240 + 100250)
     again = (await ctx["client"].post("/api/analytics/ads/import", files={"file": ("ads.csv", CSV, "text/csv")}, data=form)).json()
-    assert again["replaced"] == 2  # the same period uploaded twice is not counted twice
+    assert again["replaced"] == 3  # the same period uploaded twice is not counted twice
     async with ctx["sm"]() as s:
         from sqlalchemy import func, select
 
-        assert await s.scalar(select(func.count()).select_from(AdSpend)) == 2
+        assert await s.scalar(select(func.count()).select_from(AdSpend)) == 3
 
     uploads = (await ctx["client"].get("/api/analytics/ads/uploads")).json()
-    assert len(uploads) == 1 and uploads[0]["listings"] == 2
+    assert len(uploads) == 1 and uploads[0]["listings"] == 3
 
     # Teacher Shirt: $1,002.50 of ads and no sale in 30 days.
     rows = (await ctx["client"].get("/api/analytics/listings")).json()["listings"]

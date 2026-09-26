@@ -151,6 +151,7 @@ class AdRow:
     spend_minor: int
     ad_orders: int
     ad_revenue_minor: int
+    ad_views: int = 0
 
 
 @dataclass(frozen=True)
@@ -319,8 +320,13 @@ FADING_SHARE = 0.5
 #: top share of the shop's listings by net profit.
 WINNER_MIN_UNITS = 3
 WINNER_TOP_SHARE = 0.2
-#: Loser: no sale in this many days (listings younger than this are "new").
+#: Loser: no sale in this many days.
 LOSER_DAYS = 90
+#: New: a listing with no sale is not judged until it has had a fair chance:
+#: this many days live...
+NEW_FAIR_DAYS = 45
+#: ...or this many once it has had ad spend or ad views (from an uploaded report).
+NEW_FAIR_DAYS_WITH_TRAFFIC = 30
 
 ADS_URL = "https://www.etsy.com/your/shops/me/advertising"
 
@@ -337,9 +343,20 @@ class ListingFacts:
     current: Metrics
     previous: Metrics
     units_long: int  # units in the last LOSER_DAYS days
-    age_days: int | None = None  # since the listing was created, when known
+    age_days: int | None = None  # days live (since it last went active), when known
+    ad_spend_total: int = 0  # all uploaded ad spend for it, any period
+    ad_views_total: int = 0  # all uploaded ad views for it, any period
     last_year_current: int = 0  # units in the same weeks last year
     last_year_previous: int = 0  # units in the weeks before those, last year
+
+
+def too_new(f: ListingFacts) -> bool:
+    """Not yet had a fair chance: under 30 days live, or under 45 with no ad traffic."""
+    if f.age_days is None:
+        return False
+    if f.age_days < NEW_FAIR_DAYS_WITH_TRAFFIC:
+        return True
+    return f.age_days < NEW_FAIR_DAYS and not (f.ad_spend_total or f.ad_views_total)
 
 
 @dataclass
@@ -369,6 +386,19 @@ def classify(f: ListingFacts, top: set[int], days: int, money: "MoneyFormat") ->
     ads = {"label": "Etsy Ads in Shop Manager", "url": ADS_URL}
     sales = _plural(cur.units, "sale") if cur.units else "no sales"
 
+    # Checked first: a listing that hasn't had a fair chance gets no advice to
+    # remove, renew or stop advertising it, only that it is too early to judge.
+    if f.units_long == 0 and too_new(f):
+        assert f.age_days is not None
+        spent = f" and {money(f.ad_spend_total)} of ads" if f.ad_spend_total else ""
+        return Verdict(
+            NEW,
+            f"Live {_plural(f.age_days, 'day')} with no sale yet{spent}.",
+            f"Too early to judge. It is judged from day {NEW_FAIR_DAYS} live, or day "
+            f"{NEW_FAIR_DAYS_WITH_TRAFFIC} once it has ad views or ad spend.",
+            [],
+            0,
+        )
     if cur.ad_spend >= AD_SINK_MIN_SPEND and (cur.units == 0 or cur.net < 0):
         return Verdict(
             AD_SINK,
@@ -411,17 +441,10 @@ def classify(f: ListingFacts, top: set[int], days: int, money: "MoneyFormat") ->
             1_500_000 - cur.net,
         )
     if f.units_long == 0:
-        if f.age_days is not None and f.age_days < LOSER_DAYS:
-            return Verdict(
-                NEW,
-                f"Created {_plural(f.age_days, 'day')} ago with no sale yet.",
-                "Too new to judge; look again once it is 90 days old.",
-                [editor],
-                0,
-            )
+        live = f.age_days is not None and f.age_days < LOSER_DAYS
         return Verdict(
             LOSER,
-            f"No sale in the last {LOSER_DAYS} days.",
+            f"No sale in the {f.age_days} days it has been live." if live else f"No sale in the last {LOSER_DAYS} days.",
             "Refresh its photos, title and tags, or deactivate it in Shop Manager.",
             [editor],
             500_000,

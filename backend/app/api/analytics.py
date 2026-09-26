@@ -155,6 +155,8 @@ class _ListingInfo:
     profile_id: str | None = None
     profile_name: str | None = None
     created: date | None = None
+    #: When it last went live (state_timestamp of an active listing), for "New".
+    live_since: date | None = None
 
 
 @dataclass
@@ -196,7 +198,9 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
     ads = await session.execute(select(AdSpend).where(AdSpend.connection_id == connection.id))
     for a in ads.scalars():
         data.ads[a.listing_id].append(
-            profit.AdRow(a.listing_id, a.period_start, a.period_end, a.spend_minor, a.ad_orders, a.ad_revenue_minor)
+            profit.AdRow(
+                a.listing_id, a.period_start, a.period_end, a.spend_minor, a.ad_orders, a.ad_revenue_minor, a.ad_views
+            )
         )
 
     # Which profile each listing belongs to, for product cost: listings the app
@@ -247,6 +251,10 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
         if skus:
             info.sku = skus[0]
         info.created = _stamp_day(row.get("original_creation_timestamp") or row.get("created_timestamp"))
+        # Days live count from when it last became active (a draft published
+        # later, or a listing reactivated), not from when it was first drafted.
+        live = _stamp_day(row.get("state_timestamp")) if info.state == "active" else None
+        info.live_since = live or info.created
     return data
 
 
@@ -296,7 +304,9 @@ def _report(data: _ShopData, costs: profit.CostSettings, days: int, today: date)
                     current=cur,
                     previous=prev,
                     units_long=_units(sales, long),
-                    age_days=(today - info.created).days if info.created else None,
+                    age_days=(today - info.live_since).days if info.live_since else None,
+                    ad_spend_total=sum(a.spend_minor for a in ads),
+                    ad_views_total=sum(a.ad_views for a in ads),
                     last_year_current=_units(sales, window.shifted(YEAR_DAYS)),
                     last_year_previous=_units(sales, previous.shifted(YEAR_DAYS)),
                 ),
@@ -523,6 +533,7 @@ class AdPeriodOut(BaseModel):
     spend: int
     ad_orders: int
     ad_revenue: int
+    ad_views: int
 
 
 class ListingDetailOut(BaseModel):
@@ -583,7 +594,7 @@ async def listing_detail(
         ads=[
             AdPeriodOut(
                 period_start=a.period_start, period_end=a.period_end, spend=a.spend_minor,
-                ad_orders=a.ad_orders, ad_revenue=a.ad_revenue_minor,
+                ad_orders=a.ad_orders, ad_revenue=a.ad_revenue_minor, ad_views=a.ad_views,
             )
             for a in sorted(data.ads.get(listing_id, []), key=lambda a: a.period_start, reverse=True)
         ],
@@ -709,6 +720,7 @@ async def ads_import(
                 m.spend_minor += r.spend_minor
                 m.ad_orders += r.ad_orders
                 m.ad_revenue_minor += r.ad_revenue_minor
+                m.ad_views += r.ad_views
             else:
                 merged[key] = ads_csv.ParsedRow(**r.__dict__)
         for r in merged.values():
@@ -717,6 +729,7 @@ async def ads_import(
                     tenant_id=tenant.id, connection_id=connection.id, upload_id=upload_id,
                     listing_id=r.listing_id, period_start=r.period_start, period_end=r.period_end,
                     spend_minor=r.spend_minor, ad_orders=r.ad_orders, ad_revenue_minor=r.ad_revenue_minor,
+                    ad_views=r.ad_views,
                 )
             )
         await session.commit()

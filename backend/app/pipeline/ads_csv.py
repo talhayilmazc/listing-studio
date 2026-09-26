@@ -28,7 +28,7 @@ PREVIEW_ROWS = 5
 
 #: Mapping fields: which CSV column holds each value. ``listing_id`` or ``title``
 #: is required, and ``spend``; ``date`` or a period entered on the screen.
-FIELDS = ("listing_id", "title", "date", "spend", "orders", "revenue")
+FIELDS = ("listing_id", "title", "date", "spend", "orders", "revenue", "views")
 
 _GUESSES: dict[str, tuple[str, ...]] = {
     "listing_id": ("listing id", "listing_id", "listingid", "listing #", "id"),
@@ -37,6 +37,7 @@ _GUESSES: dict[str, tuple[str, ...]] = {
     "spend": ("spend", "ad spend", "cost", "spent"),
     "orders": ("orders", "ad orders", "sales"),
     "revenue": ("revenue", "ad revenue", "sales revenue"),
+    "views": ("views", "ad views", "impressions"),
 }
 
 
@@ -81,7 +82,7 @@ def guess_mapping(headers: list[str]) -> dict[str, str | None]:
     norm = {h: re.sub(r"[^a-z0-9#_ ]", "", h.casefold()).strip() for h in headers}
     used: set[str] = set()
     out: dict[str, str | None] = {}
-    for key in ("listing_id", "date", "spend", "revenue", "orders", "title"):
+    for key in ("listing_id", "date", "spend", "revenue", "orders", "views", "title"):
         pick = None
         for guess in _GUESSES[key]:
             pick = next((h for h in headers if h not in used and norm[h] == guess), None)
@@ -156,6 +157,7 @@ class ParsedRow:
     spend_minor: int
     ad_orders: int
     ad_revenue_minor: int
+    ad_views: int = 0
 
 
 @dataclass
@@ -208,10 +210,11 @@ def parse_rows(
             spend = parse_money(cell(row, "spend"))
             orders = parse_count(cell(row, "orders")) if "orders" in col else 0
             revenue = (parse_money(cell(row, "revenue")) or 0) if "revenue" in col else 0
+            views = parse_count(cell(row, "views")) if "views" in col else 0
         except (ValueError, InvalidOperation):
             out.unmatched.append(Unmatched(n, label[:120], "an amount could not be read"))
             continue
-        if not spend and not orders and not revenue:
+        if not spend and not orders and not revenue and not views:
             out.skipped += 1
             continue
         if "date" in col:
@@ -234,7 +237,7 @@ def parse_rows(
             why = "not one of your shop's listings" if (digits or raw_title) else "no listing id or title"
             out.unmatched.append(Unmatched(n, label[:120], why))
             continue
-        out.rows.append(ParsedRow(listing_id, start, end, spend or 0, orders, revenue))
+        out.rows.append(ParsedRow(listing_id, start, end, spend or 0, orders, revenue, views))
     return out
 
 
