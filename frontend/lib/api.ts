@@ -1,5 +1,12 @@
 import type {
   Account,
+  AdsImportResult,
+  AdsPreview,
+  AdsUpload,
+  AnalyticsDetail,
+  AnalyticsListings,
+  AnalyticsOverview,
+  CostSettings,
   AdminInvite,
   AdminUsage,
   AdminUser,
@@ -65,6 +72,29 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), res.status);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+}
+
+/** `?a=1&b=2`, leaving out empty values. */
+function query(params: Record<string, string | number | null | undefined>): string {
+  const parts = Object.entries(params)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+/** A multipart request: the browser sets the boundary, so no Content-Type here. */
+async function reqForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: "POST", body: form, cache: "no-store" });
+  if (!res.ok) {
+    let detail: unknown;
+    try {
+      detail = (await res.json())?.detail;
+    } catch {
+      detail = res.statusText;
+    }
+    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), res.status);
+  }
+  return (await res.json()) as T;
 }
 
 export class ApiError extends Error {
@@ -226,6 +256,41 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ group_key: groupKey, pattern_listing_id: listingId }),
     }),
+  // --- Analytics (v7 §C): the seller's own sales, ads report and costs.
+  analyticsOverview: (shop: string | null, days: number) =>
+    req<AnalyticsOverview>(`/analytics/overview${query({ shop, days })}`),
+  analyticsListings: (shop: string | null, days: number) =>
+    req<AnalyticsListings>(`/analytics/listings${query({ shop, days })}`),
+  analyticsListing: (listingId: number, shop: string | null, days: number) =>
+    req<AnalyticsDetail>(`/analytics/listings/${listingId}${query({ shop, days })}`),
+  /** Read the shop's latest sales now (upkeep, not the seller's quota). */
+  refreshSales: (shop: string | null) =>
+    req<{ queued: boolean }>(`/analytics/sales/refresh${shopQuery(shop)}`, { method: "POST" }),
+  costs: () => req<CostSettings>("/analytics/costs"),
+  saveCosts: (body: Omit<CostSettings, "defaults">) =>
+    req<CostSettings>("/analytics/costs", { method: "PUT", body: JSON.stringify(body) }),
+  adsPreview: (file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return reqForm<AdsPreview>("/analytics/ads/preview", form);
+  },
+  adsImport: (
+    shop: string | null,
+    file: File,
+    mapping: Record<string, string | null>,
+    period: { start: string; end: string } | null,
+  ) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("mapping", JSON.stringify(mapping));
+    if (period) {
+      form.append("period_start", period.start);
+      form.append("period_end", period.end);
+    }
+    return reqForm<AdsImportResult>(`/analytics/ads/import${shopQuery(shop)}`, form);
+  },
+  adsUploads: (shop: string | null) => req<AdsUpload[]>(`/analytics/ads/uploads${shopQuery(shop)}`),
+  deleteAdsUpload: (id: string) => req<void>(`/analytics/ads/uploads/${id}`, { method: "DELETE" }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

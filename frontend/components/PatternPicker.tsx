@@ -22,11 +22,18 @@ export function PatternPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  // "My best sellers" (v7 §B): the server sends them best-selling first.
+  const [order, setOrder] = useState<"best" | "title">("best");
+  const hasSales = (listings ?? []).some((l) => l.units_90d !== null);
   const current = chosen != null ? listings?.find((l) => l.listing_id === chosen) : null;
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = (listings ?? []).filter((l) =>
+  const matching = (listings ?? []).filter((l) =>
     words.every((w) => `${l.title ?? ""} ${l.tags.join(" ")}`.toLowerCase().includes(w)),
   );
+  const shown =
+    order === "title" || !hasSales
+      ? [...matching].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? ""))
+      : matching;
 
   return (
     <div className="mt-2 text-xs">
@@ -61,14 +68,27 @@ export function PatternPicker({
             Keeps the chosen listing&apos;s title and tag pattern; the subject comes from this design.
             Only your own shop&apos;s active listings.
           </p>
-          <input
-            type="search"
-            className="field mb-2 w-full py-1 text-xs"
-            placeholder="Search your listings…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            autoFocus
-          />
+          <div className="mb-2 flex gap-2">
+            <input
+              type="search"
+              className="field w-full py-1 text-xs"
+              placeholder="Search your listings…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              autoFocus
+            />
+            {hasSales && (
+              <select
+                className="field w-auto py-1 text-xs"
+                value={order}
+                onChange={(e) => setOrder(e.target.value as "best" | "title")}
+                aria-label="Order"
+              >
+                <option value="best">My best sellers first</option>
+                <option value="title">A–Z</option>
+              </select>
+            )}
+          </div>
           {listings === null ? (
             <p className="text-slate-400">Loading your listings…</p>
           ) : shown.length === 0 ? (
@@ -87,7 +107,12 @@ export function PatternPicker({
                     <span className="block truncate text-slate-800" title={l.title ?? undefined}>
                       {l.title}
                     </span>
-                    <span className="block truncate text-slate-400">{l.tags.slice(0, 6).join(" · ")}</span>
+                    <span className="block truncate text-slate-400">
+                      {l.units_90d ? (
+                        <span className="font-medium text-emerald-700">{l.units_90d} sold in 90 days · </span>
+                      ) : null}
+                      {l.tags.slice(0, 6).join(" · ")}
+                    </span>
                   </span>
                   <a href={l.url} target="_blank" rel="noreferrer" className="shrink-0 text-brand-700 hover:underline" title="View on Etsy">
                     ↗

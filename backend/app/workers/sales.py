@@ -95,6 +95,7 @@ async def _sync(ctx: dict[str, Any], connection_id: str) -> str:
                     units=t.units, orders=t.orders, revenue_minor=t.revenue_minor, currency=t.currency,
                 )
             )
+        connection.sales_synced_at = datetime.now(timezone.utc)
         await session.commit()
     return f"sales:{len(totals)}"
 

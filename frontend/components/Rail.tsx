@@ -29,6 +29,7 @@ const SECTIONS: { title: string; items: Item[] }[] = [
       { href: "/", label: "Batches", icon: IconLayers },
       { href: "/upload", label: "Uploads", icon: IconUpload },
       { href: "/scheduled", label: "Scheduled", icon: IconClock },
+      { href: "/analytics", label: "Analytics", icon: IconChart },
     ],
   },
   {
@@ -470,6 +471,16 @@ function IconClock({ active }: { active: boolean }) {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
+    </>,
+    active,
+  );
+}
+
+function IconChart({ active }: { active: boolean }) {
+  return svg(
+    <>
+      <path d="M4 20h16" />
+      <path d="M7 16v-4M12 16V8M17 16v-7" />
     </>,
     active,
   );

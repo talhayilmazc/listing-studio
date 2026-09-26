@@ -248,6 +248,8 @@ class EtsyConnection(Base):
     refresh_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scopes: Mapped[list[str] | None] = mapped_column(TEXT_ARRAY_TYPE)
+    #: When this shop's sales totals were last read (v7 §C1); None before the first read.
+    sales_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ConnectionStatus] = mapped_column(
         _enum(ConnectionStatus, "connection_status"),
         nullable=False,
