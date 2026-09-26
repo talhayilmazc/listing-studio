@@ -531,3 +531,143 @@ export interface BatchDeleteResult {
   listings_left_on_etsy: number;
   jobs_cancelled: number;
 }
+
+// --- Analytics (v7 §C) --------------------------------------------------------------
+// Money is in the shop's currency, in minor units (cents).
+
+export type ListingClass = "winner" | "steady" | "fading" | "ad_sink" | "loser" | "new";
+
+export interface Figures {
+  units: number;
+  orders: number;
+  revenue: number;
+  transaction_fee: number;
+  payment_fee: number;
+  listing_fee: number;
+  fees: number;
+  product_cost: number;
+  shipping_cost: number;
+  ad_spend: number;
+  ad_orders: number;
+  ad_revenue: number;
+  costs: number;
+  net: number;
+  margin: number | null;
+  aov: number | null;
+  acos: number | null;
+}
+
+export interface AnalyticsRow {
+  listing_id: number;
+  title: string | null;
+  state: string | null;
+  url: string;
+  thumbnail_url: string | null;
+  sku: string | null;
+  profile_name: string | null;
+  current: Figures;
+  previous: Figures;
+  revenue_change: number | null;
+  net_change: number | null;
+  units_change: number | null;
+  verdict: { klass: ListingClass; reason: string; action: string; links: { label: string; url: string }[] };
+}
+
+export interface AnalyticsStatus {
+  connected: boolean;
+  can_read_sales: boolean;
+  synced_at: string | null;
+  has_sales: boolean;
+  currency: string | null;
+  titles_refreshing: boolean;
+  ads_until: string | null;
+}
+
+export interface ShopTotals {
+  revenue: number;
+  units: number;
+  orders: number;
+  fees: number;
+  product_cost: number;
+  shipping_cost: number;
+  ad_spend: number;
+  ad_revenue: number;
+  fixed_costs: number;
+  costs: number;
+  net: number;
+  margin: number | null;
+  aov: number | null;
+  acos: number | null;
+  roas: number | null;
+}
+
+export interface AnalyticsOverview {
+  status: AnalyticsStatus;
+  days: number;
+  start: string | null;
+  end: string | null;
+  current: ShopTotals | null;
+  previous: ShopTotals | null;
+  classes: Partial<Record<ListingClass, number>>;
+  attention: AnalyticsRow[];
+  best: AnalyticsRow[];
+  worst: AnalyticsRow[];
+}
+
+export interface AnalyticsListings {
+  status: AnalyticsStatus;
+  days: number;
+  listings: AnalyticsRow[];
+}
+
+export interface AnalyticsDetail {
+  status: AnalyticsStatus;
+  days: number;
+  listing: AnalyticsRow;
+  unit_cost: string;
+  unit_cost_source: string;
+  weeks: { start: string; units: number; revenue: number }[];
+  ads: { period_start: string; period_end: string; spend: number; ad_orders: number; ad_revenue: number }[];
+}
+
+export interface CostSettings {
+  listing_fee: string;
+  transaction_pct: string;
+  payment_pct: string;
+  payment_fixed: string;
+  shipping_cost: string;
+  monthly_fixed: string;
+  product_cost: string;
+  product_cost_by_profile: Record<string, string>;
+  product_cost_by_sku: Record<string, string>;
+  defaults?: Record<string, string>;
+}
+
+export type AdsField = "listing_id" | "title" | "date" | "spend" | "orders" | "revenue";
+
+export interface AdsPreview {
+  headers: string[];
+  sample: string[][];
+  rows: number;
+  mapping: Record<AdsField, string | null>;
+}
+
+export interface AdsImportResult {
+  upload_id: string | null;
+  matched: number;
+  replaced: number;
+  skipped: number;
+  unmatched: { line: number; label: string; why: string }[];
+  unmatched_total: number;
+  spend: number;
+  titles_refreshing: boolean;
+}
+
+export interface AdsUpload {
+  upload_id: string;
+  created_at: string;
+  period_start: string;
+  period_end: string;
+  listings: number;
+  spend: number;
+}

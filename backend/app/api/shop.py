@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
@@ -26,6 +26,7 @@ from app.db.models import (
     JobType,
     ListingProfile,
     ListingPublication,
+    SalesDaily,
     ShopListingCache,
     Tenant,
     UploadBatch,
@@ -138,6 +139,17 @@ async def pattern_listings(
     if _is_stale(max((c.fetched_at for c in cached), default=None)):
         await enqueuer.enqueue("sync_shop_listings", str(connection.id))
     words = [w for w in q.casefold().split() if w]
+    # "My best sellers" (v7 §B): units in the last 90 days from the shop's own
+    # daily sales totals, when the seller has allowed reading them.
+    sold: dict[int, int] | None = None
+    if "transactions_r" in (connection.scopes or []):
+        since = datetime.now(timezone.utc).date() - timedelta(days=89)
+        totals = await session.execute(
+            select(SalesDaily.listing_id, func.sum(SalesDaily.units))
+            .where(SalesDaily.connection_id == connection.id, SalesDaily.day >= since)
+            .group_by(SalesDaily.listing_id)
+        )
+        sold = {int(lid): int(n or 0) for lid, n in totals.all()}
     out: list[schemas.PatternListingOut] = []
     for c in cached:
         row = c.payload or {}
@@ -157,9 +169,11 @@ async def pattern_listings(
                 state=item.state,
                 thumbnail_url=item.thumbnail_url,
                 url=item.url or f"https://www.etsy.com/listing/{item.listing_id}",
+                units_90d=None if sold is None else sold.get(item.listing_id, 0),
             )
         )
-    out.sort(key=lambda x: (x.title or "").casefold())
+    # Best sellers first, then by title.
+    out.sort(key=lambda x: (-(x.units_90d or 0), (x.title or "").casefold()))
     return out
 
 
