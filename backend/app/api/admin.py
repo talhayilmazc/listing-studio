@@ -18,21 +18,24 @@ from __future__ import annotations
 import secrets
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import schemas
 from app.api.accounts import EMAIL_RE
 from app.api.deps import get_quota, get_session, get_session_store
 from app.compliance.trademarks import filter_on
-from app.core import audit
+from app.core import allowance, audit
 from app.core.config import get_settings
 from app.core.invites import InviteState, hash_code, invite_state
 from app.core.passwords import generate_temp_password, hash_password
 from app.core.sessions import SESSION_COOKIE, SessionStore
 from app.db.models import (
+    AppSetting,
     ApiUsage,
     InviteCode,
     ListingPublication,
@@ -112,6 +115,8 @@ class AdminUserOut(BaseModel):
     trademark_filter_seller: bool = True
     trademark_filter_changed_at: datetime | None = None
     trademark_filter_effective: bool = True
+    # The product allowance in force, its usage this period and when it resets.
+    allowance: schemas.AllowanceOut | None = None
     # Features an admin turned on for this account (v7 §B).
     features: dict[str, bool] = {}
 
@@ -133,6 +138,17 @@ class TrademarkFilterUpdate(BaseModel):
 class ShopLimitUpdate(BaseModel):
     # None = back to the default (MAX_SHOPS_PER_TENANT).
     max_shops: int | None = Field(default=None, ge=1)
+
+
+class AllowanceUpdate(BaseModel):
+    # Both None: back to the system default. Either may be set on its own.
+    amount: int | None = Field(default=None, ge=0, le=1_000_000)
+    period: Literal["daily", "weekly", "monthly"] | None = None
+
+
+class AllowanceDefault(BaseModel):
+    amount: int = Field(ge=0, le=1_000_000)
+    period: Literal["daily", "weekly", "monthly"]
 
 
 class QuotaUpdate(BaseModel):
@@ -292,6 +308,7 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         trademark_filter_changed_at=t.trademark_filter_changed_at,
         features={k: bool(v) for k, v in (t.features or {}).items()},
         trademark_filter_effective=filter_on(t),
+        allowance=schemas.AllowanceOut(**allowance.status_out(await allowance.status(session, t))),
     )
 
 
@@ -299,6 +316,62 @@ async def _one(session: AsyncSession, quota: DailyQuota, tenant_id: uuid.UUID) -
     t = await session.get(Tenant, tenant_id)
     await session.refresh(t)
     return await _user_out(session, quota, t)
+
+
+@router.put("/users/{tenant_id}/allowance", response_model=AdminUserOut)
+async def set_user_allowance(
+    tenant_id: uuid.UUID,
+    body: AllowanceUpdate,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    quota: DailyQuota = Depends(get_quota),
+) -> AdminUserOut:
+    """One seller's product allowance: an amount and a period (None = the default).
+
+    Applies at once: usage is counted over the new period from what is already
+    recorded, so nothing used so far is lost or forgiven.
+    """
+    target = await _target(session, tenant_id)
+    previous = {"amount": target.allowance_amount, "period": target.allowance_period}
+    new = {"amount": body.amount, "period": body.period}
+    if previous != new:
+        target.allowance_amount, target.allowance_period = body.amount, body.period
+        audit.record(
+            session, "user.allowance_changed", actor=admin, target_tenant_id=target.id,
+            previous=previous, new=new,
+        )
+        await session.commit()
+    return await _one(session, quota, target.id)
+
+
+@router.get("/allowance-default", response_model=AllowanceDefault)
+async def get_allowance_default(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AllowanceDefault:
+    amount, period = await allowance.system_default(session)
+    return AllowanceDefault(amount=amount, period=period)
+
+
+@router.put("/allowance-default", response_model=AllowanceDefault)
+async def set_allowance_default(
+    body: AllowanceDefault,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AllowanceDefault:
+    """The allowance of every seller without their own. Applies at once, audited."""
+    amount, period = await allowance.system_default(session)
+    previous = {"amount": amount, "period": period}
+    new = {"amount": body.amount, "period": body.period}
+    if previous != new:
+        row = await session.get(AppSetting, allowance.DEFAULT_KEY)
+        if row is None:
+            session.add(AppSetting(key=allowance.DEFAULT_KEY, value=new))
+        else:
+            row.value = new
+        audit.record(session, "app.allowance_default_changed", actor=admin, previous=previous, new=new)
+        await session.commit()
+    return body
 
 
 @router.put("/users/{tenant_id}/shops", response_model=AdminUserOut)

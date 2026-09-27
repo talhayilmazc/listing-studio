@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     AdSpend,
+    AllowanceUse,
     Job,
     ListingProfile,
     ListingPublication,
@@ -70,6 +71,8 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.day < oldest))
     ads = await session.execute(delete(AdSpend).where(AdSpend.period_end < oldest))
+    # Allowance usage: long past any period an allowance counts over.
+    await session.execute(delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
     image_links = await _strip_display_fields(session, now)
     profiles = await session.execute(
         update(ListingProfile)

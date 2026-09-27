@@ -180,6 +180,8 @@ async def test_users_list_shows_metadata(world) -> None:
         # An account setting, not the seller's content (v7 §A4).
         "trademark_filter", "trademark_filter_seller", "trademark_filter_changed_at",
         "trademark_filter_effective", "features",
+        # The product allowance: amounts and counts, never what was generated.
+        "allowance",
     }
     # Shop names and counts only: never a shop's listings, profiles or cache (v5 §E).
     assert bob["shops_used"] == 1 and bob["shops_limit"] == 8 and bob["shops_limit_custom"] is False

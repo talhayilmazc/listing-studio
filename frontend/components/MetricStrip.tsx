@@ -192,7 +192,7 @@ function QuotaCell({ quota }: { quota: Quota | null }) {
 
   return (
     <div className={CELL + " bg-slate-50"}>
-      <Label label="API quota" period="remaining today" />
+      <Label label="Etsy API" period="requests left today" />
       <dd className="mt-1.5 flex items-end justify-between gap-4">
         <div>
           {quota === null ? (

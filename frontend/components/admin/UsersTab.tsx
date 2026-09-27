@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { AdminUser, TempPasswordIssued } from "@/lib/types";
 import { Confirm, Reveal } from "./Reveal";
 import { Meter } from "./Usage";
+import { AllowanceCell, DefaultAllowance } from "./AllowanceControls";
 
 import { Txt } from "@/components/Txt";
 const SELF_REASON = "You can't do this to your own account";
@@ -19,12 +20,15 @@ export function UsersTab({
   globalLimit,
   onChanged,
   onError,
+  onReload,
 }: {
   users: AdminUser[] | null;
   selfId: string;
   globalLimit: number;
   onChanged: (user: AdminUser) => void;
   onError: (message: string) => void;
+  /** Everyone's allowance may have moved (the default changed): fetch the list again. */
+  onReload: () => void;
 }) {
   const [issued, setIssued] = useState<TempPasswordIssued | null>(null);
 
@@ -50,15 +54,22 @@ export function UsersTab({
         />
       )}
 
+      <DefaultAllowance onSaved={onReload} onError={onError} />
+
       <div className="card overflow-x-auto">
-        <table className="w-full min-w-[900px] text-left text-sm">
+        <table className="w-full min-w-[1080px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-xs text-slate-400">
               <th className="px-3 py-3 font-medium">Account</th>
               <th className="px-3 py-3 font-medium">Shop</th>
               <th className="px-3 py-3 font-medium">Registered</th>
               <th className="px-3 py-3 text-right font-medium">Published</th>
-              <th className="px-3 py-3 font-medium">Quota today</th>
+              <th className="px-3 py-3 font-medium" title="Our product allowance: listings generated and drafts created per period">
+                Allowance
+              </th>
+              <th className="px-3 py-3 font-medium" title="Etsy API requests today: Etsy's own daily ceiling, shared by the app">
+                Etsy API today
+              </th>
               <th className="px-3 py-3 font-medium" title="Refuse brand and character names in this seller's listings">
                 Trademarks
               </th>
@@ -97,6 +108,16 @@ export function UsersTab({
                   <td className="whitespace-nowrap px-3 py-3 text-slate-600">{date(u.created_at)}</td>
                   <td translate="no" className="px-3 py-3 text-right tabular-nums text-slate-700">
                     {u.listings_published.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-3">
+                    <AllowanceCell
+                      user={u}
+                      onSave={async (amount, period) => {
+                        const next = await run(() => api.admin.setAllowance(u.id, amount, period));
+                        if (next) onChanged(next);
+                        return Boolean(next);
+                      }}
+                    />
                   </td>
                   <td className="whitespace-nowrap px-3 py-3">
                     <QuotaCell

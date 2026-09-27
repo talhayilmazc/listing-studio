@@ -120,6 +120,7 @@ export default function AdminPage() {
                 setUsers((prev) => prev?.map((x) => (x.id === u.id ? u : x)) ?? prev);
                 loadUsage();
               }}
+              onReload={() => api.admin.users().then(setUsers).catch(guard)}
             />
           )}
           {tab === "invites" && (

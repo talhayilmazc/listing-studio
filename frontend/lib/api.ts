@@ -1,6 +1,8 @@
 import type {
   Account,
   AdsImportResult,
+  Allowance,
+  AllowanceDefault,
   AdsPreview,
   AdsUpload,
   AnalyticsDetail,
@@ -119,6 +121,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ enabled, accept_risk: acceptRisk, statement_version: statementVersion }),
     }),
+  /** Our product allowance: used, left, and when it resets. */
+  myAllowance: () => req<Allowance>("/account/allowance"),
   me: () => req<Account>("/account/me"),
   login: (email: string, password: string) =>
     req<Account>("/account/login", {
@@ -150,6 +154,12 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ daily_quota: dailyQuota }),
       }),
+    /** Both null = back to the system default. */
+    setAllowance: (id: string, amount: number | null, period: string | null) =>
+      req<AdminUser>(`/admin/users/${id}/allowance`, { method: "PUT", body: JSON.stringify({ amount, period }) }),
+    allowanceDefault: () => req<AllowanceDefault>("/admin/allowance-default"),
+    setAllowanceDefault: (body: AllowanceDefault) =>
+      req<AllowanceDefault>("/admin/allowance-default", { method: "PUT", body: JSON.stringify(body) }),
     /** null = back to the default ceiling. */
     setShopLimit: (id: string, maxShops: number | null) =>
       req<AdminUser>(`/admin/users/${id}/shops`, {

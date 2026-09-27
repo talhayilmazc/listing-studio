@@ -24,6 +24,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.pauses import pause_out
 from app.api.content import manual_steps
 from app.api.shops import shop_label
+from app.core import allowance
 from app.db.models import (
     Asset,
     EtsyConnection,
@@ -272,6 +273,11 @@ async def _publish(
         # A single listing that can go nowhere: say why, as before.
         reasons = "; ".join(dict.fromkeys(s.reason for s in plan.skipped)) or "nothing to publish"
         raise HTTPException(status_code=409, detail=reasons)
+    if plan.jobs:
+        try:
+            await allowance.check(session, tenant, len(plan.jobs))
+        except allowance.AllowanceExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from None
     budget = await _budget(quota, tenant, plan)
     if not budget.fits:
         raise HTTPException(status_code=409, detail=budget.message)

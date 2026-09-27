@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     # (empty = app/compliance/trademarks.txt). Edits apply without a restart.
     trademark_filter: bool = True
     trademark_list_path: str = ""
+    # The product allowance (listings generated + drafts created) when neither the
+    # seller nor the admin panel's system default sets one. Not the Etsy quota.
+    allowance_default_amount: int = Field(default=500, ge=0)
+    allowance_default_period: str = "monthly"
 
     # LLM provider (Anthropic) for vision analysis + content generation.
     # Key is read from the environment only, never hardcoded (see CLAUDE.md).

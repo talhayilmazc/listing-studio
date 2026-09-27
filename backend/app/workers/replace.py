@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
+from app.core import allowance
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.compliance.scanner import rescan
@@ -184,6 +185,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 )
                 vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
                 result = await generator.generate(vision.analysis, primary.parsed_sku)
+                allowance.record(session, tenant.id, allowance.GENERATION)
                 new_title = result.listing.title
                 new_tags = result.listing.tags
                 new_description = replace_title_block(

@@ -651,6 +651,11 @@ async def test_publish_writes_sku_to_every_product_and_marks_draft(
 
     async with async_sm() as s:
         assert (await publication_for(s, content_id, conn_id)).state == "draft"
+        # One draft made: one unit of the seller's product allowance.
+        from app.db.models import AllowanceUse
+
+        kinds = [u.kind for u in (await s.execute(select(AllowanceUse))).scalars()]
+        assert kinds == ["draft"]
 
 
 async def test_publish_live_makes_draft_active(async_sm: async_sessionmaker) -> None:

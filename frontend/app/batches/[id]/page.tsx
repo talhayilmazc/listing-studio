@@ -30,6 +30,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // group key, or "__all__"
   const [notice, setNotice] = useState<string | null>(null);
+  // Refusals and errors (e.g. the allowance is used up): shown as a warning, not a notice.
+  const [problem, setProblem] = useState<string | null>(null);
   const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
   const [costKey, setCostKey] = useState(0);
   // Modelling listings on the seller's own (v7 §B), when an admin turned it on.
@@ -97,7 +99,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       const gs = await api.assignGroup(id, body);
       setSettings(Object.fromEntries(gs.map((g) => [g.group_key, g])));
     } catch (e: any) {
-      setNotice(e.message ?? String(e));
+      setProblem(e.message ?? String(e));
     }
   }
 
@@ -141,6 +143,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   async function generate(groupKey?: string) {
     setBusy(groupKey ?? "__all__");
     setNotice(null);
+    setProblem(null);
     setFailures([]);
     try {
       const res = await api.generate(id, bulkProfileId || undefined, groupKey);
@@ -149,7 +152,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       await load();
       setCostKey((k) => k + 1);
     } catch (e: any) {
-      setNotice(e.message ?? String(e));
+      setProblem(e.message ?? String(e));
     } finally {
       setBusy(null);
     }
@@ -162,6 +165,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     setConfirming(null);
     setBusy(g.key);
     setNotice(null);
+    setProblem(null);
     setFailures([]);
     try {
       const res = await api.generate(id, bulkProfileId || undefined, g.key, {
@@ -178,7 +182,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       await load();
       setCostKey((k) => k + 1);
     } catch (e: any) {
-      setNotice(e.message ?? String(e));
+      setProblem(e.message ?? String(e));
     } finally {
       setBusy(null);
     }
@@ -209,7 +213,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       );
       await load();
     } catch (e: any) {
-      setNotice(e.message ?? String(e));
+      setProblem(e.message ?? String(e));
     } finally {
       setBusy(null);
     }
@@ -281,6 +285,14 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 
       {notice && (
         <div key="div-322-6" role="status" translate="no" className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">{notice}</div>
+      )}
+      {problem && (
+        <div key="problem" role="alert" className="card flex items-start justify-between gap-3 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <span>{problem}</span>
+          <button type="button" className="shrink-0 text-xs underline" onClick={() => setProblem(null)}>
+            Dismiss
+          </button>
+        </div>
       )}
 
       {failures.length > 0 && (
@@ -429,7 +441,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                       const gs = await api.setGroupPattern(id, g.key, listingId);
                       setSettings(Object.fromEntries(gs.map((x) => [x.group_key, x])));
                     } catch (e: any) {
-                      setNotice(e.message ?? String(e));
+                      setProblem(e.message ?? String(e));
                     }
                   }}
                 />

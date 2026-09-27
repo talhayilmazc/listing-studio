@@ -417,6 +417,8 @@ export interface AdminUser {
   trademark_filter_changed_at: string | null;
   trademark_filter_effective: boolean;
   features?: Record<string, boolean>;
+  /** The product allowance in force, its use this period and its reset. */
+  allowance: Allowance | null;
 }
 
 export type InviteState = "unused" | "used" | "expired" | "revoked";
@@ -707,4 +709,29 @@ export interface SalesSync {
   started_at: string | null;
   finished_at: string | null;
   synced_at: string | null;
+}
+
+/** Our product allowance: listings generated plus drafts created per period.
+ *  Not Etsy's API quota, which is Etsy's shared daily ceiling. */
+export interface Allowance {
+  amount: number;
+  period: "daily" | "weekly" | "monthly" | string;
+  /** Set for this seller; otherwise the system default. */
+  custom: boolean;
+  used: number;
+  generations: number;
+  drafts: number;
+  /** Drafts or photo replacements queued: counted as used. */
+  pending: number;
+  remaining: number;
+  period_start: string;
+  resets_at: string;
+  /** "Thu, Oct 1, 12:00 AM CDT", in the seller's own zone. */
+  resets_label: string;
+  time_zone: string;
+}
+
+export interface AllowanceDefault {
+  amount: number;
+  period: "daily" | "weekly" | "monthly";
 }

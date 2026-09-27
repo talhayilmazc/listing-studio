@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useSession } from "./SessionProvider";
 import type { Profile, Quota } from "@/lib/types";
 import { useShops } from "./ShopProvider";
+import { RailAllowance } from "./Allowance";
 
 /**
  * Persistent dark left rail (docs/ui-direction-v2.md §1).
@@ -419,9 +420,14 @@ function RailFooter() {
         </div>
       )}
 
-      <div className="mt-2 px-2 pb-1">
+      <div className="mt-3">
+        <RailAllowance />
+      </div>
+      <div className="px-2 pb-1">
         <div className="flex items-baseline justify-between text-[11px]">
-          <span className="text-[var(--rail-text)]">API quota</span>
+          <span className="text-[var(--rail-text)]" title="Etsy's own daily limit on requests, shared by everyone using the app">
+            Etsy API today
+          </span>
           <span translate="no" className="tabular-nums text-[var(--rail-text)]">
             {quota ? (
               <>

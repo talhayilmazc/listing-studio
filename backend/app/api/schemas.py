@@ -153,6 +153,24 @@ class PublicationOut(BaseModel):
     schedule_note: str | None = None
 
 
+class AllowanceOut(BaseModel):
+    """The product allowance: listings generated plus drafts created in the period.
+    Not the Etsy request quota, which is Etsy's shared daily ceiling."""
+
+    amount: int
+    period: str  # "daily" | "weekly" | "monthly"
+    custom: bool  # set for this seller; else the system default
+    used: int
+    generations: int
+    drafts: int
+    pending: int  # drafts or Replace images queued, counted as used
+    remaining: int
+    period_start: datetime
+    resets_at: datetime
+    resets_label: str  # "Thu, Oct 1, 12:00 AM CDT", in the seller's zone
+    time_zone: str
+
+
 class ScheduleItem(BaseModel):
     content_id: uuid.UUID
     connection_id: uuid.UUID

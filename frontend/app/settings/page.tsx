@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { browserZone, formatWhen, isValidZone } from "@/lib/schedule";
 import { useSession } from "@/components/SessionProvider";
 import { TrademarkFilterSetting } from "@/components/TrademarkFilterSetting";
+import { AllowanceSection } from "@/components/Allowance";
 
 /** Every IANA zone this browser knows, falling back to a few if it can't list them. */
 function allZones(): string[] {
@@ -93,6 +94,8 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
+
+      <AllowanceSection />
 
       <TrademarkFilterSetting />
 

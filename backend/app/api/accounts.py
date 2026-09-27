@@ -18,10 +18,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import schemas
 from app.api.deps import current_tenant, get_session, get_session_store
 from app.compliance.scanner import rescan_account
 from app.compliance.trademarks import filter_on
-from app.core import audit
+from app.core import allowance, audit
 from app.core.config import get_settings
 from app.core.invites import hash_code, redeemable_by
 from app.core.ratelimit import client_ip
@@ -324,6 +325,15 @@ async def set_time_zone(
     await session.commit()
     await session.refresh(tenant)
     return _out(tenant)
+
+
+@router.get("/allowance", response_model=schemas.AllowanceOut)
+async def my_allowance(
+    tenant: Tenant = Depends(current_tenant),
+    session: AsyncSession = Depends(get_session),
+) -> schemas.AllowanceOut:
+    """What this seller has used of their allowance, what's left, and when it resets."""
+    return schemas.AllowanceOut(**allowance.status_out(await allowance.status(session, tenant)))
 
 
 @router.put("/trademark-filter", response_model=AccountOut)

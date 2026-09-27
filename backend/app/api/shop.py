@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_session
 from app.api.shops import selected_shop
+from app.core import allowance
 from app.db.models import (
     EtsyConnection,
     Job,
@@ -337,6 +338,11 @@ async def replace_listing_images_endpoint(
     batch = await session.get(UploadBatch, body.batch_id)
     if batch is None or batch.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="batch not found")
+    # New title, tags and description are written: one unit of the allowance.
+    try:
+        await allowance.check(session, tenant, 1)
+    except allowance.AllowanceExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
 
     payload: dict[str, object] = {"listing_id": listing_id, "batch_id": str(body.batch_id)}
     if body.group_key is not None:

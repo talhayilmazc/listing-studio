@@ -36,6 +36,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.compliance.trademarks import blocklist_for_tenant
+from app.core import allowance
 from app.etsy.refresh import request_refresh
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.reference import decode_etsy_text
@@ -748,6 +749,11 @@ async def generate_content(
             status_code=503,
             detail="LLM_API_KEY is not configured; content generation is unavailable.",
         )
+    # The product allowance: a listing is only written while some is left, and
+    # the seller is told when it resets (checked where a group needs writing, so
+    # "for all" with nothing to write isn't refused).
+    allowance_now = await allowance.status(session, tenant)
+    allowance_left = allowance_now.remaining
 
     # Image analysis and listing text may run on different models (v7 §A2).
     analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
@@ -878,6 +884,12 @@ async def generate_content(
             _fail(why)
             continue
 
+        if allowance_left <= 0:
+            if body.group_key is not None:  # one group asked for: refuse it outright
+                raise HTTPException(status_code=429, detail=allowance_now.message())
+            _fail(allowance_now.message())
+            continue
+
         data = storage.get(primary.processed_key)
         outcome = await generate_listing_content(
             session,
@@ -894,6 +906,9 @@ async def generate_content(
         )
         if outcome.status == "generated":
             generated += 1
+            allowance.record(session, tenant.id, allowance.GENERATION)
+            allowance_left -= 1
+            await session.commit()
             if old:
                 await _retire(session, old, outcome.generated_content_id)
         else:

@@ -162,9 +162,50 @@ class Tenant(Base):
     #: shown in it (app/core/timezones.py). Detected from the browser on first
     #: sign-in; editable in Settings. None until then.
     time_zone: Mapped[str | None] = mapped_column(Text)
+    #: The product allowance (core/allowance.py): listings generated plus drafts
+    #: created per period. None = the system default. Not the Etsy request quota.
+    allowance_amount: Mapped[int | None] = mapped_column(Integer)
+    #: "daily" | "weekly" | "monthly"; None = the system default.
+    allowance_period: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AllowanceUse(Base):
+    """One unit of the product allowance used: a listing generated or a draft created.
+
+    Recorded as events with their time, so an allowance counts whatever falls in
+    its current period: changing a seller's amount or period applies at once
+    without losing what they have used. Kept 400 days, then deleted.
+    """
+
+    __tablename__ = "allowance_use"
+    __table_args__ = (Index("ix_allowance_use_tenant_at", "tenant_id", "at"),)
+
+    RETENTION_DAYS: ClassVar[int] = 400
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    #: "generation" (a listing's text written) or "draft" (a draft made on Etsy).
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AppSetting(Base):
+    """App-wide settings an admin changes in the panel (e.g. the default allowance)."""
+
+    __tablename__ = "app_setting"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
