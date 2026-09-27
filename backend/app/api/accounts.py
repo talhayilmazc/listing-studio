@@ -19,6 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_tenant, get_session, get_session_store
+from app.compliance.scanner import rescan_account
+from app.compliance.trademarks import filter_on
 from app.core import audit
 from app.core.config import get_settings
 from app.core.invites import hash_code, redeemable_by
@@ -86,6 +88,25 @@ class AccountOut(BaseModel):
     features: dict[str, bool] = {}
     # IANA time zone schedules are entered and shown in; None until first set.
     time_zone: str | None = None
+    # The trademark filter (v7 §A4): the seller's own choice, whether an admin
+    # has set it for the account instead, and what is in force.
+    trademark_filter: bool = True
+    trademark_filter_by_admin: bool = False
+    trademark_filter_effective: bool = True
+    trademark_filter_changed_at: datetime | None = None
+
+
+#: What a seller accepts when turning the trademark filter off. Its version is
+#: recorded with the change, so the audit log says which wording they saw.
+TRADEMARK_RISK_VERSION = "2026-09-27"
+
+
+class TrademarkFilterRequest(BaseModel):
+    enabled: bool
+    #: Required to turn it off: the seller confirms they have the rights to the
+    #: marks and characters in their designs, or accept the risk.
+    accept_risk: bool = False
+    statement_version: str | None = Field(default=None, max_length=32)
 
 
 class TimeZoneRequest(BaseModel):
@@ -146,6 +167,10 @@ def _out(tenant: Tenant) -> AccountOut:
         is_admin=tenant.is_admin,
         features={k: bool(v) for k, v in (tenant.features or {}).items()},
         time_zone=tenant.time_zone,
+        trademark_filter=tenant.trademark_filter_seller,
+        trademark_filter_by_admin=tenant.trademark_filter is not None,
+        trademark_filter_effective=filter_on(tenant),
+        trademark_filter_changed_at=tenant.trademark_filter_changed_at,
     )
 
 
@@ -298,6 +323,45 @@ async def set_time_zone(
     tenant.time_zone = body.time_zone
     await session.commit()
     await session.refresh(tenant)
+    return _out(tenant)
+
+
+@router.put("/trademark-filter", response_model=AccountOut)
+async def set_trademark_filter(
+    body: TrademarkFilterRequest,
+    tenant: Tenant = Depends(current_tenant),
+    session: AsyncSession = Depends(get_session),
+) -> AccountOut:
+    """The seller's own trademark filter (v7 §A4), on by default.
+
+    Turning it off takes the seller's explicit acceptance of what that means
+    under Etsy's intellectual property policy. Recorded in the audit log like
+    the admin override, which wins over this choice while it is set.
+    """
+    if tenant.trademark_filter is not None:
+        raise HTTPException(status_code=409, detail="an administrator has set the trademark filter for your account")
+    if not body.enabled and not (body.accept_risk and body.statement_version == TRADEMARK_RISK_VERSION):
+        raise HTTPException(status_code=422, detail="confirm that you have the rights or accept the risk to turn the filter off")
+    previous = tenant.trademark_filter_seller
+    if previous != body.enabled:
+        tenant.trademark_filter_seller = body.enabled
+        tenant.trademark_filter_changed_at = datetime.now(timezone.utc)
+        audit.record(
+            session,
+            "user.trademark_filter_changed",
+            actor=tenant,
+            target_tenant_id=tenant.id,
+            previous=previous,
+            new=body.enabled,
+            by="seller",
+            **({"accepted_risk_statement": TRADEMARK_RISK_VERSION} if not body.enabled else {}),
+        )
+        await session.flush()
+        # The seller's listings follow the new setting at once: a character
+        # finding blocks with the filter on and is a warning with it off.
+        await rescan_account(session, tenant.id)
+        await session.commit()
+        await session.refresh(tenant)
     return _out(tenant)
 
 

@@ -113,6 +113,12 @@ export const api = {
   /** The account's time zone; `detected` only fills it when empty (first sign-in). */
   setTimeZone: (timeZone: string, detected = false) =>
     req<Account>("/account/time-zone", { method: "PUT", body: JSON.stringify({ time_zone: timeZone, detected }) }),
+  /** The seller's own trademark filter. Off needs `acceptRisk` with the wording's version. */
+  setTrademarkFilter: (enabled: boolean, acceptRisk = false, statementVersion?: string) =>
+    req<Account>("/account/trademark-filter", {
+      method: "PUT",
+      body: JSON.stringify({ enabled, accept_risk: acceptRisk, statement_version: statementVersion }),
+    }),
   me: () => req<Account>("/account/me"),
   login: (email: string, password: string) =>
     req<Account>("/account/login", {

@@ -374,6 +374,11 @@ export interface Account {
   features?: Record<string, boolean>;
   /** IANA zone schedules are entered and shown in; null until detected. */
   time_zone?: string | null;
+  /** The seller's own trademark filter (v7 §A4), and whether an admin set it instead. */
+  trademark_filter?: boolean;
+  trademark_filter_by_admin?: boolean;
+  trademark_filter_effective?: boolean;
+  trademark_filter_changed_at?: string | null;
 }
 
 /** One of the seller's own listings a new listing can be modelled on (v7 §B). */
@@ -405,8 +410,11 @@ export interface AdminUser {
   listings_published: number;
   quota_used_today: number;
   daily_quota: number;
-  /** This account's trademark filter (v7 §A4): null follows TRADEMARK_FILTER. */
+  /** Admin override of the trademark filter (v7 §A4): null = the seller's own choice. */
   trademark_filter: boolean | null;
+  /** The seller's own choice in Settings, and when they last changed it. */
+  trademark_filter_seller: boolean;
+  trademark_filter_changed_at: string | null;
   trademark_filter_effective: boolean;
   features?: Record<string, boolean>;
 }

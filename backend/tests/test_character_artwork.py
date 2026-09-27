@@ -69,6 +69,19 @@ async def test_a_seller_who_chose_the_risk_sees_the_warning_and_can_publish(ctx)
     assert [(f["rule"], f["severity"]) for f in row["findings"]] == [("character_artwork", "warning")]
 
 
+async def test_the_seller_turning_the_filter_off_still_sees_the_warning(ctx) -> None:  # noqa: F811
+    """The character warning is information, not a block: it stays when the
+    seller has turned the filter off in Settings."""
+    content_id, batch = await _character_listing(ctx)
+    off = {"enabled": False, "accept_risk": True, "statement_version": "2026-09-27"}
+    assert (await ctx["client"].put("/api/account/trademark-filter", json=off)).status_code == 200
+    [row] = (await ctx["client"].get(f"/api/batches/{batch}/content")).json()
+    assert [(f["rule"], f["severity"]) for f in row["findings"]] == [("character_artwork", "warning")]
+    assert "Minnie Mouse" in row["findings"][0]["detail"]
+    body = (await ctx["client"].post(f"/api/content/{content_id}/publish")).json()
+    assert len(body["jobs"]) == 1
+
+
 def test_a_character_named_only_as_a_theme_still_counts() -> None:
     from app.compliance.trademarks import characters_seen
 

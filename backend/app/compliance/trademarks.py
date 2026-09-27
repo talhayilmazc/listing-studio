@@ -19,6 +19,7 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from app.core.config import get_settings
 
@@ -141,12 +142,28 @@ def blocklist_for(setting: bool | None) -> Blocklist:
     return configured_blocklist()
 
 
+def filter_on(tenant: Any) -> bool:
+    """Whether the trademark filter is on for this account.
+
+    An admin override wins; otherwise the seller's own choice (on by default).
+    TRADEMARK_FILTER=false still turns it off app-wide, as before.
+    """
+    if tenant is None:
+        return get_settings().trademark_filter
+    if tenant.trademark_filter is not None:
+        return bool(tenant.trademark_filter)
+    return bool(tenant.trademark_filter_seller) and get_settings().trademark_filter
+
+
+def blocklist_for_tenant(tenant: Any) -> Blocklist:
+    return blocklist_for(filter_on(tenant))
+
+
 async def tenant_blocklist(session, tenant_id) -> Blocklist:  # noqa: ANN001
     """The blocklist in force for this account now."""
     from app.db.models import Tenant
 
-    tenant = await session.get(Tenant, tenant_id)
-    return blocklist_for(tenant.trademark_filter if tenant is not None else None)
+    return blocklist_for_tenant(await session.get(Tenant, tenant_id))
 
 
 def trademark_errors(

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { browserZone, formatWhen, isValidZone } from "@/lib/schedule";
 import { useSession } from "@/components/SessionProvider";
+import { TrademarkFilterSetting } from "@/components/TrademarkFilterSetting";
 
 /** Every IANA zone this browser knows, falling back to a few if it can't list them. */
 function allZones(): string[] {
@@ -15,7 +16,7 @@ function allZones(): string[] {
   }
 }
 
-/** Account settings: the time zone schedules use, and the password. */
+/** Account settings: the time zone schedules use, the trademark filter, and the password. */
 export default function SettingsPage() {
   const { account, timeZone, setAccount } = useSession();
   const [zone, setZone] = useState(timeZone);
@@ -92,6 +93,8 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
+
+      <TrademarkFilterSetting />
 
       <section className="card p-5">
         <h2 className="text-sm font-semibold text-slate-800">Password</h2>

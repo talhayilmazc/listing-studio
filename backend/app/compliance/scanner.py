@@ -20,8 +20,9 @@ Rules so far:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.trademarks import Blocklist, configured_blocklist, tenant_blocklist
@@ -76,6 +77,14 @@ def scan(
                 Finding(TRADEMARK, ComplianceSeverity.blocking, f"trademark '{term}' in {where}")
             )
     return findings
+
+
+async def rescan_account(session: AsyncSession, tenant_id: Any) -> None:
+    """Re-scan every listing of one account (its filter setting changed): a
+    blocking finding becomes a warning, or the reverse. The caller commits."""
+    rows = await session.execute(select(GeneratedContent).where(GeneratedContent.tenant_id == tenant_id))
+    for content in rows.scalars():
+        await rescan(session, content)
 
 
 async def rescan(session: AsyncSession, content: GeneratedContent) -> list[Finding]:

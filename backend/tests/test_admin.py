@@ -178,7 +178,8 @@ async def test_users_list_shows_metadata(world) -> None:
         "shop_name", "shop_connected", "listings_published", "quota_used_today", "daily_quota",
         "shops", "shops_used", "shops_limit", "shops_limit_custom",
         # An account setting, not the seller's content (v7 §A4).
-        "trademark_filter", "trademark_filter_effective", "features",
+        "trademark_filter", "trademark_filter_seller", "trademark_filter_changed_at",
+        "trademark_filter_effective", "features",
     }
     # Shop names and counts only: never a shop's listings, profiles or cache (v5 §E).
     assert bob["shops_used"] == 1 and bob["shops_limit"] == 8 and bob["shops_limit_custom"] is False
@@ -471,9 +472,50 @@ async def test_the_trademark_filter_is_set_per_account_and_audited(world) -> Non
     body = (await world["a"].put(url, json={"enabled": False})).json()
     assert body["trademark_filter"] is False and body["trademark_filter_effective"] is False
     body = (await world["a"].put(url, json={"enabled": None})).json()
-    assert body["trademark_filter"] is None and body["trademark_filter_effective"] is True  # the app default
+    # Back to the seller's own choice, which is on by default.
+    assert body["trademark_filter"] is None and body["trademark_filter_seller"] is True
+    assert body["trademark_filter_effective"] is True
     actions = [(e.action, e.details) for e in await _audit(world["sm"]) if e.action == "user.trademark_filter_changed"]
-    assert [d for _, d in actions] == [{"previous": None, "new": False}, {"previous": False, "new": None}]
+    assert [d for _, d in actions] == [
+        {"previous": None, "new": False, "by": "admin"},
+        {"previous": False, "new": None, "by": "admin"},
+    ]
+
+
+async def test_a_seller_turns_the_filter_off_only_by_accepting_the_risk(world) -> None:
+    """The seller's own switch in Settings: on by default; off takes their explicit
+    acceptance; audited like the admin path; the admin override wins while set."""
+    b = world["b"]
+    me = (await b.get("/api/account/me")).json()
+    assert (me["trademark_filter"], me["trademark_filter_effective"], me["trademark_filter_by_admin"]) == (True, True, False)
+
+    off = {"enabled": False}
+    assert (await b.put("/api/account/trademark-filter", json=off)).status_code == 422
+    stale = {**off, "accept_risk": True, "statement_version": "2020-01-01"}
+    assert (await b.put("/api/account/trademark-filter", json=stale)).status_code == 422  # not the wording shown now
+    ok = {**off, "accept_risk": True, "statement_version": "2026-09-27"}
+    body = (await b.put("/api/account/trademark-filter", json=ok)).json()
+    assert body["trademark_filter"] is False and body["trademark_filter_effective"] is False
+    assert body["trademark_filter_changed_at"] is not None
+
+    # The admin sees the seller's choice, and when it changed.
+    bob = world["bob"].tenant_id
+    [row] = [u for u in (await world["a"].get("/api/admin/users")).json() if u["id"] == str(bob)]
+    assert row["trademark_filter_seller"] is False and row["trademark_filter"] is None
+    assert row["trademark_filter_effective"] is False and row["trademark_filter_changed_at"]
+
+    # Back on needs no confirmation.
+    assert (await b.put("/api/account/trademark-filter", json={"enabled": True})).json()["trademark_filter_effective"] is True
+    [off_row, on_row] = [e for e in await _audit(world["sm"]) if e.action == "user.trademark_filter_changed"]
+    assert off_row.actor_tenant_id == bob and off_row.target_tenant_id == bob
+    assert off_row.details == {"previous": True, "new": False, "by": "seller", "accepted_risk_statement": "2026-09-27"}
+    assert on_row.details == {"previous": False, "new": True, "by": "seller"}
+
+    # While an admin has set it for the account, the seller can't change it.
+    await world["a"].put(f"/api/admin/users/{bob}/trademark-filter", json={"enabled": True})
+    me = (await b.get("/api/account/me")).json()
+    assert me["trademark_filter_by_admin"] is True
+    assert (await b.put("/api/account/trademark-filter", json=ok)).status_code == 409
 
 
 async def test_features_are_turned_on_per_account_and_audited(world) -> None:

@@ -34,6 +34,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     false,
+    true,
     func,
     text,
 )
@@ -138,9 +139,15 @@ class Tenant(Base):
     # How many Etsy shops this account may connect. Null = MAX_SHOPS_PER_TENANT;
     # an admin can set it per account (docs/duzeltmeler-v5.md §E).
     max_shops: Mapped[int | None] = mapped_column(Integer)
-    # The trademark filter for this account (v7 §A4): None follows TRADEMARK_FILTER;
-    # an admin can turn it on or off per account. Off, brand names may appear in
-    # this seller's listings, at the seller's own risk under Etsy's IP policy.
+    # The trademark filter (v7 §A4). The seller's own choice, on by default,
+    # changed in Settings (turning it off needs their explicit acceptance of the
+    # risk under Etsy's IP policy); and an admin override that wins over it.
+    # Both changes are audited. compliance/trademarks.filter_on decides.
+    trademark_filter_seller: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    trademark_filter_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Admin override: None = the seller's own choice.
     trademark_filter: Mapped[bool | None] = mapped_column(Boolean)
     # The seller's own costs for profit figures (v7 §C2): Etsy fee rates, product,
     # shipping and fixed costs. Editable, since fee rates change.

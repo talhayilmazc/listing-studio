@@ -20,7 +20,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.compliance.scanner import rescan
-from app.compliance.trademarks import blocklist_for
+from app.compliance.trademarks import blocklist_for_tenant
 from app.db.models import Asset, AssetStatus, EtsyConnection, GeneratedContent, Job, JobStatus, Tenant
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
@@ -180,7 +180,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     template=load_template(f"content/{template}"),
                     policy=policy_for(template),
                     title_prefix=str(job.payload.get("title_prefix") or ""),
-                    trademarks=blocklist_for(tenant.trademark_filter),
+                    trademarks=blocklist_for_tenant(tenant),
                 )
                 vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
                 result = await generator.generate(vision.analysis, primary.parsed_sku)

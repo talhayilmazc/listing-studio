@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.accounts import EMAIL_RE
 from app.api.deps import get_quota, get_session, get_session_store
+from app.compliance.trademarks import filter_on
 from app.core import audit
 from app.core.config import get_settings
 from app.core.invites import InviteState, hash_code, invite_state
@@ -105,8 +106,11 @@ class AdminUserOut(BaseModel):
     listings_published: int
     quota_used_today: int
     daily_quota: int
-    # This account's trademark filter (v7 §A4): None = the app default.
+    # The trademark filter (v7 §A4): the admin override (None = the seller's own
+    # choice), the seller's own choice and when they last changed it, and what's in force.
     trademark_filter: bool | None = None
+    trademark_filter_seller: bool = True
+    trademark_filter_changed_at: datetime | None = None
     trademark_filter_effective: bool = True
     # Features an admin turned on for this account (v7 §B).
     features: dict[str, bool] = {}
@@ -122,7 +126,7 @@ KNOWN_FEATURES = frozenset({"own_patterns"})
 
 
 class TrademarkFilterUpdate(BaseModel):
-    # None = back to the app default (TRADEMARK_FILTER).
+    # None = back to the seller's own choice.
     enabled: bool | None = None
 
 
@@ -284,10 +288,10 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         quota_used_today=used_today,
         daily_quota=t.daily_quota,
         trademark_filter=t.trademark_filter,
+        trademark_filter_seller=t.trademark_filter_seller,
+        trademark_filter_changed_at=t.trademark_filter_changed_at,
         features={k: bool(v) for k, v in (t.features or {}).items()},
-        trademark_filter_effective=(
-            t.trademark_filter if t.trademark_filter is not None else get_settings().trademark_filter
-        ),
+        trademark_filter_effective=filter_on(t),
     )
 
 
@@ -368,11 +372,12 @@ async def set_user_trademark_filter(
     session: AsyncSession = Depends(get_session),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
-    """Turn the trademark filter on or off for one account (v7 §A4).
+    """Override the trademark filter for one account (v7 §A4).
 
-    Off, brand and character names may appear in that seller's listings; the
-    risk under Etsy's intellectual property policy is theirs. None returns the
-    account to TRADEMARK_FILTER.
+    It wins over the seller's own choice in Settings. Off, brand and character
+    names may appear in that seller's listings; the risk under Etsy's
+    intellectual property policy is theirs. None returns the account to the
+    seller's own choice.
     """
     target = await _target(session, tenant_id)
     previous = target.trademark_filter
@@ -385,19 +390,14 @@ async def set_user_trademark_filter(
             target_tenant_id=target.id,
             previous=previous,
             new=body.enabled,
+            by="admin",
         )
         await session.flush()
-        # Their listings' findings follow the new setting at once (a blocking
-        # finding becomes a warning, or the reverse). Nothing is read or shown to
-        # the admin: the scan runs on the seller's own rows.
-        from app.compliance.scanner import rescan
-        from app.db.models import GeneratedContent
+        # Their listings' findings follow the new setting at once. Nothing is
+        # read or shown to the admin: the scan runs on the seller's own rows.
+        from app.compliance.scanner import rescan_account
 
-        rows = await session.execute(
-            select(GeneratedContent).where(GeneratedContent.tenant_id == target.id)
-        )
-        for content in rows.scalars():
-            await rescan(session, content)
+        await rescan_account(session, target.id)
         await session.commit()
     return await _one(session, quota, target.id)
 

@@ -35,7 +35,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.compliance.trademarks import blocklist_for
+from app.compliance.trademarks import blocklist_for_tenant
 from app.etsy.refresh import request_refresh
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.reference import decode_etsy_text
@@ -770,7 +770,7 @@ async def generate_content(
             profile_cache[profile_id] = p if p and p.tenant_id == tenant.id else None
         return profile_cache[profile_id]
 
-    trademarks = blocklist_for(tenant.trademark_filter)  # the account's setting (v7 §A4)
+    trademarks = blocklist_for_tenant(tenant)  # the account's setting (v7 §A4)
 
     def _generator(p: ListingProfile) -> AnthropicContentGenerator:
         if p.id not in generator_cache:

@@ -30,7 +30,7 @@ const SECTIONS = [
 
 export default function TermsPage() {
   return (
-    <LegalShell title="Terms of Service" updated="23 September 2026" sections={SECTIONS}>
+    <LegalShell title="Terms of Service" updated="27 September 2026" sections={SECTIONS}>
       <Section id="about" n={1} title="About these terms">
         <p>
           These terms govern your use of Listing Studio (&ldquo;the Service&rdquo;). The Service
@@ -172,6 +172,15 @@ export default function TermsPage() {
           <strong>Only upload what you have the right to use.</strong> You confirm that you own,
           or are licensed to use, every design you upload, and that selling it does not infringe
           anyone else&rsquo;s rights.
+        </p>
+        <p>
+          <strong>
+            You are responsible for the intellectual property in the designs you upload and
+            publish, and for your own compliance with Etsy&rsquo;s policies
+          </strong>
+          , including its Intellectual Property Policy. The trademark filter, and the warning shown
+          when a design appears to contain a recognisable character, are aids, not clearance: if
+          you turn the filter off in Settings, you do so having accepted that risk.
         </p>
         <p>
           Etsy limits how many requests an application may make each day, and that allowance is

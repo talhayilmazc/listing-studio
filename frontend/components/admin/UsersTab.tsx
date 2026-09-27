@@ -132,11 +132,16 @@ export function UsersTab({
                       }}
                     >
                       <option value="default">
-                        Default ({u.trademark_filter === null ? (u.trademark_filter_effective ? "on" : "off") : "app"})
+                        {`Seller's choice (${u.trademark_filter_seller ? "on" : "off"})`}
                       </option>
-                      <option value="on">Filter on</option>
-                      <option value="off">Filter off</option>
+                      <option value="on">Override: on</option>
+                      <option value="off">Override: off</option>
                     </select>
+                    <p key="seller-choice" translate="no" className="mt-1 text-[11px] text-slate-500">
+                      <span><span>{`Seller set it ${u.trademark_filter_seller ? "on" : "off"}`}</span>
+                      <span>{u.trademark_filter_changed_at ? ` on ${new Date(u.trademark_filter_changed_at).toLocaleDateString()}` : " (default)"}</span>
+                      <Txt>{u.trademark_filter !== null ? " · overridden" : ""}</Txt></span>
+                    </p>
                     {/* v7 §B: model new listings on the seller's own. */}
                     <label className="mt-1 flex items-center gap-1.5 text-xs text-slate-600" title="Let this seller model new listings on their own best listings">
                       <input

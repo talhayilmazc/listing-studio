@@ -57,7 +57,7 @@ ToU Bölüm 1'den gelir, ihlali doğrudan sözleşme ihlalidir.
 
 ## Marka filtresi ve karakter içeren tasarımlar
 
-- `TRADEMARK_FILTER` (varsayılan açık) marka/karakter adlarını başlık, tag ve açıklamada reddeder; admin hesap bazında açıp kapatabilir (`tenant.trademark_filter`, audit'lenir).
+- Marka filtresi marka/karakter adlarını başlık, tag ve açıklamada reddeder. **Satıcı kendi Settings sayfasından** açıp kapatır (`tenant.trademark_filter_seller`, varsayılan açık); kapatmak, Etsy'nin fikri mülkiyet politikasını, toplu takedown bildirimlerini ve listing kaldırma/mağaza askıya alma riskini açıkça söyleyen bir onay ister ve sunucu onay metninin sürümünü doğrular (`TRADEMARK_RISK_VERSION`, metin değişirse ikisi birlikte). Admin hesap bazında geçersiz kılabilir (`tenant.trademark_filter`, None = satıcının seçimi) ve satıcının seçimini görür. İki yol da `user.trademark_filter_changed` olarak audit'lenir (`by`: seller/admin). Geçerli değer `compliance/trademarks.filter_on`; `TRADEMARK_FILTER=false` uygulama genelinde kapatır. Kullanım Şartları satıcının yüklediği tasarımların fikri mülkiyetinden ve Etsy politikalarına uyumdan sorumlu olduğunu söyler.
 - Vision tanınabilir karakter, franchise görseli veya tema parkı görürse (`characters`) listing işaretlenir, çünkü **çizimin kendisi** başlık nasıl yazılırsa yazılsın ihlal edebilir. Filtre **açıksa bu engelleyicidir** (metin filtresi modelin markayı "mouse ears" gibi dolaylı ifadelerle yazmasına yol açmamalı; kaçış yolu değil). Filtre **kapalıysa** (satıcı riski kabul etti) yayın öncesi kartta **uyarı** gösterilir.
 - İçerik prompt'u markanın etrafından dolaşmayı (dolaylı ifade) açıkça yasaklar.
 
