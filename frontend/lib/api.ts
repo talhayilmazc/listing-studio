@@ -288,6 +288,8 @@ export const api = {
   estimateSales: (shop: string | null) =>
     req<SalesSync>(`/analytics/sales/estimate${shopQuery(shop)}`, { method: "POST" }),
   startSales: (shop: string | null) => req<SalesSync>(`/analytics/sales/start${shopQuery(shop)}`, { method: "POST" }),
+  /** After a failure: carry on where the read stopped. */
+  resumeSales: (shop: string | null) => req<SalesSync>(`/analytics/sales/resume${shopQuery(shop)}`, { method: "POST" }),
   /** Read the shop's latest sales now (upkeep, not the seller's quota). */
   refreshSales: (shop: string | null) =>
     req<{ queued: boolean }>(`/analytics/sales/refresh${shopQuery(shop)}`, { method: "POST" }),

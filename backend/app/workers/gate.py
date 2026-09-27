@@ -46,8 +46,9 @@ JOB_COST: dict[str, int] = {
     "refresh_profile": 7,
     # the reference's images; when they changed, the full refresh as well (v6 §H)
     "refresh_profile_images": 8,
-    # shop, and up to 10 pages of 100 for each of active and draft (profiles.SYNC_MAX_PAGES)
-    "sync_shop_listings": 21,
+    # shop, and up to 50 pages of 100 for each of the 5 listing states
+    # (profiles.SYNC_STATES, SYNC_MAX_PAGES); one per state for a small shop
+    "sync_shop_listings": 251,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,

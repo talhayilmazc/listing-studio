@@ -3,7 +3,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models import (
@@ -66,7 +66,9 @@ class FakeEtsy:
         self.listings_calls.append(state)
         if state == "active":
             return {"results": [{"listing_id": 1, "title": "A", "state": "active"}]}
-        return {"results": [{"listing_id": 2, "title": "B", "state": "draft"}]}
+        if state == "draft":
+            return {"results": [{"listing_id": 2, "title": "B", "state": "draft"}]}
+        return {"results": []}
 
 
 async def _seed(sm: async_sessionmaker, *, with_profile: bool = True):
@@ -135,7 +137,7 @@ async def test_sync_shop_listings_caches_active_and_draft(
 
     result = await worker.sync_shop_listings(ctx, str(await _shop_of(async_sm, tenant_id)))
     assert result == "synced:2"
-    assert fake.listings_calls == ["active", "draft"]
+    assert fake.listings_calls == ["active", "draft", "inactive", "sold_out", "expired"]
 
     async with async_sm() as s:
         rows = await s.execute(
@@ -404,14 +406,15 @@ async def test_refresh_ignores_shop_data_past_its_six_hour_limit(
 class PagedEtsy(FakeEtsy):
     """A shop with 250 active listings and 3 drafts, served 100 at a time."""
 
-    def __init__(self) -> None:
+    def __init__(self, active: int = 250) -> None:
+        self.active = active
         super().__init__()
         self.pages: list[tuple[str, int]] = []
 
     async def get_listings_by_shop(self, shop_id: int, *, state: str, limit: int = 25, offset: int = 0, **_: Any):
         self.pages.append((state, offset))
-        total = 250 if state == "active" else 3
-        start = 1000 if state == "active" else 5000
+        total = self.active if state == "active" else 3
+        start = {"active": 10_000, "draft": 5000, "inactive": 6000, "sold_out": 7000, "expired": 8000}[state]
         ids = range(start + offset, start + min(total, offset + limit))
         return {"count": total, "results": [{"listing_id": i, "state": state} for i in ids]}
 
@@ -422,8 +425,24 @@ async def test_sync_reads_every_page_of_a_large_shop(async_sm: async_sessionmake
     _patch(monkeypatch, tenant_id, fake)
     ctx = {"sessionmaker": async_sm, "bucket": None, "quota": None}
 
-    assert await worker.sync_shop_listings(ctx, str(await _shop_of(async_sm, tenant_id))) == "synced:253"
-    assert fake.pages == [("active", 0), ("active", 100), ("active", 200), ("draft", 0)]
+    assert await worker.sync_shop_listings(ctx, str(await _shop_of(async_sm, tenant_id))) == "synced:262"
+    assert fake.pages == [("active", 0), ("active", 100), ("active", 200), ("draft", 0),
+                          ("inactive", 0), ("sold_out", 0), ("expired", 0)]
+
+
+async def test_a_3000_listing_shop_is_read_whole_in_every_state(async_sm: async_sessionmaker, monkeypatch) -> None:
+    """The reported "1,037 of ~3,000": the sync stopped at 10 pages (1,000 active)
+    and never read inactive, sold-out or expired listings."""
+    tenant_id, _ = await _seed(async_sm, with_profile=False)
+    fake = PagedEtsy(active=3000)
+    _patch(monkeypatch, tenant_id, fake)
+    shop = await _shop_of(async_sm, tenant_id)
+    assert await worker.sync_shop_listings({"sessionmaker": async_sm, "bucket": None, "quota": None}, str(shop)) == "synced:3012"
+    assert [o for st, o in fake.pages if st == "active"] == [i * 100 for i in range(30)]
+    async with async_sm() as s:
+        assert await s.scalar(select(func.count()).select_from(ShopListingCache)) == 3012
+        counts = (await s.get(EtsyConnection, shop)).listing_counts
+    assert counts == {"active": 3000, "draft": 3, "inactive": 3, "sold_out": 3, "expired": 3}
 
 
 async def test_sync_drops_listings_that_have_left_the_shop(async_sm: async_sessionmaker, monkeypatch) -> None:

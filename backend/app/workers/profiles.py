@@ -49,11 +49,16 @@ from app.workers import gate
 
 logger = logging.getLogger(__name__)
 
-# The shop listing sync pages through the shop 100 at a time, up to this many
-# pages per state (active, draft): 1,000 each. Every page is one Etsy request,
-# which is why workers/gate.py JOB_COST budgets 1 + 2 x SYNC_MAX_PAGES for it.
+# The shop listing sync pages through the shop 100 at a time, up to
+# SYNC_MAX_PAGES per state. Every page is one Etsy request, which is why
+# workers/gate.py JOB_COST budgets 1 + len(SYNC_STATES) x SYNC_MAX_PAGES for it.
 SYNC_PAGE_SIZE = 100
-SYNC_MAX_PAGES = 10
+#: Pages per state. It was 10, so no shop showed more than 1,000 active
+#: listings: a 3,000-listing shop appeared as 1,000 active plus its drafts.
+SYNC_MAX_PAGES = 50
+#: Every state a listing can be in (removed listings are gone): analytics needs
+#: the sold-out, expired and inactive ones too, since they have sales history.
+SYNC_STATES = ("active", "draft", "inactive", "sold_out", "expired")
 # Detection reads inventory with each page; a listing that comes back without it
 # is read separately, at most this many times per run (workers/gate.py JOB_COST).
 DETECT_MAX_INVENTORY_READS = 100
@@ -469,7 +474,8 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
             shop_id = await _resolve_shop_id(session, client, connection, kw)
             rows: list[dict[str, Any]] = []
             complete = True
-            for state in ("active", "draft"):
+            counts: dict[str, Any] = {}
+            for state in SYNC_STATES:
                 # Page through the whole shop. One page of 100 made any shop with
                 # more listings look smaller than it is (docs/duzeltmeler-v6.md §A4).
                 for page in range(SYNC_MAX_PAGES):
@@ -484,12 +490,15 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
                     results = resp.get("results", [])
                     rows.extend(results)
                     total = resp.get("count")
+                    if page == 0:
+                        counts[state] = int(total) if total is not None else len(results)
                     if len(results) < SYNC_PAGE_SIZE or (
                         total is not None and (page + 1) * SYNC_PAGE_SIZE >= int(total)
                     ):
                         break
                 else:
                     complete = False  # more than the page cap: keep what we have
+                    counts["truncated"] = True
                     logger.warning(
                         "sync: shop %s has more than %d %s listings; showing the first %d",
                         connection.id, SYNC_MAX_PAGES * SYNC_PAGE_SIZE, state,
@@ -497,6 +506,8 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
                     )
 
         now = datetime.now(timezone.utc)
+        connection.listing_counts = counts
+        connection.listing_counts_at = now
         # Listings no longer in the shop (deleted, sold out, expired) leave the
         # cache now, instead of being counted until their six hours run out.
         if complete:

@@ -38,9 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.models import ConnectionStatus, EtsyConnection, SalesDaily, SalesSync, Tenant
+from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.sales import aggregate, sale_day, sale_key
 from app.workers import gate
 from app.workers.profiles import (
+    ShopAccessLost,
     _active_shop,
     _build_client,
     _connection_service,
@@ -295,14 +297,54 @@ async def _sync(ctx: dict[str, Any], connection_id: str) -> str:
                 await _defer(ctx, sync, connection_id, "today's share of the budget for reading sales is used")
                 await session.commit()
                 return "paced"
-            async with httpx.AsyncClient(timeout=30.0) as http:
-                client, shop_id, kw = await _open(ctx, session, connection, http)
-                reader = _Reader(client, shop_id, kw, sync)
-                if sync.state == "complete":
-                    return await _update(ctx, session, connection, sync, reader)
-                return await _first_read(ctx, session, connection, sync, reader)
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as http:
+                    client, shop_id, kw = await _open(ctx, session, connection, http)
+                    reader = _Reader(client, shop_id, kw, sync)
+                    if sync.state == "complete":
+                        return await _update(ctx, session, connection, sync, reader)
+                    return await _first_read(ctx, session, connection, sync, reader)
+            # A read that can't go on says why, on the Analytics page, instead of
+            # leaving the seller looking at empty figures. Pages already read stay.
+            except ShopAccessLost:
+                await _stopped(session, cid, "The shop's sign-in couldn't be renewed. Reconnect it in Shops, then try again.")
+                return "failed"
+            except EtsyClientError as exc:
+                await _stopped(session, cid, (
+                    f"Etsy refused to show this shop's sales (it answered {exc.status_code}). "
+                    "Reconnect the shop in Shops and try again; if it happens again, contact support."
+                ))
+                return "failed"
+            except (EtsyServerError, httpx.HTTPError):
+                await _stopped(session, cid, "Etsy didn't answer while reading your sales; it tries again within the hour.", keep_state=True)
+                raise
         finally:
             await _release(session, cid)
+
+
+async def _stopped(session: AsyncSession, connection_id: uuid.UUID, why: str, *, keep_state: bool = False) -> None:
+    """Record why the read stopped; the page shows it. The position is kept."""
+    await session.rollback()  # only this page's unfinished work; earlier pages are committed
+    sync = await session.get(SalesSync, connection_id)
+    if sync is None:
+        return
+    if not keep_state:
+        sync.state = "failed"
+    sync.note = why
+    sync.updated_at = _now()
+    await session.commit()
+
+
+async def resume(session: AsyncSession, sync: SalesSync) -> None:
+    """"Try again" after a failure: carry on from where it stopped, not from scratch."""
+    if sync.finished_at is not None and sync.started_at is not None and sync.finished_at >= sync.started_at:
+        sync.state = "complete"
+    elif sync.started_at is not None:
+        sync.state = "reading"
+    else:
+        sync.state = "estimated"
+    sync.note = None
+    sync.resumes_at = None
 
 
 async def _first_read(

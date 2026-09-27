@@ -241,6 +241,29 @@ async def start_sales_read(
     return _sync_out(connection, sync)
 
 
+@router.post("/sales/resume", response_model=SalesSyncOut, status_code=202)
+async def resume_sales_read(
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> SalesSyncOut:
+    """After a failure (e.g. once the shop is reconnected): carry on where it stopped."""
+    connection = await _sales_shop(session, tenant, shop)
+    sync = await session.get(SalesSync, connection.id)
+    if sync is None or sync.state != "failed":
+        raise HTTPException(status_code=409, detail="nothing to resume")
+    await sales_worker.resume(session, sync)
+    await session.commit()
+    if sync.state in ("reading", "complete"):
+        await enqueuer.enqueue("sync_sales", str(connection.id), _job_id=f"sales-resume:{connection.id}:{_now_stamp()}")
+    return _sync_out(connection, sync)
+
+
+def _now_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
+
+
 @router.post("/sales/refresh", status_code=202)
 async def refresh_sales(
     shop: uuid.UUID | None = None,

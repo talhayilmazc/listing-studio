@@ -302,6 +302,10 @@ class EtsyConnection(Base):
     scopes: Mapped[list[str] | None] = mapped_column(TEXT_ARRAY_TYPE)
     #: When this shop's sales totals were last read (v7 §C1); None before the first read.
     sales_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: How many listings the shop has in each state, as Etsy reported at the last
+    #: sync ({"active": 2940, "draft": 37, ...}), and whether every page was read.
+    listing_counts: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    listing_counts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ConnectionStatus] = mapped_column(
         _enum(ConnectionStatus, "connection_status"),
         nullable=False,

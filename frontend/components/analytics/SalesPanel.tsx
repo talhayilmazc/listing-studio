@@ -171,7 +171,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
       {sync.state === "failed" && (
         <div key="failed" className="flex flex-wrap items-center gap-3">
           <span className="text-rose-700">{sync.note ?? "Reading your sales stopped."}</span>
-          <button type="button" className="btn-secondary" onClick={estimate} disabled={busy}>
+          <button type="button" className="btn-secondary" onClick={() => act(() => api.resumeSales(shopId))} disabled={busy}>
             Try again
           </button>
         </div>

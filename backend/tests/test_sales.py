@@ -277,3 +277,37 @@ async def test_totals_are_kept_13_months_and_deleted_with_the_shop(async_sm: asy
         await s.commit()
         assert (await s.execute(select(SalesDaily))).scalars().all() == []
         assert await s.get(SalesSync, shop) is None
+
+
+async def test_a_refused_read_says_why_and_resumes_where_it_stopped(async_sm, monkeypatch) -> None:
+    """Empty figures must never be the only sign of a failed read (the "$0" report)."""
+    from app.etsy.errors import EtsyClientError
+
+    tid, shop = await _shop(async_sm)
+    fake = EtsyShop(_shop_sales(inside=450, outside=20))
+    _patch(monkeypatch, tid, fake)
+    ctx = _ctx(async_sm)
+    await _estimated(async_sm, ctx, shop)
+    await _start(async_sm, shop)
+    fake.calls.clear()
+
+    real = fake.get_shop_transactions
+
+    async def refuse_third(shop_id, *, limit, offset, **kw):  # noqa: ANN001, ANN202
+        if len(fake.calls) == 2:
+            fake.calls.append((offset, limit))
+            raise EtsyClientError(status_code=403, body="", path="/transactions", method="GET")
+        return await real(shop_id, limit=limit, offset=offset, **kw)
+
+    fake.get_shop_transactions = refuse_third
+    assert await sales_worker.sync_sales(ctx, str(shop)) == "failed"
+    sync = await _sync_row(async_sm, shop)
+    assert sync.state == "failed" and "answered 403" in sync.note and sync.read_count == 200
+    assert await _units(async_sm) == 200  # the pages read before stay
+
+    fake.get_shop_transactions = real
+    async with async_sm() as s:
+        await sales_worker.resume(s, await s.get(SalesSync, shop))
+        await s.commit()
+    assert await sales_worker.sync_sales(ctx, str(shop)) == "complete:450"
+    assert await _units(async_sm) == 450

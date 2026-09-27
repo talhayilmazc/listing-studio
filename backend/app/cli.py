@@ -6,6 +6,12 @@ on the server, inside the API container:
     docker compose -f docker-compose.prod.yml exec api python -m app.cli create-admin you@example.com
     docker compose -f docker-compose.prod.yml exec api python -m app.cli demote-admin someone@example.com
     docker compose -f docker-compose.prod.yml exec api python -m app.cli list-admins
+    docker compose -f docker-compose.prod.yml exec api python -m app.cli sales-report seller@example.com
+
+``sales-report`` is for diagnosing Analytics: for each of the account's shops it
+prints where the sales read stands and what the daily aggregates hold (counts,
+days, totals, and how many listings with sales are in the listing cache). It
+reads derived totals only; nothing about buyers exists to print.
 
 ``create-admin`` creates a new admin account, or promotes an existing one. The
 password is always prompted for, never taken as an argument, so it cannot land
@@ -130,6 +136,61 @@ async def demote_admin(sm: async_sessionmaker, email: str) -> str:
         return f"{email}: no longer an admin"
 
 
+async def sales_report(sm: async_sessionmaker, email: str) -> str:
+    """Where one account's sales data stands, per shop (for the operator)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import EtsyConnection, SalesDaily, SalesSync, ShopListingCache
+
+    lines: list[str] = []
+    async with sm() as session:
+        tenant = (await session.execute(select(Tenant).where(Tenant.email == _normalise(email)))).scalars().first()
+        if tenant is None:
+            return f"no account {email}"
+        shops = (await session.execute(select(EtsyConnection).where(EtsyConnection.tenant_id == tenant.id))).scalars().all()
+        if not shops:
+            return f"{email}: no shops"
+        today = datetime.now(timezone.utc).date()
+        for c in shops:
+            lines.append(f"== {c.shop_name or c.shop_id} ({c.status.value}, connection {c.id})")
+            lines.append(f"   sales permission: {'yes' if 'transactions_r' in (c.scopes or []) else 'NO (reconnect)'}")
+            sync = await session.get(SalesSync, c.id)
+            if sync is None:
+                lines.append("   sales read: never started (the seller must estimate and start it on Analytics)")
+            else:
+                lines.append(
+                    f"   sales read: {sync.state}; {sync.read_count} of {sync.window_count} sales, "
+                    f"{sync.requests_used} requests; started {sync.started_at}, finished {sync.finished_at}"
+                    + (f"; note: {sync.note}" if sync.note else "")
+                )
+            where = SalesDaily.connection_id == c.id
+            rows, first, last = (await session.execute(
+                select(func.count(), func.min(SalesDaily.day), func.max(SalesDaily.day)).where(where)
+            )).one()
+            listings = await session.scalar(select(func.count(func.distinct(SalesDaily.listing_id))).where(where))
+            lines.append(f"   sales_daily: {rows} rows, {listings} listings, days {first} .. {last}")
+            for currency, units, revenue in (await session.execute(
+                select(SalesDaily.currency, func.sum(SalesDaily.units), func.sum(SalesDaily.revenue_minor))
+                .where(where).group_by(SalesDaily.currency)
+            )).all():
+                lines.append(f"     {currency or '(no currency)'}: {units} units, revenue {int(revenue or 0) / 100:,.2f}")
+            recent = await session.scalar(
+                select(func.sum(SalesDaily.revenue_minor)).where(where, SalesDaily.day > today - timedelta(days=30))
+            )
+            zero = await session.scalar(select(func.count()).select_from(SalesDaily).where(where, SalesDaily.revenue_minor == 0))
+            lines.append(f"     last 30 days revenue {int(recent or 0) / 100:,.2f}; rows with zero revenue: {zero}")
+            cached = await session.scalar(select(func.count()).select_from(ShopListingCache).where(ShopListingCache.connection_id == c.id))
+            with_sales = set((await session.execute(select(func.distinct(SalesDaily.listing_id)).where(where))).scalars())
+            in_cache = set((await session.execute(
+                select(ShopListingCache.listing_id).where(ShopListingCache.connection_id == c.id)
+            )).scalars())
+            lines.append(
+                f"   listing cache: {cached} listings; Etsy counts {c.listing_counts or 'not recorded yet'}; "
+                f"listings with sales found in the cache: {len(with_sales & in_cache)} of {len(with_sales)}"
+            )
+    return "\n".join(lines)
+
+
 async def list_admins(sm: async_sessionmaker) -> list[str]:
     async with sm() as session:
         rows = (
@@ -151,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
     demote = sub.add_parser("demote-admin", help="withdraw the admin role (never the last one)")
     demote.add_argument("email")
     sub.add_parser("list-admins", help="list admin accounts")
+    report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
+    report.add_argument("email")
     args = parser.parse_args(argv)
 
     from app.db.session import get_sessionmaker
@@ -161,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
                                        set_password=args.set_password)))
     elif args.command == "demote-admin":
         print(asyncio.run(demote_admin(sm, args.email)))
+    elif args.command == "sales-report":
+        print(asyncio.run(sales_report(sm, args.email)))
     else:
         admins = asyncio.run(list_admins(sm))
         print("\n".join(admins) if admins else "no admins yet")
