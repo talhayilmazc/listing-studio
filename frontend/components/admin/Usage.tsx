@@ -276,8 +276,38 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
         <h2 id="usage-tenants" className="text-sm font-medium text-slate-600">
           By tenant, today
         </h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left text-sm">
+        {/* Phones: one stacked row per tenant, nothing off-screen. */}
+        <ul className="mt-4 divide-y divide-slate-100 md:hidden">
+          {usage.tenants.map((t) => {
+            const share = usage.global_used ? t.used_today / usage.global_used : 0;
+            return (
+              <li key={t.id} className="space-y-1.5 py-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 truncate text-sm text-slate-800" title={t.email}>
+                    {t.email}
+                  </span>
+                  <span translate="no" className="shrink-0 text-xs tabular-nums text-slate-500">
+                    {`${Math.round(share * 100)}% of today`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Meter used={t.used_today} limit={t.daily_quota} label={`${t.email} requests today`} />
+                  <span translate="no" className="shrink-0 text-xs tabular-nums text-slate-500">
+                    {`${t.used_today.toLocaleString()} / ${t.daily_quota.toLocaleString()}`}
+                  </span>
+                  <Spark history={t.history} />
+                </div>
+                {t.paused_reason && (
+                  <p key="waiting" translate="no" className="text-xs text-amber-700">
+                    {`work waiting · ${t.paused_reason === "global_quota" ? "app-wide pause" : "own Etsy request limit used"}`}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="mt-4 hidden md:block">
+          <table className="w-full text-left text-sm">
             <thead>
               <tr className="text-xs text-slate-400">
                 <th className="pb-2 font-medium">Tenant</th>
@@ -298,7 +328,7 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
                       {t.paused_reason && (
                         <span key="span-297-22" className="text-xs text-amber-700">
                           <span>work waiting ·{" "}
-                          <span>{t.paused_reason === "global_quota" ? "app-wide pause" : "own allowance used"}</span></span>
+                          <span>{t.paused_reason === "global_quota" ? "app-wide pause" : "own Etsy request limit used"}</span></span>
                         </span>
                       )}
                     </td>

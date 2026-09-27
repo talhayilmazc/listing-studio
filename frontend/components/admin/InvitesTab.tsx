@@ -133,8 +133,50 @@ export function InvitesTab({
       ) : invites.length === 0 ? (
         <div className="card p-8 text-center text-sm text-slate-500">No invite codes yet.</div>
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-sm">
+        <>
+        {/* Phones and tablets: one card per invite, Revoke within reach. */}
+        <ul className="space-y-3 lg:hidden" aria-label="Invite codes">
+          {invites.map((inv) => (
+            <li key={inv.id} className="card space-y-2 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{inv.bound_email ?? "Anyone"}</p>
+                  {inv.note && <p key="note" className="truncate text-xs text-slate-500">{inv.note}</p>}
+                </div>
+                <span className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium capitalize " + STATE_STYLE[inv.state]}>
+                  {inv.state}
+                </span>
+              </div>
+              <p translate="no" className="text-xs text-slate-500">
+                <span><span>{`Created ${date(inv.created_at)}${inv.created_by_email ? ` by ${inv.created_by_email}` : ""} · `}</span>
+                <span>{inv.expires_at ? `expires ${date(inv.expires_at)}` : "never expires"}</span></span>
+              </p>
+              {inv.used_by_email && (
+                <p key="used" translate="no" className="text-xs text-slate-500">
+                  {`Used by ${inv.used_by_email}${inv.used_at ? ` on ${date(inv.used_at)}` : ""}`}
+                </p>
+              )}
+              {inv.state === "unused" && (
+                <div key="revoke" className="border-t border-slate-100 pt-2">
+                  <Confirm
+                    label="Revoke"
+                    confirmLabel="Revoke"
+                    tone="danger"
+                    onConfirm={async () => {
+                      try {
+                        onChanged(await api.admin.revokeInvite(inv.id));
+                      } catch (err: any) {
+                        onError(String(err.message ?? err));
+                      }
+                    }}
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="card hidden lg:block">
+          <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-400">
                 <th className="px-4 py-3 font-medium">State</th>
@@ -202,6 +244,7 @@ export function InvitesTab({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
