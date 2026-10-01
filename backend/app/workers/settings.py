@@ -37,6 +37,7 @@ from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
 from app.workers.schedule import release_scheduled_publishes
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
+from app.workers.ledger import estimate_ledger, sync_all_ledgers, sync_ledger
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -99,6 +100,8 @@ class WorkerSettings:
         sync_shop_listings,
         sync_sales,
         estimate_sales,
+        sync_ledger,
+        estimate_ledger,
         detect_profiles,
         run_replace_images_job,
     ]
@@ -114,6 +117,8 @@ class WorkerSettings:
         cron(release_scheduled_publishes, second=30, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).
         cron(sync_all_sales, hour={2}, minute={30}, second=0, run_at_startup=False),
+        # The shop's fees and ad spend from its payment ledger, likewise.
+        cron(sync_all_ledgers, hour={2}, minute={40}, second=0, run_at_startup=False),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -3,15 +3,29 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { listingName, money, percent } from "@/lib/analytics";
-import type { AnalyticsDetail, Figures } from "@/lib/types";
+import { TREND_LABEL, listingName, money } from "@/lib/analytics";
+import type { AnalyticsDetail, Trend } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
-import { Approximations } from "@/components/analytics/Overview";
-import { ClassBadge, Delta, PeriodPicker } from "@/components/analytics/Shared";
-import { WeeklyChart } from "@/components/analytics/WeeklyChart";
+import { Chart, LINE_COLORS, type ChartPoint } from "@/components/analytics/Chart";
+import { PeriodPicker, TrendBadge } from "@/components/analytics/Shared";
+import { ActionItem } from "@/components/analytics/Today";
+import { UnitEconomics } from "@/components/analytics/UnitEconomics";
 
 import { Txt } from "@/components/Txt";
-/** One listing: its weekly sales over 13 months, where its money goes, and what to do. */
+const TREND_MEANS: Record<Trend, string> = {
+  rising: "Its 4-week average has risen for two periods running.",
+  falling: "Its 4-week average has fallen for two periods running.",
+  steady: "Its 4-week average is holding.",
+  turned_up: "It was falling and has turned up: the direction changed, not just the level.",
+  turned_down: "It was rising and has turned down: the direction changed, not just the level.",
+  too_few: "Too few sales in the last 12 weeks to call a direction.",
+};
+
+function day(iso: string): Date {
+  return new Date(`${iso}T00:00:00Z`);
+}
+
+/** One listing: 13 months of weekly revenue, its unit economics against the period before, and what to do. */
 export default function ListingAnalytics({
   params,
   searchParams,
@@ -38,8 +52,22 @@ export default function ListingAnalytics({
   }, [listingId, shopId, days]);
 
   const row = data?.listing;
-  const ccy = data?.status.currency ?? null;
-  const periodStart = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  const ccy = data?.data.currency ?? null;
+  const from = data ? day(data.period.start).getTime() : Infinity;
+  const hasLastYear = data?.weeks.some((w) => w.last_year !== null) ?? false;
+  const points: ChartPoint[] = (data?.weeks ?? []).map((w, i, all) => {
+    const d = day(w.start);
+    const firstOfMonth = i === 0 || d.getUTCMonth() !== day(all[i - 1].start).getUTCMonth();
+    const label = d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+    return {
+      key: w.start,
+      label: `Week of ${label} · ${w.units} sold`,
+      tick: firstOfMonth && d.getUTCMonth() % 2 === 0 && i < all.length - 2 ? d.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }) : undefined,
+      bar: w.revenue,
+      strong: d.getTime() + 6 * 86400000 >= from,
+      lines: hasLastYear ? [w.avg4, w.last_year] : [w.avg4],
+    };
+  });
 
   return (
     <div className="space-y-5">
@@ -51,8 +79,8 @@ export default function ListingAnalytics({
           <PeriodPicker days={days} onChange={setDays} />
         </div>
       </div>
-      {error && <div key="div-53-6" className="card p-4 text-sm text-slate-600">{error}</div>}
-      {!data && !error && <p key="p-54-6" className="text-sm text-slate-400">Loading…</p>}
+      {error && <div key="error" className="card p-4 text-sm text-slate-600">{error}</div>}
+      {!data && !error && <p key="loading" className="text-sm text-slate-400">Loading…</p>}
 
       {row && data && (
         <>
@@ -66,8 +94,11 @@ export default function ListingAnalytics({
             <div className="min-w-0">
               <h1 className="text-lg font-semibold text-slate-900">{listingName(row)}</h1>
               <p className="mt-0.5 text-xs text-slate-500">
-                <span><Txt>{row.sku && `${row.sku} · `}</Txt>
-                <Txt>{row.profile_name && `profile ${row.profile_name} · `}</Txt></span>
+                <span>
+                  <Txt>{row.sku && `${row.sku} · `}</Txt>
+                  <Txt>{row.profile_name && `profile ${row.profile_name} · `}</Txt>
+                  <Txt>{row.launched && `launched ${row.launched} · `}</Txt>
+                </span>
                 <a href={row.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
                   View on Etsy ↗
                 </a>
@@ -75,40 +106,61 @@ export default function ListingAnalytics({
             </div>
           </header>
 
-          <section className="card p-5">
-            <div className="flex items-center gap-2">
-              <ClassBadge klass={row.verdict.klass} />
-              <span className="text-xs text-slate-500"><span>last <span>{days}</span> days</span></span>
-            </div>
-            <p className="mt-2 text-sm text-slate-700">{row.verdict.reason}</p>
-            <p className="mt-1 text-sm font-medium text-slate-900">{row.verdict.action}</p>
-            <p className="mt-2 flex flex-wrap gap-3 text-xs">
-              {row.verdict.links.map((l) => (
-                <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
-                  <span><span>{l.label}</span> ↗</span>
-                </a>
-              ))}
-            </p>
-          </section>
-
-          <section className="card p-5">
-            <h2 className="text-sm font-semibold text-slate-800">Weekly revenue, last 13 months</h2>
-            <p className="mb-4 text-xs text-slate-500"><span>The last <span>{days}</span> days in colour; the same weeks last year show whether it&apos;s seasonal.</span></p>
-            <WeeklyChart weeks={data.weeks} currency={ccy} periodStart={periodStart} />
-          </section>
-
-          <div className="grid gap-5 lg:grid-cols-2">
-            <section className="card p-5">
-              <h2 className="text-sm font-semibold text-slate-800">Where the money goes</h2>
-              <Breakdown cur={row.current} prev={row.previous} currency={ccy} unitCost={data.unit_cost} source={data.unit_cost_source} days={days} />
-              <Approximations />
+          {data.action ? (
+            <section className="card px-5">
+              <ul>
+                <ActionItem action={{ ...data.action, listing: undefined }} days={days} currency={ccy} />
+              </ul>
             </section>
-            <section className="card p-5">
-              <h2 className="text-sm font-semibold text-slate-800">Etsy Ads</h2>
-              {data.ads.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-400">No ad spend uploaded for this listing.</p>
-              ) : (
-                <table className="mt-2 w-full text-sm">
+          ) : (
+            <section className="card p-5 text-sm text-slate-600">
+              {data.economics ? "Nothing needs doing on this listing in this period." : "No sales in this period."}
+            </section>
+          )}
+
+          <section className="card p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-slate-800">Weekly revenue, last 13 months</h2>
+              <TrendBadge trend={data.trend.signal} />
+            </div>
+            <p className="mb-3 mt-1 text-xs text-slate-500">
+              <span>{TREND_MEANS[data.trend.signal]}</span>
+              <span translate="no">{` 4-week averages, oldest first: ${data.trend.avg4.join(" → ")} sold a week.`}</span>
+              <span>{hasLastYear ? " The dashed line is the same week a year earlier, to tell a seasonal dip from a real one." : " A year-earlier line appears once the sales read reaches back that far."}</span>
+            </p>
+            <Chart
+              points={points}
+              barLabel="Revenue that week (darker: this period)"
+              lines={[
+                { label: "4-week average", color: LINE_COLORS.current },
+                ...(hasLastYear ? [{ label: "Same week a year earlier", color: LINE_COLORS.comparison, dashed: true }] : []),
+              ]}
+              currency={ccy}
+            />
+          </section>
+
+          <section className="card p-5">
+            <h2 className="text-sm font-semibold text-slate-800">Unit economics</h2>
+            <p className="mb-3 mt-1 text-xs text-slate-500">{data.comparison_label}</p>
+            {data.economics ? (
+              <UnitEconomics cur={data.economics} prev={data.previous} currency={ccy} prevLabel={`Previous ${days} days`} />
+            ) : (
+              <p className="text-sm text-slate-500">
+                {data.data.sales?.from ? "No sales in this period, so there is nothing to itemise." : "This shop's sales haven't been read."}
+              </p>
+            )}
+          </section>
+
+          <section className="card p-5">
+            <h2 className="text-sm font-semibold text-slate-800">Etsy Ads, from your uploaded reports</h2>
+            {data.ads.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">
+                No Ads report covers this listing. Etsy&apos;s ledger only has the shop&apos;s total ad spend per day, so
+                per-listing spend is blank until a report is uploaded.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="mt-2 w-full min-w-[24rem] text-sm">
                   <thead className="text-left text-xs text-slate-400">
                     <tr>
                       <th className="pb-1 font-medium">Period</th>
@@ -132,79 +184,11 @@ export default function ListingAnalytics({
                     ))}
                   </tbody>
                 </table>
-              )}
-            </section>
-          </div>
+              </div>
+            )}
+          </section>
         </>
       )}
     </div>
-  );
-}
-
-function Breakdown({
-  cur,
-  prev,
-  currency,
-  unitCost,
-  source,
-  days,
-}: {
-  cur: Figures;
-  prev: Figures;
-  currency: string | null;
-  unitCost: string;
-  source: string;
-  days: number;
-}) {
-  const lines: [string, number, number, string?][] = [
-    ["Transaction fee", cur.transaction_fee, prev.transaction_fee],
-    ["Payment processing", cur.payment_fee, prev.payment_fee],
-    ["Listing fees", cur.listing_fee, prev.listing_fee],
-    ["Product cost", cur.product_cost, prev.product_cost, `${unitCost} per item (${source})`],
-    ["Shipping", cur.shipping_cost, prev.shipping_cost],
-    ["Ads", cur.ad_spend, prev.ad_spend],
-  ];
-  const change = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
-  return (
-    <table className="mt-2 w-full text-sm">
-      <thead className="text-left text-xs text-slate-400">
-        <tr>
-          <th className="pb-1 font-medium" />
-          <th className="pb-1 text-right font-medium"><span>Last <span>{days}</span> days</span></th>
-          <th className="pb-1 text-right font-medium">Before</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-100">
-        <tr>
-          <td className="py-1.5 text-slate-800">
-            Revenue <span className="text-xs text-slate-400"><span>(<span>{cur.units}</span> sold, <span>{cur.orders}</span> order lines)</span></span>
-          </td>
-          <td translate="no" className="py-1.5 text-right tabular-nums text-slate-900">{money(cur.revenue, currency)}</td>
-          <td translate="no" className="py-1.5 text-right tabular-nums text-slate-500">{money(prev.revenue, currency)}</td>
-        </tr>
-        {lines.map(([label, a, b, note]) => (
-          <tr key={label}>
-            <td className="py-1.5 text-slate-600">
-              <span>− <span>{label}</span> </span>{note && <span key="span-187-24" className="block text-xs text-slate-400">{note}</span>}
-            </td>
-            <td translate="no" className="py-1.5 text-right tabular-nums text-slate-700">{money(a, currency)}</td>
-            <td translate="no" className="py-1.5 text-right tabular-nums text-slate-500">{money(b, currency)}</td>
-          </tr>
-        ))}
-        <tr className="font-semibold">
-          <td className="py-2 text-slate-900">
-            Net profit <span className="text-xs font-normal"><span>(<span>{percent(cur.margin)}</span> margin)</span></span>
-          </td>
-          <td translate="no" className={`py-2 text-right tabular-nums ${cur.net < 0 ? "text-rose-700" : "text-slate-900"}`}>{money(cur.net, currency)}</td>
-          <td translate="no" className="py-2 text-right tabular-nums text-slate-500">{money(prev.net, currency)}</td>
-        </tr>
-        <tr>
-          <td className="pt-1 text-xs text-slate-500" colSpan={3}>
-            Net vs before: <Delta change={change(cur.net, prev.net)} current={cur.net} /><span> · ACOS <span>{percent(cur.acos)}</span> · average order{" "}
-            <span>{money(cur.aov, currency)}</span></span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
   );
 }

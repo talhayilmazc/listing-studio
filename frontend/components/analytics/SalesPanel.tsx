@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { formatWhen } from "@/lib/schedule";
-import type { SalesSync } from "@/lib/types";
+import type { LedgerRead, SalesSync } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 
 import { Txt } from "@/components/Txt";
@@ -42,7 +42,8 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
 
   // While estimating or reading, look again every few seconds; refresh the
   // figures every third look, so partial totals appear as they land.
-  const live = sync?.state === "estimating" || sync?.state === "reading" || updating !== null;
+  const ledgerLive = sync?.ledger.state === "estimating" || sync?.ledger.state === "reading";
+  const live = sync?.state === "estimating" || sync?.state === "reading" || ledgerLive || updating !== null;
   useEffect(() => {
     if (!live) return;
     const t = setInterval(async () => {
@@ -51,12 +52,14 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
       if (s?.state === "complete" && (updating === null || s.synced_at !== updating)) {
         setUpdating(null);
         onProgress();
-      } else if (s?.state === "reading" && reloads.current % 3 === 0) {
+      } else if (s?.ledger.state === "complete" && ledgerLive) {
+        onProgress();
+      } else if ((s?.state === "reading" || s?.ledger.state === "reading") && reloads.current % 3 === 0) {
         onProgress();
       }
     }, 4000);
     return () => clearInterval(t);
-  }, [live, load, onProgress, updating]);
+  }, [live, ledgerLive, load, onProgress, updating]);
 
   async function act(f: () => Promise<unknown>) {
     setBusy(true);
@@ -113,6 +116,11 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
                 : "; it finishes today."}
             </span>
           </p>
+          {sync.ledger.state === "estimated" && (
+            <p key="ledger-cost">
+              {`Etsy's payment ledger (the fees and ad spend Etsy actually charged) has ${n(sync.ledger.total_count)} ${plural(sync.ledger.total_count ?? 0, "entry", "entries")} in the last ${sync.ledger.first_days} days: about ${n(sync.ledger.pages_estimate)} more ${plural(sync.ledger.pages_estimate ?? 0, "request", "requests")}. It is read alongside your sales.`}
+            </p>
+          )}
           <p className="text-xs text-slate-500">
             It runs in the background and can be left; the figures below fill in as it goes. After this, each night
             reads only new sales (usually one request).
@@ -177,7 +185,113 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
         </div>
       )}
 
+      {sync.state !== "none" && sync.state !== "estimating" && (
+        <LedgerLine
+          key="ledger"
+          ledger={sync.ledger}
+          alone={sync.state === "complete"}
+          busy={busy}
+          timeZone={timeZone}
+          onEstimate={() => act(() => api.estimateLedger(shopId))}
+          onStart={() => act(() => api.startLedger(shopId))}
+          onResume={() => act(() => api.resumeSales(shopId))}
+        />
+      )}
+
       {error && <p key="error" className="text-xs text-rose-700">{error}</p>}
     </div>
   );
+}
+
+/**
+ * Etsy's payment ledger: what Etsy charged the shop per day (fees, ads). The
+ * first read covers the last 90 days, because the ledger has several entries
+ * per order; from there it is kept up to date nightly and held for 13 months.
+ */
+function LedgerLine({
+  ledger,
+  alone,
+  busy,
+  timeZone,
+  onEstimate,
+  onStart,
+  onResume,
+}: {
+  ledger: LedgerRead;
+  /** The sales read is done, so the ledger can be estimated and started on its own. */
+  alone: boolean;
+  busy: boolean;
+  timeZone: string;
+  onEstimate: () => void;
+  onStart: () => void;
+  onResume: () => void;
+}) {
+  const pct = ledger.total_count ? Math.min(100, (ledger.read_count / ledger.total_count) * 100) : 0;
+  if (ledger.state === "none" && alone) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-2">
+        <span>
+          Fees and ad spend are estimates until Etsy&apos;s payment ledger is read: it holds what Etsy actually charged
+          your shop each day.
+        </span>
+        <button type="button" className="btn-secondary" onClick={onEstimate} disabled={busy}>
+          See what it costs
+        </button>
+      </div>
+    );
+  }
+  if (ledger.state === "estimating") {
+    return <p className="border-t border-slate-100 pt-2 text-brand-700">Counting the entries in Etsy&apos;s payment ledger…</p>;
+  }
+  if (ledger.state === "estimated" && alone) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-2">
+        <span>
+          {`Etsy's payment ledger has ${n(ledger.total_count)} ${plural(ledger.total_count ?? 0, "entry", "entries")} in the last ${ledger.first_days} days: about ${n(ledger.pages_estimate)} ${plural(ledger.pages_estimate ?? 0, "request", "requests")} from the app's shared daily budget. From there it is kept up to date every night; periods before those days keep using your fee rates.`}
+        </span>
+        <button type="button" className="btn-primary" onClick={onStart} disabled={busy}>
+          Read the ledger
+        </button>
+      </div>
+    );
+  }
+  if (ledger.state === "reading" || ledger.state === "waiting") {
+    return (
+      <div className="space-y-1.5 border-t border-slate-100 pt-2">
+        <span>
+          <span>{ledger.state === "reading" ? "Reading Etsy's ledger: " : "Ledger paused at "}</span>
+          <span className="font-medium tabular-nums">{n(ledger.read_count)}</span>
+          <span>{` of ${n(ledger.total_count)} entries`}</span>
+        </span>
+        <div className="progress">
+          <div className="progress-fill" style={{ width: pct + "%" }} />
+        </div>
+        <p className="text-xs text-slate-500">
+          {ledger.state === "waiting" && ledger.resumes_at
+            ? `Today's share of the budget is used; it carries on at ${formatWhen(ledger.resumes_at, timeZone)}. Until it finishes, fees are estimated from your rates.`
+            : "Until it finishes, fees are estimated from your rates and shop-wide ad spend is blank."}
+        </p>
+      </div>
+    );
+  }
+  if (ledger.state === "complete") {
+    return (
+      <p className="text-xs text-slate-500">
+        {ledger.covers_from && ledger.covers_to
+          ? `Fees and ad spend from Etsy's ledger: ${ledger.covers_from} to ${ledger.covers_to} · ${n(ledger.requests_used)} requests so far · updated every night`
+          : "Fees and ad spend come from Etsy's ledger · updated every night"}
+      </p>
+    );
+  }
+  if (ledger.state === "failed") {
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2">
+        <span className="text-rose-700">{ledger.note ?? "Reading Etsy's ledger stopped."}</span>
+        <button type="button" className="btn-secondary" onClick={onResume} disabled={busy}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+  return null;
 }

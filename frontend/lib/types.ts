@@ -551,32 +551,59 @@ export interface BatchDeleteResult {
   jobs_cancelled: number;
 }
 
-// --- Analytics (v7 §C) --------------------------------------------------------------
-// Money is in the shop's currency, in minor units (cents).
+// --- Analytics (v7 §C, reworked) -----------------------------------------------------
+// Money is in the shop's currency, in minor units (cents). A figure is null when
+// nothing is behind it: shown blank with its note, never as a zero.
+
+export type FigureSource = "sales" | "ledger" | "allocated" | "rates" | "costs" | "report" | "computed" | "none";
+
+export interface Figure {
+  value: number | null;
+  source: FigureSource | string;
+  note: string | null;
+}
 
 export type ListingClass = "winner" | "steady" | "fading" | "ad_sink" | "loser" | "new";
 
-export interface Figures {
-  units: number;
-  orders: number;
-  revenue: number;
-  transaction_fee: number;
-  payment_fee: number;
-  listing_fee: number;
-  fees: number;
-  product_cost: number;
-  shipping_cost: number;
-  ad_spend: number;
-  ad_orders: number;
-  ad_revenue: number;
-  costs: number;
-  net: number;
-  margin: number | null;
-  aov: number | null;
-  acos: number | null;
+export interface DataStatus {
+  connected: boolean;
+  can_read_sales: boolean;
+  currency?: string | null;
+  sales?: { state: string; from: string | null; synced_at: string | null; read: number; of: number | null; note: string | null };
+  ledger?: { state: string; from: string | null; to: string | null; read: number; of: number | null; note: string | null };
+  reports_until?: string | null;
+  titles_refreshing?: boolean;
+  listing_counts?: Record<string, number | boolean> | null;
+  costs_entered?: { product: boolean; shipping: boolean; fixed: boolean; rates: boolean };
 }
 
-export interface AnalyticsRow {
+export type LineKey = "listing_fees" | "transaction_fees" | "processing_fees" | "ads" | "shipping" | "product" | "fixed";
+
+export interface LedgerType {
+  ledger_type: string;
+  category: string | null;
+  amount: number;
+  entries: number;
+  counted: boolean;
+  label: string;
+}
+
+export interface Totals {
+  revenue: Figure;
+  units: number | null;
+  orders: number | null;
+  aov: number | null;
+  lines: Record<LineKey, Figure>;
+  costs: number;
+  net: Figure;
+  margin: number | null;
+  net_excludes: string[];
+  ads_unattributed: number | null;
+  ledger_types: LedgerType[];
+  notes?: string[];
+}
+
+export interface ListingRef {
   listing_id: number;
   title: string | null;
   state: string | null;
@@ -584,69 +611,143 @@ export interface AnalyticsRow {
   thumbnail_url: string | null;
   sku: string | null;
   profile_name: string | null;
-  current: Figures;
-  previous: Figures;
-  revenue_change: number | null;
-  net_change: number | null;
-  units_change: number | null;
-  verdict: { klass: ListingClass; reason: string; action: string; links: { label: string; url: string }[] };
+  launched: string | null;
 }
 
-export interface AnalyticsStatus {
-  connected: boolean;
-  can_read_sales: boolean;
-  synced_at: string | null;
-  has_sales: boolean;
-  currency: string | null;
-  titles_refreshing: boolean;
-  ads_until: string | null;
-}
-
-export interface ShopTotals {
-  revenue: number;
+export interface Economics {
   units: number;
   orders: number;
-  fees: number;
-  product_cost: number;
-  shipping_cost: number;
-  ad_spend: number;
-  ad_revenue: number;
-  fixed_costs: number;
-  costs: number;
+  revenue: number;
+  fees: Record<"listing_fees" | "transaction_fees" | "processing_fees", number>;
+  fees_total: number;
+  fees_source: "allocated" | "rates" | string;
+  product: number | null;
+  unit_cost: string | null;
+  unit_cost_source: string | null;
+  shipping: number | null;
+  ads: number | null;
+  ad_orders: number | null;
+  ad_revenue: number | null;
   net: number;
   margin: number | null;
-  aov: number | null;
+  net_per_unit: number | null;
+  net_excludes: string[];
+  contribution: number;
+  break_even_acos: number | null;
   acos: number | null;
-  roas: number | null;
+  spend_per_sale: number | null;
 }
 
-export interface AnalyticsOverview {
-  status: AnalyticsStatus;
-  days: number;
-  start: string | null;
-  end: string | null;
-  current: ShopTotals | null;
-  previous: ShopTotals | null;
-  classes: Partial<Record<ListingClass, number>>;
-  attention: AnalyticsRow[];
-  best: AnalyticsRow[];
-  worst: AnalyticsRow[];
+export type ActionKind = "ad_sink" | "ads_above_break_even" | "selling_at_loss" | "fading" | "turned_down" | "room_to_advertise";
+
+export interface Action {
+  listing_id: number;
+  kind: ActionKind;
+  /** Money at stake per 30 days, minor units. */
+  stake: number;
+  reason: string;
+  action: string;
+  links: { label: string; url: string }[];
+  listing?: ListingRef;
+}
+
+export interface Cohort {
+  key: string;
+  label: string;
+  listings: number;
+  selling: number;
+  revenue: number;
+  units: number;
+  revenue_per_listing: number | null;
+  first90_revenue: number;
+  first90_listings: number;
+  first90_per_listing: number | null;
+}
+
+export interface SeriesPoint {
+  day: string;
+  revenue: number;
+  avg7: number;
+  avg28: number;
+}
+
+export interface Comparison {
+  mode: "previous" | "year";
+  label: string;
+  start?: string | null;
+  end?: string | null;
+  unavailable: string | null;
+  year_available?: boolean;
+}
+
+export interface AnalyticsSummary {
+  data: DataStatus;
+  period?: { days: number; start: string; end: string };
+  comparison?: Comparison;
+  totals?: Totals;
+  compared?: Totals | null;
+  actions?: Action[];
+  actions_total?: number;
+  concentration?: {
+    total: number;
+    top_n: number;
+    top_share: number | null;
+    top_listings: number[];
+    listings_for_80pct: number | null;
+    selling_listings: number;
+    top: (ListingRef & { revenue: number })[];
+  };
+  cohorts?: Cohort[];
+  series?: { current: SeriesPoint[]; comparison: SeriesPoint[] | null };
+}
+
+export type Trend = "rising" | "falling" | "steady" | "turned_up" | "turned_down" | "too_few";
+
+export interface ListingRow extends ListingRef {
+  economics: Economics | null;
+  comparison: { revenue: number; units: number; net: number } | null;
+  trend: Trend | null;
+  action: Action | null;
+  status: ListingClass | null;
 }
 
 export interface AnalyticsListings {
-  status: AnalyticsStatus;
-  days: number;
-  listings: AnalyticsRow[];
+  data: DataStatus;
+  period?: { days: number; start: string; end: string };
+  comparison?: Comparison;
+  listings: ListingRow[];
 }
 
 export interface AnalyticsDetail {
-  status: AnalyticsStatus;
-  days: number;
-  listing: AnalyticsRow;
-  unit_cost: string;
-  unit_cost_source: string;
-  weeks: { start: string; units: number; revenue: number }[];
+  data: DataStatus;
+  listing: ListingRef;
+  period: { days: number; start: string; end: string };
+  comparison_label: string;
+  economics: Economics | null;
+  previous: Economics | null;
+  unit_cost: string | null;
+  unit_cost_source: string | null;
+  trend: { signal: Trend; weekly_units: number[]; avg4: number[] };
+  action: Action | null;
+  weeks: { start: string; units: number; revenue: number; avg4: number; last_year: number | null }[];
   ads: { period_start: string; period_end: string; spend: number; ad_orders: number; ad_revenue: number; ad_views: number }[];
+}
+
+export type BreakdownMetric =
+  | "revenue" | "units" | "orders" | "listing_fees" | "transaction_fees" | "processing_fees"
+  | "ads" | "shipping" | "product" | "net";
+
+export interface Breakdown {
+  period: { days: number; start: string; end: string };
+  metric: BreakdownMetric;
+  label: string;
+  figure: Partial<Figure> & { value: number | null };
+  listed_total: number;
+  unattributed: number | null;
+  rows: (ListingRef & { value: number; share: number | null })[];
+  ledger_types: LedgerType[];
+  daily: { day: string; value: number }[];
+  notes: string[];
 }
 
 export interface CostSettings {
@@ -709,6 +810,21 @@ export interface SalesSync {
   started_at: string | null;
   finished_at: string | null;
   synced_at: string | null;
+  ledger: LedgerRead;
+}
+
+/** Reading Etsy's payment ledger: the shop's fees and ad spend per day. */
+export interface LedgerRead {
+  state: "none" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed";
+  total_count: number | null;
+  pages_estimate: number | null;
+  first_days: number;
+  read_count: number;
+  requests_used: number;
+  resumes_at: string | null;
+  note: string | null;
+  covers_from: string | null;
+  covers_to: string | null;
 }
 
 /** Our product allowance: listings generated plus drafts created per period.

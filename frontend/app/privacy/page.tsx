@@ -38,7 +38,7 @@ function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="26 September 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated="1 October 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listing Studio (&ldquo;the Service&rdquo;) is operated by{" "}
@@ -198,6 +198,14 @@ export default function PrivacyPage() {
           written anywhere.
         </p>
         <p>
+          <strong>Your shop&rsquo;s fees and ad spend.</strong> With the same permission we read
+          your shop&rsquo;s payment account ledger from Etsy: for each entry only its type (for
+          example a transaction fee, a listing fee or an Etsy Ads charge), its amount and its
+          date. We add these up into one total per type per day, so your profit is worked out
+          from what Etsy actually charged instead of an estimate. The entries themselves are not
+          stored, and nothing in them about an order or a buyer is kept.
+        </p>
+        <p>
           Reading sales is a permission added on 26 September 2026. If you connected your shop
           before then, the Service asks you to reconnect it once to grant it; until you do,
           everything else keeps working and sales figures are simply not shown.
@@ -296,6 +304,10 @@ export default function PrivacyPage() {
               <Row
                 data="Daily sales totals per listing (units sold, orders and revenue) worked out from your shop's sales"
                 period="13 months, so last year's season can be compared, then deleted automatically; deleted at once when you disconnect the shop. The sales themselves are never stored"
+              />
+              <Row
+                data="Daily totals of your shop's Etsy fees and ad spend, per fee type, worked out from your payment account ledger"
+                period="13 months, then deleted automatically; deleted at once when you disconnect the shop. The ledger entries themselves are never stored"
               />
               <Row
                 data="Etsy Ads figures you upload as a CSV file"

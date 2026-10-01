@@ -39,6 +39,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     AdSpend,
     AllowanceUse,
+    LedgerDaily,
+    LedgerSync,
     Job,
     ListingProfile,
     ListingPublication,
@@ -71,6 +73,7 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.day < oldest))
     ads = await session.execute(delete(AdSpend).where(AdSpend.period_end < oldest))
+    await session.execute(delete(LedgerDaily).where(LedgerDaily.day < oldest))
     # Allowance usage: long past any period an allowance counts over.
     await session.execute(delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
     image_links = await _strip_display_fields(session, now)
@@ -156,6 +159,8 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
     ads = await session.execute(delete(AdSpend).where(AdSpend.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
+    await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))
+    await session.execute(delete(LedgerSync).where(LedgerSync.connection_id == connection_id))
     return {
         "sales_days": sales.rowcount or 0,
         "ad_spend": ads.rowcount or 0,

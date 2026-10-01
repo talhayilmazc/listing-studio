@@ -7,7 +7,9 @@ import type {
   AdsUpload,
   AnalyticsDetail,
   AnalyticsListings,
-  AnalyticsOverview,
+  AnalyticsSummary,
+  Breakdown,
+  BreakdownMetric,
   CostSettings,
   SalesSync,
   AdminInvite,
@@ -277,12 +279,19 @@ export const api = {
       body: JSON.stringify({ group_key: groupKey, pattern_listing_id: listingId }),
     }),
   // --- Analytics (v7 §C): the seller's own sales, ads report and costs.
-  analyticsOverview: (shop: string | null, days: number) =>
-    req<AnalyticsOverview>(`/analytics/overview${query({ shop, days })}`),
-  analyticsListings: (shop: string | null, days: number) =>
-    req<AnalyticsListings>(`/analytics/listings${query({ shop, days })}`),
+  analyticsSummary: (shop: string | null, days: number, compare: "previous" | "year") =>
+    req<AnalyticsSummary>(`/analytics/summary${query({ shop, days, compare })}`),
+  analyticsListings: (shop: string | null, days: number, compare: "previous" | "year") =>
+    req<AnalyticsListings>(`/analytics/listings${query({ shop, days, compare })}`),
   analyticsListing: (listingId: number, shop: string | null, days: number) =>
     req<AnalyticsDetail>(`/analytics/listings/${listingId}${query({ shop, days })}`),
+  /** What a total is made of: listings, ledger entry types, days. */
+  analyticsBreakdown: (metric: BreakdownMetric, shop: string | null, days: number) =>
+    req<Breakdown>(`/analytics/breakdown${query({ metric, shop, days })}`),
+  /** A CSV download link for the seller's own spreadsheet. */
+  analyticsExportUrl: (view: "listings" | "daily" | "ledger" | "breakdown", shop: string | null, days: number,
+    compare: "previous" | "year" = "previous", metric?: BreakdownMetric) =>
+    `${BASE}/analytics/export${query({ view, shop, days, compare, metric })}`,
   salesStatus: (shop: string | null) => req<SalesSync>(`/analytics/sales/status${shopQuery(shop)}`),
   /** Work out what the first read costs (a few requests), before starting it. */
   estimateSales: (shop: string | null) =>
@@ -290,6 +299,11 @@ export const api = {
   startSales: (shop: string | null) => req<SalesSync>(`/analytics/sales/start${shopQuery(shop)}`, { method: "POST" }),
   /** After a failure: carry on where the read stopped. */
   resumeSales: (shop: string | null) => req<SalesSync>(`/analytics/sales/resume${shopQuery(shop)}`, { method: "POST" }),
+  /** Etsy's payment ledger on its own, for a shop whose sales are read already. */
+  estimateLedger: (shop: string | null) =>
+    req<SalesSync>(`/analytics/ledger/estimate${shopQuery(shop)}`, { method: "POST" }),
+  startLedger: (shop: string | null) =>
+    req<SalesSync>(`/analytics/ledger/start${shopQuery(shop)}`, { method: "POST" }),
   /** Read the shop's latest sales now (upkeep, not the seller's quota). */
   refreshSales: (shop: string | null) =>
     req<{ queued: boolean }>(`/analytics/sales/refresh${shopQuery(shop)}`, { method: "POST" }),

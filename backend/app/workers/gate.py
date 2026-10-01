@@ -57,13 +57,18 @@ JOB_COST: dict[str, int] = {
     # shop, the first page (count and order), and a binary search for the
     # 13-month edge: one request per step, 21 steps covers two million sales
     "estimate_sales": 23,
+    # shop, and one chunk of the payment ledger: 20 pages of 100 (workers/ledger.py)
+    "sync_ledger": 21,
+    # shop, and one request for the window's entry count
+    "estimate_ledger": 2,
 }
 
 # Keeping shops and profiles current is the app's upkeep, not the seller's work:
 # it counts against Etsy's app-wide budget (and waits at the 90% pause) but not
 # against the seller's own daily limit (v7 §D3).
 UPKEEP = frozenset(
-    {"refresh_profile", "refresh_profile_images", "sync_shop_listings", "detect_profiles", "sync_sales", "estimate_sales"}
+    {"refresh_profile", "refresh_profile_images", "sync_shop_listings", "detect_profiles", "sync_sales", "estimate_sales",
+     "sync_ledger", "estimate_ledger"}
 )
 
 # Resume a little after midnight, so the new day's counters are in place.

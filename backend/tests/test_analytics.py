@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.db.models import AdSpend, EtsyConnection, SalesDaily, SalesSync, ShopListingCache, Tenant
+from app.db.models import AdSpend, EtsyConnection, LedgerSync, SalesDaily, SalesSync, ShopListingCache, Tenant
 from app.pipeline import ads_csv, profit
 from app.pipeline.profit import AdRow, CostSettings, DaySales, ListingFacts, Metrics, Window
 from tests.auth_support import authenticate, make_tenant, open_session
@@ -210,21 +210,107 @@ async def _seed(ctx, *, scopes=("transactions_r",), cache_hours=1.0) -> uuid.UUI
     return shop
 
 
-async def test_overview_ranks_the_shop_and_hides_expired_titles(ctx) -> None:  # noqa: F811
+async def test_the_summary_states_each_figures_source_and_never_invents_a_zero(ctx) -> None:  # noqa: F811
     await _seed(ctx)
     await ctx["client"].put("/api/analytics/costs", json={"product_cost_by_sku": {"SKU4001": "8"}})
-    body = (await ctx["client"].get("/api/analytics/overview?days=30")).json()
-    assert body["status"]["can_read_sales"] and body["status"]["currency"] == "USD"
-    assert body["current"]["revenue"] == 15000 and body["current"]["units"] == 6
-    # $150 - 6.5% - (3% + 6 x $0.25) - 6 x $0.20 - 6 x $8 product cost
-    assert body["current"]["net"] == 15000 - 975 - (450 + 150) - 120 - 4800
-    assert body["best"][0]["listing_id"] == 4001 and body["best"][0]["verdict"]["klass"] == "winner"
-    assert body["best"][0]["title"] == "Funny Nurse Tee" and body["best"][0]["url"].endswith("/4001")
+    body = (await ctx["client"].get("/api/analytics/summary?days=30")).json()
+    t = body["totals"]
+    assert body["data"]["can_read_sales"] and body["data"]["currency"] == "USD"
+    assert t["revenue"]["value"] == 15000 and t["revenue"]["source"] == "sales" and t["units"] == 6
+    lines = t["lines"]
+    # No ledger read: fees are estimated from the seller's rates, and say so.
+    assert (lines["transaction_fees"]["value"], lines["transaction_fees"]["source"]) == (975, "rates")
+    assert lines["processing_fees"]["value"] == 450 + 150 and lines["listing_fees"]["value"] == 120
+    assert (lines["product"]["value"], lines["product"]["source"]) == (4800, "costs")
+    # No ledger and no Ads report: ad spend is unknown, not zero, and net says what it leaves out.
+    assert lines["ads"]["value"] is None and "no Ads report" in lines["ads"]["note"]
+    assert lines["shipping"]["value"] is None
+    assert t["net"]["value"] == 15000 - 975 - 600 - 120 - 4800
+    assert t["net_excludes"] == ["ad spend", "shipping"] and "Leaves out" in t["net"]["note"]
 
+    assert body["comparison"]["label"] == "Last 30 days vs the previous 30"
+    assert body["concentration"]["top_share"] == 1.0 and body["concentration"]["top_listings"] == [4001]
+    year = (await ctx["client"].get("/api/analytics/summary?days=30&compare=year")).json()["comparison"]
+    assert year["label"] == "Last 30 days vs the same 30 days a year earlier" and "13 months" in year["unavailable"]
+    assert (await ctx["client"].get("/api/analytics/summary?days=14")).status_code == 422
+
+
+async def test_listings_rank_by_money_at_stake(ctx) -> None:  # noqa: F811
+    await _seed(ctx)
     rows = (await ctx["client"].get("/api/analytics/listings?days=30")).json()["listings"]
-    assert {r["listing_id"]: r["verdict"]["klass"] for r in rows} == {4001: "winner", 4002: "fading", 4003: "loser"}
-    assert (await ctx["client"].get("/api/analytics/listings?days=14")).status_code == 422
+    # Teacher Shirt sold $80 the previous 30 days and nothing since: the biggest stake.
+    assert rows[0]["listing_id"] == 4002 and rows[0]["action"]["kind"] == "fading" and rows[0]["action"]["stake"] == 8000
+    assert {r["listing_id"]: r["status"] for r in rows} == {4001: "winner", 4002: "fading", 4003: "loser"}
+    e = next(r for r in rows if r["listing_id"] == 4001)["economics"]
+    assert e["revenue"] == 15000 and e["net_per_unit"] == round(e["net"] / 6)
+    assert "product cost" in e["net_excludes"]
 
+
+async def test_with_no_sales_read_listing_figures_are_blank(ctx) -> None:  # noqa: F811
+    async with ctx["sm"]() as s:
+        shop = await _shop(s, ctx["tenant_id"])
+        (await s.get(EtsyConnection, shop)).scopes = ["transactions_r"]
+        s.add(ShopListingCache(tenant_id=ctx["tenant_id"], connection_id=shop, listing_id=9001,
+                               fetched_at=datetime.now(timezone.utc), payload={"listing_id": 9001, "state": "active", "title": "T"}))
+        await s.commit()
+    rows = (await ctx["client"].get("/api/analytics/listings")).json()["listings"]
+    assert rows[0]["economics"] is None and rows[0]["status"] is None  # the "$0 everywhere" report
+    body = (await ctx["client"].get("/api/analytics/summary")).json()
+    assert body["totals"]["revenue"]["value"] is None and "haven't been read" in body["totals"]["revenue"]["note"]
+
+    # Once the read has finished, a shop with no sale shows real zeros, not blanks.
+    async with ctx["sm"]() as s:
+        s.add(SalesSync(connection_id=shop, tenant_id=ctx["tenant_id"], state="complete"))
+        await s.commit()
+    body = (await ctx["client"].get("/api/analytics/summary")).json()
+    assert body["totals"]["revenue"]["value"] == 0 and body["data"]["sales"]["from"] is not None
+    rows = (await ctx["client"].get("/api/analytics/listings")).json()["listings"]
+    assert rows[0]["economics"]["revenue"] == 0
+
+
+async def test_the_ledger_replaces_estimates_and_lists_what_it_doesnt_count(ctx) -> None:  # noqa: F811
+    from app.db.models import LedgerDaily, LedgerSync
+
+    shop = await _seed(ctx)
+    now = datetime.now(timezone.utc)
+    async with ctx["sm"]() as s:
+        s.add(LedgerSync(connection_id=shop, tenant_id=ctx["tenant_id"], state="complete",
+                         window_start=int((now - timedelta(days=90)).timestamp()), synced_until=int(now.timestamp())))
+        for kind, amount in (("prolist", -3000), ("offsite_ads_fee", -500), ("transaction", -900),
+                             ("payment_processing_fee", -700), ("listing", -120), ("DISBURSE", -50000), ("PAYMENT", 15000)):
+            s.add(LedgerDaily(connection_id=shop, day=TODAY - timedelta(days=2), ledger_type=kind, tenant_id=ctx["tenant_id"],
+                              amount_minor=amount, entries=1, currency="USD"))
+        await s.commit()
+    t = (await ctx["client"].get("/api/analytics/summary?days=30")).json()["totals"]
+    lines = t["lines"]
+    assert (lines["ads"]["value"], lines["ads"]["source"]) == (3500, "ledger")
+    assert (lines["transaction_fees"]["value"], lines["processing_fees"]["value"], lines["listing_fees"]["value"]) == (900, 700, 120)
+    assert all(lines[k]["source"] == "ledger" for k in ("transaction_fees", "processing_fees", "listing_fees"))
+    # A payout to the bank is a debit but not a cost: listed, not counted.
+    disburse = next(x for x in t["ledger_types"] if x["ledger_type"] == "DISBURSE")
+    assert disburse["counted"] is False and disburse["amount"] == -50000
+    assert t["ads_unattributed"] == 3500  # no Ads report: none of it is per listing
+
+    # Listings get the ledger's fees shared out, adding up to the ledger.
+    e = next(r for r in (await ctx["client"].get("/api/analytics/listings")).json()["listings"] if r["listing_id"] == 4001)["economics"]
+    assert e["fees_source"] == "allocated" and e["fees"] == {"listing_fees": 120, "transaction_fees": 900, "processing_fees": 700}
+
+    b = (await ctx["client"].get("/api/analytics/breakdown?metric=ads")).json()
+    assert b["figure"]["source"] == "ledger" and {x["ledger_type"] for x in b["ledger_types"]} == {"prolist", "offsite_ads_fee"}
+    assert b["unattributed"] == 3500
+
+
+async def test_breakdown_and_export(ctx) -> None:  # noqa: F811
+    await _seed(ctx)
+    b = (await ctx["client"].get("/api/analytics/breakdown?metric=revenue")).json()
+    assert [(r["listing_id"], r["value"], r["share"]) for r in b["rows"]] == [(4001, 15000, 1.0)]
+    assert sum(d["value"] for d in b["daily"]) == 15000 and "orders aren't kept" in b["notes"][0]
+    resp = await ctx["client"].get("/api/analytics/export?view=listings")
+    assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/csv")
+    lines = resp.text.strip().splitlines()
+    assert lines[0].startswith("listing_id,title,state") and len(lines) == 4
+    assert "4001,Funny Nurse Tee" in resp.text and ",150.00," in resp.text
+    assert (await ctx["client"].get("/api/analytics/export?view=nope")).status_code == 422
 
 async def test_expired_listing_content_is_not_shown(ctx) -> None:  # noqa: F811
     await _seed(ctx, cache_hours=7)
@@ -234,9 +320,8 @@ async def test_expired_listing_content_is_not_shown(ctx) -> None:  # noqa: F811
         4001: (None, "https://www.etsy.com/listing/4001"),
         4002: (None, "https://www.etsy.com/listing/4002"),
     }
-    assert rows["status"]["titles_refreshing"]
+    assert rows["data"]["titles_refreshing"]
     assert any(c[0] == "sync_shop_listings" for c in ctx["enqueuer"].calls)
-
 
 async def test_reading_sales_needs_the_permission_an_estimate_and_a_start(ctx) -> None:  # noqa: F811
     await _seed(ctx, scopes=("listings_r",))
@@ -250,7 +335,8 @@ async def test_reading_sales_needs_the_permission_an_estimate_and_a_start(ctx) -
     assert (await c.post("/api/analytics/sales/start")).status_code == 409
     r = await c.post("/api/analytics/sales/estimate")
     assert r.status_code == 202 and r.json()["state"] == "estimating"
-    assert ctx["enqueuer"].calls[-1][0] == "estimate_sales"
+    # Sales and the payment ledger are estimated together.
+    assert [c[0] for c in ctx["enqueuer"].calls[-2:]] == ["estimate_sales", "estimate_ledger"]
 
     # The estimate job fills this in; the page shows cost and days before starting.
     async with ctx["sm"]() as s:
@@ -265,6 +351,31 @@ async def test_reading_sales_needs_the_permission_an_estimate_and_a_start(ctx) -
     assert ctx["enqueuer"].calls[-1][0] == "sync_sales"
     # "Read now" is for bringing a finished read up to date.
     assert (await c.post("/api/analytics/sales/refresh")).status_code == 409
+
+
+async def test_the_ledger_can_be_read_on_its_own_once_sales_are(ctx) -> None:  # noqa: F811
+    shop = await _seed(ctx)
+    c = ctx["client"]
+    async with ctx["sm"]() as s:
+        s.add(SalesSync(connection_id=shop, tenant_id=ctx["tenant_id"], state="complete"))
+        await s.commit()
+    assert (await c.get("/api/analytics/sales/status")).json()["ledger"]["state"] == "none"
+    assert (await c.post("/api/analytics/ledger/start")).status_code == 409  # cost first
+
+    r = await c.post("/api/analytics/ledger/estimate")
+    assert r.status_code == 202 and r.json()["ledger"]["state"] == "estimating" and r.json()["state"] == "complete"
+    assert ctx["enqueuer"].calls[-1][0] == "estimate_ledger"
+    async with ctx["sm"]() as s:
+        led = await s.get(LedgerSync, shop)
+        led.state, led.total_count, led.window_start, led.window_end = "estimated", 1234, 1_780_000_000, 1_787_776_000
+        await s.commit()
+    body = (await c.get("/api/analytics/sales/status")).json()["ledger"]
+    assert (body["total_count"], body["pages_estimate"], body["first_days"]) == (1234, 13, 90)
+
+    r = await c.post("/api/analytics/ledger/start")
+    assert r.status_code == 202 and r.json()["ledger"]["state"] == "reading" and r.json()["state"] == "complete"
+    assert ctx["enqueuer"].calls[-1][0] == "sync_ledger"
+    assert (await c.post("/api/analytics/ledger/estimate")).status_code == 409  # already reading
 
 
 async def _seed_scope(ctx, scopes) -> None:  # noqa: F811
@@ -292,10 +403,13 @@ async def test_ads_csv_upload_matches_and_replaces(ctx) -> None:  # noqa: F811
     uploads = (await ctx["client"].get("/api/analytics/ads/uploads")).json()
     assert len(uploads) == 1 and uploads[0]["listings"] == 3
 
-    # Teacher Shirt: $1,002.50 of ads and no sale in 30 days.
+    # Teacher Shirt: $1,002.50 of ads and no sale in 30 days: the biggest stake.
     rows = (await ctx["client"].get("/api/analytics/listings")).json()["listings"]
-    sink = next(r for r in rows if r["listing_id"] == 4002)
-    assert sink["verdict"]["klass"] == "ad_sink" and "$1,002.50" in sink["verdict"]["reason"]
+    sink = rows[0]
+    assert sink["listing_id"] == 4002 and sink["action"]["kind"] == "ad_sink" and "$1,002.50" in sink["action"]["reason"]
+    assert sink["action"]["stake"] == 100250 and sink["status"] == "ad_sink"
+    # With a report uploaded, listings outside it spent nothing on ads.
+    assert next(r for r in rows if r["listing_id"] == 4001)["economics"]["ads"] == 1240
 
     # Another account can't remove this upload.
     upload = uploads[0]["upload_id"]
@@ -311,8 +425,9 @@ async def test_listing_detail_has_weeks_and_its_cost_source(ctx) -> None:  # noq
     body = (await ctx["client"].get("/api/analytics/listings/4001")).json()
     assert body["unit_cost"] == "8" and body["unit_cost_source"] == "SKU SKU4001"
     assert len(body["weeks"]) == 56 and sum(w["units"] for w in body["weeks"]) == 6
+    assert body["weeks"][-1]["avg4"] >= 0 and body["weeks"][0]["last_year"] is None
+    assert body["economics"]["product"] == 4800 and body["comparison_label"] == "Last 30 days vs the previous 30"
     assert (await ctx["client"].get("/api/analytics/listings/12345")).status_code == 404
-
 
 async def test_costs_round_trip_and_reject_bad_values(ctx) -> None:  # noqa: F811
     r = await ctx["client"].put("/api/analytics/costs", json={"transaction_pct": "6.5", "monthly_fixed": 20})

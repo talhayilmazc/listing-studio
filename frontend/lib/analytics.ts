@@ -1,8 +1,8 @@
 /** Presentation helpers for the Analytics screens (v7 §C). No API or state logic. */
 
-import type { AnalyticsRow, ListingClass } from "./types";
+import type { ActionKind, ListingClass, ListingRow, Trend } from "./types";
 
-/** Minor units in the shop's currency: 4700 → "$47.00", -3100 → "-$31.00". */
+/** Minor units in the shop's currency: 4700 → "$47.00", -3100 → "-$31.00"; null → "—". */
 export function money(minor: number | null | undefined, currency: string | null | undefined): string {
   if (minor === null || minor === undefined) return "—";
   try {
@@ -13,7 +13,8 @@ export function money(minor: number | null | undefined, currency: string | null 
 }
 
 /** Big figures compact: 1284000 → "$12.8K". */
-export function moneyCompact(minor: number, currency: string | null | undefined): string {
+export function moneyCompact(minor: number | null | undefined, currency: string | null | undefined): string {
+  if (minor === null || minor === undefined) return "—";
   if (Math.abs(minor) < 1_000_000) return money(minor, currency);
   try {
     return new Intl.NumberFormat("en-US", {
@@ -32,19 +33,37 @@ export function percent(ratio: number | null | undefined, digits = 0): string {
   return `${(ratio * 100).toFixed(digits)}%`;
 }
 
-/** "+12%" / "−8%" against the previous period; "new" when there was nothing before. */
-export function changeLabel(change: number | null, current: number): string {
-  if (change === null) return current ? "new" : "—";
-  const pct = Math.round(change * 100);
+/** Relative change; null when there was nothing to compare with. */
+export function change(current: number | null | undefined, previous: number | null | undefined): number | null {
+  if (current === null || current === undefined || !previous) return null;
+  return (current - previous) / Math.abs(previous);
+}
+
+/** "+12%" / "−8%" against the comparison; "new" when there was nothing before. */
+export function changeLabel(ratio: number | null, current: number | null | undefined): string {
+  if (ratio === null) return current ? "new" : "—";
+  const pct = Math.round(ratio * 100);
   if (pct === 0) return "±0%";
   return `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`;
 }
 
-/** Whether a change reads as good news (for its colour, always paired with the sign). */
-export function changeTone(change: number | null, upIsGood = true): "up" | "down" | "flat" {
-  if (change === null || Math.round(change * 100) === 0) return "flat";
-  return change > 0 === upIsGood ? "up" : "down";
+/** Whether a change reads as good news (colour only supports the sign). */
+export function changeTone(ratio: number | null, upIsGood = true): "up" | "down" | "flat" {
+  if (ratio === null || Math.round(ratio * 100) === 0) return "flat";
+  return ratio > 0 === upIsGood ? "up" : "down";
 }
+
+/** Where a figure comes from, in the seller's words. */
+export const SOURCE_LABEL: Record<string, string> = {
+  sales: "your sales",
+  ledger: "Etsy's ledger",
+  allocated: "Etsy's ledger, shared out",
+  rates: "estimate from your rates",
+  costs: "your costs",
+  report: "your Ads report",
+  computed: "calculated",
+  none: "not available",
+};
 
 export const CLASS_LABEL: Record<ListingClass, string> = {
   ad_sink: "Ad sink",
@@ -55,7 +74,6 @@ export const CLASS_LABEL: Record<ListingClass, string> = {
   new: "New",
 };
 
-/** Badge colours: status-style, and always shown with the label. */
 export const CLASS_STYLE: Record<ListingClass, string> = {
   ad_sink: "bg-rose-50 text-rose-800 ring-rose-200",
   fading: "bg-amber-50 text-amber-800 ring-amber-200",
@@ -65,58 +83,76 @@ export const CLASS_STYLE: Record<ListingClass, string> = {
   new: "bg-brand-50 text-brand-700 ring-brand-100",
 };
 
-/** Most in need of attention first — the order the table opens in. */
 export const CLASS_ORDER: ListingClass[] = ["ad_sink", "fading", "loser", "winner", "steady", "new"];
 
-export type SortKey = "attention" | "revenue" | "net" | "margin" | "units" | "ad_spend" | "acos" | "change";
+export const ACTION_LABEL: Record<ActionKind, string> = {
+  ad_sink: "Ads with no sales",
+  ads_above_break_even: "Ads above break-even",
+  selling_at_loss: "Selling at a loss",
+  fading: "Fading",
+  turned_down: "Turned down",
+  room_to_advertise: "Room to advertise",
+};
 
-function sortValue(row: AnalyticsRow, key: SortKey): number {
-  const c = row.current;
+export const TREND_LABEL: Record<Trend, string> = {
+  rising: "Rising",
+  falling: "Falling",
+  steady: "Steady",
+  turned_up: "Turned up",
+  turned_down: "Turned down",
+  too_few: "Too few sales",
+};
+
+export type SortKey =
+  | "stake" | "revenue" | "units" | "net" | "margin" | "net_per_unit" | "ads" | "acos" | "change" | "launched";
+
+function sortValue(r: ListingRow, key: SortKey): number {
+  const e = r.economics;
   switch (key) {
+    case "stake":
+      return r.action?.stake ?? -1;
     case "revenue":
-      return c.revenue;
-    case "net":
-      return c.net;
-    case "margin":
-      return c.margin ?? -Infinity;
+      return e?.revenue ?? -Infinity;
     case "units":
-      return c.units;
-    case "ad_spend":
-      return c.ad_spend;
+      return e?.units ?? -Infinity;
+    case "net":
+      return e?.net ?? -Infinity;
+    case "margin":
+      return e?.margin ?? -Infinity;
+    case "net_per_unit":
+      return e?.net_per_unit ?? -Infinity;
+    case "ads":
+      return e?.ads ?? -Infinity;
     case "acos":
-      return c.acos ?? -Infinity;
+      return e?.acos ?? -Infinity;
     case "change":
-      return row.revenue_change ?? -Infinity;
-    default:
-      return 0;
+      return change(e?.revenue, r.comparison?.revenue) ?? -Infinity;
+    case "launched":
+      return r.launched ? Date.parse(r.launched) : -Infinity;
   }
 }
 
-/**
- * Filter by class and text (title, SKU, profile or id), then sort. "attention"
- * keeps the server's order, which already puts what to look at first on top.
- */
+/** Filter by status and text (title, SKU, profile or number), then sort. */
 export function filterRows(
-  rows: AnalyticsRow[],
+  rows: ListingRow[],
   opts: { classes?: ListingClass[]; q?: string; sort?: SortKey; desc?: boolean },
-): AnalyticsRow[] {
+): ListingRow[] {
   const words = (opts.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const keep = rows.filter((r) => {
-    if (opts.classes && opts.classes.length && !opts.classes.includes(r.verdict.klass)) return false;
+    if (opts.classes && opts.classes.length && (!r.status || !opts.classes.includes(r.status))) return false;
     if (!words.length) return true;
     const hay = `${r.title ?? ""} ${r.sku ?? ""} ${r.profile_name ?? ""} ${r.listing_id}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   });
-  const sort = opts.sort ?? "attention";
-  if (sort === "attention") return opts.desc === false ? [...keep].reverse() : keep;
+  const sort = opts.sort ?? "stake";
   const dir = opts.desc === false ? 1 : -1;
   return [...keep].sort((a, b) => {
     const d = sortValue(a, sort) - sortValue(b, sort);
-    return d !== 0 ? d * dir : a.listing_id - b.listing_id;
+    return d !== 0 && Number.isFinite(d) ? d * dir : a.listing_id - b.listing_id;
   });
 }
 
-/** A listing's name while its content may be shown, else its id. */
+/** A listing's name while its content may be shown, else its number. */
 export function listingName(row: { listing_id: number; title: string | null }): string {
   return row.title ?? `Listing ${row.listing_id}`;
 }

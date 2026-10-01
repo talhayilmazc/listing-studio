@@ -792,6 +792,77 @@ class SalesSync(Base):
     )
 
 
+class LedgerDaily(Base):
+    """The shop's payment account ledger, totalled per day and entry type (v7 §C).
+
+    Derived from getShopPaymentAccountLedgerEntries: only each entry's type,
+    amount, currency and date are read; the entries themselves are not kept.
+    Gives the shop's real Etsy fees and ad spend (``prolist``,
+    ``offsite_ads_fee``) per day. Kept 13 months like sales; deleted with the shop.
+    """
+
+    __tablename__ = "ledger_daily"
+    __table_args__ = (Index("ix_ledger_daily_tenant_day", "tenant_id", "day"),)
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    #: Etsy's ledger_type, as Etsy names it ("prolist", "offsite_ads_fee", ...).
+    ledger_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Sum of the entries' amounts in minor units, signed as Etsy signs them
+    #: (a fee is negative, a payment positive).
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    entries: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    currency: Mapped[str | None] = mapped_column(Text)
+
+
+class LedgerSync(Base):
+    """Where reading one shop's ledger stands: estimated, paced, resumable.
+
+    The first read covers :attr:`FIRST_DAYS` (entries for a fixed window, read
+    100 at a time by offset, so a resumed read continues exactly); after that
+    only entries created since ``synced_until``. Holds counts and times only.
+    """
+
+    __tablename__ = "ledger_sync"
+
+    FIRST_DAYS: ClassVar[int] = 90
+    DAILY_REQUESTS: ClassVar[int] = 250
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    #: "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed"
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="estimating")
+    window_start: Mapped[int | None] = mapped_column(BigInteger)  # epoch seconds
+    window_end: Mapped[int | None] = mapped_column(BigInteger)
+    total_count: Mapped[int | None] = mapped_column(Integer)
+    next_offset: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    read_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: Everything created up to this time (epoch seconds) has been read.
+    synced_until: Mapped[int | None] = mapped_column(BigInteger)
+    #: End of the update window being read (with next_offset); None between updates.
+    update_end: Mapped[int | None] = mapped_column(BigInteger)
+    requests_used: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    requests_day: Mapped[date | None] = mapped_column(Date)
+    requests_today: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    resumes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
+    lock_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AdSpend(Base):
     """Etsy Ads spend the seller uploaded as CSV, per listing and period (v7 §C1).
 

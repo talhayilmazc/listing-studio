@@ -399,6 +399,30 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def get_ledger_entries(
+        self,
+        shop_id: int,
+        *,
+        min_created: int,
+        max_created: int,
+        limit: int = 100,
+        offset: int = 0,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """getShopPaymentAccountLedgerEntries (transactions_r): the shop's payment
+        account ledger between two times. Callers read only the entry type,
+        amount, currency, time and sequence number (pipeline/ledger.py)."""
+        return await self._request(
+            "GET",
+            f"/application/shops/{shop_id}/payment-account/ledger-entries",
+            access_token=access_token,
+            params={"min_created": min_created, "max_created": max_created, "limit": limit, "offset": offset},
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     # --- Writes ------------------------------------------------------------
     async def update_listing_personalization(
         self,
