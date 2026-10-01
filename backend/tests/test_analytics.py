@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.db.models import AdSpend, EtsyConnection, LedgerSync, SalesDaily, SalesSync, ShopListingCache, Tenant
+from app.db.models import AdSpend, EtsyConnection, LedgerDaily, LedgerSync, SalesDaily, SalesSync, ShopListingCache, Tenant
 from app.pipeline import ads_csv, profit
 from app.pipeline.profit import AdRow, CostSettings, DaySales, ListingFacts, Metrics, Window
 from tests.auth_support import authenticate, make_tenant, open_session
@@ -376,6 +376,52 @@ async def test_the_ledger_can_be_read_on_its_own_once_sales_are(ctx) -> None:  #
     assert r.status_code == 202 and r.json()["ledger"]["state"] == "reading" and r.json()["state"] == "complete"
     assert ctx["enqueuer"].calls[-1][0] == "sync_ledger"
     assert (await c.post("/api/analytics/ledger/estimate")).status_code == 409  # already reading
+
+
+async def test_older_periods_stay_estimates_until_the_ledger_history_reaches_them(ctx) -> None:  # noqa: F811
+    shop = await _seed(ctx)
+    c = ctx["client"]
+    midnight = int(datetime(TODAY.year, TODAY.month, TODAY.day, tzinfo=timezone.utc).timestamp())
+    first = midnight - 90 * 86400
+    async with ctx["sm"]() as s:
+        s.add(SalesSync(connection_id=shop, tenant_id=ctx["tenant_id"], state="complete", window_start=TODAY - timedelta(days=396)))
+        s.add(LedgerSync(connection_id=shop, tenant_id=ctx["tenant_id"], state="complete", window_start=first,
+                         window_end=midnight + 3600, synced_until=midnight + 3600,
+                         backfill_state="waiting", backfill_target=midnight - 395 * 86400, covered_from=first - 30 * 86400,
+                         backfill_requests=12, backfill_note="today's share of the budget for reading fees is used"))
+        s.add(LedgerDaily(connection_id=shop, day=TODAY - timedelta(days=100), ledger_type="transaction",
+                          tenant_id=ctx["tenant_id"], amount_minor=-777, entries=3, currency="USD"))
+        await s.commit()
+
+    # Progress: how far back it reaches, where it is going, and what is left.
+    led = (await c.get("/api/analytics/sales/status")).json()["ledger"]
+    assert led["history_state"] == "waiting" and led["history_requests"] == 12
+    assert led["covers_from"] == (TODAY - timedelta(days=120)).isoformat()
+    assert led["history_target"] == (TODAY - timedelta(days=395)).isoformat()
+    assert led["history_requests_left"] == 110  # 12 requests for 30 days; 275 days to go
+
+    # Last 90 days: charged amounts. The 90 before reach past where the history has got to: estimates, and it says why.
+    body = (await c.get("/api/analytics/summary?days=90")).json()
+    assert body["totals"]["lines"]["transaction_fees"]["source"] == "ledger"
+    was = body["compared"]["lines"]["transaction_fees"]
+    assert was["source"] == "rates" and "still being read" in was["note"] and "reaches back to" in was["note"]
+    assert body["data"]["ledger"]["history"] == "waiting"
+
+    # Once the history reaches them, the same period shows what Etsy charged.
+    async with ctx["sm"]() as s:
+        led_row = await s.get(LedgerSync, shop)
+        led_row.covered_from, led_row.backfill_state = led_row.backfill_target, "complete"
+        await s.commit()
+    was = (await c.get("/api/analytics/summary?days=90")).json()["compared"]["lines"]["transaction_fees"]
+    assert (was["source"], was["value"]) == ("ledger", 777)
+
+    # A refused history read can be tried again from where it stopped.
+    async with ctx["sm"]() as s:
+        (await s.get(LedgerSync, shop)).backfill_state = "failed"
+        await s.commit()
+    r = await c.post("/api/analytics/sales/resume")
+    assert r.status_code == 202 and r.json()["ledger"]["history_state"] == "reading"
+    assert ctx["enqueuer"].calls[-1][0] == "backfill_ledger"
 
 
 async def _seed_scope(ctx, scopes) -> None:  # noqa: F811

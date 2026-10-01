@@ -23,6 +23,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null); // synced_at before "Read now"
   const reloads = useRef(0);
+  const seen = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -42,24 +43,33 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
 
   // While estimating or reading, look again every few seconds; refresh the
   // figures every third look, so partial totals appear as they land.
-  const ledgerLive = sync?.ledger.state === "estimating" || sync?.ledger.state === "reading";
+  const ledgerLive = sync?.ledger.state === "estimating" || sync?.ledger.state === "reading" || sync?.ledger.history_state === "reading";
   const live = sync?.state === "estimating" || sync?.state === "reading" || ledgerLive || updating !== null;
+  // Only the background history is moving: a slower look is enough.
+  const historyOnly = sync?.state === "complete" && sync.ledger.state === "complete" && updating === null;
   useEffect(() => {
     if (!live) return;
     const t = setInterval(async () => {
       const s = await load();
+      if (!s) return;
       reloads.current += 1;
-      if (s?.state === "complete" && (updating === null || s.synced_at !== updating)) {
+      // The figures are reloaded when something changed: a read finished, "Read
+      // now" landed, or the fee history reached further back. While sales or
+      // the first ledger read are under way, every third look as well.
+      const mark = `${s.state}|${s.ledger.state}|${s.ledger.history_state}|${s.ledger.covers_from}`;
+      const changed = seen.current !== null && seen.current !== mark;
+      seen.current = mark;
+      if (updating !== null && s.state === "complete" && s.synced_at !== updating) {
         setUpdating(null);
         onProgress();
-      } else if (s?.ledger.state === "complete" && ledgerLive) {
+      } else if (changed) {
         onProgress();
-      } else if ((s?.state === "reading" || s?.ledger.state === "reading") && reloads.current % 3 === 0) {
+      } else if ((s.state === "reading" || s.ledger.state === "reading") && reloads.current % 3 === 0) {
         onProgress();
       }
-    }, 4000);
+    }, historyOnly ? 15000 : 4000);
     return () => clearInterval(t);
-  }, [live, ledgerLive, load, onProgress, updating]);
+  }, [live, historyOnly, load, onProgress, updating]);
 
   async function act(f: () => Promise<unknown>) {
     setBusy(true);
@@ -275,12 +285,50 @@ function LedgerLine({
     );
   }
   if (ledger.state === "complete") {
+    const day = (iso: string) => new Date(`${iso}T00:00:00Z`).getTime();
+    const filling = ledger.history_state !== "complete" && ledger.covers_from && ledger.history_target && ledger.covers_to;
+    const span = filling ? day(ledger.covers_to!) - day(ledger.history_target!) : 0;
+    const histPct = filling && span > 0 ? Math.min(100, Math.max(0, ((day(ledger.covers_to!) - day(ledger.covers_from!)) / span) * 100)) : 0;
     return (
-      <p className="text-xs text-slate-500">
-        {ledger.covers_from && ledger.covers_to
-          ? `Fees and ad spend from Etsy's ledger: ${ledger.covers_from} to ${ledger.covers_to} · ${n(ledger.requests_used)} requests so far · updated every night`
-          : "Fees and ad spend come from Etsy's ledger · updated every night"}
-      </p>
+      <div className="space-y-1.5">
+        <p className="text-xs text-slate-500">
+          {ledger.covers_from && ledger.covers_to
+            ? `Fees and ad spend from Etsy's ledger: ${ledger.covers_from} to ${ledger.covers_to} · ${n(ledger.requests_used)} requests so far · updated every night`
+            : "Fees and ad spend come from Etsy's ledger · updated every night"}
+        </p>
+        {filling && ledger.history_state !== "failed" && (
+          <div key="history" className="space-y-1 border-t border-slate-100 pt-2">
+            <p className="text-xs text-slate-600">
+              <span>
+                {ledger.history_state === "none"
+                  ? "13 months of fee history will be read in the background, once your sales are read: "
+                  : "Reading 13 months of fee history in the background: "}
+              </span>
+              <span className="font-medium">{`back to ${ledger.covers_from} so far, going to ${ledger.history_target}`}</span>
+              <Txt>{ledger.history_requests_left != null ? ` · about ${n(ledger.history_requests_left)} ${plural(ledger.history_requests_left, "request", "requests")} to go` : ""}</Txt>
+            </p>
+            <div className="progress">
+              <div className="progress-fill" style={{ width: histPct + "%" }} />
+            </div>
+            <p className="text-xs text-slate-500">
+              <span>
+                It runs after everything else, inside this shop&apos;s daily share of the budget, over as many days as it
+                needs. Periods before the date it has reached, including a year-earlier comparison, show fees estimated
+                from your rates until it gets there.
+              </span>
+              <Txt>{ledger.history_state === "waiting" && ledger.history_note ? ` Paused for today: ${ledger.history_note}.` : ""}</Txt>
+            </p>
+          </div>
+        )}
+        {ledger.history_state === "failed" && (
+          <div key="history-failed" className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2">
+            <span className="text-rose-700">{ledger.history_note ?? "Reading the fee history stopped."}</span>
+            <button type="button" className="btn-secondary" onClick={onResume} disabled={busy}>
+              Try again
+            </button>
+          </div>
+        )}
+      </div>
     );
   }
   if (ledger.state === "failed") {

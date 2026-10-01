@@ -570,7 +570,7 @@ export interface DataStatus {
   can_read_sales: boolean;
   currency?: string | null;
   sales?: { state: string; from: string | null; synced_at: string | null; read: number; of: number | null; note: string | null };
-  ledger?: { state: string; from: string | null; to: string | null; read: number; of: number | null; note: string | null };
+  ledger?: { state: string; from: string | null; to: string | null; history?: string; read: number; of: number | null; note: string | null };
   reports_until?: string | null;
   titles_refreshing?: boolean;
   listing_counts?: Record<string, number | boolean> | null;
@@ -825,6 +825,12 @@ export interface LedgerRead {
   note: string | null;
   covers_from: string | null;
   covers_to: string | null;
+  /** Filling in the 13 months before the first read, in the background. */
+  history_state: "none" | "reading" | "waiting" | "complete" | "failed";
+  history_target: string | null;
+  history_requests: number;
+  history_requests_left: number | null;
+  history_note: string | null;
 }
 
 /** Our product allowance: listings generated plus drafts created per period.

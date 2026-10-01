@@ -72,6 +72,8 @@ class Shop:
     ledger_from: date | None  # first day the ledger read covers
     ledger_to: date | None  # last day the ledger covers
     cache_fresh: bool = True
+    #: The ledger's 13-month history is still being read back (workers/ledger.py).
+    ledger_filling: bool = False
 
 
 def entered_costs(stored: dict[str, Any] | None) -> dict[str, bool]:
@@ -200,13 +202,18 @@ def shop_totals(shop: Shop, window: Window) -> dict[str, Any]:
 
     covered = ledger_covers(shop, window)
     cats, types = ledger_by_category(shop, window) if covered else ({}, [])
+    if shop.ledger_filling and shop.ledger_from is not None:
+        unread = (f"Etsy's ledger history is still being read: it reaches back to {shop.ledger_from:%b %d, %Y} so far, "
+                  "and this period starts before that.")
+    else:
+        unread = "Etsy's ledger isn't read for this period."
     rates = _rate_fees(shop.costs, units, orders, revenue)
     fees: dict[str, Figure] = {}
     for key in FEES:
         if covered:
             fees[key] = Figure(cats.get(key, 0), "ledger")
         elif have_sales:
-            fees[key] = Figure(rates[key], "rates", "Estimated from your fee rates; Etsy's ledger isn't read for this period."
+            fees[key] = Figure(rates[key], "rates", "Estimated from your fee rates. " + unread
                                + (" Per-order fixed fees are counted per listing, so multi-item orders are slightly over-charged." if key == "processing_fees" else ""))
         else:
             fees[key] = Figure(None, "none", "Needs your sales.")
@@ -215,9 +222,9 @@ def shop_totals(shop: Shop, window: Window) -> dict[str, Any]:
     if covered:
         ads = Figure(cats.get("ads", 0), "ledger", "Etsy Ads and Offsite Ads, from Etsy's ledger.")
     elif report_covers(shop, window):
-        ads = Figure(_r(report_spend), "report", "Only the listings in the Ads reports you uploaded; Etsy's ledger isn't read for this period.")
+        ads = Figure(_r(report_spend), "report", "Only the listings in the Ads reports you uploaded. " + unread)
     else:
-        ads = Figure(None, "none", "Not available: Etsy's ledger isn't read for this period and no Ads report covers it.")
+        ads = Figure(None, "none", "Not available: no Ads report covers this period. " + unread)
 
     if covered and cats.get("shipping_labels"):
         shipping = Figure(cats["shipping_labels"], "ledger", "Shipping labels bought on Etsy.")

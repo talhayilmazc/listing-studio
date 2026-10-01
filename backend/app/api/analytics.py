@@ -549,6 +549,7 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
         entered=finance.entered_costs(tenant.cost_settings),
         currency=currencies.most_common(1)[0][0] if currencies else None,
         sales_from=sales_from, ledger_from=ledger_from, ledger_to=ledger_to, cache_fresh=cache_fresh,
+        ledger_filling=ledger_sync is not None and ledger_sync.state == "complete" and ledger_sync.backfill_state != "complete",
     )
     return _Loaded(shop, connection, sales_sync, ledger_sync)
 
