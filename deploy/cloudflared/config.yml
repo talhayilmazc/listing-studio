@@ -1,12 +1,12 @@
 # Cloudflare Tunnel ingress (production-spec F2). Locally managed, so the rules
 # are reviewed in git rather than clicked together in a dashboard.
 #
-# Replace <TUNNEL_ID> in both places with the id printed by
+# Replace 363c5d63-6d28-4f51-b9ae-848daab69e05 in both places with the id printed by
 # `cloudflared tunnel create listyro` (docs/deploy.md, step 3). The credentials
 # JSON lives in /etc/listyro/cloudflared/ on the server, never in this repo.
 
-tunnel: <TUNNEL_ID>
-credentials-file: /etc/cloudflared/creds/<TUNNEL_ID>.json
+tunnel: 363c5d63-6d28-4f51-b9ae-848daab69e05
+credentials-file: /etc/cloudflared/creds/363c5d63-6d28-4f51-b9ae-848daab69e05.json
 
 ingress:
   # The token-authenticated bootstrap endpoints are never reachable from the

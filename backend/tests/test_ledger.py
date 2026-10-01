@@ -71,7 +71,7 @@ async def test_the_estimate_costs_one_request_and_the_read_totals_each_type(asyn
     assert fake.calls[0][2] == 1  # one entry asked for: the count comes with it
 
     async with async_sm() as s:
-        ledger_worker.begin(await s.get(LedgerSync, shop))
+        await ledger_worker.begin(s, await s.get(LedgerSync, shop))
         await s.commit()
     assert await ledger_worker.sync_ledger(ctx, str(shop)) == "complete:280"
     assert await _total(async_sm, "prolist") == -25000 and await _total(async_sm, "transaction") == -1950
@@ -99,7 +99,7 @@ async def test_an_update_longer_than_one_run_carries_on_without_counting_twice(a
     ctx = _ctx(async_sm)
     await _estimated(async_sm, shop, ctx)
     async with async_sm() as s:
-        ledger_worker.begin(await s.get(LedgerSync, shop))
+        await ledger_worker.begin(s, await s.get(LedgerSync, shop))
         await s.commit()
     assert await ledger_worker.sync_ledger(ctx, str(shop)) == "complete:5"
     sync = await _row(async_sm, shop)
@@ -131,7 +131,7 @@ async def test_a_refused_ledger_read_says_why_and_is_deleted_with_the_shop(async
     ctx = _ctx(async_sm)
     await _estimated(async_sm, shop, ctx)
     async with async_sm() as s:
-        ledger_worker.begin(await s.get(LedgerSync, shop))
+        await ledger_worker.begin(s, await s.get(LedgerSync, shop))
         await s.commit()
     fake.refuse = True
     assert await ledger_worker.sync_ledger(ctx, str(shop)) == "failed"

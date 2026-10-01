@@ -825,13 +825,20 @@ class LedgerSync(Base):
 
     The first read covers :attr:`FIRST_DAYS` (entries for a fixed window, read
     100 at a time by offset, so a resumed read continues exactly); after that
-    only entries created since ``synced_until``. Holds counts and times only.
+    only entries created since ``synced_until``. Then the history is filled in
+    backwards, a slice of :attr:`SLICE_DAYS` at a time, to the 13-month edge
+    (``backfill_*``, ``covered_from``, ``slice_*``): low priority, inside the
+    same daily cap. Holds counts and times only.
     """
 
     __tablename__ = "ledger_sync"
 
     FIRST_DAYS: ClassVar[int] = 90
     DAILY_REQUESTS: ClassVar[int] = 250
+    #: The backfill reads this many days per slice, oldest slice last.
+    SLICE_DAYS: ClassVar[int] = 30
+    #: Requests a day the backfill leaves for the nightly update.
+    BACKFILL_RESERVE: ClassVar[int] = 30
 
     connection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
@@ -850,6 +857,17 @@ class LedgerSync(Base):
     synced_until: Mapped[int | None] = mapped_column(BigInteger)
     #: End of the update window being read (with next_offset); None between updates.
     update_end: Mapped[int | None] = mapped_column(BigInteger)
+    #: "none" | "reading" | "waiting" | "complete" | "failed"
+    backfill_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="none")
+    #: Epoch second (a UTC midnight) the backfill reads back to: the 13-month edge when it began.
+    backfill_target: Mapped[int | None] = mapped_column(BigInteger)
+    #: Everything from this epoch second on is read; None means window_start.
+    covered_from: Mapped[int | None] = mapped_column(BigInteger)
+    #: The slice being read is [slice_start, covered_from - 1], at slice_offset.
+    slice_start: Mapped[int | None] = mapped_column(BigInteger)
+    slice_offset: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    backfill_requests: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    backfill_note: Mapped[str | None] = mapped_column(Text)
     requests_used: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     requests_day: Mapped[date | None] = mapped_column(Date)
     requests_today: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

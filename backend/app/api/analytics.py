@@ -145,13 +145,42 @@ class LedgerOut(BaseModel):
     #: The day the figures reach back to, and the day they reach.
     covers_from: date | None = None
     covers_to: date | None = None
+    #: Filling in the 13 months before the first read: "none" | "reading" | "waiting" | "complete" | "failed".
+    history_state: str = "none"
+    #: The day the history is to reach back to, and the requests it has used.
+    history_target: date | None = None
+    history_requests: int = 0
+    #: Requests still to go, from what the days read so far have cost; None until there is something to go on.
+    history_requests_left: int | None = None
+    history_note: str | None = None
+
+
+def _first_whole_day(stamp: int | None) -> date | None:
+    """The first day wholly at or after an epoch second (a day read from noon on isn't covered)."""
+    if stamp is None:
+        return None
+    return datetime.fromtimestamp(stamp + (-stamp % 86400), tz=timezone.utc).date()
 
 
 def _ledger_out(sync: LedgerSync | None) -> LedgerOut:
     if sync is None:
         return LedgerOut(state="none")
     day = lambda t: datetime.fromtimestamp(t, tz=timezone.utc).date() if t else None  # noqa: E731
+    reached = ledger_worker.covered_from(sync)
+    left = None
+    if sync.backfill_target is not None and reached is not None and sync.window_start is not None:
+        done_days = (sync.window_start - reached) / 86400
+        left_days = max(0.0, (reached - sync.backfill_target) / 86400)
+        if sync.backfill_state == "complete" or left_days == 0:
+            left = 0
+        elif done_days >= 1:
+            left = math.ceil(sync.backfill_requests / done_days * left_days)
     return LedgerOut(
+        history_state=sync.backfill_state,
+        history_target=day(sync.backfill_target),
+        history_requests=sync.backfill_requests,
+        history_requests_left=left,
+        history_note=sync.backfill_note,
         state=sync.state,
         total_count=sync.total_count,
         pages_estimate=ledger_worker.pages_for(sync.total_count) if sync.total_count is not None else None,
@@ -159,7 +188,7 @@ def _ledger_out(sync: LedgerSync | None) -> LedgerOut:
         requests_used=sync.requests_used,
         resumes_at=sync.resumes_at,
         note=sync.note,
-        covers_from=day(sync.window_start) if sync.synced_until else None,
+        covers_from=_first_whole_day(reached),
         covers_to=day(sync.synced_until),
     )
 
@@ -290,7 +319,7 @@ async def start_sales_read(
     ledger = await session.get(LedgerSync, connection.id)
     start_ledger = ledger is not None and ledger.state in ("estimated", "failed") and ledger.window_start is not None
     if start_ledger:
-        ledger_worker.begin(ledger)
+        await ledger_worker.begin(session, ledger)
     await session.commit()
     await enqueuer.enqueue("sync_sales", str(connection.id), _job_id=f"sales-read:{connection.id}:start:{sync.started_at}")
     if start_ledger:
@@ -311,8 +340,11 @@ async def resume_sales_read(
     ledger = await session.get(LedgerSync, connection.id)
     sales_failed = sync is not None and sync.state == "failed"
     ledger_failed = ledger is not None and ledger.state == "failed"
-    if not (sales_failed or ledger_failed):
+    history_failed = ledger is not None and ledger.backfill_state == "failed"
+    if not (sales_failed or ledger_failed or history_failed):
         raise HTTPException(status_code=409, detail="nothing to resume")
+    if history_failed:
+        ledger_worker.resume_backfill(ledger)
     if sales_failed:
         await sales_worker.resume(session, sync)
     if ledger_failed:
@@ -322,6 +354,8 @@ async def resume_sales_read(
         await enqueuer.enqueue("sync_sales", str(connection.id), _job_id=f"sales-resume:{connection.id}:{_now_stamp()}")
     if ledger_failed and ledger.state in ("reading", "complete"):
         await enqueuer.enqueue("sync_ledger", str(connection.id), _job_id=f"ledger-resume:{connection.id}:{_now_stamp()}")
+    if history_failed:
+        await enqueuer.enqueue("backfill_ledger", str(connection.id), _job_id=f"ledger-backfill:{connection.id}:{_now_stamp()}")
     return _sync_out(connection, sync, ledger)
 
 
@@ -359,7 +393,7 @@ async def start_ledger_read(
     ledger = await session.get(LedgerSync, connection.id)
     if ledger is None or ledger.state not in ("estimated", "failed") or ledger.window_start is None:
         raise HTTPException(status_code=409, detail="see what reading Etsy's ledger costs first")
-    ledger_worker.begin(ledger)
+    await ledger_worker.begin(session, ledger)
     await session.commit()
     await enqueuer.enqueue("sync_ledger", str(connection.id), _job_id=f"ledger-read:{connection.id}:start:{ledger.started_at}")
     return _sync_out(connection, await session.get(SalesSync, connection.id), ledger)
@@ -505,7 +539,9 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
         sales_from = min(s.day for rows in sales.values() for s in rows)
     ledger_from = ledger_to = None
     if ledger_sync is not None and ledger_sync.synced_until is not None and ledger_sync.window_start is not None:
-        ledger_from, ledger_to = _stamp_day(ledger_sync.window_start), _stamp_day(ledger_sync.synced_until)
+        # Back to wherever the history has reached; periods before it stay estimates.
+        ledger_from = _first_whole_day(ledger_worker.covered_from(ledger_sync))
+        ledger_to = _stamp_day(ledger_sync.synced_until)
 
     shop = finance.Shop(
         sales=sales, ads=ads, ledger=ledger, info=info,
@@ -544,6 +580,7 @@ def _data(loaded: _Loaded) -> dict[str, Any]:
         "sales": {"state": s.state if s else "none", "from": shop.sales_from, "synced_at": c.sales_synced_at,
                   "read": s.read_count if s else 0, "of": s.window_count if s else None, "note": s.note if s else None},
         "ledger": {"state": l.state if l else "none", "from": shop.ledger_from, "to": shop.ledger_to,
+                   "history": l.backfill_state if l else "none",
                    "read": l.read_count if l else 0, "of": l.total_count if l else None, "note": l.note if l else None},
         "reports_until": max(ends) if ends else None,
         "titles_refreshing": not shop.cache_fresh,

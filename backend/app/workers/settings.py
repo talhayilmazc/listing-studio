@@ -37,7 +37,7 @@ from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
 from app.workers.schedule import release_scheduled_publishes
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
-from app.workers.ledger import estimate_ledger, sync_all_ledgers, sync_ledger
+from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -102,6 +102,7 @@ class WorkerSettings:
         estimate_sales,
         sync_ledger,
         estimate_ledger,
+        backfill_ledger,
         detect_profiles,
         run_replace_images_job,
     ]

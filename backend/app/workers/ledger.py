@@ -9,9 +9,19 @@ since the last read. The window is fixed when the read starts, so paging by
 offset is stable while it runs.
 
 The first read covers :attr:`LedgerSync.FIRST_DAYS` days, which is what the
-7/30/90-day figures need; each later read adds the new days, up to the 13
-months kept. A shop's ledger has several entries per order (the payment, its
-fees, a listing renewal), so reading it costs more than reading its sales.
+7/30/90-day figures need; each later read adds the new days. A shop's ledger
+has several entries per order (the payment, its fees, a listing renewal), so
+reading it costs more than reading its sales.
+
+The rest of the 13 months kept is filled in afterwards by :func:`backfill_ledger`,
+so last year's season has real fees to compare with: backwards from the first
+read's start, one :attr:`LedgerSync.SLICE_DAYS` slice at a time. It is the
+lowest-priority Etsy work in the app: it starts only once the shop's sales and
+its first ledger read are done, shares the shop's daily ledger cap (leaving
+:attr:`LedgerSync.BACKFILL_RESERVE` for the nightly update), stands aside for
+the day once the app has used :data:`BACKFILL_GLOBAL_PERCENT` of Etsy's daily
+budget, and takes as many days as that needs. Until a period is reached its
+fees stay estimates.
 """
 
 from __future__ import annotations
@@ -23,10 +33,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ConnectionStatus, EtsyConnection, LedgerDaily, LedgerSync
+from app.core.config import get_settings
+from app.db.models import ConnectionStatus, EtsyConnection, LedgerDaily, LedgerSync, SalesDaily, SalesSync
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.ledger import aggregate
 from app.workers import gate
@@ -39,10 +50,20 @@ PAGE_SIZE = 100
 CHUNK_PAGES = 20
 UPDATE_PAGES = 20
 LOCK_SECONDS = 15 * 60
+#: The backfill waits for tomorrow once the app has used this much of Etsy's daily budget.
+BACKFILL_GLOBAL_PERCENT = 50
+#: The backfill starts a little after whatever queued it, so that work's lock is free.
+BACKFILL_DELAY = 120
+NIGHTLY_BACKFILL_DELAY = 20 * 60
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _midnight(stamp: int) -> int:
+    """The UTC midnight at or before an epoch second."""
+    return stamp - stamp % 86400
 
 
 def pages_for(count: int) -> int:
@@ -138,7 +159,7 @@ async def _estimate(ctx: dict[str, Any], connection_id: str) -> str:
             return "no-connection"
         _roll_day(sync)
         end = int(_now().timestamp())
-        start = end - LedgerSync.FIRST_DAYS * 86400
+        start = _midnight(end - LedgerSync.FIRST_DAYS * 86400)  # whole days only
         try:
             async with httpx.AsyncClient(timeout=30.0) as http:
                 client, shop_id, kw = await _open(ctx, session, connection, http)
@@ -219,6 +240,8 @@ async def _first_read(
             sync.finished_at = _now()
             await session.commit()
             logger.info("ledger read complete: shop=%s entries=%d requests=%d", connection.id, sync.read_count, sync.requests_used)
+            await _enqueue_job(ctx, "backfill_ledger", str(connection.id), _defer_by=BACKFILL_DELAY,
+                               _job_id=f"ledger-backfill:{connection.id}:start")
             return f"complete:{sync.read_count}"
     if _left_today(sync) > 0:
         await _enqueue_job(ctx, "sync_ledger", str(connection.id), _job_id=f"ledger-read:{connection.id}:{sync.next_offset}")
@@ -299,8 +322,14 @@ async def _defer(ctx: dict[str, Any], sync: LedgerSync, connection_id: str) -> N
                        _job_id=f"ledger-resume:{connection_id}:{resumes.date().isoformat()}")
 
 
-def begin(sync: LedgerSync) -> None:
-    """The seller started the read (with the sales read): from the estimated window."""
+async def begin(session: AsyncSession, sync: LedgerSync) -> None:
+    """The seller started the read (with the sales read): from the estimated
+    window, and from nothing. Totals from an earlier, unfinished read are
+    removed first, or its pages would be counted twice; the history starts over
+    with it."""
+    await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == sync.connection_id))
+    sync.backfill_state, sync.backfill_target, sync.covered_from = "none", None, None
+    sync.slice_start, sync.slice_offset, sync.backfill_requests, sync.backfill_note = None, 0, 0, None
     sync.state = "reading"
     sync.next_offset = 0
     sync.update_end = None
@@ -320,6 +349,122 @@ def resume(sync: LedgerSync) -> None:
     else:
         sync.state = "estimated"
     sync.note = None
+
+
+# --- the 13-month history, backwards ----------------------------------------------------------
+
+
+def covered_from(sync: LedgerSync) -> int | None:
+    """Everything from this epoch second on is in the daily totals."""
+    if sync.synced_until is None or sync.window_start is None:
+        return None
+    return sync.covered_from if sync.covered_from is not None else sync.window_start
+
+
+def backfill_target(now: datetime) -> int:
+    """The 13-month edge: the midnight the sales read also reaches back to."""
+    edge = now.date() - timedelta(days=SalesDaily.RETENTION_DAYS - 1)
+    return int(datetime(edge.year, edge.month, edge.day, tzinfo=timezone.utc).timestamp())
+
+
+def resume_backfill(sync: LedgerSync) -> None:
+    """After a refusal (e.g. once the shop is reconnected): from the kept slice and offset."""
+    sync.backfill_state = "reading"
+    sync.backfill_note = None
+
+
+async def backfill_ledger(ctx: dict[str, Any], connection_id: str) -> str:
+    async with ctx["sessionmaker"]() as session:
+        sync = await session.get(LedgerSync, uuid.UUID(connection_id))
+        if sync is None or sync.state != "complete" or sync.backfill_state in ("complete", "failed"):
+            return "not-due"
+        sales = await session.get(SalesSync, sync.connection_id)
+        if sales is None or sales.state != "complete":
+            return "sales-first"  # the sales read finishing queues this again
+    return await _gated(ctx, "backfill_ledger", connection_id, lambda: _backfill(ctx, connection_id))
+
+
+async def _busy_app(ctx: dict[str, Any], tenant_id: uuid.UUID) -> bool:
+    quota = ctx.get("quota")
+    if quota is None:
+        return False
+    _, used = await quota.usage(tenant_id)
+    return used >= get_settings().global_daily_limit * BACKFILL_GLOBAL_PERCENT // 100
+
+
+async def _backfill(ctx: dict[str, Any], connection_id: str) -> str:
+    cid = uuid.UUID(connection_id)
+    async with ctx["sessionmaker"]() as session:
+        if not await _claim(session, cid):
+            return "busy"  # an update is running; the nightly run queues this again
+        try:
+            connection = await _active_shop(session, cid)
+            sync = await session.get(LedgerSync, cid)
+            if connection is None or sync is None or sync.state != "complete" or sync.update_end is not None:
+                return "not-due"
+            if sync.backfill_target is None:
+                sync.backfill_target = backfill_target(_now())
+                sync.covered_from = sync.window_start
+                sync.slice_start, sync.slice_offset = None, 0
+            sync.backfill_state, sync.backfill_note = "reading", None
+            _roll_day(sync)
+            budget = min(CHUNK_PAGES, _left_today(sync) - LedgerSync.BACKFILL_RESERVE)
+            if budget <= 0:
+                return await _backfill_waits(session, sync, "today's share of the budget for reading fees is used")
+            if await _busy_app(ctx, connection.tenant_id):
+                return await _backfill_waits(session, sync, "the app's shared Etsy budget is busy today; history waits for a quieter day")
+            read = 0
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as http:
+                    client, shop_id, kw = await _open(ctx, session, connection, http)
+                    reader = _Reader(client, shop_id, kw, sync)
+                    for _ in range(budget):
+                        assert sync.covered_from is not None and sync.backfill_target is not None
+                        if sync.covered_from <= sync.backfill_target:
+                            break
+                        if sync.slice_start is None:  # the next slice back, on whole days
+                            sync.slice_start = max(sync.backfill_target,
+                                                   _midnight(sync.covered_from - 1) - (LedgerSync.SLICE_DAYS - 1) * 86400)
+                            sync.slice_offset = 0
+                        rows = await reader.page(sync.slice_start, sync.covered_from - 1, sync.slice_offset)
+                        await _add(session, connection, rows)
+                        read += len(rows)
+                        sync.slice_offset += len(rows)
+                        sync.backfill_requests += 1
+                        if len(rows) < PAGE_SIZE:  # the slice is done: the totals now reach back to its start
+                            sync.covered_from, sync.slice_start, sync.slice_offset = sync.slice_start, None, 0
+                        del rows
+                        sync.updated_at = _now()
+                        await session.commit()  # the page's totals and the position, together
+            except (ShopAccessLost, EtsyClientError) as exc:
+                await session.rollback()
+                sync = await session.get(LedgerSync, cid)
+                sync.backfill_state, sync.backfill_note = "failed", _why(exc)
+                await session.commit()
+                return "failed"
+            except (EtsyServerError, httpx.HTTPError):
+                await session.rollback()
+                sync = await session.get(LedgerSync, cid)
+                return await _backfill_waits(session, sync, "Etsy didn't answer; the history carries on tomorrow")
+            if sync.covered_from <= sync.backfill_target:
+                sync.backfill_state, sync.backfill_note = "complete", None
+                await session.commit()
+                logger.info("ledger history complete: shop=%s requests=%d", connection.id, sync.backfill_requests)
+                return f"complete:{read}"
+            await session.commit()
+            await _enqueue_job(ctx, "backfill_ledger", connection_id,
+                               _job_id=f"ledger-backfill:{connection_id}:{sync.covered_from}:{sync.slice_offset}")
+            return f"reading:{read}"
+        finally:
+            await _release(session, cid)
+
+
+async def _backfill_waits(session: AsyncSession, sync: LedgerSync, why: str) -> str:
+    """Nothing more today; the nightly run queues it again."""
+    sync.backfill_state, sync.backfill_note = "waiting", why
+    sync.updated_at = _now()
+    await session.commit()
+    return "paced"
 
 
 async def due_updates(session: AsyncSession) -> list[uuid.UUID]:
@@ -344,7 +489,16 @@ async def sync_all_ledgers(ctx: dict[str, Any]) -> int:
     """Cron: bring every read ledger up to date, and carry on reads that stalled."""
     async with ctx["sessionmaker"]() as session:
         due = await due_updates(session)
+        unfinished = (await session.execute(
+            select(LedgerSync.connection_id).where(
+                LedgerSync.state == "complete", LedgerSync.backfill_state.in_(("none", "reading", "waiting")))
+        )).scalars().all()
     day = _now().date().isoformat()
     for cid in due:
         await _enqueue_job(ctx, "sync_ledger", str(cid), _job_id=f"ledger:{cid}:{day}")
+    # History last: after every shop's update has had its turn.
+    for cid in unfinished:
+        if cid in due:
+            await _enqueue_job(ctx, "backfill_ledger", str(cid), _defer_by=NIGHTLY_BACKFILL_DELAY,
+                               _job_id=f"ledger-backfill:{cid}:{day}")
     return len(due)

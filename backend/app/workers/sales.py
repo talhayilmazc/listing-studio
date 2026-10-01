@@ -386,6 +386,9 @@ async def _first_read(
             await session.commit()
             logger.info("sales read complete: shop=%s sales=%d requests=%d",
                         connection.id, sync.read_count, sync.requests_used)
+            # The ledger's 13-month history waits for this (workers/ledger.py).
+            await _enqueue_job(ctx, "backfill_ledger", str(connection.id), _defer_by=120,
+                               _job_id=f"ledger-backfill:{connection.id}:after-sales")
             return f"complete:{sync.read_count}"
 
     if _left_today(sync) > 0:

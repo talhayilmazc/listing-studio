@@ -61,6 +61,8 @@ JOB_COST: dict[str, int] = {
     "sync_ledger": 21,
     # shop, and one request for the window's entry count
     "estimate_ledger": 2,
+    # shop, and one chunk of the ledger's history: 20 pages of 100
+    "backfill_ledger": 21,
 }
 
 # Keeping shops and profiles current is the app's upkeep, not the seller's work:
@@ -68,7 +70,7 @@ JOB_COST: dict[str, int] = {
 # against the seller's own daily limit (v7 §D3).
 UPKEEP = frozenset(
     {"refresh_profile", "refresh_profile_images", "sync_shop_listings", "detect_profiles", "sync_sales", "estimate_sales",
-     "sync_ledger", "estimate_ledger"}
+     "sync_ledger", "estimate_ledger", "backfill_ledger"}
 )
 
 # Resume a little after midnight, so the new day's counters are in place.
