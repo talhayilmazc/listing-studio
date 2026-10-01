@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { TREND_LABEL, listingName, money } from "@/lib/analytics";
 import type { AnalyticsDetail, Trend } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
+import { ShopBadge } from "@/components/ShopPicker";
 import { Chart, LINE_COLORS, type ChartPoint } from "@/components/analytics/Chart";
 import { PeriodPicker, TrendBadge } from "@/components/analytics/Shared";
 import { ActionItem } from "@/components/analytics/Today";
@@ -94,6 +95,7 @@ export default function ListingAnalytics({
             <div className="min-w-0">
               <h1 className="text-lg font-semibold text-slate-900">{listingName(row)}</h1>
               <p className="mt-0.5 text-xs text-slate-500">
+                {selected && <ShopBadge key="shop" name={selected.name} className="mr-1.5" />}
                 <span>
                   <Txt>{row.sku && `${row.sku} · `}</Txt>
                   <Txt>{row.profile_name && `profile ${row.profile_name} · `}</Txt>

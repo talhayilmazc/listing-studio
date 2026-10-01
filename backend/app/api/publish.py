@@ -39,7 +39,7 @@ from app.db.models import (
 )
 from app.etsy.publisher import link_for, publication_for
 from app.etsy.rate_limiter import DailyQuota
-from app.etsy.shops import owned_shop
+from app.etsy.shops import active_shops, owned_shop
 from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
 from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT, is_fresh, resolve_target, shop_profiles
@@ -112,10 +112,27 @@ async def _plan_drafts(
     report_unapproved: bool = False,
 ) -> _Plan:
     plan = _Plan()
-    targets = await _targets(session, tenant, request)
+    # The matrix's ticked cells: exactly those combinations, nothing else.
+    pairs: dict[uuid.UUID, list[tuple[EtsyConnection, uuid.UUID | None]]] | None = None
+    if request.pairs is not None:
+        overrides = {t.connection_id: t.profile_id for t in request.targets or []}
+        pairs = {}
+        for pair in request.pairs:
+            connection = await owned_shop(session, tenant.id, pair.connection_id)
+            if connection is None:
+                raise HTTPException(status_code=404, detail="shop not found")
+            plan.shops[connection.id] = connection
+            chosen = pairs.setdefault(pair.content_id, [])
+            if all(c.id != connection.id for c, _ in chosen):
+                chosen.append((connection, pair.profile_id or overrides.get(connection.id)))
+        targets = None
+    else:
+        targets = await _targets(session, tenant, request)
     for connection, _ in targets or []:
         plan.shops[connection.id] = connection
     for content in contents:
+        if pairs is not None and content.id not in pairs:
+            continue  # not asked for
         if not content.approved:
             # Only what the seller approved (CLAUDE.md rule 3). Within one batch
             # the rest is passed over; across batches it is listed with why.
@@ -126,7 +143,9 @@ async def _plan_drafts(
         if problem:
             plan.skip(content, problem)
             continue
-        if targets is not None:
+        if pairs is not None:
+            shops = pairs[content.id]
+        elif targets is not None:
             shops = targets
         else:
             own = await _own_shop(session, content)
@@ -320,6 +339,83 @@ async def publish_batch(
     return await _publish(session, tenant, quota, enqueuer, contents, request)
 
 
+async def _matrix(
+    session: AsyncSession,
+    tenant: Tenant,
+    contents: list[GeneratedContent],
+    request: schemas.PublishRequest,
+    plan: _Plan,
+) -> tuple[list[schemas.MatrixColumnOut], list[schemas.MatrixRowOut]]:
+    """Every listing of the batch against every connected shop."""
+    shops = await active_shops(session, tenant.id)
+    overrides = {t.connection_id: t.profile_id for t in request.targets or []}
+    planned = {(content.id, connection.id) for content, connection, _ in plan.jobs}
+    assets = {
+        a.id: a
+        for a in (
+            await session.execute(select(Asset).where(Asset.id.in_([c.asset_id for c in contents])))
+        ).scalars()
+    } if contents else {}
+    states = {
+        (content_id, connection_id): state
+        for content_id, connection_id, state in (
+            await session.execute(
+                select(ListingPublication.content_id, ListingPublication.connection_id, ListingPublication.state)
+                .where(ListingPublication.content_id.in_([c.id for c in contents]))
+            )
+        ).all()
+    } if contents else {}
+    profiles = {shop.id: await shop_profiles(session, shop.id) for shop in shops}
+
+    rows: list[schemas.MatrixRowOut] = []
+    for content in contents:
+        own = await _own_shop(session, content)
+        problem = "not approved yet" if not content.approved else await _content_problem(session, content)
+        cells = []
+        for shop in shops:
+            state = states.get((content.id, shop.id))
+            if state is not None:
+                cells.append(schemas.MatrixCellOut(connection_id=shop.id, state="live" if state == "active" else "draft"))
+                continue
+            if problem:
+                cells.append(schemas.MatrixCellOut(connection_id=shop.id, state="unavailable", reason=problem))
+                continue
+            target = await resolve_target(session, content, shop, profile_id=overrides.get(shop.id))
+            if not target.ok or target.profile is None:
+                cells.append(schemas.MatrixCellOut(
+                    connection_id=shop.id, state="unavailable", reason=target.reason or "no profile for this shop",
+                    profile_id=target.profile.id if target.profile else None,
+                    profile_name=target.profile.name if target.profile else None,
+                ))
+                continue
+            cells.append(schemas.MatrixCellOut(
+                connection_id=shop.id, state="available", profile_id=target.profile.id,
+                profile_name=target.profile.name, chosen=(content.id, shop.id) in planned,
+            ))
+        asset = assets.get(content.asset_id)
+        rows.append(schemas.MatrixRowOut(
+            content_id=content.id, title=content.title, approved=content.approved,
+            original_filename=asset.original_filename if asset else "",
+            group_key=asset.group_key if asset else None,
+            own_connection_id=own.id if own else None, cells=cells,
+        ))
+    rows.sort(key=lambda r: (r.group_key or "", r.original_filename))
+    columns = [
+        schemas.MatrixColumnOut(
+            connection_id=shop.id,
+            shop_name=shop_label(shop),
+            profiles=[
+                schemas.ProfileChoiceOut(id=p.id, name=p.name, content_template=p.content_template, is_fresh=is_fresh(p))
+                for p in profiles[shop.id]
+            ],
+            drafts=plan.ready.get(shop.id, 0),
+            estimated_calls=plan.ready.get(shop.id, 0) * ESTIMATED_CALLS_PER_DRAFT,
+        )
+        for shop in shops
+    ]
+    return columns, rows
+
+
 @router.post("/batches/{batch_id}/publish/preview", response_model=schemas.PublishPreviewOut)
 async def publish_preview(
     batch_id: uuid.UUID,
@@ -350,8 +446,11 @@ async def publish_preview(
                 ],
             )
         )
+    columns, rows = await _matrix(session, tenant, contents, request, plan)
     return schemas.PublishPreviewOut(
         shops=shops,
+        columns=columns,
+        rows=rows,
         drafts=len(plan.jobs),
         estimated_calls=budget.estimated,
         calls_per_draft=ESTIMATED_CALLS_PER_DRAFT,

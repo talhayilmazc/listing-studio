@@ -6,12 +6,17 @@ import { api } from "@/lib/api";
 import type {
   ApproveAllResult,
   Content,
+  MatrixCell,
+  MatrixColumn,
+  MatrixRow,
   Pause,
   PublishJob,
   PublishPreview,
+  PublishRequest,
   PublishSkipped,
-  PublishTarget,
 } from "@/lib/types";
+import { PublishMatrix, cellKey } from "@/components/PublishMatrix";
+import { ShopBadge } from "@/components/ShopPicker";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { applyChange, cardKey, pendingManualSteps, reviewActions } from "@/lib/review";
@@ -54,18 +59,52 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [busy, setBusy] = useState(false);
   const [skipped, setSkipped] = useState<PublishSkipped[]>([]);
 
-  // Where drafts go (v5 §E): each listing to the shop it was written for, or to
-  // the shops chosen here (each with its own profile; null = chosen for you).
+  // Where drafts go (Priority 2): each listing to the shop it was written for,
+  // plus any other shop the seller ticks for it in the matrix, minus any they
+  // untick. Nothing is sent to a shop that is not ticked.
   const { shops } = useShops();
-  const [mode, setMode] = useState<"own" | "chosen">("own");
-  const [chosen, setChosen] = useState<Record<string, string | null>>({});
+  const [profileFor, setProfileFor] = useState<Record<string, string | null>>({});
+  const [on, setOn] = useState<string[]>([]); // ticked cells in another shop
+  const [off, setOff] = useState<string[]>([]); // the own-shop cell, unticked
   const [preview, setPreview] = useState<PublishPreview | null>(null);
-  const targets: PublishTarget[] | undefined =
-    mode === "chosen"
-      ? Object.entries(chosen).map(([connection_id, profile_id]) => ({ connection_id, profile_id }))
-      : undefined;
-  const targetKey = JSON.stringify(targets ?? null);
-  const shopNames = Object.fromEntries((shops ?? []).map((s) => [s.id, s.name]));
+  const custom = on.length > 0 || off.length > 0 || Object.values(profileFor).some(Boolean);
+  const choiceKey = JSON.stringify([on, off, profileFor]);
+  const shopNames = Object.fromEntries((shops ?? []).map((sh) => [sh.id, sh.name]));
+
+  // The request for the ticked cells, from the matrix as last shown.
+  const requestFor = useCallback(
+    (rows: MatrixRow[]): PublishRequest | undefined => {
+      if (!custom) return undefined; // the default: each listing's own shop
+      const pairs = [];
+      for (const row of rows) {
+        for (const cell of row.cells) {
+          if (cell.state === "draft" || cell.state === "live") continue;
+          const key = cellKey(row.content_id, cell.connection_id);
+          const own = cell.connection_id === row.own_connection_id;
+          if (own ? !off.includes(key) : on.includes(key)) {
+            pairs.push({ content_id: row.content_id, connection_id: cell.connection_id });
+          }
+        }
+      }
+      const targets = Object.entries(profileFor)
+        .filter(([, profile]) => profile)
+        .map(([connection_id, profile_id]) => ({ connection_id, profile_id }));
+      return { pairs, targets };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [choiceKey],
+  );
+  // Per listing: the shops ticked for it (what its own "Create draft" sends).
+  const chosenShops: Record<string, string[]> | undefined = preview
+    ? Object.fromEntries(
+        preview.rows.map((r) => [
+          r.content_id,
+          r.cells
+            .filter((c) => c.chosen || c.state === "draft" || c.state === "live" || (c.state === "unavailable" && c.connection_id === r.own_connection_id))
+            .map((c) => c.connection_id),
+        ]),
+      )
+    : undefined;
 
   // Cards are keyed by their Etsy state (cardKey): a reload remounts only the cards
   // whose draft or live state changed, so text being edited elsewhere survives.
@@ -90,21 +129,44 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   // The estimate before anything is queued: drafts per shop, the Etsy requests they
   // take, and whether that fits what can still be spent today (v5 §E).
   const approvedKey = (items ?? []).filter((c) => c.approved).map((c) => c.id).join(",");
+  const draftedKey = (items ?? []).map((c) => c.publications.length).join(",");
   useEffect(() => {
-    if (!approvedKey || (mode === "chosen" && !targets?.length)) {
+    if (!items || items.length === 0) {
       setPreview(null);
       return;
     }
     let cancelled = false;
-    api
-      .publishPreview(id, { targets })
-      .then((p) => !cancelled && setPreview(p))
-      .catch(() => !cancelled && setPreview(null));
+    (async () => {
+      try {
+        // The ticked cells are worked out against the matrix; the first look is the default.
+        const base = preview ?? (await api.publishPreview(id));
+        const body = requestFor(base.rows);
+        const next = body ? await api.publishPreview(id, body) : preview ? await api.publishPreview(id) : base;
+        if (!cancelled) setPreview(next);
+      } catch {
+        if (!cancelled) setPreview(null);
+      }
+    })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, approvedKey, targetKey, mode]);
+  }, [id, approvedKey, draftedKey, choiceKey]);
+
+  const toggleCell = (row: MatrixRow, cell: MatrixCell, ticked: boolean) => {
+    const key = cellKey(row.content_id, cell.connection_id);
+    if (cell.connection_id === row.own_connection_id) {
+      setOff((cur) => (ticked ? cur.filter((k) => k !== key) : [...new Set([...cur, key])]));
+    } else {
+      setOn((cur) => (ticked ? [...new Set([...cur, key])] : cur.filter((k) => k !== key)));
+    }
+  };
+  const toggleColumn = (column: MatrixColumn, ticked: boolean) => {
+    for (const row of preview?.rows ?? []) {
+      const cell = row.cells.find((c) => c.connection_id === column.connection_id);
+      if (cell?.state === "available") toggleCell(row, cell, ticked);
+    }
+  };
 
   // Watch a set of queued jobs until each settles. Every job that lands refreshes
   // the list at once, so its card and the bulk buttons change without a reload.
@@ -163,7 +225,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   }
 
   const createDraftsAll = () =>
-    runBulk("Creating drafts", () => api.publishBatch(id, { targets }));
+    runBulk("Creating drafts", () => api.publishBatch(id, preview ? requestFor(preview.rows) : undefined));
   const publishAll = () => runBulk("Publishing", () => api.publishBatchLive(id));
 
   // One click for the whole batch (v6 §D). The server approves only what passes
@@ -184,10 +246,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
 
-  const actions = reviewActions(
-    items ?? [],
-    targets?.map((t) => t.connection_id),
-  );
+  // What the bulk button will really create: the ticked cells (and drafts already there).
+  const tickedShops: Record<string, string[]> | undefined = preview
+    ? Object.fromEntries(
+        preview.rows.map((r) => [r.content_id, r.cells.filter((c) => c.chosen || c.state === "draft" || c.state === "live").map((c) => c.connection_id)]),
+      )
+    : undefined;
+  const actions = reviewActions(items ?? [], tickedShops);
   const overBudget = preview !== null && !preview.fits;
   // Settings Etsy's API cannot make, still to be set on the drafts in Shop Manager.
   const manual = pendingManualSteps(items ?? []);
@@ -219,7 +284,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           </p>
         </div>
         {items && items.length > 0 && (
-          <div key="div-218-8" className="flex items-center gap-3">
+          <div key="div-218-8" className="flex flex-wrap items-center gap-2 sm:gap-3">
             <span translate="no" className="text-xs tabular-nums text-slate-500">
               <span className="font-medium text-slate-700">{actions.approved}</span><span> of{" "}
               <span>{items.length}</span> approved</span>
@@ -234,7 +299,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               <button key="button-230-12"
                 className="btn-secondary"
                 onClick={createDraftsAll}
-                disabled={busy || overBudget || (mode === "chosen" && !targets?.length)}
+                disabled={busy || overBudget}
                 title={overBudget ? preview?.message ?? undefined : undefined}
               >
                 <span>Create drafts for all (<span>{actions.toDraft}</span>)</span>
@@ -259,15 +324,21 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {items && items.length > 0 && shops && shops.length > 1 && (
-        <TargetPanel key="targetpanel-259-6"
-          shops={shops.map((s) => ({ id: s.id, name: s.name }))}
-          mode={mode}
-          setMode={setMode}
-          chosen={chosen}
-          setChosen={setChosen}
+      {items && items.length > 0 && shops && shops.length > 1 && preview && (
+        <PublishMatrix key="matrix"
           preview={preview}
+          profileFor={profileFor}
+          onProfile={(shop, profile) => setProfileFor((cur) => ({ ...cur, [shop]: profile }))}
+          onToggle={toggleCell}
+          onColumn={toggleColumn}
+          disabled={busy}
         />
+      )}
+      {items && items.length > 0 && shops && shops.length === 1 && (
+        <p key="oneshop" className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span>Drafts are created in</span>
+          <ShopBadge name={shops[0].name} />
+        </p>
       )}
       {items && items.length > 0 && (!shops || shops.length <= 1) && preview && !preview.fits && (
         <div key="div-269-6" className="card p-3 text-sm text-amber-800">{preview.message}</div>
@@ -411,7 +482,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               key={cardKey(c)}
               initial={c}
               onChange={onCardChange}
-              targets={targets?.map((t) => t.connection_id)}
+              targets={chosenShops?.[c.id]}
+              profileFor={profileFor}
               shopNames={shopNames}
               bulkRunning={busy}
             />
@@ -419,105 +491,6 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * Where "Create drafts" sends the approved listings (v5 §E). Each shop builds its
- * draft from its own profile; a shop that cannot take a listing says why, and the
- * estimate is checked against what can still be spent today before anything runs.
- */
-function TargetPanel({
-  shops,
-  mode,
-  setMode,
-  chosen,
-  setChosen,
-  preview,
-}: {
-  shops: { id: string; name: string }[];
-  mode: "own" | "chosen";
-  setMode: (m: "own" | "chosen") => void;
-  chosen: Record<string, string | null>;
-  setChosen: (c: Record<string, string | null>) => void;
-  preview: PublishPreview | null;
-}) {
-  const byShop = Object.fromEntries((preview?.shops ?? []).map((s) => [s.connection_id, s]));
-  const toggle = (id: string) => {
-    const next = { ...chosen };
-    if (id in next) delete next[id];
-    else next[id] = null;
-    setChosen(next);
-  };
-  return (
-    <section className="card space-y-4 p-5" aria-labelledby="targets-heading">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <h2 id="targets-heading" className="text-sm font-medium text-slate-700">
-          Send drafts to
-        </h2>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="radio" checked={mode === "own"} onChange={() => setMode("own")} />
-          Each listing&apos;s own shop
-        </label>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="radio" checked={mode === "chosen"} onChange={() => setMode("chosen")} />
-          These shops
-        </label>
-      </div>
-
-      {mode === "chosen" && (
-        <ul key="ul-464-6" className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-          {shops.map((shop) => {
-            const on = shop.id in chosen;
-            const info = byShop[shop.id];
-            const needsChoice = info?.blocked.some((b) => b.reason.includes("choose one"));
-            return (
-              <li key={shop.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-slate-800">
-                  <input type="checkbox" checked={on} onChange={() => toggle(shop.id)} />
-                  <span className="truncate">{shop.name}</span>
-                </label>
-                {on && info && (
-                  <span key="span-476-16" className="text-xs text-slate-500">
-                    <span><span>{info.ready}</span><span> ready</span>
-                    <Txt>{info.blocked.length > 0 && ` · ${info.blocked.length} cannot go`}</Txt></span>
-                  </span>
-                )}
-                {on && info && info.profiles.length > 0 && (
-                  <select key="select-482-16"
-                    className="field w-48 py-1 text-xs"
-                    aria-label={`Profile for ${shop.name}`}
-                    value={chosen[shop.id] ?? ""}
-                    onChange={(e) => setChosen({ ...chosen, [shop.id]: e.target.value || null })}
-                  >
-                    <option value="">{needsChoice ? "Choose a profile…" : "Matching profile"}</option>
-                    {info.profiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {p.is_fresh ? "" : " (needs refresh)"}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {on && info && info.blocked.length > 0 && (
-                  <p key="p-498-16" className="w-full text-xs text-amber-800">
-                    {Array.from(new Set(info.blocked.map((b) => b.reason))).join("; ")}
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {preview && (
-        <p key="p-509-6" className={"text-xs " + (preview.fits ? "text-slate-500" : "text-amber-800")}>
-          {preview.fits
-            ? `${preview.drafts} draft${preview.drafts === 1 ? "" : "s"} ≈ ${preview.estimated_calls.toLocaleString()} Etsy requests (about ${preview.calls_per_draft} each); ${preview.budget_remaining.toLocaleString()} can still be spent today.`
-            : preview.message}
-        </p>
-      )}
-    </section>
   );
 }
 

@@ -7,6 +7,7 @@ import { addDays, dayKey, formatTime, formatWhen, scheduleLabel, toWallClock, wa
 import { useSession } from "@/components/SessionProvider";
 import { ZoneNote } from "@/components/ZoneNote";
 import type { Schedule } from "@/lib/types";
+import { ShopBadge } from "@/components/ShopPicker";
 import { useShops } from "@/components/ShopProvider";
 
 import { Txt } from "@/components/Txt";
@@ -197,7 +198,7 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
           {row.title ?? `Listing ${row.etsy_listing_id}`}
         </span>
         <span className="block text-xs text-slate-400">
-          {showShop && <><span><Txt>{row.shop_name ?? "Shop"}</Txt><span> · </span></span></>}
+          <ShopBadge name={row.shop_name ?? "Shop"} className="mr-1.5" />
           <a href={row.listing_link} target="_blank" rel="noreferrer" className="hover:text-brand-700 hover:underline">
             {row.status === "published" ? "View on Etsy ↗" : "Edit draft ↗"}
           </a>

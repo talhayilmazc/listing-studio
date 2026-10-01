@@ -16,10 +16,11 @@ export interface ReviewActions {
 }
 
 /**
- * `targets`: the shops chosen for "Create drafts"; omitted = each listing's own
- * shop (the shop its profile belongs to).
+ * `targets`: the shops chosen for "Create drafts": the same for every listing
+ * (a list), or per listing by its id (the matrix's ticked cells). Omitted, or a
+ * listing absent from the map = its own shop (the shop its profile belongs to).
  */
-export function reviewActions(items: Content[], targets?: string[]): ReviewActions {
+export function reviewActions(items: Content[], targets?: string[] | Record<string, string[]>): ReviewActions {
   let approved = 0;
   let toDraft = 0;
   let toPublish = 0;
@@ -27,7 +28,8 @@ export function reviewActions(items: Content[], targets?: string[]): ReviewActio
     if (!c.approved) continue;
     approved += 1;
     const drafted = new Set(c.publications.map((p) => p.connection_id));
-    const wanted = targets ?? (c.connection_id ? [c.connection_id] : []);
+    const chosen = Array.isArray(targets) ? targets : targets?.[c.id];
+    const wanted = chosen ?? (c.connection_id ? [c.connection_id] : []);
     if (wanted.some((shop) => !drafted.has(shop))) toDraft += 1;
     if (c.publications.some((p) => p.state !== "active")) toPublish += 1;
   }

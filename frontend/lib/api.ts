@@ -186,7 +186,12 @@ export const api = {
 
   listBatches: () => req<BatchSummary[]>("/batches"),
   getBatch: (id: string) => req<BatchDetail>(`/batches/${id}`),
-  createBatch: () => req<BatchSummary>("/batches", { method: "POST" }),
+  /** Start an upload for one shop (required when several are connected). */
+  createBatch: (shop?: string | null) =>
+    req<BatchSummary>("/batches", { method: "POST", body: JSON.stringify(shop ? { connection_id: shop } : {}) }),
+  /** The shop a batch is for; groups not set by hand move with it. */
+  setBatchShop: (id: string, shop: string) =>
+    req<Group[]>(`/batches/${id}/shop`, { method: "PUT", body: JSON.stringify({ connection_id: shop }) }),
   finalizeBatch: (id: string) => req<BatchSummary>(`/batches/${id}/finalize`, { method: "POST" }),
   // Choose which profile's size charts to append when publishing this batch (Task 4).
   setSizeChartProfile: (id: string, profileId: string | null) =>
@@ -226,7 +231,15 @@ export const api = {
   listGroups: (id: string) => req<Group[]>(`/batches/${id}/groups`),
   assignGroup: (
     id: string,
-    body: { group_key?: string | null; profile_id?: string | null; size_chart_profile_id?: string | null },
+    /** Only the fields sent are changed. One group (the following unset ones take
+     *  the same), a selection (`group_keys`), or every group not set by hand. */
+    body: {
+      group_key?: string | null;
+      group_keys?: string[];
+      connection_id?: string | null;
+      profile_id?: string | null;
+      size_chart_profile_id?: string | null;
+    },
   ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
   batchCost: (id: string) => req<BatchCost>(`/batches/${id}/cost`),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),

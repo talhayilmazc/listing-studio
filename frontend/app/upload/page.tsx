@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadArchive, uploadAsset } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
+import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
+import { useShops } from "@/components/ShopProvider";
 import { relativeTime } from "@/lib/format";
 import type { ArchiveResult, BatchSummary } from "@/lib/types";
 import {
@@ -51,6 +53,12 @@ export default function UploadPage() {
   // Files in chosen folders that are not images or ZIPs, left out.
   const [ignored, setIgnored] = useState(0);
   const [phase, setPhase] = useState<"staging" | "uploading" | "done">("staging");
+  // The shop this upload is for. It starts on the switcher's shop, is shown
+  // before anything is sent, and can be changed here without touching the switcher.
+  const { shops, selected: switcherShop } = useShops();
+  const [shopChoice, setShopChoice] = useState<string | null>(null);
+  const uploadShop = shopChoice ?? switcherShop?.id ?? null;
+  const shopChoices = (shops ?? []).map((sh) => ({ id: sh.id, name: sh.name }));
   // The upload itself: one row per file.
   const [rows, setRows] = useState<Row[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -192,7 +200,7 @@ export default function UploadPage() {
 
     let batch: BatchSummary;
     try {
-      batch = await api.createBatch();
+      batch = await api.createBatch(uploadShop);
     } catch (e: any) {
       setNotes([String(e.message ?? e)]);
       setPhase("staging");
@@ -376,6 +384,13 @@ export default function UploadPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {shopChoices.length > 1 && (
+              <label key="shop" className="flex items-center gap-1.5 text-xs text-slate-600">
+                <span>For shop</span>
+                <ShopPicker shops={shopChoices} value={uploadShop} onChange={setShopChoice} label="Shop this upload is for" />
+              </label>
+            )}
+            {shopChoices.length === 1 && <ShopBadge key="oneshop" name={shopChoices[0].name} />}
             {pickers}
             <button type="button" className="text-xs text-slate-500 underline hover:text-slate-800" onClick={clearAll}>
               Clear

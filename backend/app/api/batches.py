@@ -7,7 +7,7 @@ from typing import Any
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.core.config import get_settings
 from app.db.models import (
     Asset,
     AssetStatus,
+    EtsyConnection,
     GeneratedContent,
     Job,
     JobStatus,
@@ -37,7 +38,10 @@ from app.db.models import (
 )
 from app.compliance.trademarks import blocklist_for_tenant
 from app.core import allowance
+from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
+from app.etsy.shops import active_shops, owned_shop
+from app.pipeline.targets import shop_profiles
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.reference import decode_etsy_text
 from app.pipeline.cost import CostCalculator, UnknownModelError
@@ -92,6 +96,28 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
         .select_from(GeneratedContent)
         .where(GeneratedContent.batch_id == batch.id, GeneratedContent.approved.is_(True))
     )
+    # Every shop this batch is in: its own, its groups', and where it has drafts.
+    shop_ids = set(
+        (
+            await session.execute(
+                select(ListingGroupSetting.connection_id).where(
+                    ListingGroupSetting.batch_id == batch.id, ListingGroupSetting.connection_id.is_not(None)
+                )
+            )
+        ).scalars()
+    ) | set(
+        (
+            await session.execute(
+                select(ListingPublication.connection_id)
+                .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
+                .where(GeneratedContent.batch_id == batch.id)
+            )
+        ).scalars()
+    )
+    if batch.connection_id is not None:
+        shop_ids.add(batch.connection_id)
+    shops = [c for c in await active_shops(session, batch.tenant_id) if c.id in shop_ids]
+    own = next((c for c in shops if c.id == batch.connection_id), None)
     return schemas.BatchSummary(
         id=batch.id,
         status=batch.status.value,
@@ -101,6 +127,9 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
         processed_count=int(processed_count or 0),
         approved_count=int(approved_count or 0),
         size_chart_profile_id=batch.size_chart_profile_id,
+        connection_id=own.id if own else None,
+        shop_name=shop_label(own) if own else None,
+        shop_names=[shop_label(c) for c in shops],
     )
 
 
@@ -114,11 +143,26 @@ async def _get_batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID)
 # --- Upload flow ------------------------------------------------------------
 @router.post("/batches", response_model=schemas.BatchSummary, status_code=201)
 async def create_batch(
+    body: schemas.BatchCreate | None = Body(default=None),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.BatchSummary:
+    """Start an upload, for the shop the seller is uploading for.
+
+    With several shops connected the shop must be named: a batch is never put
+    in a shop the seller did not pick. With one, it is that one.
+    """
+    shops = await active_shops(session, tenant.id)
+    chosen: EtsyConnection | None = None
+    if body is not None and body.connection_id is not None:
+        chosen = await owned_shop(session, tenant.id, body.connection_id)
+        if chosen is None:
+            raise HTTPException(status_code=404, detail="shop not found")
+    elif len(shops) == 1:
+        chosen = shops[0]
     batch = await ingestor.create_batch(session, tenant.id)
+    batch.connection_id = chosen.id if chosen else None
     await session.commit()
     await session.refresh(batch)
     return await _summary(session, batch)
@@ -394,10 +438,11 @@ async def get_asset_image(
     return Response(content=data, media_type=asset.mime_type or "application/octet-stream")
 
 
-# --- Per-group profile selection (v4 §E) -----------------------------------
+# --- Per-group shop, profile and size charts (v4 §E; shop first, Priority 2) ---------
 async def _batch_groups(
     session: AsyncSession, batch_id: uuid.UUID
 ) -> list[schemas.GroupOut]:
+    batch = await session.get(UploadBatch, batch_id)
     rows = await session.execute(select(Asset).where(Asset.batch_id == batch_id))
     assets = list(rows.scalars())
     with_content = await _content_asset_ids(session, batch_id)
@@ -405,6 +450,7 @@ async def _batch_groups(
         select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id)
     )
     group_settings = {s.group_key: s for s in setting_rows.scalars()}
+    shops = {c.id: c for c in await active_shops(session, batch.tenant_id)} if batch else {}
 
     grouped: dict[str, list[Asset]] = {}
     for asset in assets:
@@ -414,12 +460,17 @@ async def _batch_groups(
     for key in sorted(grouped):
         members = grouped[key]
         s = group_settings.get(key)
+        # A group with nothing set is in the batch's shop.
+        shop_id = (s.connection_id if s and s.connection_id else None) or (batch.connection_id if batch else None)
+        shop = shops.get(shop_id) if shop_id else None
         out.append(
             schemas.GroupOut(
                 group_key=key,
                 sku=next((m.parsed_sku for m in members if m.parsed_sku), None),
                 image_count=len(members),
                 has_content=any(m.id in with_content for m in members),
+                connection_id=shop.id if shop else None,
+                shop_name=shop_label(shop) if shop else None,
                 profile_id=s.profile_id if s else None,
                 size_chart_profile_id=s.size_chart_profile_id if s else None,
                 manual=s.manual if s else False,
@@ -439,6 +490,77 @@ async def list_groups(
     return await _batch_groups(session, batch_id)
 
 
+async def _matching_profile(
+    session: AsyncSession, shop_id: uuid.UUID, like: ListingProfile | None
+) -> uuid.UUID | None:
+    """The profile of ``shop_id`` that stands in for ``like`` (another shop's):
+    the one with the same name, else the only one of the same kind, else the
+    only one. None when the seller has to choose."""
+    candidates = await shop_profiles(session, shop_id)
+    if like is not None:
+        named = [p for p in candidates if p.name.casefold() == like.name.casefold()]
+        if named:
+            return named[0].id
+        same_kind = [p for p in candidates if p.content_template == like.content_template]
+        if len(same_kind) == 1:
+            return same_kind[0].id
+    return candidates[0].id if len(candidates) == 1 else None
+
+
+async def _move_to_shop(session: AsyncSession, setting: ListingGroupSetting, shop_id: uuid.UUID) -> None:
+    """Put a group in ``shop_id``. A profile or size-chart profile of another
+    shop cannot stay: the profile becomes that shop's matching one (or is left
+    for the seller to choose), the size charts go back to the profile's own."""
+    if setting.connection_id == shop_id:
+        return
+    setting.connection_id = shop_id
+    current = await session.get(ListingProfile, setting.profile_id) if setting.profile_id else None
+    if current is None or current.connection_id != shop_id:
+        setting.profile_id = await _matching_profile(session, shop_id, current)
+    chart = await session.get(ListingProfile, setting.size_chart_profile_id) if setting.size_chart_profile_id else None
+    if chart is not None and chart.connection_id != shop_id:
+        setting.size_chart_profile_id = None
+
+
+async def _shop_profile(
+    session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID, shop_id: uuid.UUID | None, what: str
+) -> ListingProfile:
+    profile = await session.get(ListingProfile, profile_id)
+    if profile is None or profile.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="profile not found")
+    if shop_id is not None and profile.connection_id != shop_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"that {what} belongs to another shop; choose the group's shop first, then one of its profiles",
+        )
+    return profile
+
+
+@router.put("/batches/{batch_id}/shop", response_model=list[schemas.GroupOut])
+async def set_batch_shop(
+    batch_id: uuid.UUID,
+    body: schemas.BatchShop,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> list[schemas.GroupOut]:
+    """Choose the shop the batch is for. Groups the seller has not set themselves
+    move with it (each to that shop's matching profile); groups set by hand and
+    groups whose listing is already written stay where they are."""
+    batch = await _get_batch(session, tenant, batch_id)
+    shop = await owned_shop(session, tenant.id, body.connection_id)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="shop not found")
+    batch.connection_id = shop.id
+    written = {g.group_key for g in await _batch_groups(session, batch_id) if g.has_content}
+    for setting in (
+        await session.execute(select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id))
+    ).scalars():
+        if not setting.manual and setting.group_key not in written:
+            await _move_to_shop(session, setting, shop.id)
+    await session.commit()
+    return await _batch_groups(session, batch_id)
+
+
 @router.put("/batches/{batch_id}/groups", response_model=list[schemas.GroupOut])
 async def assign_group_profile(
     batch_id: uuid.UUID,
@@ -447,18 +569,18 @@ async def assign_group_profile(
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.GroupOut]:
-    """Assign a profile (and size-chart profile) to one group, or bulk-apply to all.
+    """Set the shop, the profile and the size-chart profile of one group, of a
+    selection, or of every group the seller has not set (see GroupAssign).
 
-    With a ``group_key`` it sets that group explicitly (``manual``); without one it
-    applies to every group the seller hasn't set manually, without clobbering the
-    field it didn't provide (v4 §E).
+    The shop comes first: a profile or a size-chart profile must belong to the
+    group's shop, and moving a group to another shop swaps its profile for that
+    shop's matching one. Only the fields sent are changed.
     """
-    await _get_batch(session, tenant, batch_id)
-    for pid in (body.profile_id, body.size_chart_profile_id):
-        if pid is not None:
-            p = await session.get(ListingProfile, pid)
-            if p is None or p.tenant_id != tenant.id:
-                raise HTTPException(status_code=404, detail="profile not found")
+    batch = await _get_batch(session, tenant, batch_id)
+    sent = body.model_fields_set
+    if "connection_id" in sent and body.connection_id is not None:
+        if await owned_shop(session, tenant.id, body.connection_id) is None:
+            raise HTTPException(status_code=404, detail="shop not found")
 
     existing = {
         s.group_key: s
@@ -468,40 +590,70 @@ async def assign_group_profile(
             )
         ).scalars()
     }
+    groups = await _batch_groups(session, batch_id)
+    order = [g.group_key for g in groups]
+    written = {g.group_key for g in groups if g.has_content}
 
-    if body.group_key is not None:
+    explicit = body.group_key is not None or body.group_keys is not None
+    if body.group_keys is not None:
+        keys = [k for k in body.group_keys if k in order]
+    elif body.group_key is not None:
         keys = [body.group_key]
     else:
-        all_keys = {
-            (a.group_key or "")
-            for a in (
-                await session.execute(select(Asset).where(Asset.batch_id == batch_id))
-            ).scalars()
-        }
-        keys = [k for k in all_keys if not (existing.get(k) and existing[k].manual)]
+        keys = [k for k in order if not (existing.get(k) and existing[k].manual)]
 
-    for key in keys:
+    def setting_for(key: str) -> ListingGroupSetting:
         setting = existing.get(key)
         if setting is None:
-            setting = ListingGroupSetting(tenant_id=tenant.id, batch_id=batch_id, group_key=key)
+            setting = ListingGroupSetting(
+                tenant_id=tenant.id, batch_id=batch_id, group_key=key, connection_id=batch.connection_id
+            )
             session.add(setting)
             existing[key] = setting
-        if body.group_key is not None:
-            # Explicit single-group set: apply exactly what was sent (clearing allowed).
-            setting.profile_id = body.profile_id
-            setting.size_chart_profile_id = body.size_chart_profile_id
-            setting.manual = True
-        else:
-            # Bulk: fill only the fields provided; never clobber the other.
+        elif setting.connection_id is None:
+            setting.connection_id = batch.connection_id
+        return setting
+
+    for key in keys:
+        setting = setting_for(key)
+        if "connection_id" in sent and body.connection_id is not None:
+            await _move_to_shop(session, setting, body.connection_id)
+        if "profile_id" in sent:
             if body.profile_id is not None:
-                setting.profile_id = body.profile_id
+                profile = await _shop_profile(session, tenant, body.profile_id, setting.connection_id, "profile")
+                # A group with no shop yet takes the shop of the profile chosen for it.
+                setting.connection_id = setting.connection_id or profile.connection_id
+            setting.profile_id = body.profile_id
+        if "size_chart_profile_id" in sent:
             if body.size_chart_profile_id is not None:
-                setting.size_chart_profile_id = body.size_chart_profile_id
+                chart = await _shop_profile(
+                    session, tenant, body.size_chart_profile_id, setting.connection_id, "size-chart profile"
+                )
+                setting.connection_id = setting.connection_id or chart.connection_id
+            setting.size_chart_profile_id = body.size_chart_profile_id
+        if explicit:
+            setting.manual = True
+
+    # Defaults carry forward: the groups after a group set on its own take the
+    # same, until one the seller set themselves. Written listings are left alone.
+    if body.group_key is not None and body.group_key in order:
+        source = existing[body.group_key]
+        for key in order[order.index(body.group_key) + 1:]:
+            follower = existing.get(key)
+            if follower is not None and follower.manual:
+                break
+            if key in written:
+                continue
+            follower = setting_for(key)
+            follower.connection_id = source.connection_id
+            follower.profile_id = source.profile_id
+            follower.size_chart_profile_id = source.size_chart_profile_id
+
     await session.commit()
     # Chosen for generation: bring its reference up to date now, since a profile
     # not used lately is not kept warm in the background (etsy/refresh.py).
-    if body.profile_id is not None:
-        chosen = await session.get(ListingProfile, body.profile_id)
+    for profile_id in {existing[k].profile_id for k in keys if existing[k].profile_id}:
+        chosen = await session.get(ListingProfile, profile_id)
         if chosen is not None:
             await request_refresh(enqueuer.enqueue, chosen, origin="use")
     return await _batch_groups(session, batch_id)

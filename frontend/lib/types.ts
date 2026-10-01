@@ -26,6 +26,10 @@ export interface BatchSummary {
   processed_count: number;
   approved_count: number;
   size_chart_profile_id: string | null;
+  /** The shop the batch is for, and every shop its groups or drafts are in. */
+  connection_id?: string | null;
+  shop_name?: string | null;
+  shop_names?: string[];
 }
 
 export interface ReplaceImagesResult {
@@ -38,8 +42,12 @@ export interface Group {
   sku: string | null;
   image_count: number;
   has_content: boolean;
+  /** The shop this group's listing is for; its profile and size charts are that shop's. */
+  connection_id: string | null;
+  shop_name: string | null;
   profile_id: string | null;
   size_chart_profile_id: string | null;
+  /** Set by the seller on this group itself (else carried from the group before, or the batch). */
   manual: boolean;
   /** One of the seller's own listings this group follows (v7 §B). */
   pattern_listing_id?: number | null;
@@ -133,6 +141,8 @@ export interface PublishRequest {
   /** Omitted = each listing goes to the shop it was written for. */
   targets?: PublishTarget[];
   content_ids?: string[];
+  /** Exactly these listing-and-shop combinations (the matrix's ticked cells). */
+  pairs?: { content_id: string; connection_id: string; profile_id?: string | null }[];
 }
 
 export interface ShopTarget {
@@ -144,8 +154,39 @@ export interface ShopTarget {
 }
 
 /** What a publish would do, before it is confirmed (v5 §E quota protection). */
+/** One listing in one shop: what would happen there, or why nothing can. */
+export interface MatrixCell {
+  connection_id: string;
+  state: "available" | "draft" | "live" | "unavailable";
+  reason: string | null;
+  profile_id: string | null;
+  profile_name: string | null;
+  /** This request would create it. */
+  chosen: boolean;
+}
+
+export interface MatrixRow {
+  content_id: string;
+  title: string | null;
+  original_filename: string;
+  group_key: string | null;
+  approved: boolean;
+  own_connection_id: string | null;
+  cells: MatrixCell[];
+}
+
+export interface MatrixColumn {
+  connection_id: string;
+  shop_name: string | null;
+  profiles: { id: string; name: string; content_template: string; is_fresh: boolean }[];
+  drafts: number;
+  estimated_calls: number;
+}
+
 export interface PublishPreview {
   shops: ShopTarget[];
+  columns: MatrixColumn[];
+  rows: MatrixRow[];
   drafts: number;
   estimated_calls: number;
   calls_per_draft: number;

@@ -15,6 +15,7 @@ import type {
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
+import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
 import { useSession } from "./SessionProvider";
@@ -47,12 +48,15 @@ export function ReviewCard({
   initial,
   onChange,
   targets,
+  profileFor,
   shopNames,
   bulkRunning,
 }: {
   initial: Content;
-  /** Shops chosen on the review page; omitted = the listing's own shop. */
+  /** Shops ticked for this listing on the review page; omitted = its own shop. */
   targets?: string[];
+  /** The profile chosen for a shop's drafts on the review page, by shop. */
+  profileFor?: Record<string, string | null>;
   shopNames?: Record<string, string>;
   /** The page is running a bulk action and watching its jobs itself. */
   bulkRunning?: boolean;
@@ -221,7 +225,10 @@ export function ReviewCard({
   // Step 1: create the drafts (never published automatically).
   const createDraftIn = (shops: string[]) =>
     runJobs(
-      () => api.publishContent(initial.id, { targets: shops.map((connection_id) => ({ connection_id })) }),
+      () =>
+        api.publishContent(initial.id, {
+          targets: shops.map((connection_id) => ({ connection_id, profile_id: profileFor?.[connection_id] ?? undefined })),
+        }),
       "draft",
       "still working after 15 minutes; reload to check.",
     );
@@ -266,6 +273,12 @@ export function ReviewCard({
       <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
         {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
         <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
+          {initial.connection_id && shopNames?.[initial.connection_id] && (
+            <p key="shop" className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
+              <span>Written for</span>
+              <ShopBadge name={shopNames[initial.connection_id]} />
+            </p>
+          )}
           <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -385,8 +398,8 @@ export function ReviewCard({
                         ? "Creating draft…"
                         : missing.length > 1
                           ? `Create drafts in ${missing.length} shops`
-                          : publications.length
-                            ? `Create draft in ${shopNames?.[missing[0]] ?? "this shop"}`
+                          : shopNames?.[missing[0]]
+                            ? `Create draft in ${shopNames[missing[0]]}`
                             : "Create draft"}
                   </button>
                 )}

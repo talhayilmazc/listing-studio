@@ -457,6 +457,11 @@ class UploadBatch(Base):
     #: Optional profile whose size-chart (fixed) images to append when publishing
     #: this batch's listings — lets size charts come from a different profile than
     #: the one supplying metadata (Task 4). Null = use each content's own profile.
+    #: The shop this batch is for: the seller's explicit choice, shown first on the
+    #: batch page. Groups start from it and may each choose another (Priority 2).
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="SET NULL")
+    )
     size_chart_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("listing_profile.id", ondelete="SET NULL")
     )
@@ -487,6 +492,11 @@ class ListingGroupSetting(Base):
         ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
     )
     group_key: Mapped[str] = mapped_column(Text, nullable=False)  # "" is the root group
+    #: The shop this group's listing is written for. Its profile and its size-chart
+    #: profile always belong to this shop.
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="SET NULL")
+    )
     profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("listing_profile.id", ondelete="SET NULL")
     )

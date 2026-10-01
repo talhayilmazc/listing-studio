@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ShopBadge } from "@/components/ShopPicker";
 import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
@@ -270,6 +271,13 @@ function BatchCard({
           <StatusPill status={batch.status} />
         </div>
 
+        {(batch.shop_names ?? []).length > 0 && (
+          <div key="shops" className="mt-2 flex flex-wrap gap-1.5">
+            {(batch.shop_names ?? []).map((n) => (
+              <ShopBadge key={n} name={n} />
+            ))}
+          </div>
+        )}
         {profileNames.length > 0 && (
           <div key="div-273-8" className="mt-2 flex flex-wrap gap-1.5">
             {profileNames.map((n) => (

@@ -45,6 +45,20 @@ class BatchSummary(BaseModel):
     processed_count: int
     approved_count: int
     size_chart_profile_id: uuid.UUID | None = None  # profile whose size charts to append
+    # The shop this batch is for (the seller's choice), and every shop its groups
+    # or drafts are in: shown wherever the batch is.
+    connection_id: uuid.UUID | None = None
+    shop_name: str | None = None
+    shop_names: list[str] = Field(default_factory=list)
+
+
+class BatchCreate(BaseModel):
+    # The shop the upload is for. Omitted with one shop connected: that shop.
+    connection_id: uuid.UUID | None = None
+
+
+class BatchShop(BaseModel):
+    connection_id: uuid.UUID
 
 
 class SizeChartProfileUpdate(BaseModel):
@@ -56,6 +70,9 @@ class GroupOut(BaseModel):
     sku: str | None = None
     image_count: int
     has_content: bool
+    # The shop the group's listing is for; its profile and size charts are that shop's.
+    connection_id: uuid.UUID | None = None
+    shop_name: str | None = None
     profile_id: uuid.UUID | None = None
     size_chart_profile_id: uuid.UUID | None = None
     manual: bool = False
@@ -64,8 +81,18 @@ class GroupOut(BaseModel):
 
 
 class GroupAssign(BaseModel):
-    # group_key null/absent => apply to every group that the seller hasn't set manually.
+    """Set a group's shop, profile and size charts. Only the fields sent are
+    changed (null clears one).
+
+    ``group_key``: that group, and the groups after it that the seller has not
+    set themselves take the same (defaults carry forward). ``group_keys``:
+    exactly those groups (bulk-apply to a selection). Neither: every group the
+    seller has not set themselves.
+    """
+
     group_key: str | None = None
+    group_keys: list[str] | None = Field(default=None, max_length=500)
+    connection_id: uuid.UUID | None = None
     profile_id: uuid.UUID | None = None
     size_chart_profile_id: uuid.UUID | None = None
 
@@ -455,11 +482,22 @@ class PublishTarget(BaseModel):
     profile_id: uuid.UUID | None = None
 
 
+class PublishPair(BaseModel):
+    """One cell of the matrix: this listing, as a draft in this shop."""
+
+    content_id: uuid.UUID
+    connection_id: uuid.UUID
+    profile_id: uuid.UUID | None = None
+
+
 class PublishRequest(BaseModel):
     # Omitted = each listing goes to the shop it was written for.
     targets: list[PublishTarget] | None = Field(default=None, max_length=50)
     # Limit to these listings (a single card); omitted = every approved one.
     content_ids: list[uuid.UUID] | None = None
+    # Exactly these listing-and-shop combinations (the matrix's ticked cells).
+    # With it, ``targets`` only says which profile each shop uses.
+    pairs: list[PublishPair] | None = Field(default=None, max_length=2000)
 
 
 class LiveRequest(BaseModel):
@@ -484,10 +522,46 @@ class ProfileChoiceOut(BaseModel):
     is_fresh: bool
 
 
+class MatrixCellOut(BaseModel):
+    connection_id: uuid.UUID
+    # "available" (a draft can be created), "draft" / "live" (it already has one
+    # there), or "unavailable" with the reason.
+    state: str
+    reason: str | None = None
+    # The profile of that shop the draft would be built from.
+    profile_id: uuid.UUID | None = None
+    profile_name: str | None = None
+    # Whether this request would create it.
+    chosen: bool = False
+
+
+class MatrixRowOut(BaseModel):
+    content_id: uuid.UUID
+    title: str | None = None
+    original_filename: str
+    group_key: str | None = None
+    approved: bool
+    # The shop the listing was written for.
+    own_connection_id: uuid.UUID | None = None
+    cells: list[MatrixCellOut] = Field(default_factory=list)
+
+
+class MatrixColumnOut(BaseModel):
+    connection_id: uuid.UUID
+    shop_name: str | None
+    profiles: list["ProfileChoiceOut"] = Field(default_factory=list)
+    drafts: int = 0  # drafts this request would create in this shop
+    estimated_calls: int = 0
+
+
 class PublishPreviewOut(BaseModel):
     """What a publish would do, before it is confirmed (v5 §E quota protection)."""
 
     shops: list[ShopTargetOut]
+    # Every listing against every connected shop: what would be created where,
+    # what is there already, and what cannot go there and why (Priority 2).
+    columns: list[MatrixColumnOut] = Field(default_factory=list)
+    rows: list[MatrixRowOut] = Field(default_factory=list)
     drafts: int  # drafts that would be created
     estimated_calls: int  # ~15 Etsy requests per draft
     calls_per_draft: int

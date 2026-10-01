@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { AnalyticsListings, AnalyticsSummary, ListingClass } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
+import { ShopBadge } from "@/components/ShopPicker";
 import { AdsUpload } from "@/components/analytics/AdsUpload";
 import { CostSettings } from "@/components/analytics/CostSettings";
 import { ListingTable } from "@/components/analytics/ListingTable";
@@ -86,6 +87,13 @@ export default function AnalyticsPage() {
         ))}
       </nav>
 
+      {selected && (
+        <p key="shop" className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+          <span>Figures for</span>
+          <ShopBadge name={selected.name} />
+          <span>(change it with the shop switcher)</span>
+        </p>
+      )}
       {status && <StatusBar key="status" status={status} shopId={shopId} onProgress={load} />}
       {error && <div key="error" className="card p-3 text-sm text-rose-700">{error}</div>}
       {!summary && !error && <p key="loading" className="text-sm text-slate-400">Loading…</p>}

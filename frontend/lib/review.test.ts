@@ -42,6 +42,9 @@ test("with two target shops, a draft in one still leaves work in the other", () 
   assert.equal(reviewActions(items).toDraft, 0); // its own shop is done
   assert.equal(reviewActions(items, ["shop-1", "shop-2"]).toDraft, 1);
   assert.equal(reviewActions(items, ["shop-1"]).toDraft, 0);
+  // Per listing (the matrix): only the shops ticked for that listing count.
+  assert.equal(reviewActions(items, { [items[0].id]: ["shop-2"] }).toDraft, 1);
+  assert.equal(reviewActions(items, { [items[0].id]: [] }).toDraft, 0);
 });
 
 test("a card remounts when a draft changes, not when it is approved or ticked", () => {

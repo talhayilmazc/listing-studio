@@ -8,6 +8,8 @@ import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
+import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
+import { useShops } from "@/components/ShopProvider";
 import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
 import { useSession } from "@/components/SessionProvider";
 import { GroupImages } from "@/components/GroupImages";
@@ -27,6 +29,12 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [settings, setSettings] = useState<Record<string, Group>>({});
   const [bulkProfileId, setBulkProfileId] = useState<string>("");
+  // The account's shops, and the one the switcher is on (offered, never assumed).
+  const { shops, selected: switcherShop } = useShops();
+  const shopChoices = (shops ?? []).map((sh) => ({ id: sh.id, name: sh.name }));
+  const manyShops = shopChoices.length > 1;
+  // Groups ticked for bulk-apply.
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // group key, or "__all__"
   const [notice, setNotice] = useState<string | null>(null);
@@ -89,15 +97,27 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [batch]);
 
-  // Persist a group assignment (single group -> manual; no key -> bulk to all).
-  async function assign(body: {
-    group_key?: string | null;
-    profile_id?: string | null;
-    size_chart_profile_id?: string | null;
-  }) {
+  // Persist a choice: for one group (the unset groups after it take the same),
+  // for the ticked groups, or for every group not set by hand. Only the fields
+  // sent change.
+  async function assign(body: Parameters<typeof api.assignGroup>[1]) {
     try {
+      setProblem(null);
       const gs = await api.assignGroup(id, body);
       setSettings(Object.fromEntries(gs.map((g) => [g.group_key, g])));
+    } catch (e: any) {
+      setProblem(e.message ?? String(e));
+    }
+  }
+
+  // The shop the batch is for. Groups not set by hand move with it.
+  async function chooseBatchShop(shop: string) {
+    try {
+      setProblem(null);
+      const gs = await api.setBatchShop(id, shop);
+      setSettings(Object.fromEntries(gs.map((g) => [g.group_key, g])));
+      setBulkProfileId("");
+      await load();
     } catch (e: any) {
       setProblem(e.message ?? String(e));
     }
@@ -225,6 +245,13 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const withContent = batch.assets.filter((a) => a.has_content).length;
   const anyBusy = busy !== null;
   const noProfiles = profiles.length === 0;
+  // With one shop connected there is nothing to choose: it is that shop.
+  const batchShop = batch.connection_id ?? (manyShops ? null : shopChoices[0]?.id ?? null);
+  const batchShopName = shopChoices.find((sh) => sh.id === batchShop)?.name ?? batch.shop_name ?? null;
+  const shopOf = (key: string) => settings[key]?.connection_id ?? batchShop;
+  // The ticked groups' shop, when they share one: a profile can only be applied within one shop.
+  const pickedShops = new Set(picked.map((k) => shopOf(k)));
+  const pickedShop = pickedShops.size === 1 ? [...pickedShops][0] ?? null : null;
 
   // A group's profile picks the shop it is written for (v5 §E); each picker
   // searches by name, template and reference listing title (v7 §D1).
@@ -236,8 +263,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           <Link href="/" className="text-sm text-slate-400 hover:text-slate-600">
             ← Batches
           </Link>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <StatusPill status={batch.status} />
+            {(batch.shop_names ?? []).map((name) => (
+              <ShopBadge key={name} name={name} />
+            ))}
           </div>
           <p className="mt-1 text-sm text-slate-500">
             <span><span>{groups.length}</span><span> listing group</span><Txt>{groups.length === 1 ? "" : "s"}</Txt><span> · </span><span>{batch.processed_count}</span>{" "}
@@ -249,39 +279,137 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         </Link>
       </div>
 
-      {/* Bulk selectors (apply to all groups) + Generate all */}
-      <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
+      {/* Step 1: the shop. Step 2: that shop's profile and size charts, for all groups. */}
+      <div className="card space-y-3 p-4">
         {noProfiles ? (
           <Link href="/profiles" className="text-sm text-brand-600 underline">
             Create a profile first →
           </Link>
         ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-sm text-slate-600">Profile (all)</label>
-            <ProfilePicker
-              profiles={profiles}
-              value={bulkProfileId || null}
-              emptyLabel="Choose…"
-              label="Profile for all groups"
-              onChange={(pid) => {
-                setBulkProfileId(pid ?? "");
-                if (pid) assign({ profile_id: pid });
-              }}
-            />
-            <label className="ml-3 text-sm text-slate-600">Size charts (all)</label>
-            <ProfilePicker
-              profiles={profiles}
-              value={null}
-              emptyLabel="Each group’s own"
-              label="Size charts for all groups"
-              onChange={(pid) => pid && assign({ size_chart_profile_id: pid })}
-            />
-          </div>
+          <>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="text-sm font-medium text-slate-800">
+                <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[11px] text-white">1</span>
+                Shop for this batch
+              </span>
+              {manyShops ? (
+                <ShopPicker shops={shopChoices} value={batchShop} onChange={chooseBatchShop} label="Shop for this batch" disabled={anyBusy} />
+              ) : (
+                <ShopBadge name={shopChoices[0]?.name ?? batch.shop_name} />
+              )}
+              {manyShops && !batchShop && switcherShop && (
+                <button key="use" type="button" className="text-sm text-brand-700 underline" onClick={() => chooseBatchShop(switcherShop.id)}>
+                  <span>Use <span translate="no">{switcherShop.name}</span></span>
+                </button>
+              )}
+              {manyShops && (
+                <span key="hint" className="text-xs text-slate-500">
+                  {batchShop
+                    ? "Groups start in this shop; any group can be given another below."
+                    : "Nothing is assigned to a shop until you choose one."}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+              <span className="text-sm font-medium text-slate-800">
+                <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[11px] text-white">2</span>
+                For all groups
+              </span>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <span>Profile</span>
+                <ProfilePicker
+                  profiles={profiles}
+                  shopId={batchShop}
+                  shopName={batchShopName}
+                  value={bulkProfileId || null}
+                  emptyLabel="Choose…"
+                  label="Profile for all groups"
+                  onChange={(pid) => {
+                    setBulkProfileId(pid ?? "");
+                    if (pid) assign({ profile_id: pid });
+                  }}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <span>Size charts</span>
+                <ProfilePicker
+                  profiles={profiles}
+                  shopId={batchShop}
+                  shopName={batchShopName}
+                  value={null}
+                  emptyLabel="Each group’s own"
+                  label="Size charts for all groups"
+                  onChange={(pid) => pid && assign({ size_chart_profile_id: pid })}
+                />
+              </label>
+              <button className="btn-secondary sm:ml-auto" onClick={generateAll} disabled={anyBusy || noProfiles}>
+                {busy === "__all__" ? "Generating all…" : "Generate content for all"}
+              </button>
+            </div>
+          </>
         )}
-        <button className="btn-secondary" onClick={generateAll} disabled={anyBusy || noProfiles}>
-          {busy === "__all__" ? "Generating all…" : "Generate content for all"}
-        </button>
       </div>
+
+      {/* Bulk-apply: the same three choices for the ticked groups. */}
+      {!noProfiles && groups.length > 1 && (
+        <div key="bulk" className="card flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm">
+          <label className="flex min-h-[2.25rem] items-center gap-2 text-slate-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={picked.length === groups.length}
+              ref={(el) => {
+                if (el) el.indeterminate = picked.length > 0 && picked.length < groups.length;
+              }}
+              onChange={(e) => setPicked(e.target.checked ? groups.map((g) => g.key) : [])}
+            />
+            <span translate="no">{picked.length ? `${picked.length} selected` : "Select groups"}</span>
+          </label>
+          {picked.length > 0 && (
+            <>
+              <span className="text-slate-400" aria-hidden>→</span>
+              {manyShops && (
+                <ShopPicker key="shop"
+                  shops={shopChoices}
+                  value={pickedShop}
+                  emptyLabel={pickedShops.size > 1 ? "Several shops…" : "Choose a shop…"}
+                  onChange={(shop) => assign({ group_keys: picked, connection_id: shop })}
+                  label="Shop for the selected groups"
+                  size="xs"
+                />
+              )}
+              <ProfilePicker
+                profiles={profiles}
+                shopId={pickedShop}
+                shopName={shopChoices.find((sh) => sh.id === pickedShop)?.name}
+                value={null}
+                emptyLabel="Profile…"
+                label="Profile for the selected groups"
+                size="xs"
+                onChange={(pid) => pid && assign({ group_keys: picked, profile_id: pid })}
+              />
+              <ProfilePicker
+                profiles={profiles}
+                shopId={pickedShop}
+                shopName={shopChoices.find((sh) => sh.id === pickedShop)?.name}
+                value={null}
+                emptyLabel="Size charts…"
+                label="Size charts for the selected groups"
+                size="xs"
+                onChange={(pid) => pid && assign({ group_keys: picked, size_chart_profile_id: pid })}
+              />
+              {pickedShops.size > 1 && (
+                <span key="mixed" className="text-xs text-amber-800">
+                  The selected groups are in different shops: choose one shop for them, then a profile.
+                </span>
+              )}
+              <button type="button" className="text-xs text-slate-500 underline" onClick={() => setPicked([])}>
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {notice && (
         <div key="div-322-6" role="status" translate="no" className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">{notice}</div>
@@ -319,7 +447,17 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           return (
             <div key={g.key} className="card p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {groups.length > 1 && !noProfiles && (
+                    <input
+                      key="pick"
+                      type="checkbox"
+                      className="h-4 w-4"
+                      aria-label={`Select ${g.label}`}
+                      checked={picked.includes(g.key)}
+                      onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, g.key] : cur.filter((k) => k !== g.key)))}
+                    />
+                  )}
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-sm text-slate-600">
                     {g.label}
                   </span>
@@ -397,38 +535,49 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               )}
 
               {!noProfiles && (
-                <div key="div-427-14" className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <label className="text-slate-500">Profile</label>
-                  <ProfilePicker
-                    profiles={profiles}
-                    value={s?.profile_id ?? null}
-                    emptyLabel="Choose…"
-                    label={`Profile for ${g.label}`}
-                    size="xs"
-                    onChange={(pid) =>
-                      assign({
-                        group_key: g.key,
-                        profile_id: pid,
-                        size_chart_profile_id: s?.size_chart_profile_id ?? null,
-                      })
-                    }
-                  />
-                  <label className="ml-2 text-slate-500">Size charts</label>
-                  <ProfilePicker
-                    profiles={profiles}
-                    value={s?.size_chart_profile_id ?? null}
-                    emptyLabel="Own profile"
-                    label={`Size charts for ${g.label}`}
-                    size="xs"
-                    onChange={(pid) =>
-                      assign({
-                        group_key: g.key,
-                        profile_id: s?.profile_id ?? null,
-                        size_chart_profile_id: pid,
-                      })
-                    }
-                  />
-                  {s?.manual && <span key="span-457-18" className="text-slate-400">· set manually</span>}
+                <div key="choices" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+                  {manyShops && (
+                    <label key="shop" className="flex items-center gap-1.5 text-slate-500">
+                      <span>Shop</span>
+                      <ShopPicker
+                        shops={shopChoices}
+                        value={shopOf(g.key)}
+                        onChange={(shop) => assign({ group_key: g.key, connection_id: shop })}
+                        label={`Shop for ${g.label}`}
+                        size="xs"
+                        disabled={anyBusy}
+                      />
+                    </label>
+                  )}
+                  <label className="flex items-center gap-1.5 text-slate-500">
+                    <span>Profile</span>
+                    <ProfilePicker
+                      profiles={profiles}
+                      shopId={shopOf(g.key)}
+                      shopName={s?.shop_name ?? batchShopName}
+                      value={s?.profile_id ?? null}
+                      emptyLabel="Choose…"
+                      label={`Profile for ${g.label}`}
+                      size="xs"
+                      onChange={(pid) => assign({ group_key: g.key, profile_id: pid })}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5 text-slate-500">
+                    <span>Size charts</span>
+                    <ProfilePicker
+                      profiles={profiles}
+                      shopId={shopOf(g.key)}
+                      shopName={s?.shop_name ?? batchShopName}
+                      value={s?.size_chart_profile_id ?? null}
+                      emptyLabel="Own profile"
+                      label={`Size charts for ${g.label}`}
+                      size="xs"
+                      onChange={(pid) => assign({ group_key: g.key, size_chart_profile_id: pid })}
+                    />
+                  </label>
+                  <span className="text-slate-400">
+                    {s?.manual ? "set here" : s?.profile_id ? "carried from above" : shopOf(g.key) ? "choose a profile" : "choose a shop"}
+                  </span>
                 </div>
               )}
               {patternsOn && (

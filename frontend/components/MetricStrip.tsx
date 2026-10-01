@@ -59,7 +59,7 @@ export function MetricStrip() {
       <dl className="mx-auto grid w-full max-w-[1800px] grid-cols-2 lg:grid-cols-4">
         <Cell
           label="Published"
-          period="this month"
+          period={selected ? `this month · ${selected.name}` : "this month"}
           value={shop?.published_this_month ?? null}
           unavailable={shop?.stale ? "updating from Etsy" : undefined}
           delta={
@@ -69,7 +69,7 @@ export function MetricStrip() {
         />
         <Cell
           label="Draft listings"
-          period="awaiting publish"
+          period={selected ? `awaiting publish · ${selected.name}` : "awaiting publish"}
           value={shop?.draft ?? null}
           secondary={shop ? `${shop.active.toLocaleString()} live` : null}
           unavailable={shop?.stale ? "updating from Etsy" : undefined}
@@ -77,7 +77,7 @@ export function MetricStrip() {
         <QuotaCell quota={quota} />
         <Cell
           label="Active profiles"
-          period="in your library"
+          period={selected ? `in ${selected.name}` : "in your library"}
           value={activeProfiles}
           secondary={
             awaitingReview === null
