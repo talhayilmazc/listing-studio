@@ -37,6 +37,7 @@ from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
 from app.workers.schedule import release_scheduled_publishes
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
+from app.workers.recovery import recover_interrupted_jobs
 from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
@@ -116,6 +117,8 @@ class WorkerSettings:
         cron(auto_refresh_profiles, minute={5, 20, 35, 50}, second=0, run_at_startup=True),
         # Scheduled publishing (v6 §G): due schedules become publish-live jobs.
         cron(release_scheduled_publishes, second=30, run_at_startup=True),
+        # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
+        cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).
         cron(sync_all_sales, hour={2}, minute={30}, second=0, run_at_startup=False),
         # The shop's fees and ad spend from its payment ledger, likewise.
@@ -123,3 +126,9 @@ class WorkerSettings:
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    # Stated, not left to arq's defaults (10 jobs, 300 s, 5 tries): see config.py.
+    max_jobs = get_settings().worker_max_jobs
+    job_timeout = get_settings().worker_job_timeout
+    # A cancelled job (worker stopping) is run again by arq; the publish jobs
+    # are resumable and hold a run lock, so that is safe.
+    max_tries = 5

@@ -14,16 +14,26 @@ Sequence (every HTTP call is gated by the client's quota + token bucket):
 9. record the draft as a :class:`ListingPublication` for this content in this shop
    (one content can have a draft in each of several shops, v5 §E).
 
-Partial failure (e.g. an image upload) leaves the draft in place; the worker
-records which step failed. Nothing is ever auto-published.
+Creating a draft is **resumable**. A :class:`DraftAttempt` is written before
+``createDraftListing`` and holds the listing id from the moment Etsy returns it.
+If anything after that fails (a timeout, a 429 that outlasted its retries, the
+worker restarting), the next try reads that listing back and carries on from
+what it already has: the settings are simply set again (they are idempotent),
+and only the images Etsy does not have yet are uploaded. A create request whose
+answer never arrived is looked for among the shop's own newest drafts by its
+title before another is sent. So trying again never makes a second draft. The
+attempt is deleted when the publication is recorded. Nothing is ever
+auto-published.
 """
 
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -34,13 +44,14 @@ from app.core import allowance
 from app.db.models import (
     ComplianceFinding,
     ComplianceSeverity,
+    DraftAttempt,
     EtsyConnection,
     GeneratedContent,
     ListingPublication,
     ListingSnapshot,
 )
 from app.etsy.api import EtsyApiClient
-from app.etsy.errors import EtsyServerError
+from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.attributes import resolve_required_attributes
 from app.pipeline.personalization import questions_for
 from app.pipeline.reference import (
@@ -55,6 +66,70 @@ logger = logging.getLogger(__name__)
 
 class PublishBlocked(Exception):
     """A blocking compliance finding prevents publishing this content."""
+
+
+class NotYet(Exception):
+    """Nothing is wrong with the listing; this try could not finish. The worker
+    runs it again after ``seconds`` and it carries on where it stopped."""
+
+    def __init__(self, message: str, *, seconds: float | None = None) -> None:
+        super().__init__(message)
+        self.seconds = NOT_YET_SECONDS if seconds is None else seconds
+
+
+#: How long the worker waits before the next try after a :class:`NotYet`.
+NOT_YET_SECONDS = 60.0
+#: No answer, or Etsy's own error: the request may or may not have taken effect.
+UNCERTAIN = (httpx.TransportError, EtsyServerError)
+#: After an unanswered create, how long Etsy gets before its drafts are searched,
+#: and how long a create must be unaccounted for before another is sent.
+ADOPT_WAIT_SECONDS = 5.0
+RECREATE_AFTER_SECONDS = 90.0
+#: Sends of one image before the try gives up (each checked against Etsy first).
+UPLOAD_TRIES = 3
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _same_title(a: str | None, b: str | None) -> bool:
+    """Titles compared as Etsy returns them: entities decoded, whitespace collapsed."""
+    norm = lambda t: " ".join(html.unescape(t or "").split()).casefold()  # noqa: E731
+    return bool(a) and norm(a) == norm(b)
+
+
+async def attempt_for(session: AsyncSession, content_id: uuid.UUID, connection_id: uuid.UUID) -> DraftAttempt | None:
+    rows = await session.execute(
+        select(DraftAttempt).where(DraftAttempt.content_id == content_id, DraftAttempt.connection_id == connection_id)
+    )
+    return rows.scalar_one_or_none()
+
+
+async def _find_unanswered_draft(
+    session: AsyncSession, client: EtsyApiClient, shop_id: int, attempt: DraftAttempt, ctx: dict[str, Any]
+) -> int | None:
+    """The draft a lost create request made, if Etsy made it: the newest of the
+    shop's own drafts with the title that was sent, created since it was sent,
+    that the app does not already hold. The seller's own shop only."""
+    if not attempt.title or attempt.create_sent_at is None:
+        return None
+    sent = attempt.create_sent_at if attempt.create_sent_at.tzinfo else attempt.create_sent_at.replace(tzinfo=timezone.utc)
+    drafts = await client.get_listings_by_shop(shop_id, state="draft", limit=25, **ctx)
+    known = set((await session.execute(
+        select(ListingPublication.etsy_listing_id).where(ListingPublication.connection_id == attempt.connection_id)
+    )).scalars())
+    known |= set((await session.execute(
+        select(DraftAttempt.etsy_listing_id).where(
+            DraftAttempt.connection_id == attempt.connection_id, DraftAttempt.etsy_listing_id.is_not(None))
+    )).scalars())
+    for row in sorted(drafts.get("results") or [], key=lambda r: int(r.get("listing_id") or 0), reverse=True):
+        made = row.get("original_creation_timestamp") or row.get("created_timestamp") or row.get("creation_timestamp")
+        if made is not None and int(made) < sent.timestamp() - 120:
+            continue
+        if _same_title(row.get("title"), attempt.title) and int(row["listing_id"]) not in known:
+            return int(row["listing_id"])
+    return None
 
 
 @dataclass
@@ -206,6 +281,7 @@ async def publish_content(
         raise PublishBlocked("content has a blocking compliance finding")
     if await publication_for(session, content.id, connection.id) is not None:
         raise ValueError("this listing already has a draft in this shop")
+    attempt = await attempt_for(session, content.id, connection.id)
 
     # 2) Resolve the shop id.
     if connection.shop_id is None:
@@ -217,17 +293,53 @@ async def publish_content(
         await session.commit()
     shop_id = connection.shop_id
 
+    # 2a) An earlier try of this draft: carry on with its listing rather than
+    # making another. The read-back that verifies a new draft doubles as the check
+    # that the listing is still there (the seller may have deleted it since).
+    listing_id: int | None = None
+    readback: dict[str, Any] | None = None
+    if attempt is not None and attempt.etsy_listing_id is None and attempt.create_sent_at is not None:
+        found = await _find_unanswered_draft(session, client, shop_id, attempt, ctx)
+        if found is not None:
+            logger.info("draft: found listing %s from a create whose answer was lost", found)
+            attempt.etsy_listing_id = found
+            await session.commit()
+        else:
+            sent = attempt.create_sent_at if attempt.create_sent_at.tzinfo else attempt.create_sent_at.replace(tzinfo=timezone.utc)
+            if _now() - sent < timedelta(seconds=RECREATE_AFTER_SECONDS):
+                raise NotYet("checking whether Etsy created the draft before sending it again")
+    if attempt is not None and attempt.etsy_listing_id is not None:
+        try:
+            readback = await client.get_listing(attempt.etsy_listing_id, **ctx)
+            listing_id = attempt.etsy_listing_id
+        except EtsyClientError as exc:
+            if exc.status_code not in (404, 410):
+                raise
+            logger.info("draft: listing %s of an earlier try is gone; starting again", attempt.etsy_listing_id)
+            attempt.etsy_listing_id, attempt.create_sent_at = None, None
+            await session.commit()
+        else:
+            if readback.get("state") not in (None, "draft"):
+                # No longer a draft (published or removed by hand): not ours to continue.
+                attempt.etsy_listing_id, attempt.create_sent_at = None, None
+                await session.commit()
+                listing_id, readback = None, None
+    resumed = listing_id is not None
+
     # 3) Choose a shop section (v3 §F): a Comfort Colors profile ALWAYS maps to the
     # shop's "Comfort Colors" section (deterministic, no LLM); otherwise match by
     # theme (rules.json). Every branch is logged so a missing section is diagnosable.
-    sections_resp = await client.get_shop_sections(shop_id, **ctx)
+    # A draft being resumed already has its section.
+    sections_resp = {"results": []} if resumed else await client.get_shop_sections(shop_id, **ctx)
     section_by_title = {
         str(s["title"]): int(s["shop_section_id"]) for s in sections_resp.get("results", [])
     }
     section_by_lower = {title.lower(): sid for title, sid in section_by_title.items()}
 
     section_id: int | None = None
-    if "comfort colors" in profile_name.lower():
+    if resumed:
+        section_id = (readback or {}).get("shop_section_id")
+    elif "comfort colors" in profile_name.lower():
         section_id = section_by_lower.get("comfort colors")
         if section_id is not None:
             logger.info("section: Comfort Colors profile rule -> section %s", section_id)
@@ -320,23 +432,51 @@ async def publish_content(
             listing[key] = reference[key]
     if section_id is not None:
         listing["shop_section_id"] = section_id
-    created = await client.create_draft_listing(shop_id, listing=listing, **ctx)
-    listing_id = int(created["listing_id"])
+    if listing_id is None:
+        # The attempt is on record before the request goes out, so whatever
+        # happens next, the following try knows a create was sent and with what title.
+        if attempt is None:
+            attempt = DraftAttempt(tenant_id=tenant_id, content_id=content.id, connection_id=connection.id)
+            session.add(attempt)
+        attempt.title, attempt.create_sent_at = listing["title"], _now()
+        await session.commit()
+        try:
+            created = await client.create_draft_listing(shop_id, listing=listing, **ctx)
+            listing_id = int(created["listing_id"])
+        except UNCERTAIN as exc:
+            # No answer, or a 5xx: Etsy may have made the draft anyway. Look for it.
+            await asyncio.sleep(ADOPT_WAIT_SECONDS)
+            found = await _find_unanswered_draft(session, client, shop_id, attempt, ctx)
+            if found is None:
+                raise NotYet("Etsy did not answer when the draft was sent; checking before sending it again") from exc
+            logger.info("draft: create answered late; listing %s found among the shop's drafts", found)
+            listing_id, created = found, {"listing_id": found}
+        attempt.etsy_listing_id = listing_id
 
-    # 5) Snapshot the created baseline before any further write.
-    session.add(
-        ListingSnapshot(
-            tenant_id=tenant_id,
-            listing_id=listing_id,
-            job_id=job_id,
-            payload={"operation": "create_draft", "submitted": listing, "created": created},
+        # 5) Snapshot the created baseline before any further write.
+        session.add(
+            ListingSnapshot(
+                tenant_id=tenant_id,
+                listing_id=listing_id,
+                job_id=job_id,
+                payload={"operation": "create_draft", "submitted": listing, "created": created},
+            )
         )
-    )
-    await session.commit()
+        await session.commit()
+    elif not _same_title(attempt.title, listing["title"]):
+        # The text was edited between tries: the draft takes the current text.
+        await client.update_listing(
+            shop_id, listing_id,
+            updates={"title": listing["title"], "description": listing["description"], "tags": listing["tags"]}, **ctx,
+        )
+        attempt.title = listing["title"]
+        await session.commit()
+        readback = None
 
     # 5a) Read the draft back and verify Etsy stored the reference category. A wrong
     # `type` or a re-selected category lands it under Digital; fail loudly (v4 §A).
-    readback = await client.get_listing(listing_id, **ctx)
+    if readback is None or not resumed:
+        readback = await client.get_listing(listing_id, **ctx)
     stored_taxonomy = readback.get("taxonomy_id")
     if int(stored_taxonomy or 0) != int(taxonomy_id):
         raise ValueError(
@@ -410,9 +550,30 @@ async def publish_content(
 
     # 7) Upload new images (thumbnail rank 1, then siblings), then re-use the
     # reference's fixed images (B3, e.g. size charts) by id, in order.
+    # Images go up one at a time in order, so "how many the listing has" says
+    # exactly which are done. A resumed draft starts from that count; an upload
+    # whose answer never came is checked the same way before it is sent again.
     ordered = _rank([thumbnail, *extras])
-    for image in ordered:
-        await client.upload_listing_image(
+
+    async def have() -> int:
+        return len((await client.get_listing_images(listing_id, **ctx)).get("results") or [])
+
+    async def put(position: int, send: Any) -> None:
+        for tries in range(1, UPLOAD_TRIES + 1):
+            try:
+                await send()
+                return
+            except UNCERTAIN:
+                if await have() > position:  # it arrived; only the answer was lost
+                    return
+                if tries == UPLOAD_TRIES:
+                    raise
+
+    done = await have() if resumed else 0
+    for position, image in enumerate(ordered):
+        if position < done:
+            continue
+        await put(position, lambda image=image: client.upload_listing_image(
             shop_id,
             listing_id,
             image_bytes=image.data,
@@ -420,13 +581,15 @@ async def publish_content(
             rank=image.rank,
             mime_type=image.mime_type,
             **ctx,
-        )
+        ))
     next_rank = len(ordered)
     for image_id in fixed:
         next_rank += 1
-        await client.upload_listing_image(
-            shop_id, listing_id, listing_image_id=image_id, rank=next_rank, **ctx
-        )
+        if next_rank - 1 < done:
+            continue
+        await put(next_rank - 1, lambda image_id=image_id, rank=next_rank: client.upload_listing_image(
+            shop_id, listing_id, listing_image_id=image_id, rank=rank, **ctx
+        ))
 
     # 8) Record the listing id. It is created as a DRAFT (state never set), so mark
     # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
@@ -443,6 +606,8 @@ async def publish_content(
     )
     # One unit of the seller's product allowance (core/allowance.py).
     allowance.record(session, tenant_id, allowance.DRAFT)
+    # Finished: from here the publication is the record, in the same commit.
+    await session.delete(attempt)
     await session.commit()
 
     return PublishResult(
@@ -511,7 +676,7 @@ async def publish_live(
     await session.commit()
 
     try:
-        await client.update_listing(shop_id, listing_id, updates={"state": "active"}, **ctx)
+        await client.update_listing(shop_id, listing_id, updates={"state": "active"}, repeat=False, **ctx)
     except (httpx.TransportError, EtsyServerError) as exc:
         # No answer, or a server error: Etsy may still have applied it. Ask.
         if not await _became_active(
@@ -522,6 +687,23 @@ async def publish_live(
                 "Try Publish now again."
             ) from exc
         logger.info("publish-live: listing %s confirmed active after %s", listing_id, type(exc).__name__)
+    except EtsyClientError as exc:
+        if exc.status_code not in (404, 410):
+            raise
+        # Etsy has no such listing in this shop. If reading it says the same, the
+        # draft was deleted in Shop Manager: forget it, so it can be created again.
+        try:
+            await client.get_listing(listing_id, **ctx)
+        except EtsyClientError as gone:
+            if gone.status_code not in (404, 410):
+                raise
+            await session.delete(publication)
+            await session.commit()
+            raise ValueError(
+                "This draft is no longer on Etsy (it was deleted in Shop Manager), so there was nothing "
+                "to publish. Create the draft again, then publish it."
+            ) from exc
+        raise
     publication.state = "active"
     await session.commit()
 

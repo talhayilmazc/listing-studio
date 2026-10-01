@@ -95,6 +95,33 @@ case "${limit:-5000}" in
      fi ;;
 esac
 
+echo "== models"
+# Production ran on Haiku for days after Sonnet was chosen: VISION_MODEL and
+# CONTENT_MODEL were unset, and each falls back to LLM_MODEL without a word.
+fallback="$(get LLM_MODEL)"
+fallback="${fallback:-claude-haiku-4-5-20251001}"   # the app's default when unset
+uses_sonnet=0
+for key in VISION_MODEL CONTENT_MODEL; do
+  model="$(get "$key")"
+  if [ -z "$model" ]; then
+    warn "$key is not set; it falls back to LLM_MODEL ($fallback)"
+    model="$fallback"
+  fi
+  case "$model" in
+    *haiku*)  warn "$key resolves to Haiku ($model)" ;;
+    *sonnet*) pass "$key is $model"; uses_sonnet=1 ;;
+    *)        pass "$key is $model" ;;
+  esac
+done
+thinking="$(get LLM_THINKING)"
+if [ "$uses_sonnet" = "1" ] && [ "${thinking:-off}" != "off" ]; then
+  warn "LLM_THINKING is '$thinking' with a Sonnet model; set LLM_THINKING=off (thinking costs more and is slower here)"
+elif [ "$uses_sonnet" = "1" ] && [ -z "$thinking" ]; then
+  warn "LLM_THINKING is not set; the app's default is off, but say so in $ENV_FILE: LLM_THINKING=off"
+elif [ "$uses_sonnet" = "1" ]; then
+  pass "LLM_THINKING=off"
+fi
+
 echo "== tunnel"
 if grep -q '<TUNNEL_ID>' "$TUNNEL_CONFIG"; then
   fail "$TUNNEL_CONFIG still contains <TUNNEL_ID>"

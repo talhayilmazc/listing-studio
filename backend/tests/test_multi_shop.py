@@ -98,7 +98,7 @@ async def _profile(s, tenant_id, shop, *, name="Standard Tee", prefix=None, body
         content_template="apparel",
         confirmed=True,
         title_prefix=prefix,
-        cached_payload={"description": f"Reference title\n\n{body}", "images": []},
+        cached_payload={"description": f"Reference title\n\n{body}", "images": [], "payload_version": 2},
         updated_at=datetime.now(timezone.utc),
     )
     s.add(profile)

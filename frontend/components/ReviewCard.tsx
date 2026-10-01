@@ -1,7 +1,7 @@
 "use client";
 
 import { ScheduleControl } from "./ScheduleControl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type {
   BatchPublishResult,
@@ -10,6 +10,7 @@ import type {
   Pause,
   Publication,
   PublishSkipped,
+  Work,
 } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
@@ -47,11 +48,14 @@ export function ReviewCard({
   onChange,
   targets,
   shopNames,
+  bulkRunning,
 }: {
   initial: Content;
   /** Shops chosen on the review page; omitted = the listing's own shop. */
   targets?: string[];
   shopNames?: Record<string, string>;
+  /** The page is running a bulk action and watching its jobs itself. */
+  bulkRunning?: boolean;
   /** Tell the page what changed (approval, a draft created or published), so its
    * bulk actions update without a reload (docs/duzeltmeler-v5.md §C). */
   onChange?: (change: Partial<Content> & { id: string }) => void;
@@ -82,6 +86,16 @@ export function ReviewCard({
     "idle",
   );
   const [publishError, setPublishError] = useState<string | null>(null);
+  // Drafts or go-lives that failed, per shop, with the reason: each can be tried
+  // again in one click and carries on where it stopped. From the server (so it
+  // survives a reload and a bulk run) and from the jobs this card watches.
+  const [work, setWork] = useState<Work[]>(initial.work ?? []);
+  const incomingWork = JSON.stringify(initial.work ?? []);
+  useEffect(() => {
+    setWork(JSON.parse(incomingWork));
+  }, [incomingWork]);
+  // Said while a job waits to run again by itself (Etsy asked for a pause, or did not answer).
+  const [waiting, setWaiting] = useState<string | null>(null);
   // Shops this listing could not go to, and why.
   const [skipped, setSkipped] = useState<PublishSkipped[]>([]);
   // A job waiting for the daily Etsy reset: still queued, runs by itself later.
@@ -121,9 +135,57 @@ export function ReviewCard({
     }
   }
 
-  // Run queued publish jobs (one per shop) and watch them settle. Each shop that
-  // lands updates the card at once; one shop failing does not stop the others.
-  async function runJobs(start: () => Promise<BatchPublishResult>, timeoutMsg: string) {
+  // Watch queued jobs (one per shop) until they settle. Each shop that lands
+  // updates the card at once; one shop failing does not stop the others.
+  type Watched = { job_id: string; connection_id: string | null; shop_name: string | null };
+  async function watch(jobs: Watched[], kind: Work["kind"], timeoutMsg: string) {
+    let current = publications;
+    const failed: Work[] = [];
+    const stalled: string[] = [];
+    let paused: Pause | null = null;
+    await Promise.all(
+      jobs.map(async (j) => {
+        const job = await waitForJob(j.job_id, setWaiting);
+        const shop = j.shop_name ?? "this shop";
+        if (job === null) stalled.push(`${shop}: ${timeoutMsg}`);
+        else if (job.pause) paused = job.pause;
+        else if (job.status === "succeeded" && job.listing_id && job.listing_url) {
+          const pub: Publication = {
+            connection_id: j.connection_id ?? "",
+            shop_name: j.shop_name,
+            etsy_listing_id: job.listing_id,
+            state: job.is_draft ? "draft" : "active",
+            listing_link: job.listing_url,
+            manual_steps: job.manual_steps ?? [],
+          };
+          current = [...current.filter((p) => p.connection_id !== pub.connection_id), pub];
+          setPublications(current);
+        } else {
+          failed.push({
+            kind, connection_id: j.connection_id ?? "", shop_name: j.shop_name, job_id: j.job_id,
+            status: "failed", error: job.error ?? "it failed without a reason", pause: null,
+          });
+        }
+      }),
+    );
+    setWaiting(null);
+    onChange?.({ id: initial.id, publications: current });
+    const shops = new Set(jobs.map((j) => j.connection_id ?? ""));
+    setWork((w) => [...w.filter((x) => !(x.kind === kind && shops.has(x.connection_id))), ...failed]);
+    if (stalled.length) {
+      setPublishError(stalled.join(" "));
+      setPublishState("error");
+    } else if (failed.length) {
+      setPublishState("error");
+    } else if (paused) {
+      setPause(paused);
+      setPublishState("paused");
+    } else {
+      setPublishState("idle");
+    }
+  }
+
+  async function runJobs(start: () => Promise<BatchPublishResult>, kind: Work["kind"], timeoutMsg: string) {
     if (dirty) await save();
     setPublishState("publishing");
     setPublishError(null);
@@ -131,60 +193,49 @@ export function ReviewCard({
     try {
       const res = await start();
       setSkipped(res.skipped);
-      let current = publications;
-      const failures: string[] = [];
-      let paused: Pause | null = null;
-      await Promise.all(
-        res.jobs.map(async (j) => {
-          const job = await waitForJob(j.job_id);
-          const shop = j.shop_name ?? "this shop";
-          if (job === null) failures.push(`${shop}: ${timeoutMsg}`);
-          else if (job.pause) paused = job.pause;
-          else if (job.status === "succeeded" && job.listing_id && job.listing_url) {
-            const pub: Publication = {
-              connection_id: j.connection_id ?? "",
-              shop_name: j.shop_name,
-              etsy_listing_id: job.listing_id,
-              state: job.is_draft ? "draft" : "active",
-              listing_link: job.listing_url,
-              manual_steps: job.manual_steps ?? [],
-            };
-            current = [...current.filter((p) => p.connection_id !== pub.connection_id), pub];
-            setPublications(current);
-          } else failures.push(`${shop}: ${job.error ?? "the job failed"}`);
-        }),
-      );
-      onChange?.({ id: initial.id, publications: current });
-      if (failures.length) {
-        setPublishError(failures.join(" "));
-        setPublishState("error");
-      } else if (paused) {
-        setPause(paused);
-        setPublishState("paused");
-      } else {
-        setPublishState("idle");
-      }
+      await watch(res.jobs, kind, timeoutMsg);
     } catch (e: any) {
       setPublishError(e.message ?? String(e));
       setPublishState("error");
     }
   }
 
+  // Jobs the server says are still going (queued behind others, or waiting to run
+  // again by themselves): keep watching them, so the card follows without a reload.
+  const watched = useRef(new Set<string>());
+  useEffect(() => {
+    const going = (JSON.parse(incomingWork) as Work[]).filter(
+      (w) => w.status !== "failed" && !watched.current.has(w.job_id) && !(w.pause && w.pause.reason.endsWith("_quota")),
+    );
+    // During a bulk run the page watches every job and reloads the cards as they land.
+    if (going.length === 0 || bulkRunning) return;
+    going.forEach((w) => watched.current.add(w.job_id));
+    setPublishState("publishing");
+    for (const kind of ["draft", "publish"] as const) {
+      const jobs = going.filter((w) => w.kind === kind);
+      if (jobs.length) watch(jobs, kind, "still working after 15 minutes; reload to check.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingWork, bulkRunning]);
+
   // Step 1: create the drafts (never published automatically).
-  const createDraft = () =>
+  const createDraftIn = (shops: string[]) =>
     runJobs(
-      () =>
-        api.publishContent(initial.id, {
-          targets: missing.map((connection_id) => ({ connection_id })),
-        }),
+      () => api.publishContent(initial.id, { targets: shops.map((connection_id) => ({ connection_id })) }),
+      "draft",
       "still working after 15 minutes; reload to check.",
     );
+  const createDraft = () => createDraftIn(missing);
   // Step 2 (explicit): make one shop's reviewed, approved draft active.
   const publishNow = (shop: string) =>
     runJobs(
       () => api.publishLive(initial.id, [shop]),
+      "publish",
       "still working after 15 minutes; reload to check whether it is live.",
     );
+  // One click: the same job again. A draft carries on where it stopped; a second one is never made.
+  const tryAgain = (w: Work) => (w.kind === "draft" ? createDraftIn([w.connection_id]) : publishNow(w.connection_id));
+  const failures = work.filter((w) => w.status === "failed");
 
   // The seller confirms a Shop Manager setting on one draft; the page's summary follows.
   async function tickStep(shop: string, key: string, done: boolean) {
@@ -402,6 +453,40 @@ export function ReviewCard({
                   <li key={i}>
                     <span><Txt>{s.shop_name ? `${s.shop_name}: ` : ""}</Txt>
                     <span>{s.reason}</span></span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {waiting && publishState === "publishing" && (
+              <p key="waiting" role="status" translate="no" className="mt-2 text-right text-xs text-amber-800">{waiting}</p>
+            )}
+            {failures.length > 0 && publishState !== "publishing" && (
+              <ul key="failures" className="mt-2 space-y-2">
+                {failures.map((w) => (
+                  <li key={`${w.kind}-${w.connection_id}`} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                    <p>
+                      <span className="font-medium">
+                        <span>{w.kind === "draft" ? "Draft not created" : "Not published"}</span>
+                        <Txt>{w.shop_name ? ` in ${w.shop_name}` : ""}</Txt>
+                        <span>: </span>
+                      </span>
+                      <span translate="no">{w.error}</span>
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                        onClick={() => tryAgain(w)}
+                        disabled={!approved || publishing}
+                      >
+                        Try again
+                      </button>
+                      <span className="text-rose-700/80">
+                        {w.kind === "draft"
+                          ? "It carries on where it stopped; a second draft is never created."
+                          : "Nothing is published twice."}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>

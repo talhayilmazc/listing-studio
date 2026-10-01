@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     AdSpend,
     AllowanceUse,
+    DraftAttempt,
     LedgerDaily,
     LedgerSync,
     Job,
@@ -74,6 +75,8 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.day < oldest))
     ads = await session.execute(delete(AdSpend).where(AdSpend.period_end < oldest))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.day < oldest))
+    # Drafts that were started and never finished or retried (etsy/publisher.py).
+    await session.execute(delete(DraftAttempt).where(DraftAttempt.created_at < now - timedelta(days=DraftAttempt.RETENTION_DAYS)))
     # Allowance usage: long past any period an allowance counts over.
     await session.execute(delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
     image_links = await _strip_display_fields(session, now)
@@ -160,6 +163,7 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     ads = await session.execute(delete(AdSpend).where(AdSpend.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))
+    await session.execute(delete(DraftAttempt).where(DraftAttempt.connection_id == connection_id))
     await session.execute(delete(LedgerSync).where(LedgerSync.connection_id == connection_id))
     return {
         "sales_days": sales.rowcount or 0,

@@ -16,6 +16,8 @@ from app.db.models import (
     EtsyConnection,
     GeneratedContent,
     Job,
+    JobStatus,
+    JobType,
     ListingProfile,
     ListingPublication,
     Tenant,
@@ -185,10 +187,77 @@ async def _profile_shops(
     return {pid: cid for pid, cid in rows.all()}
 
 
+async def unfinished_work(
+    session: AsyncSession, contents: list[GeneratedContent]
+) -> dict[uuid.UUID, list[schemas.WorkOut]]:
+    """Each listing's latest draft and go-live job per shop, when it did not succeed.
+
+    A failure stays on the card until it is no longer true: a draft that failed
+    is not mentioned once the draft exists, nor a go-live once the listing is live.
+    """
+    from app.api.pauses import pause_out
+    from app.api.shops import shop_label
+
+    found: dict[uuid.UUID, list[schemas.WorkOut]] = {c.id: [] for c in contents}
+    if not contents:
+        return found
+    tenant = await session.get(Tenant, contents[0].tenant_id)
+    wanted = {str(c.id): c.id for c in contents}
+    rows = await session.execute(
+        select(Job, EtsyConnection)
+        .join(EtsyConnection, EtsyConnection.id == Job.connection_id)
+        .where(
+            Job.tenant_id == contents[0].tenant_id,
+            Job.batch_id.in_({c.batch_id for c in contents}),
+            Job.type.in_((JobType.create_draft, JobType.publish_live)),
+        )
+        .order_by(Job.created_at)
+    )
+    latest: dict[tuple[uuid.UUID, uuid.UUID, JobType], tuple[Job, EtsyConnection]] = {}
+    for job, connection in rows.all():
+        content_id = wanted.get((job.payload or {}).get("content_id", ""))
+        if content_id is not None:
+            latest[(content_id, connection.id, job.type)] = (job, connection)  # the newest wins
+    states = {
+        (content_id, connection_id): state
+        for content_id, connection_id, state in (
+            await session.execute(
+                select(ListingPublication.content_id, ListingPublication.connection_id, ListingPublication.state)
+                .where(ListingPublication.content_id.in_(list(found)))
+            )
+        ).all()
+    }
+    for (content_id, connection_id, kind), (job, connection) in latest.items():
+        if job.status in (JobStatus.succeeded, JobStatus.cancelled):
+            continue
+        state = states.get((content_id, connection_id))
+        if kind is JobType.create_draft and state is not None:
+            continue  # the draft exists now
+        if kind is JobType.publish_live and state != "draft":
+            continue  # live already, or the draft is gone
+        found[content_id].append(
+            schemas.WorkOut(
+                kind="draft" if kind is JobType.create_draft else "publish",
+                connection_id=connection.id,
+                shop_name=shop_label(connection),
+                job_id=job.id,
+                status=job.status.value,
+                error=job.last_error if job.status is JobStatus.failed else None,
+                pause=pause_out(
+                    job.paused_reason if job.status is JobStatus.queued else None,
+                    tenant_limit=tenant.daily_quota if tenant else 0,
+                    resumes_at=job.scheduled_at,
+                ),
+            )
+        )
+    return found
+
+
 async def contents_out(
     session: AsyncSession, pairs: list[tuple[GeneratedContent, Asset]]
 ) -> list[schemas.ContentOut]:
     pubs = await publications(session, [c.id for c, _ in pairs])
+    work = await unfinished_work(session, [c for c, _ in pairs])
     shops = await _profile_shops(session, [c for c, _ in pairs])
     findings: dict[uuid.UUID, list[schemas.FindingOut]] = {c.id: [] for c, _ in pairs}
     if pairs:
@@ -204,6 +273,7 @@ async def contents_out(
     outs = [_to_out(c, a, pubs[c.id], shops.get(c.listing_profile_id)) for c, a in pairs]
     for out in outs:
         out.findings = findings.get(out.id, [])
+        out.work = work.get(out.id, [])
     return outs
 
 

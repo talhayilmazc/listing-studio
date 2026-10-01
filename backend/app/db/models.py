@@ -368,6 +368,47 @@ class ApiUsage(Base):
     request_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
 
+class DraftAttempt(Base):
+    """A draft being created in one shop for one content: what makes creating it
+    resumable.
+
+    Creating a draft is some fifteen Etsy requests. The publication row is only
+    written when all of them have succeeded, so without this a failure after
+    ``createDraftListing`` (a timeout on an image, a 429 that outlasted its
+    retries, a worker restart) left a draft on Etsy the app did not know about,
+    and trying again made a second one. The row is written before the create
+    request and holds the listing id as soon as Etsy returns it; the next try
+    carries on with that listing. It is deleted when the draft is finished.
+
+    Holds the app's own bookkeeping (an Etsy listing id and the title that was
+    sent), not Etsy content. Removed with the shop, and after
+    :attr:`RETENTION_DAYS` if never finished.
+    """
+
+    __tablename__ = "draft_attempt"
+    __table_args__ = (UniqueConstraint("content_id", "connection_id", name="uq_draft_attempt_content_shop"),)
+
+    RETENTION_DAYS: ClassVar[int] = 30
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    content_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("generated_content.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: Set once Etsy has returned it (or the draft was found again after a lost answer).
+    etsy_listing_id: Mapped[int | None] = mapped_column(BigInteger)
+    #: When createDraftListing was last sent, and the title it carried: how a
+    #: draft whose answer never arrived is recognised in the shop's drafts.
+    create_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    title: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class ListingSnapshot(Base):
     """Pre-change copy of a listing, used for rollback.
 

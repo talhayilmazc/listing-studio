@@ -30,6 +30,7 @@ def _ago(hours: float) -> datetime:
 
 PAYLOAD = {
     "taxonomy_id": 2078,
+    "payload_version": 2,
     "images": [
         {"listing_image_id": 900, "rank": 1, "url": "old", "display_url": "old", "kind": "artwork"},
         {"listing_image_id": 901, "rank": 2, "url": "old2", "display_url": "old2", "kind": "size_chart"},

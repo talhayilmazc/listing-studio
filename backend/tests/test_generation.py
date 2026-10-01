@@ -61,7 +61,7 @@ async def _seed(sm: async_sessionmaker) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID
             name="Standard Tee",
             reference_listing_id=111,
             content_template="digital_products",
-            cached_payload={"description": REF_DESCRIPTION, "taxonomy_id": 2078},
+            cached_payload={"description": REF_DESCRIPTION, "taxonomy_id": 2078, "payload_version": 2},
             updated_at=datetime.now(timezone.utc),
         )
         session.add(profile)

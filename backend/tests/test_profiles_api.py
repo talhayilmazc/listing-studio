@@ -175,7 +175,7 @@ async def test_profile_is_fresh_reflects_cached_payload(ctx) -> None:
             connection_id=ctx["shop"],
             name="Fresh",
             reference_listing_id=333,
-            cached_payload={"description": "x", "taxonomy_id": 1, "images": []},
+            cached_payload={"description": "x", "taxonomy_id": 1, "images": [], "payload_version": 2},
             updated_at=datetime.now(timezone.utc),
         )
         s.add(profile)

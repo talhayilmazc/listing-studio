@@ -10,6 +10,10 @@ Every method makes exactly one HTTP request through :meth:`_request`, which:
 5. on **429** waits (``Retry-After``, else exponential backoff), slows every worker
    down by the same amount, and retries -- each retry again through the quota and
    the bucket, so a 429 never turns into a burst of retries,
+5b. on **no answer** (timeout, dropped connection) or a **5xx**, repeats the
+   request when repeating is harmless: a read, or a write that sets something to
+   a value (PUT, PATCH, DELETE). A POST creates something, so it is never
+   repeated here; the caller checks whether it took effect (etsy/publisher.py),
 6. logs every request with its time, path, job and status (:mod:`app.etsy.calllog`).
 
 This client only ever runs inside the worker (jobs go through the queue per
@@ -53,6 +57,16 @@ def rate_limit_wait(attempt: int, retry_after: float | None) -> float:
     if retry_after is not None and retry_after >= 0:
         return retry_after
     return min(2.0 ** (attempt - 1), 30.0)  # 1, 2, 4, 8
+
+
+# No answer or a 5xx: a blip, not a verdict. Repeated a few times, a little apart.
+TRANSIENT_RETRIES = 3
+REPEATABLE = frozenset({"GET", "PUT", "PATCH", "DELETE"})
+
+
+def transient_wait(attempt: int) -> float:
+    """Seconds before retry ``attempt`` (1-based) after no answer or a 5xx: 1, 3, 9."""
+    return float(3 ** (attempt - 1))
 
 
 class RateLimitExceeded(Exception):
@@ -132,8 +146,13 @@ class EtsyApiClient:
         data: dict[str, Any] | None = None,
         json: Any = None,
         files: Any = None,
+        repeat: bool | None = None,
     ) -> dict[str, Any]:
-        attempt = 0
+        """``repeat`` overrides whether no-answer/5xx is retried here (default: by method)."""
+        repeatable = (method.upper() in REPEATABLE) if repeat is None else repeat
+        attempt = 0  # every send
+        refused = 0  # 429s
+        blips = 0  # no answer, or 5xx
         while True:
             attempt += 1
             # 1) daily quota  2) token bucket  3) Etsy API  (order per CLAUDE.md).
@@ -167,6 +186,10 @@ class EtsyApiClient:
                     sent_at=sent_at, in_second=in_second, method=method, path=path,
                     status=0, waited=waited, attempt=attempt,
                 )
+                if repeatable and blips < TRANSIENT_RETRIES:
+                    blips += 1
+                    await self._sleep(transient_wait(blips))
+                    continue
                 raise
             await self._calls.record(
                 sent_at=sent_at,
@@ -177,9 +200,16 @@ class EtsyApiClient:
                 waited=waited,
                 attempt=attempt,
             )
-            if resp.status_code != 429 or attempt > RATE_LIMIT_RETRIES:
+            if resp.status_code >= 500 and repeatable and blips < TRANSIENT_RETRIES:
+                blips += 1
+                await self._sleep(transient_wait(blips))
+                continue
+            if resp.status_code != 429:
                 break
-            wait = rate_limit_wait(attempt, _retry_after(resp))
+            refused += 1
+            if refused > RATE_LIMIT_RETRIES:
+                break
+            wait = rate_limit_wait(refused, _retry_after(resp))
             if wait > MAX_RETRY_WAIT_SECONDS:
                 break
             if self._bucket is not None:
@@ -442,6 +472,7 @@ class EtsyApiClient:
             json={"personalization_questions": questions},
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
+            repeat=True,  # it sets the questions: repeating changes nothing
         )
 
     async def create_draft_listing(
@@ -583,9 +614,12 @@ class EtsyApiClient:
         access_token: str,
         tenant_id: Any = None,
         tenant_limit: int | None = None,
+        repeat: bool | None = None,
     ) -> dict[str, Any]:
         # Etsy's updateListing is PATCH (not PUT) and IS shop-scoped:
         # PATCH /application/shops/{shop_id}/listings/{listing_id}.
+        # ``repeat=False``: the caller checks the outcome itself instead of
+        # resending (going live, where Etsy applies it but answers late).
         return await self._request(
             "PATCH",
             f"/application/shops/{shop_id}/listings/{listing_id}",
@@ -593,6 +627,7 @@ class EtsyApiClient:
             data=updates,
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
+            repeat=repeat,
         )
 
     # --- Category attributes (neckline, sleeve length, ...) ----------------

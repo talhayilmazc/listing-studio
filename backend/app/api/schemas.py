@@ -114,6 +114,23 @@ class ContentOut(BaseModel):
     # What the compliance scanner found (trademarks, character artwork), shown
     # on the card before anything is sent to Etsy.
     findings: list["FindingOut"] = Field(default_factory=list)
+    # Creating a draft or going live that did not finish: why, and whether it is
+    # waiting to run again by itself. Shown on the card with "Try again".
+    work: list["WorkOut"] = Field(default_factory=list)
+
+
+class WorkOut(BaseModel):
+    """The latest draft or go-live job of a listing in one shop, while it has not succeeded."""
+
+    kind: str  # "draft" | "publish"
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    job_id: uuid.UUID
+    status: str  # "failed" | "queued" | "running"
+    #: Why it failed, in words the seller can act on (workers/guards.py).
+    error: str | None = None
+    #: Set while it waits: for the daily reset, or to run again by itself in a moment.
+    pause: "PauseOut | None" = None
 
 
 class FindingOut(BaseModel):
@@ -278,7 +295,9 @@ class QuotaDay(BaseModel):
 class PauseOut(BaseModel):
     """Why this seller's Etsy work is waiting, in words, and until when."""
 
-    reason: str  # global_quota | tenant_quota
+    # global_quota | tenant_quota (the daily reset), or
+    # etsy_rate_limit | etsy_unavailable | interrupted (runs again by itself shortly)
+    reason: str
     message: str
     resumes_at: datetime
 

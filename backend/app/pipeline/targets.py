@@ -26,7 +26,7 @@ from app.pipeline.content import (
     policy_for,
     validate_listing,
 )
-from app.pipeline.reference import replace_title_block
+from app.pipeline.reference import PAYLOAD_VERSION, replace_title_block
 
 # Typical Etsy requests to create one draft: create, read back, category
 # attributes, inventory and the images. Used for the estimate shown before a
@@ -44,14 +44,23 @@ class Target:
     reason: str | None = None  # why this shop cannot take this listing
     title: str | None = None
     description: str | None = None
+    #: The only thing wrong is that the profile's Etsy data needs refreshing.
+    stale: bool = False
 
     @property
     def ok(self) -> bool:
         return self.profile is not None and self.reason is None
 
 
+def is_current(profile: ListingProfile) -> bool:
+    """Read by this version of the app (an older read lacks fields the draft needs)."""
+    return int((profile.cached_payload or {}).get("payload_version") or 1) >= PAYLOAD_VERSION
+
+
 def is_fresh(profile: ListingProfile) -> bool:
     if not profile.cached_payload or profile.updated_at is None:
+        return False
+    if not is_current(profile):
         return False
     updated = profile.updated_at
     if updated.tzinfo is None:  # SQLite hands back naive datetimes
@@ -157,7 +166,11 @@ async def resolve_target(
             connection,
             chosen,
             f'the Etsy data for profile "{chosen.name}" is more than a day old; '
+            "refresh the profile, then try again"
+            if not chosen.cached_payload or is_current(chosen)
+            else f'profile "{chosen.name}" was read by an older version of the app; '
             "refresh the profile, then try again",
+            stale=True,
         )
 
     if source is not None and chosen.id == source.id:

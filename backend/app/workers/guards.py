@@ -49,19 +49,32 @@ def owned_optional(row: T | None, tenant_id: uuid.UUID) -> T | None:
 # is replaced by a generic line; the full trace is already in the worker log.
 def public_error(exc: BaseException) -> str:
     """The text stored in ``job.last_error``, which the owning tenant can read."""
+    import httpx
+
     from app.core.logsafety import redact
     from app.etsy.api import RateLimitExceeded
-    from app.etsy.errors import EtsyError
+    from app.etsy.errors import EtsyError, explain
     from app.pipeline.images import ImageProcessingError
 
     if isinstance(exc, RateLimitExceeded):
-        # Rare: jobs start only when their whole budget fits. A publish is not
-        # resumable (a rerun would create a second draft), so it stops and says so.
+        # Jobs start only when their whole budget fits, and drafts wait for the
+        # reset instead of failing (workers/recovery.py); this is for the rest.
         return (
             "Etsy's daily request limit ran out partway through, so this stopped before "
-            "finishing. Try again after 00:00 UTC. For a new listing, check Shop Manager "
-            "first for a partly created draft."
+            "finishing. Try again after 00:00 UTC."
         )
-    if isinstance(exc, (EtsyError, CrossTenantJob, ImageProcessingError, ValueError)):
+    if isinstance(exc, EtsyError):
+        # Which step, and Etsy's own reason: about the seller's own listing, shown to them only.
+        return redact(explain(exc))[:500]
+    if isinstance(exc, httpx.TimeoutException):
+        return "Etsy did not answer in time. Nothing is wrong with the listing: try again."
+    if isinstance(exc, httpx.TransportError):
+        return "The connection to Etsy dropped. Nothing is wrong with the listing: try again."
+    from app.etsy.publisher import PublishBlocked
+
+    if isinstance(exc, PublishBlocked):
+        # Our own sentence: the listing isn't approved any more, or a compliance finding blocks it.
+        return f"Not published: {exc}. Review the listing, then try again."
+    if isinstance(exc, (CrossTenantJob, ImageProcessingError, ValueError)):
         return redact(str(exc))[:500] or "the job failed"
     return "the job failed unexpectedly; it has been logged for investigation"

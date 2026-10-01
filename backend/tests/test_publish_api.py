@@ -128,7 +128,7 @@ async def _add_content(
                 reference_listing_id=555,
                 content_template="digital_products",
                 confirmed=True,
-                cached_payload={"price": 25.0, "images": [], "description": "Ref\n\nBody"},
+                cached_payload={"price": 25.0, "images": [], "description": "Ref\n\nBody", "payload_version": 2},
                 updated_at=datetime.now(timezone.utc),
             )
             s.add(profile_row)
@@ -287,6 +287,44 @@ async def test_job_status_links_active_to_public_url(ctx) -> None:
 
 
 # --- Publish now (draft -> active), spec §E ---------------------------------
+async def test_a_failed_draft_stays_on_its_card_with_the_reason_until_the_draft_exists(ctx) -> None:
+    from app.db.models import JobStatus, ListingPublication
+
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"])
+    job_id = await _job_for(ctx, content_id)
+    batch_id = await _batch_of(ctx, content_id)
+
+    async def card() -> dict:
+        [item] = (await ctx["client"].get(f"/api/batches/{batch_id}/content")).json()
+        return item
+
+    async with ctx["sm"]() as s:
+        job = await s.get(Job, job_id)
+        job.status, job.last_error = JobStatus.failed, "Etsy refused it while creating the draft: Invalid shipping_profile_id"
+        await s.commit()
+    [work] = (await card())["work"]
+    assert (work["kind"], work["status"], work["job_id"]) == ("draft", "failed", str(job_id))
+    assert work["error"].endswith("Invalid shipping_profile_id") and work["pause"] is None
+
+    # Waiting to run again by itself: said so, with when.
+    async with ctx["sm"]() as s:
+        job = await s.get(Job, job_id)
+        job.status, job.last_error, job.paused_reason = JobStatus.queued, None, "etsy_rate_limit"
+        await s.commit()
+    [work] = (await card())["work"]
+    assert work["status"] == "queued" and "slow down" in work["pause"]["message"]
+    assert (await ctx["client"].get(f"/api/jobs/{job_id}")).json()["pause"]["reason"] == "etsy_rate_limit"
+
+    # Once the draft exists, the old failure is no longer mentioned.
+    async with ctx["sm"]() as s:
+        job = await s.get(Job, job_id)
+        job.status = JobStatus.failed
+        s.add(ListingPublication(tenant_id=ctx["tenant_id"], content_id=content_id, connection_id=job.connection_id,
+                                 etsy_listing_id=777, state="draft"))
+        await s.commit()
+    assert (await card())["work"] == []
+
+
 async def test_publish_live_enqueues_for_approved_draft(ctx) -> None:
     cid = await _add_content(
         ctx["sm"], ctx["tenant_id"], approved=True, listing_id=777, listing_state="draft"
@@ -363,7 +401,7 @@ async def _attach_profile(sm, content_id, *, age_hours: float, payload=True) -> 
             # The seeded content is a digital print; an apparel template would
             # (rightly) reject its title under the apparel content policy.
             content_template="digital_products",
-            cached_payload={"price": 25.0, "images": [], "description": "Ref"} if payload else None,
+            cached_payload={"price": 25.0, "images": [], "description": "Ref", "payload_version": 2} if payload else None,
             updated_at=datetime.now(timezone.utc) - timedelta(hours=age_hours),
         )
         s.add(profile)

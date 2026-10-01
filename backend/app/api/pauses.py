@@ -28,7 +28,21 @@ def pause_message(reason: str, *, tenant_limit: int) -> str:
     )
 
 
+#: A job waiting to run again by itself (workers/recovery.py): not the daily reset.
+RETRY_MESSAGES = {
+    "etsy_rate_limit": "Etsy asked for requests to slow down. This carries on by itself in a moment, where it stopped.",
+    "etsy_unavailable": "Etsy did not answer. This tries again by itself in a moment and carries on where it stopped.",
+    "interrupted": "This was interrupted. It starts again by itself in a moment and carries on where it stopped.",
+}
+
+
 def pause_out(reason: str | None, *, tenant_limit: int, resumes_at: datetime | None = None) -> PauseOut | None:
+    if reason in RETRY_MESSAGES:
+        return PauseOut(
+            reason=reason,
+            message=RETRY_MESSAGES[reason],
+            resumes_at=resumes_at or datetime.now(timezone.utc),
+        )
     if reason not in (PAUSE_GLOBAL, PAUSE_TENANT):
         return None
     return PauseOut(

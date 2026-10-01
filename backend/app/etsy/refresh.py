@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import GeneratedContent, ListingProfile, ListingPublication
+from app.pipeline.reference import PAYLOAD_VERSION
 
 #: A profile used this recently is kept warm in the background.
 USED_WITHIN = timedelta(days=14)
@@ -47,6 +48,8 @@ def refresh_due(profile: ListingProfile, now: datetime | None = None) -> str | N
     retry_after = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_RETRY_SECONDS)
     if profile.refresh_failed_at is not None and not _older(profile.refresh_failed_at, retry_after):
         return None
+    if profile.cached_payload and int(profile.cached_payload.get("payload_version") or 1) < PAYLOAD_VERSION:
+        return FULL  # read by an older version: drafts can't be built from it
     if not profile.cached_payload or _older(
         profile.updated_at, now - timedelta(seconds=ListingProfile.AUTO_REFRESH_SECONDS)
     ):

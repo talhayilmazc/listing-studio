@@ -75,6 +75,8 @@ export interface Content {
   rank: number | null;
   /** Compliance findings, shown on the card before publishing. */
   findings?: Finding[];
+  /** Draft or go-live jobs that failed or are still waiting, with the reason. */
+  work?: Work[];
 }
 
 /** A setting the seller must make on the draft in Shop Manager; Etsy's API cannot. */
@@ -252,9 +254,22 @@ export interface ShopListings {
  * app has used 90% of Etsy's shared daily limit, or this shop its own allowance.
  */
 export interface Pause {
-  reason: "global_quota" | "tenant_quota";
+  /** The daily reset (global_quota, tenant_quota), or a short wait before the job
+   *  runs again by itself (etsy_rate_limit, etsy_unavailable, interrupted). */
+  reason: "global_quota" | "tenant_quota" | "etsy_rate_limit" | "etsy_unavailable" | "interrupted";
   message: string;
   resumes_at: string;
+}
+
+/** A listing's latest draft or go-live job in one shop, while it has not succeeded. */
+export interface Work {
+  kind: "draft" | "publish";
+  connection_id: string;
+  shop_name: string | null;
+  job_id: string;
+  status: "failed" | "queued" | "running";
+  error: string | null;
+  pause: Pause | null;
 }
 
 export interface JobStatus {

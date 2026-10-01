@@ -7,6 +7,7 @@ safe failure reason (which step failed) are written back; tokens are never logge
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -31,9 +32,11 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.api import EtsyApiClient
-from app.pipeline.targets import resolve_target
+from app.etsy.api import RateLimitExceeded
+from app.pipeline.targets import Target, is_fresh, resolve_target
+from app.workers import recovery
 from app.workers.gate import start_job
-from app.workers.guards import owned, owned_optional, public_error
+from app.workers.guards import owned, owned_optional
 from app.etsy.connection import ConnectionService
 from app.pipeline.personalization import effective as effective_personalization
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
@@ -67,7 +70,56 @@ async def group_siblings(session: AsyncSession, cover: Asset) -> list[Asset]:
     )
     return list(rows.scalars())
 
+# One refresh at a time per profile in this worker: fifty drafts from one stale
+# profile wait for a single refresh instead of each asking Etsy for the same data.
+_refreshing: dict[uuid.UUID, asyncio.Lock] = {}
+
+
+async def _fresh_target(
+    ctx: dict[str, Any], session: AsyncSession, content: GeneratedContent, connection: EtsyConnection,
+    profile_id: uuid.UUID | None,
+) -> Target:
+    """The shop's profile for this draft, refreshed first if its Etsy data is stale.
+
+    The API checked freshness when the job was queued, but a job can wait (a
+    long batch, a pause until the daily reset) past the profile's 24 hours, and
+    a deploy can make every stored payload out of date at once. That used to
+    fail every listing of the batch with "refresh the profile, then try again";
+    the job now does the refresh itself, once, and carries on.
+    """
+    target = await resolve_target(session, content, connection, profile_id=profile_id)
+    if target.ok or not target.stale or target.profile is None:
+        return target
+    profile = target.profile
+    from app.workers.profiles import refresh_profile  # late: profiles imports this package's gate
+
+    lock = _refreshing.setdefault(profile.id, asyncio.Lock())
+    async with lock:
+        await session.refresh(profile)
+        if not is_fresh(profile):
+            result = await refresh_profile(ctx, str(profile.id))
+            if result == "deferred":
+                # No budget left today even for the refresh: wait for the reset.
+                raise RateLimitExceeded("daily Etsy API budget exhausted")
+            await session.refresh(profile)
+    target = await resolve_target(session, content, connection, profile_id=profile_id)
+    if target.stale and profile.refresh_error:
+        return Target(connection, profile, profile.refresh_error, stale=True)
+    return target
+
+
 async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
+    async with recovery.holding(ctx, job_id) as held:
+        if not held:
+            return "busy"  # another copy of this job is running; it will finish the draft
+        try:
+            return await _run_publish_job(ctx, job_id)
+        except asyncio.CancelledError:
+            await recovery.interrupted(ctx, None, uuid.UUID(job_id), "run_publish_job")
+            raise
+
+
+async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     storage = LocalStorage(settings.storage_dir)
@@ -104,11 +156,8 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             # This shop's own profile builds this shop's draft (v5 §E); resolved
             # again here so the text and the freshness check are current.
             chosen = job.payload.get("profile_id")
-            target = await resolve_target(
-                session,
-                content,
-                connection,
-                profile_id=uuid.UUID(chosen) if chosen else None,
+            target = await _fresh_target(
+                ctx, session, content, connection, uuid.UUID(chosen) if chosen else None
             )
             if not target.ok:
                 raise ValueError(target.reason or "no profile for this shop")
@@ -172,7 +221,7 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                 )
 
             vision = (content.attributes or {}).get("vision", {})
-            async with httpx.AsyncClient(timeout=30.0) as http:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=90.0)) as http:
                 client = EtsyApiClient(
                     client_id=settings.etsy_client_id,
                     shared_secret=settings.etsy_client_secret,
@@ -207,13 +256,8 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     title=target.title,
                     description=target.description,
                 )
-        except Exception as exc:  # noqa: BLE001 - record which step failed
-            job.status = JobStatus.failed
-            job.last_error = public_error(exc)
-            job.finished_at = datetime.now(timezone.utc)
-            await session.commit()
-            logger.exception("publish failed for job %s", job_id)
-            return "failed"
+        except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
+            return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_job")
 
         job.status = JobStatus.succeeded
         job.finished_at = datetime.now(timezone.utc)
@@ -223,6 +267,17 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
 
 async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
     """Make an approved, already-created DRAFT listing ACTIVE (E "Publish now")."""
+    async with recovery.holding(ctx, job_id) as held:
+        if not held:
+            return "busy"
+        try:
+            return await _run_publish_live_job(ctx, job_id)
+        except asyncio.CancelledError:
+            await recovery.interrupted(ctx, None, uuid.UUID(job_id), "run_publish_live_job")
+            raise
+
+
+async def _run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     connection_service = ConnectionService(
@@ -275,13 +330,8 @@ async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                     access_token=access_token,
                     tenant_limit=tenant.daily_quota,
                 )
-        except Exception as exc:  # noqa: BLE001 - record which step failed
-            job.status = JobStatus.failed
-            job.last_error = public_error(exc)
-            job.finished_at = datetime.now(timezone.utc)
-            await session.commit()
-            logger.exception("publish-live failed for job %s", job_id)
-            return "failed"
+        except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
+            return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_live_job")
 
         job.status = JobStatus.succeeded
         job.finished_at = datetime.now(timezone.utc)

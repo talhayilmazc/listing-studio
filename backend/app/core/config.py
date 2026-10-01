@@ -136,6 +136,13 @@ class Settings(BaseSettings):
 
     # Global daily API budget (app-wide, Personal App = 5.000/day). Tenant budget is per-tenant.
     global_daily_limit: int = 5000
+    # arq's limit on one job. Jobs share Etsy's 3 requests a second, so with ten
+    # running at once a 30-request draft already takes minutes; a 429 pause adds
+    # up to a minute each. arq's default (300 s) cut such jobs off mid-draft.
+    worker_job_timeout: int = 900
+    # Jobs a worker runs at once. Etsy work is paced by the bucket whatever this
+    # is; listing generation (LLM calls) is what benefits from it.
+    worker_max_jobs: int = 10
     # Etsy allows 5 requests/second and refuses bursts. 3, spaced evenly, leaves the
     # margin that 4 (with a 4-token burst) did not (docs/duzeltmeler-v5.md §A).
     etsy_requests_per_second: float = Field(default=3.0, gt=0, le=5)

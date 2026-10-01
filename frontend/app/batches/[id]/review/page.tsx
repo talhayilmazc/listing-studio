@@ -413,6 +413,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               onChange={onCardChange}
               targets={targets?.map((t) => t.connection_id)}
               shopNames={shopNames}
+              bulkRunning={busy}
             />
           ))}
         </div>
