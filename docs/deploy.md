@@ -169,9 +169,18 @@ docker compose -f docker-compose.prod.yml exec postgres \
 ## 7. Backups (F5)
 
 Cron runs `deploy/backup.sh` at 03:15 every night:
-- a verified `pg_dump` every night
-- an archive of the upload directory every week
-- 14 days kept
+- a verified `pg_dump` every night, kept 14 days
+- an archive of the upload directory every week; only the newest stays on the
+  server (`STORAGE_KEEP=1`). Preview images are left out: the app rebuilds them
+- before an archive is written the script checks there is room for it. If there
+  is not, it skips the archive, alerts, and exits non-zero rather than fill the disk
+
+**Disk the backups use.** At steady state: one storage archive, about the size
+of the upload directory without previews (2.7 GB when this was written, growing
+with uploads), plus 14 database dumps (megabytes each). For a few minutes each
+week, while the new archive is written and checked, two archives. Three
+archives of 2.7 GB kept for 14 days on a 30 GB disk was itself a reason the
+disk filled. The script prints the total and the free space at the end of each run.
 
 Off-server copies and alerts are configured in `/etc/listyro/ops.env`. It is
 owned by root with mode 600, because cron starts with an empty environment:
@@ -180,8 +189,12 @@ owned by root with mode 600, because cron starts with an empty environment:
 BACKUP_REMOTE=offsite:listyro
 HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 ALERT_WEBHOOK_URL=https://ntfy.sh/<private-topic>
-DISK_ALERT_PERCENT=80
+DISK_ALERT_PERCENT=75
 ```
+
+**Set `ALERT_WEBHOOK_URL`.** Without it the hourly disk check, a failed backup
+and a failed deploy have nowhere to report, and `deploy/preflight.sh` says so
+in a block you cannot miss. Test it once: `curl -d test <the url>`.
 
 `BACKUP_REMOTE` must be an rclone **crypt** remote. The dumps contain every
 seller's email address and encrypted tokens. Set it up as root, since root runs
@@ -212,7 +225,20 @@ refuses to run without `--i-understand-this-replaces-production`.
 - **Uptime.** Point an external monitor (UptimeRobot, healthchecks.io, and the
   like) at `https://api.listyro.com/health` every 5 minutes.
 - **Disk.** Cron runs `deploy/disk-check.sh` hourly and posts to
-  `ALERT_WEBHOOK_URL` above `DISK_ALERT_PERCENT`.
+  `ALERT_WEBHOOK_URL` above `DISK_ALERT_PERCENT` (75) or under
+  `DISK_ALERT_FREE_GB` (8) free. `deploy/preflight.sh` warns from 70% and
+  refuses at 90%. Build cache older than a week is pruned by cron every Sunday.
+- **Redis.** It holds sessions, queues and the day's counters, capped at 256 MB.
+  If a write is cut off (a full disk, a hard stop) it repairs its append-only
+  file at start and comes back with everything up to the damage; if the file
+  cannot be repaired it is moved to `appendonlydir.broken.<time>` in the Redis
+  volume and Redis starts empty, which signs everyone out and resets the day's
+  request counters. Either case is written to its log
+  (`docker compose -f docker-compose.prod.yml logs redis | grep "redis start"`).
+- **Host settings** applied by `deploy/provision.sh` (run it again on a server
+  provisioned before October 2026): `vm.overcommit_memory = 1`, which Redis
+  needs to save in the background, and the weekly
+  `docker builder prune -f --filter until=168h`.
 - **Backups.** A missed or failed night shows up at `HEALTHCHECK_URL`.
 - **Errors (optional).** Set `SENTRY_DSN`. Reports are scrubbed of emails,
   cookies, tokens and request bodies. The Privacy Policy starts naming Sentry
@@ -239,17 +265,33 @@ charge, needs Commercial Access first (CLAUDE.md).
 
 ```bash
 cd /opt/listyro
-sudo deploy/backup.sh                                   # before every update
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml ps
+bash deploy/update.sh
 ```
+
+Run it with `bash` and as your own user; it asks for sudo once. It does, in
+order, and stops at the first thing that fails:
+
+1. checks free disk space and refuses below `DEPLOY_MIN_FREE_GB` (8), after
+   trying a build-cache prune
+2. runs the backup and checks this run produced a database dump that parses
+3. `git pull --ff-only` (edits made on the server are listed, never discarded;
+   a changed executable bit is ignored)
+4. prunes build cache older than a week
+5. `docker compose -f docker-compose.prod.yml up -d --build`
+6. waits until postgres, redis, api, worker and frontend report healthy and the
+   tunnel is running; if they do not within 5 minutes it prints their last log lines
+7. runs `deploy/preflight.sh`
+
+A failure is posted to `ALERT_WEBHOOK_URL`. Do not update by hand with
+`up --build`: that is how a full disk took the site down.
 
 - Migrations run when the API starts.
 - `up --build` recreates the worker along with everything else. This matters:
   the worker has no reload, and an old worker silently runs old job code.
 - If you bump the pinned `cloudflared` image, update it in both
   `docker-compose.prod.yml` and the `cf` helper above.
+- The scripts are called through `bash` everywhere (cron included), so a
+  checkout that resets their executable bit breaks nothing.
 
 ## Launch checklist (H)
 

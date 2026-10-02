@@ -15,9 +15,17 @@ TUNNEL_CONFIG="${TUNNEL_CONFIG:-deploy/cloudflared/config.yml}"
 CREDS_DIR="${CREDS_DIR:-/etc/listyro/cloudflared}"
 
 errors=0
+warnings=0
 fail() { echo "  FAIL  $*"; errors=$((errors + 1)); }
 pass() { echo "  ok    $*"; }
-warn() { echo "  warn  $*"; }
+warn() { echo "  warn  $*"; warnings=$((warnings + 1)); }
+# For what must not scroll past unread.
+loud() {
+  warnings=$((warnings + 1))
+  echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  for line in "$@"; do echo "  !!  $line"; done
+  echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+}
 
 get() {
   # Last assignment wins, as in compose. Values are never echoed.
@@ -142,7 +150,64 @@ else
   fi
 fi
 
+echo "== disk"
+# A full disk is what took the site down: a build failed half-way and Redis was
+# cut off mid-write. Warn long before that; a build alone needs several GB.
+DISK_WARN_PERCENT="${DISK_WARN_PERCENT:-70}"
+DISK_FAIL_PERCENT="${DISK_FAIL_PERCENT:-90}"
+DISK_WARN_FREE_GB="${DISK_WARN_FREE_GB:-10}"
+DISK_FAIL_FREE_GB="${DISK_FAIL_FREE_GB:-4}"
+seen_devices=""
+for mount in / /var/lib/docker "${BACKUP_DIR:-/var/backups/listyro}"; do
+  [ -d "$mount" ] || continue
+  device="$(df --output=source "$mount" | tail -1)"
+  case "|$seen_devices|" in *"|$device|"*) continue ;; esac
+  seen_devices="$seen_devices|$device"
+  used="$(df --output=pcent "$mount" | tail -1 | tr -dc '0-9')"
+  free=$(( $(df --output=avail -k "$mount" | tail -1 | tr -dc '0-9') / 1048576 ))
+  if [ "$used" -ge "$DISK_FAIL_PERCENT" ] || [ "$free" -lt "$DISK_FAIL_FREE_GB" ]; then
+    fail "$mount is ${used}% full, ${free} GB free: too little to build or back up. Free space first (docker builder prune -af; old storage archives)"
+  elif [ "$used" -ge "$DISK_WARN_PERCENT" ] || [ "$free" -lt "$DISK_WARN_FREE_GB" ]; then
+    warn "$mount is ${used}% full, ${free} GB free: a build needs several GB. Free space before it becomes urgent"
+  else
+    pass "$mount: ${used}% used, ${free} GB free"
+  fi
+done
+if [ -d "${BACKUP_DIR:-/var/backups/listyro}" ] && [ -r "${BACKUP_DIR:-/var/backups/listyro}" ]; then
+  pass "backups use $(du -sh "${BACKUP_DIR:-/var/backups/listyro}" 2>/dev/null | cut -f1)"
+fi
+
+echo "== alerts"
+# The hourly disk check ran for weeks with nowhere to send its alert.
+OPS_ENV="${OPS_ENV:-/etc/listyro/ops.env}"
+ops() { grep -E "^$1=" "$OPS_ENV" 2>/dev/null | tail -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+if [ -f "$OPS_ENV" ] && [ ! -r "$OPS_ENV" ]; then
+  warn "cannot read $OPS_ENV as $(id -un); run with sudo to check where alerts go"
+elif [ -z "$(ops ALERT_WEBHOOK_URL)" ]; then
+  loud "NO ALERT DESTINATION IS CONFIGURED." \
+       "A full disk, a failed backup or a failed deploy will reach nobody." \
+       "Set ALERT_WEBHOOK_URL in $OPS_ENV (an ntfy.sh topic or a chat webhook)," \
+       "then test it:  curl -d test \"\$(sudo grep ALERT_WEBHOOK_URL $OPS_ENV | cut -d= -f2-)\""
+else
+  pass "ALERT_WEBHOOK_URL is set"
+fi
+if [ -r "$OPS_ENV" ] || [ ! -f "$OPS_ENV" ]; then
+  [ -n "$(ops HEALTHCHECK_URL)" ] && pass "HEALTHCHECK_URL is set" || warn "HEALTHCHECK_URL is not set: a backup that stops running will not be noticed"
+  [ -n "$(ops BACKUP_REMOTE)" ] && pass "BACKUP_REMOTE is set" || warn "BACKUP_REMOTE is not set: the only backups are on this server's own disk"
+fi
+
 echo "== host"
+overcommit="$(cat /proc/sys/vm/overcommit_memory 2>/dev/null || echo "?")"
+if [ "$overcommit" = "1" ]; then
+  pass "vm.overcommit_memory = 1"
+else
+  warn "vm.overcommit_memory is $overcommit; Redis needs 1 to save in the background (deploy/provision.sh sets it)"
+fi
+if grep -qs "docker builder prune" /etc/cron.d/listyro; then
+  pass "weekly build-cache prune is scheduled"
+else
+  warn "no weekly 'docker builder prune' in /etc/cron.d/listyro: build cache will fill the disk (deploy/provision.sh adds it)"
+fi
 if command -v ufw >/dev/null 2>&1; then
   ufw status 2>/dev/null | grep -q "Status: active" && pass "ufw active" || warn "ufw is not active (deploy/provision.sh)"
 fi
@@ -153,4 +218,8 @@ if [ "$errors" -gt 0 ]; then
   echo "$errors problem(s). Not ready."
   exit 1
 fi
-echo "Ready."
+if [ "$warnings" -gt 0 ]; then
+  echo "Ready, with $warnings warning(s) above."
+else
+  echo "Ready."
+fi

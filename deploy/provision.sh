@@ -12,7 +12,8 @@
 #     is in place, so this cannot lock you out
 #   * automatic security updates
 #   * directories for the app, backups and tunnel credentials
-#   * cron: nightly backup, hourly disk check
+#   * vm.overcommit_memory = 1, which Redis needs to save in the background
+#   * cron: nightly backup, hourly disk check, weekly build-cache prune
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -99,13 +100,25 @@ install -d -m 0700 -o root -g root "$BACKUP_DIR"
 # a root-only directory would leave the tunnel unable to read its credentials.
 install -d -m 0700 -o 65532 -g 65532 "$CREDS_DIR"
 
-step "cron: nightly backup, hourly disk check"
+step "kernel: let Redis save in the background"
+# Without this a background save can fail under memory pressure ("Can't save in
+# background: fork: Cannot allocate memory"), and Redis warns about it at start.
+cat > /etc/sysctl.d/60-listyro.conf <<'EOF'
+vm.overcommit_memory = 1
+EOF
+sysctl -q -p /etc/sysctl.d/60-listyro.conf
+
+step "cron: nightly backup, hourly disk check, weekly build-cache prune"
+# Each script is run through bash, so a checkout that loses the executable bit
+# does not silently stop the backups.
 cat > /etc/cron.d/listyro <<EOF
 # production-spec F5 / F6. Output goes to syslog via logger.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-15 3 * * * root cd $APP_DIR && deploy/backup.sh 2>&1 | logger -t listyro-backup
-5 * * * *  root cd $APP_DIR && deploy/disk-check.sh 2>&1 | logger -t listyro-disk
+15 3 * * * root cd $APP_DIR && bash deploy/backup.sh 2>&1 | logger -t listyro-backup
+5 * * * *  root cd $APP_DIR && bash deploy/disk-check.sh 2>&1 | logger -t listyro-disk
+# Build cache from every deploy accumulates until the disk is full; a week is plenty.
+30 4 * * 0 root docker builder prune -f --filter until=168h 2>&1 | logger -t listyro-prune
 EOF
 chmod 0644 /etc/cron.d/listyro
 
@@ -115,5 +128,6 @@ Next (docs/deploy.md):
   1. log out and back in, so '$OPERATOR' can use docker without sudo
   2. put the code in $APP_DIR and create $APP_DIR/.env
   3. create the tunnel; its credentials go in $CREDS_DIR
-  4. run deploy/preflight.sh, then start the stack
+  4. set ALERT_WEBHOOK_URL in /etc/listyro/ops.env (without it no alert reaches anyone)
+  5. run deploy/preflight.sh, then start the stack; later updates: bash deploy/update.sh
 EOF

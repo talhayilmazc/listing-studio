@@ -63,7 +63,50 @@ services:
     # them on a restart would reset the count mid-day and let the app overrun
     # Etsy's 5,000-request limit. (Sessions persist too, so a restart does not
     # sign everyone out.)
-    command: ["redis-server", "--appendonly", "yes"]
+    #
+    # It must come back up by itself. A write cut off by a full disk left the
+    # append-only file damaged, and Redis refused to start until it was repaired
+    # by hand; with Redis down the whole site is down. Redis holds sessions,
+    # queues and counters, so losing the last few writes is acceptable and
+    # staying down is not. So before starting: a damaged file is cut back to
+    # its last good command (what `redis-check-aof --fix` does), and if even
+    # that fails it is set aside and Redis starts empty. Either way it says so
+    # in its log. `aof-load-truncated yes` covers the plain truncated tail.
+    #
+    # Memory: capped, and under pressure only keys with an expiry are evicted,
+    # least recently used first. That is old sessions and finished job results;
+    # the job queue has no expiry and is never evicted, and today's counters are
+    # the most recently used keys there are.
+    command:
+      - sh
+      - -c
+      - |
+        dir=/data/appendonlydir
+        manifest="$$dir/appendonly.aof.manifest"
+        aside() {
+          echo "redis start: $$1; setting the append-only file aside and starting empty (sessions, queued jobs and today's counters are lost)"
+          mv "$$dir" "$$dir.broken.$$(date +%s)"
+        }
+        if [ -f "$$manifest" ] && ! redis-check-aof "$$manifest" >/dev/null 2>&1; then
+          echo "redis start: the append-only file is damaged (an interrupted write); cutting it back to the last good command"
+          yes | redis-check-aof --fix "$$manifest" >/dev/null 2>&1 || true
+          # The repair can report success and leave something the server refuses
+          # (it empties a destroyed manifest and calls it valid): look again.
+          if [ ! -s "$$manifest" ] || ! redis-check-aof "$$manifest" >/dev/null 2>&1; then
+            aside "it could not be repaired"
+          fi
+        fi
+        # Whatever the checker misses: a server that has not stayed up for 30
+        # seconds three times running is not going to by itself.
+        tries="$$(cat /data/.starts 2>/dev/null || echo 0)"
+        if [ "$$tries" -ge 3 ] && [ -d "$$dir" ]; then
+          aside "it failed to start $$tries times running"
+          tries=0
+        fi
+        echo $$((tries + 1)) > /data/.starts
+        (sleep 30; echo 0 > /data/.starts) &
+        exec redis-server --appendonly yes --aof-load-truncated yes --maxmemory 256mb --maxmemory-policy volatile-lru
+    mem_limit: 384m
     volumes:
       - redisdata:/data
     healthcheck:

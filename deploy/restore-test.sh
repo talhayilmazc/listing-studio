@@ -82,8 +82,9 @@ fi
 archive="$(ls -1t "$BACKUP_DIR"/storage/storage-*.tar.gz 2>/dev/null | head -1 || true)"
 if [ -n "$archive" ]; then
   in_archive="$(tar -tzf "$archive" | grep -vc '/$' || true)"
-  in_live="$(compose exec -T api find /data/storage -type f | wc -l | tr -d ' ')"
-  printf '\nfiles:    %s in %s, %s live\n' "$in_archive" "$(basename "$archive")" "$in_live"
+  # Previews are not archived (backup.sh): the app rebuilds them on demand.
+  in_live="$(compose exec -T api find /data/storage -type f ! -name '*.v[0-9]*.w[0-9]*.jpg' | wc -l | tr -d ' ')"
+  printf '\nfiles:    %s in %s, %s live (previews are in neither)\n' "$in_archive" "$(basename "$archive")" "$in_live"
 fi
 
 echo
