@@ -206,7 +206,8 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
           </a>
           <span>{" · "}</span>
           <Link href={`/batches/${row.batch_id}/review`} className="tap hover:text-brand-700 hover:underline">
-            review
+            <span>review</span>
+            <Txt>{row.batch_name ? ` in ${row.batch_name}` : ""}</Txt>
           </Link>
         </span>
         {row.status === "waiting" && row.resumes_at && (

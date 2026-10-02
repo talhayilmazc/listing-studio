@@ -808,7 +808,7 @@ function RecentUploads({ batches }: { batches: BatchSummary[] | null }) {
                 <span className="flex min-w-0 items-center gap-2.5">
                   <StatusPill status={b.status} />
                   <span className="truncate text-sm text-slate-700 group-hover:text-brand-700">
-                    <span>Batch <span>{b.id.slice(0, 8)}</span></span>
+                    <span translate="no">{b.name || `Batch ${b.id.slice(0, 8)}`}</span>
                   </span>
                 </span>
                 <span className="shrink-0 text-xs text-slate-400">

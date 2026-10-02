@@ -5,8 +5,9 @@ import { api } from "@/lib/api";
 import { makeCover, moveBefore, nudge, sameOrder } from "@/lib/order";
 import { cropStyle } from "@/lib/crop";
 import { CoverCropper } from "./CoverCropper";
-import type { Asset, BatchDetail } from "@/lib/types";
+import type { Asset, BatchDetail, ImageDeleteResult } from "@/lib/types";
 
+import { Txt } from "@/components/Txt";
 /**
  * A listing group's images (docs/duzeltmeler-v6.md §E). The first is the cover.
  * Each change is saved as the images' rank and Etsy receives them in that order.
@@ -21,11 +22,20 @@ export function GroupImages({
   groupKey,
   assets,
   onSaved,
+  listingsOnEtsy = 0,
+  hasContent = false,
+  onDeleted,
 }: {
   batchId: string;
   groupKey: string;
   assets: Asset[];
   onSaved: (batch: BatchDetail) => void;
+  /** Drafts or live listings already made from this group. */
+  listingsOnEtsy?: number;
+  /** A title, tags and description are written for this group. */
+  hasContent?: boolean;
+  /** An image was deleted (the page says so when the group went with it). */
+  onDeleted?: (result: ImageDeleteResult) => void;
 }) {
   const incoming = assets.map((a) => a.id);
   const [order, setOrder] = useState<string[]>(incoming);
@@ -36,6 +46,25 @@ export function GroupImages({
   const [cropping, setCropping] = useState(false);
   // The image the buttons under the strip act on (tap to choose).
   const [picked, setPicked] = useState<string | null>(null);
+  // The image waiting for the seller to confirm deleting it.
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  async function remove(id: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await api.deleteImage(id);
+      setDeleting(null);
+      setPicked(null);
+      setCropping(false);
+      onSaved(result.batch);
+      onDeleted?.(result);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
   const incomingKey = incoming.join(",");
   useEffect(() => {
     setOrder(incomingKey ? incomingKey.split(",") : []);
@@ -142,6 +171,22 @@ export function GroupImages({
                   Cover
                 </span>
               )}
+              <button
+                type="button"
+                className="absolute right-1 top-1 hidden h-6 w-6 items-center justify-center rounded bg-white/90 text-slate-600 opacity-0 shadow-sm transition-opacity hover:text-rose-700 focus:opacity-100 group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:flex"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPicked(id);
+                  setDeleting(id);
+                }}
+                disabled={saving}
+                aria-label={`Delete ${a.original_filename}`}
+                title="Delete this image"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
               <span
                 className="absolute inset-x-0 bottom-0 hidden items-center justify-between bg-white/90 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:flex"
                 onClick={(e) => e.stopPropagation()}
@@ -180,6 +225,18 @@ export function GroupImages({
         })}
       </ul>
       {/* The same three actions as buttons, for the image that was tapped. */}
+      {order.length === 1 && byId.get(order[0]) && !deleting && (
+        <div key="only" className="mt-1 text-xs">
+          <button
+            type="button"
+            className="btn-secondary border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:border-rose-300 hover:bg-rose-50"
+            onClick={() => setDeleting(order[0])}
+            disabled={saving}
+          >
+            Delete image
+          </button>
+        </div>
+      )}
       {order.length > 1 && (
         <div key="buttons" className="mt-1 flex flex-wrap items-center gap-2 text-xs">
           {picked && byId.get(picked) ? (
@@ -214,10 +271,60 @@ export function GroupImages({
               >
                 Make cover
               </button>
+              <button
+                type="button"
+                className="btn-secondary border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:border-rose-300 hover:bg-rose-50"
+                onClick={() => setDeleting(picked)}
+                disabled={saving}
+              >
+                Delete image
+              </button>
             </>
           ) : (
             <span className="text-slate-500">Tap an image to move it or make it the cover.</span>
           )}
+        </div>
+      )}
+      {deleting && byId.get(deleting) && (
+        <div key="confirm" role="alertdialog" aria-label="Delete image" className="mt-2 space-y-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-900">
+          <p className="font-medium">
+            <span>Delete </span>
+            <span translate="no">{byId.get(deleting)!.original_filename}</span>
+            <span>? It cannot be undone.</span>
+          </p>
+          {order.length === 1 ? (
+            <p>
+              <span>It is this group&apos;s last image, so the group is removed too</span>
+              <span>{hasContent ? ", with the title, tags and description written for it." : "."}</span>
+            </p>
+          ) : order[0] === deleting ? (
+            <p>
+              It is the cover. The next image becomes the cover, and the cover crop you saved for this one is dropped.
+            </p>
+          ) : null}
+          {listingsOnEtsy > 0 && (
+            <p key="etsy" className="rounded border border-rose-200 bg-white px-2 py-1.5 text-slate-700">
+              <strong>This does not remove the photo from Etsy.</strong>
+              <span>
+                <span>{" "}<span>This group already has </span><span>{listingsOnEtsy === 1 ? "a listing" : `${listingsOnEtsy} listings`}</span><span> on Etsy, which
+                keep</span><Txt>{listingsOnEtsy === 1 ? "s" : ""}</Txt><span> the photo. Deleting here only affects drafts created from now on and
+                &ldquo;Replace images on Etsy&rdquo;.</span></span>
+              </span>
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-50 max-sm:min-h-[2.75rem] max-sm:px-4 max-sm:text-sm"
+              onClick={() => remove(deleting)}
+              disabled={saving}
+            >
+              {saving ? "Deleting…" : order.length === 1 ? "Delete image and group" : "Delete image"}
+            </button>
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setDeleting(null)} disabled={saving}>
+              Keep it
+            </button>
+          </div>
         </div>
       )}
       {coverAsset && coverAsset.status === "processed" && coverAsset.width && coverAsset.height && (

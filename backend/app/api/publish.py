@@ -12,6 +12,7 @@ still applies to each job as it starts (workers/gate.py).
 
 from __future__ import annotations
 
+import contextvars
 import uuid
 from dataclasses import dataclass, field
 
@@ -43,6 +44,8 @@ from app.etsy.shops import active_shops, owned_shop
 from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
 from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT, is_fresh, resolve_target, shop_profiles
+
+from app.pipeline.batch_names import names_by_id
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
@@ -596,6 +599,10 @@ async def _action_contents(
     return contents, names
 
 
+# The names of the batches a bulk action spans, for its summary (set per request).
+_batch_names: contextvars.ContextVar[dict[uuid.UUID, str]] = contextvars.ContextVar("batch_names", default={})
+
+
 def _item(
     content: GeneratedContent,
     names: dict[uuid.UUID, str],
@@ -605,6 +612,7 @@ def _item(
 ) -> schemas.BatchActionItem:
     return schemas.BatchActionItem(
         batch_id=content.batch_id,
+        batch_name=_batch_names.get().get(content.batch_id),
         content_id=content.id,
         original_filename=names.get(content.asset_id, ""),
         title=content.title,
@@ -626,6 +634,7 @@ async def batch_action_preview(
     be skipped with the reason. Only approved listings are ever acted on, and
     publishing only makes existing drafts live (CLAUDE.md rule 3)."""
     contents, names = await _action_contents(session, tenant, body.batch_ids)
+    _batch_names.set(await names_by_id(session, body.batch_ids))
     by_id = {c.id: c for c in contents}
     out = schemas.BatchActionPreview(action=body.action)
     if body.action == "drafts":

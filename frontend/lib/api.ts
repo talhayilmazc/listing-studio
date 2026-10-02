@@ -29,6 +29,7 @@ import type {
   Asset,
   BatchCost,
   BatchDetail,
+  ImageDeleteResult,
   BatchPublishResult,
   BatchSummary,
   Connection,
@@ -189,6 +190,13 @@ export const api = {
   /** Start an upload for one shop (required when several are connected). */
   createBatch: (shop?: string | null) =>
     req<BatchSummary>("/batches", { method: "POST", body: JSON.stringify(shop ? { connection_id: shop } : {}) }),
+  /** Remove one image from its listing group (nothing on Etsy changes). */
+  deleteImage: (assetId: string) => req<ImageDeleteResult>(`/assets/${assetId}`, { method: "DELETE" }),
+  /** Name a batch (an empty name goes back to the one taken from its contents). */
+  renameBatch: (id: string, name: string) =>
+    req<BatchSummary>(`/batches/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  /** A batch without its files: name, shop, counts. */
+  batchSummary: (id: string) => req<BatchSummary>(`/batches/${id}/summary`),
   /** The shop a batch is for; groups not set by hand move with it. */
   setBatchShop: (id: string, shop: string) =>
     req<Group[]>(`/batches/${id}/shop`, { method: "PUT", body: JSON.stringify({ connection_id: shop }) }),

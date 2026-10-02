@@ -126,6 +126,12 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     load();
   }, [load]);
 
+  // The batch's name, for the header (it is what the seller searches by).
+  const [batchName, setBatchName] = useState<string | null>(null);
+  useEffect(() => {
+    api.batchSummary(id).then((b) => setBatchName(b.name)).catch(() => {});
+  }, [id]);
+
   // The estimate before anything is queued: drafts per shop, the Etsy requests they
   // take, and whether that fits what can still be spent today (v5 §E).
   const approvedKey = (items ?? []).filter((c) => c.approved).map((c) => c.id).join(",");
@@ -276,7 +282,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <Link href={`/batches/${id}`} className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
-            <span>← Batch <span>{id.slice(0, 8)}</span></span>
+            <span>← <span translate="no">{batchName ?? `Batch ${id.slice(0, 8)}`}</span></span>
           </Link>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Edit and approve each listing, then create drafts. Publishing is always a separate,

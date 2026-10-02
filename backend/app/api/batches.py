@@ -41,6 +41,7 @@ from app.core import allowance, audit
 from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
 from app.etsy.shops import active_shops, owned_shop
+from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.targets import shop_profiles
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.reference import decode_etsy_text
@@ -119,6 +120,8 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
     shops = [c for c in await active_shops(session, batch.tenant_id) if c.id in shop_ids]
     own = next((c for c in shops if c.id == batch.connection_id), None)
     return schemas.BatchSummary(
+        name=(await names_for(session, [batch]))[batch.id],
+        named=bool(batch.name),
         id=batch.id,
         status=batch.status.value,
         file_count=batch.file_count,
@@ -317,6 +320,31 @@ async def finalize_batch(
     await _get_batch(session, tenant, batch_id)
     batch = await ingestor.finalize_batch(session, batch_id)
     return await _summary(session, batch)
+
+
+@router.patch("/batches/{batch_id}", response_model=schemas.BatchSummary)
+async def rename_batch(
+    batch_id: uuid.UUID,
+    body: schemas.BatchRename,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.BatchSummary:
+    """Name a batch, so it can be found again. An empty name goes back to the
+    one derived from its contents."""
+    batch = await _get_batch(session, tenant, batch_id)
+    batch.name = clean_name(body.name)
+    await session.commit()
+    return await _summary(session, batch)
+
+
+@router.get("/batches/{batch_id}/summary", response_model=schemas.BatchSummary)
+async def batch_summary(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.BatchSummary:
+    """The batch without its files: its name, shop and counts (page headers)."""
+    return await _summary(session, await _get_batch(session, tenant, batch_id))
 
 
 # --- Reading batches --------------------------------------------------------
@@ -844,6 +872,107 @@ async def delete_batches(
         await _delete_batch(session, storage, tenant, batch, result)
     await session.commit()
     return result
+
+
+# --- Deleting one image of a group ---------------------------------------------------
+@router.delete("/assets/{asset_id}", response_model=schemas.ImageDeleteResult)
+async def delete_image(
+    asset_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> schemas.ImageDeleteResult:
+    """Remove one image from its listing group: the upload, what was made from
+    it, and its place in the order.
+
+    The listing written for the group is about the design, not one photo, so it
+    stays and moves to the new cover when the cover is the image deleted (the
+    crop saved for the old cover goes with it). Deleting the group's last image
+    removes the group and the listing written for it.
+
+    Nothing on Etsy changes: a draft or live listing already made from the
+    group keeps the photo. The deletion counts for drafts created from now on
+    and for "Replace images".
+    """
+    asset = await _own_asset(session, tenant, asset_id)
+    batch_id, key = asset.batch_id, asset.group_key
+    members = sorted(
+        (
+            await session.execute(
+                select(Asset).where(
+                    Asset.batch_id == batch_id,
+                    Asset.tenant_id == tenant.id,
+                    Asset.group_key == key if key is not None else Asset.group_key.is_(None),
+                )
+            )
+        ).scalars(),
+        key=lambda a: (a.rank if a.rank is not None else 10_000, a.original_filename),
+    )
+    was_cover = members[0].id == asset.id
+    remaining = [a for a in members if a.id != asset.id]
+    contents = list(
+        (await session.execute(select(GeneratedContent).where(GeneratedContent.asset_id.in_([a.id for a in members])))).scalars()
+    )
+    content_ids = [c.id for c in contents]
+    publications = list(
+        (await session.execute(select(ListingPublication).where(ListingPublication.content_id.in_(content_ids)))).scalars()
+    ) if content_ids else []
+
+    if remaining:
+        # The cover must be an image that processed: the first such image leads.
+        usable = [a for a in remaining if a.status is AssetStatus.processed and a.processed_key]
+        if usable and remaining[0] is not usable[0]:
+            remaining.remove(usable[0])
+            remaining.insert(0, usable[0])
+        cover = remaining[0]
+        for rank, member in enumerate(remaining, start=1):
+            member.rank = rank
+        for content in contents:  # before the image goes, or the listing would go with it
+            content.asset_id = cover.id
+        if was_cover:
+            cover.cover_crop = None  # a crop belongs to the photo it was made on
+    else:
+        # The last image: the group goes, and the listing written for it. What was
+        # created on Etsy from it stays there and stays on record (detached).
+        now = datetime.now(timezone.utc)
+        for publication in publications:
+            if publication.scheduled_for is not None and publication.state != "active":
+                publication.scheduled_for, publication.schedule_job_id = None, None
+                publication.schedule_note = "cancelled: its images were deleted"
+        if content_ids:
+            wanted = {str(c) for c in content_ids}
+            for job in (
+                await session.execute(
+                    select(Job).where(Job.tenant_id == tenant.id, Job.batch_id == batch_id, Job.status == JobStatus.queued)
+                )
+            ).scalars():
+                if (job.payload or {}).get("content_id") in wanted:
+                    job.status, job.finished_at = JobStatus.cancelled, now
+                    job.last_error = "cancelled: the group's images were deleted"
+        setting = (
+            await session.execute(
+                select(ListingGroupSetting).where(
+                    ListingGroupSetting.batch_id == batch_id, ListingGroupSetting.group_key == (key or "")
+                )
+            )
+        ).scalar_one_or_none()
+        if setting is not None:
+            await session.delete(setting)
+
+    stored = [k for k in (asset.storage_key, asset.processed_key) if k]
+    audit.record(session, "image.deleted", actor=tenant, target_tenant_id=tenant.id, batch_id=str(batch_id),
+                 group_removed=not remaining, was_cover=was_cover, listings_on_etsy=len(publications))
+    await session.delete(asset)
+    await session.commit()
+    for stored_key in dict.fromkeys(stored):
+        storage.delete_with_derivatives(stored_key)
+    return schemas.ImageDeleteResult(
+        batch=await get_batch(batch_id, session, tenant),
+        group_key=key or "",
+        group_removed=not remaining,
+        cover_changed=was_cover and bool(remaining),
+        listings_on_etsy=len(publications),
+    )
 
 
 # --- Image order and cover (docs/duzeltmeler-v6.md §E) ----------------------------

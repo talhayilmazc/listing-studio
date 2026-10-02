@@ -120,6 +120,7 @@ export function BatchActions({
                     {preview.act.map((i) => (
                       <li key={`${i.content_id}-${i.shop_name}`} className="truncate">
                         <Txt>{i.title ?? i.original_filename}</Txt>
+                        {i.batch_name && <span key="batch" translate="no" className="text-slate-400">{` · ${i.batch_name}`}</span>}
                         {i.shop_name && <span key="span-122-24" className="text-slate-400"><span> · <span>{i.shop_name}</span></span></span>}
                       </li>
                     ))}
@@ -138,6 +139,7 @@ export function BatchActions({
                         {items.map((i) => (
                           <li key={`${i.content_id}-${i.shop_name}`} className="truncate">
                             <span className="font-mono">{i.original_filename}</span>
+                            {i.batch_name && <span key="batch" translate="no" className="text-slate-400">{` · ${i.batch_name}`}</span>}
                             {i.shop_name && <span key="span-140-28" className="text-slate-400"><span> · <span>{i.shop_name}</span></span></span>}
                           </li>
                         ))}

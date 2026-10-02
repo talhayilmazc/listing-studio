@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { BatchNameForm } from "@/components/BatchName";
 import { ShopBadge } from "@/components/ShopPicker";
 import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
@@ -90,6 +91,15 @@ export default function Home() {
   const toggle = (id: string) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
+  // Finding a batch again: by the name the seller gave it, or the one taken from its contents.
+  const [q, setQ] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = (batches ?? []).filter((b) => {
+    const hay = `${b.name} ${(b.shop_names ?? []).join(" ")}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+
   return (
     <div className="space-y-6">
       {error && (
@@ -124,6 +134,24 @@ export default function Home() {
 
       {batches && batches.length > 0 && (
         <>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="search"
+              className="field w-full py-1.5 sm:w-80"
+              placeholder="Search batches by name"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              aria-label="Search batches by name"
+            />
+            {q && (
+              <span key="count" translate="no" className="text-xs text-slate-500">
+                {`${shown.length} of ${batches.length}`}
+              </span>
+            )}
+          </div>
+          {shown.length === 0 && (
+            <p key="nomatch" className="text-sm text-slate-500">No batch has a name like that.</p>
+          )}
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <label className="flex cursor-pointer items-center gap-1.5">
               <input
@@ -140,14 +168,38 @@ export default function Home() {
             <span>Tick batches to create drafts or publish without opening each one.</span>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {batches.map((b) => (
+            {shown.map((b) => (
               <div key={b.id} className="relative">
                 <BatchCard batch={b} extra={extra[b.id]} profiles={profiles} selected={selected.includes(b.id)} />
+                {/* Naming it, outside the card's link like the other two controls. */}
+                <button
+                  type="button"
+                  onClick={() => setRenaming(renaming === b.id ? null : b.id)}
+                  aria-label={`Rename ${b.name}`}
+                  title="Name this batch"
+                  className="absolute right-12 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md bg-white/90 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-brand-700 max-sm:right-14 max-sm:top-2 max-sm:h-11 max-sm:w-11"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {renaming === b.id && (
+                  <div key="rename" className="absolute inset-x-3 top-14 z-20 rounded-lg border border-slate-200 bg-white p-3 shadow-lg max-sm:top-16">
+                    <BatchNameForm
+                      batch={b}
+                      onCancel={() => setRenaming(null)}
+                      onDone={(updated) => {
+                        setRenaming(null);
+                        setBatches((cur) => (cur ? cur.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)) : cur));
+                      }}
+                    />
+                  </div>
+                )}
                 {/* Outside the card's link, so ticking never opens the batch. */}
                 <button
                   type="button"
                   onClick={() => setDeleting([b.id])}
-                  aria-label={`Delete batch ${b.id.slice(0, 8)}`}
+                  aria-label={`Delete ${b.name}`}
                   title="Delete this batch (nothing on Etsy is touched)"
                   className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md bg-white/90 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-rose-700 max-sm:right-2 max-sm:top-2 max-sm:h-11 max-sm:w-11"
                 >
@@ -164,7 +216,7 @@ export default function Home() {
                     className="h-4 w-4 rounded border-slate-300"
                     checked={selected.includes(b.id)}
                     onChange={() => toggle(b.id)}
-                    aria-label={`Select batch ${b.id.slice(0, 8)}`}
+                    aria-label={`Select ${b.name}`}
                   />
                 </label>
               </div>
@@ -265,8 +317,8 @@ function BatchCard({
 
       <div className="flex flex-1 flex-col p-5">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="min-w-0 flex-1 truncate font-display text-lg leading-tight text-slate-900">
-            {title}
+          <h2 translate="no" className="min-w-0 flex-1 truncate font-display text-lg leading-tight text-slate-900" title={batch.name}>
+            {batch.name || title}
           </h2>
           <StatusPill status={batch.status} />
         </div>

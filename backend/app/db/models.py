@@ -457,6 +457,9 @@ class UploadBatch(Base):
     #: Optional profile whose size-chart (fixed) images to append when publishing
     #: this batch's listings — lets size charts come from a different profile than
     #: the one supplying metadata (Task 4). Null = use each content's own profile.
+    #: The name the seller gave it, to find it again; NULL = the name derived
+    #: from its contents (pipeline/batch_names.py).
+    name: Mapped[str | None] = mapped_column(Text)
     #: The shop this batch is for: the seller's explicit choice, shown first on the
     #: batch page. Groups start from it and may each choose another (Priority 2).
     connection_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -45,6 +45,10 @@ class BatchSummary(BaseModel):
     processed_count: int
     approved_count: int
     size_chart_profile_id: uuid.UUID | None = None  # profile whose size charts to append
+    # What the batch is called: the seller's name for it, else one derived from
+    # its contents ("BR5229 + 4 more"). ``named`` says which.
+    name: str = ""
+    named: bool = False
     # The shop this batch is for (the seller's choice), and every shop its groups
     # or drafts are in: shown wherever the batch is.
     connection_id: uuid.UUID | None = None
@@ -55,6 +59,11 @@ class BatchSummary(BaseModel):
 class BatchCreate(BaseModel):
     # The shop the upload is for. Omitted with one shop connected: that shop.
     connection_id: uuid.UUID | None = None
+
+
+class BatchRename(BaseModel):
+    # Empty or null goes back to the name derived from the batch's contents.
+    name: str | None = Field(default=None, max_length=200)
 
 
 class BatchShop(BaseModel):
@@ -238,6 +247,7 @@ class ScheduleOut(BaseModel):
     title: str | None = None
     asset_id: uuid.UUID
     batch_id: uuid.UUID
+    batch_name: str | None = None
     etsy_listing_id: int
     listing_link: str
     scheduled_for: datetime
@@ -377,6 +387,19 @@ class ArchiveResult(BaseModel):
     failed: list[ArchiveFailure] = []
 
 
+class ImageDeleteResult(BaseModel):
+    """What deleting one image of a listing group did."""
+
+    batch: "BatchDetail"
+    group_key: str
+    #: It was the group's last image: the group, and the listing written for it, are gone.
+    group_removed: bool = False
+    #: It was the cover: the next image is the cover now, and the saved crop was dropped.
+    cover_changed: bool = False
+    #: Drafts or live listings made from this group. They keep the photo on Etsy.
+    listings_on_etsy: int = 0
+
+
 class GroupOrder(BaseModel):
     """A listing group's images in the order the seller chose (v6 §E): the first
     is the cover. ``group_key`` "" is the files at the root of the upload."""
@@ -456,6 +479,7 @@ class BatchDeleteResult(BaseModel):
 
 class BatchActionItem(BaseModel):
     batch_id: uuid.UUID
+    batch_name: str | None = None
     content_id: uuid.UUID
     original_filename: str
     title: str | None = None

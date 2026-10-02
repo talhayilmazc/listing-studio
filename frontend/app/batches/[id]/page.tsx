@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { CostPanel } from "@/components/CostPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
 import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
+import { BatchName } from "@/components/BatchName";
 import { useShops } from "@/components/ShopProvider";
 import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
 import { useSession } from "@/components/SessionProvider";
@@ -263,6 +264,9 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           <Link href="/" className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
             ← Batches
           </Link>
+          <h2 className="mt-1 max-w-xl font-display text-2xl text-slate-900">
+            <BatchName batch={batch} onRenamed={(updated) => setBatch((cur) => (cur ? { ...cur, ...updated } : cur))} />
+          </h2>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <StatusPill status={batch.status} />
             {(batch.shop_names ?? []).map((name) => (
@@ -597,7 +601,29 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 />
               )}
 
-              <GroupImages batchId={id} groupKey={g.key} assets={g.assets} onSaved={setBatch} />
+              <GroupImages
+                batchId={id}
+                groupKey={g.key}
+                assets={g.assets}
+                onSaved={setBatch}
+                listingsOnEtsy={pubs.length}
+                hasContent={g.done}
+                onDeleted={(result) => {
+                  if (result.group_removed) {
+                    setPicked((cur) => cur.filter((k) => k !== g.key));
+                    setNotice(
+                      `${g.label} had no images left, so the group was removed` +
+                        (g.done ? ", with the listing written for it." : ".") +
+                        (result.listings_on_etsy ? " What it already has on Etsy was not touched." : ""),
+                    );
+                    load();
+                    loadGroups();
+                    setCostKey((k) => k + 1);
+                  } else if (result.listings_on_etsy) {
+                    setNotice(`Image deleted from ${g.label}. Its listing on Etsy still has the photo; use “Replace images on Etsy” to update it there.`);
+                  }
+                }}
+              />
             </div>
           );
         })}

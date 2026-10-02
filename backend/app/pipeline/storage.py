@@ -21,6 +21,8 @@ class Storage(Protocol):
 
     def delete_prefix(self, prefix: str) -> None: ...
 
+    def delete_with_derivatives(self, key: str) -> None: ...
+
 
 class LocalStorage:
     """Filesystem-backed storage rooted at ``base_dir``. Keys map to paths."""
@@ -58,3 +60,20 @@ class LocalStorage:
         if base not in target.parents:
             raise ValueError("refusing to delete outside the storage root")
         shutil.rmtree(target, ignore_errors=True)
+
+    def delete_with_derivatives(self, key: str) -> None:
+        """Delete one stored file and what was derived from it: the previews
+        cached beside it as ``<key>.<suffix>`` (api/batches.py). Nothing else in
+        the folder is touched; a missing file is not an error."""
+        key = key.strip("/")
+        if not key or ".." in key.split("/"):
+            raise ValueError("refusing to delete outside the storage root")
+        base = self._base.resolve()
+        target = (self._base / key).resolve()
+        if base not in target.parents:
+            raise ValueError("refusing to delete outside the storage root")
+        if not target.parent.is_dir():
+            return
+        for path in target.parent.iterdir():
+            if path.is_file() and (path.name == target.name or path.name.startswith(target.name + ".")):
+                path.unlink(missing_ok=True)

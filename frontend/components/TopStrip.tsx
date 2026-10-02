@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import { BATCH_RENAMED } from "./BatchName";
 import { useSession } from "./SessionProvider";
 
 /**
@@ -41,6 +44,24 @@ function titleFor(pathname: string, isAdmin: boolean): string {
 export function TopStrip({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname() ?? "/";
   const { account } = useSession();
+  // On a batch's page the title is the batch's name, and follows a rename.
+  const batchId = pathname.match(/^\/batches\/([^/]+)$/)?.[1] ?? null;
+  const [batchName, setBatchName] = useState<string | null>(null);
+  useEffect(() => {
+    setBatchName(null);
+    if (!batchId) return;
+    let cancelled = false;
+    api.batchSummary(batchId).then((b) => !cancelled && setBatchName(b.name)).catch(() => {});
+    const renamed = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.id === batchId) setBatchName(detail.name);
+    };
+    window.addEventListener(BATCH_RENAMED, renamed);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(BATCH_RENAMED, renamed);
+    };
+  }, [batchId]);
 
   return (
     <header className="border-b border-slate-200">
@@ -57,7 +78,7 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
         </button>
 
         <h1 className="flex-1 truncate font-display text-4xl font-normal text-slate-900">
-          {titleFor(pathname, Boolean(account?.is_admin))}
+          {batchId && batchName ? batchName : titleFor(pathname, Boolean(account?.is_admin))}
         </h1>
 
         <Link href="/upload" className="btn-primary shrink-0">

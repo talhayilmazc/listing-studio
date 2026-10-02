@@ -25,6 +25,8 @@ from app.etsy.publisher import link_for
 from app.etsy.scheduling import ScheduleBusy, ScheduleRefused, cancel, set_schedule, state_of
 from app.etsy.shops import owned_shop
 
+from app.pipeline.batch_names import names_by_id
+
 router = APIRouter(prefix="/api", tags=["schedules"])
 
 #: How long a finished schedule stays in the scheduled view.
@@ -37,6 +39,7 @@ def schedule_out(
     connection: EtsyConnection,
     job: Job | None,
     zone: str | None = None,
+    batch_name: str | None = None,
 ) -> schemas.ScheduleOut:
     from app.api.shops import shop_label
 
@@ -49,6 +52,7 @@ def schedule_out(
         title=content.title,
         asset_id=content.asset_id,
         batch_id=content.batch_id,
+        batch_name=batch_name,
         etsy_listing_id=publication.etsy_listing_id,
         # Back link to the listing on Etsy (CLAUDE.md): its draft, or the live page.
         listing_link=link_for(publication.etsy_listing_id, publication.state),
@@ -107,8 +111,9 @@ async def list_schedules(
     )
     if shop is not None:
         query = query.where(ListingPublication.connection_id == shop)
-    rows = await session.execute(query)
-    return [schedule_out(p, c, conn, job, tenant.time_zone) for p, c, conn, job in rows.all()]
+    rows = (await session.execute(query)).all()
+    batches = await names_by_id(session, [c.batch_id for _, c, _, _ in rows])
+    return [schedule_out(p, c, conn, job, tenant.time_zone, batches.get(c.batch_id)) for p, c, conn, job in rows]
 
 
 @router.post("/schedules", response_model=schemas.ScheduleResult)

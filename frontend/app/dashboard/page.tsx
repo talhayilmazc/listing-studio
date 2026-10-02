@@ -387,11 +387,12 @@ function ActivityRow({
   const tiles = [...byGroup.values()].slice(0, 3);
   const sku = (assets ?? []).find((a) => a.parsed_sku)?.parsed_sku ?? null;
   const groups = byGroup.size;
-  const title = sku
+  const derived = sku
     ? groups > 1
       ? sku + " + " + (groups - 1) + " more"
       : sku
     : "Batch " + batch.id.slice(0, 8);
+  const title = batch.name || derived;
 
   return (
     <li className="relative flex gap-4 pb-5 last:pb-0">

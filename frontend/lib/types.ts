@@ -26,6 +26,10 @@ export interface BatchSummary {
   processed_count: number;
   approved_count: number;
   size_chart_profile_id: string | null;
+  /** What the batch is called: the seller's name (`named`), else one taken
+   *  from its contents ("BR5229 + 4 more"). */
+  name: string;
+  named: boolean;
   /** The shop the batch is for, and every shop its groups or drafts are in. */
   connection_id?: string | null;
   shop_name?: string | null;
@@ -55,6 +59,18 @@ export interface Group {
 
 export interface BatchDetail extends BatchSummary {
   assets: Asset[];
+}
+
+/** What deleting one image of a listing group did. */
+export interface ImageDeleteResult {
+  batch: BatchDetail;
+  group_key: string;
+  /** It was the group's last image: the group and the listing written for it are gone. */
+  group_removed: boolean;
+  /** It was the cover: the next image is the cover now; the saved crop was dropped. */
+  cover_changed: boolean;
+  /** Drafts or live listings made from the group; they keep the photo on Etsy. */
+  listings_on_etsy: number;
 }
 
 /** What the compliance scanner found on a listing (trademarks, character artwork). */
@@ -554,6 +570,7 @@ export interface Schedule {
   title: string | null;
   asset_id: string;
   batch_id: string;
+  batch_name?: string | null;
   etsy_listing_id: number;
   /** The draft in Shop Manager, or the live listing: every listing shown links back. */
   listing_link: string;
@@ -582,6 +599,7 @@ export interface ScheduleResult {
 /** Several batches at once, from the Batches page. */
 export interface BatchActionItem {
   batch_id: string;
+  batch_name?: string | null;
   content_id: string;
   original_filename: string;
   title: string | null;

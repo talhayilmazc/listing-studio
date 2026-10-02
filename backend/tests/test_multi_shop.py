@@ -643,3 +643,41 @@ async def test_a_shop_that_cannot_take_a_listing_says_why_in_its_cell(world) -> 
         await s.commit()
     cell = _cell(await _matrix(world), c0, world["a2"])
     assert cell["state"] == "unavailable" and "no confirmed apparel profile" in cell["reason"]
+
+
+# --- a batch has a name ---------------------------------------------------------------------------
+
+
+async def test_a_batch_is_named_from_its_contents_until_the_seller_names_it(world) -> None:
+    batch = await _grouped_batch(world, "a1")
+    short = f"Batch {batch[:8]}"
+    assert (await world["a"].get(f"/api/batches/{batch}/summary")).json()["name"] == short  # nothing in it has a SKU
+    async with world["sm"]() as s:
+        for asset in (await s.execute(select(Asset).where(Asset.batch_id == uuid.UUID(batch)))).scalars():
+            asset.parsed_sku = {"g1": "BR5229", "g2": "BR5230", "g3": None}[asset.group_key]
+        await s.commit()
+    summary = (await world["a"].get(f"/api/batches/{batch}/summary")).json()
+    assert (summary["name"], summary["named"]) == ("BR5229 + 2 more", False)
+
+    renamed = await world["a"].patch(f"/api/batches/{batch}", json={"name": "  Christmas   teacher tees \n"})
+    assert renamed.status_code == 200 and renamed.json()["name"] == "Christmas teacher tees" and renamed.json()["named"] is True
+    listed = next(b for b in (await world["a"].get("/api/batches")).json() if b["id"] == batch)
+    assert listed["name"] == "Christmas teacher tees"
+    # An empty name goes back to the derived one; another account's batch is not there to rename.
+    assert (await world["a"].patch(f"/api/batches/{batch}", json={"name": ""})).json()["name"] == "BR5229 + 2 more"
+    assert (await world["b"].patch(f"/api/batches/{batch}", json={"name": "mine"})).status_code == 404
+
+
+async def test_a_batchs_name_is_shown_where_the_batch_is_referred_to(world) -> None:
+    from datetime import timedelta
+
+    c0, _ = world["contents"]
+    await world["a"].patch(f"/api/batches/{world['batch']}", json={"name": "Frog tees"})
+    async with world["sm"]() as s:
+        s.add(ListingPublication(tenant_id=world["alice"], content_id=c0, connection_id=world["a1"], etsy_listing_id=910,
+                                 state="draft", scheduled_for=datetime.now(timezone.utc) + timedelta(hours=5)))
+        await s.commit()
+    [row] = (await world["a"].get("/api/schedules")).json()
+    assert row["batch_name"] == "Frog tees"
+    preview = (await world["a"].post("/api/batch-actions/preview", json={"action": "publish", "batch_ids": [str(world["batch"])]})).json()
+    assert {i["batch_name"] for i in preview["act"] + preview["skipped"]} == {"Frog tees"}
