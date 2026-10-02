@@ -24,12 +24,13 @@ export function SiteHeader() {
         <Wordmark />
         <nav aria-label="Site" className="hidden items-center gap-7 text-sm text-slate-600 md:flex">
           <Link href="/#how-it-works" className="hover:text-slate-900">How it works</Link>
+          <Link href="/#features" className="hover:text-slate-900">Features</Link>
           <Link href="/#your-data" className="hover:text-slate-900">Your data</Link>
           <Link href="/pricing" className="hover:text-slate-900">Pricing</Link>
         </nav>
         <div className="flex items-center gap-1.5 sm:gap-2">
           <Link href="/login" className="btn-ghost">Sign in</Link>
-          <Link href="/contact" className="btn-primary">Request an invite</Link>
+          <Link href="/request-invite" className="btn-primary max-[359px]:px-2.5">Request an invite</Link>
         </div>
       </div>
     </header>
@@ -43,7 +44,9 @@ export function SiteFooter() {
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
           <Wordmark />
           <nav aria-label="Footer" className="tap-row flex flex-wrap items-center gap-x-6 gap-y-2">
+            <Link href="/#features" className="tap hover:text-slate-800">Features</Link>
             <Link href="/pricing" className="tap hover:text-slate-800">Pricing</Link>
+            <Link href="/request-invite" className="tap hover:text-slate-800">Request an invite</Link>
             <Link href="/terms" className="tap hover:text-slate-800">Terms of Service</Link>
             <Link href="/privacy" className="tap hover:text-slate-800">Privacy Policy</Link>
             <Link href="/contact" className="tap hover:text-slate-800">Contact</Link>

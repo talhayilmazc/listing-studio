@@ -1,17 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { createContext, useContext, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Meta } from "@/lib/types";
 
-// Exact ToU notice — must not be altered or abbreviated.
-export const TRADEMARK_NOTICE =
-  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
+// The site's footer carries the exact trademark notice on these pages.
 
 /**
- * Frame for the Terms and Privacy pages. Public (readable before sign-up), so no
- * rail: the serif wordmark, a readable column, and a table of contents.
+ * Body of the Terms and Privacy pages, inside the public site's frame (header,
+ * footer with the trademark notice): a readable column and its contents.
  *
  * Operator facts (who runs the service, which law applies, where to write) come
  * from /api/meta rather than being typed into the page, so there is one place to
@@ -53,47 +50,29 @@ export function LegalShell({
 
   return (
     <OperatorContext.Provider value={meta}>
-      <div className="min-h-screen bg-stone-50 px-6 py-10">
-        <div className="mx-auto w-full max-w-3xl">
-          <Link href="/" className="mb-10 flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-              L
-            </span>
-            <span className="font-display text-2xl leading-none text-slate-900">
-              Listyro
-            </span>
-          </Link>
+      <div className="mx-auto w-full max-w-[1240px] px-4 pb-20 pt-12 sm:px-6 sm:pt-16">
+        <header className="max-w-[46rem]">
+          <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Legal</p>
+          <h1 className="mt-3 font-display text-[clamp(2.6rem,6vw,4.25rem)] leading-[1.02] text-slate-900">{title}</h1>
+          <p className="mt-4 text-sm text-slate-500"><span>Last updated <span>{updated}</span></span></p>
+        </header>
 
-          <h1 className="font-display text-4xl text-slate-900">{title}</h1>
-          <p className="mt-2 text-sm text-slate-500"><span>Last updated <span>{updated}</span></span></p>
-
-          <nav aria-label="Contents" className="card mt-8 p-5">
+        <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-16">
+          {/* Wide screens: the contents stay beside the text. */}
+          <nav aria-label="Contents" className="min-w-0 lg:sticky lg:top-24 lg:self-start">
             <p className="label">Contents</p>
-            <ol className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            <ol className="mt-2 space-y-1.5 border-l border-slate-200 text-sm">
               {sections.map((s, i) => (
                 <li key={s.id}>
-                  <a href={`#${s.id}`} className="text-slate-600 hover:text-brand-700">
-                    <span translate="no" className="tabular-nums text-slate-400"><span><span>{i + 1}</span>.</span></span> <span><span>{s.title}</span></span>
+                  <a href={`#${s.id}`} className="tap -ml-px block border-l border-transparent py-0.5 pl-3 text-slate-600 hover:border-brand-600 hover:text-slate-900">
+                    <span translate="no" className="tabular-nums text-slate-500"><span><span>{i + 1}</span>.</span></span> <span><span>{s.title}</span></span>
                   </a>
                 </li>
               ))}
             </ol>
           </nav>
 
-          <div className="legal mt-10 space-y-10">{children}</div>
-
-          <footer className="mt-16 space-y-3 border-t border-slate-200 pt-8 text-xs text-slate-400">
-            <p className="leading-relaxed">{TRADEMARK_NOTICE}</p>
-            <p className="flex flex-wrap gap-x-4 gap-y-1">
-              <Link href="/terms" className="hover:text-slate-600">
-                Terms of Service
-              </Link>
-              <Link href="/privacy" className="hover:text-slate-600">
-                Privacy Policy
-              </Link>
-              <SupportEmail />
-            </p>
-          </footer>
+          <div className="legal min-w-0 max-w-[46rem] space-y-12">{children}</div>
         </div>
       </div>
     </OperatorContext.Provider>
@@ -112,11 +91,11 @@ export function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-8">
-      <h2 className="font-display text-2xl text-slate-900">
-        <span translate="no" className="tabular-nums text-slate-400"><span><span>{n}</span>.</span></span> <span><span>{title}</span></span>
+    <section id={id} className="scroll-mt-24">
+      <h2 className="font-display text-3xl leading-tight text-slate-900">
+        <span translate="no" className="tabular-nums text-slate-500"><span><span>{n}</span>.</span></span> <span><span>{title}</span></span>
       </h2>
-      <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-slate-700">{children}</div>
+      <div className="mt-4 space-y-4 text-[1.0625rem] leading-relaxed text-slate-700">{children}</div>
     </section>
   );
 }
@@ -128,7 +107,7 @@ export function Fact({
   field: "operator_name" | "operator_location" | "governing_law" | "dispute_venue";
 }) {
   const meta = useContext(OperatorContext);
-  if (meta === null) return <span className="text-slate-400">…</span>;
+  if (meta === null) return <span className="text-slate-500">…</span>;
   const value = meta[field]?.trim();
   if (!value) {
     return (
@@ -143,7 +122,7 @@ export function Fact({
 export function SupportEmail() {
   const meta = useContext(OperatorContext);
   const email = meta?.support_email ?? "";
-  if (!email) return <span className="text-slate-400">…</span>;
+  if (!email) return <span className="text-slate-500">…</span>;
   return (
     <a href={`mailto:${email}`} className="font-medium text-brand-700 hover:underline">
       {email}

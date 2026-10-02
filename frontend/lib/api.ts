@@ -25,6 +25,8 @@ import type {
   ScheduleItem,
   ScheduleResult,
   InviteIssued,
+  InviteRequest,
+  InviteRequestApproved,
   TempPasswordIssued,
   Asset,
   BatchCost,
@@ -180,6 +182,11 @@ export const api = {
     invites: () => req<AdminInvite[]>("/admin/invites"),
     createInvite: (body: { email?: string; note?: string; expires_in_days: number | null }) =>
       req<InviteIssued>("/admin/invites", { method: "POST", body: JSON.stringify(body) }),
+    inviteRequests: () => req<InviteRequest[]>("/admin/invite-requests"),
+    approveInviteRequest: (id: string) =>
+      req<InviteRequestApproved>(`/admin/invite-requests/${id}/approve`, { method: "POST" }),
+    declineInviteRequest: (id: string) =>
+      req<InviteRequest>(`/admin/invite-requests/${id}/decline`, { method: "POST" }),
     revokeInvite: (id: string) =>
       req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
     usage: () => req<AdminUsage>("/admin/usage"),

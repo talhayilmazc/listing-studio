@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   Conspicuous,
@@ -8,8 +6,15 @@ import {
   LegalShell,
   Section,
   SupportEmail,
-  TRADEMARK_NOTICE,
 } from "@/components/LegalShell";
+
+import { TRADEMARK_NOTICE } from "@/components/marketing/Site";
+
+export const metadata = {
+  title: "Terms of Service",
+  description: "The terms for using Listyro.",
+  alternates: { canonical: "/terms" },
+};
 
 const SECTIONS = [
   { id: "about", title: "About these terms" },

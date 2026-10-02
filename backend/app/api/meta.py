@@ -19,6 +19,11 @@ from app.api.pauses import pause_out
 from app.etsy.shops import owned_shop
 from app.etsy.rate_limiter import PAUSE_GLOBAL, PAUSE_TENANT, DailyQuota
 
+from redis.asyncio import Redis
+
+from app.api.deps import get_redis
+from app.core import llm_status
+
 router = APIRouter(prefix="/api", tags=["meta"])
 
 HISTORY_DAYS = 7
@@ -55,6 +60,7 @@ async def get_quota_status(
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
 ) -> schemas.QuotaOut:
     """Remaining daily Etsy API quota (ToU requires this be shown to the user)."""
     tenant_used, global_used = await quota.usage(tenant.id)
@@ -76,6 +82,7 @@ async def get_quota_status(
             await _pause_reason(quota, tenant, tenant_used, global_used),
             tenant_limit=tenant.daily_quota,
         ),
+        generation_pause=llm_status.SELLER_MESSAGE if await llm_status.current(redis) else None,
     )
 
 

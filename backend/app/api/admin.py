@@ -38,6 +38,7 @@ from app.db.models import (
     AppSetting,
     ApiUsage,
     InviteCode,
+    InviteRequest,
     ListingPublication,
     Job,
     JobStatus,
@@ -624,6 +625,111 @@ async def revoke_invite(
     await session.commit()
     await session.refresh(invite)
     return await _invite_out(session, invite)
+
+
+# --- Invite requests (the public form) ---------------------------------------------
+class InviteRequestOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    shop: str | None
+    note: str | None
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+    #: That address already has an account, so there is nothing to approve.
+    has_account: bool = False
+
+
+class InviteRequestApproved(BaseModel):
+    """The code is readable here and only here, as when an invite is created."""
+
+    code: str
+    invite: InviteOut
+    request: InviteRequestOut
+
+
+async def _request_out(session: AsyncSession, row: InviteRequest) -> InviteRequestOut:
+    taken = await session.scalar(
+        select(func.count()).select_from(Tenant).where(func.lower(Tenant.email) == row.email)
+    )
+    return InviteRequestOut(
+        id=row.id, email=row.email, shop=row.shop, note=row.note, status=row.status,
+        created_at=row.created_at, decided_at=row.decided_at, has_account=bool(taken),
+    )
+
+
+async def _pending(session: AsyncSession, request_id: uuid.UUID) -> InviteRequest:
+    row = await session.get(InviteRequest, request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such request")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail=f"this request was already {row.status}")
+    return row
+
+
+@router.get("/invite-requests", response_model=list[InviteRequestOut])
+async def list_invite_requests(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[InviteRequestOut]:
+    """Pending first (oldest waiting longest), then the recently decided."""
+    rows = (
+        await session.execute(
+            select(InviteRequest).order_by(
+                (InviteRequest.status != "pending"), InviteRequest.created_at
+            ).limit(200)
+        )
+    ).scalars().all()
+    return [await _request_out(session, r) for r in rows]
+
+
+@router.post("/invite-requests/{request_id}/approve", response_model=InviteRequestApproved)
+async def approve_invite_request(
+    request_id: uuid.UUID,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> InviteRequestApproved:
+    """Make an invite code that only this address can redeem (30 days)."""
+    row = await _pending(session, request_id)
+    taken = await session.scalar(
+        select(func.count()).select_from(Tenant).where(func.lower(Tenant.email) == row.email)
+    )
+    if taken:
+        raise HTTPException(status_code=409, detail="that address already has an account")
+    code = secrets.token_urlsafe(18)
+    invite = InviteCode(
+        code_hash=hash_code(code),
+        note=("Requested: " + row.shop)[:200] if row.shop else "Requested on the site",
+        bound_email=row.email,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        created_by_tenant_id=admin.id,
+    )
+    session.add(invite)
+    await session.flush()
+    row.status, row.decided_at, row.decided_by_tenant_id, row.invite_id = (
+        "approved", datetime.now(timezone.utc), admin.id, invite.id,
+    )
+    audit.record(session, "invite_request.approved", actor=admin, target_invite_id=invite.id)
+    await session.commit()
+    await session.refresh(invite)
+    await session.refresh(row)
+    return InviteRequestApproved(
+        code=code, invite=await _invite_out(session, invite), request=await _request_out(session, row)
+    )
+
+
+@router.post("/invite-requests/{request_id}/decline", response_model=InviteRequestOut)
+async def decline_invite_request(
+    request_id: uuid.UUID,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> InviteRequestOut:
+    row = await _pending(session, request_id)
+    row.status, row.decided_at, row.decided_by_tenant_id = "declined", datetime.now(timezone.utc), admin.id
+    audit.record(session, "invite_request.declined", actor=admin)
+    await session.commit()
+    await session.refresh(row)
+    return await _request_out(session, row)
 
 
 # --- Usage ----------------------------------------------------------------------

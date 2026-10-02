@@ -160,6 +160,10 @@ class Settings(BaseSettings):
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"
 
+    # Where the app tells the operator that something needs them (the same
+    # address the deploy scripts use, from ops.env). Empty: logged only.
+    alert_webhook_url: str = ""
+
     # Who operates the service, as named in the Terms and Privacy Policy.
     # Production refuses to start while any is empty, so the published legal
     # pages can never go out naming nobody.

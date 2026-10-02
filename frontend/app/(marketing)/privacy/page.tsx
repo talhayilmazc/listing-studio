@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   Fact,
@@ -9,6 +7,12 @@ import {
   SupportEmail,
   WhenErrorTracking,
 } from "@/components/LegalShell";
+
+export const metadata = {
+  title: "Privacy Policy",
+  description: "What Listyro collects, why, where it goes, how long it is kept and how to have it deleted.",
+  alternates: { canonical: "/privacy" },
+};
 
 const SECTIONS = [
   { id: "who", title: "Who we are" },
@@ -38,7 +42,7 @@ function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="1 October 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated="3 October 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listyro (&ldquo;the Service&rdquo;) is operated by{" "}
@@ -85,6 +89,13 @@ export default function PrivacyPage() {
           <strong>Generated content.</strong> The titles, tags and descriptions created for your
           designs and any edits you make, whether you approved them, which AI model produced
           them and how many tokens it used, and the Etsy ID and status of drafts we create.
+        </p>
+        <p>
+          <strong>If you ask for an invite.</strong> What you type into the request form on our
+          site: your email address, your shop&rsquo;s name or address if you give it, and your
+          note. We use it only to decide on your request and to send you an invite code. The
+          form also counts requests per connection for an hour to stop abuse; your IP address is
+          used for that count and is not stored with your request.
         </p>
         <p>
           <strong>Usage and security records.</strong> A daily count of Etsy API requests made
@@ -316,6 +327,10 @@ export default function PrivacyPage() {
               <Row
                 data="Copies of listings taken before we change them"
                 period="90 days, then deleted automatically"
+              />
+              <Row
+                data="An invite request from the form on our site"
+                period="90 days after we approve or decline it; 180 days if it is never decided"
               />
               <Row
                 data="Etsy access tokens"

@@ -32,6 +32,10 @@ def pause_message(reason: str, *, tenant_limit: int) -> str:
 RETRY_MESSAGES = {
     "etsy_rate_limit": "Etsy asked for requests to slow down. This carries on by itself in a moment, where it stopped.",
     "etsy_unavailable": "Etsy did not answer. This tries again by itself in a moment and carries on where it stopped.",
+    "llm_unavailable": (
+        "Writing the new listing is paused on our side: the AI service is not accepting our "
+        "requests right now. Nothing has changed on Etsy. This tries again by itself."
+    ),
     "interrupted": "This was interrupted. It starts again by itself in a moment and carries on where it stopped.",
 }
 

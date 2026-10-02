@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import characters_seen
 from app.db.models import Asset, GeneratedContent, ListingProfile
+from app.core.llm_status import LLMUnavailable
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
 from app.pipeline.reference import replace_title_block, with_opening
@@ -79,6 +80,10 @@ async def generate_listing_content(
         # With ``pattern``, the listing follows one of the seller's own (v7 §B).
         result = await generator.generate(vision.analysis, sku, pattern) if pattern else await generator.generate(vision.analysis, sku)
         usages.extend(result.usages)
+    except LLMUnavailable:
+        # Our account with the AI provider, not this design: nothing is recorded
+        # against the design, and the caller pauses (core/llm_status.py).
+        raise
     except ContentValidationError as exc:
         usages.extend(exc.usages)
         reason = "; ".join(exc.errors)

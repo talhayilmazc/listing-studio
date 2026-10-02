@@ -122,7 +122,7 @@ export function HeroDemo() {
                   <Mockup art={d.art} label="" className="h-6 w-6 shrink-0 rounded-[4px] border border-slate-200" />
                   <span className="min-w-0 flex-1 truncate" translate="no">
                     <span className="font-medium text-slate-700">{d.sku}</span>
-                    <span className="hidden text-slate-400 sm:inline"><span> · <span>{d.files}</span> files</span></span>
+                    <span className="hidden text-slate-500 sm:inline"><span> · <span>{d.files}</span> files</span></span>
                   </span>
                   <svg
                     aria-hidden
@@ -184,13 +184,13 @@ export function HeroDemo() {
                           {t}
                         </span>
                       ))}
-                      <span className="rounded-full px-1 py-px text-[10px] text-slate-400">+11</span>
+                      <span className="rounded-full px-1 py-px text-[10px] text-slate-500">+11</span>
                     </div>
                     <div
                       className="flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 transition-opacity duration-500"
                       style={{ opacity: step >= 4 ? 1 : 0, transitionDelay: step === 4 ? `${i * 90}ms` : "0ms" }}
                     >
-                      <span className="truncate text-[10px] text-slate-400" translate="no">{d.sku}</span>
+                      <span className="truncate text-[10px] text-slate-500" translate="no">{d.sku}</span>
                       <Pill outcome={outcome} />
                     </div>
                   </div>
@@ -205,7 +205,7 @@ export function HeroDemo() {
         type="button"
         onClick={replay}
         className={
-          "tap absolute -bottom-9 right-1 text-xs text-slate-400 underline decoration-slate-300 decoration-dotted underline-offset-2 transition-opacity duration-500 hover:text-slate-700 " +
+          "tap absolute -bottom-9 right-1 text-xs text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 transition-opacity duration-500 hover:text-slate-700 " +
           (step >= DONE ? "opacity-100" : "pointer-events-none opacity-0")
         }
       >

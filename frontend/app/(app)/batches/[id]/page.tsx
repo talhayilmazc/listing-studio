@@ -145,6 +145,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       setNotice(`Generating ${i + 1} of ${todo.length}: ${g.label}…`);
       try {
         const res = await api.generate(id, bulkProfileId || undefined, g.key);
+        if (res.paused) {
+          // Paused on our side: stop asking. Nothing failed; the rest simply wait.
+          setProblem(res.paused);
+          break;
+        }
         generated += res.generated;
         failed += res.failed;
         skipped += res.skipped;
@@ -168,6 +173,10 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     setFailures([]);
     try {
       const res = await api.generate(id, bulkProfileId || undefined, groupKey);
+      if (res.paused) {
+        setProblem(res.paused);
+        return;
+      }
       setNotice(`Generated ${res.generated}, failed ${res.failed}, skipped ${res.skipped}.`);
       setFailures(res.failures);
       await load();
@@ -193,6 +202,10 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         replace: true,
         replaceApproved: approved,
       });
+      if (res.paused) {
+        setProblem(res.paused);
+        return;
+      }
       const why = (res.skipped_groups ?? []).map((s) => s.reason).join("; ");
       setNotice(
         res.generated

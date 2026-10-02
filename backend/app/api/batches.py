@@ -62,6 +62,11 @@ from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
 
+from app.core import llm_status
+from app.core.llm_status import LLMUnavailable
+from redis.asyncio import Redis
+from app.api.deps import get_redis
+
 router = APIRouter(prefix="/api", tags=["batches"])
 
 
@@ -1028,6 +1033,7 @@ async def generate_content(
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
     enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
 ) -> schemas.GenerateResult:
     # Ownership first: a caller with no claim on this batch must learn nothing
     # about it, not even whether the service is configured (production-spec B3).
@@ -1043,6 +1049,11 @@ async def generate_content(
             status_code=503,
             detail="LLM_API_KEY is not configured; content generation is unavailable.",
         )
+    # Our account with the AI provider is refused (usage limit, credit): do not
+    # try, do not fail anything, say so. Checked again by itself in a few minutes.
+    if await llm_status.current(redis):
+        return schemas.GenerateResult(generated=0, failed=0, skipped=0, paused=llm_status.SELLER_MESSAGE)
+
     # The product allowance: a listing is only written while some is left, and
     # the seller is told when it resets (checked where a group needs writing, so
     # "for all" with nothing to write isn't refused).
@@ -1120,6 +1131,7 @@ async def generate_content(
         groups = {body.group_key: groups.get(body.group_key, [])}
 
     generated = failed = skipped = 0
+    paused: str | None = None
     failures: list[schemas.AssetFailure] = []
     skipped_groups: list[schemas.GroupSkipped] = []
     for key, members in groups.items():
@@ -1186,20 +1198,28 @@ async def generate_content(
             continue
 
         data = storage.get(primary.processed_key)
-        outcome = await generate_listing_content(
-            session,
-            tenant_id=tenant.id,
-            batch_id=batch_id,
-            asset_id=primary.id,
-            image_data=data,
-            media_type=primary.mime_type or "image/jpeg",
-            sku=primary.parsed_sku,
-            analyzer=analyzer,
-            generator=_generator(profile),
-            profile=profile,
-            pattern=pattern,
-        )
+        try:
+            outcome = await generate_listing_content(
+                session,
+                tenant_id=tenant.id,
+                batch_id=batch_id,
+                asset_id=primary.id,
+                image_data=data,
+                media_type=primary.mime_type or "image/jpeg",
+                sku=primary.parsed_sku,
+                analyzer=analyzer,
+                generator=_generator(profile),
+                profile=profile,
+                pattern=pattern,
+            )
+        except LLMUnavailable as exc:
+            # Stop here: this group and the rest wait, none of them failed.
+            await session.rollback()
+            await llm_status.report(redis, exc)
+            paused = llm_status.SELLER_MESSAGE
+            break
         if outcome.status == "generated":
+            await llm_status.cleared(redis)
             generated += 1
             allowance.record(session, tenant.id, allowance.GENERATION)
             allowance_left -= 1
@@ -1222,6 +1242,7 @@ async def generate_content(
         skipped=skipped,
         failures=failures,
         skipped_groups=skipped_groups,
+        paused=paused,
     )
 
 

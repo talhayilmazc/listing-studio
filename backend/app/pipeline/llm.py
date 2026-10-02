@@ -26,6 +26,9 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 
+from app.core.llm_status import classify
+
+
 class LLMError(Exception):
     """The model returned something we can't use (refusal, malformed JSON)."""
 
@@ -176,7 +179,14 @@ class AnthropicLLMClient:
             schema=schema,
             max_tokens=max_tokens,
         )
-        response = await self._messages.create(**params)
+        try:
+            response = await self._messages.create(**params)
+        except Exception as exc:  # noqa: BLE001 - only to tell an account refusal apart
+            outage = classify(getattr(exc, "status_code", None), str(exc))
+            if outage is not None:
+                # Our account, not this request: the caller pauses instead of failing.
+                raise outage from None
+            raise
         return LLMResult(data=_parse_json(response), usage=_usage(response, self.model))
 
 

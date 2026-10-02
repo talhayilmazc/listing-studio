@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from sqlalchemy import select
 
-from app.core import allowance
+from app.core import allowance, llm_status
+from app.core.llm_status import LLMUnavailable
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.compliance.scanner import rescan
@@ -57,6 +58,10 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
         if (early := await start_job(ctx, session, job, "run_replace_images_job")) is not None:
             return early
 
+        # The listing's text is rewritten before any image on Etsy is touched. While
+        # our AI provider is refusing us, wait: do not read Etsy, do not fail.
+        if await llm_status.current(ctx.get("redis")) if ctx.get("redis") is not None else False:
+            return await _wait_for_llm(ctx, session, job)
         try:
             if not settings.llm_api_key:
                 raise ValueError("LLM_API_KEY not configured; cannot regenerate content")
@@ -209,6 +214,13 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     new_tags=new_tags,
                     new_description=new_description,
                 )
+        except LLMUnavailable as exc:
+            # Raised while writing, which is before the first change on Etsy.
+            await session.rollback()
+            if ctx.get("redis") is not None:
+                await llm_status.report(ctx["redis"], exc)
+            job = await session.get(Job, uuid.UUID(job_id), populate_existing=True)
+            return await _wait_for_llm(ctx, session, job)
         except Exception as exc:  # noqa: BLE001 - record which step failed
             job.status = JobStatus.failed
             job.last_error = public_error(exc)
@@ -227,6 +239,20 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
         job.finished_at = datetime.now(timezone.utc)
         await session.commit()
         return "succeeded"
+
+
+async def _wait_for_llm(ctx: dict[str, Any], session: Any, job: Job) -> str:
+    """Put the job back to run later; it has changed nothing on Etsy yet."""
+    job.status = JobStatus.queued
+    job.paused_reason = llm_status.WAIT_LLM
+    job.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=llm_status.JOB_WAIT_SECONDS)
+    await session.commit()
+    pool = ctx.get("redis")
+    if pool is not None and hasattr(pool, "enqueue_job"):
+        await pool.enqueue_job(
+            "run_replace_images_job", str(job.id), _defer_by=timedelta(seconds=llm_status.JOB_WAIT_SECONDS)
+        )
+    return "deferred"
 
 
 async def _resolve_shop_id(session, client, connection, kw) -> int:  # noqa: ANN001

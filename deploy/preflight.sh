@@ -191,6 +191,13 @@ elif [ -z "$(ops ALERT_WEBHOOK_URL)" ]; then
 else
   pass "ALERT_WEBHOOK_URL is set"
 fi
+# The app sends its own alerts too (the AI provider refusing the account pauses
+# all listing writing), and reads the address from its env file, not ops.env.
+if [ -z "$(get ALERT_WEBHOOK_URL)" ]; then
+  loud "THE APP HAS NO ALERT DESTINATION."        "If the AI provider refuses the account (usage limit, no credit), listing writing"        "pauses and sellers see a banner, but nobody is told. Set ALERT_WEBHOOK_URL in $ENV_FILE"        "(the same address as in $OPS_ENV), then restart: bash deploy/update.sh"
+else
+  pass "the app's ALERT_WEBHOOK_URL is set"
+fi
 if [ -r "$OPS_ENV" ] || [ ! -f "$OPS_ENV" ]; then
   [ -n "$(ops HEALTHCHECK_URL)" ] && pass "HEALTHCHECK_URL is set" || warn "HEALTHCHECK_URL is not set: a backup that stops running will not be noticed"
   [ -n "$(ops BACKUP_REMOTE)" ] && pass "BACKUP_REMOTE is set" || warn "BACKUP_REMOTE is not set: the only backups are on this server's own disk"

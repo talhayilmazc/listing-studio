@@ -22,13 +22,18 @@ export function PauseNotice() {
   const { timeZone } = useSession();
   const pathname = usePathname();
   const [pause, setPause] = useState<Pause | null>(null);
+  const [writing, setWriting] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = () =>
       api
         .quota()
-        .then((q) => !cancelled && setPause(q.pause))
+        .then((q) => {
+          if (cancelled) return;
+          setPause(q.pause);
+          setWriting(q.generation_pause ?? null);
+        })
         .catch(() => {});
     load();
     const timer = setInterval(load, REFRESH_MS);
@@ -38,7 +43,26 @@ export function PauseNotice() {
     };
   }, [pathname]);
 
-  if (!pause) return null;
+  if (!pause && !writing) return null;
+  return (
+    <>
+      {writing && (
+        <div key="writing" role="status" translate="no" className="border-b border-amber-200 bg-amber-50 px-6 py-3 lg:px-8">
+          <p className="mx-auto flex w-full max-w-[1800px] items-start gap-2.5 text-sm text-amber-800">
+            <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mt-[3px] shrink-0">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M10 9v6M14 9v6" />
+            </svg>
+            <span>{writing}</span>
+          </p>
+        </div>
+      )}
+      {pause && <EtsyPause key="etsy" pause={pause} timeZone={timeZone} />}
+    </>
+  );
+}
+
+function EtsyPause({ pause, timeZone }: { pause: Pause; timeZone: string }) {
   return (
     <div role="status" translate="no" className="border-b border-amber-200 bg-amber-50 px-6 py-3 lg:px-8">
       <p className="mx-auto flex w-full max-w-[1800px] items-start gap-2.5 text-sm text-amber-800">

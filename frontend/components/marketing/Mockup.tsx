@@ -76,7 +76,13 @@ function Artwork({ art, ink, accent }: { art: Art; ink: string; accent: string }
 export function Mockup({ art, label, className = "" }: { art: Art; label: string; className?: string }) {
   const g = GARMENT[art];
   return (
-    <svg viewBox="0 0 200 200" role="img" aria-label={label} className={className} preserveAspectRatio="xMidYMid slice">
+    <svg
+      viewBox="0 0 200 200"
+      // A thumbnail beside its own label is decoration; a picture on its own is described.
+      {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
+      className={className}
+      preserveAspectRatio="xMidYMid slice"
+    >
       <rect width="200" height="200" fill={g.ground} />
       <path
         d="M70 40 C80 50 120 50 130 40 L166 58 L152 88 L138 80 L138 168 Q138 172 134 172 L66 172 Q62 172 62 168 L62 80 L48 88 L34 58 Z"

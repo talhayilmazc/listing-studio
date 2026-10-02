@@ -99,7 +99,7 @@ export function Pipeline() {
               (active === i ? "lg:opacity-100" : "lg:opacity-40")
             }
           >
-            <p className="font-display text-5xl leading-none text-brand-600/25" aria-hidden translate="no">
+            <p className="font-display text-4xl leading-none text-brand-500" aria-hidden translate="no">
               {String(i + 1).padStart(2, "0")}
             </p>
             <h3 className="mt-3 font-display text-3xl leading-tight text-slate-900 sm:text-4xl">{s.title}</h3>
@@ -166,7 +166,7 @@ function Panel({ stage }: { stage: (typeof STAGES)[number]["key"] }) {
               <Mockup art={art} label="" className="h-11 w-11 shrink-0 rounded-md border border-slate-200" />
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-slate-800" translate="no"><span>SKU <span>{sku}</span></span></p>
-                <p className="truncate text-xs text-slate-400" translate="no">{files.join(" · ")}</p>
+                <p className="truncate text-xs text-slate-500" translate="no">{files.join(" · ")}</p>
               </div>
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
                 <span><span>{files.length}</span> images</span>
@@ -195,7 +195,7 @@ function Panel({ stage }: { stage: (typeof STAGES)[number]["key"] }) {
             {["hiking gift", "camp crew tee", "national park trip", "outdoor dad gift"].map((t) => (
               <span key={t} className="rounded-full border border-slate-200 px-2 py-0.5 text-xs text-slate-500">{t}</span>
             ))}
-            <span className="px-1 py-0.5 text-xs text-slate-400">+9</span>
+            <span className="px-1 py-0.5 text-xs text-slate-500">+9</span>
           </div>
         </div>
       </Frame>
@@ -210,7 +210,7 @@ function Panel({ stage }: { stage: (typeof STAGES)[number]["key"] }) {
             <div>
               <div className="flex items-center justify-between">
                 <span className="label mb-0">Title</span>
-                <span className="text-xs tabular-nums text-slate-400" translate="no">53 / 100</span>
+                <span className="text-xs tabular-nums text-slate-500" translate="no">53 / 100</span>
               </div>
               <p className="mt-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900">
                 Funny Nurse Shirt, Flu Season Humor, Hand Washing Joke

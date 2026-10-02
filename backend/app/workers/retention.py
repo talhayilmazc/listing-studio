@@ -37,6 +37,7 @@ from sqlalchemy import delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
+    InviteRequest,
     AdSpend,
     AllowanceUse,
     DraftAttempt,
@@ -79,6 +80,15 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     await session.execute(delete(DraftAttempt).where(DraftAttempt.created_at < now - timedelta(days=DraftAttempt.RETENTION_DAYS)))
     # Allowance usage: long past any period an allowance counts over.
     await session.execute(delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
+    # Invite requests are personal data from people who are not users.
+    await session.execute(
+        delete(InviteRequest).where(
+            or_(
+                InviteRequest.decided_at < now - timedelta(days=InviteRequest.DECIDED_RETENTION_DAYS),
+                InviteRequest.created_at < now - timedelta(days=InviteRequest.PENDING_RETENTION_DAYS),
+            )
+        )
+    )
     image_links = await _strip_display_fields(session, now)
     profiles = await session.execute(
         update(ListingProfile)

@@ -240,6 +240,36 @@ class InviteCode(Base):
     )
 
 
+class InviteRequest(Base):
+    """What a visitor typed into the public "Request an invite" form.
+
+    Personal data from someone who is not yet a user, so it is kept short and
+    not kept long: a decided request is deleted after ``DECIDED_RETENTION_DAYS``,
+    one nobody decided after ``PENDING_RETENTION_DAYS`` (workers/retention.py).
+    The sender's IP address is never stored.
+    """
+
+    __tablename__ = "invite_request"
+    DECIDED_RETENTION_DAYS: ClassVar[int] = 90
+    PENDING_RETENTION_DAYS: ClassVar[int] = 180
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    email: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # lower-cased
+    shop: Mapped[str | None] = mapped_column(Text)  # shop name or URL, as typed
+    note: Mapped[str | None] = mapped_column(Text)
+    #: "pending" | "approved" | "declined"
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenant.id", ondelete="SET NULL")
+    )
+    #: The invite an approval created (bound to ``email``).
+    invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"))
+
+
 class AuditLog(Base):
     """Who did what to whom, and when — every admin action (production-spec admin).
 

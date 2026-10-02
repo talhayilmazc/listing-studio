@@ -360,6 +360,8 @@ class QuotaOut(BaseModel):
     global_pause_at: int = 0
     # Set while new work is paused for this seller, with the reason.
     pause: PauseOut | None = None
+    # Set while writing new listings is paused on our side (core/llm_status.py).
+    generation_pause: str | None = None
     # Requests made today to keep this seller's shops and profiles current:
     # counted app-wide, not in tenant_used (v7 §D3).
     upkeep_used: int = 0
@@ -438,6 +440,9 @@ class GenerateResult(BaseModel):
     failures: list[AssetFailure] = Field(default_factory=list)
     #: Groups a regenerate left alone on purpose, and why.
     skipped_groups: list[GroupSkipped] = Field(default_factory=list)
+    #: Set when writing is paused on our side (the AI provider is refusing our
+    #: account): nothing was attempted or failed, and no allowance was used.
+    paused: str | None = None
 
 
 class PublishJobOut(BaseModel):

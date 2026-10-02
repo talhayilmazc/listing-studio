@@ -7,6 +7,8 @@ import type { AdminInvite, AdminUsage, AdminUser } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import { UsersTab } from "@/components/admin/UsersTab";
 import { InvitesTab } from "@/components/admin/InvitesTab";
+import { InviteRequests } from "@/components/admin/InviteRequests";
+import { Txt } from "@/components/Txt";
 import { UsageSummary, UsageTab } from "@/components/admin/Usage";
 
 /**
@@ -33,6 +35,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("users");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [invites, setInvites] = useState<AdminInvite[] | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<number | null>(null);
   const [usage, setUsage] = useState<AdminUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
@@ -103,6 +106,7 @@ export default function AdminPage() {
               {t.id === "invites" && invites && (
                 <span translate="no" key="span-103-14" className="ml-1.5 text-xs tabular-nums text-slate-400">
                   <span><span>{invites.filter((i) => i.state === "unused").length}</span> open</span>
+                  <Txt>{pendingRequests ? ` · ${pendingRequests} requested` : ""}</Txt>
                 </span>
               )}
             </button>
@@ -122,6 +126,15 @@ export default function AdminPage() {
               }}
               onReload={() => api.admin.users().then(setUsers).catch(guard)}
             />
+          )}
+          {tab === "invites" && (
+            <div key="requests" className="mb-5">
+              <InviteRequests
+                onError={setError}
+                onCount={setPendingRequests}
+                onInvite={(inv) => setInvites((prev) => [inv, ...(prev ?? [])])}
+              />
+            </div>
           )}
           {tab === "invites" && (
             <InvitesTab key="invitestab-125-10"

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { HeroDemo } from "@/components/marketing/HeroDemo";
 import { Pipeline } from "@/components/marketing/Pipeline";
+import { Closing, Faq, Features, YourData } from "@/components/marketing/Sections";
 
 const TITLE = "Listyro — from a folder of mockups to review-ready drafts";
 const DESCRIPTION =
@@ -11,8 +12,8 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   alternates: { canonical: "/" },
-  openGraph: { type: "website", url: "/", siteName: "Listyro", title: TITLE, description: DESCRIPTION },
-  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
+  openGraph: { type: "website", url: "/", siteName: "Listyro", title: TITLE, description: DESCRIPTION, images: [{ url: "/og.png", width: 1200, height: 630, alt: "Listyro: a folder of mockups in, review-ready drafts out" }] },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: ["/og.png"] },
 };
 
 export default function Landing() {
@@ -34,10 +35,10 @@ export default function Landing() {
               goes live until you approve or schedule it.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link href="/contact" className="btn-primary px-5 py-3 text-[0.9375rem]">Request an invite</Link>
+              <Link href="/request-invite" className="btn-primary px-5 py-3 text-[0.9375rem]">Request an invite</Link>
               <Link href="#how-it-works" className="btn-secondary px-5 py-3 text-[0.9375rem]">See how it works</Link>
             </div>
-            <p className="mt-5 text-sm text-slate-400">Invite-only while in beta. No card, no payment.</p>
+            <p className="mt-5 text-sm text-slate-500">Invite-only while in beta. No card, no payment.</p>
           </div>
           <div className="min-w-0 lg:-mr-10 xl:-mr-24">
             <HeroDemo />
@@ -62,6 +63,11 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      <Features />
+      <YourData />
+      <Faq />
+      <Closing />
     </>
   );
 }

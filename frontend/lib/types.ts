@@ -413,6 +413,8 @@ export interface Quota {
   global_pause_at: number;
   /** Set while new Etsy work is paused for this shop. */
   pause: Pause | null;
+  /** Set while writing new listings is paused on our side (AI provider). */
+  generation_pause?: string | null;
   /** Requests today keeping shops and profiles current: not in tenant_used (v7 §D3). */
   upkeep_used?: number;
   /** With ?shop=: that shop's share of today's requests. */
@@ -444,6 +446,25 @@ export interface GenerateResult {
   failures: AssetFailure[];
   /** Groups a regenerate left alone on purpose, and why. */
   skipped_groups?: { group_key: string; reason: string }[];
+  /** Writing is paused on our side: nothing was attempted or failed. */
+  paused?: string | null;
+}
+
+export interface InviteRequest {
+  id: string;
+  email: string;
+  shop: string | null;
+  note: string | null;
+  status: "pending" | "approved" | "declined";
+  created_at: string;
+  decided_at: string | null;
+  has_account: boolean;
+}
+
+export interface InviteRequestApproved {
+  code: string;
+  invite: AdminInvite;
+  request: InviteRequest;
 }
 
 export interface Connection {
