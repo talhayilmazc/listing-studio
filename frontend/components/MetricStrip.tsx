@@ -12,9 +12,9 @@ import { useShops } from "./ShopProvider";
  * page content — serif numbers, muted labels, each with the period it covers and
  * a comparison where one is computable.
  *
- * Reads only side-effect-free endpoints. `/shop/summary` serves the cached
- * counts without the sync `/shop/listings` would enqueue, so a strip on every
- * page never spends Etsy quota.
+ * `/shop/summary` serves the app's own publication count plus the cached shop
+ * counts. When the shop has no usable cached copy it queues one refresh (upkeep,
+ * one job per shop however many pages ask) and says "syncing" instead of 0.
  */
 
 // Utility pages carry no shop context.
@@ -40,11 +40,24 @@ export function MetricStrip() {
     if (hidden) return;
     let cancelled = false;
     api.quota(shopId).then((q) => !cancelled && setQuota(q)).catch(() => {});
-    api.shopSummary(shopId).then((s) => !cancelled && setShop(s)).catch(() => {});
+    // While the shop is syncing, look again a few times so "syncing" turns into
+    // numbers without a reload. Bounded: a sync that cannot finish is not polled forever.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const loadShop = (triesLeft: number) =>
+      api
+        .shopSummary(shopId)
+        .then((s) => {
+          if (cancelled) return;
+          setShop(s);
+          if (s.syncing && triesLeft > 0) timer = setTimeout(() => loadShop(triesLeft - 1), 10_000);
+        })
+        .catch(() => {});
+    loadShop(3);
     api.listBatches().then((b) => !cancelled && setBatches(b)).catch(() => setBatches([]));
     api.listProfiles(shopId).then((p) => !cancelled && setProfiles(p)).catch(() => setProfiles([]));
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [hidden, shopId]);
 
@@ -57,22 +70,34 @@ export function MetricStrip() {
   return (
     <div className="border-b border-slate-200">
       <dl className="mx-auto grid w-full max-w-[1800px] grid-cols-2 lg:grid-cols-4">
+        {/* Two different counts, labelled apart. The headline is what the seller
+            published through the app, from the app's own records (always known).
+            The line under it is every listing that went live in the shop, from
+            the cached copy of the shop: "syncing" when that copy is missing, never 0. */}
         <Cell
-          label="Published"
+          label="Published with the app"
           period={selected ? `this month · ${selected.name}` : "this month"}
-          value={shop?.published_this_month ?? null}
-          unavailable={shop?.stale ? "updating from Etsy" : undefined}
-          delta={
-            shop ? changePct(shop.published_this_month, shop.published_last_month) : null
-          }
+          value={shop?.app_published_this_month ?? null}
+          delta={shop ? changePct(shop.app_published_this_month, shop.app_published_last_month) : null}
           deltaNote="vs last month"
+          secondary={
+            shop
+              ? shop.shop_counts_known
+                ? `all listings published in the shop: ${shop.published_this_month.toLocaleString()}`
+                : shop.syncing
+                  ? "all listings published in the shop: syncing…"
+                  : "all listings published in the shop: not read from Etsy yet"
+              : null
+          }
         />
         <Cell
           label="Draft listings"
           period={selected ? `awaiting publish · ${selected.name}` : "awaiting publish"}
-          value={shop?.draft ?? null}
-          secondary={shop ? `${shop.active.toLocaleString()} live` : null}
-          unavailable={shop?.stale ? "updating from Etsy" : undefined}
+          value={shop ? (shop.shop_counts_known ? shop.draft : null) : null}
+          secondary={shop && shop.shop_counts_known ? `${shop.active.toLocaleString()} live` : null}
+          unavailable={
+            shop && !shop.shop_counts_known ? (shop.syncing ? "syncing from Etsy…" : "not read from Etsy yet") : undefined
+          }
         />
         <QuotaCell quota={quota} />
         <Cell
@@ -172,11 +197,13 @@ function Cell({
           >
             <span aria-hidden>{delta > 0 ? "↑" : "↓"}</span>
             <span><span>{Math.abs(delta)}</span>%</span>
+            {secondary && deltaNote ? <span className="ml-1 font-normal text-slate-400">{deltaNote}</span> : null}
           </span>
         )}
       </dd>
-      <p className="mt-1.5 h-4 text-xs text-slate-400">
-        {delta != null && delta !== 0 ? deltaNote : (secondary ?? "")}
+      {/* A second figure is never displaced by the comparison: the note moves up beside the arrow. */}
+      <p className="mt-1.5 min-h-4 text-xs text-slate-400">
+        {secondary ?? (delta != null && delta !== 0 ? deltaNote : "")}
       </p>
     </div>
   );

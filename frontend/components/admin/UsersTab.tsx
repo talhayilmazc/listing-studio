@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import type { AdminUser, TempPasswordIssued } from "@/lib/types";
+import type { AdminSpend, AdminUser, TempPasswordIssued } from "@/lib/types";
 import { Confirm, Reveal } from "./Reveal";
 import { Meter } from "./Usage";
 import { AllowanceCell, DefaultAllowance } from "./AllowanceControls";
@@ -434,7 +434,8 @@ function QuotaCell({
   }
 
   return (
-    <div className="flex min-w-[180px] items-center gap-2.5">
+    <div className="min-w-[180px] space-y-1.5">
+    <div className="flex items-center gap-2.5">
       <div className="w-20">
         <Meter used={user.quota_used_today} limit={user.daily_quota} label={`${user.email} quota used today`} />
       </div>
@@ -449,6 +450,63 @@ function QuotaCell({
       >
         <span><span>{user.quota_used_today.toLocaleString()}</span> / <span>{user.daily_quota.toLocaleString()}</span></span>
       </button>
+    </div>
+    <Spend today={user.spent_today ?? []} yesterday={user.spent_yesterday ?? []} />
+    </div>
+  );
+}
+
+/**
+ * What the requests were spent on. Two groups, because only one of them is the
+ * seller's own ceiling: a first read of a shop's sales is the app's upkeep and
+ * says nothing about whether the seller needs a higher limit.
+ */
+function Spend({ today, yesterday }: { today: AdminSpend[]; yesterday: AdminSpend[] }) {
+  const [day, setDay] = useState<"today" | "yesterday">("today");
+  const rows = day === "today" ? today : yesterday;
+  const counted = rows.filter((r) => r.counted > 0).sort((a, b) => b.counted - a.counted);
+  const upkeep = rows.filter((r) => r.upkeep > 0).sort((a, b) => b.upkeep - a.upkeep);
+  const sum = (list: AdminSpend[], k: "counted" | "upkeep") => list.reduce((n, r) => n + r[k], 0);
+  if (!today.length && !yesterday.length) {
+    return <p className="text-[11px] text-slate-400">No Etsy requests today or yesterday</p>;
+  }
+  return (
+    <div className="space-y-1 text-[11px] leading-snug text-slate-500" translate="no">
+      <SpendGroup
+        title="Counts toward the ceiling"
+        total={sum(counted, "counted")}
+        items={counted.map((r) => [r.label, r.counted])}
+      />
+      <SpendGroup
+        title="App upkeep, not counted"
+        total={sum(upkeep, "upkeep")}
+        items={upkeep.map((r) => [r.label, r.upkeep])}
+      />
+      <button
+        type="button"
+        onClick={() => setDay(day === "today" ? "yesterday" : "today")}
+        className="tap text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900 max-sm:py-2"
+      >
+        <span>{day === "today" ? "Showing today (UTC) · see yesterday" : "Showing yesterday (UTC) · see today"}</span>
+      </button>
+    </div>
+  );
+}
+
+function SpendGroup({ title, total, items }: { title: string; total: number; items: [string, number][] }) {
+  return (
+    <div>
+      <p className="text-slate-400">
+        <span>{title}</span><span>: </span><span className="tabular-nums text-slate-600">{total.toLocaleString()}</span>
+      </p>
+      <ul className="pl-2">
+        {items.map(([label, n]) => (
+          <li key={label} className="flex justify-between gap-3">
+            <span>{label}</span>
+            <span className="tabular-nums text-slate-700">{n.toLocaleString()}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

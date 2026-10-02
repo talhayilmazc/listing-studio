@@ -253,3 +253,32 @@ def test_deleting_one_stored_file_takes_its_previews_and_nothing_else(tmp_path) 
     for bad in ("", "../x", "t/../../x"):
         with pytest.raises(ValueError):
             storage.delete_with_derivatives(bad)
+
+
+# --- "Published this month" is the app's own record ---------------------------------------------
+
+
+async def test_published_this_month_counts_the_publication_records_not_the_listing_cache(ctx, tmp_path) -> None:  # noqa: F811
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    batch_id, _, _ = await _batch_with_files(ctx, tmp_path, listing_id=920)
+    async with ctx["sm"]() as s:
+        shop = await _shop(s, ctx["tenant_id"])
+        first = (await s.execute(select(ListingPublication))).scalars().one()
+        first.state, first.published_at = "active", now
+        last_month = now.replace(day=1) - timedelta(days=3)
+        s.add(ListingPublication(tenant_id=ctx["tenant_id"], content_id=None, connection_id=shop, etsy_listing_id=921,
+                                 state="active", published_at=last_month))
+        s.add(ListingPublication(tenant_id=ctx["tenant_id"], content_id=None, connection_id=shop, etsy_listing_id=922, state="draft"))
+        await s.commit()
+
+    # The listing cache is empty: the shop-wide counts are unknown, not zero, and a refresh is queued.
+    body = (await ctx["client"].get("/api/shop/summary")).json()
+    assert (body["app_published_this_month"], body["app_published_last_month"]) == (1, 1)
+    assert (body["shop_counts_known"], body["syncing"]) == (False, True)
+    assert ctx["enqueuer"].calls[-1][0] == "sync_shop_listings"
+
+    # And it still says 1 after the seller deletes the batch it was published from.
+    assert (await ctx["client"].delete(f"/api/batches/{batch_id}")).status_code == 200
+    assert (await ctx["client"].get("/api/shop/summary")).json()["app_published_this_month"] == 1

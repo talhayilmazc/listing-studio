@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
 
@@ -208,7 +208,30 @@ class DailyQuota:
     def _upkeep_key(self, tenant_id: uuid.UUID, day: str) -> str:
         return f"quota:upkeep:{tenant_id}:{day}"
 
-    async def reserve_upkeep(self, tenant_id: uuid.UUID, *, shop: uuid.UUID | None = None) -> bool:
+    def _spent_key(self, tenant_id: uuid.UUID, day: str) -> str:
+        return f"quota:spent:{tenant_id}:{day}"
+
+    async def _spent(self, tenant_id: uuid.UUID, day: str, kind: str, category: str | None) -> None:
+        """Count one request under what it was for (etsy/categories.py). ``kind``
+        is "own" (counts toward the account's ceiling) or "upkeep" (does not)."""
+        key = self._spent_key(tenant_id, day)
+        if await self._redis.hincrby(key, f"{kind}:{category or 'other'}", 1) == 1:
+            await self._redis.expire(key, self._ttl)
+
+    async def spending(self, tenant_id: uuid.UUID, *, days_ago: int = 0) -> dict[str, dict[str, int]]:
+        """What this account's requests were spent on, that day: ``{category:
+        {"own": n, "upkeep": m}}``. Kept as long as the day's other counters (48 h)."""
+        day = (self._now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        out: dict[str, dict[str, int]] = {}
+        for field, value in (await self._redis.hgetall(self._spent_key(tenant_id, day))).items():
+            field = field.decode() if isinstance(field, (bytes, bytearray)) else str(field)
+            kind, _, category = field.partition(":")
+            out.setdefault(category, {"own": 0, "upkeep": 0})[kind] = self._to_int(value)
+        return out
+
+    async def reserve_upkeep(
+        self, tenant_id: uuid.UUID, *, shop: uuid.UUID | None = None, category: str | None = None
+    ) -> bool:
         """Reserve one slot for keeping a shop's data current (v7 §D3).
 
         Profile refreshes and shop syncs are the app's upkeep, not the seller's
@@ -222,6 +245,7 @@ class DailyQuota:
             await self._redis.decr(global_key)
             return False
         await self._incr(self._upkeep_key(tenant_id, day))
+        await self._spent(tenant_id, day, "upkeep", category)
         if shop is not None:
             await self._incr(self._shop_key(shop, day))
         return True
@@ -245,7 +269,7 @@ class DailyQuota:
         return self._to_int(await self._redis.get(self._shop_key(shop, self._day())))
 
     async def reserve(
-        self, tenant_id: uuid.UUID, tenant_limit: int, *, shop: uuid.UUID | None = None
+        self, tenant_id: uuid.UUID, tenant_limit: int, *, shop: uuid.UUID | None = None, category: str | None = None
     ) -> bool:
         """Reserve one request slot against both budgets.
 
@@ -269,6 +293,7 @@ class DailyQuota:
             await self._redis.decr(global_key)
             return False
 
+        await self._spent(tenant_id, day, "own", category)
         if shop is not None:
             await self._incr(self._shop_key(shop, day))
         return True

@@ -700,12 +700,23 @@ class ShopListingsOut(BaseModel):
 
 
 class ShopSummaryOut(BaseModel):
-    """Counts derived from the cached shop listings.
+    """One shop's headline counts, from two sources that are labelled apart.
 
-    Read-only: unlike ``/shop/listings`` this never enqueues a refresh, so it is
-    safe to call from a component present on every page.
+    ``app_published_*``: listings published **through the app**, counted from
+    the publication records. They are the app's own history, so they are always
+    known and do not depend on any cache.
+
+    Everything else is counted from the cached copy of the shop's listings, which
+    may be held for six hours at most: **every** listing in the shop, however it
+    was published. When that copy is missing or too old those counts are not
+    zero, they are unknown: ``shop_counts_known`` is false and a refresh has
+    been queued (``syncing``).
     """
 
+    app_published_this_month: int = 0
+    app_published_last_month: int = 0
+    shop_counts_known: bool = False
+    syncing: bool = False
     total: int = 0
     active: int = 0
     draft: int = 0

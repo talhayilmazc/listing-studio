@@ -176,6 +176,8 @@ async def test_users_list_shows_metadata(world) -> None:
     assert set(bob) == {
         "id", "email", "is_admin", "status", "must_change_password", "created_at",
         "shop_name", "shop_connected", "listings_published", "quota_used_today", "daily_quota",
+        # Counts per kind of work, never what the work was about.
+        "spent_today", "spent_yesterday",
         "shops", "shops_used", "shops_limit", "shops_limit_custom",
         # An account setting, not the seller's content (v7 §A4).
         "trademark_filter", "trademark_filter_seller", "trademark_filter_changed_at",

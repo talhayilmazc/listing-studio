@@ -265,15 +265,21 @@ async def test_shop_summary_counts_without_triggering_sync(ctx) -> None:
     assert body["stale"] is False
 
 
-async def test_shop_summary_stale_cache_still_does_not_sync(ctx) -> None:
-    """A stale cache is reported as stale, but reading it must not enqueue."""
+async def test_shop_summary_with_no_usable_cache_says_syncing_and_queues_one_refresh(ctx) -> None:
+    """An empty or expired cache means the shop-wide counts are unknown, not zero.
+    The summary says "syncing" and makes it true: one refresh, however many pages ask."""
     res = await ctx["client"].get("/api/shop/summary")
     assert res.status_code == 200
     body = res.json()
     assert body["total"] == 0
     assert body["stale"] is True
     assert body["fetched_at"] is None
-    assert ctx["enqueuer"].calls == []
+    assert (body["shop_counts_known"], body["syncing"]) == (False, True)
+    # The strip is on every page. A second look still says syncing, and queues nothing:
+    # a shop with no listings never has a cached copy and must not cost a sync per page view.
+    again = (await ctx["client"].get("/api/shop/summary")).json()
+    assert (again["shop_counts_known"], again["syncing"]) == (False, True)
+    assert [c[0] for c in ctx["enqueuer"].calls] == ["sync_shop_listings"]
 
 
 async def test_shop_listing_carries_state_timestamp(ctx) -> None:

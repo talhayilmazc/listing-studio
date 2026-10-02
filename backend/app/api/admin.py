@@ -48,6 +48,8 @@ from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, app_shop_count, tenant_shop_limit
 from app.workers.gate import SUSPENDED_MESSAGE
 
+from app.etsy.categories import LABELS
+
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 HISTORY_DAYS = 7
@@ -93,6 +95,21 @@ def _not_self(admin: Tenant, target: Tenant, message: str) -> None:
 
 
 # --- Users ----------------------------------------------------------------------
+class SpendOut(BaseModel):
+    category: str
+    label: str
+    counted: int = 0
+    upkeep: int = 0
+
+
+def _spend(raw: dict[str, dict[str, int]]) -> list[SpendOut]:
+    rows = [
+        SpendOut(category=c, label=LABELS.get(c, c), counted=v.get("own", 0), upkeep=v.get("upkeep", 0))
+        for c, v in raw.items()
+    ]
+    return sorted(rows, key=lambda r: r.counted + r.upkeep, reverse=True)
+
+
 class AdminUserOut(BaseModel):
     id: uuid.UUID
     email: str
@@ -109,6 +126,11 @@ class AdminUserOut(BaseModel):
     listings_published: int
     quota_used_today: int
     daily_quota: int
+    # What today's and yesterday's Etsy requests were spent on, largest first.
+    # ``counted`` requests go toward the account's ceiling; ``upkeep`` ones (the
+    # app keeping the shop's data current) do not.
+    spent_today: list[SpendOut] = []
+    spent_yesterday: list[SpendOut] = []
     # The trademark filter (v7 §A4): the admin override (None = the seller's own
     # choice), the seller's own choice and when they last changed it, and what's in force.
     trademark_filter: bool | None = None
@@ -301,6 +323,8 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         shops_limit=tenant_shop_limit(t),
         shops_limit_custom=t.max_shops is not None,
         listings_published=int(published or 0),
+        spent_today=_spend(await quota.spending(t.id)),
+        spent_yesterday=_spend(await quota.spending(t.id, days_ago=1)),
         quota_used_today=used_today,
         daily_quota=t.daily_quota,
         trademark_filter=t.trademark_filter,

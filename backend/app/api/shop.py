@@ -11,13 +11,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
+from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_session
+from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_redis, get_session
 from app.api.shops import selected_shop
 from app.core import allowance
 from app.db.models import (
@@ -61,6 +63,19 @@ def _as_int(value: Any) -> int | None:
         return int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+# The summary may queue a shop sync at most this often (the cache's lifetime:
+# four a day at most), and calls the shop "syncing" for this long after queueing.
+SUMMARY_SYNC_EVERY_SECONDS = 6 * 3600
+SUMMARY_SYNCING_SECONDS = 10 * 60
+
+
+def _zone(tenant: Tenant) -> ZoneInfo:
+    try:
+        return ZoneInfo(tenant.time_zone or "UTC")
+    except Exception:  # noqa: BLE001 - an unknown zone name falls back to UTC
+        return ZoneInfo("UTC")
 
 
 def _month_start(moment: datetime) -> datetime:
@@ -200,17 +215,45 @@ async def shop_summary(
     shop: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
 ) -> schemas.ShopSummaryOut:
-    """One shop's listing counts from the cache. Never triggers a sync (cf. ``/shop/listings``)."""
+    """One shop's headline counts (see :class:`ShopSummaryOut`).
+
+    "Published this month" is the app's own record of what was published
+    through it. It used to be counted from the listing cache, which is empty
+    whenever it has expired, so it read 0 for a seller who published every day.
+    """
     connection = await selected_shop(session, tenant, shop)
     everything = await _shop_rows(session, tenant, connection) if connection else []
     newest = max((c.fetched_at for c in everything), default=None)
     # Counts are derived from listing content, so expired rows do not count.
     cached = [c for c in everything if not _is_stale(c.fetched_at)]
+    known = bool(cached)
 
+    # The months are the seller's own: the 1st at midnight in their time zone.
+    zone = _zone(tenant)
     now = datetime.now(timezone.utc)
-    this_month = _month_start(now)
+    this_month = _month_start(now.astimezone(zone))
     last_month = _month_start(this_month - timedelta(days=1))
+
+    app_this = app_last = 0
+    if connection is not None:
+        rows = await session.execute(
+            select(ListingPublication.published_at).where(
+                ListingPublication.tenant_id == tenant.id,
+                ListingPublication.connection_id == connection.id,
+                ListingPublication.state == "active",
+                ListingPublication.published_at >= last_month,
+            )
+        )
+        for (published_at,) in rows.all():
+            if published_at.tzinfo is None:  # SQLite hands back naive datetimes
+                published_at = published_at.replace(tzinfo=timezone.utc)
+            if published_at >= this_month:
+                app_this += 1
+            else:
+                app_last += 1
 
     active = draft = this_count = last_count = 0
     for row in cached:
@@ -230,7 +273,25 @@ async def shop_summary(
             elif went_live >= last_month:
                 last_count += 1
 
+    # Unknown is not zero: say "syncing", and make it true. This runs on every
+    # page, so it queues at most one refresh per shop per cache lifetime: a shop
+    # with no listings at all never has a cached copy, and must not cost a sync
+    # per page view. "Syncing" is said only while that refresh can still be running.
+    syncing = False
+    if connection is not None and not known:
+        marker = f"summary-sync:{connection.id}"
+        if await redis.set(marker, int(now.timestamp()), nx=True, ex=SUMMARY_SYNC_EVERY_SECONDS):
+            await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"manual-sync:{connection.id}")
+            syncing = True
+        else:
+            queued_at = _as_int(await redis.get(marker))
+            syncing = queued_at is not None and now.timestamp() - queued_at < SUMMARY_SYNCING_SECONDS
+
     return schemas.ShopSummaryOut(
+        app_published_this_month=app_this,
+        app_published_last_month=app_last,
+        shop_counts_known=known,
+        syncing=syncing,
         total=len(cached),
         active=active,
         draft=draft,

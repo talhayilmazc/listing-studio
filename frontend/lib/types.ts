@@ -292,6 +292,13 @@ export interface ShopListing {
 
 /** Cached listing counts. Reading this never triggers a shop sync. */
 export interface ShopSummary {
+  /** Published through the app, from its own records: always known. */
+  app_published_this_month: number;
+  app_published_last_month: number;
+  /** False when the shop's listing cache is empty or expired: the shop-wide
+   *  counts below are then unknown (not zero), and a refresh is under way. */
+  shop_counts_known: boolean;
+  syncing: boolean;
   total: number;
   active: number;
   draft: number;
@@ -465,6 +472,15 @@ export interface PatternListing {
 }
 
 // --- Admin panel ------------------------------------------------------------
+/** Requests for one kind of work: `counted` go toward the account's daily
+ *  ceiling, `upkeep` (the app keeping the shop's data current) do not. */
+export interface AdminSpend {
+  category: string;
+  label: string;
+  counted: number;
+  upkeep: number;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -482,6 +498,9 @@ export interface AdminUser {
   listings_published: number;
   quota_used_today: number;
   daily_quota: number;
+  /** What the day's Etsy requests were spent on, largest first. */
+  spent_today: AdminSpend[];
+  spent_yesterday: AdminSpend[];
   /** Admin override of the trademark filter (v7 §A4): null = the seller's own choice. */
   trademark_filter: boolean | null;
   /** The seller's own choice in Settings, and when they last changed it. */

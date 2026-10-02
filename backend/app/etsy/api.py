@@ -34,7 +34,8 @@ import httpx
 from redis.asyncio import Redis
 
 from app.etsy.client import ETSY_API_BASE, auth_headers
-from app.etsy.calllog import CallLog
+from app.etsy.calllog import CallLog, current_job
+from app.etsy.categories import category_of
 from app.etsy.errors import raise_for_etsy_status
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
@@ -159,10 +160,12 @@ class EtsyApiClient:
             # Every attempt, retries included, passes both: a refused request still
             # counts against Etsy's budget, and an unpaced retry makes more 429s.
             if self._quota is not None and tenant_id is not None and self._upkeep:
-                if not await self._quota.reserve_upkeep(tenant_id, shop=self._shop):
+                if not await self._quota.reserve_upkeep(tenant_id, shop=self._shop, category=category_of(current_job.get())):
                     raise RateLimitExceeded("daily Etsy API budget exhausted")
             elif self._quota is not None and tenant_id is not None and tenant_limit is not None:
-                if not await self._quota.reserve(tenant_id, tenant_limit, shop=self._shop):
+                if not await self._quota.reserve(
+                    tenant_id, tenant_limit, shop=self._shop, category=category_of(current_job.get())
+                ):
                     raise RateLimitExceeded("daily Etsy API budget exhausted")
             waited = time.monotonic()
             if self._bucket is not None:
