@@ -27,7 +27,7 @@ const SECTIONS: { title: string; items: Item[] }[] = [
     title: "Workspace",
     items: [
       { href: "/dashboard", label: "Overview", icon: IconGrid },
-      { href: "/", label: "Batches", icon: IconLayers },
+      { href: "/batches", label: "Batches", icon: IconLayers },
       { href: "/upload", label: "Uploads", icon: IconUpload },
       { href: "/scheduled", label: "Scheduled", icon: IconClock },
       { href: "/analytics", label: "Analytics", icon: IconChart },
@@ -45,7 +45,7 @@ const ADMIN_SECTION = {
 };
 
 function isActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/" || pathname.startsWith("/batches");
+  if (href === "/batches") return pathname.startsWith("/batches");
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -89,10 +89,10 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
         <div className="flex items-center justify-between px-5 py-5">
           <Link href="/dashboard" onClick={onClose} className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-              LS
+              L
             </span>
             <span className="text-[15px] font-semibold text-[var(--rail-active)]">
-              Listing Studio
+              Listyro
             </span>
           </Link>
           <button

@@ -41,7 +41,7 @@ export default function PrivacyPage() {
     <LegalShell title="Privacy Policy" updated="1 October 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
-          Listing Studio (&ldquo;the Service&rdquo;) is operated by{" "}
+          Listyro (&ldquo;the Service&rdquo;) is operated by{" "}
           <Fact field="operator_name" />, <Fact field="operator_location" />, who is responsible
           for the personal data described here. For anything in this policy, write to{" "}
           <SupportEmail />.

@@ -69,7 +69,7 @@ export default function ConnectPage() {
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">Your Etsy shops</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Authorize Listing Studio to create draft listings in your shops. You stay in control:
+          Authorize Listyro to create draft listings in your shops. You stay in control:
           nothing is ever published without your approval, and drafts are only created when you
           ask.
         </p>

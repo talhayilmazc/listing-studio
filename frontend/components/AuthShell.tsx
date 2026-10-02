@@ -32,9 +32,9 @@ export function AuthShell({
       <div className="mx-auto flex w-full max-w-[26rem] flex-1 flex-col justify-center">
         <div className="mb-7 flex items-center justify-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            LS
+            L
           </span>
-          <span className="font-display text-3xl leading-none text-slate-900">Listing Studio</span>
+          <span className="font-display text-3xl leading-none text-slate-900">Listyro</span>
         </div>
 
         <div className="card p-7">

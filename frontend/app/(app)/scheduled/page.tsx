@@ -77,7 +77,7 @@ export default function ScheduledPage() {
             <div className="card p-6 text-sm text-slate-600">
               Nothing is scheduled. On a batch&apos;s review page, use <b>Schedule</b> on a draft, or{" "}
               <b>Schedule…</b> for all approved drafts at once.{" "}
-              <Link href="/" className="text-brand-700 underline">
+              <Link href="/batches" className="text-brand-700 underline">
                 Batches
               </Link>
             </div>

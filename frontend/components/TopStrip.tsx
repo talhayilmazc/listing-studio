@@ -17,7 +17,7 @@ import { useSession } from "./SessionProvider";
 
 const TITLES: [RegExp, string][] = [
   [/^\/dashboard$/, "Overview"],
-  [/^\/$/, "Batches"],
+  [/^\/batches$/, "Batches"],
   [/^\/batches\/[^/]+\/review$/, "Review"],
   [/^\/profiles$/, "Profiles"],
   [/^\/upload$/, "Uploads"],
@@ -33,12 +33,12 @@ const TITLES: [RegExp, string][] = [
 
 function titleFor(pathname: string, isAdmin: boolean): string {
   // Non-admins get the same generic 404 as any unknown route: no title that says /admin exists.
-  if (pathname === "/admin" && !isAdmin) return "Listing Studio";
+  if (pathname === "/admin" && !isAdmin) return "Listyro";
   for (const [re, title] of TITLES) if (re.test(pathname)) return title;
   // Batch detail keeps its short id, which the page no longer repeats.
   const batch = pathname.match(/^\/batches\/([^/]+)$/);
   if (batch) return "Batch " + batch[1].slice(0, 8);
-  return "Listing Studio";
+  return "Listyro";
 }
 
 export function TopStrip({ onMenu }: { onMenu: () => void }) {

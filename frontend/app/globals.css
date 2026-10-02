@@ -144,3 +144,24 @@ body {
     column-gap: 1.25rem;
   }
 }
+
+/* Public site. Motion is opacity and transform only, and off entirely for
+   anyone who asks for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+  .mk-caption {
+    animation: mk-rise 0.45s ease-out both;
+  }
+}
+@keyframes mk-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.3rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

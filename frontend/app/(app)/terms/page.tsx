@@ -33,7 +33,7 @@ export default function TermsPage() {
     <LegalShell title="Terms of Service" updated="27 September 2026" sections={SECTIONS}>
       <Section id="about" n={1} title="About these terms">
         <p>
-          These terms govern your use of Listing Studio (&ldquo;the Service&rdquo;). The Service
+          These terms govern your use of Listyro (&ldquo;the Service&rdquo;). The Service
           is operated by <Fact field="operator_name" />, <Fact field="operator_location" />{" "}
           (&ldquo;we&rdquo;, &ldquo;us&rdquo;). You can reach us at <SupportEmail />.
         </p>
@@ -48,7 +48,7 @@ export default function TermsPage() {
 
       <Section id="service" n={2} title="What the Service does">
         <p>
-          Listing Studio helps Etsy sellers turn their own original designs into draft listings.
+          Listyro helps Etsy sellers turn their own original designs into draft listings.
           In short:
         </p>
         <Items>
@@ -83,7 +83,7 @@ export default function TermsPage() {
           {TRADEMARK_NOTICE}
         </p>
         <p>
-          Listing Studio is an independent product. Etsy, Inc. is not a party to these terms, has
+          Listyro is an independent product. Etsy, Inc. is not a party to these terms, has
           not reviewed or approved the Service, and gives you no promise or warranty about it.
           Questions about the Service come to us, not to Etsy.
         </p>

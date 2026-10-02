@@ -327,7 +327,7 @@ function ActivityCard({ batches, thumbs }: { batches: BatchSummary[] | null; thu
     <section className="card p-6">
       <div className="flex items-baseline justify-between">
         <h2 className="label mb-0">Recent activity</h2>
-        <Link href="/" className="tap text-xs font-medium text-brand-700 hover:text-brand-800">
+        <Link href="/batches" className="tap text-xs font-medium text-brand-700 hover:text-brand-800">
           All batches
         </Link>
       </div>

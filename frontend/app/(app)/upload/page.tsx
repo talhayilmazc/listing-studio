@@ -787,7 +787,7 @@ function RecentUploads({ batches }: { batches: BatchSummary[] | null }) {
     <section>
       <div className="flex items-baseline justify-between border-b border-slate-200 pb-2">
         <h2 className="font-display text-lg text-slate-900">Recent uploads</h2>
-        <Link href="/" className="tap text-xs font-medium text-brand-700 hover:text-brand-800">
+        <Link href="/batches" className="tap text-xs font-medium text-brand-700 hover:text-brand-800">
           All batches
         </Link>
       </div>

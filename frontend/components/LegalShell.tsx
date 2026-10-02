@@ -57,10 +57,10 @@ export function LegalShell({
         <div className="mx-auto w-full max-w-3xl">
           <Link href="/" className="mb-10 flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-              LS
+              L
             </span>
             <span className="font-display text-2xl leading-none text-slate-900">
-              Listing Studio
+              Listyro
             </span>
           </Link>
 

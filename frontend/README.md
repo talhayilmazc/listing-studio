@@ -1,4 +1,4 @@
-# Frontend — Listing Studio
+# Frontend — Listyro
 
 Next.js (App Router) + TypeScript + Tailwind. Runs at http://localhost:3000.
 
