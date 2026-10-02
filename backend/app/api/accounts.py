@@ -303,6 +303,29 @@ async def logout(
     return Response(status_code=204)
 
 
+@router.get("/session", status_code=204)
+async def session_check(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    sessions: SessionStore = Depends(get_session_store),
+) -> Response:
+    """204 if this cookie is a live session of an active account, else 401.
+
+    For the public site's "/" (frontend/middleware.ts), which sends a signed-in
+    visitor to their dashboard and shows the landing page to anyone else. It
+    answers from the session store and one primary-key read; no body, so it is
+    cheap enough to ask on every visit to "/". A temporary-password account is
+    signed in (the app then sends it to change the password); a suspended or
+    deleted one is not.
+    """
+    record = await sessions.read(request.cookies.get(SESSION_COOKIE, ""))
+    if record is not None:
+        tenant = await session.get(Tenant, record.tenant_id)
+        if tenant is not None and tenant.status is TenantStatus.active:
+            return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    return Response(status_code=401, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/me", response_model=AccountOut)
 async def me(tenant: Tenant = Depends(current_tenant)) -> AccountOut:
     """Who this session belongs to. 401 without one."""

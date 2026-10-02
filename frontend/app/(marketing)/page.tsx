@@ -4,6 +4,13 @@ import { HeroDemo } from "@/components/marketing/HeroDemo";
 import { Pipeline } from "@/components/marketing/Pipeline";
 import { Closing, Faq, Features, YourData } from "@/components/marketing/Sections";
 
+// Rendered per request, not served as a static file: "/" depends on who asks
+// (middleware.ts sends a live session to the dashboard and clears a dead
+// cookie), so it must never carry a header that lets a shared cache keep one
+// visitor's answer for the next. Next marks static pages cacheable for a year
+// whatever middleware sets; a dynamic page is sent as private, no-store.
+export const dynamic = "force-dynamic";
+
 const TITLE = "Listyro — from a folder of mockups to review-ready drafts";
 const DESCRIPTION =
   "A listing workflow and compliance assistant for print-on-demand and apparel sellers. Drafts copy the category, variations, pricing and size charts of your own listings, and nothing goes live until you approve or schedule it.";
