@@ -149,14 +149,14 @@ export default function Home() {
                   onClick={() => setDeleting([b.id])}
                   aria-label={`Delete batch ${b.id.slice(0, 8)}`}
                   title="Delete this batch (nothing on Etsy is touched)"
-                  className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md bg-white/90 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-rose-700"
+                  className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md bg-white/90 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:text-rose-700 max-sm:right-2 max-sm:top-2 max-sm:h-11 max-sm:w-11"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
                     <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
                 <label
-                  className="absolute left-3 top-3 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md bg-white/90 shadow-sm ring-1 ring-slate-200"
+                  className="absolute left-3 top-3 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md bg-white/90 shadow-sm ring-1 ring-slate-200 max-sm:left-2 max-sm:top-2 max-sm:h-11 max-sm:w-11"
                   title="Select for a bulk action"
                 >
                   <input

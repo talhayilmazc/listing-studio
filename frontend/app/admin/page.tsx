@@ -90,7 +90,7 @@ export default function AdminPage() {
               aria-controls={`panel-${t.id}`}
               onClick={() => setTab(t.id)}
               className={
-                "-mb-px border-b-2 pb-2.5 text-sm font-medium transition-colors " +
+                "-mb-px border-b-2 pb-2.5 text-sm font-medium transition-colors max-sm:min-h-[2.75rem] max-sm:px-2 max-sm:pt-2 " +
                 (tab === t.id
                   ? "border-brand-600 text-slate-900"
                   : "border-transparent text-slate-500 hover:text-slate-800")

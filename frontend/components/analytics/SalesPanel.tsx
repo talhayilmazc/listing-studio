@@ -180,7 +180,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
             <span><span>{`· first read: ${n(sync.read_count)} sales in ${n(sync.requests_used)} requests`}</span>
             <Txt>{sync.last_update_requests != null ? ` · last update: ${sync.last_update_requests} ${plural(sync.last_update_requests, "request", "requests")}` : ""}</Txt></span>
           </span>
-          <button type="button" className="underline hover:text-slate-900 disabled:opacity-50" onClick={readNow} disabled={busy || updating !== null}>
+          <button type="button" className="tap underline hover:text-slate-900 disabled:opacity-50" onClick={readNow} disabled={busy || updating !== null}>
             Read now
           </button>
         </div>

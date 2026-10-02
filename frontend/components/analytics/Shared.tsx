@@ -71,7 +71,7 @@ export function Amount({ figure, currency, negative }: { figure: Pick<Figure, "v
 
 export function PeriodPicker({ days, onChange }: { days: number; onChange: (d: number) => void }) {
   return (
-    <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5" role="group" aria-label="Period">
+    <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 max-sm:flex max-sm:w-full" role="group" aria-label="Period">
       {PERIODS.map((d) => (
         <button
           key={d}
@@ -79,7 +79,7 @@ export function PeriodPicker({ days, onChange }: { days: number; onChange: (d: n
           onClick={() => onChange(d)}
           aria-pressed={days === d}
           className={
-            "rounded-md px-3 py-1 text-sm " +
+            "rounded-md px-3 py-1 text-sm max-sm:min-h-[2.5rem] max-sm:flex-1 max-sm:px-2 " +
             (days === d ? "bg-brand-600 font-medium text-white" : "text-slate-600 hover:bg-slate-100")
           }
         >
@@ -103,7 +103,7 @@ export function ComparePicker({
   const yearOk = comparison?.year_available !== false;
   const opts: [CompareMode, string][] = [["previous", "vs previous period"], ["year", "vs a year earlier"]];
   return (
-    <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5" role="group" aria-label="Compare with">
+    <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 max-sm:flex max-sm:w-full" role="group" aria-label="Compare with">
       {opts.map(([m, label]) => (
         <button
           key={m}
@@ -113,7 +113,7 @@ export function ComparePicker({
           disabled={m === "year" && !yearOk && mode !== "year"}
           title={m === "year" && !yearOk ? "Needs 13 months of sales history, which this shop doesn't have yet." : undefined}
           className={
-            "rounded-md px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-slate-300 " +
+            "rounded-md px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-slate-300 max-sm:min-h-[2.5rem] max-sm:flex-1 max-sm:px-2 " +
             (mode === m ? "bg-slate-800 font-medium text-white" : "text-slate-600 hover:bg-slate-100")
           }
         >
@@ -139,7 +139,7 @@ export function ComparisonLine({ comparison }: { comparison: Comparison | undefi
 /** A CSV of what's on screen, for the seller's own spreadsheet. */
 export function ExportLink({ href, label = "Export CSV" }: { href: string; label?: string }) {
   return (
-    <a href={href} download className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-brand-700 hover:underline">
+    <a href={href} download className="tap inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-brand-700 hover:underline">
       <span aria-hidden>↓</span>
       <span>{label}</span>
     </a>
@@ -221,7 +221,7 @@ export function ListingCell({
       <div className="min-w-0">
         <Link
           href={`/analytics/${row.listing_id}?days=${days}`}
-          className="block truncate text-slate-800 hover:text-brand-700 hover:underline"
+          className="block truncate text-slate-800 hover:text-brand-700 hover:underline max-sm:py-2.5"
           title={row.title ?? undefined}
         >
           {row.title ?? `Listing ${row.listing_id}`}
@@ -229,7 +229,7 @@ export function ListingCell({
         <span className="block truncate text-xs text-slate-400">
           <Txt>{row.sku ? `${row.sku} · ` : ""}</Txt>
           <Txt>{state ? `${state} · ` : ""}</Txt>
-          <a href={row.url} target="_blank" rel="noreferrer" className="hover:text-brand-700 hover:underline">
+          <a href={row.url} target="_blank" rel="noreferrer" className="tap hover:text-brand-700 hover:underline">
             View on Etsy ↗
           </a>
         </span>

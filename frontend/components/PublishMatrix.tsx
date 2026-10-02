@@ -58,7 +58,7 @@ export function PublishMatrix({
     const needsChoice = rows.some((r) => cellOf(r, col.connection_id)?.reason?.includes("choose one"));
     return (
       <div className="space-y-1.5">
-        <label className="flex min-h-[2rem] items-center gap-2">
+        <label className="flex min-h-[2rem] items-center gap-2 max-md:min-h-[2.75rem]">
           <input
             type="checkbox"
             className="h-4 w-4"
@@ -103,7 +103,7 @@ export function PublishMatrix({
     if (!cell) return null;
     if (cell.state !== "available") return <CellState cell={cell} />;
     return (
-      <label className="flex min-h-[2rem] items-center gap-2">
+      <label className="flex min-h-[2rem] items-center gap-2 max-md:min-h-[2.75rem]">
         <input
           type="checkbox"
           className="h-4 w-4"

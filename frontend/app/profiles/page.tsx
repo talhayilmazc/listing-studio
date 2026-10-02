@@ -309,15 +309,15 @@ export default function ProfilesPage() {
                     {l.state}
                   </span>
                   {/* Actions surface on hover; the Etsy back-link is always present below. */}
-                  <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 max-sm:opacity-100">
                     <button
-                      className="w-full rounded-md bg-white/95 py-1 text-xs font-medium text-slate-800 hover:bg-white"
+                      className="w-full rounded-md bg-white/95 py-1 text-xs font-medium text-slate-800 hover:bg-white max-sm:min-h-[2.75rem]"
                       onClick={() => useAsProfile(l.listing_id)}
                     >
                       Use as profile
                     </button>
                     <button
-                      className="w-full rounded-md py-1 text-xs font-medium text-white/90 hover:text-white"
+                      className="w-full rounded-md py-1 text-xs font-medium text-white/90 hover:text-white max-sm:min-h-[2.75rem] max-sm:bg-black/40"
                       onClick={() => pickReplacement(l.listing_id)}
                       title="Upload a folder of new photos to update this listing in place"
                     >
@@ -338,7 +338,7 @@ export default function ProfilesPage() {
                       href={etsyListingLink(l.listing_id, l.state, l.url)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0 font-medium text-brand-700 hover:underline"
+                      className="tap shrink-0 font-medium text-brand-700 hover:underline"
                     >
                       {l.state === "draft" ? "edit ↗" : "view ↗"}
                     </a>

@@ -47,7 +47,7 @@ export function TagEditor({
           return (
             <span
               key={i}
-              className={`inline-flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-1.5 text-xs transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-1.5 text-xs transition-colors max-sm:py-0 max-sm:pl-3 ${
                 tooLong
                   ? "border-amber-300 bg-amber-50 text-amber-800"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -56,7 +56,7 @@ export function TagEditor({
               <input
                 value={t}
                 onChange={(e) => edit(i, e.target.value)}
-                className="bg-transparent focus:outline-none"
+                className="bg-transparent focus:outline-none max-sm:h-10 max-sm:text-base"
                 style={{ width: `${Math.max(t.length, 4) + 1}ch` }}
                 aria-label={`Tag ${i + 1}`}
               />
@@ -70,7 +70,7 @@ export function TagEditor({
               <button
                 type="button"
                 onClick={() => remove(i)}
-                className="rounded-full px-0.5 text-slate-400 hover:text-rose-600"
+                className="rounded-full px-0.5 text-slate-400 hover:text-rose-600 max-sm:-mr-1 max-sm:flex max-sm:h-10 max-sm:w-10 max-sm:items-center max-sm:justify-center max-sm:text-lg"
                 aria-label={`Remove ${t}`}
               >
                 ×
@@ -107,7 +107,7 @@ export function TagEditor({
           }}
           onBlur={() => add()}
           placeholder="add tags, separated by commas…"
-          className="min-w-[8ch] flex-1 rounded-full border border-dashed border-slate-300 px-2 py-1 text-xs focus:border-brand-500 focus:outline-none"
+          className="min-w-[8ch] flex-1 rounded-full border border-dashed border-slate-300 px-2 py-1 text-xs focus:border-brand-500 focus:outline-none max-sm:min-h-[2.75rem] max-sm:basis-full max-sm:px-3 max-sm:text-base"
         />
       </div>
       {problems.some(Boolean) && (

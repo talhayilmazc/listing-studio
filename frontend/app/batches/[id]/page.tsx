@@ -260,7 +260,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link href="/" className="text-sm text-slate-400 hover:text-slate-600">
+          <Link href="/" className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
             ← Batches
           </Link>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -353,7 +353,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       {/* Bulk-apply: the same three choices for the ticked groups. */}
       {!noProfiles && groups.length > 1 && (
         <div key="bulk" className="card flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm">
-          <label className="flex min-h-[2.25rem] items-center gap-2 text-slate-700">
+          <label className="flex min-h-[2.75rem] items-center gap-2 text-slate-700">
             <input
               type="checkbox"
               className="h-4 w-4"
@@ -449,14 +449,15 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   {groups.length > 1 && !noProfiles && (
-                    <input
-                      key="pick"
-                      type="checkbox"
-                      className="h-4 w-4"
-                      aria-label={`Select ${g.label}`}
-                      checked={picked.includes(g.key)}
-                      onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, g.key] : cur.filter((k) => k !== g.key)))}
-                    />
+                    <label key="pick" className="-m-2 flex cursor-pointer items-center p-2 max-sm:-m-3 max-sm:p-3">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        aria-label={`Select ${g.label}`}
+                        checked={picked.includes(g.key)}
+                        onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, g.key] : cur.filter((k) => k !== g.key)))}
+                      />
+                    </label>
                   )}
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-sm text-slate-600">
                     {g.label}

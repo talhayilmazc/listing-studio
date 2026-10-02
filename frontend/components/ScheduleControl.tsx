@@ -115,10 +115,10 @@ export function ScheduleControl({
         {publication.schedule_note && <span key="span-110-8" className="text-amber-800">{publication.schedule_note}</span>}
         {pending && (
           <>
-            <button type="button" className="underline hover:text-slate-900" onClick={open} disabled={busy}>
+            <button type="button" className="underline hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:rounded-md max-sm:border max-sm:border-slate-300 max-sm:px-3 max-sm:no-underline" onClick={open} disabled={busy}>
               change
             </button>
-            <button type="button" className="underline hover:text-slate-900" onClick={cancel} disabled={busy}>
+            <button type="button" className="underline hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:rounded-md max-sm:border max-sm:border-slate-300 max-sm:px-3 max-sm:no-underline" onClick={cancel} disabled={busy}>
               {busy ? "cancelling…" : "cancel"}
             </button>
           </>

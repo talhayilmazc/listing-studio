@@ -126,7 +126,7 @@ export function UsersTab({
             <Txt>{u.trademark_filter !== null ? " · overridden" : ""}</Txt></span>
           </p>
           {/* v7 §B: model new listings on the seller's own. */}
-          <label className="mt-1 flex items-center gap-1.5 text-xs text-slate-600" title="Let this seller model new listings on their own best listings">
+          <label className="mt-1 flex items-center gap-1.5 text-xs text-slate-600 max-sm:min-h-[2.75rem]" title="Let this seller model new listings on their own best listings">
             <input
               type="checkbox"
               checked={Boolean(u.features?.own_patterns)}
@@ -367,7 +367,7 @@ function ShopsCell({
           type="button"
           onClick={() => setEditing(true)}
           title="Change how many shops this account may connect"
-          className="text-xs tabular-nums text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900"
+          className="tap text-xs tabular-nums text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900 max-sm:py-2"
         >
           <span><span>{user.shops_used}</span><span> of </span><span>{user.shops_limit}</span><span> shops</span>
           <Txt>{user.shops_limit_custom ? " (custom)" : ""}</Txt></span>
@@ -445,7 +445,7 @@ function QuotaCell({
           setEditing(true);
         }}
         title="Change this user's daily ceiling"
-        className="rounded px-1 text-xs tabular-nums text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900"
+        className="tap rounded px-1 text-xs tabular-nums text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900 max-sm:py-2"
       >
         <span><span>{user.quota_used_today.toLocaleString()}</span> / <span>{user.daily_quota.toLocaleString()}</span></span>
       </button>

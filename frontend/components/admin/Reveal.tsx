@@ -92,7 +92,7 @@ export function Confirm({
         onClick={() => setAsking(true)}
         disabled={disabled}
         title={disabled ? disabledReason : undefined}
-        className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:border max-sm:border-slate-200 max-sm:px-3 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       >
         {label}
       </button>

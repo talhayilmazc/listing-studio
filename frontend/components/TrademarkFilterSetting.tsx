@@ -56,7 +56,7 @@ export function TrademarkFilterSetting() {
           disabled={busy || locked}
           onClick={() => (on ? setConfirming(true) : change(true))}
           className={
-            "relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 " +
+            "tap relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 " +
             (on ? "bg-brand-600" : "bg-slate-300")
           }
         >

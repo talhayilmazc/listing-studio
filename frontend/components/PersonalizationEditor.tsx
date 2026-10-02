@@ -59,7 +59,7 @@ export function PersonalizationEditor({
           ) : (
             <span>Off: new drafts are not personalizable.</span>
           )}
-          <button type="button" className="underline hover:text-slate-900" onClick={open} disabled={busy}>
+          <button type="button" className="tap underline hover:text-slate-900 max-sm:px-1 max-sm:py-2" onClick={open} disabled={busy}>
             edit
           </button>
           {current?.enabled && (

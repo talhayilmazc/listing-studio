@@ -70,7 +70,7 @@ export default function AnalyticsPage() {
         for you to act on in Shop Manager; nothing on Etsy is changed from here.
       </p>
 
-      <nav className="flex overflow-x-auto overflow-y-hidden border-b border-slate-200 sm:gap-1" aria-label="Analytics sections">
+      <nav className="flex justify-between overflow-y-hidden border-b border-slate-200 sm:justify-start sm:gap-1" aria-label="Analytics sections">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -78,7 +78,7 @@ export default function AnalyticsPage() {
             onClick={() => setTab(t.key)}
             aria-current={tab === t.key ? "page" : undefined}
             className={
-              "-mb-px whitespace-nowrap border-b-2 px-2 py-2 text-sm sm:px-3 " +
+              "-mb-px whitespace-nowrap border-b-2 px-1.5 py-3 text-[13px] sm:px-3 sm:py-2 sm:text-sm " +
               (tab === t.key ? "border-brand-600 font-medium text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800")
             }
           >

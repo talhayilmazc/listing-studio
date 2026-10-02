@@ -81,6 +81,12 @@ export function Chart({
   const bw = Math.max(1, (W / n) * 0.7);
   const short = (v: number) => money(v, currency).replace(/\.00$/, "");
 
+  const scrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    if (box.width <= 0) return;
+    setHover(Math.min(n - 1, Math.max(0, Math.floor(((e.clientX - box.left) / box.width) * n))));
+  };
+
   if (n === 0) return <p className="text-sm text-slate-400">Nothing to chart in this period.</p>;
 
   return (
@@ -134,14 +140,20 @@ export function Chart({
               />
             ))}
           </svg>
-          <div className="absolute inset-0 flex">
+          {/* Columns are a few pixels wide: no finger can hit one. A touch anywhere
+              on the plot picks the column under it, and dragging scrubs along. */}
+          <div
+            className="absolute inset-0 flex touch-pan-y"
+            onPointerDown={(e) => e.pointerType !== "mouse" && scrub(e)}
+            onPointerMove={(e) => e.pointerType !== "mouse" && scrub(e)}
+          >
             {points.map((p, i) => (
               <button
                 key={p.key}
                 type="button"
                 className="h-full flex-1 outline-none focus-visible:bg-brand-500/10"
-                onPointerEnter={() => setHover(i)}
-                onPointerLeave={() => setHover(null)}
+                onPointerEnter={(e) => e.pointerType === "mouse" && setHover(i)}
+                onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
                 onFocus={() => setHover(i)}
                 onBlur={() => setHover(null)}
                 aria-label={`${p.label}: ${barLabel} ${money(p.bar, currency)}${lines
@@ -187,9 +199,9 @@ export function Chart({
         ))}
       </div>
       <details className="mt-3 text-sm">
-        <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-800">Show as a table</summary>
-        <div className="mt-2 max-h-64 overflow-auto rounded-lg border border-slate-100">
-          <table className="w-full text-xs">
+        <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-800 max-sm:py-3">Show as a table</summary>
+        <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-100">
+          <table className="w-full table-fixed text-xs">
             <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
               <tr>
                 <th className="px-2 py-1 font-medium" />
@@ -202,7 +214,7 @@ export function Chart({
             <tbody className="divide-y divide-slate-100">
               {[...points].reverse().map((p) => (
                 <tr key={p.key}>
-                  <td className="whitespace-nowrap px-2 py-1 text-slate-700">{p.label}</td>
+                  <td className="break-words px-2 py-1 text-slate-700">{p.label}</td>
                   <td translate="no" className="px-2 py-1 text-right tabular-nums">{money(p.bar, currency)}</td>
                   {lines.map((l, k) => (
                     <td key={l.label} translate="no" className="px-2 py-1 text-right tabular-nums">{money(p.lines[k], currency)}</td>

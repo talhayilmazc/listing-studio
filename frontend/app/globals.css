@@ -101,3 +101,46 @@ body {
     @apply h-full rounded-full bg-brand-600 transition-all;
   }
 }
+
+/* Phones and touch screens (Priority 3). A finger needs about 44px; the mouse
+   layouts above use 30px buttons and 20px text controls. Here every shared
+   control is at least 44px tall, text inputs are 16px (below that iOS zooms the
+   page on focus), and a text-style control marked .tap keeps its look while its
+   tappable area grows to 44px. Written after the utilities so it holds whatever
+   size utility a call site uses. */
+@media (max-width: 639px), (pointer: coarse) {
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .field {
+    min-height: 2.75rem;
+  }
+  input.field,
+  select.field,
+  textarea.field {
+    font-size: 16px;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1.375rem;
+    height: 1.375rem;
+    flex-shrink: 0;
+  }
+  .tap {
+    position: relative;
+  }
+  .tap::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
+  }
+  /* A row of text links (footer, card actions): room between them for fingers. */
+  .tap-row {
+    row-gap: 0.75rem;
+    column-gap: 1.25rem;
+  }
+}

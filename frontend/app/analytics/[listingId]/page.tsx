@@ -73,7 +73,7 @@ export default function ListingAnalytics({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/analytics" className="text-sm text-slate-500 hover:text-slate-900">
+        <Link href="/analytics" className="tap text-sm text-slate-500 hover:text-slate-900 max-sm:py-2">
           ← Analytics
         </Link>
         <div className="sm:ml-auto">
@@ -101,7 +101,7 @@ export default function ListingAnalytics({
                   <Txt>{row.profile_name && `profile ${row.profile_name} · `}</Txt>
                   <Txt>{row.launched && `launched ${row.launched} · `}</Txt>
                 </span>
-                <a href={row.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
+                <a href={row.url} target="_blank" rel="noreferrer" className="tap text-brand-700 hover:underline">
                   View on Etsy ↗
                 </a>
               </p>

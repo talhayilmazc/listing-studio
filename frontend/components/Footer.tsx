@@ -22,17 +22,17 @@ export function Footer() {
     <footer className="mt-16 border-t border-slate-200 bg-white">
       <div className="mx-auto w-full max-w-[1800px] space-y-3 px-6 py-8 text-sm text-slate-500 lg:px-8">
         <p className="max-w-3xl leading-relaxed">{TRADEMARK_NOTICE}</p>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <Link href="/terms" className="hover:text-slate-800">
+        <div className="tap-row flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Link href="/terms" className="tap hover:text-slate-800">
             Terms of Service
           </Link>
-          <Link href="/privacy" className="hover:text-slate-800">
+          <Link href="/privacy" className="tap hover:text-slate-800">
             Privacy Policy
           </Link>
           <span className="text-slate-300">·</span>
           <span>
             Support:{" "}
-            <a href={`mailto:${email}`} className="font-medium text-brand-700 hover:underline">
+            <a href={`mailto:${email}`} className="tap inline-block font-medium text-brand-700 hover:underline">
               {email}
             </a>
           </span>

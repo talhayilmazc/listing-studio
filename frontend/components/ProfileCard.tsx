@@ -166,7 +166,7 @@ export function ProfileCard({
           href={backLink}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute bottom-3 right-3 rounded-md bg-white/90 px-2 py-1 text-xs font-medium text-slate-700 backdrop-blur transition-colors hover:bg-white hover:text-brand-700"
+          className="absolute bottom-3 right-3 rounded-md bg-white/90 px-2 py-1 text-xs font-medium text-slate-700 backdrop-blur transition-colors hover:bg-white hover:text-brand-700 max-sm:flex max-sm:min-h-[2.75rem] max-sm:items-center max-sm:px-3"
           title={
             listing?.state === "draft"
               ? "Edit draft in Shop Manager"
@@ -191,7 +191,7 @@ export function ProfileCard({
               href={backLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="tabular-nums hover:text-brand-700 hover:underline"
+              className="tap tabular-nums hover:text-brand-700 hover:underline"
             >
               <span>Listing #<span>{profile.reference_listing_id}</span> ↗</span>
             </a>
@@ -331,7 +331,7 @@ export function ProfileCard({
             {busy === "refresh" ? "Refreshing…" : profile.confirmed ? "Refresh now" : "Refresh reference"}
           </button>
           <button
-            className="ml-auto text-xs text-rose-600 hover:text-rose-700"
+            className="tap ml-auto text-xs text-rose-600 hover:text-rose-700 max-sm:px-2 max-sm:py-2"
             onClick={remove}
             disabled={busy !== null}
           >

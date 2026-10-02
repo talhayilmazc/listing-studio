@@ -279,7 +279,7 @@ export function ReviewCard({
               <ShopBadge name={shopNames[initial.connection_id]} />
             </p>
           )}
-          <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4">
+          <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={api.assetImage(initial.asset_id, 896)}
@@ -321,13 +321,17 @@ export function ReviewCard({
             <div>
               <span className="label">Title</span>
               <div className="relative">
-                <input
+                {/* The whole title, wrapped: a one-line box showed only its first
+                    words, on a phone about a quarter of it. A title has no line breaks. */}
+                <textarea
+                  rows={2}
                   className={
-                    "field " +
+                    "field block resize-none leading-snug max-sm:min-h-[7rem] " +
                     (titleOut ? "border-amber-400 focus:border-amber-500 focus:ring-amber-500" : "")
                   }
                   value={title}
-                  onChange={(e) => change(setTitle)(e.target.value)}
+                  onChange={(e) => change(setTitle)(e.target.value.replace(/\s*[\r\n]+\s*/g, " "))}
+                  onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
                   placeholder="Listing title"
                   aria-label="Listing title"
                 />
@@ -368,7 +372,7 @@ export function ReviewCard({
                 <button className="btn-secondary" onClick={save} disabled={saving || !dirty}>
                   {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
                 </button>
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <label className="flex cursor-pointer items-center gap-2 text-sm max-sm:min-h-[2.75rem]">
                   <input
                     type="checkbox"
                     checked={approved}
@@ -488,7 +492,7 @@ export function ReviewCard({
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                        className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-50 max-sm:min-h-[2.75rem] max-sm:px-4 max-sm:text-sm"
                         onClick={() => tryAgain(w)}
                         disabled={!approved || publishing}
                       >
@@ -587,7 +591,7 @@ function ManualSteps({
     <div className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
       <p className="font-medium">
         Recommended in Shop Manager (optional, doesn&apos;t block publishing){" "}
-        <a href={link} target="_blank" rel="noreferrer" className="font-normal underline">
+        <a href={link} target="_blank" rel="noreferrer" className="tap font-normal underline">
           open the draft ↗
         </a>
       </p>
@@ -642,7 +646,7 @@ function Description({ value, onChange }: { value: string; onChange: (v: string)
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="text-xs font-medium text-brand-700 hover:text-brand-800"
+          className="tap text-xs font-medium text-brand-700 hover:text-brand-800"
         >
           {open ? "Collapse" : "Expand"}
         </button>

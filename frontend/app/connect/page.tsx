@@ -179,7 +179,7 @@ function ShopRow({
         </div>
         <div className="flex shrink-0 gap-1">
           <button
-            className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+            className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30 max-sm:h-11 max-sm:w-11 max-sm:border max-sm:border-slate-200 max-sm:text-base"
             onClick={onUp}
             disabled={first}
             aria-label={`Move ${shop.name} up`}
@@ -187,7 +187,7 @@ function ShopRow({
             ↑
           </button>
           <button
-            className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+            className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30 max-sm:h-11 max-sm:w-11 max-sm:border max-sm:border-slate-200 max-sm:text-base"
             onClick={onDown}
             disabled={last}
             aria-label={`Move ${shop.name} down`}

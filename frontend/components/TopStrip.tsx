@@ -49,7 +49,7 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
           type="button"
           onClick={onMenu}
           aria-label="Open navigation"
-          className="-ml-1 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 lg:hidden"
+          className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 lg:hidden"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round" />

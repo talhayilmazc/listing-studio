@@ -98,7 +98,7 @@ export function AllowanceCell({
             setEditing(true);
           }}
           title="Change this seller's allowance"
-          className="rounded px-1 text-xs tabular-nums text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900"
+          className="tap rounded px-1 text-xs tabular-nums text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 max-sm:py-2 hover:text-slate-900"
         >
           {`${a.used.toLocaleString()} / ${a.amount.toLocaleString()}`}
         </button>

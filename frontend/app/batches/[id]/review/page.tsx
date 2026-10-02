@@ -275,7 +275,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
-          <Link href={`/batches/${id}`} className="text-sm text-slate-400 hover:text-slate-600">
+          <Link href={`/batches/${id}`} className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
             <span>← Batch <span>{id.slice(0, 8)}</span></span>
           </Link>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">

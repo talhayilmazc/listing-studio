@@ -45,9 +45,9 @@ export function ActionItem({ action, rank, days, currency }: { action: Action; r
           <span>{action.reason}</span>
         </p>
         <p className="mt-1 text-sm font-medium text-slate-900">{action.action}</p>
-        <p className="mt-1.5 flex flex-wrap gap-3 text-xs">
+        <p className="tap-row mt-1.5 flex flex-wrap gap-3 text-xs">
           {action.links.map((l) => (
-            <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">
+            <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="tap text-brand-700 hover:underline max-sm:py-1.5">
               <span><span>{l.label}</span> ↗</span>
             </a>
           ))}

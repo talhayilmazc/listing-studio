@@ -188,22 +188,24 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
 
   return (
     <li className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-      <span translate="no" className="w-28 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800">
+      {/* On a phone: the time and the status on one line, the listing on the next. */}
+      <span translate="no" className="w-28 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800 max-sm:order-1 max-sm:w-auto max-sm:font-medium">
         {formatTime(at, timeZone)}
       </span>
+      <span aria-hidden className="hidden max-sm:order-3 max-sm:block max-sm:h-0 max-sm:basis-full" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={api.assetImage(row.asset_id, 112)} alt="" className="h-10 w-10 shrink-0 rounded object-cover" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-slate-800" title={row.title ?? undefined}>
+      <img src={api.assetImage(row.asset_id, 112)} alt="" className="h-10 w-10 shrink-0 rounded object-cover max-sm:order-4" />
+      <span className="min-w-0 flex-1 max-sm:order-5">
+        <span className="block truncate text-sm text-slate-800 max-sm:line-clamp-2 max-sm:whitespace-normal" title={row.title ?? undefined}>
           {row.title ?? `Listing ${row.etsy_listing_id}`}
         </span>
         <span className="block text-xs text-slate-400">
           <ShopBadge name={row.shop_name ?? "Shop"} className="mr-1.5" />
-          <a href={row.listing_link} target="_blank" rel="noreferrer" className="hover:text-brand-700 hover:underline">
+          <a href={row.listing_link} target="_blank" rel="noreferrer" className="tap hover:text-brand-700 hover:underline">
             {row.status === "published" ? "View on Etsy ↗" : "Edit draft ↗"}
           </a>
           <span>{" · "}</span>
-          <Link href={`/batches/${row.batch_id}/review`} className="hover:text-brand-700 hover:underline">
+          <Link href={`/batches/${row.batch_id}/review`} className="tap hover:text-brand-700 hover:underline">
             review
           </Link>
         </span>
@@ -215,21 +217,21 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
         {row.note && row.status !== "waiting" && <span key="span-204-8" className="block text-xs text-amber-800">{row.note}</span>}
         {error && <span key="span-205-8" className="block text-xs text-rose-700">{error}</span>}
       </span>
-      <span translate="no" className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium " + (TONE[row.status] ?? TONE.scheduled)}>
+      <span translate="no" className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium max-sm:order-2 max-sm:ml-auto " + (TONE[row.status] ?? TONE.scheduled)}>
         {scheduleLabel(row.status)}
       </span>
       {changeable && !editing && (
-        <span key="span-210-6" className="flex shrink-0 gap-2 text-xs">
-          <button type="button" className="text-slate-500 underline hover:text-slate-900" onClick={() => setEditing(true)}>
+        <span key="span-210-6" className="flex shrink-0 gap-2 text-xs max-sm:order-6 max-sm:basis-full">
+          <button type="button" className="text-slate-500 underline hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:rounded-md max-sm:border max-sm:border-slate-300 max-sm:px-3 max-sm:text-slate-700 max-sm:no-underline" onClick={() => setEditing(true)}>
             change
           </button>
-          <button type="button" className="text-slate-500 underline hover:text-slate-900" onClick={cancel} disabled={busy}>
+          <button type="button" className="text-slate-500 underline hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:rounded-md max-sm:border max-sm:border-slate-300 max-sm:px-3 max-sm:text-slate-700 max-sm:no-underline" onClick={cancel} disabled={busy}>
             {busy ? "cancelling…" : "cancel"}
           </button>
         </span>
       )}
       {editing && (
-        <span key="span-220-6" className="flex w-full flex-wrap items-center gap-2 pl-[7.75rem] text-xs">
+        <span key="span-220-6" className="flex w-full flex-wrap items-center gap-2 pl-[7.75rem] text-xs max-sm:order-6 max-sm:pl-0">
           <input
             type="datetime-local"
             className="field w-auto py-1 text-xs"

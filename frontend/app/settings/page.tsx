@@ -102,7 +102,7 @@ export default function SettingsPage() {
       <section className="card p-5">
         <h2 className="text-sm font-semibold text-slate-800">Password</h2>
         <p className="mt-1 text-sm text-slate-500">
-          <Link href="/password" className="text-brand-700 underline">
+          <Link href="/password" className="tap text-brand-700 underline">
             Change your password
           </Link>
         </p>
