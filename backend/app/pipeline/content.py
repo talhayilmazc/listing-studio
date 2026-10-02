@@ -9,11 +9,13 @@ then reported as failed.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.compliance.trademarks import Blocklist, configured_blocklist, trademark_errors
+from app.pipeline import search_rules
 from app.pipeline.llm import LLMClient, LLMError, Usage
+from app.pipeline.search_rules import LEGACY_TITLE, TitleRules
 from app.pipeline.templates import PromptTemplate, load_template
 from app.pipeline.vision import VisionAnalysis
 
@@ -159,13 +161,20 @@ def _mentions(text: str, theme: str) -> bool:
 
 
 def theme_errors(
-    listing: GeneratedListing, themes: list[str], blocklist: Blocklist | None = None
+    listing: GeneratedListing,
+    themes: list[str],
+    blocklist: Blocklist | None = None,
+    *,
+    in_title: bool = True,
 ) -> list[str]:
     """A design with a second theme must carry it too (v7 §A1).
 
     The title names the second theme as well as the first, and the tags cover
     both. Only the two most dominant themes are required; a theme made only of
     generic words, or one on the trademark list, is not checked.
+
+    With ``in_title=False`` (Etsy's current guidance: a short title) the second
+    theme is carried by the tags and attributes, not by a longer title.
     """
     # A theme that is a trademark (the design shows a brand's character) can
     # never be named, so it is not asked for; the next theme takes its place.
@@ -175,12 +184,26 @@ def theme_errors(
         return []
     errors: list[str] = []
     primary, secondary = top
-    if not _mentions(listing.title, secondary):
+    if in_title and not _mentions(listing.title, secondary):
         errors.append(
             f"the design has a second theme, '{secondary}', and buyers search for it too: "
             f"keep '{primary}' first and name '{secondary}' in the title as well "
             f"(e.g. a phrase combining both)"
         )
+    if not in_title:
+        # Each part of the listing does its own work: a theme the title names is
+        # not asked for again in the tags (they must not repeat the title), and
+        # the second theme is carried by the tags or the attributes.
+        elsewhere = [*listing.tags, *listing.attributes.values()]
+        for theme in top:
+            if not _mentions(listing.title, theme) and not any(_mentions(t, theme) for t in elsewhere):
+                errors.append(
+                    f"the design's theme '{theme}' is nowhere in the listing: name it in a tag "
+                    "(and in the theme attribute if it fits)"
+                )
+        if not any(_mentions(listing.title, theme) for theme in top):
+            errors.append(f"the title must lead with the design's main theme, '{primary}'")
+        return errors
     for theme in top:
         if not any(_mentions(tag, theme) for tag in listing.tags):
             errors.append(f"add tags for the theme '{theme}': none of the tags names it")
@@ -240,11 +263,49 @@ CONTENT_SCHEMA: dict[str, Any] = {
 }
 
 
+#: The same, plus what Etsy's current guidance moves out of the title: the kind of
+#: search each tag serves, a design-specific opening for the description, and the
+#: category attributes the design supports.
+SEARCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "tags": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tag": {"type": "string"},
+                    "intent": {"type": "string", "enum": list(search_rules.INTENTS)},
+                },
+                "required": ["tag", "intent"],
+                "additionalProperties": False,
+            },
+        },
+        "opening": {"type": "string"},
+        "attributes": {
+            "type": "object",
+            "properties": {key: {"type": "string"} for key in search_rules.ATTRIBUTE_KEYS},
+            "required": list(search_rules.ATTRIBUTE_KEYS),
+            "additionalProperties": False,
+        },
+    },
+    "required": ["title", "tags", "opening", "attributes"],
+    "additionalProperties": False,
+}
+
+
 @dataclass
 class GeneratedListing:
     title: str
     tags: list[str]
     description: str
+    #: Search rules only: the design-specific sentences for the top of the
+    #: description (``description`` holds the same text), the kind of search each
+    #: tag serves, and the attribute values the design supports.
+    opening: str = ""
+    tag_intents: list[str] = field(default_factory=list)
+    attributes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -268,8 +329,12 @@ def validate_listing(
     policy: ContentPolicy | None = None,
     *,
     trademarks: Blocklist | None = None,
+    title_rules: TitleRules = LEGACY_TITLE,
 ) -> list[str]:
     """Return validation errors (empty if valid).
+
+    ``title_rules`` are the title's bounds; the search rules (``readable``) also
+    check the tags, the opening and the attributes against Etsy's guidance.
 
     Structural Etsy limits always apply; ``policy`` adds product-type rules
     (forbidden format words, required product-type wording) scoped to the profile.
@@ -282,16 +347,18 @@ def validate_listing(
     n = len(listing.title)
     if not title:
         errors.append("title is empty")
-    elif n < MIN_TITLE_LENGTH:
+    elif n < title_rules.min_length:
         errors.append(
-            f"{TITLE_TOO_SHORT} {MIN_TITLE_LENGTH} characters "
-            f"(yours was {n}); target {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH}"
+            f"{TITLE_TOO_SHORT} {title_rules.min_length} characters "
+            f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
         )
-    if n > MAX_TITLE_LENGTH:
+    if n > title_rules.max_length:
         errors.append(
-            f"title exceeds {MAX_TITLE_LENGTH} characters "
-            f"(yours was {n}); target {MIN_TITLE_LENGTH}-{MAX_TITLE_LENGTH}"
+            f"title exceeds {title_rules.max_length} characters "
+            f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
         )
+    if title:
+        errors.extend(search_rules.title_errors(title, title_rules))
 
     if len(listing.tags) != REQUIRED_TAG_COUNT:
         errors.append(f"expected exactly {REQUIRED_TAG_COUNT} tags, got {len(listing.tags)}")
@@ -311,16 +378,22 @@ def validate_listing(
             errors.append(f"duplicate tag: {tag!r}")
         seen.add(key)
 
-    if not listing.description.strip():
+    if title_rules.readable:
+        errors.extend(
+            search_rules.tag_errors(title, [t for t in listing.tags if t.strip()], listing.tag_intents or None)
+        )
+        errors.extend(search_rules.opening_errors(listing.opening, title))
+        errors.extend(search_rules.attribute_errors(listing.attributes))
+    elif not listing.description.strip():
         errors.append("description is empty")
 
     if policy is not None:
         errors.extend(_policy_errors(listing, policy))
 
     blocklist = configured_blocklist() if trademarks is None else trademarks
-    errors.extend(
-        trademark_errors(listing.title, list(listing.tags), listing.description, blocklist)
-    )
+    # Attribute values are searchable text too: a mark there is a mark in the listing.
+    searchable = " ".join([listing.description, *listing.attributes.values()])
+    errors.extend(trademark_errors(listing.title, list(listing.tags), searchable, blocklist))
 
     return errors
 
@@ -439,7 +512,12 @@ class AnthropicContentGenerator:
         policy: ContentPolicy | None = None,
         title_prefix: str = "",
         trademarks: Blocklist | None = None,
+        title_rules: TitleRules = LEGACY_TITLE,
     ) -> None:
+        #: The title's bounds; the search rules also change what is asked of the
+        #: model (tag intents, a description opening, attributes).
+        self._rules = title_rules
+        self._schema = SEARCH_SCHEMA if title_rules.readable else CONTENT_SCHEMA
         #: The account's trademark blocklist (v7 §A4); None = TRADEMARK_FILTER.
         self._trademarks = trademarks
         self._client = client
@@ -483,6 +561,9 @@ class AnthropicContentGenerator:
                 "humor": analysis.humor or "(none)",
                 "product_type_hints": ", ".join(analysis.product_type_hints),
                 "sku": sku or "(none)",
+                "title_min": str(self._rules.min_length),
+                "title_max": str(self._rules.max_length),
+                "title_words": str(self._rules.max_words or ""),
             }
         )
         blocks = [{"type": "text", "text": text}]
@@ -500,6 +581,22 @@ class AnthropicContentGenerator:
             # The prefix is prepended for us; the model writes only the remainder, to a
             # reduced budget so the FULL title still lands in MIN..MAX characters.
             used = len(self._title_prefix) + 1  # the space after it
+            if self._rules.readable:
+                blocks.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"The title will begin with '{self._title_prefix} ' automatically, "
+                            "joined to your first phrase with a space and no comma (e.g. "
+                            f"'{self._title_prefix} Funny Nurse Shirt, ...'). Write ONLY the "
+                            "phrases after that prefix, starting with the product phrase, and do "
+                            "not repeat the prefix or any of its words. The prefix counts toward "
+                            f"the limits: write at most {self._rules.max_length - used} characters "
+                            f"and {(self._rules.max_words or 14) - len(self._title_prefix.split())} words."
+                        ),
+                    }
+                )
+                return blocks
             blocks.append(
                 {
                     "type": "text",
@@ -530,7 +627,7 @@ class AnthropicContentGenerator:
         return self._client.build_params(
             system=self._template.system,
             content_blocks=self._content_blocks(analysis, sku),
-            schema=CONTENT_SCHEMA,
+            schema=self._schema,
             max_tokens=self._max_tokens,
         )
 
@@ -551,8 +648,10 @@ class AnthropicContentGenerator:
             "Your previous (rejected) output was:\n"
             f"- title ({len(previous.title)} chars): {previous.title}\n"
             f"- tags ({len(previous.tags)}): {', '.join(previous.tags)}\n"
-            f"- description: {previous.description}"
+            f"- {'opening' if self._rules.readable else 'description'}: {previous.description}"
         )
+        if previous.attributes:
+            text += "\n- attributes: " + ", ".join(f"{k}={v}" for k, v in previous.attributes.items())
         return {"type": "text", "text": text}
 
     async def _generate_once(
@@ -571,7 +670,7 @@ class AnthropicContentGenerator:
         result = await self._client.complete_json(
             system=self._template.system,
             content_blocks=blocks,
-            schema=CONTENT_SCHEMA,
+            schema=self._schema,
             max_tokens=self._max_tokens,
         )
         return _to_listing(result.data), result.usage
@@ -592,11 +691,22 @@ class AnthropicContentGenerator:
             usages.append(usage)
             listing = self._apply_prefix(listing)  # prepend the profile's title prefix
             # One character over is not a reason to throw the listing away (v7 §A3).
-            listing.title = fit_title(listing.title)
-            errors = validate_listing(listing, self._policy, trademarks=self._trademarks)
+            listing.title = fit_title(listing.title, self._rules.min_length, self._rules.max_length)
+            if self._rules.readable:
+                # More tags are asked for than Etsy takes; the usable first 13 are kept.
+                listing.tags, listing.tag_intents = search_rules.select_tags(
+                    listing.title, listing.tags, listing.tag_intents, REQUIRED_TAG_COUNT, MAX_TAG_LENGTH
+                )
+            errors = validate_listing(
+                listing, self._policy, trademarks=self._trademarks, title_rules=self._rules
+            )
             if self._policy is not None and self._policy.describe_not_transcribe:
                 errors.extend(copied_text_errors(listing.title, analysis.embedded_text))
-                errors.extend(theme_errors(listing, analysis.themes, self._trademarks))
+                errors.extend(
+                    theme_errors(
+                        listing, analysis.themes, self._trademarks, in_title=not self._rules.readable
+                    )
+                )
             if pattern and pattern.get("title"):
                 errors.extend(example_errors(listing.title, str(pattern["title"])))
             if not errors:
@@ -608,6 +718,17 @@ class AnthropicContentGenerator:
 
 def _to_listing(data: dict[str, Any]) -> GeneratedListing:
     try:
+        if "opening" in data:  # the search rules' shape
+            tags = [t for t in data["tags"] if isinstance(t, dict)]
+            opening = str(data["opening"]).strip()
+            return GeneratedListing(
+                title=str(data["title"]),
+                tags=[str(t["tag"]) for t in tags],
+                description=opening,
+                opening=opening,
+                tag_intents=[str(t.get("intent", "")) for t in tags],
+                attributes=search_rules.clean_attributes(data.get("attributes")),
+            )
         return GeneratedListing(
             title=str(data["title"]),
             tags=[str(t) for t in data["tags"]],

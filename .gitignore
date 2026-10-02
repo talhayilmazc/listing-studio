@@ -32,3 +32,6 @@ frontend/tsconfig.tsbuildinfo
 
 # Production logs and exports used for diagnosis: may hold shop and listing details
 docs/samples/
+
+# Evaluation sets and results: the seller's own design text
+backend/evals/data/

@@ -217,6 +217,25 @@ def replace_title_block(description: str, title: str) -> str:
     return "\n".join([title, *lines[blank:]])
 
 
+def with_opening(description: str, opening: str) -> str:
+    """The design-specific ``opening`` above the reference description's body.
+
+    Etsy matches on the first sentences of a description, so they describe this
+    design; the reference's own title block (everything before its first blank
+    line) is dropped, as it described the reference listing, and everything from
+    that blank line on (sizes, care, shipping, returns) is kept verbatim. A
+    reference with no blank line is all body: nothing of it is dropped.
+    """
+    opening = opening.strip()
+    lines = description.split("\n")
+    blank = next((i for i, line in enumerate(lines) if line.strip() == ""), None)
+    if not description.strip():
+        return opening
+    if blank is None:
+        return "\n".join([opening, "", *lines])
+    return "\n".join([opening, *lines[blank:]])
+
+
 def _offering_price(offering: dict[str, Any]) -> float | None:
     """A read-back offering's price as a writable float, or ``None`` if it has none.
 
