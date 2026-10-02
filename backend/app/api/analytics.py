@@ -493,9 +493,11 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
         i = info[p.reference_listing_id]
         i.profile_id, i.profile_name = str(p.id), p.name
     for listing_id, profile_id, sku in (await session.execute(
-        select(ListingPublication.etsy_listing_id, ListingPublication.profile_id, Asset.parsed_sku)
-        .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
-        .join(Asset, Asset.id == GeneratedContent.asset_id)
+        # The publication's own SKU: its batch (and so its asset) may be deleted.
+        select(ListingPublication.etsy_listing_id, ListingPublication.profile_id,
+               func.coalesce(ListingPublication.sku, Asset.parsed_sku))
+        .outerjoin(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
+        .outerjoin(Asset, Asset.id == GeneratedContent.asset_id)
         .where(ListingPublication.connection_id == connection.id)
     )).all():
         i = info[listing_id]

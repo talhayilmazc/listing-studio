@@ -37,7 +37,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.compliance.trademarks import blocklist_for_tenant
-from app.core import allowance
+from app.core import allowance, audit
 from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
 from app.etsy.shops import active_shops, owned_shop
@@ -773,12 +773,22 @@ async def _delete_batch(
     session: AsyncSession, storage: Storage, tenant: Tenant, batch: UploadBatch, result: schemas.BatchDeleteResult
 ) -> None:
     """Delete one batch: its uploads, their derivatives and previews, its generated
-    content and settings. Drafts and live listings on Etsy made from it are not
-    touched (only our link to them goes); queued work for it is cancelled."""
+    content and settings. Queued work for it is cancelled.
+
+    What it does not delete: the drafts and live listings on Etsy, and the
+    record that they were created and published (``listing_publication``, job
+    history). Those records are detached from the content and kept; a schedule
+    still waiting on one of them is cancelled with the batch, since there is no
+    longer anything to review it against."""
     content_ids = select(GeneratedContent.id).where(GeneratedContent.batch_id == batch.id)
-    on_etsy = await session.scalar(
-        select(func.count()).select_from(ListingPublication).where(ListingPublication.content_id.in_(content_ids))
+    kept = list(
+        (await session.execute(select(ListingPublication).where(ListingPublication.content_id.in_(content_ids)))).scalars()
     )
+    on_etsy = len(kept)
+    for publication in kept:
+        if publication.scheduled_for is not None and publication.state != "active":
+            publication.scheduled_for, publication.schedule_job_id = None, None
+            publication.schedule_note = "cancelled: its batch was deleted"
     files = await session.scalar(select(func.count()).select_from(Asset).where(Asset.batch_id == batch.id))
     queued = (
         await session.execute(
@@ -794,7 +804,10 @@ async def _delete_batch(
         job.status = JobStatus.cancelled
         job.finished_at = now
         job.last_error = "cancelled: the batch was deleted"
-    await session.delete(batch)  # assets, content, group settings and drafts' links cascade
+    audit.record(session, "batch.deleted", actor=tenant, target_tenant_id=tenant.id, batch_id=str(batch.id),
+                 files=int(files or 0), publications_kept=on_etsy, jobs_cancelled=len(queued))
+    # Assets, content and group settings cascade; publications are detached (content_id -> NULL).
+    await session.delete(batch)
     await session.flush()
     storage.delete_prefix(f"{tenant.id}/{batch.id}")
     result.deleted += 1

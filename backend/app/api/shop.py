@@ -359,7 +359,8 @@ async def replace_listing_images_endpoint(
         )
     ).scalars().first()
     if made is not None:
-        payload["content_id"] = str(made.content_id)
+        if made.content_id is not None:  # the content is gone once its batch is deleted
+            payload["content_id"] = str(made.content_id)
         profile = await session.get(ListingProfile, made.profile_id) if made.profile_id else None
         if profile is not None and profile.title_prefix:
             payload["title_prefix"] = profile.title_prefix

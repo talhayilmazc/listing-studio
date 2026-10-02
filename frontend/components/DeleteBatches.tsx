@@ -63,6 +63,10 @@ export function DeleteBatches({
           ? `${plural(summary.onEtsy, "listing", "listings")} made from ${summary.batches === 1 ? "it" : "them"} ${summary.onEtsy === 1 ? "is" : "are"} on Etsy as a draft or live, and stay${summary.onEtsy === 1 ? "s" : ""} exactly as ${summary.onEtsy === 1 ? "it is" : "they are"}; manage ${summary.onEtsy === 1 ? "it" : "them"} in Shop Manager. Scheduled go-lives from ${summary.batches === 1 ? "it" : "them"} are cancelled.`
           : "Drafts and live listings are only ever changed on Etsy by you."}</span></span>
       </p>
+      <p className="text-xs text-slate-500">
+        The record of what was created and published from it is kept, so your published counts and history don&apos;t
+        change. A draft still waiting on a schedule has that schedule cancelled.
+      </p>
       {error && <p key="p-66-6" className="text-xs text-rose-700">{error}</p>}
       <div className="flex gap-2">
         <button

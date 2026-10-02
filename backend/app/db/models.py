@@ -587,6 +587,14 @@ class ListingPublication(Base):
     Publishing the same content to N shops makes N drafts (docs/duzeltmeler-v5.md
     §E), each with its own row. Deleted when that shop is disconnected; the
     generated content itself is the seller's work and stays.
+
+    **This row is the record that a listing was created and published, and it
+    outlives the batch.** Deleting a batch removes the uploads and the working
+    content; the publication is detached from the content (``content_id``
+    becomes NULL), not deleted. It used to cascade, so a seller tidying up
+    finished batches erased every trace that anything had been published.
+    What the record needs once the content is gone is kept on the row itself:
+    the title and SKU the draft was made with, and when it went live.
     """
 
     __tablename__ = "listing_publication"
@@ -599,12 +607,19 @@ class ListingPublication(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
     )
-    content_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("generated_content.id", ondelete="CASCADE"), nullable=False
+    #: The content the draft was made from; NULL once its batch has been deleted.
+    content_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_content.id", ondelete="SET NULL")
     )
     connection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    #: The seller's own title and SKU as sent to Etsy (not read back from Etsy),
+    #: so the record still says what it was after the content is gone.
+    title: Mapped[str | None] = mapped_column(Text)
+    sku: Mapped[str | None] = mapped_column(Text)
+    #: When the seller published it (it went from draft to active through the app).
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: The profile of *that* shop the draft was built from.
     profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("listing_profile.id", ondelete="SET NULL")

@@ -601,6 +601,8 @@ async def publish_content(
             profile_id=profile_id,
             etsy_listing_id=listing_id,
             state="draft",
+            title=listing["title"],
+            sku=sku,
             manual_done={},  # a new draft: nothing has been set by hand on it yet
         )
     )
@@ -705,6 +707,7 @@ async def publish_live(
             ) from exc
         raise
     publication.state = "active"
+    publication.published_at = _now()
     await session.commit()
 
     return PublishResult(

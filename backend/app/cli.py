@@ -25,7 +25,9 @@ import argparse
 import asyncio
 import getpass
 import sys
+import uuid
 from collections.abc import Callable
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -33,7 +35,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.core import audit
 from app.core.config import get_settings
 from app.core.passwords import WeakPassword, hash_password, validate_strength
-from app.db.models import Tenant, TenantStatus
+from app.db.models import Job, JobStatus, ListingPublication, ListingSnapshot, Tenant, TenantStatus
 
 EMAIL_RE = None  # set lazily: importing the API module pulls in the web stack
 
@@ -191,6 +193,60 @@ async def sales_report(sm: async_sessionmaker, email: str) -> str:
     return "\n".join(lines)
 
 
+async def rebuild_publications(sm: async_sessionmaker, *, apply: bool) -> str:
+    """Put back publication records that batch deletion removed.
+
+    Until migration 0036 deleting a batch deleted its publication rows. Two
+    things it did not delete say what they were: the snapshot taken when each
+    draft was created (the Etsy listing id, the title that was sent; kept 90
+    days) and the job rows (which shop, and whether a publish-live for that
+    listing succeeded and when). From those, each missing record is rebuilt
+    without its content. Nothing is read from Etsy.
+
+    What cannot be rebuilt: drafts created more than 90 days ago (their
+    snapshots are gone), and the SKU. A listing published by hand in Shop
+    Manager rather than through the app is rebuilt as a draft.
+    """
+    made = 0
+    seen = 0
+    async with sm() as session:
+        known = {
+            (c, l) for c, l in (await session.execute(
+                select(ListingPublication.connection_id, ListingPublication.etsy_listing_id))).all()
+        }
+        live: dict[tuple[uuid.UUID, int], datetime] = {}
+        rows = (await session.execute(
+            select(ListingSnapshot, Job).join(Job, Job.id == ListingSnapshot.job_id).order_by(ListingSnapshot.taken_at)
+        )).all()
+        for snapshot, job in rows:
+            if (snapshot.payload or {}).get("operation") == "publish_live" and job.status is JobStatus.succeeded:
+                live[(job.connection_id, snapshot.listing_id)] = job.finished_at or snapshot.taken_at
+        for snapshot, job in rows:
+            payload = snapshot.payload or {}
+            if payload.get("operation") != "create_draft":
+                continue
+            seen += 1
+            key = (job.connection_id, snapshot.listing_id)
+            if key in known:
+                continue
+            known.add(key)
+            went_live = live.get(key)
+            made += 1
+            if apply:
+                session.add(ListingPublication(
+                    tenant_id=snapshot.tenant_id, content_id=None, connection_id=job.connection_id,
+                    etsy_listing_id=snapshot.listing_id, state="active" if went_live else "draft",
+                    title=(payload.get("submitted") or {}).get("title"), published_at=went_live,
+                    created_at=snapshot.taken_at, manual_done={},
+                ))
+        if apply:
+            audit.record(session, "publications.rebuilt", actor=None, rebuilt=made)
+            await session.commit()
+    verb = "rebuilt" if apply else "would rebuild"
+    return (f"{seen} draft snapshots found; {verb} {made} missing publication record(s)."
+            + ("" if apply else " Run again with --apply to write them."))
+
+
 async def list_admins(sm: async_sessionmaker) -> list[str]:
     async with sm() as session:
         rows = (
@@ -212,6 +268,11 @@ def main(argv: list[str] | None = None) -> int:
     demote = sub.add_parser("demote-admin", help="withdraw the admin role (never the last one)")
     demote.add_argument("email")
     sub.add_parser("list-admins", help="list admin accounts")
+    rebuild = sub.add_parser(
+        "rebuild-publications",
+        help="restore publication records lost to batch deletion, from the draft snapshots (last 90 days)",
+    )
+    rebuild.add_argument("--apply", action="store_true", help="write the records (default: only count them)")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     args = parser.parse_args(argv)
@@ -226,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(demote_admin(sm, args.email)))
     elif args.command == "sales-report":
         print(asyncio.run(sales_report(sm, args.email)))
+    elif args.command == "rebuild-publications":
+        print(asyncio.run(rebuild_publications(sm, apply=args.apply)))
     else:
         admins = asyncio.run(list_admins(sm))
         print("\n".join(admins) if admins else "no admins yet")
