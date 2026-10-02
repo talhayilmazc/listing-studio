@@ -13,27 +13,27 @@ import { Mockup } from "./Mockup";
 const STAGES = [
   {
     key: "upload",
-    title: "Upload a folder",
-    body: "Drop the folder your mockups are already in. Files are grouped into listings by the SKU in their names, resized, and put in order, with the first image as the cover.",
-    points: ["One folder group becomes one listing", "Your originals are kept; Etsy gets a sized copy", "Reorder images or change the cover before anything is written"],
+    title: "Drop your folder",
+    body: "Drop in the folder your mockups are already in. Each design's images stay together as one listing. Listyro resizes them, puts them in order and picks the cover.",
+    points: ["Front, back and close-up shots stay together", "The SKU is read from your file names", "Change the order or the cover if you like"],
   },
   {
     key: "generate",
-    title: "Generate from your own listing",
-    body: "Pick a profile: one of your existing listings that the new ones should be built like. Its category, variations, prices, size charts, shipping and section are copied. The title, tags and description are written from the design itself.",
-    points: ["Each shop keeps its own profiles", "A brand or character name in the text is refused before it reaches you", "Written to be optimised for search matching, not a promise of ranking"],
+    title: "Listyro fills in everything",
+    body: "Choose one of your existing listings as the model. Every new listing copies its category, prices, variations, size charts, shipping and section, and gets its own title, 13 tags and description written from the design.",
+    points: ["Each shop uses its own model listings", "Written to match what shoppers search for; no ranking promises", "Brand and character names are kept out"],
   },
   {
     key: "review",
-    title: "Review every listing",
-    body: "Each listing is a card you can read and edit: title, all 13 tags, description, images. Anything the compliance check found is on the card, with the reason. You approve the ones that are right.",
-    points: ["Edit anything; the limits are checked as you type", "Flagged designs say why", "Approval is per listing, never for a whole batch unseen"],
+    title: "Take a quick look",
+    body: "Every listing arrives complete and easy to read. Change anything you want, or approve it as it is with one click. Anything that might be a problem is flagged, with the reason.",
+    points: ["Edit any title, tag or photo", "Flags tell you exactly what to check", "Approve one listing or a whole set you have read"],
   },
   {
     key: "publish",
-    title: "Publish when you say so",
-    body: "Approved listings are created in your shop as drafts. A draft goes live only when you press Publish now or give that draft a time. There is no setting that publishes for you.",
-    points: ["Send one listing to several of your shops, each with its own profile", "Schedules run in your time zone", "A failed step says what Etsy said, and resumes without a second draft"],
+    title: "Go live now or on a schedule",
+    body: "Approved listings go to your shop. Publish with one click, or pick a time and they go live then, in your own time zone. Send the same design to several of your shops at once.",
+    points: ["Line up a whole drop for the week", "Each shop gets its own settings", "If Etsy turns something down, you see why and retry in one click"],
   },
 ] as const;
 

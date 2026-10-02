@@ -3,7 +3,7 @@ import { InviteForm } from "@/components/marketing/InviteForm";
 
 export const metadata: Metadata = {
   title: "Request an invite",
-  description: "Listyro is invite-only and free during its beta. Tell us about your shop and we will send you an invite.",
+  description: "Listyro is in a small, invite-only beta. Tell us about your shop and we will send you an invite.",
   alternates: { canonical: "/request-invite" },
 };
 
@@ -16,12 +16,12 @@ export default function RequestInvite() {
           Request an invite.
         </h1>
         <p className="mt-5 max-w-[32rem] text-[1.0625rem] leading-relaxed text-slate-600">
-          The beta is small on purpose, so each shop gets real attention. It is free, there is no card to enter, and
-          you can leave whenever you like.
+          The beta is small on purpose, so each shop gets real attention. Tell us a little about yours, and you can
+          leave whenever you like.
         </p>
         <ul className="mt-8 max-w-[32rem] space-y-3 text-[0.9375rem] text-slate-600">
           {[
-            "Best for print-on-demand and apparel sellers adding new designs every week",
+            "Made for print-on-demand and apparel sellers who add new designs often",
             "You need an Etsy shop you own, with at least one listing set up the way you like",
             "We read every request ourselves and reply by email",
           ].map((t) => (

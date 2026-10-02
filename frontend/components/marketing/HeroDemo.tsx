@@ -33,12 +33,12 @@ const DONE = STEPS.length;
 
 const CAPTION = [
   "summer-drop/ · 6 designs, 15 mockups",
-  "Grouping files by SKU",
-  "Reading each design",
+  "Sorting the mockups into listings",
+  "Looking at each design",
   "Writing titles, tags and descriptions",
-  "Drafts ready for your review",
-  "You approve what is right",
-  "Nothing goes live until you approve or schedule it",
+  "Category, prices and size charts filled in",
+  "Approved with one click",
+  "Ready to go live, now or on schedule",
 ];
 
 export function HeroDemo() {

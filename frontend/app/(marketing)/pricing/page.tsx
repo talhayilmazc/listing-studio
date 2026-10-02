@@ -3,12 +3,12 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Listyro is free during its beta. Paid plans start only after the beta ends, and nothing is charged until then.",
+  description: "Listyro is free during beta. Plans for after the beta will be announced before it ends.",
   alternates: { canonical: "/pricing" },
 };
 
-// No prices are shown for the planned plans because none are set; nothing is
-// charged, and there is no payment flow, until the beta ends.
+// No prices are shown for the planned plans because none are set, and the
+// site has no sign-up flow for plans until the beta ends.
 const PLANNED: { name: string; for: string; points: string[] }[] = [
   {
     name: "Solo",
@@ -33,11 +33,11 @@ export default function Pricing() {
       <div className="max-w-[46rem]">
         <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Pricing</p>
         <h1 className="mt-3 font-display text-[clamp(2.6rem,6vw,4.25rem)] leading-[1.02] text-slate-900">
-          Free during the beta.
+          Free during beta.
         </h1>
         <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600">
-          Everything is included while Listyro is in beta, and there is nothing to pay or enter. Paid plans start only
-          after the beta, and every beta seller will be told well before.
+          Everything is included while Listyro is in beta. Plans for after the beta will be announced well before
+          it ends, and every beta seller will hear first.
         </p>
       </div>
 
@@ -48,7 +48,7 @@ export default function Pricing() {
             <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">Now</span>
           </p>
           <p className="mt-4 font-display text-5xl leading-none text-slate-900">Free</p>
-          <p className="mt-2 text-sm text-slate-500">Invite-only. No card, no payment.</p>
+          <p className="mt-2 text-sm text-slate-500">Invite-only.</p>
           <ul className="mt-6 space-y-2 text-sm text-slate-600">
             {["Every feature", "Up to eight shops", "A monthly allowance of listings, set per seller", "Help from the people who build it"].map((p) => (
               <li key={p} className="flex gap-2.5">
@@ -81,18 +81,18 @@ export default function Pricing() {
 
       <div className="mt-16 grid grid-cols-1 gap-10 border-t border-slate-200 pt-12 md:grid-cols-2 md:gap-16">
         <div className="min-w-0">
-          <h2 className="font-display text-3xl text-slate-900">What a plan will pay for</h2>
+          <h2 className="font-display text-3xl text-slate-900">What the plans will cover</h2>
           <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">
-            The work Listyro does itself: reading each design, writing the text, preparing the images, checking for
-            trademark and policy problems, and the review, scheduling and analytics workflow. Connecting your shop and
-            the Etsy features you already have are not something we charge for.
+            The work Listyro does for you: writing each listing from its design, preparing the photos, checking for
+            trademark problems, and the approval, scheduling and profit tools. Connecting your shop is not part of any
+            plan.
           </p>
         </div>
         <div className="min-w-0">
-          <h2 className="font-display text-3xl text-slate-900">What it will not change</h2>
+          <h2 className="font-display text-3xl text-slate-900">What stays the same</h2>
           <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">
-            Etsy&rsquo;s own listing, transaction and advertising fees are between you and Etsy, exactly as they are
-            now. Listyro never charges them, never pays them, and never takes payments from buyers.
+            Your shop, your listings and your Etsy fees stay between you and Etsy, exactly as they are now. Listyro
+            never touches checkout or your buyers.
           </p>
         </div>
       </div>

@@ -18,36 +18,36 @@ export function SectionTitle({ children, id }: { children: React.ReactNode; id?:
 
 const FEATURES: { title: string; body: string }[] = [
   {
-    title: "Profiles built from your own listings",
-    body: "Choose a listing you already sell as the model for a product. New drafts copy its category and attributes, variations and prices, shipping and processing, personalization question, size-chart images and shop section.",
-  },
-  {
-    title: "Images handled",
-    body: "Folders become listings by SKU. Images are resized, ordered and given a cover you can crop; a profile's size charts are added to every draft.",
-  },
-  {
     title: "Titles, tags and descriptions",
-    body: "Written from what the design shows and who it is for: 13 distinct tags, a title in your shop's prefix and length, and your own description below. Choose your current style or one that follows Etsy's search guidance.",
+    body: "Written for you from each design: what it shows and who it's for. All 13 tags, every time, worded the way shoppers search.",
   },
   {
-    title: "Compliance checks before you see it",
-    body: "Brand and character names are refused in the text, character artwork is flagged, file words are kept off physical items. Each finding says why.",
+    title: "Category, prices and variations",
+    body: "Copied from a listing you already sell, so every new listing matches your shop without you typing a thing.",
   },
   {
-    title: "Several shops, one place",
-    body: "Each shop has its own profiles. Send a listing to more than one of your shops, choosing listing by shop in one grid; every draft and figure names its shop.",
+    title: "Size charts and photos",
+    body: "Your size chart is added to every listing. Mockups are resized and put in order, cover first.",
   },
   {
-    title: "Scheduling in your time zone",
-    body: "Approve a draft and give it a time. It goes live then, in your own time zone, with the requests it needs kept aside for it.",
+    title: "Shop sections",
+    body: "Each listing is put into a matching section of your shop, so new designs land where they belong.",
   },
   {
-    title: "Profit you can trace",
-    body: "Sales totals from your shop, Etsy's fees and ad spend from your payment account, and your own costs. Every figure says where it came from, and estimates say they are estimates.",
+    title: "All your shops",
+    body: "Connect up to eight shops and send the same design to several at once, each with that shop's own settings.",
   },
   {
-    title: "Your Etsy request budget, visible",
-    body: "Etsy limits how often any app may call it. You always see what today's work used and what is left, and long reads spread themselves over days.",
+    title: "Scheduling",
+    body: "Line up a whole drop and let it go live at the times you choose, in your own time zone.",
+  },
+  {
+    title: "Trademark checks",
+    body: "Brand and character names are kept out of your listings, and designs that may show one are flagged for you.",
+  },
+  {
+    title: "Profit per listing",
+    body: "See what each listing really earns after Etsy's fees, your ad spend and your own costs.",
   },
 ];
 
@@ -57,10 +57,11 @@ export function Features() {
       <div className="mx-auto w-full max-w-[1240px] px-4 py-20 sm:px-6 lg:py-28">
         <div className="max-w-[44rem]">
           <Eyebrow>Features</Eyebrow>
-          <SectionTitle id="features-title">The listing form, done the way you already do it.</SectionTitle>
+          <SectionTitle id="features-title">Every part of the listing, filled in for you.</SectionTitle>
           <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600">
-            The written text is one part. Most of the time a listing takes goes into the parts that have to match your
-            shop exactly, and those are copied from listings you set up yourself.
+            The slow part of a big catalog isn&rsquo;t the design. It&rsquo;s filling in the same listing form again and
+            again. Listyro fills in every field from what you have already set up, so a new drop is a quick read-through
+            instead of an evening of typing.
           </p>
         </div>
 
@@ -87,25 +88,25 @@ export function Features() {
           <div className="min-w-0">
             <BrowserFrame {...SCREENS.batch} sizes="(min-width: 1024px) 580px, 100vw" />
             <p className="mt-3 text-sm text-slate-600">
-              <span className="font-medium text-slate-900">Choose the shop first.</span>{" "}
-              <span>Each group of images gets one of that shop&rsquo;s profiles; the choice carries to the next groups.</span>
+              <span className="font-medium text-slate-900">Set it once for the whole drop.</span>{" "}
+              <span>Pick the shop and the model listing, and every design in the folder follows. Change any one with a tap.</span>
             </p>
           </div>
           <div className="min-w-0">
             <BrowserFrame {...SCREENS.analytics} sizes="(min-width: 1024px) 580px, 100vw" />
             <p className="mt-3 text-sm text-slate-600">
-              <span className="font-medium text-slate-900">Profit per listing.</span>{" "}
-              <span>Sales, Etsy fees and ad spend from your own shop, and your costs, each labelled with its source.</span>
+              <span className="font-medium text-slate-900">Know what each listing earns.</span>{" "}
+              <span>Sales, Etsy fees, ad spend and your own costs, side by side for every listing.</span>
             </p>
           </div>
         </div>
 
         <div className="mt-20 grid grid-cols-1 items-center gap-10 rounded-3xl bg-stone-50 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,19rem)] lg:gap-16 lg:p-14">
           <div className="min-w-0">
-            <h3 className="font-display text-3xl leading-tight text-slate-900 sm:text-4xl">Review from your phone.</h3>
+            <h3 className="font-display text-3xl leading-tight text-slate-900 sm:text-4xl">Approve from anywhere.</h3>
             <p className="mt-4 max-w-[34rem] text-[1.0625rem] leading-relaxed text-slate-600">
-              Every screen works at phone width: read a listing, fix a tag, reorder images with a tap, approve, and
-              schedule it for tonight. No hover-only controls, nothing that needs dragging.
+              Everything works on your phone. Read a listing, fix a tag, swap the cover photo, then approve it or
+              set it to go live tonight.
             </p>
           </div>
           <PhoneFrame {...SCREENS.phone} sizes="19rem" />
@@ -117,8 +118,8 @@ export function Features() {
 
 const DATA: { title: string; body: React.ReactNode }[] = [
   {
-    title: "Drafts first, always",
-    body: "Every listing is created in your shop as a draft. It goes live only when you press Publish now, or at a time you set for that one draft. There is no setting that publishes for you.",
+    title: "You stay in control",
+    body: "Every listing waits for your one-click approval, or a time you pick, before it goes live. Nothing is ever published on its own.",
   },
   {
     title: "Only your own shops",
@@ -140,7 +141,7 @@ const DATA: { title: string; body: React.ReactNode }[] = [
   },
   {
     title: "Kept only as long as allowed",
-    body: "Listing data from Etsy is kept for six hours at most and other Etsy data for a day, then fetched again when needed. Sales and fee totals are kept 13 months for season comparisons.",
+    body: "Listing data from Etsy is kept for six hours at most and other Etsy data for a day, then fetched again when needed. Sales and fee totals are kept 13 months so you can compare seasons.",
   },
   {
     title: "Leave whenever you like",
@@ -159,7 +160,7 @@ export function YourData() {
               Your shop stays yours.
             </h2>
             <p className="mt-5 text-[1.0625rem] leading-relaxed text-stone-300">
-              An app that can create listings in your shop has to earn that. These are the rules it works by, and the{" "}
+              An app that adds listings to your shop has to earn your trust. Here is how Listyro treats your shop and your designs. The{" "}
               <Link href="/privacy" className="font-medium text-white underline decoration-violet-300/60 underline-offset-4 hover:decoration-white">
                 Privacy Policy
               </Link>{" "}
@@ -182,42 +183,46 @@ export function YourData() {
 
 export const QUESTIONS: { q: string; a: React.ReactNode }[] = [
   {
+    q: "What does Listyro do?",
+    a: "You drop in a folder of mockups. Listyro turns each design into a complete listing: title, 13 tags, description, category, prices, variations, size chart and shop section, in each shop you choose. You look them over and they're ready to go live.",
+  },
+  {
+    q: "Will anything go live without me?",
+    a: "No. Every listing waits for your one-click approval, or for a time you pick, before it goes live.",
+  },
+  {
+    q: "Who is it for?",
+    a: "Print-on-demand and apparel sellers with lots of their own designs, who add new ones often and want every listing to match the ones they already sell.",
+  },
+  {
+    q: "What do I need to start?",
+    a: "An Etsy shop you own, with at least one listing set up the way you like. Listyro uses it as the model for new ones.",
+  },
+  {
     q: "Is Listyro made by Etsy?",
     a: "No. Listyro is an independent product that uses the Etsy API. It is not endorsed or certified by Etsy, Inc.",
   },
   {
-    q: "Will anything go live without me?",
-    a: "No. Listings are created as drafts. A draft goes live only when you publish it, or at a time you set for that specific draft.",
-  },
-  {
-    q: "Who is it for?",
-    a: "Print-on-demand and apparel sellers with large catalogs of their own designs, who add new designs often and want every listing to match the ones they already sell. There is also a profile type for digital products.",
-  },
-  {
-    q: "What do I need before I start?",
-    a: "An Etsy shop you own, with at least one listing set up the way you want new ones to be. That listing becomes the profile new drafts are built from.",
-  },
-  {
     q: "Will my listings rank higher?",
-    a: "Nobody outside Etsy can promise that, and we do not. Listings are optimised for search matching: the words a buyer would type, spread across the title, tags, description and attributes the way Etsy's own guidance describes.",
+    a: "Nobody outside Etsy can promise that, and we don't. Listings are written to match what shoppers search for, following Etsy's own advice for titles, tags and descriptions.",
   },
   {
     q: "Can I list designs with characters or brands?",
-    a: "Brand and character names are refused in the text, and artwork showing recognisable characters is flagged before you publish. You are responsible for having the rights to what you sell.",
+    a: "Brand and character names are kept out of the text, and designs that may show a character are flagged for you. You are responsible for having the rights to what you sell.",
   },
   {
     q: "How many shops can I connect?",
-    a: "Up to eight per account during the beta. Each shop is connected separately, by signing in to Etsy as its owner.",
+    a: "Up to eight. Each one is connected by signing in to Etsy as its owner.",
   },
   {
-    q: "What happens when Etsy refuses a draft?",
-    a: "You see the step that failed and Etsy's own reason on the listing's card, and one click tries again. A retry carries on where it stopped; it never makes a second draft.",
+    q: "What if Etsy turns a listing down?",
+    a: "You see Etsy's reason on the listing, fix it if needed, and try again with one click. A retry never creates a duplicate.",
   },
   {
-    q: "What does it cost?",
+    q: "Is it free?",
     a: (
       <>
-        Nothing during the beta. Paid plans will start only after it, and you will be told well before.{" "}
+        Yes, during the beta.{" "}
         <Link href="/pricing" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
           See pricing
         </Link>
@@ -237,7 +242,7 @@ export function Faq() {
       <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-20 lg:py-28">
         <div className="min-w-0">
           <Eyebrow>Questions</Eyebrow>
-          <SectionTitle id="faq-title">Asked before signing up.</SectionTitle>
+          <SectionTitle id="faq-title">Common questions.</SectionTitle>
           <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600">
             <span>Something else? </span>
             <Link href="/contact" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
@@ -269,10 +274,10 @@ export function Closing() {
     <section className="border-t border-slate-200">
       <div className="mx-auto w-full max-w-[1240px] px-4 py-20 text-center sm:px-6 lg:py-28">
         <h2 className="mx-auto max-w-[40rem] font-display text-[clamp(2.4rem,5vw,4rem)] leading-[1.02] text-slate-900">
-          Your next drop, <em className="text-brand-600">ready</em> for review.
+          Spend your time on designs, <em className="text-brand-600">not listing forms.</em>
         </h2>
         <p className="mx-auto mt-5 max-w-[34rem] text-[1.0625rem] leading-relaxed text-slate-600">
-          The beta is free and small on purpose. Tell us about your shop and we will send you an invite.
+          Listyro is in a small beta. Tell us about your shop and we&rsquo;ll send you an invite.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link href="/request-invite" className="btn-primary px-5 py-3 text-[0.9375rem]">Request an invite</Link>

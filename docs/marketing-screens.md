@@ -35,5 +35,5 @@ design or figure appears in them, and they must stay that way.
    its uploads (`demo-shots/` in storage) and its Redis session. Nothing about
    it may be left in a database that holds real sellers.
 
-The Open Graph image (`frontend/public/og.png`, 1200×630) is drawn the same
+The Open Graph image (`frontend/public/og-v2.png`, 1200×630) is drawn the same
 way, from the same sample designs.

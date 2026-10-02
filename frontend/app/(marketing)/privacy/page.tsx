@@ -110,9 +110,6 @@ export default function PrivacyPage() {
 
       <Section id="not-collect" n={3} title="What we do not collect">
         <Items>
-          <li>
-            Payment details — the Service is free and takes no payments.
-          </li>
           <li>Anything about your buyers, your orders, or your Etsy messages.</li>
           <li>
             Any data about other Etsy sellers — their listings, tags, images or prices — in any
