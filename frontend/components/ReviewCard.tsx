@@ -19,13 +19,20 @@ import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
 import { useSession } from "./SessionProvider";
-const MIN_TITLE = 110;
-const MAX_TITLE = 140;
+// The classic bounds; a listing carries its own profile's (title_min/max_length).
+const DEFAULT_MIN_TITLE = 110;
+const DEFAULT_MAX_TITLE = 140;
 const MAX_TAG = 20;
 const REQUIRED_TAGS = 13;
 
 /** Mirror of the backend validation, for instant feedback while editing. */
-function validate(title: string, tags: string[], description: string): string[] {
+function validate(
+  title: string,
+  tags: string[],
+  description: string,
+  MIN_TITLE: number,
+  MAX_TITLE: number,
+): string[] {
   const errors: string[] = [];
   if (!title.trim()) errors.push("Title is empty");
   else if (title.length < MIN_TITLE) errors.push(`Title must be at least ${MIN_TITLE} characters`);
@@ -65,6 +72,8 @@ export function ReviewCard({
   onChange?: (change: Partial<Content> & { id: string }) => void;
 }) {
   const { timeZone } = useSession();
+  const MIN_TITLE = initial.title_min_length ?? DEFAULT_MIN_TITLE;
+  const MAX_TITLE = initial.title_max_length ?? DEFAULT_MAX_TITLE;
   const [title, setTitle] = useState(initial.title ?? "");
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
@@ -110,7 +119,10 @@ export function ReviewCard({
   const drafted = new Set(publications.map((p) => p.connection_id));
   const missing = wanted.filter((shop) => !drafted.has(shop));
 
-  const errors = useMemo(() => validate(title, tags, description), [title, tags, description]);
+  const errors = useMemo(
+    () => validate(title, tags, description, MIN_TITLE, MAX_TITLE),
+    [title, tags, description, MIN_TITLE, MAX_TITLE],
+  );
   const valid = errors.length === 0;
 
   async function save() {
@@ -262,6 +274,7 @@ export function ReviewCard({
       setDirty(true);
     };
 
+  const attributes = Object.entries(initial.attributes ?? {});
   // Out of range is a warning, not an error: amber, never red.
   const titleOut = title.length > 0 && (title.length < MIN_TITLE || title.length > MAX_TITLE);
 
@@ -353,6 +366,28 @@ export function ReviewCard({
             </div>
 
             <TagEditor tags={tags} onChange={change(setTags)} />
+
+            {attributes.length > 0 && (
+              <div key="attributes">
+                <p className="label">Attributes</p>
+                <ul className="flex flex-wrap gap-1.5">
+                  {attributes.map(([name, value]) => (
+                    <li key={name} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
+                      <span className="text-slate-400">{name}</span><span>: </span><span>{value}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-slate-400">
+                  From Etsy&apos;s own lists for this category; set on the draft when it is created.
+                </p>
+              </div>
+            )}
+            {initial.listing_style === "search" && (
+              <p key="search-note" className="text-xs text-slate-500">
+                Written to be optimised for search matching: a short title, with the other keywords in the tags,
+                the description&apos;s opening and the attributes. This is not a promise of ranking.
+              </p>
+            )}
 
             <Description value={description} onChange={change(setDescription)} />
 

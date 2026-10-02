@@ -43,7 +43,8 @@ from app.pipeline.reference import (
     prefix_from_shop,
     production_partner_ids,
 )
-from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
+from app.pipeline.attributes import attribute_choices
+from app.pipeline.taxonomy import category_path, clothing_taxonomy_ids, infer_content_template
 from app.etsy.calllog import current_job
 from app.workers import gate
 
@@ -274,7 +275,18 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
             # Personalization is its own resource now (v7 §D4).
             personalization = await client.get_listing_personalization(ref_id, **kw)
 
+            # The category's own attribute lists and names (not Member Content; the
+            # client keeps each category's for 24 hours, so this is one request per
+            # category per day however many profiles share it). Listings written in
+            # the search style choose their attributes only from these lists.
+            category_properties = category_nodes = None
+            if listing.get("taxonomy_id") is not None:
+                category_properties = await client.get_properties_by_taxonomy_id(int(listing["taxonomy_id"]), **kw)
+                category_nodes = await client.get_seller_taxonomy_nodes(**kw)
+
         payload = build_profile_payload(listing, inventory, images, properties)
+        payload["category_attributes"] = attribute_choices((category_properties or {}).get("results"))
+        payload["category_names"] = category_path(category_nodes, listing.get("taxonomy_id"))
         payload["personalization"] = personalization_from_reference(personalization)
 
         # Title prefix (docs/duzeltmeler-v5.md §B). Detection sets it from its cluster.

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile
 from app.pipeline.content import (
+    bounds_for,
     MAX_TITLE_LENGTH,
     join_prefix,
     TITLE_TOO_SHORT,
@@ -27,6 +28,8 @@ from app.pipeline.content import (
     validate_listing,
 )
 from app.pipeline.reference import PAYLOAD_VERSION, replace_title_block
+from app.pipeline.reference import with_opening
+from app.pipeline.search_rules import TitleRules
 
 # Typical Etsy requests to create one draft: create, read back, category
 # attributes, inventory and the images. Used for the estimate shown before a
@@ -111,6 +114,10 @@ def retarget_title(
     return FittedTitle(join(kept), len(kept) == len(phrases), tuple(phrases[len(kept):]))
 
 
+def _widest(a: TitleRules, b: TitleRules) -> TitleRules:
+    return TitleRules(min(a.min_length, b.min_length), max(a.max_length, b.max_length))
+
+
 async def shop_profiles(session: AsyncSession, connection_id: uuid.UUID) -> list[ListingProfile]:
     rows = await session.execute(
         select(ListingProfile)
@@ -181,10 +188,16 @@ async def resolve_target(
         )
         title = fitted.title
         body = str((chosen.cached_payload or {}).get("description", ""))
-        description = replace_title_block(body, title)
+        opening = str(((content.attributes or {}).get("search") or {}).get("opening") or "")
+        # A listing written with a design-specific opening keeps it in every shop;
+        # the body below it is that shop's own.
+        description = with_opening(body, opening) if opening else replace_title_block(body, title)
         errors = validate_listing(
             GeneratedListing(title=title, tags=list(content.tags or []), description=description),
             policy_for(chosen.content_template),
+            # The title was written to its own profile's bounds; this shop's
+            # profile may use the other style, so accept either range.
+            title_rules=_widest(bounds_for(source), bounds_for(chosen)),
         )
         if not fitted.used_all:
             # Phrases were dropped to fit 140, so the title is as long as this shop's

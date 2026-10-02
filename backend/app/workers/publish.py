@@ -249,6 +249,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),
                     vision=vision,
+                    optional_attributes=(content.attributes or {}).get("listing"),
                     profile_name=profile.name,
                     auto_create_sections=settings.auto_create_sections,
                     tenant_limit=tenant.daily_quota,

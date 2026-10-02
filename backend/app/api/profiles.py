@@ -23,6 +23,9 @@ from app.pipeline.personalization import validate as validate_personalization
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline.reference import decode_etsy_text
 
+from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
+from app.pipeline.search_rules import SEARCH_TITLE
+
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 
@@ -95,6 +98,14 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         source=profile.source,
         confirmed=profile.confirmed,
         title_prefix=profile.title_prefix or "",
+        listing_style=profile.listing_style if uses_search_style(profile) else "classic",
+        search_style_available=profile.content_template in _SEARCH_TEMPLATES,
+        title_min_length=bounds_for(profile).min_length,
+        title_max_length=bounds_for(profile).max_length,
+        title_length_custom=profile.title_min_length is not None or profile.title_max_length is not None,
+        attribute_lists=(
+            len(payload["category_attributes"]) if isinstance(payload.get("category_attributes"), dict) else None
+        ),
         fixed_image_ids=list(profile.fixed_image_ids or []),
         updated_at=profile.updated_at,
         is_fresh=_is_fresh(profile),
@@ -234,6 +245,16 @@ async def update_profile(
         profile.confirmed = body.confirmed
     if body.title_prefix is not None:
         profile.title_prefix = body.title_prefix
+    if body.listing_style is not None:
+        if body.listing_style == "search" and profile.content_template not in _SEARCH_TEMPLATES:
+            raise HTTPException(status_code=422, detail="the search style is available for apparel profiles")
+        profile.listing_style = body.listing_style
+    for name in ("title_min_length", "title_max_length"):
+        if name in body.model_fields_set:
+            setattr(profile, name, getattr(body, name))
+    low, high = profile.title_min_length, profile.title_max_length
+    if (low or SEARCH_TITLE.min_length) > (high or SEARCH_TITLE.max_length):
+        raise HTTPException(status_code=422, detail="the shortest title cannot be longer than the longest")
     if "personalization" in body.model_fields_set:
         # null: back to the reference's question; otherwise the seller's own (v7 §D4).
         if body.personalization is None:

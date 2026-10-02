@@ -135,6 +135,15 @@ def test_spare_tags_replace_the_ones_that_do_not_fit() -> None:
     assert kinds == ["recipient", "recipient", "occasion"]
 
 
+def test_a_spare_tag_of_a_missing_kind_replaces_one_of_a_crowded_kind() -> None:
+    tags = [f"subject tag {i}" for i in range(4)] + ["style a", "gift mom", "july 4th"] + ["tee one", "humor one"]
+    kinds = ["subject"] * 4 + ["style", "recipient", "occasion", "product", "humor"]
+    kept, kept_kinds = sr.select_tags("Nurse Shirt", tags, kinds, count=7)
+    # Seven in order give four kinds; the spares bring product, in place of the last subject tag.
+    assert kept == ["subject tag 0", "subject tag 1", "subject tag 2", "style a", "gift mom", "july 4th", "tee one"]
+    assert len(set(kept_kinds)) == 5
+
+
 def test_profile_bounds_stay_inside_etsys_limit() -> None:
     assert (sr.title_rules().min_length, sr.title_rules().max_length) == (40, 100)
     wide = sr.title_rules(60, 400)
@@ -156,22 +165,81 @@ PROPS: list[dict[str, Any]] = [
     {"property_id": 3, "property_name": "Holiday", "possible_values": [{"value_id": 30, "name": "Christmas"}, {"value_id": 31, "name": "Independence Day"}]},
     {"property_id": 4, "property_name": "Primary color", "possible_values": [{"value_id": 40, "name": "Red"}]},
     {"property_id": 5, "property_name": "Recipient", "possible_values": []},
+    {"property_id": 6, "property_name": "Material", "possible_values": [{"value_id": 60, "name": "Cotton"}]},
 ]
 
 
-def test_optional_attributes_use_only_what_the_category_offers() -> None:
-    proposed = {"holiday": "christmas", "primary_color": "Red", "occasion": "retirement", "style": "retro",
-                "recipient": "nurse", "theme": ""}
+def test_the_choices_are_etsys_own_lists_for_what_a_design_can_answer() -> None:
+    from app.pipeline.attributes import attribute_choices
+
+    # Not the required one, not the garment's own (Material), not one without a list.
+    assert attribute_choices(PROPS) == {
+        "Occasion": ["Birthday"],
+        "Holiday": ["Christmas", "Independence Day"],
+        "Primary color": ["Red"],
+    }
+
+
+def test_an_attribute_value_must_be_on_etsys_list() -> None:
+    choices = {"Holiday": ["Christmas"], "Primary color": ["Red"]}
+    assert sr.attribute_errors({"Holiday": "Christmas", "Primary color": "Red"}, choices) == []
+    errors = " | ".join(sr.attribute_errors({"Holiday": "4th of July", "Theme": "patriotic"}, choices))
+    assert "'4th of July' is not one of Etsy's values for Holiday" in errors
+    assert "no 'Theme' attribute" in errors
+
+
+def test_optional_attributes_are_looked_up_again_in_the_drafts_own_category() -> None:
+    proposed = {"Holiday": "christmas", "Primary color": "Red", "Occasion": "Retirement", "Style": "Retro", "Neckline": "Crew neck"}
     resolved, unmatched = resolve_optional_attributes(PROPS, proposed)
     assert [(a.property_name, a.value_ids, a.values) for a in resolved] == [
         ("Holiday", [30], ["Christmas"]),
         ("Primary color", [40], ["Red"]),
     ]
-    # Offered by the category but not one of its values: reported, never guessed.
-    # Style is not offered at all and Recipient is free text: both skipped silently.
-    assert unmatched == ["Occasion: retirement"]
+    # Offered here but not with that value: reported, never guessed. A property this
+    # category does not have (Style) and a required one (Neckline) are left alone.
+    assert unmatched == ["Occasion: Retirement"]
 
 
 def test_optional_attributes_never_touch_what_is_already_set() -> None:
-    resolved, _ = resolve_optional_attributes(PROPS, {"holiday": "Christmas"}, already_set={3})
+    resolved, _ = resolve_optional_attributes(PROPS, {"Holiday": "Christmas"}, already_set={3})
     assert resolved == []
+
+
+def test_filler_endings_and_a_second_garment_word_are_rejected() -> None:
+    errors = " | ".join(sr.title_errors("Girls Trip Shirt, Friend Group Tee, Script Heart Design", RULES))
+    assert "names the product type 2 times" in errors
+    assert "ends in the filler word 'Design'" in errors
+    assert sr.title_errors("Leopard Print Shirt, Retro Safari Style", RULES) == []
+    assert "filler word 'Graphic'" in " ".join(sr.title_errors("Nurse Shirt, Castle Rainbow Graphic", RULES))
+
+
+def test_tags_carry_no_opinion_and_do_not_restate_category_or_attributes() -> None:
+    already = ["Clothing", "T-shirts", "Christmas"]
+    errors = " | ".join(sr.tag_errors("Funny Nurse Shirt", ["cute nurse gift", "tshirt", "christmas", "best friend gift", "christmas party"], None, already))
+    assert "opinion word 'cute'" in errors
+    assert "'tshirt' only restates the category or attribute 'T-shirts'" in errors
+    assert "'christmas' only restates the category or attribute 'Christmas'" in errors
+    assert "best friend gift" not in errors and "christmas party" not in errors
+    kept, _ = sr.select_tags("Funny Nurse Shirt", ["cute nurse gift", "tshirt", "er nurse gift", "hand drawn nurse"], [], already=already, banned=("hand drawn",))
+    assert kept == ["er nurse gift"]
+
+
+def test_a_profile_chooses_its_style_and_its_bounds() -> None:
+    from types import SimpleNamespace as P
+
+    from app.pipeline.content import bounds_for, content_template_for, search_style
+
+    classic = P(listing_style="classic", content_template="apparel", title_min_length=None, title_max_length=None, cached_payload={})
+    assert content_template_for(classic) == "content/apparel" and search_style(classic) == {}
+    assert (bounds_for(classic).min_length, bounds_for(classic).max_length) == (110, 140)
+    new = P(listing_style="search", content_template="apparel", title_min_length=50, title_max_length=None,
+            cached_payload={"category_attributes": {"Holiday": ["Christmas"]}, "category_names": ["Clothing", "T-shirts"]})
+    assert content_template_for(new) == "content/apparel_search"
+    style = search_style(new)
+    assert (style["title_rules"].min_length, style["title_rules"].max_length, style["title_rules"].readable) == (50, 100, True)
+    assert style["attribute_choices"] == {"Holiday": ["Christmas"]} and style["category_names"] == ["Clothing", "T-shirts"]
+    # A seller's edit is held to the length only, never to the writing rules.
+    assert bounds_for(new).readable is False and bounds_for(new).min_length == 50
+    # Digital profiles have no search prompt: they stay classic whatever is stored.
+    digital = P(listing_style="search", content_template="digital_products", title_min_length=None, title_max_length=None, cached_payload={})
+    assert content_template_for(digital) == "content/digital_products" and search_style(digital) == {}

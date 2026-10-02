@@ -62,6 +62,15 @@ class FakeEtsy:
              "required": True, "max_allowed_characters": 12},
         ]}
 
+    async def get_properties_by_taxonomy_id(self, taxonomy_id: int, **_: Any) -> dict[str, Any]:
+        return {"results": [
+            {"property_id": 1, "name": "Holiday", "possible_values": [{"value_id": 11, "name": "Christmas"}]},
+            {"property_id": 2, "name": "Neckline", "is_required": True, "possible_values": [{"value_id": 21, "name": "Crew neck"}]},
+        ]}
+
+    async def get_seller_taxonomy_nodes(self, **_: Any) -> dict[str, Any]:
+        return {"results": [{"id": 1, "name": "Clothing", "children": [{"id": 482, "name": "T-shirts", "children": []}]}]}
+
     async def get_listings_by_shop(self, shop_id: int, *, state: str, **_: Any) -> dict[str, Any]:
         self.listings_calls.append(state)
         if state == "active":

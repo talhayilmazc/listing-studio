@@ -430,6 +430,10 @@ export const api = {
       fixed_image_ids: number[];
       confirmed: boolean;
       title_prefix: string;
+      listing_style: "classic" | "search";
+      /** null: back to the default bound. */
+      title_min_length: number | null;
+      title_max_length: number | null;
       /** null: back to the reference's question (v7 §D4). */
       personalization: Personalization | null;
     }>,

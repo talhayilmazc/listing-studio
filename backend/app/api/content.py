@@ -28,7 +28,7 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline.content import GeneratedListing, policy_for, validate_listing
+from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
 
 router = APIRouter(prefix="/api", tags=["content"])
 
@@ -271,6 +271,18 @@ async def contents_out(
                 schemas.FindingOut(rule=f.rule, severity=f.severity.value, detail=f.detail)
             )
     outs = [_to_out(c, a, pubs[c.id], shops.get(c.listing_profile_id)) for c, a in pairs]
+    profile_ids = {c.listing_profile_id for c, _ in pairs if c.listing_profile_id}
+    profiles = (
+        {p.id: p for p in (await session.execute(select(ListingProfile).where(ListingProfile.id.in_(profile_ids)))).scalars()}
+        if profile_ids
+        else {}
+    )
+    for out, (c, _) in zip(outs, pairs):
+        profile = profiles.get(c.listing_profile_id)
+        bounds = bounds_for(profile)
+        out.title_min_length, out.title_max_length = bounds.min_length, bounds.max_length
+        out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
+        out.attributes = dict((c.attributes or {}).get("listing") or {})
     for out in outs:
         out.findings = findings.get(out.id, [])
         out.work = work.get(out.id, [])
@@ -307,6 +319,7 @@ async def _validation(
     # Apply the product-type policy from the content's profile (apparel bans
     # "digital download" etc.; digital-products does not).
     policy = None
+    profile = None
     if content.listing_profile_id is not None:
         profile = await session.get(ListingProfile, content.listing_profile_id)
         if profile is not None:
@@ -316,7 +329,12 @@ async def _validation(
         tags=list(content.tags or []),
         description=content.description or "",
     )
-    errors = validate_listing(listing, policy, trademarks=await tenant_blocklist(session, content.tenant_id))
+    errors = validate_listing(
+        listing,
+        policy,
+        trademarks=await tenant_blocklist(session, content.tenant_id),
+        title_rules=bounds_for(profile),
+    )
     return schemas.ValidationInfo(valid=not errors, errors=errors)
 
 

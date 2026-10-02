@@ -33,6 +33,29 @@ def clothing_taxonomy_ids(nodes_response: Any, *, root_name: str = "Clothing") -
     return ids
 
 
+def category_path(nodes_response: Any, taxonomy_id: int | None) -> list[str]:
+    """The names from the top of Etsy's category tree down to ``taxonomy_id``."""
+    if taxonomy_id is None:
+        return []
+    results = nodes_response.get("results", []) if isinstance(nodes_response, dict) else nodes_response or []
+
+    def walk(node: dict[str, Any], above: list[str]) -> list[str] | None:
+        here = [*above, str(node.get("name", "")).strip()]
+        if node.get("id") is not None and int(node["id"]) == int(taxonomy_id):
+            return here
+        for child in node.get("children") or []:
+            found = walk(child, here)
+            if found:
+                return found
+        return None
+
+    for node in results:
+        found = walk(node, [])
+        if found:
+            return [name for name in found if name]
+    return []
+
+
 def infer_content_template(
     taxonomy_id: int | None, clothing_ids: set[int], *, default: str = "apparel"
 ) -> str:

@@ -1,6 +1,7 @@
 """Old vs new listing rules on a fixed set of real designs.
 
     python -m evals.content_eval build    # once: analyse the designs, freeze the set
+    python -m evals.content_eval expect   # once: the attribute values expected from the lists
     python -m evals.content_eval run      # write both listings for every design, judge, score
     python -m evals.content_eval report   # the side-by-side report
 
@@ -19,7 +20,10 @@ Rubric, each 0-100 (see ``score``):
 2. distinct tag intents    kinds of search the 13 tags serve, labelled by a blind judge
 3. no repetition           words not repeated in the title; tags that add to the title
 4. readability             a blind judge's 1-5 for the title, and Etsy's "fewer than 15 words"
-5. attribute completeness  attributes the design supports that the listing fills
+5. attribute completeness  attributes the design supports (chosen from the category's
+                           value lists when the set was frozen) that the listing sets
+                           to the same value. The lists here are a stand-in: see
+                           STAND_IN_CHOICES
 
 No Etsy request is made. Nothing here measures ranking: Etsy publishes no
 ranking data, so this checks the listing against Etsy's published guidance.
@@ -80,14 +84,34 @@ DESIGNS: dict[str, str] = {
 }
 CONCURRENCY = 4
 
+#: A STAND-IN for one category's attribute lists. No shop in the development
+#: account is connected, so Etsy's real lists for a category could not be read;
+#: these are written to resemble them. In the app the lists always come from
+#: Etsy (the profile refresh reads them), never from here.
+STAND_IN_CATEGORY = ["Clothing", "Gender-Neutral Adult Clothing", "Tops & Tees", "T-shirts"]
+STAND_IN_CHOICES: dict[str, list[str]] = {
+    "Primary color": ["Beige", "Black", "Blue", "Bronze", "Brown", "Clear", "Copper", "Gold", "Gray", "Green",
+                      "Orange", "Pink", "Purple", "Rainbow", "Red", "Rose gold", "Silver", "White", "Yellow"],
+    "Occasion": ["Anniversary", "Baby shower", "Bachelor party", "Bachelorette party", "Back to school", "Baptism",
+                 "Birthday", "Bridal shower", "Engagement", "Graduation", "Housewarming", "LGBTQ pride", "Prom",
+                 "Retirement", "Wedding"],
+    "Holiday": ["Christmas", "Cinco de Mayo", "Easter", "Father's Day", "Halloween", "Hanukkah", "Independence Day",
+                "Lunar New Year", "Mother's Day", "New Year's", "St Patrick's Day", "Thanksgiving", "Valentine's Day",
+                "Veterans Day"],
+    "Pattern": ["Animal print", "Camouflage", "Floral", "Geometric", "Plaid", "Polka dot", "Solid", "Striped",
+                "Tie dye"],
+}
+GOLD_KEYS = ("occasion", "holiday", "style", "primary_color", "theme", "recipient")
+EXPECTED_SYSTEM = """For one printed-apparel design, choose the attribute values a careful seller would set. For each attribute pick the one listed value the design clearly supports, copied exactly, or an empty string when none of the listed values fits. Be strict: an empty value is right whenever the fit is doubtful. A colour attribute is the dominant colour of the design."""
+
 GOLD_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "phrases": {"type": "array", "items": {"type": "string"}},
         "attributes": {
             "type": "object",
-            "properties": {k: {"type": "string"} for k in sr.ATTRIBUTE_KEYS},
-            "required": list(sr.ATTRIBUTE_KEYS),
+            "properties": {k: {"type": "string"} for k in GOLD_KEYS},
+            "required": list(GOLD_KEYS),
             "additionalProperties": False,
         },
     },
@@ -243,6 +267,32 @@ async def build() -> None:
     print(f"froze {len(designs)} designs in {SET}")
 
 
+async def expect() -> None:
+    """Add to the frozen set, once, the attribute values expected from the lists."""
+    from app.pipeline.content import search_schema
+
+    data = json.loads(SET.read_text(encoding="utf-8"))
+    client = client_for(get_settings(), "content")
+    schema = search_schema(STAND_IN_CHOICES)["properties"]["attributes"]
+
+    async def one(design: dict[str, Any]) -> None:
+        if "expected_attributes" in design:
+            return
+        lists = "\n".join(f"- {k}: {' | '.join(v)}" for k, v in STAND_IN_CHOICES.items())
+        out = await _json(
+            client,
+            system=EXPECTED_SYSTEM,
+            content_blocks=[{"type": "text", "text": _analysis_text(design["analysis"]) + "\n\nAttributes:\n" + lists}],
+            schema=schema,
+            max_tokens=1024,
+        )
+        design["expected_attributes"] = sr.clean_attributes(out)
+
+    await _gather([one(d) for d in data["designs"]])
+    SET.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    print("expected attributes:", sum(len(d["expected_attributes"]) for d in data["designs"]), "values over", len(data["designs"]), "designs")
+
+
 # --- run: both prompts, judge, score ---------------------------------------------------------------
 
 
@@ -256,7 +306,9 @@ def _generators() -> dict[str, AnthropicContentGenerator]:
             template=load_template("content/apparel_search"),
             policy=policy,
             title_rules=sr.SEARCH_TITLE,
-            max_tokens=1536,
+            attribute_choices=STAND_IN_CHOICES,
+            category_names=STAND_IN_CATEGORY,
+            max_tokens=2048,
         ),
     }
 
@@ -332,7 +384,7 @@ def usable(design: dict[str, Any]) -> dict[str, Any]:
     return {
         **design,
         "phrases": [p for p in design["phrases"] if not marks.find(p)],
-        "supported_attributes": {k: v for k, v in design["supported_attributes"].items() if not marks.find(v)},
+        "supported_attributes": dict(design.get("expected_attributes") or {}),
     }
 
 
@@ -361,8 +413,10 @@ def score(design: dict[str, Any], item: dict[str, Any]) -> dict[str, float]:
     under_15 = 1.0 if len(title.split()) < 15 else 0.0
     readability = ((item.get("readability", 1) - 1) / 4 + under_15) / 2
 
+    # Of the attributes the design supports (chosen from the category's lists
+    # when the set was frozen), the share the listing sets to that same value.
     supported = design["supported_attributes"]
-    filled = [k for k in supported if item["attributes"].get(k)]
+    filled = [k for k, v in supported.items() if item["attributes"].get(k) == v]
     attributes = len(filled) / len(supported) if supported else 1.0
 
     out = {
@@ -446,6 +500,9 @@ def report() -> None:
         ok = [r[side] for r in everything if "scores" in r[side]]
         failed = [r["id"] for r in everything if "failed" in r[side]]
         retries = sum(1 for i in ok if i["attempts"] > 1)
+        first = len(ok) - retries
+        out += ["", f"**{side.capitalize()} reliability**: passed on the first attempt {first}/{len(everything)}, "
+                    f"failed after the retry {len(failed)}/{len(everything)}."]
         lengths = [len(i["title"]) for i in ok]
         wordcounts = [len(i["title"].split()) for i in ok]
         out += [
@@ -515,6 +572,8 @@ if __name__ == "__main__":
         asyncio.run(build())
     elif command == "run":
         asyncio.run(run())
+    elif command == "expect":
+        asyncio.run(expect())
     elif command == "report":
         report()
     else:

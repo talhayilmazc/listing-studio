@@ -43,7 +43,7 @@ from app.etsy.refresh import request_refresh
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.targets import shop_profiles
-from app.pipeline.content import AnthropicContentGenerator, policy_for
+from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
 from app.pipeline.reference import decode_etsy_text
 from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
@@ -1076,10 +1076,11 @@ async def generate_content(
         if p.id not in generator_cache:
             generator_cache[p.id] = AnthropicContentGenerator(
                 client,
-                template=load_template(f"content/{p.content_template}"),
+                template=load_template(content_template_for(p)),
                 policy=policy_for(p.content_template),
                 title_prefix=p.title_prefix or "",
                 trademarks=trademarks,
+                **search_style(p),
             )
         return generator_cache[p.id]
 

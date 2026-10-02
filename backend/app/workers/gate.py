@@ -36,16 +36,17 @@ from app.etsy.rate_limiter import PAUSE_TENANT
 # if this fits in what the tenant has left today.
 JOB_COST: dict[str, int] = {
     # shop, section, create, read-back, properties, ~8 attribute writes,
-    # inventory, up to 10 new images and the fixed ones, and personalization with
-    # its read-back (v7 §D4)
-    "run_publish_job": 32,
+    # inventory, up to 10 new images and the fixed ones, personalization with
+    # its read-back (v7 §D4), and up to 8 optional attributes (search style)
+    "run_publish_job": 40,
     "run_publish_live_job": 3,
     # listing, images, up to 10 deletes and 10 uploads, update, inventory
     "run_replace_images_job": 30,
-    # shop, listing, inventory, images, properties, personalization (v7 §D4)
-    "refresh_profile": 7,
+    # shop, listing, inventory, images, properties, personalization (v7 §D4),
+    # and the category's attribute lists and names (each cached 24 h per category)
+    "refresh_profile": 9,
     # the reference's images; when they changed, the full refresh as well (v6 §H)
-    "refresh_profile_images": 8,
+    "refresh_profile_images": 10,
     # shop, and up to 50 pages of 100 for each of the 5 listing states
     # (profiles.SYNC_STATES, SYNC_MAX_PAGES); one per state for a small shop
     "sync_shop_listings": 251,

@@ -24,7 +24,7 @@ from app.compliance.trademarks import characters_seen
 from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
-from app.pipeline.reference import replace_title_block
+from app.pipeline.reference import replace_title_block, with_opening
 from app.pipeline.vision import VisionAnalysis, VisionAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,12 @@ async def generate_listing_content(
     # Description comes from the reference listing; the title block (everything
     # before the first blank line) is replaced by the newly generated title (B2).
     payload = profile.cached_payload or {}
-    description = replace_title_block(str(payload.get("description", "")), listing.title)
+    if listing.opening:
+        # Search style: the design's own sentences open the description (Etsy
+        # matches on them); the shop's body follows verbatim.
+        description = with_opening(str(payload.get("description", "")), listing.opening)
+    else:
+        description = replace_title_block(str(payload.get("description", "")), listing.title)
     taxonomy_id = payload.get("taxonomy_id")
     prefix = (profile.title_prefix or "").strip()
     logger.info(
@@ -115,6 +120,7 @@ async def generate_listing_content(
         len(listing.title),
         description.split("\n", 1)[0] == listing.title,
     )
+    chosen = dict(listing.attributes)
 
     attributes = None
     if analysis is not None:
@@ -132,6 +138,13 @@ async def generate_listing_content(
                 "characters": characters_seen(analysis.characters, analysis.themes),
             }
         }
+
+    if listing.opening:
+        attributes = {**(attributes or {}), "search": {"opening": listing.opening}}
+    if chosen:
+        # Optional category attributes, each one of Etsy's own values for that
+        # property; written to the draft by the publisher.
+        attributes = {**(attributes or {}), "listing": chosen}
 
     content = GeneratedContent(
         tenant_id=tenant_id,

@@ -147,6 +147,12 @@ class ContentOut(BaseModel):
     original_filename: str
     parsed_sku: str | None
     rank: int | None
+    # The title length this listing's profile asks for (the counter follows it),
+    # how it was written, and the category attributes chosen from Etsy's lists.
+    title_min_length: int = 110
+    title_max_length: int = 140
+    listing_style: str = "classic"
+    attributes: dict[str, str] = Field(default_factory=dict)
     # What the compliance scanner found (trademarks, character artwork), shown
     # on the card before anything is sent to Etsy.
     findings: list["FindingOut"] = Field(default_factory=list)
@@ -625,6 +631,11 @@ class ProfileUpdate(BaseModel):
     fixed_image_ids: list[int] | None = None
     confirmed: bool | None = None
     title_prefix: str | None = None
+    #: "classic" or "search" (Etsy's current search guidance); the seller's choice.
+    listing_style: Literal["classic", "search"] | None = None
+    #: The search style's title bounds. Sending null resets one to the default.
+    title_min_length: int | None = Field(default=None, ge=20, le=140)
+    title_max_length: int | None = Field(default=None, ge=20, le=140)
     #: The seller's personalization override (v7 §D4). Sending null resets it to
     #: the reference's question; leaving it out changes nothing.
     personalization: dict[str, Any] | None = None
@@ -656,6 +667,16 @@ class ProfileOut(BaseModel):
     source: str = "manual"  # "manual" | "detected"
     confirmed: bool = True
     title_prefix: str = ""  # prepended to every generated title (e.g. "COMFORT COLORS")
+    listing_style: str = "classic"  # "classic" | "search"
+    #: Whether this kind of profile has the search style at all (apparel does).
+    search_style_available: bool = False
+    #: The bounds listings are written to and the review counter follows.
+    title_min_length: int = 110
+    title_max_length: int = 140
+    title_length_custom: bool = False
+    #: How many of the category's attribute lists Etsy gave us (search style
+    #: fills attributes only from them); None until the profile is next refreshed.
+    attribute_lists: int | None = None
     fixed_image_ids: list[int] = Field(default_factory=list)
     updated_at: datetime | None = None
     is_fresh: bool = False  # cached reference payload present and <24h old

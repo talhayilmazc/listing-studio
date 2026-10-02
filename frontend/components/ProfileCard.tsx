@@ -1,6 +1,7 @@
 "use client";
 
 import { PersonalizationEditor } from "./PersonalizationEditor";
+import { ListingStyle } from "./ListingStyle";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Profile, ReferenceImage, ShopListing } from "@/lib/types";
@@ -266,6 +267,13 @@ export function ProfileCard({
             />
           </div>
         </div>
+
+        <ListingStyle
+          key={`${profile.listing_style}-${profile.title_min_length}-${profile.title_max_length}`}
+          profile={profile}
+          busy={busy !== null}
+          onSave={(body) => run("style", () => api.updateProfile(profile.id, body))}
+        />
 
         <PersonalizationEditor
           profile={profile}

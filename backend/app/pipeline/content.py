@@ -155,7 +155,13 @@ def _mentions(text: str, theme: str) -> bool:
     words = _words(text)
     for key in _theme_words(theme):
         stem = key[: max(4, len(key) - 3)] if len(key) >= 5 else key
-        if any(w == key or (len(stem) >= 4 and w.startswith(stem)) for w in words):
+        if any(
+            w == key
+            or (len(stem) >= 4 and w.startswith(stem))
+            # "friend group" names the theme "friendship"
+            or (len(w) >= 5 and key.startswith(w))
+            for w in words
+        ):
             return True
     return False
 
@@ -263,12 +269,20 @@ CONTENT_SCHEMA: dict[str, Any] = {
 }
 
 
-#: The same, plus what Etsy's current guidance moves out of the title: the kind of
-#: search each tag serves, a design-specific opening for the description, and the
-#: category attributes the design supports.
-SEARCH_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
+#: How many tags are asked for under the search rules; the first 13 usable are kept.
+TAG_CANDIDATES = 20
+
+
+def search_schema(choices: dict[str, list[str]]) -> dict[str, Any]:
+    """The search rules' answer: what Etsy's current guidance moves out of the
+    title. Each tag carries the kind of search it serves; the description gets a
+    design-specific opening; and each attribute is chosen from Etsy's own list
+    for this category (``choices``), or left empty."""
+    properties: dict[str, Any] = {
+        # Written before the title, so the title is checked once before it is given
+        # (no model thinking is used for listings; this is the room to look twice).
+        "title_draft": {"type": "string"},
+        "title_check": {"type": "string"},
         "title": {"type": "string"},
         "tags": {
             "type": "array",
@@ -283,16 +297,20 @@ SEARCH_SCHEMA: dict[str, Any] = {
             },
         },
         "opening": {"type": "string"},
-        "attributes": {
+    }
+    if choices:
+        properties["attributes"] = {
             "type": "object",
-            "properties": {key: {"type": "string"} for key in search_rules.ATTRIBUTE_KEYS},
-            "required": list(search_rules.ATTRIBUTE_KEYS),
+            "properties": {name: {"type": "string", "enum": [*values, ""]} for name, values in choices.items()},
+            "required": list(choices),
             "additionalProperties": False,
-        },
-    },
-    "required": ["title", "tags", "opening", "attributes"],
-    "additionalProperties": False,
-}
+        }
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
 
 
 @dataclass
@@ -330,6 +348,7 @@ def validate_listing(
     *,
     trademarks: Blocklist | None = None,
     title_rules: TitleRules = LEGACY_TITLE,
+    category_names: list[str] | None = None,
 ) -> list[str]:
     """Return validation errors (empty if valid).
 
@@ -380,10 +399,14 @@ def validate_listing(
 
     if title_rules.readable:
         errors.extend(
-            search_rules.tag_errors(title, [t for t in listing.tags if t.strip()], listing.tag_intents or None)
+            search_rules.tag_errors(
+                title,
+                [t for t in listing.tags if t.strip()],
+                listing.tag_intents or None,
+                [*(category_names or []), *listing.attributes.values()],
+            )
         )
         errors.extend(search_rules.opening_errors(listing.opening, title))
-        errors.extend(search_rules.attribute_errors(listing.attributes))
     elif not listing.description.strip():
         errors.append("description is empty")
 
@@ -496,6 +519,42 @@ def join_prefix(prefix: str | None, title: str) -> str:
     return f"{prefix} {raw}".strip()
 
 
+#: Content templates that have a search-style prompt beside the classic one.
+_SEARCH_TEMPLATES = {"apparel": "content/apparel_search"}
+
+
+def uses_search_style(profile: Any) -> bool:
+    return (
+        getattr(profile, "listing_style", "classic") == "search"
+        and getattr(profile, "content_template", "") in _SEARCH_TEMPLATES
+    )
+
+
+def content_template_for(profile: Any) -> str:
+    """The prompt a profile's listings are written with."""
+    if uses_search_style(profile):
+        return _SEARCH_TEMPLATES[profile.content_template]
+    return f"content/{profile.content_template}"
+
+
+def search_style(profile: Any) -> dict[str, Any]:
+    """The generator arguments for a profile's style (none for the classic one)."""
+    if not uses_search_style(profile):
+        return {}
+    payload = profile.cached_payload or {}
+    return {
+        "title_rules": search_rules.rules_for(profile),
+        "attribute_choices": dict(payload.get("category_attributes") or {}),
+        "category_names": list(payload.get("category_names") or []),
+        "max_tokens": 2048,
+    }
+
+
+def bounds_for(profile: Any) -> TitleRules:
+    """The title length a profile's listings are checked against (edits, drafts)."""
+    return search_rules.bounds_for(profile) if profile is not None and uses_search_style(profile) else LEGACY_TITLE
+
+
 class ContentGenerator(Protocol):
     async def generate(
         self, analysis: VisionAnalysis, sku: str | None = None, pattern: dict[str, Any] | None = None
@@ -513,11 +572,17 @@ class AnthropicContentGenerator:
         title_prefix: str = "",
         trademarks: Blocklist | None = None,
         title_rules: TitleRules = LEGACY_TITLE,
+        attribute_choices: dict[str, list[str]] | None = None,
+        category_names: list[str] | None = None,
     ) -> None:
         #: The title's bounds; the search rules also change what is asked of the
         #: model (tag intents, a description opening, attributes).
         self._rules = title_rules
-        self._schema = SEARCH_SCHEMA if title_rules.readable else CONTENT_SCHEMA
+        #: Etsy's own value lists for this category's optional attributes, and
+        #: the category's names (tags must not restate either).
+        self._choices = dict(attribute_choices or {})
+        self._category = list(category_names or [])
+        self._schema = search_schema(self._choices) if title_rules.readable else CONTENT_SCHEMA
         #: The account's trademark blocklist (v7 §A4); None = TRADEMARK_FILTER.
         self._trademarks = trademarks
         self._client = client
@@ -577,6 +642,23 @@ class AnthropicContentGenerator:
                     ),
                 }
             )
+        if self._rules.readable:
+            if self._choices:
+                lines = "\n".join(f"- {name}: {' | '.join(values)}" for name, values in self._choices.items())
+                text = (
+                    "Attributes this category offers, with the only values Etsy accepts. For each, "
+                    "choose the one value the design clearly supports, copied exactly, or an empty "
+                    "string when none fits:\n" + lines
+                )
+            else:
+                text = "This category's attribute lists are not available: write no attributes."
+            if self._category:
+                text += (
+                    "\n\nThe listing's category is: " + " > ".join(self._category) + ". Etsy already "
+                    "matches on the category and on the attribute values you choose, so no tag may "
+                    "be just one of those names again."
+                )
+            blocks.append({"type": "text", "text": text})
         if self._title_prefix:
             # The prefix is prepended for us; the model writes only the remainder, to a
             # reduced budget so the FULL title still lands in MIN..MAX characters.
@@ -612,6 +694,11 @@ class AnthropicContentGenerator:
                 }
             )
         return blocks
+
+    def banned_in_tags(self) -> tuple[str, ...]:
+        """Terms the product policy refuses in a tag; a spare tag replaces such a one."""
+        p = self._policy
+        return (*p.forbidden_terms, *p.forbidden_tag_terms, *p.forbidden_filler_terms) if p else ()
 
     def _apply_prefix(self, listing: GeneratedListing) -> GeneratedListing:
         """Prepend the fixed prefix to the generated title (v4: per-profile prefix).
@@ -695,11 +782,23 @@ class AnthropicContentGenerator:
             if self._rules.readable:
                 # More tags are asked for than Etsy takes; the usable first 13 are kept.
                 listing.tags, listing.tag_intents = search_rules.select_tags(
-                    listing.title, listing.tags, listing.tag_intents, REQUIRED_TAG_COUNT, MAX_TAG_LENGTH
+                    listing.title,
+                    listing.tags,
+                    listing.tag_intents,
+                    REQUIRED_TAG_COUNT,
+                    MAX_TAG_LENGTH,
+                    already=[*self._category, *listing.attributes.values()],
+                    banned=self.banned_in_tags(),
                 )
             errors = validate_listing(
-                listing, self._policy, trademarks=self._trademarks, title_rules=self._rules
+                listing,
+                self._policy,
+                trademarks=self._trademarks,
+                title_rules=self._rules,
+                category_names=self._category,
             )
+            if self._rules.readable:
+                errors.extend(search_rules.attribute_errors(listing.attributes, self._choices))
             if self._policy is not None and self._policy.describe_not_transcribe:
                 errors.extend(copied_text_errors(listing.title, analysis.embedded_text))
                 errors.extend(

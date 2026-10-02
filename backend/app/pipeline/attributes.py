@@ -100,16 +100,31 @@ def resolve_required_attributes(
     return resolved, missing
 
 
-# What the listing's generated attribute values are called in Etsy's categories.
-# A category offers only some of these; a property it does not offer is skipped.
-_OPTIONAL_PROPERTY_NAMES: dict[str, tuple[str, ...]] = {
-    "occasion": ("occasion",),
-    "holiday": ("holiday", "celebration"),
-    "style": ("style", "clothing style"),
-    "primary_color": ("primary color", "primary colour"),
-    "theme": ("theme", "subject", "graphic"),
-    "recipient": ("recipient",),
-}
+# Optional category properties a design itself can answer (the garment's own
+# properties, such as material, are the reference listing's business).
+DESIGN_PROPERTIES = frozenset(
+    {"occasion", "holiday", "celebration", "style", "primary color", "secondary color", "theme",
+     "subject", "recipient", "pattern", "graphic", "season"}
+)
+#: A longer list than this is not a choice a design answers (and bloats the request).
+MAX_CHOICES = 80
+
+
+def attribute_choices(taxonomy_properties: list[dict[str, Any]] | None) -> dict[str, list[str]]:
+    """Etsy's own value lists for the optional attributes a design can support:
+    ``{property name: [value names]}``, exactly as the category offers them."""
+    out: dict[str, list[str]] = {}
+    for prop in taxonomy_properties or []:
+        name = str(prop.get("property_name") or prop.get("name") or "").strip()
+        values = [str(v.get("name", "")).strip() for v in prop.get("possible_values") or []]
+        values = [v for v in values if v]
+        if (
+            name.lower() in DESIGN_PROPERTIES
+            and not prop.get("is_required")
+            and 0 < len(values) <= MAX_CHOICES
+        ):
+            out[name] = values
+    return out
 
 
 def resolve_optional_attributes(
@@ -117,44 +132,33 @@ def resolve_optional_attributes(
     proposed: dict[str, str] | None,
     already_set: set[int] | None = None,
 ) -> tuple[list[ResolvedAttribute], list[str]]:
-    """The category's optional attributes that the design supports (search rules).
+    """The listing's chosen optional attributes, as this category's own ids.
 
-    ``proposed`` are the values written with the listing (occasion, holiday,
-    style, primary colour, theme, recipient). Each is matched to a property the
-    category actually offers and to one of that property's own values; Etsy
-    matches searches on these. Nothing is guessed: a value the property does not
-    list is left unset and returned in the second list, so the seller can be told.
-    Required properties and anything in ``already_set`` are left alone.
+    ``proposed`` is ``{property name: value name}``, chosen from Etsy's lists
+    when the listing was written. Each is looked up again in the category the
+    draft is going to (another shop's profile may use another category): the
+    property must exist there, be optional and list exactly that value. Nothing
+    is guessed; what does not match is left unset and returned in the second list.
     """
-    proposed = {k: v.strip() for k, v in (proposed or {}).items() if v and v.strip()}
     taken = set(already_set or ())
     resolved: list[ResolvedAttribute] = []
     unmatched: list[str] = []
-    for key, names in _OPTIONAL_PROPERTY_NAMES.items():
-        wanted = proposed.get(key)
-        if not wanted:
+    by_name = {
+        str(p.get("property_name") or p.get("name") or "").strip().lower(): p for p in taxonomy_properties or []
+    }
+    for name, wanted in (proposed or {}).items():
+        wanted = (wanted or "").strip()
+        prop = by_name.get(name.strip().lower())
+        if not wanted or prop is None or prop.get("is_required") or prop.get("property_id") in taken:
             continue
-        prop = next(
-            (
-                p
-                for name in names
-                for p in taxonomy_properties or []
-                if str(p.get("property_name", "")).strip().lower() == name
-                and not p.get("is_required")
-                and p.get("property_id") not in taken
-            ),
+        match = next(
+            (v for v in prop.get("possible_values") or [] if str(v.get("name", "")).strip().lower() == wanted.lower()),
             None,
         )
-        if prop is None:
-            continue  # this category has no such attribute
-        pid = int(prop["property_id"])
-        possible = prop.get("possible_values")
-        if not possible:
-            continue  # a free-text optional property is the seller's to fill
-        match = _match_value(possible, wanted)
         if match is None:
-            unmatched.append(f"{prop.get('property_name')}: {wanted}")
+            unmatched.append(f"{name}: {wanted}")
             continue
+        pid = int(prop["property_id"])
         taken.add(pid)
-        resolved.append(ResolvedAttribute(pid, str(prop.get("property_name", "")), [match[0]], [match[1]]))
+        resolved.append(ResolvedAttribute(pid, name, [int(match["value_id"])], [str(match["name"])]))
     return resolved, unmatched

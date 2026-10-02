@@ -97,6 +97,12 @@ export interface Content {
   original_filename: string;
   parsed_sku: string | null;
   rank: number | null;
+  /** The title length this listing's profile asks for. */
+  title_min_length?: number;
+  title_max_length?: number;
+  listing_style?: "classic" | "search";
+  /** Category attributes chosen from Etsy's lists, written to the draft. */
+  attributes?: Record<string, string>;
   /** Compliance findings, shown on the card before publishing. */
   findings?: Finding[];
   /** Draft or go-live jobs that failed or are still waiting, with the reason. */
@@ -249,6 +255,15 @@ export interface Profile {
   source: string; // "manual" | "detected"
   confirmed: boolean;
   title_prefix: string;
+  /** "classic" (110–140 keyword title) or "search" (Etsy's current guidance). */
+  listing_style: "classic" | "search";
+  search_style_available: boolean;
+  /** The title length listings are written to; the review counter follows it. */
+  title_min_length: number;
+  title_max_length: number;
+  title_length_custom: boolean;
+  /** Attribute value lists Etsy gave for the category; null until refreshed. */
+  attribute_lists: number | null;
   fixed_image_ids: number[];
   updated_at: string | null;
   is_fresh: boolean;

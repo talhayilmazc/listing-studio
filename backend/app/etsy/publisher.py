@@ -52,7 +52,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline.attributes import resolve_required_attributes
+from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import questions_for
 from app.pipeline.reference import (
     PAYLOAD_VERSION,
@@ -254,6 +254,9 @@ async def publish_content(
     theme: str = "",
     occasion: str = "",
     vision: dict[str, Any] | None = None,
+    #: Optional category attributes chosen when the listing was written
+    #: (``{property name: value name}``, search style); None writes none.
+    optional_attributes: dict[str, str] | None = None,
     profile_name: str = "",
     auto_create_sections: bool = False,
     tenant_limit: int,
@@ -533,6 +536,27 @@ async def publish_content(
             scale_id=attr.scale_id,
             **ctx,
         )
+
+    # 5c) Optional attributes the design supports (occasion, holiday, colour, ...):
+    # Etsy matches searches on them. Each was chosen from Etsy's own list; it is
+    # looked up again in THIS category, and one that is not there is left unset
+    # rather than guessed. Writing them is idempotent, so a resumed draft repeats it.
+    if optional_attributes:
+        chosen, unmatched = resolve_optional_attributes(
+            props.get("results", []), optional_attributes, {a.property_id for a in resolved}
+        )
+        if unmatched:
+            logger.info("draft %s: %d optional attribute(s) not offered by its category", listing_id, len(unmatched))
+        for attr in chosen:
+            await client.update_listing_property(
+                shop_id,
+                listing_id,
+                attr.property_id,
+                value_ids=attr.value_ids,
+                values=attr.values,
+                scale_id=attr.scale_id,
+                **ctx,
+            )
 
     # 6) Inventory: the reference variation structure with OUR sku on every product.
     inventory = build_inventory_from_reference(

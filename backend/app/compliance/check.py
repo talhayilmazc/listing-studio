@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent, ListingProfile
-from app.pipeline.content import GeneratedListing, policy_for, validate_listing
+from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
 
 
 async def blocking_finding(session: AsyncSession, content: GeneratedContent) -> str | None:
@@ -36,6 +36,7 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent) -> s
     approved, and the job that publishes it reads these findings (v6 §B).
     """
     policy = None
+    profile = None
     if content.listing_profile_id is not None:
         profile = await session.get(ListingProfile, content.listing_profile_id)
         if profile is not None:
@@ -48,6 +49,7 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent) -> s
         ),
         policy,
         trademarks=await tenant_blocklist(session, content.tenant_id),
+        title_rules=bounds_for(profile),
     )
     if errors:
         return "; ".join(errors)

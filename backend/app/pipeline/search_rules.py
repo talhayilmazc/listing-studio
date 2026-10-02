@@ -52,6 +52,24 @@ def title_rules(
     return TitleRules(low, high, base.max_words, base.min_phrases, base.max_phrases, base.readable)
 
 
+STYLES = ("classic", "search")
+
+
+def rules_for(profile: object | None) -> TitleRules:
+    """The rules a profile's listings are WRITTEN to (its style and its bounds)."""
+    if profile is None or getattr(profile, "listing_style", "classic") != "search":
+        return LEGACY_TITLE
+    return title_rules(getattr(profile, "title_min_length", None), getattr(profile, "title_max_length", None))
+
+
+def bounds_for(profile: object | None) -> TitleRules:
+    """The title length a profile's listings are CHECKED against after a seller
+    edits them or before a draft is made. Only the length: the style rules guide
+    what the app writes, they do not stop a seller wording a title their way."""
+    rules = rules_for(profile)
+    return TitleRules(rules.min_length, rules.max_length)
+
+
 # Opinion words: Etsy asks for these to move to the description.
 SUBJECTIVE = (
     "cute", "perfect", "beautiful", "unique", "amazing", "awesome", "adorable", "lovely",
@@ -64,6 +82,14 @@ COMMERCE = (
     "best seller",
 )
 
+# Words that pad a title phrase without describing the design ("Script Heart
+# Design", "Castle Rainbow Graphic"). "Leopard Print" is a pattern, not filler.
+TITLE_FILLER = ("design", "graphic", "graphics", "print", "prints")
+_PATTERNS = {"leopard", "cheetah", "animal", "floral", "zebra", "paw", "tiger", "cow", "snake", "camo", "plaid"}
+# Opinion words say nothing a buyer searches by; in a tag they waste the slot.
+TAG_OPINION = (*SUBJECTIVE, "best")
+_BEST_IS_SUBJECT = re.compile(r"\bbest\s+(friend|friends|dad|mom|man|buds|bud)\b", re.IGNORECASE)
+
 _STOP = {"a", "an", "and", "for", "in", "of", "on", "or", "the", "to", "with", "at", "by", "from"}
 _TYPES = {"shirt", "tshirt", "tee", "sweatshirt", "hoodie", "crewneck", "tank", "pullover"}
 #: The kinds of search a tag can serve; a good set covers several.
@@ -74,9 +100,6 @@ MIN_MULTI_WORD_TAGS = 9
 OPENING_MIN_SENTENCES = 2
 OPENING_MAX_SENTENCES = 3
 OPENING_MAX_LENGTH = 500
-#: Attributes the design itself can support (the category decides which exist).
-ATTRIBUTE_KEYS = ("occasion", "holiday", "style", "primary_color", "theme", "recipient")
-MAX_ATTRIBUTE_LENGTH = 40
 
 
 def words(text: str) -> list[str]:
@@ -140,8 +163,17 @@ def title_errors(title: str, rules: TitleRules, *, names_type: bool = True) -> l
             "the title repeats " + ", ".join(f"'{w}'" for w in repeated)
             + ": use each word once and put the other phrasing in a tag"
         )
+    for part in parts:
+        last = words(part)[-2:]
+        if last and last[-1] in TITLE_FILLER and not (
+            last[-1].startswith("print") and len(last) == 2 and last[0] in _PATTERNS
+        ):
+            errors.append(
+                f"the phrase '{part}' ends in the filler word '{part.split()[-1]}': end it on what "
+                "the design shows or its style, or drop the word"
+            )
     types = [w for w in words(title) if w in _TYPES]
-    if names_type and len(types) > 1 and len(set(types)) > 1:
+    if names_type and len(types) > 1:
         errors.append(
             f"the title names the product type {len(types)} times ({', '.join(types)}): name it "
             "once, in the first phrase; other garment words belong in the tags"
@@ -159,9 +191,40 @@ def title_errors(title: str, rules: TitleRules, *, names_type: bool = True) -> l
     return errors
 
 
-def tag_errors(title: str, tags: list[str], intents: list[str] | None = None) -> list[str]:
-    """Each tag is its own search phrase: none repeats the title or another tag."""
+def opinion_in(tag: str) -> str | None:
+    """The opinion word in ``tag``, if any ("best friend gift" names a recipient)."""
+    for term in TAG_OPINION:
+        if _has(tag, term) and not (term == "best" and _BEST_IS_SUBJECT.search(tag)):
+            return term
+    return None
+
+
+def restates(tag: str, already: list[str]) -> str | None:
+    """The category name or attribute value that ``tag`` only says again, if any.
+    Etsy matches on those already, so such a tag adds no new search."""
+    key = frozenset(keywords(tag))
+    for text in already:
+        if key and key == frozenset(keywords(text)):
+            return text
+    return None
+
+
+def tag_errors(
+    title: str, tags: list[str], intents: list[str] | None = None, already: list[str] | None = None
+) -> list[str]:
+    """Each tag is its own search phrase: none repeats the title, another tag,
+    the category or an attribute value (``already``), and none is an opinion."""
     errors: list[str] = []
+    for tag in tags:
+        word = opinion_in(tag)
+        if word:
+            errors.append(f"remove the opinion word '{word}' from the tag {tag!r}: nobody searches by it")
+        said = restates(tag, already or [])
+        if said:
+            errors.append(
+                f"the tag {tag!r} only restates the category or attribute '{said}', which Etsy "
+                "already matches on: use the tag for a different search"
+            )
     in_title = set(keywords(title))
     repeats = [t for t in tags if keywords(t) and set(keywords(t)) <= in_title]
     if repeats:
@@ -194,7 +257,14 @@ def tag_errors(title: str, tags: list[str], intents: list[str] | None = None) ->
 
 
 def select_tags(
-    title: str, candidates: list[str], intents: list[str], count: int = 13, max_length: int = 20
+    title: str,
+    candidates: list[str],
+    intents: list[str],
+    count: int = 13,
+    max_length: int = 20,
+    *,
+    already: list[str] | None = None,
+    banned: tuple[str, ...] = (),
 ) -> tuple[list[str], list[str]]:
     """The first ``count`` candidate tags that are usable, with their intents.
 
@@ -213,12 +283,27 @@ def select_tags(
             continue
         if key and (key <= in_title or key in seen):
             continue
+        if opinion_in(tag) or restates(tag, already or []) or any(_has(tag, term) for term in banned):
+            continue
         seen.add(key)
         kept.append(tag)
         kept_intents.append(intents[i] if i < len(intents) else "")
-        if len(kept) == count:
+    # The first ``count`` usable ones, best first. If those serve too few kinds
+    # of search and a spare serves a kind they lack, the spare takes the place of
+    # the last tag of the most crowded kind.
+    chosen = list(range(min(count, len(kept))))
+    for spare in range(count, len(kept)):
+        kinds = [kept_intents[i] for i in chosen]
+        if len({k for k in kinds if k in INTENTS}) >= MIN_INTENTS:
             break
-    return kept, kept_intents
+        if kept_intents[spare] not in INTENTS or kept_intents[spare] in kinds:
+            continue
+        crowded = max(set(kinds), key=kinds.count)
+        if kinds.count(crowded) < 2:
+            break
+        chosen.remove(max(i for i in chosen if kept_intents[i] == crowded))
+        chosen.append(spare)
+    return [kept[i] for i in chosen], [kept_intents[i] for i in chosen]
 
 
 def sentences(text: str) -> list[str]:
@@ -248,13 +333,15 @@ def opening_errors(opening: str, title: str) -> list[str]:
     return errors
 
 
-def attribute_errors(attributes: dict[str, str]) -> list[str]:
+def attribute_errors(attributes: dict[str, str], choices: dict[str, list[str]]) -> list[str]:
+    """Every attribute value is one of the values Etsy lists for that property."""
     errors: list[str] = []
-    for key, value in attributes.items():
-        if key not in ATTRIBUTE_KEYS:
-            errors.append(f"unknown attribute '{key}'")
-        elif len(value) > MAX_ATTRIBUTE_LENGTH:
-            errors.append(f"the {key} attribute is a short value, not a sentence: {value!r}")
+    for name, value in attributes.items():
+        allowed = choices.get(name)
+        if allowed is None:
+            errors.append(f"this category has no '{name}' attribute")
+        elif value not in allowed:
+            errors.append(f"'{value}' is not one of Etsy's values for {name}; choose from its list or leave it empty")
     return errors
 
 
