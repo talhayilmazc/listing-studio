@@ -21,7 +21,7 @@ const STAGES = [
     key: "generate",
     title: "Listyro fills in everything",
     body: "Choose one of your existing listings as the model. Every new listing copies its category, prices, variations, size charts, shipping and section, and gets its own title, 13 tags and description written from the design.",
-    points: ["Each shop uses its own model listings", "Written to match what shoppers search for; no ranking promises", "Brand and character names are kept out"],
+    points: ["Each shop uses its own model listings", "Written to match what shoppers search for; no ranking promises", "Optional filter for brand and character names"],
   },
   {
     key: "review",

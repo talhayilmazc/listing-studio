@@ -42,8 +42,8 @@ const FEATURES: { title: string; body: string }[] = [
     body: "Line up a whole drop and let it go live at the times you choose, in your own time zone.",
   },
   {
-    title: "Trademark checks",
-    body: "Brand and character names are kept out of your listings, and designs that may show one are flagged for you.",
+    title: "Trademark filter",
+    body: "Optional trademark filter that keeps brand and character names out of your listings, and flags designs that may show one.",
   },
   {
     title: "Profit per listing",
@@ -208,7 +208,7 @@ export const QUESTIONS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Can I list designs with characters or brands?",
-    a: "Brand and character names are kept out of the text, and designs that may show a character are flagged for you. You are responsible for having the rights to what you sell.",
+    a: "There is an optional trademark filter, on unless you turn it off. It keeps brand and character names out of your listings and flags designs that may show one. Either way, you are responsible for having the rights to what you sell.",
   },
   {
     q: "How many shops can I connect?",
