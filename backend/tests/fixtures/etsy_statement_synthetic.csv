@@ -1,0 +1,68 @@
+﻿Date,Type,Title,Info,Currency,Amount,Fees & Taxes,Net,Tax Details
+"September 30, 2031",Sale,Payment for Order #9000000004,,USD,$18.00,--,$18.00,--
+"September 30, 2031",Fee,"Transaction fee: Canvas Tote Bag, Botanical Fern Pri...",Order #9000000004,USD,--,-$1.17,-$1.17,--
+"September 30, 2031",Fee,Transaction fee: Shipping,Order #9000000004,USD,--,-$0.33,-$0.33,--
+"September 30, 2031",Fee,Processing fee,Order #9000000004,USD,--,-$0.79,-$0.79,--
+"September 30, 2031",Fee,Credit for transaction fee on shipping,Order #9000000004,USD,--,$0.33,$0.33,--
+"September 30, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 29, 2031",USD,--,-$17.25,-$17.25,--
+"September 29, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 28, 2031",USD,--,-$17.00,-$17.00,--
+"September 28, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 27, 2031",USD,--,-$16.75,-$16.75,--
+"September 27, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 26, 2031",USD,--,-$16.50,-$16.50,--
+"September 26, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 25, 2031",USD,--,-$16.25,-$16.25,--
+"September 25, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 24, 2031",USD,--,-$16.00,-$16.00,--
+"September 24, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 23, 2031",USD,--,-$15.75,-$15.75,--
+"September 23, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 22, 2031",USD,--,-$15.50,-$15.50,--
+"September 22, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 21, 2031",USD,--,-$15.25,-$15.25,--
+"September 21, 2031",Deposit,"$1,050.25 sent to your bank account",,USD,--,--,--,--
+"September 21, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 20, 2031",USD,--,-$15.00,-$15.00,--
+"September 20, 2031",Refund,Refund for Order #9000000003,,USD,-$26.50,--,-$26.50,--
+"September 20, 2031",Tax,Refund to buyer for sales tax,Order #9000000003,USD,--,$1.50,$1.50,--
+"September 20, 2031",Fee,"Credit for transaction fee on Fox &#39;n&#39; Friends Tee, Retro W...",Order #9000000003,USD,--,$1.63,$1.63,--
+"September 20, 2031",Fee,Credit for processing fee,Order #9000000003,USD,--,$1.00,$1.00,--
+"September 20, 2031",Tax,Tax: transaction credit,Order #9000000003,USD,--,$0.05,$0.05,--
+"September 20, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 19, 2031",USD,--,-$14.75,-$14.75,--
+"September 19, 2031",Fee,Credit for listing fee,Listing #7000000002,USD,--,$0.20,$0.20,--
+"September 19, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 18, 2031",USD,--,-$14.50,-$14.50,--
+"September 18, 2031",Fee,Listing fee,Listing #7000000001,USD,--,-$0.20,-$0.20,--
+"September 18, 2031",Fee,Listing fee,Listing #7000000002,USD,--,-$0.20,-$0.20,--
+"September 18, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 17, 2031",USD,--,-$14.25,-$14.25,--
+"September 17, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 16, 2031",USD,--,-$13.09,-$13.09,--
+"September 16, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 15, 2031",USD,--,-$13.75,-$13.75,--
+"September 15, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 14, 2031",USD,--,-$13.50,-$13.50,--
+"September 14, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 13, 2031",USD,--,-$13.25,-$13.25,--
+"September 13, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 12, 2031",USD,--,-$13.00,-$13.00,--
+"September 12, 2031",Sale,Payment for Order #9000000003,,USD,$26.81,--,$26.81,--
+"September 12, 2031",Fee,"Transaction fee: Fox &#39;n&#39; Friends Tee, Retro Woodl...",Order #9000000003,USD,--,-$1.63,-$1.63,--
+"September 12, 2031",Fee,Processing fee,Order #9000000003,USD,--,-$1.00,-$1.00,--
+"September 12, 2031",Tax,Sales tax paid by buyer,Order #9000000003,USD,--,-$1.50,-$1.50,--
+"September 12, 2031",Tax,Tax: Transaction,Order #9000000003,USD,--,$0.00,$0.00,--
+"September 12, 2031",Buyer Fee,Colorado Retail Delivery Fee (paid by buyer),Order #9000000003,USD,--,-$0.31,-$0.31,--
+"September 12, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 11, 2031",USD,--,-$12.75,-$12.75,--
+"September 11, 2031",Marketing,Credit for Offsite Ads fee,Order #9000000002,USD,--,$24.00,$24.00,--
+"September 11, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 10, 2031",USD,--,-$12.50,-$12.50,--
+"September 10, 2031",Sale,Payment for Order #9000000002,,USD,"$1,234.56",--,"$1,234.56",--
+"September 10, 2031",Fee,"Transaction fee: Mug ""Good Morning"", 11oz Ceramic Cof...",Order #9000000002,USD,--,-$52.00,-$52.00,--
+"September 10, 2031",Fee,"Transaction fee: Canvas Tote Bag, Botanical Fern Pri...",Order #9000000002,USD,--,-$26.00,-$26.00,--
+"September 10, 2031",Fee,Processing fee,Order #9000000002,USD,--,-$37.29,-$37.29,--
+"September 10, 2031",Tax,Sales tax paid by buyer,Order #9000000002,USD,--,-$34.56,-$34.56,--
+"September 10, 2031",Marketing,Fee for sale made through Offsite Ads,Order #9000000002,USD,--,-$144.00,-$144.00,--
+"September 10, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 9, 2031",USD,--,-$12.25,-$12.25,--
+"September 9, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 8, 2031",USD,--,-$12.00,-$12.00,--
+"September 8, 2031",Shipping,Adjustment for USPS shipping label,Adjustment #555000111,USD,--,-$1.15,-$1.15,--
+"September 8, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 7, 2031",USD,--,-$11.75,-$11.75,--
+"September 7, 2031",Deposit,$40.00 sent to your bank account,,USD,--,--,--,--
+"September 7, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 6, 2031",USD,--,-$11.50,-$11.50,--
+"September 6, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 5, 2031",USD,--,-$11.25,-$11.25,--
+"September 5, 2031",Fee,Listing fee,Listing #7000000001,USD,--,-$0.20,-$0.20,--
+"September 5, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 4, 2031",USD,--,-$11.00,-$11.00,--
+"September 4, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 3, 2031",USD,--,-$10.75,-$10.75,--
+"September 3, 2031",Sale,Payment for Order #9000000001,,USD,$52.37,--,$52.37,--
+"September 3, 2031",Fee,"Transaction fee: Fox &#39;n&#39; Friends Tee, Retro Woodl...",Order #9000000001,USD,--,-$2.60,-$2.60,--
+"September 3, 2031",Fee,Transaction fee: Shipping,Order #9000000001,USD,--,-$0.59,-$0.59,--
+"September 3, 2031",Fee,Processing fee,Order #9000000001,USD,--,-$1.82,-$1.82,--
+"September 3, 2031",Tax,Sales tax paid by buyer,Order #9000000001,USD,--,-$3.37,-$3.37,--
+"September 3, 2031",Tax,Tax: Transaction,Order #9000000001,USD,--,-$0.10,-$0.10,--
+"September 3, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 2, 2031",USD,--,-$10.50,-$10.50,--
+"September 2, 2031",Marketing,Fee for sale made through Offsite Ads,Order #8999999999,USD,--,-$3.00,-$3.00,--
+"September 2, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Sep 1, 2031",USD,--,-$10.25,-$10.25,--
+"September 1, 2031",Marketing,Etsy Ads,"Bill for click-throughs to your shop on Aug 31, 2031",USD,--,-$7.77,-$7.77,--
