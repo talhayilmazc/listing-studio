@@ -244,7 +244,6 @@ async def test_batch_endpoints_are_404_across_tenants(two) -> None:
     for method, path, kwargs in [
         ("GET", f"/api/batches/{bid}", {}),
         ("GET", f"/api/batches/{bid}/groups", {}),
-        ("GET", f"/api/batches/{bid}/cost", {}),
         ("GET", f"/api/batches/{bid}/content", {}),
         ("POST", f"/api/batches/{bid}/finalize", {}),
         ("PUT", f"/api/batches/{bid}/size-chart-profile", {"json": {"profile_id": None}}),
@@ -418,7 +417,6 @@ async def test_every_endpoint_requires_a_session(two) -> None:
         ("GET", f"/api/batches/{alice.batch_id}"),
         ("GET", f"/api/batches/{alice.batch_id}/groups"),
         ("PUT", f"/api/batches/{alice.batch_id}/groups"),
-        ("GET", f"/api/batches/{alice.batch_id}/cost"),
         ("POST", f"/api/batches/{alice.batch_id}/finalize"),
         ("POST", f"/api/batches/{alice.batch_id}/generate"),
         ("PUT", f"/api/batches/{alice.batch_id}/size-chart-profile"),

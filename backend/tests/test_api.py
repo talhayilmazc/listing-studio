@@ -261,14 +261,10 @@ async def test_deleted_tenant_invalidates_its_session(client: AsyncClient) -> No
     assert (await client.get("/api/batches")).status_code == 401
 
 
-async def test_batch_cost_from_tokens(client: AsyncClient) -> None:
+async def test_a_batch_has_no_cost_endpoint_for_sellers(client: AsyncClient) -> None:
+    """What a listing cost us to write is admin-only (tests/test_no_ai_cost_for_sellers.py)."""
     batch_id, _ = await _seed_content(client, [f"tag{i}" for i in range(13)])
-    cost = (await client.get(f"/api/batches/{batch_id}/cost")).json()
-    assert cost["listing_count"] == 1
-    assert cost["total_input_tokens"] == 300
-    assert cost["total_output_tokens"] == 120
-    # 300/1e6*$1 + 120/1e6*$5 = 0.0009
-    assert float(cost["total_cost_usd"]) == pytest.approx(0.0009, rel=1e-6)
+    assert (await client.get(f"/api/batches/{batch_id}/cost")).status_code == 404
 
 
 async def test_asset_image_preview_widths(

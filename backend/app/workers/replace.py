@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from app.core import allowance, llm_status
+from app.core import ai_usage, allowance, llm_status
 from app.core.llm_status import LLMUnavailable
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
@@ -64,7 +64,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             return await _wait_for_llm(ctx, session, job)
         try:
             if not settings.llm_api_key:
-                raise ValueError("LLM_API_KEY not configured; cannot regenerate content")
+                raise ValueError("writing the new listing is not available right now; try again later")
             listing_id = int(job.payload["listing_id"])
             batch_id = uuid.UUID(job.payload["batch_id"])
             connection = owned(
@@ -190,6 +190,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 )
                 vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
                 result = await generator.generate(vision.analysis, primary.parsed_sku)
+                await ai_usage.record(session, tenant.id, [vision.usage, *result.usages], listings=1)
                 allowance.record(session, tenant.id, allowance.GENERATION)
                 new_title = result.listing.title
                 new_tags = result.listing.tags

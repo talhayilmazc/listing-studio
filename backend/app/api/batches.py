@@ -15,7 +15,6 @@ from app.api import schemas
 from app.api.deps import (
     Enqueuer,
     active_tenant,
-    get_cost_calculator,
     get_enqueuer,
     get_ingestor,
     get_session,
@@ -45,7 +44,6 @@ from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.targets import shop_profiles
 from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
 from app.pipeline.reference import decode_etsy_text
-from app.pipeline.cost import CostCalculator, UnknownModelError
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.images import (
     PREVIEW_ASPECTS,
@@ -62,7 +60,7 @@ from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
 
-from app.core import llm_status
+from app.core import ai_usage, llm_status
 from app.core.llm_status import LLMUnavailable
 from redis.asyncio import Redis
 from app.api.deps import get_redis
@@ -1047,7 +1045,7 @@ async def generate_content(
     if not settings.llm_api_key:
         raise HTTPException(
             status_code=503,
-            detail="LLM_API_KEY is not configured; content generation is unavailable.",
+            detail="Writing listings is not available right now. Please try again later.",
         )
     # Our account with the AI provider is refused (usage limit, credit): do not
     # try, do not fail anything, say so. Checked again by itself in a few minutes.
@@ -1218,6 +1216,11 @@ async def generate_content(
             await llm_status.report(redis, exc)
             paused = llm_status.SELLER_MESSAGE
             break
+        # Every model call is our cost, whether or not a listing came of it.
+        await ai_usage.record(
+            session, tenant.id, outcome.usages, listings=1 if outcome.status == "generated" else 0
+        )
+        await session.commit()
         if outcome.status == "generated":
             await llm_status.cleared(redis)
             generated += 1
@@ -1262,56 +1265,3 @@ async def _retire(
             new.output_tokens = (new.output_tokens or 0) + (c.output_tokens or 0)
         await session.delete(c)
     await session.commit()
-
-
-# --- Cost -------------------------------------------------------------------
-@router.get("/batches/{batch_id}/cost", response_model=schemas.BatchCostOut)
-async def batch_cost(
-    batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(active_tenant),
-    calc: CostCalculator = Depends(get_cost_calculator),
-) -> schemas.BatchCostOut:
-    await _get_batch(session, tenant, batch_id)
-    rows = await session.execute(
-        select(GeneratedContent).where(GeneratedContent.batch_id == batch_id)
-    )
-    listings: list[schemas.ListingCost] = []
-    total_in = 0
-    total_out = 0
-    total_cost = Decimal("0")
-    for content in rows.scalars():
-        model = content.model_used
-        input_tokens = content.input_tokens or 0
-        output_tokens = content.output_tokens or 0
-        try:
-            usage = _usage(model, input_tokens, output_tokens)
-            cost = calc.cost_for(usage)
-        except UnknownModelError:
-            cost = Decimal("0")
-        total_cost += cost
-        total_in += input_tokens
-        total_out += output_tokens
-        listings.append(
-            schemas.ListingCost(
-                content_id=content.id,
-                asset_id=content.asset_id,
-                model_used=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cost_usd=f"{cost:.6f}",
-            )
-        )
-    return schemas.BatchCostOut(
-        listing_count=len(listings),
-        total_input_tokens=total_in,
-        total_output_tokens=total_out,
-        total_cost_usd=f"{total_cost:.6f}",
-        listings=listings,
-    )
-
-
-def _usage(model: str | None, input_tokens: int, output_tokens: int):
-    from app.pipeline.llm import Usage
-
-    return Usage(model=model or "", input_tokens=input_tokens, output_tokens=output_tokens)

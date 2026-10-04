@@ -21,11 +21,11 @@ design or figure appears in them, and they must stay that way.
 
    | File | Page | Framing |
    |---|---|---|
-   | `review.webp` (2880×1800) | `/batches/<id>/review` | scrolled to the "Dog Mom Sweatshirt" card |
-   | `review-card.webp` | the same capture | cropped to that card (shown on phones) |
+   | `review-2.webp` (2880×1800) | `/batches/<id>/review` | scrolled to the "Dog Mom Sweatshirt" card |
+   | `review-card-2.webp` | the same capture | cropped to that card (shown on phones) |
    | `batch-content.webp` (2400×1800) | `/batches/<id>` | scrolled to the first groups, side rail cropped off |
    | `analytics-content.webp` (2400×1800) | `/analytics`, Overview tab | scrolled to the headline figures, rail cropped off |
-   | `phone.webp` (1170×2532) | `/batches/<id>/review` on a phone | the same card |
+   | `phone-2.webp` (1170×2532) | `/batches/<id>/review` on a phone | the same card |
 
    Save as WebP, quality about 82. If a file changes, give it a new name (or
    update `components/marketing/screens.ts` with the new size), so no image

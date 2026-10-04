@@ -23,6 +23,7 @@ from app.db.models import (
 REF_DESCRIPTION = "Old Reference Title\nSize: S-3XL\nShips in 3 days.\nReturns accepted."
 from app.pipeline.content import AnthropicContentGenerator
 from app.pipeline.generation import generate_listing_content
+from app.pipeline.generation import SELLER_FAILURE
 from app.pipeline.vision import AnthropicVisionAnalyzer
 from app.pipeline.llm import AnthropicLLMClient
 from tests.support import VALID_TITLE, FakeMessages, fake_response
@@ -238,13 +239,14 @@ async def test_unexpected_exception_is_logged_and_recorded(
             )
 
     assert outcome.status == "failed"
-    assert outcome.error == "RuntimeError: vision provider exploded"
+    # The seller is told it did not work, never the provider's own words.
+    assert outcome.error == SELLER_FAILURE and "RuntimeError" not in outcome.error
     # The full traceback was logged (not swallowed).
     assert any(rec.exc_info for rec in caplog.records)
 
     async with async_sm() as session:
         asset = await session.get(Asset, asset_id)
-        assert asset.error == "RuntimeError: vision provider exploded"
+        assert asset.error == SELLER_FAILURE
         assert asset.status is AssetStatus.processed
 
 

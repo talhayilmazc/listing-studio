@@ -87,9 +87,6 @@ export interface Content {
   tags: string[];
   description: string | null;
   approved: boolean;
-  model_used: string | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
   /** The shop this listing was written for (its profile's shop). */
   connection_id: string | null;
   /** Its drafts: one per shop it was sent to (v5 §E). */
@@ -377,21 +374,41 @@ export interface ContentUpdateResult {
   validation: Validation;
 }
 
-export interface ListingCost {
-  content_id: string;
-  asset_id: string;
-  model_used: string | null;
+/** Admin only: what the AI provider's work cost us (never sent to sellers). */
+export interface AiModelCost {
+  model: string;
+  calls: number;
+  listings: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: string | null;
+}
+
+export interface AiPeriodCost {
+  calls: number;
+  listings: number;
   input_tokens: number;
   output_tokens: number;
   cost_usd: string;
+  unpriced: boolean;
+  cost_per_listing_usd: string | null;
+  models: AiModelCost[];
 }
 
-export interface BatchCost {
-  listing_count: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  total_cost_usd: string;
-  listings: ListingCost[];
+export interface AiAccountCost {
+  id: string | null;
+  email: string | null;
+  today: AiPeriodCost;
+  this_month: AiPeriodCost;
+  last_30_days: AiPeriodCost;
+  all_time: AiPeriodCost;
+}
+
+export interface AiCost {
+  as_of: string;
+  total: AiAccountCost;
+  accounts: AiAccountCost[];
+  prices: Record<string, { input: string; output: string; cache_write: string; cache_read: string }>;
 }
 
 export interface QuotaDay {

@@ -306,7 +306,6 @@ export function ReviewCard({
             <Meta label="File" value={initial.original_filename} truncate />
             <Meta label="SKU" value={initial.parsed_sku ?? "—"} />
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
-            {initial.model_used && <Meta key="meta-229-12" label="Model" value={initial.model_used} truncate />}
           </dl>
         </div>
 

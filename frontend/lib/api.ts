@@ -29,7 +29,7 @@ import type {
   InviteRequestApproved,
   TempPasswordIssued,
   Asset,
-  BatchCost,
+  AiCost,
   BatchDetail,
   ImageDeleteResult,
   BatchPublishResult,
@@ -190,6 +190,7 @@ export const api = {
     revokeInvite: (id: string) =>
       req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
     usage: () => req<AdminUsage>("/admin/usage"),
+    aiCost: () => req<AiCost>("/admin/ai-cost"),
   },
 
   listBatches: () => req<BatchSummary[]>("/batches"),
@@ -256,7 +257,6 @@ export const api = {
       size_chart_profile_id?: string | null;
     },
   ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
-  batchCost: (id: string) => req<BatchCost>(`/batches/${id}/cost`),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),

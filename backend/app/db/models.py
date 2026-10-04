@@ -270,6 +270,30 @@ class InviteRequest(Base):
     invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"))
 
 
+class AiUsageDaily(Base):
+    """Model calls made for an account in one day, per model: our cost of goods.
+
+    Admin-only (core/ai_usage.py). Not Member Content and not the seller's data:
+    it holds counts, never text. ``tenant_id`` is SET NULL when an account is
+    deleted, because the spend remains ours.
+    """
+
+    __tablename__ = "ai_usage_daily"
+    __table_args__ = (UniqueConstraint("tenant_id", "day", "model", name="uq_ai_usage_daily"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenant.id", ondelete="SET NULL"))
+    day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Listings written (a retry or a failed attempt adds calls, not a listing).
+    listings: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    cache_write_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    cache_read_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+
+
 class AuditLog(Base):
     """Who did what to whom, and when — every admin action (production-spec admin).
 

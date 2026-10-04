@@ -3,11 +3,12 @@
 import { notFound } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { AdminInvite, AdminUsage, AdminUser } from "@/lib/types";
+import type { AdminInvite, AdminUsage, AdminUser, AiCost } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import { UsersTab } from "@/components/admin/UsersTab";
 import { InvitesTab } from "@/components/admin/InvitesTab";
 import { InviteRequests } from "@/components/admin/InviteRequests";
+import { AiCostTab } from "@/components/admin/AiCost";
 import { Txt } from "@/components/Txt";
 import { UsageSummary, UsageTab } from "@/components/admin/Usage";
 
@@ -20,11 +21,12 @@ import { UsageSummary, UsageTab } from "@/components/admin/Usage";
  * read, another seller's designs, batches or generated content.
  */
 
-type Tab = "users" | "invites" | "usage";
+type Tab = "users" | "invites" | "usage" | "ai";
 const TABS: { id: Tab; label: string }[] = [
   { id: "users", label: "Users" },
   { id: "invites", label: "Invites" },
   { id: "usage", label: "Usage" },
+  { id: "ai", label: "AI cost" },
 ];
 
 // The budget moves as sellers work; keep the at-a-glance figure current.
@@ -36,6 +38,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [invites, setInvites] = useState<AdminInvite[] | null>(null);
   const [pendingRequests, setPendingRequests] = useState<number | null>(null);
+  const [aiCost, setAiCost] = useState<AiCost | null>(null);
   const [usage, setUsage] = useState<AdminUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
@@ -57,6 +60,7 @@ export default function AdminPage() {
     if (!isAdmin) return;
     api.admin.users().then(setUsers).catch(guard);
     api.admin.invites().then(setInvites).catch(guard);
+    api.admin.aiCost().then(setAiCost).catch(guard);
     loadUsage();
     const timer = setInterval(loadUsage, USAGE_REFRESH_MS);
     return () => clearInterval(timer);
@@ -147,6 +151,7 @@ export default function AdminPage() {
             />
           )}
           {tab === "usage" && <UsageTab key="usagetab-135-10" usage={usage} />}
+          {tab === "ai" && <AiCostTab key="aicost" cost={aiCost} />}
         </div>
       </div>
     </div>

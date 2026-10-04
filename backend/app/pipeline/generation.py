@@ -30,6 +30,10 @@ from app.pipeline.vision import VisionAnalysis, VisionAnalyzer
 
 logger = logging.getLogger(__name__)
 
+#: What a seller is told when a listing could not be written for a reason that
+#: is ours (the provider, a refusal, a malformed answer).
+SELLER_FAILURE = "This listing could not be written this time. Nothing is wrong with your design: try again."
+
 _MAX_REASON = 500
 
 
@@ -92,13 +96,12 @@ async def generate_listing_content(
         return GenerationOutcome(
             status="failed", usages=usages, analysis=analysis, error=reason
         )
-    except Exception as exc:  # vision or provider error — log the real traceback
-        reason = f"{type(exc).__name__}: {exc}"
+    except Exception:  # vision or provider error — log the real traceback
+        # The provider's own words name models and token limits; the seller is
+        # told only that it did not work this time. The log has the rest.
         logger.exception("content generation failed for asset %s", asset_id)
-        await _record_failure(session, asset_id, reason)
-        return GenerationOutcome(
-            status="failed", usages=usages, analysis=analysis, error=reason[:_MAX_REASON]
-        )
+        await _record_failure(session, asset_id, SELLER_FAILURE)
+        return GenerationOutcome(status="failed", usages=usages, analysis=analysis, error=SELLER_FAILURE)
 
     listing = result.listing
     # Sum content attempts so the stored per-listing figure reflects retries too.

@@ -136,9 +136,8 @@ class ContentOut(BaseModel):
     tags: list[str]
     description: str | None
     approved: bool
-    model_used: str | None
-    input_tokens: int | None
-    output_tokens: int | None
+    # Which model wrote it and what it cost are ours, not the seller's: they are
+    # not in any response a seller can receive (core/ai_usage.py).
     # The shop this content was written for (its profile's shop).
     connection_id: uuid.UUID | None = None
     # One draft per shop it was sent to (v5 §E).
@@ -309,23 +308,6 @@ class ValidationInfo(BaseModel):
 class ContentUpdateResult(BaseModel):
     content: ContentOut
     validation: ValidationInfo
-
-
-class ListingCost(BaseModel):
-    content_id: uuid.UUID
-    asset_id: uuid.UUID
-    model_used: str | None
-    input_tokens: int
-    output_tokens: int
-    cost_usd: str  # Decimal serialized as string to avoid float drift
-
-
-class BatchCostOut(BaseModel):
-    listing_count: int
-    total_input_tokens: int
-    total_output_tokens: int
-    total_cost_usd: str
-    listings: list[ListingCost]
 
 
 class QuotaDay(BaseModel):

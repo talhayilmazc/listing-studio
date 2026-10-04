@@ -434,7 +434,6 @@ async def test_admin_cannot_reach_another_tenants_designs_batches_or_content(wor
         ("GET", f"/api/batches/{bob.batch_id}", None),
         ("GET", f"/api/batches/{bob.batch_id}/groups", None),
         ("GET", f"/api/batches/{bob.batch_id}/content", None),
-        ("GET", f"/api/batches/{bob.batch_id}/cost", None),
         ("GET", f"/api/assets/{bob.asset_id}/image", None),
         ("GET", f"/api/assets/{bob.asset_id}/image?w=448&ar=4:5", None),
         ("PATCH", f"/api/content/{bob.content_id}", {"title": "x"}),

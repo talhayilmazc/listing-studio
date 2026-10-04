@@ -26,7 +26,6 @@ from app.db.models import Tenant, TenantStatus
 from app.db.session import get_sessionmaker
 from app.etsy.connection import ConnectionService
 from app.etsy.rate_limiter import DailyQuota
-from app.pipeline.cost import CostCalculator
 from app.pipeline.images import ImageProcessor
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.sku import SkuParser
@@ -94,11 +93,6 @@ def get_ingestor() -> BatchIngestor:
         processor=ImageProcessor(),
         sku_parser=SkuParser(),
     )
-
-
-@lru_cache
-def get_cost_calculator() -> CostCalculator:
-    return CostCalculator()
 
 
 @lru_cache

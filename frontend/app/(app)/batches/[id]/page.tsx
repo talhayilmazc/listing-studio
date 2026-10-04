@@ -6,7 +6,6 @@ import { api } from "@/lib/api";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
-import { CostPanel } from "@/components/CostPanel";
 import { ProfilePicker } from "@/components/ProfilePicker";
 import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
 import { BatchName } from "@/components/BatchName";
@@ -42,7 +41,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   // Refusals and errors (e.g. the allowance is used up): shown as a warning, not a notice.
   const [problem, setProblem] = useState<string | null>(null);
   const [failures, setFailures] = useState<{ original_filename: string; error: string }[]>([]);
-  const [costKey, setCostKey] = useState(0);
   // Modelling listings on the seller's own (v7 §B), when an admin turned it on.
   const { account } = useSession();
   const patternsOn = Boolean(account?.features?.own_patterns);
@@ -160,7 +158,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       }
       setFailures([...allFailures]);
       await load();
-      setCostKey((k) => k + 1); // the cost panel follows each group
     }
     setNotice(`Generated ${generated}, failed ${failed}, skipped ${skipped}.`);
     setBusy(null);
@@ -180,7 +177,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       setNotice(`Generated ${res.generated}, failed ${res.failed}, skipped ${res.skipped}.`);
       setFailures(res.failures);
       await load();
-      setCostKey((k) => k + 1);
     } catch (e: any) {
       setProblem(e.message ?? String(e));
     } finally {
@@ -214,7 +210,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       );
       setFailures(res.failures);
       await load();
-      setCostKey((k) => k + 1);
     } catch (e: any) {
       setProblem(e.message ?? String(e));
     } finally {
@@ -631,7 +626,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     );
                     load();
                     loadGroups();
-                    setCostKey((k) => k + 1);
                   } else if (result.listings_on_etsy) {
                     setNotice(`Image deleted from ${g.label}. Its listing on Etsy still has the photo; use “Replace images on Etsy” to update it there.`);
                   }
@@ -642,7 +636,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         })}
       </div>
 
-      <CostPanel batchId={id} refreshKey={costKey} />
     </div>
   );
 }

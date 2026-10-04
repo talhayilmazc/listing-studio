@@ -37,6 +37,7 @@ from app.core.sessions import SESSION_COOKIE, SessionStore
 from app.db.models import (
     AppSetting,
     ApiUsage,
+    AiUsageDaily,
     InviteCode,
     InviteRequest,
     ListingPublication,
@@ -50,6 +51,10 @@ from app.etsy.shops import active_shops, app_shop_count, tenant_shop_limit
 from app.workers.gate import SUSPENDED_MESSAGE
 
 from app.etsy.categories import LABELS
+
+from decimal import Decimal
+from app.core import ai_usage
+from app.pipeline.cost import DEFAULT_PRICES, CostCalculator
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -730,6 +735,125 @@ async def decline_invite_request(
     await session.commit()
     await session.refresh(row)
     return await _request_out(session, row)
+
+
+# --- AI cost (ours; never shown to sellers) -----------------------------------------
+class AiModelCost(BaseModel):
+    model: str
+    calls: int
+    listings: int
+    input_tokens: int
+    output_tokens: int
+    #: None when the model has no entry in the price table (tokens still shown).
+    cost_usd: str | None
+
+
+class AiPeriodCost(BaseModel):
+    calls: int = 0
+    listings: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: str = "0.000000"
+    #: Some of the period's calls used a model with no price: the cost is a floor.
+    unpriced: bool = False
+    #: Cost divided by listings written, when any were.
+    cost_per_listing_usd: str | None = None
+    models: list[AiModelCost] = []
+
+
+class AiAccountCost(BaseModel):
+    id: uuid.UUID | None  # None: accounts since deleted, together
+    email: str | None
+    today: AiPeriodCost
+    this_month: AiPeriodCost
+    last_30_days: AiPeriodCost
+    all_time: AiPeriodCost
+
+
+class AiCostOut(BaseModel):
+    as_of: str  # the UTC day "today" means
+    total: AiAccountCost
+    accounts: list[AiAccountCost]
+    #: USD per million tokens, as the cost above was worked out.
+    prices: dict[str, dict[str, str]]
+
+
+def _period(rows: list[AiUsageDaily], calc: CostCalculator) -> AiPeriodCost:
+    by_model: dict[str, list[AiUsageDaily]] = {}
+    for row in rows:
+        by_model.setdefault(row.model, []).append(row)
+    out = AiPeriodCost()
+    total = Decimal("0")
+    for model, group in sorted(by_model.items()):
+        costs = [ai_usage.cost_of(r, calc) for r in group]
+        known = None if any(c is None for c in costs) else sum(costs, Decimal("0"))
+        out.models.append(
+            AiModelCost(
+                model=model,
+                calls=sum(r.calls for r in group),
+                listings=sum(r.listings for r in group),
+                input_tokens=sum(r.input_tokens for r in group),
+                output_tokens=sum(r.output_tokens for r in group),
+                cost_usd=None if known is None else f"{known:.6f}",
+            )
+        )
+        if known is None:
+            out.unpriced = True
+        else:
+            total += known
+    out.calls = sum(m.calls for m in out.models)
+    out.listings = sum(m.listings for m in out.models)
+    out.input_tokens = sum(m.input_tokens for m in out.models)
+    out.output_tokens = sum(m.output_tokens for m in out.models)
+    out.cost_usd = f"{total:.6f}"
+    out.cost_per_listing_usd = f"{total / out.listings:.6f}" if out.listings else None
+    return out
+
+
+def _account_cost(
+    tenant_id: uuid.UUID | None, email: str | None, rows: list[AiUsageDaily], today: date, calc: CostCalculator
+) -> AiAccountCost:
+    return AiAccountCost(
+        id=tenant_id,
+        email=email,
+        today=_period([r for r in rows if r.day == today], calc),
+        this_month=_period([r for r in rows if r.day >= today.replace(day=1)], calc),
+        last_30_days=_period([r for r in rows if r.day > today - timedelta(days=30)], calc),
+        all_time=_period(rows, calc),
+    )
+
+
+@router.get("/ai-cost", response_model=AiCostOut)
+async def ai_cost(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AiCostOut:
+    """What the AI provider's work cost us, per account: calls, tokens, models, USD.
+
+    Counts only; no listing text and no batch. This is the one place these
+    figures are served, and only to an admin.
+    """
+    calc = CostCalculator()
+    today = datetime.now(timezone.utc).date()
+    rows = list((await session.execute(select(AiUsageDaily))).scalars())
+    emails = {t.id: t.email for t in (await session.execute(select(Tenant))).scalars()}
+    by_account: dict[uuid.UUID | None, list[AiUsageDaily]] = {}
+    for row in rows:
+        by_account.setdefault(row.tenant_id if row.tenant_id in emails else None, []).append(row)
+    accounts = [
+        _account_cost(tid, emails.get(tid) if tid else None, group, today, calc)
+        for tid, group in by_account.items()
+    ]
+    accounts.sort(key=lambda a: Decimal(a.this_month.cost_usd), reverse=True)
+    return AiCostOut(
+        as_of=today.isoformat(),
+        total=_account_cost(None, None, rows, today, calc),
+        accounts=accounts,
+        prices={
+            model: {"input": str(p.input), "output": str(p.output), "cache_write": str(p.cache_write), "cache_read": str(p.cache_read)}
+            for model, p in DEFAULT_PRICES.items()
+        },
+    )
 
 
 # --- Usage ----------------------------------------------------------------------
