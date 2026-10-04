@@ -53,9 +53,15 @@ def test_settings() -> Settings:
 def _isolate_settings(test_settings: Settings) -> Iterator[None]:
     """Install the isolated settings for every test, then clear the override."""
     set_settings_override(test_settings)
+    # A bare client in a test has no database behind it: calls made outside a
+    # metering scope are not written (in production they are, see core/ai_meter.py).
+    from app.core import ai_meter
+
+    ai_meter.UNSCOPED_WRITES = False
     try:
         yield
     finally:
+        ai_meter.UNSCOPED_WRITES = True
         set_settings_override(None)
         # The app caches one Redis client per process. Each test runs on its own
         # event loop, so a client left over from the previous test is unusable.

@@ -374,41 +374,54 @@ export interface ContentUpdateResult {
   validation: Validation;
 }
 
-/** Admin only: what the AI provider's work cost us (never sent to sellers). */
-export interface AiModelCost {
-  model: string;
+/** Admin only: what the AI provider's work costs us (never sent to sellers). */
+export interface AiTotals {
   calls: number;
+  failed: number;
   listings: number;
   input_tokens: number;
   output_tokens: number;
-  cost_usd: string | null;
-}
-
-export interface AiPeriodCost {
-  calls: number;
-  listings: number;
-  input_tokens: number;
-  output_tokens: number;
+  cache_write_tokens: number;
+  cache_write_1h_tokens: number;
+  cache_read_tokens: number;
   cost_usd: string;
   unpriced: boolean;
   cost_per_listing_usd: string | null;
-  models: AiModelCost[];
 }
 
-export interface AiAccountCost {
-  id: string | null;
-  email: string | null;
-  today: AiPeriodCost;
-  this_month: AiPeriodCost;
-  last_30_days: AiPeriodCost;
-  all_time: AiPeriodCost;
+export interface AiPrice {
+  model: string;
+  input: string;
+  output: string;
+  cache_write: string;
+  cache_write_1h: string;
+  cache_read: string;
+  custom: boolean;
 }
 
 export interface AiCost {
   as_of: string;
-  total: AiAccountCost;
-  accounts: AiAccountCost[];
-  prices: Record<string, { input: string; output: string; cache_write: string; cache_read: string }>;
+  today: AiTotals;
+  this_month: AiTotals;
+  sellers: { id: string | null; email: string | null; today: AiTotals; this_month: AiTotals }[];
+  purposes: { purpose: string; label: string; today: AiTotals; this_month: AiTotals }[];
+  days: (AiTotals & { day: string; models: (AiTotals & { model: string })[] })[];
+  recent: {
+    at: string;
+    email: string | null;
+    purpose: string;
+    model: string;
+    ok: boolean;
+    error: string | null;
+    input_tokens: number;
+    output_tokens: number;
+    cache_write_tokens: number;
+    cache_read_tokens: number;
+    cost_usd: string | null;
+    duration_ms: number | null;
+  }[];
+  prices: AiPrice[];
+  unpriced_models: string[];
 }
 
 export interface QuotaDay {

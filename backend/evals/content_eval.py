@@ -567,14 +567,18 @@ def report() -> None:
 
 
 if __name__ == "__main__":
-    command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command == "build":
-        asyncio.run(build())
-    elif command == "run":
-        asyncio.run(run())
-    elif command == "expect":
-        asyncio.run(expect())
-    elif command == "report":
-        report()
-    else:
-        print(__doc__)
+    # Our own runs spend on the same key: metered as "eval", with no seller.
+    from app.core import ai_meter
+
+    with ai_meter.origin("eval"):
+        command = sys.argv[1] if len(sys.argv) > 1 else ""
+        if command == "build":
+            asyncio.run(build())
+        elif command == "run":
+            asyncio.run(run())
+        elif command == "expect":
+            asyncio.run(expect())
+        elif command == "report":
+            report()
+        else:
+            print(__doc__)

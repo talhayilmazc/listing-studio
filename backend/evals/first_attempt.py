@@ -67,4 +67,8 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Our own runs spend on the same key: metered as "eval", with no seller.
+    from app.core import ai_meter
+
+    with ai_meter.origin("eval"):
+        asyncio.run(main())

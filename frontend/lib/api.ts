@@ -30,6 +30,7 @@ import type {
   TempPasswordIssued,
   Asset,
   AiCost,
+  AiPrice,
   BatchDetail,
   ImageDeleteResult,
   BatchPublishResult,
@@ -191,6 +192,10 @@ export const api = {
       req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
     usage: () => req<AdminUsage>("/admin/usage"),
     aiCost: () => req<AiCost>("/admin/ai-cost"),
+    setAiPrice: (body: Omit<AiPrice, "custom">) =>
+      req<AiPrice[]>("/admin/ai-prices", { method: "PUT", body: JSON.stringify(body) }),
+    resetAiPrice: (model: string) =>
+      req<AiPrice[]>(`/admin/ai-prices/${encodeURIComponent(model)}`, { method: "DELETE" }),
   },
 
   listBatches: () => req<BatchSummary[]>("/batches"),

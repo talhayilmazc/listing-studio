@@ -18,11 +18,11 @@ from __future__ import annotations
 import secrets
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
@@ -37,7 +37,7 @@ from app.core.sessions import SESSION_COOKIE, SessionStore
 from app.db.models import (
     AppSetting,
     ApiUsage,
-    AiUsageDaily,
+    AiCall,
     InviteCode,
     InviteRequest,
     ListingPublication,
@@ -53,8 +53,7 @@ from app.workers.gate import SUSPENDED_MESSAGE
 from app.etsy.categories import LABELS
 
 from decimal import Decimal
-from app.core import ai_usage
-from app.pipeline.cost import DEFAULT_PRICES, CostCalculator
+from app.core import ai_meter, ai_prices
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -738,89 +737,117 @@ async def decline_invite_request(
 
 
 # --- AI cost (ours; never shown to sellers) -----------------------------------------
-class AiModelCost(BaseModel):
-    model: str
-    calls: int
-    listings: int
-    input_tokens: int
-    output_tokens: int
-    #: None when the model has no entry in the price table (tokens still shown).
-    cost_usd: str | None
+class AiTotals(BaseModel):
+    """Calls, tokens and cost over some set of calls."""
 
-
-class AiPeriodCost(BaseModel):
     calls: int = 0
+    failed: int = 0
     listings: int = 0
-    input_tokens: int = 0
+    input_tokens: int = 0  # prompt tokens that were not cached
     output_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_write_1h_tokens: int = 0
+    cache_read_tokens: int = 0
     cost_usd: str = "0.000000"
-    #: Some of the period's calls used a model with no price: the cost is a floor.
+    #: Some of these calls used a model with no price: the cost is a floor.
     unpriced: bool = False
     #: Cost divided by listings written, when any were.
     cost_per_listing_usd: str | None = None
-    models: list[AiModelCost] = []
 
 
-class AiAccountCost(BaseModel):
-    id: uuid.UUID | None  # None: accounts since deleted, together
+class AiSeller(BaseModel):
+    id: uuid.UUID | None  # None: our own calls (evaluations) and deleted accounts
     email: str | None
-    today: AiPeriodCost
-    this_month: AiPeriodCost
-    last_30_days: AiPeriodCost
-    all_time: AiPeriodCost
+    today: AiTotals
+    this_month: AiTotals
+
+
+class AiPurpose(BaseModel):
+    purpose: str
+    label: str
+    today: AiTotals
+    this_month: AiTotals
+
+
+class AiModelDay(AiTotals):
+    model: str
+
+
+class AiDay(AiTotals):
+    day: str
+    #: Per model, as the provider's console lists a day: for reconciling.
+    models: list[AiModelDay] = []
+
+
+class AiCallOut(BaseModel):
+    at: datetime
+    email: str | None
+    purpose: str
+    model: str
+    ok: bool
+    error: str | None
+    input_tokens: int
+    output_tokens: int
+    cache_write_tokens: int
+    cache_read_tokens: int
+    cost_usd: str | None
+    duration_ms: int | None
+
+
+class AiPriceOut(BaseModel):
+    model: str
+    input: str
+    output: str
+    cache_write: str
+    cache_write_1h: str
+    cache_read: str
+    custom: bool  # set in the admin panel, not the built-in default
 
 
 class AiCostOut(BaseModel):
-    as_of: str  # the UTC day "today" means
-    total: AiAccountCost
-    accounts: list[AiAccountCost]
-    #: USD per million tokens, as the cost above was worked out.
-    prices: dict[str, dict[str, str]]
+    as_of: datetime
+    today: AiTotals  # the UTC day, as the provider's console counts
+    this_month: AiTotals
+    sellers: list[AiSeller]
+    purposes: list[AiPurpose]
+    days: list[AiDay]  # the last 31 UTC days, newest first
+    recent: list[AiCallOut]  # the last 50 calls
+    prices: list[AiPriceOut]
+    unpriced_models: list[str]
 
 
-def _period(rows: list[AiUsageDaily], calc: CostCalculator) -> AiPeriodCost:
-    by_model: dict[str, list[AiUsageDaily]] = {}
-    for row in rows:
-        by_model.setdefault(row.model, []).append(row)
-    out = AiPeriodCost()
-    total = Decimal("0")
-    for model, group in sorted(by_model.items()):
-        costs = [ai_usage.cost_of(r, calc) for r in group]
-        known = None if any(c is None for c in costs) else sum(costs, Decimal("0"))
-        out.models.append(
-            AiModelCost(
-                model=model,
-                calls=sum(r.calls for r in group),
-                listings=sum(r.listings for r in group),
-                input_tokens=sum(r.input_tokens for r in group),
-                output_tokens=sum(r.output_tokens for r in group),
-                cost_usd=None if known is None else f"{known:.6f}",
-            )
-        )
-        if known is None:
+class AiPriceIn(BaseModel):
+    model: str = Field(min_length=1, max_length=80)
+    input: str
+    output: str
+    cache_write: str
+    cache_write_1h: str
+    cache_read: str
+
+
+_SUMS = ("calls", "failed", "listings", "input_tokens", "output_tokens", "cache_write_tokens",
+         "cache_write_1h_tokens", "cache_read_tokens")
+
+
+def _totals(groups: list[dict[str, Any]], cls: type[AiTotals] = AiTotals, **extra: Any) -> Any:
+    out = cls(**extra)
+    cost = Decimal("0")
+    for g in groups:
+        for name in _SUMS:
+            setattr(out, name, getattr(out, name) + int(g[name] or 0))
+        cost += Decimal(str(g["cost"] or 0))
+        if g["unpriced"]:
             out.unpriced = True
-        else:
-            total += known
-    out.calls = sum(m.calls for m in out.models)
-    out.listings = sum(m.listings for m in out.models)
-    out.input_tokens = sum(m.input_tokens for m in out.models)
-    out.output_tokens = sum(m.output_tokens for m in out.models)
-    out.cost_usd = f"{total:.6f}"
-    out.cost_per_listing_usd = f"{total / out.listings:.6f}" if out.listings else None
+    out.cost_usd = f"{cost:.6f}"
+    out.cost_per_listing_usd = f"{cost / out.listings:.6f}" if out.listings else None
     return out
 
 
-def _account_cost(
-    tenant_id: uuid.UUID | None, email: str | None, rows: list[AiUsageDaily], today: date, calc: CostCalculator
-) -> AiAccountCost:
-    return AiAccountCost(
-        id=tenant_id,
-        email=email,
-        today=_period([r for r in rows if r.day == today], calc),
-        this_month=_period([r for r in rows if r.day >= today.replace(day=1)], calc),
-        last_30_days=_period([r for r in rows if r.day > today - timedelta(days=30)], calc),
-        all_time=_period(rows, calc),
-    )
+async def _prices_out(session: AsyncSession) -> list[AiPriceOut]:
+    stored = await session.get(AppSetting, ai_prices.KEY)
+    custom = set((stored.value if stored else {}) or {})
+    table = await ai_prices.load(session)
+    return [AiPriceOut(model=m, custom=m in custom, **p.as_strings()) for m, p in sorted(table.items())]
 
 
 @router.get("/ai-cost", response_model=AiCostOut)
@@ -828,32 +855,156 @@ async def ai_cost(
     admin: Tenant = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AiCostOut:
-    """What the AI provider's work cost us, per account: calls, tokens, models, USD.
+    """What the AI provider's work is costing us, live: today and this month,
+    per seller and per purpose, per listing, and day by day per model so the
+    total can be checked against the provider's console.
 
     Counts only; no listing text and no batch. This is the one place these
     figures are served, and only to an admin.
     """
-    calc = CostCalculator()
-    today = datetime.now(timezone.utc).date()
-    rows = list((await session.execute(select(AiUsageDaily))).scalars())
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    month = today.replace(day=1)
+    since = min(month, today - timedelta(days=30))
+    # One row per (day, seller, purpose, model): small, whatever the call count.
+    grouped = (
+        await session.execute(
+            select(
+                AiCall.day, AiCall.tenant_id, AiCall.purpose, AiCall.model,
+                func.count().label("calls"),
+                func.sum(case((AiCall.ok.is_(False), 1), else_=0)).label("failed"),
+                func.sum(AiCall.listings).label("listings"),
+                func.sum(AiCall.input_tokens).label("input_tokens"),
+                func.sum(AiCall.output_tokens).label("output_tokens"),
+                func.sum(AiCall.cache_write_tokens).label("cache_write_tokens"),
+                func.sum(AiCall.cache_write_1h_tokens).label("cache_write_1h_tokens"),
+                func.sum(AiCall.cache_read_tokens).label("cache_read_tokens"),
+                func.sum(AiCall.cost_usd).label("cost"),
+                # A call with tokens but no cost: its model had no price.
+                func.sum(case((and_(AiCall.cost_usd.is_(None), AiCall.input_tokens + AiCall.output_tokens > 0), 1), else_=0)).label("unpriced"),
+            )
+            .where(AiCall.day >= since)
+            .group_by(AiCall.day, AiCall.tenant_id, AiCall.purpose, AiCall.model)
+        )
+    ).mappings().all()
+    rows = [dict(r) for r in grouped]
     emails = {t.id: t.email for t in (await session.execute(select(Tenant))).scalars()}
-    by_account: dict[uuid.UUID | None, list[AiUsageDaily]] = {}
-    for row in rows:
-        by_account.setdefault(row.tenant_id if row.tenant_id in emails else None, []).append(row)
-    accounts = [
-        _account_cost(tid, emails.get(tid) if tid else None, group, today, calc)
-        for tid, group in by_account.items()
+    for r in rows:
+        if r["tenant_id"] not in emails:
+            r["tenant_id"] = None  # a deleted account, or our own calls
+
+    def of(pred: Any) -> list[dict[str, Any]]:
+        return [r for r in rows if pred(r)]
+
+    is_today = lambda r: r["day"] == today  # noqa: E731
+    in_month = lambda r: r["day"] >= month  # noqa: E731
+
+    sellers = [
+        AiSeller(
+            id=tid, email=emails.get(tid) if tid else None,
+            today=_totals(of(lambda r, tid=tid: r["tenant_id"] == tid and is_today(r))),
+            this_month=_totals(of(lambda r, tid=tid: r["tenant_id"] == tid and in_month(r))),
+        )
+        for tid in {r["tenant_id"] for r in rows if in_month(r)}
     ]
-    accounts.sort(key=lambda a: Decimal(a.this_month.cost_usd), reverse=True)
+    sellers.sort(key=lambda s: Decimal(s.this_month.cost_usd), reverse=True)
+    purposes = [
+        AiPurpose(
+            purpose=p, label=ai_meter.PURPOSES.get(p, p),
+            today=_totals(of(lambda r, p=p: r["purpose"] == p and is_today(r))),
+            this_month=_totals(of(lambda r, p=p: r["purpose"] == p and in_month(r))),
+        )
+        for p in {r["purpose"] for r in rows if in_month(r)}
+    ]
+    purposes.sort(key=lambda p: Decimal(p.this_month.cost_usd), reverse=True)
+    days = []
+    for day in sorted({r["day"] for r in rows if r["day"] > today - timedelta(days=31)}, reverse=True):
+        of_day = of(lambda r, day=day: r["day"] == day)
+        days.append(
+            _totals(
+                of_day, AiDay, day=day.isoformat(),
+                models=[
+                    _totals([r for r in of_day if r["model"] == m], AiModelDay, model=m)
+                    for m in sorted({r["model"] for r in of_day})
+                ],
+            )
+        )
+    recent = (await session.execute(select(AiCall).order_by(AiCall.at.desc()).limit(50))).scalars().all()
+    table = await ai_prices.load(session)
+    unpriced = (
+        await session.execute(
+            select(AiCall.model).where(AiCall.cost_usd.is_(None), AiCall.input_tokens + AiCall.output_tokens > 0).distinct()
+        )
+    ).scalars().all()
     return AiCostOut(
-        as_of=today.isoformat(),
-        total=_account_cost(None, None, rows, today, calc),
-        accounts=accounts,
-        prices={
-            model: {"input": str(p.input), "output": str(p.output), "cache_write": str(p.cache_write), "cache_read": str(p.cache_read)}
-            for model, p in DEFAULT_PRICES.items()
-        },
+        as_of=now,
+        today=_totals(of(is_today)),
+        this_month=_totals(of(in_month)),
+        sellers=sellers,
+        purposes=purposes,
+        days=days,
+        recent=[
+            AiCallOut(
+                at=c.at, email=emails.get(c.tenant_id) if c.tenant_id else None, purpose=c.purpose, model=c.model,
+                ok=c.ok, error=c.error, input_tokens=c.input_tokens, output_tokens=c.output_tokens,
+                cache_write_tokens=c.cache_write_tokens + c.cache_write_1h_tokens, cache_read_tokens=c.cache_read_tokens,
+                cost_usd=None if c.cost_usd is None else f"{c.cost_usd:.6f}", duration_ms=c.duration_ms,
+            )
+            for c in recent
+        ],
+        prices=await _prices_out(session),
+        unpriced_models=sorted(m for m in unpriced if ai_prices.price_for(m, table) is None),
     )
+
+
+@router.put("/ai-prices", response_model=list[AiPriceOut])
+async def set_ai_price(
+    body: AiPriceIn,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[AiPriceOut]:
+    """Set one model's rates (USD per million tokens). Calls already costed keep
+    their cost; calls of that model that had no price are costed now."""
+    try:
+        rates = ai_prices.validate(body.model_dump(exclude={"model"}))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    model = body.model.strip()
+    row = await session.get(AppSetting, ai_prices.KEY)
+    stored = dict((row.value if row else {}) or {})
+    previous = stored.get(model)
+    stored[model] = rates
+    if row is None:
+        session.add(AppSetting(key=ai_prices.KEY, value=stored))
+    else:
+        row.value = stored
+    await session.flush()
+    table = await ai_prices.load(session)
+    waiting = (await session.execute(select(AiCall).where(AiCall.cost_usd.is_(None)))).scalars().all()
+    costed = 0
+    for call in waiting:
+        call.cost_usd = ai_prices.cost_of(call, table)
+        costed += call.cost_usd is not None
+    audit.record(session, "app.ai_price_changed", actor=admin, model=model, previous=previous, new=rates, costed=costed)
+    await session.commit()
+    return await _prices_out(session)
+
+
+@router.delete("/ai-prices/{model}", response_model=list[AiPriceOut])
+async def reset_ai_price(
+    model: str,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[AiPriceOut]:
+    """Back to the built-in rates for this model (or no price, if it has none)."""
+    row = await session.get(AppSetting, ai_prices.KEY)
+    stored = dict((row.value if row else {}) or {})
+    if model in stored and row is not None:
+        previous = stored.pop(model)
+        row.value = stored
+        audit.record(session, "app.ai_price_changed", actor=admin, model=model, previous=previous, new=None)
+        await session.commit()
+    return await _prices_out(session)
 
 
 # --- Usage ----------------------------------------------------------------------

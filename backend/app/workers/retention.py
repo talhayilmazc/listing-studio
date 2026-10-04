@@ -37,6 +37,7 @@ from sqlalchemy import delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
+    AiCall,
     InviteRequest,
     AdSpend,
     AllowanceUse,
@@ -89,6 +90,8 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
             )
         )
     )
+    # Our own record of model calls: kept long enough to compare a year on.
+    await session.execute(delete(AiCall).where(AiCall.day < (now - timedelta(days=AiCall.RETENTION_DAYS)).date()))
     image_links = await _strip_display_fields(session, now)
     profiles = await session.execute(
         update(ListingProfile)

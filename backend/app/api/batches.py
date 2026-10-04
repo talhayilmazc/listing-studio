@@ -60,7 +60,7 @@ from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
 
-from app.core import ai_usage, llm_status
+from app.core import ai_meter, llm_status
 from app.core.llm_status import LLMUnavailable
 from redis.asyncio import Redis
 from app.api.deps import get_redis
@@ -1196,31 +1196,34 @@ async def generate_content(
             continue
 
         data = storage.get(primary.processed_key)
-        try:
-            outcome = await generate_listing_content(
-                session,
-                tenant_id=tenant.id,
-                batch_id=batch_id,
-                asset_id=primary.id,
-                image_data=data,
-                media_type=primary.mime_type or "image/jpeg",
-                sku=primary.parsed_sku,
-                analyzer=analyzer,
-                generator=_generator(profile),
-                profile=profile,
-                pattern=pattern,
-            )
-        except LLMUnavailable as exc:
-            # Stop here: this group and the rest wait, none of them failed.
-            await session.rollback()
-            await llm_status.report(redis, exc)
-            paused = llm_status.SELLER_MESSAGE
+        outcome = None
+        # Every model call made for this group is metered for this seller, and
+        # written when the scope closes whether or not a listing came of it.
+        async with ai_meter.scope(tenant.id, session) as meter:
+            try:
+                outcome = await generate_listing_content(
+                    session,
+                    tenant_id=tenant.id,
+                    batch_id=batch_id,
+                    asset_id=primary.id,
+                    image_data=data,
+                    media_type=primary.mime_type or "image/jpeg",
+                    sku=primary.parsed_sku,
+                    analyzer=analyzer,
+                    generator=_generator(profile),
+                    profile=profile,
+                    pattern=pattern,
+                )
+            except LLMUnavailable as exc:
+                # Stop here: this group and the rest wait, none of them failed.
+                await session.rollback()
+                await llm_status.report(redis, exc)
+                paused = llm_status.SELLER_MESSAGE
+            else:
+                if outcome.status == "generated":
+                    meter.listing_written()
+        if outcome is None:
             break
-        # Every model call is our cost, whether or not a listing came of it.
-        await ai_usage.record(
-            session, tenant.id, outcome.usages, listings=1 if outcome.status == "generated" else 0
-        )
-        await session.commit()
         if outcome.status == "generated":
             await llm_status.cleared(redis)
             generated += 1

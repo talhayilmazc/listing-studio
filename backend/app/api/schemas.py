@@ -137,7 +137,7 @@ class ContentOut(BaseModel):
     description: str | None
     approved: bool
     # Which model wrote it and what it cost are ours, not the seller's: they are
-    # not in any response a seller can receive (core/ai_usage.py).
+    # not in any response a seller can receive (core/ai_meter.py).
     # The shop this content was written for (its profile's shop).
     connection_id: uuid.UUID | None = None
     # One draft per shop it was sent to (v5 §E).

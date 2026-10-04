@@ -18,6 +18,7 @@ import io
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from app.core import ai_meter
 from app.pipeline.llm import LLMClient
 
 SIZE_CHART = "size_chart"
@@ -112,9 +113,10 @@ class AnthropicImageKindClassifier:
                 "source": {"type": "base64", "media_type": media_type, "data": encoded},
             },
         ]
-        result = await self._client.complete_json(
-            system=_SYSTEM, content_blocks=blocks, schema=IMAGE_KIND_SCHEMA, max_tokens=64
-        )
+        with ai_meter.purpose("size_chart"):
+            result = await self._client.complete_json(
+                system=_SYSTEM, content_blocks=blocks, schema=IMAGE_KIND_SCHEMA, max_tokens=64
+            )
         kind = str(result.data.get("kind", ARTWORK))
         return kind if kind in (SIZE_CHART, ARTWORK) else ARTWORK
 

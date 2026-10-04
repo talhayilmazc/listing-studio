@@ -11,6 +11,7 @@ import base64
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.core import ai_meter
 from app.pipeline.llm import LLMClient, LLMError, Usage
 from app.pipeline.templates import PromptTemplate, load_template
 
@@ -120,11 +121,14 @@ class AnthropicVisionAnalyzer:
         )
 
     async def analyze(self, image_data: bytes, media_type: str) -> VisionResult:
-        result = await self._client.complete_json(
-            system=self._template.system,
-            content_blocks=self._content_blocks(image_data, media_type),
-            schema=VISION_SCHEMA,
-        )
+        # One call reads the design: its themes, text, colours, and any
+        # recognisable characters (there is no separate character-detection call).
+        with ai_meter.purpose("vision"):
+            result = await self._client.complete_json(
+                system=self._template.system,
+                content_blocks=self._content_blocks(image_data, media_type),
+                schema=VISION_SCHEMA,
+            )
         return VisionResult(analysis=_to_analysis(result.data), usage=result.usage)
 
 

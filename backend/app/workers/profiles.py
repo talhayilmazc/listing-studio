@@ -43,6 +43,7 @@ from app.pipeline.reference import (
     prefix_from_shop,
     production_partner_ids,
 )
+from app.core import ai_meter
 from app.pipeline.attributes import attribute_choices
 from app.pipeline.taxonomy import category_path, clothing_taxonomy_ids, infer_content_template
 from app.etsy.calllog import current_job
@@ -340,9 +341,11 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
                     logger.warning("reference image fetch failed", exc_info=True)
                     return None
 
-            charts = await classify_reference_images(
-                payload["images"], fetch_bytes=_fetch, vision=vision, prior_kinds=prior
-            )
+            # Ambiguous images are checked by the model: metered for this seller.
+            async with ai_meter.scope(profile.tenant_id, session):
+                charts = await classify_reference_images(
+                    payload["images"], fetch_bytes=_fetch, vision=vision, prior_kinds=prior
+                )
         payload["images_classified"] = True
         if profile.fixed_image_ids is None and charts:
             profile.fixed_image_ids = charts

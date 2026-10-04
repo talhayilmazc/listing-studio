@@ -22,10 +22,12 @@ keeps the concrete Anthropic SDK out of the unit tests — they pass a fake.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 
+from app.core import ai_meter
 from app.core.llm_status import classify
 
 
@@ -42,6 +44,9 @@ class Usage:
     output_tokens: int
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
+    #: The part of ``cache_creation_input_tokens`` written with the 1-hour
+    #: lifetime, which is billed at a higher rate than the 5-minute default.
+    cache_creation_1h_input_tokens: int = 0
 
 
 @dataclass
@@ -179,15 +184,34 @@ class AnthropicLLMClient:
             schema=schema,
             max_tokens=max_tokens,
         )
+        # Every call is metered here, where every call passes: the ones that
+        # worked, the ones refused, the ones whose answer could not be used.
+        started = time.monotonic()
         try:
             response = await self._messages.create(**params)
         except Exception as exc:  # noqa: BLE001 - only to tell an account refusal apart
             outage = classify(getattr(exc, "status_code", None), str(exc))
+            status = getattr(exc, "status_code", None)
+            await ai_meter.record(
+                model=self.model, usage=None, ok=False, started=started,
+                error=outage.kind if outage is not None else f"http_{status}" if status else type(exc).__name__,
+            )
             if outage is not None:
                 # Our account, not this request: the caller pauses instead of failing.
                 raise outage from None
             raise
-        return LLMResult(data=_parse_json(response), usage=_usage(response, self.model))
+        # The model that answered, as the provider names it (what its console shows).
+        answered = str(getattr(response, "model", None) or self.model)
+        billed = _billed(response)
+        try:
+            data = _parse_json(response)
+            usage = _usage(response, self.model)
+        except LLMError as exc:
+            # Billed all the same: a refusal or an unusable answer still used tokens.
+            await ai_meter.record(model=answered, usage=billed, ok=False, started=started, error=_kind(exc))
+            raise
+        await ai_meter.record(model=answered, usage=usage, ok=True, started=started)
+        return LLMResult(data=data, usage=usage)
 
 
 def client_for(settings: Any, role: str) -> AnthropicLLMClient:
@@ -221,6 +245,30 @@ def _parse_json(response: Any) -> dict[str, Any]:
     return data
 
 
+def _kind(exc: LLMError) -> str:
+    text = str(exc)
+    if "refused" in text:
+        return "refusal"
+    if "JSON" in text or "text block" in text:
+        return "unusable_answer"
+    return "no_usage" if "usage" in text else "error"
+
+
+def _billed(response: Any) -> Usage | None:
+    """The tokens a response was billed for, whatever became of its content."""
+    try:
+        return _usage(response, "")
+    except (LLMError, AttributeError, TypeError, ValueError):
+        return None
+
+
+def _one_hour_writes(usage: Any) -> int:
+    split = getattr(usage, "cache_creation", None)
+    if isinstance(split, dict):
+        return int(split.get("ephemeral_1h_input_tokens") or 0)
+    return int(getattr(split, "ephemeral_1h_input_tokens", 0) or 0) if split is not None else 0
+
+
 def _usage(response: Any, model: str) -> Usage:
     usage = getattr(response, "usage", None)
     if usage is None:
@@ -229,6 +277,7 @@ def _usage(response: Any, model: str) -> Usage:
         model=model,
         input_tokens=int(usage.input_tokens),
         output_tokens=int(usage.output_tokens),
+        cache_creation_1h_input_tokens=_one_hour_writes(usage),
         cache_creation_input_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
         cache_read_input_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
     )

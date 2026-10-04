@@ -20,15 +20,14 @@ to SELLER_COST_FIELDS on purpose, or it fails here.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 
-from app.core import ai_usage
-from app.db.models import AiUsageDaily, Asset, GeneratedContent
+from app.db.models import AiCall, Asset, GeneratedContent
 from app.main import create_app
-from app.pipeline.llm import Usage
 from tests.test_admin import world  # noqa: F401  (fixture)
 
 MODEL = "claude-sonnet-5"
@@ -106,15 +105,16 @@ def test_no_seller_response_schema_has_a_cost_token_or_model_field() -> None:
 async def _costly(world) -> None:  # noqa: F811
     """Bob's listing was written by a named model for a counted number of tokens."""
     bob = world["bob"]
+    now = datetime.now(timezone.utc)
     async with world["sm"]() as s:
         await s.execute(
             update(GeneratedContent)
             .where(GeneratedContent.id == bob.content_id)
             .values(model_used=MODEL, input_tokens=4321, output_tokens=987)
         )
-        await ai_usage.record(
-            s, bob.tenant_id, [Usage(model=MODEL, input_tokens=4321, output_tokens=987)], listings=1
-        )
+        s.add(AiCall(at=now, day=now.date(), tenant_id=bob.tenant_id, purpose="content", model=MODEL, ok=True,
+                     input_tokens=4321, output_tokens=987, cache_write_tokens=0, cache_write_1h_tokens=0,
+                     cache_read_tokens=0, listings=1, cost_usd=Decimal("0.018512")))
         await s.commit()
 
 
@@ -175,42 +175,18 @@ async def test_the_cost_endpoint_is_gone_and_the_admin_view_is_admin_only(world)
     assert (await world["anon"].get("/api/admin/ai-cost")).status_code in (401, 404)
 
     seen = (await world["a"].get("/api/admin/ai-cost")).json()
-    row = next(a for a in seen["accounts"] if a["email"] == "bob@example.com")
+    row = next(a for a in seen["sellers"] if a["email"] == "bob@example.com")
     today = row["today"]
     assert (today["calls"], today["listings"], today["input_tokens"], today["output_tokens"]) == (1, 1, 4321, 987)
     # $2 and $10 per million tokens: 4321 x 2 + 987 x 10 = 18,512 millionths of a dollar.
     assert today["cost_usd"] == "0.018512" and today["cost_per_listing_usd"] == "0.018512"
-    assert today["models"][0]["model"] == MODEL and today["unpriced"] is False
-    assert seen["total"]["all_time"]["cost_usd"] == "0.018512"
-    assert seen["prices"][MODEL]["input"] == "2.00"
     # Counts only: nothing of the seller's work is in it.
     assert "title" not in str(seen) and str(bob.batch_id) not in str(seen)
 
-
-async def test_every_call_is_counted_by_day_and_model_and_survives_the_listing(world) -> None:  # noqa: F811
-    bob = world["bob"]
-    yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
-    async with world["sm"]() as s:
-        # A failed attempt (no listing) and its retry, a second model, and an older day.
-        await ai_usage.record(s, bob.tenant_id, [Usage(MODEL, 100, 10), Usage(MODEL, 200, 20)], listings=0)
-        await ai_usage.record(s, bob.tenant_id, [Usage(MODEL, 300, 30), Usage("some-new-model", 50, 5)], listings=1)
-        await ai_usage.record(s, bob.tenant_id, [Usage(MODEL, 1000, 100)], listings=1, day=yesterday)
-        await s.commit()
-        rows = list((await s.execute(select(AiUsageDaily).where(AiUsageDaily.tenant_id == bob.tenant_id))).scalars())
-    today = [r for r in rows if r.day != yesterday]
-    priced = next(r for r in today if r.model == MODEL)
-    assert (priced.calls, priced.listings, priced.input_tokens, priced.output_tokens) == (3, 1, 600, 60)
-    assert len(rows) == 3
-
     # Deleting the batch deletes the listing; what it cost us stays.
     assert (await world["b"].delete(f"/api/batches/{bob.batch_id}")).status_code in (200, 204)
-    seen = (await world["a"].get("/api/admin/ai-cost")).json()
-    row = next(a for a in seen["accounts"] if a["email"] == "bob@example.com")
-    assert row["all_time"]["calls"] == 5 and row["all_time"]["listings"] == 2
-    # A model with no price is shown with its tokens and flagged, never guessed.
-    assert row["today"]["unpriced"] is True
-    unknown = next(m for m in row["today"]["models"] if m["model"] == "some-new-model")
-    assert unknown["cost_usd"] is None and unknown["input_tokens"] == 50
+    after = (await world["a"].get("/api/admin/ai-cost")).json()
+    assert next(a for a in after["sellers"] if a["email"] == "bob@example.com")["this_month"]["cost_usd"] == "0.018512"
 
 
 async def test_a_provider_error_reaches_the_seller_as_a_plain_sentence(world) -> None:  # noqa: F811

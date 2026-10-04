@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.compliance.trademarks import Blocklist, configured_blocklist, trademark_errors
+from app.core import ai_meter
 from app.pipeline import search_rules
 from app.pipeline.llm import LLMClient, LLMError, Usage
 from app.pipeline.search_rules import LEGACY_TITLE, TitleRules
@@ -754,12 +755,15 @@ class AnthropicContentGenerator:
             blocks = [*blocks, self._pattern_block(pattern)]
         if correction is not None:
             blocks = [*blocks, correction]
-        result = await self._client.complete_json(
-            system=self._template.system,
-            content_blocks=blocks,
-            schema=self._schema,
-            max_tokens=self._max_tokens,
-        )
+        # The second attempt (after a failed validation) is its own purpose, so
+        # what retries cost is visible on its own.
+        with ai_meter.purpose("content_retry" if correction is not None else "content"):
+            result = await self._client.complete_json(
+                system=self._template.system,
+                content_blocks=blocks,
+                schema=self._schema,
+                max_tokens=self._max_tokens,
+            )
         return _to_listing(result.data), result.usage
 
     async def generate(

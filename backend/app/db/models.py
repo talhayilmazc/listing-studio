@@ -18,6 +18,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, ClassVar
 
 from sqlalchemy import (
@@ -31,6 +32,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    Numeric,
     Text,
     UniqueConstraint,
     false,
@@ -270,28 +272,42 @@ class InviteRequest(Base):
     invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"))
 
 
-class AiUsageDaily(Base):
-    """Model calls made for an account in one day, per model: our cost of goods.
+class AiCall(Base):
+    """One call to the AI provider: who for, what for, which model, the tokens of
+    each billing class, whether it worked, and what it cost (core/ai_meter.py).
 
-    Admin-only (core/ai_usage.py). Not Member Content and not the seller's data:
-    it holds counts, never text. ``tenant_id`` is SET NULL when an account is
-    deleted, because the spend remains ours.
+    Admin-only: our cost of goods, never in a response a seller can receive.
+    Counts and a purpose, never text. ``tenant_id`` is SET NULL when an account
+    is deleted, because the spend remains ours. Kept ``RETENTION_DAYS``.
     """
 
-    __tablename__ = "ai_usage_daily"
-    __table_args__ = (UniqueConstraint("tenant_id", "day", "model", name="uq_ai_usage_daily"),)
+    __tablename__ = "ai_call"
+    __table_args__ = (Index("ix_ai_call_tenant_day", "tenant_id", "day"),)
+    RETENTION_DAYS: ClassVar[int] = 400
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenant.id", ondelete="SET NULL"))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The UTC day of ``at``: how the provider's console groups, and what is summed.
     day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenant.id", ondelete="SET NULL"))
+    #: vision | content | content_retry | size_chart | eval | backfill | other
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
-    calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    #: Listings written (a retry or a failed attempt adds calls, not a listing).
+    #: False: refused, unusable answer, or the request itself failed (no tokens then).
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    #: Prompt tokens that were not cached.
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Written to the 5-minute cache, and to the 1-hour cache (priced differently).
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    cache_write_1h_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: At the price table in force when recorded; None while the model has no price.
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 8))
+    #: 1 on the call that wrote a listing the seller received, else 0.
     listings: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
-    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
-    cache_write_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
-    cache_read_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
 
 
 class AuditLog(Base):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.pipeline.cost import CostCalculator
+from app.core import ai_prices
 from app.pipeline.llm import THINKING_MAX_TOKENS, AnthropicLLMClient, Usage, client_for, thinking_params
 
 
@@ -48,5 +48,5 @@ def test_vision_and_content_models_are_separate_settings() -> None:
 
 
 def test_sonnet_5_is_priced() -> None:
-    cost = CostCalculator().cost_for(Usage(model="claude-sonnet-5", input_tokens=1_000_000, output_tokens=100_000))
-    assert str(cost) == "3.00"
+    cost = ai_prices.cost("claude-sonnet-5", ai_prices.merged(None), input_tokens=1_000_000, output_tokens=100_000)
+    assert cost == 3

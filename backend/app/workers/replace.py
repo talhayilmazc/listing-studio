@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from app.core import ai_usage, allowance, llm_status
+from app.core import ai_meter, allowance, llm_status
 from app.core.llm_status import LLMUnavailable
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
@@ -188,9 +188,10 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     title_prefix=str(job.payload.get("title_prefix") or ""),
                     trademarks=blocklist_for_tenant(tenant),
                 )
-                vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
-                result = await generator.generate(vision.analysis, primary.parsed_sku)
-                await ai_usage.record(session, tenant.id, [vision.usage, *result.usages], listings=1)
+                async with ai_meter.scope(tenant.id, session) as meter:
+                    vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
+                    result = await generator.generate(vision.analysis, primary.parsed_sku)
+                    meter.listing_written()
                 allowance.record(session, tenant.id, allowance.GENERATION)
                 new_title = result.listing.title
                 new_tags = result.listing.tags
