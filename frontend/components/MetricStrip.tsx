@@ -82,7 +82,7 @@ export function MetricStrip() {
           deltaNote="vs last month"
           secondary={
             shop
-              ? shop.shop_counts_known
+              ? (shop.published_known ?? shop.shop_counts_known)
                 ? `all listings published in the shop: ${shop.published_this_month.toLocaleString()}`
                 : shop.syncing
                   ? "all listings published in the shop: syncing…"
@@ -214,15 +214,16 @@ function Cell({
  * sunken surface and the full-height 7-day chart.
  */
 function QuotaCell({ quota }: { quota: Quota | null }) {
-  const low = quota ? quota.tenant_remaining < quota.tenant_limit * 0.1 : false;
+  const ceiling = quota?.ceiling ?? null;
+  const low = ceiling ? ceiling.remaining < ceiling.limit * 0.1 : false;
   const average = quota ? dailyAverage(quota.history) : null;
 
   return (
     <div className={CELL + " bg-slate-50"}>
-      <Label label="Etsy API" period="requests left today" />
+      <Label label="Etsy requests today" period="left, of your account's limit" />
       <dd className="mt-1.5 flex items-end justify-between gap-4">
         <div>
-          {quota === null ? (
+          {ceiling === null ? (
             <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />
           ) : (
             <span translate="no"
@@ -231,26 +232,26 @@ function QuotaCell({ quota }: { quota: Quota | null }) {
                 (low ? "text-amber-700" : "text-slate-900")
               }
             >
-              <span>{quota.tenant_remaining.toLocaleString()}</span>
+              <span>{ceiling.remaining.toLocaleString()}</span>
               <span className="text-lg text-slate-400">
                 <span>{" / "}
-                <span>{quota.tenant_limit.toLocaleString()}</span></span>
+                <span>{ceiling.limit.toLocaleString()}</span></span>
               </span>
             </span>
           )}
           <p
+            translate="no"
             className="mt-1.5 min-h-4 text-xs text-slate-400"
             title={
-              quota?.upkeep_used
-                ? `Plus ${quota.upkeep_used.toLocaleString()} requests today keeping your shop and profiles current; those don't count toward your limit.`
-                : "Keeping your shop and profiles current doesn't count toward your limit."
+              ceiling?.upkeep
+                ? `Requests your drafts, publishing and Replace images made today, in all your shops. Plus ${ceiling.upkeep.toLocaleString()} keeping your shops and profiles current, which don't count toward your limit. Resets at 00:00 UTC.`
+                : "Requests your drafts, publishing and Replace images made today, in all your shops. Keeping your shops and profiles current doesn't count. Resets at 00:00 UTC."
             }
           >
-            {quota === null
+            {ceiling === null
               ? ""
-              : average != null
-                ? `${quota.tenant_used.toLocaleString()} used today · avg ${average.toLocaleString()}/day over 7 days`
-                : `${quota.tenant_used.toLocaleString()} used today`}
+              : `${ceiling.used.toLocaleString()} used · resets ${ceiling.resets_label}` +
+                (average != null ? ` · avg ${average.toLocaleString()}/day over 7 days` : "")}
           </p>
         </div>
         {quota && <UsageChart key="usagechart-229-8" history={quota.history} />}

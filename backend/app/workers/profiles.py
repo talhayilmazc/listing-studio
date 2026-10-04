@@ -43,7 +43,7 @@ from app.pipeline.reference import (
     prefix_from_shop,
     production_partner_ids,
 )
-from app.core import ai_meter
+from app.core import ai_meter, limits
 from app.pipeline.attributes import attribute_choices
 from app.pipeline.taxonomy import category_path, clothing_taxonomy_ids, infer_content_template
 from app.etsy.calllog import current_job
@@ -264,7 +264,7 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
             kw = {
                 "access_token": token,
                 "tenant_id": profile.tenant_id,
-                "tenant_limit": tenant.daily_quota if tenant else None,
+                "tenant_limit": limits.ceiling_limit(tenant) if tenant else None,
             }
             shop_id = await _resolve_shop_id(session, client, connection, kw)
             ref_id = profile.reference_listing_id
@@ -398,7 +398,7 @@ async def _refresh_images_body(ctx: dict[str, Any], profile_id: str) -> str:
                 profile.reference_listing_id,
                 access_token=token,
                 tenant_id=profile.tenant_id,
-                tenant_limit=tenant.daily_quota if tenant else None,
+                tenant_limit=limits.ceiling_limit(tenant) if tenant else None,
             )
         fresh = image_entries(rows)
         known = {img.get("listing_image_id"): img for img in profile.cached_payload.get("images", [])}
@@ -484,7 +484,7 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
             kw = {
                 "access_token": token,
                 "tenant_id": tid,
-                "tenant_limit": tenant.daily_quota if tenant else None,
+                "tenant_limit": limits.ceiling_limit(tenant) if tenant else None,
             }
             shop_id = await _resolve_shop_id(session, client, connection, kw)
             rows: list[dict[str, Any]] = []
@@ -554,6 +554,54 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
         return f"synced:{len(rows)}"
 
 
+async def sync_shop_counts(ctx: dict[str, Any], connection_id: str) -> str:
+    """How many listings the shop has in each state: one request per state.
+
+    The top strip needs only these numbers. Reading every listing for them (a
+    full sync: a request per hundred listings, in each state) cost a
+    1,300-listing shop 18 requests every six hours whether or not anyone looked
+    at a listing. A count is not listing content, so it may be kept a day.
+    """
+    tenant_id = await _shop_owner(ctx, connection_id)
+    if tenant_id is None:
+        return "no-connection"
+    return await _run_gated(
+        ctx,
+        "sync_shop_counts",
+        connection_id,
+        tenant_id,
+        lambda: _sync_shop_counts(ctx, connection_id),
+    )
+
+
+async def _sync_shop_counts(ctx: dict[str, Any], connection_id: str) -> str:
+    settings = get_settings()
+    service = _connection_service(settings)
+    async with ctx["sessionmaker"]() as session:
+        connection = await _active_shop(session, uuid.UUID(connection_id))
+        if connection is None:
+            return "no-connection"
+        tenant = await session.get(Tenant, connection.tenant_id)
+        token = await service.get_valid_access_token(session, connection)
+        counts: dict[str, Any] = {}
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            client = _build_client(ctx, http, settings, shop=connection.id)
+            kw = {
+                "access_token": token,
+                "tenant_id": connection.tenant_id,
+                "tenant_limit": limits.ceiling_limit(tenant) if tenant else None,
+            }
+            shop_id = await _resolve_shop_id(session, client, connection, kw)
+            for state in SYNC_STATES:
+                resp = await client.get_listings_by_shop(shop_id, state=state, limit=1, offset=0, **kw)
+                total = resp.get("count")
+                counts[state] = int(total) if total is not None else len(resp.get("results", []))
+        connection.listing_counts = counts
+        connection.listing_counts_at = datetime.now(timezone.utc)
+        await session.commit()
+        return f"counted:{sum(counts.values())}"
+
+
 async def detect_profiles(ctx: dict[str, Any], connection_id: str) -> str:
     tenant_id = await _shop_owner(ctx, connection_id)
     if tenant_id is None:
@@ -592,7 +640,7 @@ async def _detect_profiles(ctx: dict[str, Any], connection_id: str) -> str:
             kw = {
                 "access_token": token,
                 "tenant_id": tid,
-                "tenant_limit": tenant.daily_quota if tenant else None,
+                "tenant_limit": limits.ceiling_limit(tenant) if tenant else None,
             }
             shop_id = await _resolve_shop_id(session, client, connection, kw)
             # Every active listing, a page at a time, with its inventory in the same

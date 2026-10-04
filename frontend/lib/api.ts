@@ -157,7 +157,8 @@ export const api = {
       req<AdminUser>(`/admin/users/${id}/reactivate`, { method: "POST" }),
     temporaryPassword: (id: string) =>
       req<TempPasswordIssued>(`/admin/users/${id}/temporary-password`, { method: "POST" }),
-    setQuota: (id: string, dailyQuota: number) =>
+    /** null: the account follows the default again. */
+    setQuota: (id: string, dailyQuota: number | null) =>
       req<AdminUser>(`/admin/users/${id}/quota`, {
         method: "PUT",
         body: JSON.stringify({ daily_quota: dailyQuota }),

@@ -396,10 +396,10 @@ async def test_quota_is_independent_per_tenant(two) -> None:
     a_quota = (await a.get("/api/quota")).json()
     b_quota = (await b.get("/api/quota")).json()
 
-    assert a_quota["tenant_used"] == 7
-    assert b_quota["tenant_used"] == 0  # Bob is untouched by Alice's spending
-    # The app-wide budget is shared on purpose, and both see the same figure.
-    assert a_quota["global_used"] == b_quota["global_used"] == 7
+    assert a_quota["ceiling"]["used"] == 7
+    assert b_quota["ceiling"]["used"] == 0  # Bob is untouched by Alice's spending
+    # The app-wide budget is shared, and neither seller is shown its figures.
+    assert "global_used" not in a_quota and "global_used" not in b_quota
 
     a_history = {d["date"]: d["count"] for d in a_quota["history"]}
     b_history = {d["date"]: d["count"] for d in b_quota["history"]}

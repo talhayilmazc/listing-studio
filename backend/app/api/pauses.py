@@ -9,23 +9,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.api.schemas import PauseOut
-from app.core.config import get_settings
+from app.core import limits
+from app.db.models import Tenant
 from app.etsy.rate_limiter import PAUSE_GLOBAL, PAUSE_TENANT
 from app.workers.gate import next_reset
 
 
-def pause_message(reason: str, *, tenant_limit: int) -> str:
+def pause_message(reason: str, *, tenant: Tenant | None, ceiling: limits.EtsyCeiling | None = None) -> str:
+    """Which number stopped the work, and when it resumes in the seller's time."""
     if reason == PAUSE_GLOBAL:
-        percent = get_settings().global_pause_percent
-        return (
-            "All sellers share one daily Etsy request limit, and "
-            f"{percent}% of today's is used. New work waits for the daily reset so work "
-            "already running can finish, then resumes automatically after 00:00 UTC."
-        )
-    return (
-        f"Your shop has used its daily allowance of {tenant_limit:,} Etsy requests. "
-        "New work waits for the daily reset, then resumes automatically after 00:00 UTC."
-    )
+        return limits.app_budget_message(tenant, ceiling)
+    return limits.ceiling_message(tenant, ceiling.limit if ceiling is not None else (limits.ceiling_limit(tenant) if tenant else 0))
 
 
 #: A job waiting to run again by itself (workers/recovery.py): not the daily reset.
@@ -40,7 +34,9 @@ RETRY_MESSAGES = {
 }
 
 
-def pause_out(reason: str | None, *, tenant_limit: int, resumes_at: datetime | None = None) -> PauseOut | None:
+def pause_out(
+    reason: str | None, *, tenant: Tenant | None, resumes_at: datetime | None = None, ceiling: limits.EtsyCeiling | None = None
+) -> PauseOut | None:
     if reason in RETRY_MESSAGES:
         return PauseOut(
             reason=reason,
@@ -51,6 +47,6 @@ def pause_out(reason: str | None, *, tenant_limit: int, resumes_at: datetime | N
         return None
     return PauseOut(
         reason=reason,
-        message=pause_message(reason, tenant_limit=tenant_limit),
+        message=pause_message(reason, tenant=tenant, ceiling=ceiling),
         resumes_at=resumes_at or next_reset(datetime.now(timezone.utc)),
     )

@@ -233,7 +233,7 @@ class _Httpx:
 
 async def _seed(sm: async_sessionmaker, storage: LocalStorage, cipher: TokenCipher) -> tuple[uuid.UUID, list[str]]:
     async with sm() as s:
-        tenant = Tenant(email="volume@example.com", password_hash="!", daily_quota=5000)
+        tenant = Tenant(email="volume@example.com", password_hash="!", etsy_ceiling_override=5000)
         s.add(tenant)
         await s.flush()
         service = ConnectionService(cipher, client_id="k", token_url="t")

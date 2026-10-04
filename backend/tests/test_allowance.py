@@ -53,12 +53,17 @@ async def test_usage_is_a_window_so_changing_the_period_keeps_it(ctx) -> None:  
         await s.commit()
         t = await s.get(Tenant, ctx["tenant_id"])
         week = await allowance.status(s, t, NOW)
-        assert (week.generations, week.drafts, week.pending, week.used, week.remaining) == (1, 1, 1, 3, 7)
-        t.allowance_period = "monthly"  # this month holds all three
+        # Only listings written count: not the draft made an hour ago, not the queued draft.
+        assert (week.generations, week.pending, week.used, week.remaining) == (1, 0, 1, 9)
+        t.allowance_period = "monthly"  # this month holds both generations
         month = await allowance.status(s, t, NOW)
-        assert (month.generations, month.used) == (2, 4)
+        assert (month.generations, month.used) == (2, 2)
         t.allowance_period = "daily"
-        assert (await allowance.status(s, t, NOW)).used == 2  # the draft today, and the queued one
+        assert (await allowance.status(s, t, NOW)).used == 0
+        # A queued Replace images will write a listing: it is held as used until it has.
+        s.add(Job(tenant_id=ctx["tenant_id"], connection_id=shop, type=JobType.replace_images, status=JobStatus.queued, payload={}))
+        await s.commit()
+        assert (await allowance.status(s, t, NOW)).used == 1
 
 
 async def test_generation_stops_at_the_allowance_and_says_when_it_resets(ctx, llm) -> None:  # noqa: F811
@@ -72,19 +77,35 @@ async def test_generation_stops_at_the_allowance_and_says_when_it_resets(ctx, ll
 
     resp = await ctx["client"].post(f"/api/batches/{batch}/generate", json={"profile_id": str(profile), "group_key": "G1", "replace": True})
     assert resp.status_code == 429
-    assert resp.json()["detail"].startswith("You've used your allowance of 1 listings and drafts this month. It resets on ")
+    assert resp.json()["detail"].startswith("You've generated your 1 listings this month. More can be generated from ")
+    assert "Drafts and publishing are not affected" in resp.json()["detail"]
     assert "12:00 AM" in resp.json()["detail"]
     mine = (await ctx["client"].get("/api/account/allowance")).json()
     assert (mine["used"], mine["remaining"], mine["period"], mine["custom"]) == (1, 0, "monthly", True)
 
 
-async def test_drafts_that_would_not_fit_are_refused_before_queueing(ctx) -> None:  # noqa: F811
+async def test_drafts_are_not_limited_by_the_listing_allowance(ctx) -> None:  # noqa: F811
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"])
-    await _tenant(ctx, allowance_amount=0)
+    await _tenant(ctx, allowance_amount=0, allowance_period="monthly")  # nothing left to generate
     resp = await ctx["client"].post(f"/api/content/{content_id}/publish")
-    assert resp.status_code == 429 and "resets on" in resp.json()["detail"]
-    async with ctx["sm"]() as s:
-        assert (await s.execute(select(Job))).scalars().all() == []
+    assert resp.status_code == 200 and len(resp.json()["jobs"]) == 1
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["label"], mine["used"], mine["pending"]) == ("Listings generated", 0, 0) and "drafts" not in mine
+
+
+async def test_half_an_override_follows_the_default_entirely(ctx) -> None:  # noqa: F811
+    """An amount without a period (or the other way round) is not an allowance of
+    the account's own: mixing one's amount with the other's period showed
+    "500 today" beside an admin panel saying "monthly"."""
+    await _tenant(ctx, allowance_amount=None, allowance_period="daily")
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["amount"], mine["period"], mine["custom"]) == (500, "monthly", False)
+    await _tenant(ctx, allowance_amount=1500, allowance_period=None)
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["amount"], mine["period"], mine["custom"]) == (500, "monthly", False)
+    await _tenant(ctx, allowance_amount=1500, allowance_period="daily")
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["amount"], mine["period"], mine["custom"]) == (1500, "daily", True)
 
 
 async def _admin(ctx) -> None:  # noqa: F811

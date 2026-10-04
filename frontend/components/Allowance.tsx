@@ -34,9 +34,9 @@ export function useAllowance(): Allowance | null {
 }
 
 /**
- * Our product allowance in the rail: listings generated and drafts created this
- * period. Deliberately separate from, and labelled differently to, Etsy's
- * shared daily API ceiling shown beneath it.
+ * "Listings generated" in the rail: designs written this period. Drafts and
+ * publishing do not count. A different number from "Etsy requests today"
+ * beneath it, with a different reset: this one at the seller's own midnight.
  */
 export function RailAllowance() {
   const a = useAllowance();
@@ -44,9 +44,9 @@ export function RailAllowance() {
   const share = a.amount ? Math.min(1, a.used / a.amount) : 1;
   const low = a.remaining <= Math.max(1, a.amount * 0.1);
   return (
-    <div className="px-2 pb-2" title={`Listings generated and drafts created ${periodWord(a.period)}. Resets ${a.resets_label}.`}>
+    <div className="px-2 pb-2" title={`Listings generated ${periodWord(a.period)}: each design counts once, however many shops it goes to. Drafts and publishing do not count. Resets ${a.resets_label}.`}>
       <div className="flex items-baseline justify-between text-[11px]">
-        <span className="text-[var(--rail-text)]">Your allowance</span>
+        <span className="text-[var(--rail-text)]">Listings generated</span>
         <span translate="no" className="tabular-nums text-[var(--rail-text)]">
           <span className={low ? "font-medium text-amber-400" : "font-medium text-[var(--rail-active)]"}>
             {a.remaining.toLocaleString()}
@@ -61,7 +61,7 @@ export function RailAllowance() {
         />
       </div>
       <p translate="no" className="mt-1 text-[11px] text-[var(--rail-text)]">
-        {`Listings & drafts ${periodWord(a.period)} · resets ${a.resets_label.replace(/^\w+, /, "")}`}
+        {`${a.used.toLocaleString()} used ${periodWord(a.period)} · resets ${a.resets_label.replace(/^\w+, /, "")}`}
       </p>
     </div>
   );
@@ -73,12 +73,12 @@ export function AllowanceSection() {
   return (
     <section className="card space-y-3 p-5">
       <div>
-        <h2 className="text-sm font-semibold text-slate-800">Your allowance</h2>
+        <h2 className="text-sm font-semibold text-slate-800">Listings generated</h2>
         <p className="mt-1 text-sm text-slate-500">
-          <span>How many listings you can generate and drafts you can create <span>{a ? periodWord(a.period) : "each period"}</span>. Each
-          listing written (including regenerating one, or replacing a listing&apos;s photos and text) and each draft
-          made on Etsy counts once. This is separate from Etsy&apos;s own daily API limit, shown in the menu, which Etsy
-          sets for the whole app.</span>
+          <span>How many listings you can generate <span>{a ? periodWord(a.period) : "each period"}</span>. Each design written counts once,
+          however many shops it is sent to (regenerating one, or replacing a listing&apos;s photos and text, counts again).
+          Creating drafts and publishing do not count. This is a different number from &quot;Etsy requests today&quot; in the
+          menu, which counts the requests your drafts and publishing make to Etsy and resets at 00:00 UTC.</span>
         </p>
       </div>
       {!a ? (
@@ -96,8 +96,8 @@ export function AllowanceSection() {
             <div className="progress-fill" style={{ width: (a.amount ? Math.min(100, (a.used / a.amount) * 100) : 100) + "%" }} />
           </div>
           <p className="text-xs text-slate-500">
-            <span><span>{`${a.generations} listings generated · ${a.drafts} drafts created`}</span>
-            <Txt>{a.pending ? ` · ${a.pending} in progress` : ""}</Txt>
+            <span><span>{`${a.generations} listings generated`}</span>
+            <Txt>{a.pending ? ` · ${a.pending} being rewritten` : ""}</Txt>
             <Txt>{a.custom ? "" : " · the standard allowance"}</Txt></span>
           </p>
         </div>

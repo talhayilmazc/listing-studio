@@ -246,8 +246,8 @@ class DailyQuota:
             return False
         await self._incr(self._upkeep_key(tenant_id, day))
         await self._spent(tenant_id, day, "upkeep", category)
-        if shop is not None:
-            await self._incr(self._shop_key(shop, day))
+        # Not added to the shop's own count: that figure is shown beside the
+        # account's ceiling, and upkeep is not part of the ceiling.
         return True
 
     async def upkeep_usage(self, tenant_id: uuid.UUID) -> int:
@@ -265,7 +265,8 @@ class DailyQuota:
         return f"quota:shop:{shop}:{day}"
 
     async def shop_usage(self, shop: uuid.UUID) -> int:
-        """Requests made for one shop today. Display only: limits are per account."""
+        """Requests made for one shop's own work today (upkeep is not in it, as it
+        is not in the account's ceiling). Display only: limits are per account."""
         return self._to_int(await self._redis.get(self._shop_key(shop, self._day())))
 
     async def reserve(
@@ -334,6 +335,10 @@ class DailyQuota:
         if raw is None:
             return None
         return raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+
+    async def global_usage(self) -> int:
+        """Every request by everyone today, upkeep included (the app's budget)."""
+        return self._to_int(await self._redis.get(self._global_key(self._day())))
 
     async def usage(self, tenant_id: uuid.UUID) -> tuple[int, int]:
         """Return (tenant_used, global_used) today -- for the UI quota display."""

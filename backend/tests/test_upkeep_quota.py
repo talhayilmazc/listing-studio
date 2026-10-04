@@ -37,7 +37,7 @@ async def test_a_seller_at_their_limit_still_gets_upkeep_but_the_app_pause_holds
     quota, tenant = _quota(redis), uuid.uuid4()
 
     class T:
-        id, daily_quota = tenant, 0  # nothing left of their own
+        id, etsy_ceiling_override, time_zone = tenant, 0, "UTC"  # nothing left of their own
 
     from app.db.models import TenantStatus
 

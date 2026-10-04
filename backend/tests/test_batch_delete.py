@@ -277,7 +277,8 @@ async def test_published_this_month_counts_the_publication_records_not_the_listi
     body = (await ctx["client"].get("/api/shop/summary")).json()
     assert (body["app_published_this_month"], body["app_published_last_month"]) == (1, 1)
     assert (body["shop_counts_known"], body["syncing"]) == (False, True)
-    assert ctx["enqueuer"].calls[-1][0] == "sync_shop_listings"
+    # Only the counts are asked for (one request per listing state), not every listing.
+    assert ctx["enqueuer"].calls[-1][0] == "sync_shop_counts"
 
     # And it still says 1 after the seller deletes the batch it was published from.
     assert (await ctx["client"].delete(f"/api/batches/{batch_id}")).status_code == 200

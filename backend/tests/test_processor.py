@@ -55,7 +55,7 @@ async def _seed_job(
         tenant = Tenant(
             email=f"{uuid.uuid4()}@example.com",
             password_hash="x",
-            daily_quota=daily_quota,
+            etsy_ceiling_override=daily_quota,
         )
         session.add(tenant)
         await session.flush()

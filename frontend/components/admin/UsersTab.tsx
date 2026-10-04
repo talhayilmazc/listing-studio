@@ -206,8 +206,8 @@ export function UsersTab({
             <tr className="border-b border-slate-200 text-xs text-slate-400">
               <th className="px-3 py-3 font-medium">Account</th>
               <th className="px-3 py-3 font-medium">Shop</th>
-              <th className="px-3 py-3 font-medium" title="Our product allowance (listings and drafts per period), and Etsy API requests today">
-                Allowance · Etsy API today
+              <th className="px-3 py-3 font-medium" title="Listings generated in the account's period (the plan's limit), and the account's Etsy requests today against its ceiling">
+                Listings generated · Etsy requests today
               </th>
               <th className="px-3 py-3 font-medium" title="Refuse brand and character names in this seller's listings">
                 Trademarks
@@ -228,7 +228,7 @@ export function UsersTab({
                   <td className="px-3 py-3">
                     <div className="space-y-2">
                       {c.allowance}
-                      <div className="text-[11px] text-slate-400">Etsy API today</div>
+                      <div className="text-[11px] text-slate-400">Etsy requests today</div>
                       {c.quota}
                     </div>
                   </td>
@@ -260,8 +260,8 @@ export function UsersTab({
               </div>
               <dl className="grid gap-4 sm:grid-cols-2">
                 <Field label="Shops">{c.shops}</Field>
-                <Field label="Allowance">{c.allowance}</Field>
-                <Field label="Etsy API today">{c.quota}</Field>
+                <Field label="Listings generated">{c.allowance}</Field>
+                <Field label="Etsy requests today">{c.quota}</Field>
                 <Field label="Trademarks">{c.trademarks}</Field>
               </dl>
               <div className="border-t border-slate-100 pt-3">{c.actions}</div>
@@ -384,26 +384,31 @@ function QuotaCell({
 }: {
   user: AdminUser;
   globalLimit: number;
-  onSave: (n: number) => Promise<boolean>;
+  /** null: the account follows the default again. */
+  onSave: (n: number | null) => Promise<boolean>;
 }) {
+  const etsy = user.etsy;
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(String(user.daily_quota));
+  const [value, setValue] = useState(String(etsy.limit));
   const [saving, setSaving] = useState(false);
 
   const n = Number(value);
   const valid = value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= globalLimit;
 
+  async function save(next: number | null) {
+    setSaving(true);
+    const ok = await onSave(next);
+    setSaving(false);
+    if (ok) setEditing(false);
+  }
+
   if (editing) {
     return (
       <form
-        className="flex items-center gap-1.5"
-        onSubmit={async (e) => {
+        className="flex flex-wrap items-center gap-1.5"
+        onSubmit={(e) => {
           e.preventDefault();
-          if (!valid) return;
-          setSaving(true);
-          const ok = await onSave(n);
-          setSaving(false);
-          if (ok) setEditing(false);
+          if (valid) save(n);
         }}
       >
         <input
@@ -412,13 +417,25 @@ function QuotaCell({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
-          aria-label={`Daily request ceiling for ${user.email}`}
+          aria-label={`Etsy requests per day for ${user.email}`}
           aria-invalid={!valid}
           className="field w-20 py-1 text-sm tabular-nums"
         />
         <button type="submit" disabled={!valid || saving} className="btn-primary px-2 py-1 text-xs">
           {saving ? "…" : "Save"}
         </button>
+        {!etsy.follows_default && (
+          <button
+            key="default"
+            type="button"
+            disabled={saving}
+            onClick={() => save(null)}
+            className="tap px-1 text-xs text-slate-500 underline hover:text-slate-800"
+            title={`Remove this account's own number: it follows the default (${etsy.default.toLocaleString()} a day)`}
+          >
+            <span translate="no">{`Follow default (${etsy.default.toLocaleString()})`}</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setEditing(false)}
@@ -437,30 +454,28 @@ function QuotaCell({
     <div className="min-w-[180px] space-y-1.5">
     <div className="flex items-center gap-2.5">
       <div className="w-20">
-        <Meter used={user.quota_used_today} limit={user.daily_quota} label={`${user.email} quota used today`} />
+        <Meter used={etsy.used} limit={etsy.limit} label={`${user.email} Etsy requests today`} />
       </div>
       <button translate="no"
         type="button"
         onClick={() => {
-          setValue(String(user.daily_quota));
+          setValue(String(etsy.limit));
           setEditing(true);
         }}
-        title="Change this user's daily ceiling"
+        title="Change this account's Etsy requests per day, or put it back on the default"
         className="tap rounded px-1 text-xs tabular-nums text-slate-600 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900 max-sm:py-2"
       >
-        <span><span>{user.quota_used_today.toLocaleString()}</span> / <span>{user.daily_quota.toLocaleString()}</span></span>
+        <span><span>{etsy.used.toLocaleString()}</span> / <span>{etsy.limit.toLocaleString()}</span></span>
       </button>
     </div>
+    <p translate="no" className="whitespace-nowrap text-[11px] text-slate-400" title="Etsy's day: both Etsy counters reset at 00:00 UTC">
+      {`${etsy.follows_default ? "default" : "own limit"} · ${etsy.remaining.toLocaleString()} left · resets 00:00 UTC (${etsy.resets_label} for the seller)`}
+    </p>
     <Spend today={user.spent_today ?? []} yesterday={user.spent_yesterday ?? []} />
     </div>
   );
 }
 
-/**
- * What the requests were spent on. Two groups, because only one of them is the
- * seller's own ceiling: a first read of a shop's sales is the app's upkeep and
- * says nothing about whether the seller needs a higher limit.
- */
 function Spend({ today, yesterday }: { today: AdminSpend[]; yesterday: AdminSpend[] }) {
   const [day, setDay] = useState<"today" | "yesterday">("today");
   const rows = day === "today" ? today : yesterday;
@@ -473,7 +488,7 @@ function Spend({ today, yesterday }: { today: AdminSpend[]; yesterday: AdminSpen
   return (
     <div className="space-y-1 text-[11px] leading-snug text-slate-500" translate="no">
       <SpendGroup
-        title="Counts toward the ceiling"
+        title="Counts toward the account's ceiling"
         total={sum(counted, "counted")}
         items={counted.map((r) => [r.label, r.counted])}
       />

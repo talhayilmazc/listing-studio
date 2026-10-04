@@ -36,6 +36,7 @@ import httpx
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import limits
 from app.core.config import get_settings
 from app.db.models import ConnectionStatus, EtsyConnection, SalesDaily, SalesSync, Tenant
 from app.etsy.errors import EtsyClientError, EtsyServerError
@@ -140,7 +141,7 @@ async def _open(ctx: dict[str, Any], session: AsyncSession, connection: EtsyConn
     token = await _token(_connection_service(settings), session, connection)
     client = _build_client(ctx, http, settings, shop=connection.id)
     kw = {"access_token": token, "tenant_id": connection.tenant_id,
-          "tenant_limit": tenant.daily_quota if tenant else None}
+          "tenant_limit": limits.ceiling_limit(tenant) if tenant else None}
     shop_id = await _resolve_shop_id(session, client, connection, kw)
     return client, shop_id, kw
 

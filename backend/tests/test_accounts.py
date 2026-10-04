@@ -110,7 +110,7 @@ async def test_register_consumes_the_invite_once(app_ctx) -> None:
     body = res.json()
     assert body["email"] == "beta@example.com"  # normalised
     assert body["must_change_password"] is False
-    assert body["daily_quota"] == 1000  # production-spec C
+    assert body["daily_quota"] == 4500  # a new account follows the default ceiling
     assert res.cookies.get(SESSION_COOKIE)  # signed in immediately
 
     # The same code cannot be spent twice.

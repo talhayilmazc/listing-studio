@@ -248,13 +248,14 @@ function QuotaCard({ quota }: { quota: Quota | null }) {
       </section>
     );
   }
-  const pct = (u: number, l: number) => (l > 0 ? Math.min(100, (u / l) * 100) : 0);
-  const low = quota.tenant_remaining < quota.tenant_limit * 0.1;
+  const c = quota.ceiling;
+  const pct = c.limit > 0 ? Math.min(100, (c.used / c.limit) * 100) : 0;
+  const low = c.remaining < c.limit * 0.1;
 
   return (
     <section className="card p-6">
       <div className="flex items-baseline justify-between">
-        <h2 className="label mb-0">Etsy API quota</h2>
+        <h2 className="label mb-0">Etsy requests today</h2>
         <span translate="no" className="text-xs tabular-nums text-slate-400">{quota.usage_date}</span>
       </div>
 
@@ -265,29 +266,24 @@ function QuotaCard({ quota }: { quota: Quota | null }) {
             (low ? "text-amber-700" : "text-slate-900")
           }
         >
-          {quota.tenant_remaining.toLocaleString()}
+          {c.remaining.toLocaleString()}
         </span>
-        <span className="text-sm text-slate-500">left today</span>
+        <span translate="no" className="text-sm text-slate-500">{`of ${c.limit.toLocaleString()} left`}</span>
       </p>
 
       <div className="mt-4 space-y-3">
         <Meter
-          label="This shop"
-          used={quota.tenant_used}
-          limit={quota.tenant_limit}
-          pct={pct(quota.tenant_used, quota.tenant_limit)}
+          label="Your account, all shops"
+          used={c.used}
+          limit={c.limit}
+          pct={pct}
           tone={low ? "bg-amber-600" : "bg-brand-600"}
-        />
-        <Meter
-          label="App-wide"
-          used={quota.global_used}
-          limit={quota.global_limit}
-          pct={pct(quota.global_used, quota.global_limit)}
-          tone="bg-slate-400"
         />
       </div>
 
-      <p className="mt-4 text-xs text-slate-400">Resets at 00:00 UTC.</p>
+      <p translate="no" className="mt-4 text-xs text-slate-400">
+        {`Drafts, publishing and Replace images count. Resets at ${c.resets_label} (00:00 UTC).`}
+      </p>
     </section>
   );
 }

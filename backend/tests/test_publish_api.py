@@ -61,7 +61,7 @@ async def ctx() -> AsyncIterator[dict]:
 
     # Seed the dev tenant + an active connection.
     async with sm() as s:
-        tenant = Tenant(email=OWNER_EMAIL, password_hash="!", daily_quota=2000)
+        tenant = Tenant(email=OWNER_EMAIL, password_hash="!", etsy_ceiling_override=2000)
         s.add(tenant)
         await s.flush()
         s.add(

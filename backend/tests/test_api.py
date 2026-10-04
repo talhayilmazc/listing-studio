@@ -124,9 +124,9 @@ async def test_upload_flow(client: AsyncClient, make_image: Callable[..., bytes]
 
 async def test_quota_and_meta(client: AsyncClient) -> None:
     quota = (await client.get("/api/quota")).json()
-    assert quota["tenant_limit"] == 2000
-    assert quota["tenant_remaining"] == 2000
-    assert quota["global_remaining"] == 5000
+    assert (quota["ceiling"]["limit"], quota["ceiling"]["remaining"], quota["ceiling"]["label"]) == (2000, 2000, "Etsy requests today")
+    # The app's shared budget is not a seller's to see.
+    assert not any(key.startswith("global") for key in quota)
 
     meta = (await client.get("/api/meta")).json()
     assert meta["support_email"]
@@ -406,8 +406,8 @@ async def test_quota_history_series(client: AsyncClient) -> None:
     assert by_date[(today - timedelta(days=1)).isoformat()] == 0  # gap zero-filled
     assert 999 not in by_date.values()  # outside the window
     # Today mirrors the live counter the same response reports.
-    assert by_date[today.isoformat()] == body["tenant_used"]
+    assert by_date[today.isoformat()] == body["ceiling"]["used"]
 
     # The pre-existing fields are untouched.
-    assert body["tenant_limit"] == 2000
-    assert body["global_remaining"] == 5000
+    assert body["ceiling"]["limit"] == 2000
+    assert "global_remaining" not in body

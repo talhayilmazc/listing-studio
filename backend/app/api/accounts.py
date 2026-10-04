@@ -22,7 +22,7 @@ from app.api import schemas
 from app.api.deps import current_tenant, get_session, get_session_store
 from app.compliance.scanner import rescan_account
 from app.compliance.trademarks import filter_on
-from app.core import allowance, audit
+from app.core import allowance, audit, limits
 from app.core.config import get_settings
 from app.core.invites import hash_code, redeemable_by
 from app.core.ratelimit import client_ip
@@ -163,7 +163,7 @@ def _out(tenant: Tenant) -> AccountOut:
     return AccountOut(
         id=tenant.id,
         email=tenant.email,
-        daily_quota=tenant.daily_quota,
+        daily_quota=limits.ceiling_limit(tenant),
         must_change_password=tenant.must_change_password,
         is_admin=tenant.is_admin,
         features={k: bool(v) for k, v in (tenant.features or {}).items()},
@@ -221,7 +221,6 @@ async def register(
         email=email,
         password_hash=hash_password(body.password),
         status=TenantStatus.active,
-        daily_quota=get_settings().tenant_daily_quota,
     )
     session.add(tenant)
     try:

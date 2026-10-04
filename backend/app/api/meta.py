@@ -22,7 +22,7 @@ from app.etsy.rate_limiter import PAUSE_GLOBAL, PAUSE_TENANT, DailyQuota
 from redis.asyncio import Redis
 
 from app.api.deps import get_redis
-from app.core import llm_status
+from app.core import limits, llm_status
 
 router = APIRouter(prefix="/api", tags=["meta"])
 
@@ -62,26 +62,20 @@ async def get_quota_status(
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> schemas.QuotaOut:
-    """Remaining daily Etsy API quota (ToU requires this be shown to the user)."""
-    tenant_used, global_used = await quota.usage(tenant.id)
-    settings = get_settings()
+    """The account's Etsy requests today (ToU requires the remaining quota be
+    shown to the user): the ceiling, what is used and left, and when it resets.
+
+    The sidebar, the batch page's metric and the review page all show this same
+    object (core/limits.py). The app's shared budget is not in it.
+    """
+    ceiling = await limits.etsy_ceiling(quota, tenant)
     today = datetime.now(timezone.utc).date()
     return schemas.QuotaOut(
-        tenant_used=tenant_used,
-        tenant_limit=tenant.daily_quota,
-        tenant_remaining=max(0, tenant.daily_quota - tenant_used),
-        global_used=global_used,
-        global_limit=settings.global_daily_limit,
-        global_remaining=max(0, settings.global_daily_limit - global_used),
+        ceiling=schemas.EtsyCeilingOut(**ceiling.out()),
         usage_date=today.strftime("%Y-%m-%d"),
-        history=await _usage_history(session, tenant.id, today, tenant_used),
-        global_pause_at=quota.pause_at,
-        upkeep_used=await quota.upkeep_usage(tenant.id),
+        history=await _usage_history(session, tenant.id, today, ceiling.used),
         shop_used=await _shop_used(session, quota, tenant, shop),
-        pause=pause_out(
-            await _pause_reason(quota, tenant, tenant_used, global_used),
-            tenant_limit=tenant.daily_quota,
-        ),
+        pause=pause_out(await _pause_reason(quota, tenant, ceiling), tenant=tenant, ceiling=ceiling),
         generation_pause=llm_status.SELLER_MESSAGE if await llm_status.current(redis) else None,
     )
 
@@ -97,9 +91,7 @@ async def _shop_used(
     return await quota.shop_usage(shop)
 
 
-async def _pause_reason(
-    quota: DailyQuota, tenant: Tenant, tenant_used: int, global_used: int
-) -> str | None:
+async def _pause_reason(quota: DailyQuota, tenant: Tenant, ceiling: limits.EtsyCeiling) -> str | None:
     """Why new work would wait right now, if it would.
 
     A job the worker already paused leaves a marker saying why; without one, the
@@ -108,9 +100,9 @@ async def _pause_reason(
     marked = await quota.paused_reason(tenant.id)
     if marked:
         return marked
-    if global_used >= quota.pause_at:
+    if (await limits.app_budget(quota)).paused:
         return PAUSE_GLOBAL
-    if tenant_used >= tenant.daily_quota:
+    if ceiling.remaining <= 0:
         return PAUSE_TENANT
     return None
 

@@ -109,7 +109,6 @@ async def create_admin(
             email=email,
             password_hash=hash_password(password),
             status=TenantStatus.active,
-            daily_quota=get_settings().tenant_daily_quota,
             is_admin=True,
         )
         session.add(tenant)
@@ -190,6 +189,52 @@ async def sales_report(sm: async_sessionmaker, email: str) -> str:
                 f"   listing cache: {cached} listings; Etsy counts {c.listing_counts or 'not recorded yet'}; "
                 f"listings with sales found in the cache: {len(with_sales & in_cache)} of {len(with_sales)}"
             )
+    return "\n".join(lines)
+
+
+async def limits_report(sm: async_sessionmaker, email: str) -> str:
+    """One account's three numbers as every screen shows them, and every change
+    an admin (or a migration) made to them, with its time: when two screens seem
+    to disagree, this says what the stored values are and when they changed."""
+    from redis.asyncio import Redis
+
+    from app.core import allowance, limits
+    from app.db.models import AuditLog
+    from app.etsy.rate_limiter import DailyQuota
+
+    settings = get_settings()
+    quota = DailyQuota(Redis.from_url(settings.redis_url), global_daily_limit=settings.global_daily_limit,
+                       pause_percent=settings.global_pause_percent)
+    async with sm() as session:
+        tenant = (await session.execute(select(Tenant).where(Tenant.email == email.strip().lower()))).scalar_one_or_none()
+        if tenant is None:
+            return f"no account with the address {email}"
+        a = await allowance.status(session, tenant)
+        c = await limits.etsy_ceiling(quota, tenant)
+        app = await limits.app_budget(quota)
+        changes = (
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.target_tenant_id == tenant.id, AuditLog.action.in_(("user.quota_changed", "user.allowance_changed")))
+                .order_by(AuditLog.created_at.desc())
+                .limit(12)
+            )
+        ).scalars().all()
+    lines = [
+        f"account: {tenant.email}   time zone: {limits.zone_of(tenant)}",
+        f"1. Listings generated: {a.used} used of {a.amount} ({a.period}, {'its own' if a.custom else 'the default'}); "
+        f"{a.remaining} left; resets {allowance.reset_label(a.resets_at, a.time_zone)}",
+        f"   stored: allowance_amount={tenant.allowance_amount!r} allowance_period={tenant.allowance_period!r}",
+        f"2. Etsy requests today: {c.used} used of {c.limit} ({'follows the default' if c.follows_default else 'its own number'}); "
+        f"{c.remaining} left; upkeep not counted: {c.upkeep}; resets {c.resets_label} (00:00 UTC)",
+        f"   stored: etsy_ceiling_override={tenant.etsy_ceiling_override!r}; the default is {c.default}",
+        f"3. The app's Etsy budget: {app.used} used of {app.limit}; new work pauses at {app.pause_at} ({app.remaining} to go)",
+        "changes to this account's limits, newest first:" if changes else "no recorded changes to this account's limits",
+    ]
+    for row in changes:
+        what = "Etsy ceiling" if row.action == "user.quota_changed" else "allowance"
+        lines.append(f"   {row.created_at:%Y-%m-%d %H:%M} UTC  {what}: {row.details.get('previous')!r} -> {row.details.get('new')!r}"
+                     + (f"  ({row.details['by']})" if row.details.get("by") else ""))
     return "\n".join(lines)
 
 
@@ -306,6 +351,11 @@ def main(argv: list[str] | None = None) -> int:
         help="what upload retention would delete now (image files past their time); --apply deletes them",
     )
     uploads.add_argument("--apply", action="store_true", help="delete the files (default: only count them)")
+    limits_cmd = sub.add_parser(
+        "limits-report",
+        help="an account's listing allowance, Etsy ceiling and the app's budget as every screen shows them, and their changes",
+    )
+    limits_cmd.add_argument("email")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     args = parser.parse_args(argv)
@@ -320,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(demote_admin(sm, args.email)))
     elif args.command == "sales-report":
         print(asyncio.run(sales_report(sm, args.email)))
+    elif args.command == "limits-report":
+        print(asyncio.run(limits_report(sm, args.email)))
     elif args.command == "upload-retention":
         print(asyncio.run(upload_retention_report(sm, apply=args.apply)))
     elif args.command == "rebuild-publications":

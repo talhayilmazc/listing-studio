@@ -172,10 +172,10 @@ async def test_users_list_shows_metadata(world) -> None:
     assert bob["is_admin"] is False and bob["status"] == "active"
     assert bob["shop_connected"] is True
     assert bob["listings_published"] == 0
-    assert bob["daily_quota"] == 2000
+    assert (bob["etsy"]["limit"], bob["etsy"]["used"], bob["etsy"]["follows_default"]) == (2000, 0, False)
     assert set(bob) == {
         "id", "email", "is_admin", "status", "must_change_password", "created_at",
-        "shop_name", "shop_connected", "listings_published", "quota_used_today", "daily_quota",
+        "shop_name", "shop_connected", "listings_published", "etsy",
         # Counts per kind of work, never what the work was about.
         "spent_today", "spent_yesterday",
         "shops", "shops_used", "shops_limit", "shops_limit_custom",
@@ -233,11 +233,15 @@ async def test_temporary_password_forces_a_change(world) -> None:
 async def test_quota_ceiling_can_be_changed_within_the_app_budget(world) -> None:
     a, bob = world["a"], world["bob"]
     resp = await a.put(f"/api/admin/users/{bob.tenant_id}/quota", json={"daily_quota": 1500})
-    assert resp.status_code == 200 and resp.json()["daily_quota"] == 1500
+    assert resp.status_code == 200 and resp.json()["etsy"]["limit"] == 1500 and resp.json()["etsy"]["follows_default"] is False
     assert (await a.put(f"/api/admin/users/{bob.tenant_id}/quota", json={"daily_quota": 5001})).status_code == 422
     assert (await a.put(f"/api/admin/users/{bob.tenant_id}/quota", json={"daily_quota": -1})).status_code == 422
     # The seller sees it as their own limit.
-    assert (await world["b"].get("/api/quota")).json()["tenant_limit"] == 1500
+    assert (await world["b"].get("/api/quota")).json()["ceiling"]["limit"] == 1500
+    # "Follow default": the account's own number goes, and the default applies.
+    back = await a.put(f"/api/admin/users/{bob.tenant_id}/quota", json={"daily_quota": None})
+    assert back.status_code == 200 and (back.json()["etsy"]["limit"], back.json()["etsy"]["follows_default"]) == (4500, True)
+    assert (await world["b"].get("/api/quota")).json()["ceiling"]["limit"] == 4500
 
 
 # --- Invites --------------------------------------------------------------------

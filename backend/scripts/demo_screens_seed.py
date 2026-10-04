@@ -84,7 +84,7 @@ async def main():
     sm = get_sessionmaker(); storage = get_storage()
     now = datetime.now(timezone.utc); today = now.date()
     async with sm() as s:
-        t = Tenant(email="demo-shots@example.test", password_hash="!", status=TenantStatus.active, daily_quota=1000,
+        t = Tenant(email="demo-shots@example.test", password_hash="!", status=TenantStatus.active,
                    time_zone="America/Chicago", cost_settings={"product_cost": "9.20"})
         s.add(t); await s.flush()
         shops = []

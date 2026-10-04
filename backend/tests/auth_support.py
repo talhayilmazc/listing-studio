@@ -42,7 +42,7 @@ async def make_tenant(
             email=email,
             password_hash=password_hash,
             status=TenantStatus.active,
-            daily_quota=daily_quota,
+            etsy_ceiling_override=daily_quota,
             must_change_password=must_change_password,
         )
         session.add(tenant)

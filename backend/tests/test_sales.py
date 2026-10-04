@@ -54,7 +54,7 @@ def test_nothing_about_buyers_has_anywhere_to_go() -> None:
 
 async def _shop(sm, *, scopes=("listings_r", "transactions_r")) -> tuple[uuid.UUID, uuid.UUID]:
     async with sm() as s:
-        t = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", daily_quota=2000)
+        t = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", etsy_ceiling_override=2000)
         s.add(t)
         await s.flush()
         c = EtsyConnection(tenant_id=t.id, status=ConnectionStatus.active, etsy_user_id=77, shop_id=77, scopes=list(scopes))

@@ -124,8 +124,8 @@ async def world(test_settings: Settings) -> AsyncIterator[dict]:
     set_settings_override(test_settings.model_copy(update={"max_shops_per_tenant": 3, "max_shops_app_wide": 4}))
 
     async with sm() as s:
-        alice = Tenant(email="alice@example.com", password_hash="!", daily_quota=1000)
-        bob = Tenant(email="bob@example.com", password_hash="!", daily_quota=1000)
+        alice = Tenant(email="alice@example.com", password_hash="!", etsy_ceiling_override=1000)
+        bob = Tenant(email="bob@example.com", password_hash="!", etsy_ceiling_override=1000)
         s.add_all([alice, bob])
         await s.flush()
         a1 = await _shop(s, alice.id, 101, "Frost Tees", 0)
@@ -405,7 +405,10 @@ async def test_a_publish_that_would_pass_the_budget_is_refused_saying_what_fits(
 async def test_the_90_percent_pause_counts_as_the_budget(world) -> None:
     await world["redis"].set(f"quota:global:{TODAY}", 4490)  # 10 left before the pause
     res = await world["a"].post(f"/api/batches/{world['batch']}/publish")
-    assert res.status_code == 409 and "only 10 can be spent today" in res.json()["detail"]
+    detail = res.json()["detail"]
+    # The app's budget is what stops it, and the message says exactly that.
+    assert res.status_code == 409 and "the app's shared Etsy budget has room for only 10 more today" in detail
+    assert "this is not your own limit" in detail
 
 
 # --- isolation at shop level (B6) ---------------------------------------------------------------

@@ -245,7 +245,7 @@ async def unfinished_work(
                 error=job.last_error if job.status is JobStatus.failed else None,
                 pause=pause_out(
                     job.paused_reason if job.status is JobStatus.queued else None,
-                    tenant_limit=tenant.daily_quota if tenant else 0,
+                    tenant=tenant,
                     resumes_at=job.scheduled_at,
                 ),
             )

@@ -219,7 +219,12 @@ export interface PublishPreview {
   drafts: number;
   estimated_calls: number;
   calls_per_draft: number;
+  /** What these drafts may still spend today. */
   budget_remaining: number;
+  /** "account": the seller's own ceiling is the limit; "app": the app's shared budget is. */
+  limited_by: "account" | "app";
+  /** The account's ceiling: identical to the sidebar's. */
+  ceiling: EtsyCeiling | null;
   fits: boolean;
   listings_that_fit: number;
   message: string | null;
@@ -320,6 +325,8 @@ export interface ShopSummary {
   /** False when the shop's listing cache is empty or expired: the shop-wide
    *  counts below are then unknown (not zero), and a refresh is under way. */
   shop_counts_known: boolean;
+  /** False: how many went live this month is unknown (it needs the shop's listings). */
+  published_known?: boolean;
   syncing: boolean;
   total: number;
   active: number;
@@ -521,25 +528,35 @@ export interface QuotaDay {
   count: number;
 }
 
+/**
+ * "Etsy requests today": the account's own ceiling. The same object on every
+ * screen that shows it (sidebar, batch page, review page, admin).
+ */
+export interface EtsyCeiling {
+  label: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  /** No number of its own: the default applies. */
+  follows_default: boolean;
+  default: number;
+  /** Requests today keeping shops and profiles current: not part of `used`. */
+  upkeep: number;
+  /** 00:00 UTC, and that instant as a time in the seller's zone ("7:00 PM CDT"). */
+  resets_at: string;
+  resets_label: string;
+}
+
 export interface Quota {
-  tenant_used: number;
-  tenant_limit: number;
-  tenant_remaining: number;
-  global_used: number;
-  global_limit: number;
-  global_remaining: number;
+  ceiling: EtsyCeiling;
   usage_date: string;
-  /** Last 7 days of this shop's API usage, oldest first. */
+  /** Last 7 days of the account's own requests, oldest first. */
   history: QuotaDay[];
-  /** App-wide count at which new work pauses (90% of global_limit). */
-  global_pause_at: number;
-  /** Set while new Etsy work is paused for this shop. */
+  /** Set while new Etsy work is paused, saying which number stopped it. */
   pause: Pause | null;
   /** Set while writing new listings is paused on our side (AI provider). */
   generation_pause?: string | null;
-  /** Requests today keeping shops and profiles current: not in tenant_used (v7 §D3). */
-  upkeep_used?: number;
-  /** With ?shop=: that shop's share of today's requests. */
+  /** With ?shop=: that shop's part of `ceiling.used`. */
   shop_used: number | null;
 }
 
@@ -654,8 +671,8 @@ export interface AdminUser {
   shops_limit: number;
   shops_limit_custom: boolean;
   listings_published: number;
-  quota_used_today: number;
-  daily_quota: number;
+  /** "Etsy requests today" for the account, as its own screens show it. */
+  etsy: EtsyCeiling;
   /** What the day's Etsy requests were spent on, largest first. */
   spent_today: AdminSpend[];
   spent_yesterday: AdminSpend[];
@@ -708,6 +725,11 @@ export interface AdminUsage {
   global_remaining: number;
   /** New jobs stop being started at this app-wide count. */
   pause_at: number;
+  /** What may still be spent before new work pauses; when both counters reset. */
+  until_pause: number;
+  resets_at: string;
+  /** What an account follows unless it has its own number. */
+  ceiling_default: number;
   /** Connected shops across all accounts, against the app-wide ceiling. */
   shops_used: number;
   shops_limit: number;
@@ -716,7 +738,8 @@ export interface AdminUsage {
     id: string;
     email: string;
     used_today: number;
-    daily_quota: number;
+    limit: number;
+    follows_default: boolean;
     /** Set when this tenant has work waiting for the reset today. */
     paused_reason: Pause["reason"] | null;
     history: DayCount[];
@@ -1086,15 +1109,16 @@ export interface LedgerRead {
 
 /** Our product allowance: listings generated plus drafts created per period.
  *  Not Etsy's API quota, which is Etsy's shared daily ceiling. */
+/** "Listings generated": designs written in the period. Drafts and publishing do not count. */
 export interface Allowance {
+  label: string;
   amount: number;
   period: "daily" | "weekly" | "monthly" | string;
   /** Set for this seller; otherwise the system default. */
   custom: boolean;
   used: number;
   generations: number;
-  drafts: number;
-  /** Drafts or photo replacements queued: counted as used. */
+  /** Replace images queued, their listing not yet written: counted as used. */
   pending: number;
   remaining: number;
   period_start: string;

@@ -28,6 +28,7 @@ from typing import Any, Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import limits
 from app.db.models import Job, JobStatus, ListingPublication, Tenant, TenantStatus
 from app.etsy.calllog import current_job
 from app.etsy.rate_limiter import PAUSE_TENANT
@@ -50,6 +51,8 @@ JOB_COST: dict[str, int] = {
     # shop, and up to 50 pages of 100 for each of the 5 listing states
     # (profiles.SYNC_STATES, SYNC_MAX_PAGES); one per state for a small shop
     "sync_shop_listings": 251,
+    # shop, and one request per listing state for its count (the top strip)
+    "sync_shop_counts": 6,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,
@@ -70,7 +73,7 @@ JOB_COST: dict[str, int] = {
 # it counts against Etsy's app-wide budget (and waits at the 90% pause) but not
 # against the seller's own daily limit (v7 §D3).
 UPKEEP = frozenset(
-    {"refresh_profile", "refresh_profile_images", "sync_shop_listings", "detect_profiles", "sync_sales", "estimate_sales",
+    {"refresh_profile", "refresh_profile_images", "sync_shop_listings", "sync_shop_counts", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger"}
 )
 
@@ -137,14 +140,14 @@ async def check(ctx: dict[str, Any], tenant: Tenant | None, function: str) -> Ve
         reason = await quota.admission_upkeep(JOB_COST[function])
     else:
         cost = JOB_COST[function]
-        reason = await quota.admission(tenant.id, tenant.daily_quota, cost)
+        reason = await quota.admission(tenant.id, limits.ceiling_limit(tenant), cost)
         if reason is None and function != SCHEDULED_GO_LIVE:
             # With go-lives waiting, the whole job must fit beside them (no
             # first-job-of-the-day allowance), or it could eat what they need.
             reserve = await scheduled_reserve(ctx, tenant.id)
             if reserve:
                 tenant_used, _ = await quota.usage(tenant.id)
-                if tenant_used + cost + reserve > tenant.daily_quota:
+                if tenant_used + cost + reserve > limits.ceiling_limit(tenant):
                     reason = PAUSE_TENANT
     if reason is None:
         return RUN
@@ -157,7 +160,7 @@ async def paused_by_wall(ctx: dict[str, Any], tenant: Tenant) -> Verdict:
     quota = ctx.get("quota")
     reason = None
     if quota is not None:
-        reason = await quota.admission(tenant.id, tenant.daily_quota, 1)
+        reason = await quota.admission(tenant.id, limits.ceiling_limit(tenant), 1)
     reason = reason or PAUSE_TENANT
     if quota is not None:
         await quota.mark_paused(tenant.id, reason)

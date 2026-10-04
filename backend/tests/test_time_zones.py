@@ -91,7 +91,7 @@ async def test_scheduled_go_lives_keep_their_budget(ctx) -> None:  # noqa: F811
     quota = DailyQuota(redis, global_daily_limit=5000)
     async with ctx["sm"]() as s:
         tenant = await s.get(Tenant, ctx["tenant_id"])
-        tenant.daily_quota = 40
+        tenant.etsy_ceiling_override = 40
         await s.commit()
     # Three go-lives due before tonight's reset: 3 x 3 requests held back.
     for listing_id in (801, 802, 803):

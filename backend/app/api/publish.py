@@ -25,7 +25,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.pauses import pause_out
 from app.api.content import manual_steps
 from app.api.shops import shop_label
-from app.core import allowance
+from app.core import limits
 from app.db.models import (
     Asset,
     EtsyConnection,
@@ -193,12 +193,16 @@ class _Budget:
     fits: bool
     listings_that_fit: int
     message: str | None
+    #: The account's ceiling, as every other screen shows it (core/limits.py).
+    ceiling: limits.EtsyCeiling | None = None
+    #: "account" or "app": which of the two is the smaller right now.
+    limited_by: str = "account"
 
 
 async def _budget(quota: DailyQuota, tenant: Tenant, plan: _Plan) -> _Budget:
     """Will these drafts fit in what may still be spent today? (v5 §E)"""
-    tenant_used, global_used = await quota.usage(tenant.id)
-    remaining = max(0, min(tenant.daily_quota - tenant_used, quota.pause_at - global_used))
+    room = await limits.spendable(quota, tenant)
+    remaining = room.amount
     drafts = len(plan.jobs)
     estimated = drafts * ESTIMATED_CALLS_PER_DRAFT
     shops = max(1, len({c.id for _, c, _ in plan.jobs}))
@@ -208,18 +212,24 @@ async def _budget(quota: DailyQuota, tenant: Tenant, plan: _Plan) -> _Budget:
     fit = min(listings, remaining // per_listing)
     message = None
     if not fits:
+        reset = f"{room.ceiling.resets_label} (00:00 UTC)"
+        # Say which number it is: the seller's own, or the app's shared budget.
+        why = (
+            f"the app's shared Etsy budget has room for only {remaining:,} more today (this is not your own "
+            f"limit: you have {room.ceiling.remaining:,} of {room.ceiling.limit:,} left)"
+            if room.limited_by == "app"
+            else f"you have {remaining:,} of your {room.ceiling.limit:,} Etsy requests left today"
+        )
         message = (
             f"{shops} shop{'s' if shops != 1 else ''} × {listings} listing"
-            f"{'s' if listings != 1 else ''} ≈ {estimated:,} Etsy requests, but only "
-            f"{remaining:,} can be spent today. "
+            f"{'s' if listings != 1 else ''} ≈ {estimated:,} Etsy requests, but {why}. "
             + (
-                f"{fit} listing{'s' if fit != 1 else ''} would fit; publish fewer, or wait "
-                "for the reset at 00:00 UTC."
+                f"{fit} listing{'s' if fit != 1 else ''} would fit; send fewer, or wait for the reset at {reset}."
                 if fit
-                else "None would fit; wait for the reset at 00:00 UTC."
+                else f"None would fit; wait for the reset at {reset}."
             )
         )
-    return _Budget(estimated, remaining, fits, fit, message)
+    return _Budget(estimated, remaining, fits, fit, message, ceiling=room.ceiling, limited_by=room.limited_by)
 
 
 async def _enqueue(
@@ -311,11 +321,7 @@ async def _publish(
         # A single listing that can go nowhere: say why, as before.
         reasons = "; ".join(dict.fromkeys(s.reason for s in plan.skipped)) or "nothing to publish"
         raise HTTPException(status_code=409, detail=reasons)
-    if plan.jobs:
-        try:
-            await allowance.check(session, tenant, len(plan.jobs))
-        except allowance.AllowanceExceeded as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from None
+    # Drafts are not part of the listing allowance: only Etsy requests limit them.
     budget = await _budget(quota, tenant, plan)
     if not budget.fits:
         raise HTTPException(status_code=409, detail=budget.message)
@@ -476,6 +482,8 @@ async def publish_preview(
         estimated_calls=budget.estimated,
         calls_per_draft=ESTIMATED_CALLS_PER_DRAFT,
         budget_remaining=budget.remaining,
+        limited_by=budget.limited_by,
+        ceiling=schemas.EtsyCeilingOut(**budget.ceiling.out()) if budget.ceiling else None,
         fits=budget.fits,
         listings_that_fit=budget.listings_that_fit,
         message=budget.message,
@@ -740,7 +748,7 @@ async def job_status(
         manual_steps=steps,
         pause=pause_out(
             job.paused_reason if job.status is JobStatus.queued else None,
-            tenant_limit=tenant.daily_quota,
+            tenant=tenant,
             resumes_at=job.scheduled_at,
         ),
     )

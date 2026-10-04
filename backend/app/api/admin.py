@@ -55,7 +55,7 @@ from app.etsy.categories import LABELS
 from decimal import Decimal
 from redis.asyncio import Redis
 
-from app.core import ai_meter, ai_prices, disk
+from app.core import ai_meter, ai_prices, disk, limits
 from app.pipeline import upload_retention
 from app.pipeline.storage import Storage
 from app.api import ai_series
@@ -134,8 +134,9 @@ class AdminUserOut(BaseModel):
     shops_limit: int
     shops_limit_custom: bool  # an admin override of MAX_SHOPS_PER_TENANT
     listings_published: int
-    quota_used_today: int
-    daily_quota: int
+    # "Etsy requests today": the account's ceiling, as the seller's own screens
+    # show it (core/limits.py). ``follows_default`` false: an admin set its number.
+    etsy: schemas.EtsyCeilingOut
     # What today's and yesterday's Etsy requests were spent on, largest first.
     # ``counted`` requests go toward the account's ceiling; ``upkeep`` ones (the
     # app keeping the shop's data current) do not.
@@ -173,7 +174,7 @@ class ShopLimitUpdate(BaseModel):
 
 
 class AllowanceUpdate(BaseModel):
-    # Both None: back to the system default. Either may be set on its own.
+    # Both set: the account's own allowance. Both None: it follows the system default.
     amount: int | None = Field(default=None, ge=0, le=1_000_000)
     period: Literal["daily", "weekly", "monthly"] | None = None
 
@@ -184,7 +185,8 @@ class AllowanceDefault(BaseModel):
 
 
 class QuotaUpdate(BaseModel):
-    daily_quota: int = Field(ge=0)
+    # The account's own Etsy requests per day. None: follow the default.
+    daily_quota: int | None = Field(default=None, ge=0)
 
 
 class TempPasswordIssued(BaseModel):
@@ -286,16 +288,17 @@ async def set_user_quota(
     session: AsyncSession = Depends(get_session),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
-    """Change one account's daily ceiling. It can never exceed the app-wide budget."""
+    """Give one account its own Etsy requests per day, or (None) put it back on
+    the default. It can never exceed the app-wide budget."""
     ceiling = get_settings().global_daily_limit
-    if body.daily_quota > ceiling:
+    if body.daily_quota is not None and body.daily_quota > ceiling:
         raise HTTPException(
             status_code=422, detail=f"cannot exceed the app-wide limit of {ceiling:,} a day"
         )
     target = await _target(session, tenant_id)
-    previous = target.daily_quota
+    previous = target.etsy_ceiling_override
     if previous != body.daily_quota:
-        target.daily_quota = body.daily_quota
+        target.etsy_ceiling_override = body.daily_quota
         audit.record(
             session,
             "user.quota_changed",
@@ -318,7 +321,6 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         .select_from(ListingPublication)
         .where(ListingPublication.tenant_id == t.id, ListingPublication.state == "active")
     )
-    used_today, _ = await quota.usage(t.id)
     return AdminUserOut(
         id=t.id,
         email=t.email,
@@ -335,8 +337,7 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         listings_published=int(published or 0),
         spent_today=_spend(await quota.spending(t.id)),
         spent_yesterday=_spend(await quota.spending(t.id, days_ago=1)),
-        quota_used_today=used_today,
-        daily_quota=t.daily_quota,
+        etsy=schemas.EtsyCeilingOut(**(await limits.etsy_ceiling(quota, t)).out()),
         trademark_filter=t.trademark_filter,
         trademark_filter_seller=t.trademark_filter_seller,
         trademark_filter_changed_at=t.trademark_filter_changed_at,
@@ -365,6 +366,10 @@ async def set_user_allowance(
     Applies at once: usage is counted over the new period from what is already
     recorded, so nothing used so far is lost or forgiven.
     """
+    if (body.amount is None) != (body.period is None):
+        # An allowance is an amount and a period together: half of one would mix
+        # the account's amount with the default's period (or the other way round).
+        raise HTTPException(status_code=422, detail="give both an amount and a period, or neither to follow the default")
     target = await _target(session, tenant_id)
     previous = {"amount": target.allowance_amount, "period": target.allowance_period}
     new = {"amount": body.amount, "period": body.period}
@@ -1142,8 +1147,10 @@ class DayCount(BaseModel):
 class TenantUsage(BaseModel):
     id: uuid.UUID
     email: str
+    # The account's own requests today and its ceiling (core/limits.py).
     used_today: int
-    daily_quota: int
+    limit: int
+    follows_default: bool
     # Set when this tenant has work waiting for the reset today (global_quota /
     # tenant_quota), whichever stopped it.
     paused_reason: str | None = None
@@ -1151,12 +1158,19 @@ class TenantUsage(BaseModel):
 
 
 class UsageOut(BaseModel):
+    """The app's Etsy budget (admin only): everyone's requests, upkeep included."""
+
     usage_date: str
     global_used: int
     global_limit: int
     global_remaining: int
     # New jobs stop being started at this app-wide count (production-spec C).
     pause_at: int
+    # What may still be spent before new work pauses, and when both counters reset.
+    until_pause: int
+    resets_at: datetime
+    # What an account follows unless it has its own number.
+    ceiling_default: int
     # Connected shops across all accounts, against MAX_SHOPS_APP_WIDE (v5 §E).
     shops_used: int
     shops_limit: int
@@ -1192,7 +1206,8 @@ async def usage(
     global_used = 0
     rows: list[TenantUsage] = []
     for t in tenants:
-        used_today, global_used = await quota.usage(t.id)
+        account = await limits.etsy_ceiling(quota, t)
+        used_today = account.used
         history = [
             DayCount(
                 date=d.isoformat(),
@@ -1205,13 +1220,14 @@ async def usage(
                 id=t.id,
                 email=t.email,
                 used_today=used_today,
-                daily_quota=t.daily_quota,
+                limit=account.limit,
+                follows_default=account.follows_default,
                 paused_reason=await quota.paused_reason(t.id),
                 history=history,
             )
         )
-    if not tenants:
-        _, global_used = await quota.usage(uuid.uuid4())
+    app = await limits.app_budget(quota)
+    global_used = app.used
 
     history = [
         DayCount(
@@ -1220,14 +1236,16 @@ async def usage(
         )
         for d in days
     ]
-    limit = get_settings().global_daily_limit
     rows.sort(key=lambda r: (-r.used_today, r.email))
     return UsageOut(
         usage_date=today.isoformat(),
-        global_used=global_used,
-        global_limit=limit,
-        global_remaining=max(0, limit - global_used),
-        pause_at=quota.pause_at,
+        global_used=app.used,
+        global_limit=app.limit,
+        global_remaining=max(0, app.limit - app.used),
+        pause_at=app.pause_at,
+        until_pause=app.remaining,
+        resets_at=app.resets_at,
+        ceiling_default=limits.ceiling_default(),
         shops_used=await app_shop_count(session),
         shops_limit=get_settings().max_shops_app_wide,
         history=history,

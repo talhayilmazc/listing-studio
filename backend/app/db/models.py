@@ -129,7 +129,10 @@ class Tenant(Base):
         nullable=False,
         default=TenantStatus.active,
     )
-    daily_quota: Mapped[int] = mapped_column(Integer, nullable=False, server_default="2000")
+    #: The account's own Etsy requests per day, when an admin set one. NULL: the
+    #: account follows the default (``ACCOUNT_DAILY_CEILING``). Never read this
+    #: directly to decide a limit: ``core/limits.py::ceiling_limit`` does.
+    etsy_ceiling_override: Mapped[int | None] = mapped_column(Integer)
     # Set when an admin issues a temporary password: the tenant must replace it
     # before the rest of the API will answer (production-spec A4).
     must_change_password: Mapped[bool] = mapped_column(

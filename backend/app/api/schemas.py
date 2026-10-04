@@ -217,16 +217,16 @@ class PublicationOut(BaseModel):
 
 
 class AllowanceOut(BaseModel):
-    """The product allowance: listings generated plus drafts created in the period.
-    Not the Etsy request quota, which is Etsy's shared daily ceiling."""
+    """ "Listings generated": designs written in the period (core/allowance.py).
+    Drafts and publishing do not count. Not the Etsy request ceiling."""
 
+    label: str = "Listings generated"
     amount: int
     period: str  # "daily" | "weekly" | "monthly"
-    custom: bool  # set for this seller; else the system default
+    custom: bool  # set for this seller (amount and period); else the system default
     used: int
     generations: int
-    drafts: int
-    pending: int  # drafts or Replace images queued, counted as used
+    pending: int  # Replace images queued, their listing not yet written: counted as used
     remaining: int
     period_start: datetime
     resets_at: datetime
@@ -332,28 +332,37 @@ class PauseOut(BaseModel):
     resumes_at: datetime
 
 
+class EtsyCeilingOut(BaseModel):
+    """ "Etsy requests today": the account's own ceiling (core/limits.py). The
+    same object wherever it appears: sidebar, batch page, review page, admin."""
+
+    label: str = "Etsy requests today"
+    limit: int
+    used: int
+    remaining: int
+    follows_default: bool  # no number of its own: the default applies
+    default: int
+    # Requests today keeping the account's shops and profiles current: counted
+    # against the app's budget only, never in ``used``.
+    upkeep: int = 0
+    resets_at: datetime  # 00:00 UTC
+    resets_label: str  # that instant as a time in the seller's zone: "7:00 PM CDT"
+
+
 class QuotaOut(BaseModel):
-    tenant_used: int
-    tenant_limit: int
-    tenant_remaining: int
-    global_used: int
-    global_limit: int
-    global_remaining: int
+    """What a seller sees of Etsy requests: their own ceiling. The app's shared
+    budget is not here (admin only); when it stops their work, ``pause`` says so."""
+
+    ceiling: EtsyCeilingOut
     usage_date: str
-    # Additive: the last 7 days of this tenant's usage, oldest first, for the
-    # dashboard sparkline. Existing fields and their meanings are unchanged.
+    # The last 7 days of this account's own requests, oldest first.
     history: list[QuotaDay] = Field(default_factory=list)
-    # App-wide count at which new jobs pause (production-spec C).
-    global_pause_at: int = 0
     # Set while new work is paused for this seller, with the reason.
     pause: PauseOut | None = None
     # Set while writing new listings is paused on our side (core/llm_status.py).
     generation_pause: str | None = None
-    # Requests made today to keep this seller's shops and profiles current:
-    # counted app-wide, not in tenant_used (v7 §D3).
-    upkeep_used: int = 0
-    # With ?shop=: that shop's share of today's requests. Display only; the
-    # limits are per account and app-wide.
+    # With ?shop=: that shop's part of ``ceiling.used``. Display only; the
+    # ceiling is for the account's shops together.
     shop_used: int | None = None
 
 
@@ -587,7 +596,12 @@ class PublishPreviewOut(BaseModel):
     drafts: int  # drafts that would be created
     estimated_calls: int  # ~15 Etsy requests per draft
     calls_per_draft: int
-    budget_remaining: int  # what may still be spent today (account and app-wide)
+    # What these drafts may still spend today: the account's remaining requests,
+    # or less when the app's shared budget is the smaller (``limited_by`` "app").
+    budget_remaining: int
+    limited_by: str = "account"
+    # The account's ceiling, identical to what the sidebar and batch page show.
+    ceiling: EtsyCeilingOut | None = None
     fits: bool
     listings_that_fit: int  # per the selected shops, if it does not all fit
     message: str | None = None
@@ -729,6 +743,9 @@ class ShopSummaryOut(BaseModel):
     app_published_this_month: int = 0
     app_published_last_month: int = 0
     shop_counts_known: bool = False
+    # ``published_this_month`` needs the shop's listings themselves (six hours);
+    # the counts by state do not (a day). False: that one figure is unknown.
+    published_known: bool = False
     syncing: bool = False
     total: int = 0
     active: int = 0

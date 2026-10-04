@@ -51,7 +51,7 @@ def test_tenant_defaults(session: Session) -> None:
     tenant = _make_tenant(session)
     assert isinstance(tenant.id, uuid.UUID)
     assert tenant.status == TenantStatus.active
-    assert tenant.daily_quota == 2000  # server default
+    assert tenant.etsy_ceiling_override is None  # follows the default (core/limits.py)
     assert tenant.created_at is not None
     assert tenant.updated_at is not None
 

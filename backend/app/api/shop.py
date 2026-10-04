@@ -69,7 +69,11 @@ def _as_int(value: Any) -> int | None:
 
 # The summary may queue a shop sync at most this often (the cache's lifetime:
 # four a day at most), and calls the shop "syncing" for this long after queueing.
-SUMMARY_SYNC_EVERY_SECONDS = 6 * 3600
+#: The top strip's counts are how many listings the shop has in each state: not
+#: listing content, so they may be a day old (CLAUDE.md: 24 hours).
+COUNTS_FRESH_SECONDS = 24 * 3600
+#: While the counts are unknown, ask for them at most this often.
+SUMMARY_SYNC_EVERY_SECONDS = 3600
 SUMMARY_SYNCING_SECONDS = 10 * 60
 
 
@@ -121,7 +125,8 @@ async def list_shop_listings(
     newest = max((c.fetched_at for c in cached), default=None)
     stale = _is_stale(newest)
     if stale:
-        await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+        # One at a time per shop, however many pages ask while it is stale.
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"sync:{connection.id}")
     # Expired rows are never shown (CLAUDE.md: past its age, listing content is
     # re-fetched, not displayed). The retention job deletes them; this filter
     # covers the minutes between a row expiring and the next sweep.
@@ -155,7 +160,7 @@ async def pattern_listings(
         return []
     cached = await _shop_rows(session, tenant, connection)
     if _is_stale(max((c.fetched_at for c in cached), default=None)):
-        await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"sync:{connection.id}")
     words = [w for w in q.casefold().split() if w]
     # "My best sellers" (v7 §B): units in the last 90 days from the shop's own
     # daily sales totals, when the seller has allowed reading them.
@@ -231,7 +236,18 @@ async def shop_summary(
     newest = max((c.fetched_at for c in everything), default=None)
     # Counts are derived from listing content, so expired rows do not count.
     cached = [c for c in everything if not _is_stale(c.fetched_at)]
-    known = bool(cached)
+    # How many listings went live this month needs the listings themselves.
+    published_known = bool(cached)
+    # How many there are in each state does not: Etsy reports that with one
+    # request per state, kept for a day (workers/profiles.py::sync_shop_counts).
+    counts = None
+    if connection is not None and connection.listing_counts and connection.listing_counts_at is not None:
+        counted_at = connection.listing_counts_at
+        if counted_at.tzinfo is None:  # SQLite hands back naive datetimes
+            counted_at = counted_at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - counted_at).total_seconds() < COUNTS_FRESH_SECONDS:
+            counts = connection.listing_counts
+    known = published_known or counts is not None
 
     # The months are the seller's own: the 1st at midnight in their time zone.
     zone = _zone(tenant)
@@ -275,15 +291,21 @@ async def shop_summary(
             elif went_live >= last_month:
                 last_count += 1
 
+    if counts is not None and not published_known:
+        # No fresh copy of the listings: the per-state counts Etsy reported.
+        active, draft = int(counts.get("active") or 0), int(counts.get("draft") or 0)
+    total = len(cached) if published_known else sum(int(v or 0) for v in (counts or {}).values())
+
     # Unknown is not zero: say "syncing", and make it true. This runs on every
-    # page, so it queues at most one refresh per shop per cache lifetime: a shop
-    # with no listings at all never has a cached copy, and must not cost a sync
-    # per page view. "Syncing" is said only while that refresh can still be running.
+    # page, so it asks for the **counts** only (one request per listing state,
+    # once a day), never for a full sync of every listing: that is left to the
+    # pages that list listings. While the counts are unknown it asks at most
+    # once an hour. "Syncing" is said only while that read can still be running.
     syncing = False
     if connection is not None and not known:
         marker = f"summary-sync:{connection.id}"
         if await redis.set(marker, int(now.timestamp()), nx=True, ex=SUMMARY_SYNC_EVERY_SECONDS):
-            await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"manual-sync:{connection.id}")
+            await enqueuer.enqueue("sync_shop_counts", str(connection.id), _job_id=f"counts:{connection.id}")
             syncing = True
         else:
             queued_at = _as_int(await redis.get(marker))
@@ -293,8 +315,9 @@ async def shop_summary(
         app_published_this_month=app_this,
         app_published_last_month=app_last,
         shop_counts_known=known,
+        published_known=published_known,
         syncing=syncing,
-        total=len(cached),
+        total=total,
         active=active,
         draft=draft,
         published_this_month=this_count,

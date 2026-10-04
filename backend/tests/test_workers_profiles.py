@@ -82,7 +82,7 @@ class FakeEtsy:
 
 async def _seed(sm: async_sessionmaker, *, with_profile: bool = True):
     async with sm() as s:
-        tenant = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", daily_quota=2000)
+        tenant = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", etsy_ceiling_override=2000)
         s.add(tenant)
         await s.flush()
         connection = EtsyConnection(

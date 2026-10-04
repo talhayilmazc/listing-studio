@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from app.core import ai_meter, allowance, llm_status
+from app.core import ai_meter, allowance, limits, llm_status
 from app.core.llm_status import LLMUnavailable
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
@@ -133,7 +133,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 kw = {
                     "access_token": token,
                     "tenant_id": tenant.id,
-                    "tenant_limit": tenant.daily_quota,
+                    "tenant_limit": limits.ceiling_limit(tenant),
                 }
                 shop_id = await _resolve_shop_id(session, client, connection, kw)
 
@@ -207,7 +207,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     tenant_id=tenant.id,
                     client=client,
                     access_token=token,
-                    tenant_limit=tenant.daily_quota,
+                    tenant_limit=limits.ceiling_limit(tenant),
                     existing_listing=existing,
                     keep_image_ids=keep_ids,
                     delete_image_ids=delete_ids,

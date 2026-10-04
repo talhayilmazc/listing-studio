@@ -17,6 +17,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import limits
 from app.core.config import Settings, get_settings
 from app.core.crypto import get_cipher
 from app.db.models import (
@@ -252,7 +253,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     optional_attributes=(content.attributes or {}).get("listing"),
                     profile_name=profile.name,
                     auto_create_sections=settings.auto_create_sections,
-                    tenant_limit=tenant.daily_quota,
+                    tenant_limit=limits.ceiling_limit(tenant),
                     profile_id=profile.id,
                     title=target.title,
                     description=target.description,
@@ -329,7 +330,7 @@ async def _run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                     connection=connection,
                     client=client,
                     access_token=access_token,
-                    tenant_limit=tenant.daily_quota,
+                    tenant_limit=limits.ceiling_limit(tenant),
                 )
         except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
             return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_live_job")

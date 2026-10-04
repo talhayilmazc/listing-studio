@@ -136,7 +136,7 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
           : `${Math.max(0, usage.pause_at - usage.global_used).toLocaleString()} until new work pauses at ${usage.pause_at.toLocaleString()}`}</span>
         {" · "}
         <span>{usage.global_remaining.toLocaleString()}</span> left today
-        {" · "}</span>
+        {" · resets 00:00 UTC · accounts follow "}<span>{usage.ceiling_default.toLocaleString()}</span>{" a day unless given their own number · "}</span>
         <span className="text-slate-700">
           <span><span>{usage.shops_used}</span> of <span>{usage.shops_limit}</span> shops connected</span>
         </span>
@@ -291,9 +291,9 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Meter used={t.used_today} limit={t.daily_quota} label={`${t.email} requests today`} />
+                  <Meter used={t.used_today} limit={t.limit} label={`${t.email} requests today`} />
                   <span translate="no" className="shrink-0 text-xs tabular-nums text-slate-500">
-                    {`${t.used_today.toLocaleString()} / ${t.daily_quota.toLocaleString()}`}
+                    {`${t.used_today.toLocaleString()} / ${t.limit.toLocaleString()}${t.follows_default ? " (default)" : " (own limit)"}`}
                   </span>
                   <Spark history={t.history} />
                 </div>
@@ -334,9 +334,9 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
                     </td>
                     <td className="w-[40%] py-2.5 pr-4">
                       <div className="flex items-center gap-3">
-                        <Meter used={t.used_today} limit={t.daily_quota} label={`${t.email} requests today`} />
+                        <Meter used={t.used_today} limit={t.limit} label={`${t.email} requests today`} />
                         <span translate="no" className="shrink-0 text-xs tabular-nums text-slate-500">
-                          <span><span>{t.used_today.toLocaleString()}</span> / <span>{t.daily_quota.toLocaleString()}</span></span>
+                          <span><span>{t.used_today.toLocaleString()}</span> / <span>{t.limit.toLocaleString()}</span><span>{t.follows_default ? " (default)" : " (own limit)"}</span></span>
                         </span>
                       </div>
                     </td>

@@ -47,7 +47,7 @@ async def _profile(
     """A tenant with its own shop (each a distinct Etsy user) and one profile,
     which wrote a listing ``used_days_ago`` (None: never used)."""
     async with sm() as s:
-        tenant = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", daily_quota=2000)
+        tenant = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x", etsy_ceiling_override=2000)
         s.add(tenant)
         await s.flush()
         shop = next(_next_shop)

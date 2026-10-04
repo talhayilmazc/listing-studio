@@ -54,7 +54,7 @@ async def ctx() -> AsyncIterator[dict]:
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     async with sm() as s:
-        tenant = Tenant(email=OWNER_EMAIL, password_hash="!", daily_quota=2000)
+        tenant = Tenant(email=OWNER_EMAIL, password_hash="!", etsy_ceiling_override=2000)
         s.add(tenant)
         await s.flush()
         shop = EtsyConnection(
@@ -279,7 +279,7 @@ async def test_shop_summary_with_no_usable_cache_says_syncing_and_queues_one_ref
     # a shop with no listings never has a cached copy and must not cost a sync per page view.
     again = (await ctx["client"].get("/api/shop/summary")).json()
     assert (again["shop_counts_known"], again["syncing"]) == (False, True)
-    assert [c[0] for c in ctx["enqueuer"].calls] == ["sync_shop_listings"]
+    assert [c[0] for c in ctx["enqueuer"].calls] == ["sync_shop_counts"]
 
 
 async def test_shop_listing_carries_state_timestamp(ctx) -> None:

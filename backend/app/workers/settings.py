@@ -30,6 +30,7 @@ from app.workers.profiles import (
     detect_profiles,
     refresh_profile,
     refresh_profile_images,
+    sync_shop_counts,
     sync_shop_listings,
 )
 from app.workers.publish import run_publish_job, run_publish_live_job
@@ -100,6 +101,7 @@ class WorkerSettings:
         refresh_profile,
         refresh_profile_images,
         sync_shop_listings,
+        sync_shop_counts,
         sync_sales,
         estimate_sales,
         sync_ledger,

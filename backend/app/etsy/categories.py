@@ -11,6 +11,7 @@ from __future__ import annotations
 #: job function -> category
 _BY_JOB: dict[str, str] = {
     "sync_shop_listings": "shop_sync",
+    "sync_shop_counts": "shop_sync",
     "refresh_profile": "profiles",
     "refresh_profile_images": "profiles",
     "detect_profiles": "profiles",

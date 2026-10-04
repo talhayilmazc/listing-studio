@@ -18,6 +18,7 @@ from cryptography.fernet import Fernet
 from fakeredis import FakeAsyncRedis
 from sqlalchemy import select
 
+from app.core import limits
 from app.api import deps
 from app.core.crypto import TokenCipher
 from app.db.models import AuditLog, Job, JobStatus, JobType, Tenant, TenantStatus
@@ -171,7 +172,7 @@ async def test_every_job_with_a_row_is_gated(world, monkeypatch, module, functio
     monkeypatch.setattr(module, "get_cipher", lambda: TokenCipher(Fernet.generate_key()))
     monkeypatch.setattr(module, "EtsyApiClient", _no_etsy)
     async with world["sm"]() as s:
-        allowance = (await s.get(Tenant, world["bob"].tenant_id)).daily_quota
+        allowance = limits.ceiling_limit(await s.get(Tenant, world["bob"].tenant_id))
     await _use(world["redis"], tenant=world["bob"].tenant_id, tenant_used=allowance)
     enqueue = _Enqueue()
 
@@ -265,7 +266,7 @@ async def test_job_status_explains_a_pause(world) -> None:  # noqa: F811
 
     assert body["status"] == "queued"
     assert body["pause"]["reason"] == PAUSE_TENANT
-    assert "daily allowance" in body["pause"]["message"]
+    assert body["pause"]["message"].startswith("Your account has used its 2,000 Etsy requests for today.")
     assert body["pause"]["resumes_at"]
 
 
@@ -274,12 +275,14 @@ async def test_quota_reports_the_pause_before_any_job_runs(world) -> None:  # no
     world["app"].dependency_overrides[deps.get_quota] = lambda: _quota(redis)
 
     calm = (await world["b"].get("/api/quota")).json()
-    assert calm["pause"] is None and calm["global_pause_at"] == 4500
+    assert calm["pause"] is None and "global_pause_at" not in calm
 
     await _use(redis, global_used=4500)
     paused = (await world["b"].get("/api/quota")).json()
     assert paused["pause"]["reason"] == PAUSE_GLOBAL
-    assert "90%" in paused["pause"]["message"]
+    message = paused["pause"]["message"]
+    assert message.startswith("The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit:")
+    assert "you have 2,000 of your 2,000 Etsy requests left today" in message and "(00:00 UTC)" in message
 
 
 async def test_admin_usage_shows_the_pause_line_and_who_is_waiting(world) -> None:  # noqa: F811

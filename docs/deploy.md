@@ -64,8 +64,12 @@ Fill in `.env`:
   Usage screen measures against it. The safety margin is
   `GLOBAL_PAUSE_PERCENT=90`, not a smaller limit. At 4,500, new jobs wait for
   00:00 UTC, and every seller sees why in a banner. The last 500 requests let
-  work already running finish. `TENANT_DAILY_QUOTA=1000` is the default
-  ceiling per seller; you can change it per seller in Admin → Users.
+  work already running finish. `ACCOUNT_DAILY_CEILING=4500` is what every
+  account's own Etsy requests per day follow (drafts, publishing and Replace
+  images in all its shops; the app's upkeep is not counted). An account can be
+  given its own number in Admin → Users, and put back with "Follow default".
+  `python -m app.cli limits-report <email>` prints an account's three numbers
+  and every change made to them.
 - **`MAX_SHOPS_PER_TENANT=8`, `MAX_SHOPS_APP_WIDE=20`.** A seller can connect
   several shops. Every connected shop spends part of the shared budget just to
   stay in sync, so the app-wide ceiling follows the budget. Raise it only if

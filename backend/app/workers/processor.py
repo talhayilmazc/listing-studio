@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.core import limits
 from app.db.models import Job, JobStatus, Tenant, TenantStatus
 from app.etsy.client import EtsyClient
 from app.etsy.errors import EtsyClientError, EtsyRateLimited, EtsyServerError
@@ -98,7 +99,7 @@ class JobProcessor:
                 return Outcome(ProcessResult.skipped)
 
             # 1) Daily quota (tenant + global). Exceeded -> defer to next reset.
-            if not await self._quota.reserve(job.tenant_id, tenant.daily_quota):
+            if not await self._quota.reserve(job.tenant_id, limits.ceiling_limit(tenant)):
                 reset_at = _next_utc_midnight(self._now())
                 job.status = JobStatus.queued
                 job.scheduled_at = reset_at

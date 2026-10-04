@@ -40,7 +40,12 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
 
     # Per-tenant daily Etsy budget (production-spec C: 5 tenants x 1000 = 5000).
-    tenant_daily_quota: int = 1000
+    # Etsy requests a day for one account's own work (drafts, publishing,
+    # Replace images) in all its shops: what every account follows unless an
+    # admin gives it its own number (core/limits.py). 4,500 is also where the
+    # app-wide budget pauses new work, so by default one account may use all
+    # that is free; the app's budget is the hard guard.
+    account_daily_ceiling: int = Field(default=4500, ge=0)
 
     # --- Hardening (production-spec D) --------------------------------------
     # Header carrying the real client IP. Empty = the socket peer. Behind

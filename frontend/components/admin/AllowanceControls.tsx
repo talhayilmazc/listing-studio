@@ -104,7 +104,7 @@ export function AllowanceCell({
         </button>
       </div>
       <p translate="no" className="mt-0.5 whitespace-nowrap text-[11px] text-slate-400" title={`Resets ${a.resets_label}`}>
-        {`${a.period}${a.custom ? "" : " (default)"} · resets ${a.resets_label.split(", ").slice(1, 2).join("")}`}
+        {`generated · ${a.period}${a.custom ? "" : " (default)"} · resets ${a.resets_label.replace(/^\w+, /, "")} (seller's time)`}
       </p>
     </div>
   );

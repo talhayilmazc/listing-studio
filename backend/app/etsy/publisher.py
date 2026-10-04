@@ -40,7 +40,6 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import allowance
 from app.db.models import (
     ComplianceFinding,
     ComplianceSeverity,
@@ -630,8 +629,6 @@ async def publish_content(
             manual_done={},  # a new draft: nothing has been set by hand on it yet
         )
     )
-    # One unit of the seller's product allowance (core/allowance.py).
-    allowance.record(session, tenant_id, allowance.DRAFT)
     # Finished: from here the publication is the record, in the same commit.
     await session.delete(attempt)
     await session.commit()

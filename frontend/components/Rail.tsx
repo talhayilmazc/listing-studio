@@ -241,6 +241,7 @@ function ProfileChildren({
  * batches and uploads are the account's and do not change with it.
  */
 function RailFooter() {
+  const pathname = usePathname();
   const { account, signOut } = useSession();
   const { shops, slots, selected, select } = useShops();
   const [quota, setQuota] = useState<Quota | null>(null);
@@ -263,19 +264,26 @@ function RailFooter() {
     };
   }, [open]);
 
+  // Fresh on every page and every minute, like the allowance above it: it used
+  // to be read once per shop, and kept an old limit until the page was reloaded.
   useEffect(() => {
     let cancelled = false;
-    api
-      .quota(shopId)
-      .then((q) => !cancelled && setQuota(q))
-      .catch(() => {});
+    const load = () =>
+      api
+        .quota(shopId)
+        .then((q) => !cancelled && setQuota(q))
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 60_000);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, [shopId]);
+  }, [shopId, pathname]);
 
-  const used = quota ? quota.tenant_used / Math.max(1, quota.tenant_limit) : 0;
-  const low = quota ? quota.tenant_remaining < quota.tenant_limit * 0.1 : false;
+  const ceiling = quota?.ceiling ?? null;
+  const used = ceiling ? ceiling.used / Math.max(1, ceiling.limit) : 0;
+  const low = ceiling ? ceiling.remaining < ceiling.limit * 0.1 : false;
 
   return (
     <div className="border-t border-white/[0.08] p-3">
@@ -423,18 +431,19 @@ function RailFooter() {
       <div className="mt-3">
         <RailAllowance />
       </div>
-      <div className="px-2 pb-1">
+      <div
+        className="px-2 pb-1"
+        title="Requests your drafts, publishing and Replace images make to Etsy today, in all your shops. Keeping your shops and profiles current does not count. Resets at 00:00 UTC."
+      >
         <div className="flex items-baseline justify-between text-[11px]">
-          <span className="text-[var(--rail-text)]" title="Etsy's own daily limit on requests, shared by everyone using the app">
-            Etsy API today
-          </span>
+          <span className="text-[var(--rail-text)]">Etsy requests today</span>
           <span translate="no" className="tabular-nums text-[var(--rail-text)]">
-            {quota ? (
+            {ceiling ? (
               <>
                 <span className={low ? "font-medium text-amber-400" : "font-medium text-[var(--rail-active)]"}>
-                  {quota.tenant_remaining.toLocaleString()}
-                </span><span>{" "}
-                / <span>{quota.tenant_limit.toLocaleString()}</span></span>
+                  {ceiling.remaining.toLocaleString()}
+                </span>
+                <span>{` / ${ceiling.limit.toLocaleString()} left`}</span>
               </>
             ) : (
               "—"
@@ -447,9 +456,14 @@ function RailFooter() {
             style={{ width: Math.min(100, used * 100) + "%" }}
           />
         </div>
+        {ceiling && (
+          <p key="reset" translate="no" className="mt-1 text-[11px] text-[var(--rail-text)]">
+            {`${ceiling.used.toLocaleString()} used · resets ${ceiling.resets_label}`}
+          </p>
+        )}
         {quota?.shop_used != null && shops && shops.length > 1 && (
-          <p key="p-384-8" className="mt-1 text-[11px] text-[var(--rail-text)]">
-            <span><span>{quota.shop_used.toLocaleString()}</span> used today by this shop; the limit is for all your shops</span>
+          <p key="p-384-8" translate="no" className="text-[11px] text-[var(--rail-text)]">
+            {`${quota.shop_used.toLocaleString()} of them by this shop; the limit is for all your shops`}
           </p>
         )}
       </div>
