@@ -283,7 +283,10 @@ class AiCall(Base):
 
     __tablename__ = "ai_call"
     __table_args__ = (Index("ix_ai_call_tenant_day", "tenant_id", "day"),)
-    RETENTION_DAYS: ClassVar[int] = 400
+    #: 25 months. The monthly cost view compares the last 12 months with the 12
+    #: before them, which start up to 24 calendar months back; 25 calendar
+    #: months are never more than 763 days.
+    RETENTION_DAYS: ClassVar[int] = 765
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

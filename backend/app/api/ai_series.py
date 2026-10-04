@@ -7,9 +7,9 @@ counts in UTC days, so the daily view also carries each date's UTC-day figures
 
 "Previous" is the same span one period earlier, cut at the same point: the last
 24 hours up to now against the 24 hours before that, up to this time yesterday.
-It is compared only when the records reach back that far (calls are kept 400
-days and metering has a first day): a period we have no records for is unknown,
-not free.
+It is compared only when the records reach back that far (metering has a first
+day, and calls are kept 25 months: enough for twelve months against the twelve
+before): a period we have no records for is unknown, not free.
 
 Counts and cost only: nothing of a seller's work is read here.
 """

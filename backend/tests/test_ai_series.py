@@ -11,7 +11,10 @@ from sqlalchemy import update
 
 from app.api import ai_series
 from app.core import ai_prices
+from sqlalchemy import func, select
+
 from app.db.models import AiCall, Tenant
+from app.workers.retention import purge_expired_rows
 from tests.test_admin import world  # noqa: F401  (fixture)
 
 MODEL = "claude-sonnet-5"
@@ -141,6 +144,33 @@ async def test_weeks_start_on_monday_and_months_on_the_first(world) -> None:  # 
     assert monthly.previous_start.isoformat() == "2024-11-01T00:00:00+03:00"
     assert monthly.previous_end.isoformat() == "2025-10-04T16:30:00+03:00"
     assert not monthly.previous_covered and monthly.change.cost is None
+
+
+async def test_calls_are_kept_long_enough_to_compare_twelve_months_with_the_twelve_before(world) -> None:  # noqa: F811
+    bob = world["bob"].tenant_id
+    async with world["sm"]() as s:
+        s.add_all([
+            _call(bob, _utc("2026-10-02T09:00"), listings=1),  # the last twelve months
+            _call(bob, _utc("2026-03-10T09:00"), listings=1),
+            _call(bob, _utc("2025-06-15T09:00"), listings=1),  # the twelve before them
+            _call(bob, _utc("2024-11-01T09:00")),  # their first day
+            _call(bob, _utc("2024-10-15T09:00")),  # before both, within 25 months: kept, counted in neither
+            _call(bob, _utc("2024-08-01T09:00")),  # older than 25 months: deleted
+        ])
+        await s.commit()
+        await purge_expired_rows(s, now=NOW)
+        await s.commit()
+        assert (await s.execute(select(func.count()).select_from(AiCall))).scalar() == 5
+        assert (await s.execute(select(func.min(AiCall.day)))).scalar().isoformat() == "2024-10-15"
+        out = await ai_series.build(s, "monthly", now=NOW)
+
+    # Whatever is still kept reaches back past the start of the previous twelve months.
+    assert (NOW - out.previous_start).days < AiCall.RETENTION_DAYS
+    assert out.previous_covered and out.records_from == "2024-10-15"
+    assert (out.total.calls, out.total.listings, Decimal(out.total.cost_usd)) == (2, 2, UNIT * 2)
+    assert (out.previous.calls, out.previous.listings, Decimal(out.previous.cost_usd)) == (2, 1, UNIT * 2)
+    # The same cost over twice the listings: half the cost per listing.
+    assert (out.change.cost, out.change.listings, out.change.cost_per_listing) == ("0.0", "100.0", "-50.0")
 
 
 async def test_one_seller_keeps_their_colour_and_their_share_of_everyone(world) -> None:  # noqa: F811
