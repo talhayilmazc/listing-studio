@@ -193,6 +193,34 @@ async def sales_report(sm: async_sessionmaker, email: str) -> str:
     return "\n".join(lines)
 
 
+async def upload_retention_report(sm: async_sessionmaker, *, apply: bool) -> str:
+    """What upload retention would delete now, or (with ``apply``) delete it.
+
+    The daily job does the same by itself (workers/upkeep.py); this is for
+    looking before the first run, or for freeing space without waiting.
+    """
+    from app.api.deps import get_storage
+    from app.core.disk import size
+    from app.pipeline import upload_retention
+
+    async with sm() as session:
+        result = await upload_retention.run(session, get_storage(), apply=apply)
+        if apply:
+            await upload_retention.remember(session, result)
+    lines = [
+        f"kept {result.published_days} days after publishing, {result.unpublished_days} days when nothing was published",
+        f"listings published {result.published_days}+ days ago:      {result.published_groups}",
+        f"groups not published after {result.unpublished_days} days:    {result.unpublished_groups}",
+        f"images: {result.images}   files (with previews): {result.files}   size: {size(result.freed_bytes)}",
+        f"waiting for running work to finish: {result.waiting}",
+    ]
+    if apply:
+        lines.append(f"deleted. Cover thumbnails kept: {result.thumbnails} ({size(result.thumbnail_bytes)})")
+    else:
+        lines.append("nothing was deleted: run again with --apply to delete these files")
+    return "\n".join(lines)
+
+
 async def rebuild_publications(sm: async_sessionmaker, *, apply: bool) -> str:
     """Put back publication records that batch deletion removed.
 
@@ -273,6 +301,11 @@ def main(argv: list[str] | None = None) -> int:
         help="restore publication records lost to batch deletion, from the draft snapshots (last 90 days)",
     )
     rebuild.add_argument("--apply", action="store_true", help="write the records (default: only count them)")
+    uploads = sub.add_parser(
+        "upload-retention",
+        help="what upload retention would delete now (image files past their time); --apply deletes them",
+    )
+    uploads.add_argument("--apply", action="store_true", help="delete the files (default: only count them)")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     args = parser.parse_args(argv)
@@ -287,6 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(demote_admin(sm, args.email)))
     elif args.command == "sales-report":
         print(asyncio.run(sales_report(sm, args.email)))
+    elif args.command == "upload-retention":
+        print(asyncio.run(upload_retention_report(sm, apply=args.apply)))
     elif args.command == "rebuild-publications":
         print(asyncio.run(rebuild_publications(sm, apply=args.apply)))
     else:

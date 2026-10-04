@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
@@ -23,6 +23,7 @@ from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_en
 from app.api.shops import selected_shop
 from app.core import allowance
 from app.db.models import (
+    Asset,
     EtsyConnection,
     Job,
     JobStatus,
@@ -35,6 +36,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.connection import ConnectionService
+from app.pipeline import upload_retention
 from app.pipeline.reference import decode_etsy_text
 
 router = APIRouter(prefix="/api/shop", tags=["shop"])
@@ -399,6 +401,12 @@ async def replace_listing_images_endpoint(
     batch = await session.get(UploadBatch, body.batch_id)
     if batch is None or batch.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="batch not found")
+    photos = select(Asset.id).where(Asset.batch_id == batch.id, Asset.files_removed_at.is_not(None))
+    if body.group_key is not None:
+        photos = photos.where(Asset.group_key == body.group_key if body.group_key else or_(Asset.group_key.is_(None), Asset.group_key == ""))
+    if (await session.execute(photos.limit(1))).first() is not None:
+        # Upload retention deleted them: there is nothing to send to Etsy.
+        raise HTTPException(status_code=409, detail=upload_retention.REMOVED)
     # New title, tags and description are written: one unit of the allowance.
     try:
         await allowance.check(session, tenant, 1)

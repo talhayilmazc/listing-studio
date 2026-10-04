@@ -9,6 +9,34 @@ import type { Asset, BatchDetail, ImageDeleteResult } from "@/lib/types";
 
 import { Txt } from "@/components/Txt";
 /**
+ * The group's image files were deleted (they are kept for a limited time after
+ * a listing is published, because the server's disk is small). The kept cover
+ * is shown; there is nothing left to reorder, crop or delete.
+ */
+function RemovedImages({ assets, listingsOnEtsy }: { assets: Asset[]; listingsOnEtsy: number }) {
+  const kept = assets.find((a) => a.has_thumbnail);
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-stone-50 p-3">
+      {kept ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key="kept" src={api.assetImage(kept.id, 224)} alt={kept.original_filename} className="h-16 w-16 shrink-0 rounded object-cover" loading="lazy" decoding="async" />
+      ) : (
+        <span key="none" className="flex h-16 w-16 shrink-0 items-center justify-center rounded bg-slate-200 text-[10px] text-slate-500">removed</span>
+      )}
+      <p className="min-w-0 text-xs text-slate-600">
+        <span className="font-medium text-slate-900">Image files removed. </span>
+        <span>
+          This listing&apos;s <span translate="no">{assets.length}</span> image files were deleted to free space: they are kept for a
+          limited time after a listing is published. Its text and its record here are unchanged
+        </span>
+        {listingsOnEtsy > 0 ? <span key="etsy">, and the listing on Etsy is not affected</span> : null}
+        <span>. To create another draft or change the images, upload the design again.</span>
+      </p>
+    </div>
+  );
+}
+
+/**
  * A listing group's images (docs/duzeltmeler-v6.md §E). The first is the cover.
  * Each change is saved as the images' rank and Etsy receives them in that order.
  *
@@ -72,6 +100,7 @@ export function GroupImages({
 
   const byId = new Map(assets.map((a) => [a.id, a]));
   const coverAsset = byId.get(order[0]);
+  if (assets.some((a) => a.files_removed)) return <RemovedImages assets={assets} listingsOnEtsy={listingsOnEtsy} />;
   const usable = (id: string) => byId.get(id)?.status === "processed";
 
   async function save(next: string[]) {

@@ -35,6 +35,7 @@ from app.workers.profiles import (
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
+from app.workers.upkeep import daily_upkeep
 from app.workers.schedule import release_scheduled_publishes
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
 from app.workers.recovery import recover_interrupted_jobs
@@ -123,6 +124,10 @@ class WorkerSettings:
         cron(sync_all_sales, hour={2}, minute={30}, second=0, run_at_startup=False),
         # The shop's fees and ad spend from its payment ledger, likewise.
         cron(sync_all_ledgers, hour={2}, minute={40}, second=0, run_at_startup=False),
+        # Image files past their time are deleted and the day's disk summary is
+        # sent (workers/upkeep.py). At most once a day; also at startup, so a
+        # worker that was down at the hour catches up.
+        cron(daily_upkeep, hour={1}, minute={15}, second=0, run_at_startup=True),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

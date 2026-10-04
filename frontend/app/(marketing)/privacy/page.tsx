@@ -42,7 +42,7 @@ function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="3 October 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated="4 October 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listyro (&ldquo;the Service&rdquo;) is operated by{" "}
@@ -334,7 +334,11 @@ export default function PrivacyPage() {
                 period="Until you disconnect your shop or your account is deleted"
               />
               <Row
-                data="Your uploads, generated content, profiles, task records and usage counts"
+                data="The image files you upload, and the resized versions made from them"
+                period="14 days after the listing made from them is published through the Service; 30 days after you last worked on them if no listing was published from them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch"
+              />
+              <Row
+                data="Generated content, profiles, task records, usage counts, and the names and order of your uploads"
                 period="While your account exists, or until you ask us to delete them"
               />
               <Row

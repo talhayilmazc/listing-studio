@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.accounts import EMAIL_RE
-from app.api.deps import get_quota, get_session, get_session_store
+from app.api.deps import get_quota, get_redis, get_session, get_session_store, get_storage
 from app.compliance.trademarks import filter_on
 from app.core import allowance, audit
 from app.core.config import get_settings
@@ -53,7 +53,11 @@ from app.workers.gate import SUSPENDED_MESSAGE
 from app.etsy.categories import LABELS
 
 from decimal import Decimal
-from app.core import ai_meter, ai_prices
+from redis.asyncio import Redis
+
+from app.core import ai_meter, ai_prices, disk
+from app.pipeline import upload_retention
+from app.pipeline.storage import Storage
 from app.api import ai_series
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -1023,6 +1027,110 @@ async def reset_ai_price(
         audit.record(session, "app.ai_price_changed", actor=admin, model=model, previous=previous, new=None)
         await session.commit()
     return await _prices_out(session)
+
+
+# --- Disk (the server's, by category) and upload retention ------------------------------
+class DiskCategory(BaseModel):
+    key: str
+    label: str
+    note: str
+    #: None: not known (the host's hourly report has not arrived).
+    bytes: int | None
+    files: int | None = None
+
+
+class UploadRetentionDays(BaseModel):
+    #: Image files are deleted this many days after their listing is published.
+    published_days: int = Field(ge=1, le=upload_retention.MAX_DAYS)
+    #: A group nothing was published from: this many days after it was last worked on.
+    unpublished_days: int = Field(ge=1, le=upload_retention.MAX_DAYS)
+
+
+class UploadRetentionRun(BaseModel):
+    at: datetime
+    applied: bool  # False: a dry run, nothing was deleted
+    published_groups: int
+    unpublished_groups: int
+    images: int
+    files: int
+    freed_bytes: int
+    thumbnails: int
+    thumbnail_bytes: int
+    waiting: int
+
+
+class DiskOut(BaseModel):
+    as_of: datetime
+    total_bytes: int | None
+    free_bytes: int | None
+    categories: list[DiskCategory]
+    #: When deploy/disk-check.sh last reported backups and Docker; None: never.
+    host_reported_at: datetime | None
+    host_fresh: bool
+    retention: UploadRetentionDays
+    retention_defaults: UploadRetentionDays
+    #: False: the daily job only counts (UPLOAD_RETENTION_APPLY=false).
+    retention_applies: bool
+    last_run: UploadRetentionRun | None
+
+
+def _days(policy: upload_retention.Policy) -> UploadRetentionDays:
+    return UploadRetentionDays(published_days=policy.published_days, unpublished_days=policy.unpublished_days)
+
+
+@router.get("/disk", response_model=DiskOut)
+async def disk_usage(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    storage: Storage = Depends(get_storage),
+    redis: Redis = Depends(get_redis),
+) -> DiskOut:
+    """What is using the server's disk, by category, and what upload retention
+    last freed. Sizes and counts only: no file, no name, no seller."""
+    snapshot = await disk.snapshot(session, storage, redis)
+    last = await upload_retention.last(session)
+    run = None
+    if last:
+        try:
+            run = UploadRetentionRun(**{k: last[k] for k in UploadRetentionRun.model_fields})
+        except (KeyError, ValueError):
+            run = None  # written by an older version: shown again after the next run
+    return DiskOut(
+        as_of=datetime.fromtimestamp(snapshot.at, timezone.utc),
+        total_bytes=snapshot.total_bytes,
+        free_bytes=snapshot.free_bytes,
+        categories=[
+            DiskCategory(key=c.key, label=disk.LABELS[c.key], note=disk.NOTES[c.key], bytes=c.bytes, files=c.files)
+            for c in snapshot.categories
+        ],
+        host_reported_at=datetime.fromtimestamp(snapshot.host_at, timezone.utc) if snapshot.host_at else None,
+        host_fresh=snapshot.host_fresh,
+        retention=_days(await upload_retention.policy(session)),
+        retention_defaults=_days(upload_retention.defaults()),
+        retention_applies=get_settings().upload_retention_apply,
+        last_run=run,
+    )
+
+
+@router.put("/upload-retention", response_model=UploadRetentionDays)
+async def set_upload_retention(
+    body: UploadRetentionDays,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> UploadRetentionDays:
+    """How long image files are kept. Applies from the next daily run; audited.
+    Shortening it deletes more at that run, and deleted files do not come back."""
+    previous = _days(await upload_retention.policy(session)).model_dump()
+    new = upload_retention.validate(body.model_dump())
+    if previous != new:
+        row = await session.get(AppSetting, upload_retention.KEY)
+        if row is None:
+            session.add(AppSetting(key=upload_retention.KEY, value=new))
+        else:
+            row.value = new
+        audit.record(session, "app.upload_retention_changed", actor=admin, previous=previous, new=new)
+        await session.commit()
+    return UploadRetentionDays(**new)
 
 
 # --- Usage ----------------------------------------------------------------------

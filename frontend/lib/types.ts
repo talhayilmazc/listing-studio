@@ -15,7 +15,17 @@ export interface Asset {
   error: string | null;
   /** The seller's square for when this image is the cover; null = automatic. */
   cover_crop?: { x: number; y: number; size: number; width: number | null; height: number | null } | null;
+  /**
+   * The image's files were deleted a limited time after its listing was
+   * published. With `has_thumbnail` a small cover was kept and is what the
+   * image URL now serves; without it there is nothing to show.
+   */
+  files_removed?: boolean;
+  has_thumbnail?: boolean;
 }
+
+/** An image the app can still show: its files are there, or its cover thumbnail was kept. */
+export const showable = (a: Asset): boolean => !a.files_removed || Boolean(a.has_thumbnail);
 
 export interface BatchSummary {
   id: string;
@@ -422,6 +432,33 @@ export interface AiCost {
   }[];
   prices: AiPrice[];
   unpriced_models: string[];
+}
+
+/** Admin only: what is using the server's disk, and the upload cleanup. */
+export interface AdminDisk {
+  as_of: string;
+  total_bytes: number | null;
+  free_bytes: number | null;
+  /** `bytes` null: not measured (the server's hourly disk check has not reported). */
+  categories: { key: string; label: string; note: string; bytes: number | null; files: number | null }[];
+  host_reported_at: string | null;
+  host_fresh: boolean;
+  retention: { published_days: number; unpublished_days: number };
+  retention_defaults: { published_days: number; unpublished_days: number };
+  /** False: the daily job only counts, nothing is deleted. */
+  retention_applies: boolean;
+  last_run: {
+    at: string;
+    applied: boolean;
+    published_groups: number;
+    unpublished_groups: number;
+    images: number;
+    files: number;
+    freed_bytes: number;
+    thumbnails: number;
+    thumbnail_bytes: number;
+    waiting: number;
+  } | null;
 }
 
 /** Admin only: calls, listings and cost of one seller (or all) in one stretch of time. */

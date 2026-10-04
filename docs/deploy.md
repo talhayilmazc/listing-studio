@@ -228,6 +228,32 @@ refuses to run without `--i-understand-this-replaces-production`.
   `ALERT_WEBHOOK_URL` above `DISK_ALERT_PERCENT` (75) or under
   `DISK_ALERT_FREE_GB` (8) free. `deploy/preflight.sh` warns from 70% and
   refuses at 90%. Build cache older than a week is pruned by cron every Sunday.
+  The same hourly run measures what the app cannot see from inside its
+  containers (the backups, and Docker's images, build cache, container layers
+  and logs) and leaves the two sizes in Redis for the admin panel.
+- **What uses the disk.** Admin → Usage → Disk shows the whole disk by category:
+  uploads, derivatives, database, backups, Docker, the rest, and free space.
+  Backups and Docker read "not measured" until the hourly disk check has run
+  once after the update that added this.
+- **Upload cleanup.** Uploads are what fills the disk (about 1 GB a day). Once a
+  day (01:15 UTC) the worker deletes a listing's image files 14 days after it is
+  published through the app, and 30 days after a group nobody published was
+  last worked on; the days are set in Admin → Usage → Disk. The listing's text,
+  its publication record and a small cover thumbnail stay, and nothing on Etsy
+  changes. See what a run would delete before it does:
+
+  ```bash
+  docker compose -f docker-compose.prod.yml exec api python -m app.cli upload-retention          # counts only
+  docker compose -f docker-compose.prod.yml exec api python -m app.cli upload-retention --apply  # deletes now
+  ```
+
+  `UPLOAD_RETENTION_APPLY=false` in `.env` makes the daily run count without
+  deleting. The first run after this is deployed deletes everything already
+  past its time, which is most of what is on the disk.
+- **Daily summary.** After the cleanup the worker posts one message to
+  `ALERT_WEBHOOK_URL`: what was freed, free space, and the size of each
+  category. It is sent every day, also when nothing was due, so a day without
+  it means the worker's daily job did not run.
 - **Redis.** It holds sessions, queues and the day's counters, capped at 256 MB.
   If a write is cut off (a full disk, a hard stop) it repairs its append-only
   file at start and comes back with everything up to the damage; if the file
@@ -281,6 +307,14 @@ order, and stops at the first thing that fails:
 6. waits until postgres, redis, api, worker and frontend report healthy and the
    tunnel is running; if they do not within 5 minutes it prints their last log lines
 7. runs `deploy/preflight.sh`
+8. gives build space back (`deploy/reclaim.sh`): when less than
+   `DEPLOY_RECLAIM_BELOW_GB` (12) is free, removes **all** build cache and all
+   dangling images, prints how much that freed and posts the same line to
+   `ALERT_WEBHOOK_URL`. Nothing in use is touched (running containers, their
+   images, the volumes). The next build then starts cold and is slower; on a
+   30 GB disk that cannot grow, that is the cheaper problem. With 12 GB or more
+   free the cache is kept. This step cannot fail the update. To prune at any
+   time: `sudo RECLAIM_FORCE=1 bash deploy/reclaim.sh`.
 
 A failure is posted to `ALERT_WEBHOOK_URL`.
 

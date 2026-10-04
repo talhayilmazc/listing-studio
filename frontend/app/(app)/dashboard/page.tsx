@@ -12,6 +12,7 @@ import type {
   Quota,
   ShopListing,
 } from "@/lib/types";
+import { showable } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
 import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
@@ -379,7 +380,7 @@ function ActivityRow({
 }) {
   // One thumbnail per listing group, same rule as the batches list.
   const byGroup = new Map<string, Asset>();
-  for (const a of assets ?? []) {
+  for (const a of (assets ?? []).filter(showable)) {
     const key = a.group_key ?? "";
     const seen = byGroup.get(key);
     if (!seen || (a.rank ?? 99) < (seen.rank ?? 99)) byGroup.set(key, a);

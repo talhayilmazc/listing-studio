@@ -3,12 +3,13 @@
 import { notFound } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { AdminInvite, AdminUsage, AdminUser, AiCost } from "@/lib/types";
+import type { AdminDisk, AdminInvite, AdminUsage, AdminUser, AiCost } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import { UsersTab } from "@/components/admin/UsersTab";
 import { InvitesTab } from "@/components/admin/InvitesTab";
 import { InviteRequests } from "@/components/admin/InviteRequests";
 import { AiCostPanel } from "@/components/admin/AiCost";
+import { DiskPanel } from "@/components/admin/Disk";
 import { Txt } from "@/components/Txt";
 import { UsageSummary, UsageTab } from "@/components/admin/Usage";
 
@@ -38,6 +39,7 @@ export default function AdminPage() {
   const [invites, setInvites] = useState<AdminInvite[] | null>(null);
   const [pendingRequests, setPendingRequests] = useState<number | null>(null);
   const [aiCost, setAiCost] = useState<AiCost | null>(null);
+  const [disk, setDisk] = useState<AdminDisk | null>(null);
   const [usage, setUsage] = useState<AdminUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
@@ -52,7 +54,7 @@ export default function AdminPage() {
 
   const loadUsage = useCallback(
     // Etsy requests and AI cost move as sellers work: both are refreshed together.
-    () => Promise.all([api.admin.usage().then(setUsage), api.admin.aiCost().then(setAiCost)]).catch(guard),
+    () => Promise.all([api.admin.usage().then(setUsage), api.admin.aiCost().then(setAiCost), api.admin.disk().then(setDisk)]).catch(guard),
     [guard],
   );
 
@@ -148,6 +150,11 @@ export default function AdminPage() {
                 setInvites((prev) => prev?.map((x) => (x.id === inv.id ? inv : x)) ?? prev)
               }
             />
+          )}
+          {tab === "usage" && (
+            <div key="disk" className="mb-5">
+              <DiskPanel disk={disk} onChanged={loadUsage} onError={setError} />
+            </div>
           )}
           {tab === "usage" && (
             <div key="aicost" className="mb-5">

@@ -120,6 +120,10 @@ Yüklenen tek dosya.
 | rank | int | Batch içindeki 1-tabanlı görsel sırası (Etsy image rank), nullable. 5. adımda eklendi (migration `0002_asset_rank`) |
 | error | text | Son içerik üretimi hata nedeni (güvenli metin, token içermez), nullable. Migration `0003_asset_error` |
 | status | enum | `uploaded`, `processed`, `failed`. İçerik üretimi hatası `status`'ü değiştirmez (görsel geçerli); neden `error`'a yazılır ve tekrar denenebilir |
+| files_removed_at | timestamptz | Yükleme saklama süresi dolunca dosyaların (orijinal, işlenmiş kopya, önizlemeler) silindiği an, nullable. Satır kalır; `processed_key` boşaltılır. Migration `0041_upload_retention` |
+| thumbnail_key | text | Dosyalar silindikten sonra saklanan küçük kapak görseli (yalnızca grubun kapağında), nullable |
+
+**Saklama:** dosyalar listing yayınlandıktan 14 gün, hiçbir şey yayınlanmamış grupta son çalışmadan 30 gün sonra silinir (`pipeline/upload_retention.py`; günler admin panelinden). Satırlar, listing metni ve yayın kaydı silinmez.
 
 ### `generated_content`
 Vision + LLM çıktısı. Kullanıcı onaylamadan Etsy'ye gitmez.

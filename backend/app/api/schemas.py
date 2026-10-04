@@ -34,6 +34,11 @@ class AssetOut(BaseModel):
     error: str | None = None  # last content-generation failure reason, if any
     #: The seller's square crop for when this image is the cover, or None (auto).
     cover_crop: CoverCrop | None = None
+    #: The image's files were deleted by upload retention (a limited time after
+    #: its listing was published). ``has_thumbnail``: a small cover was kept and
+    #: is what the image endpoint now serves; without it there is nothing to show.
+    files_removed: bool = False
+    has_thumbnail: bool = False
 
 
 class BatchSummary(BaseModel):

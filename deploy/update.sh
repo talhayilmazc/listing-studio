@@ -17,6 +17,8 @@
 #   5. docker compose up -d --build
 #   6. wait until every service reports healthy
 #   7. preflight
+#   8. reclaim build space: when less than 12 GB is free, remove all build cache
+#      and dangling images, and say how much that freed (deploy/reclaim.sh)
 #
 # The incident this exists for: the disk filled during `up --build`, the build
 # failed, Redis was cut off mid-write and would not start, and nothing said so.
@@ -25,6 +27,8 @@
 # Settings (environment, or /etc/listyro/ops.env when it is readable):
 #   DEPLOY_MIN_FREE_GB   free space required before building (default 8)
 #   DEPLOY_HEALTH_WAIT   seconds to wait for health (default 300)
+#   DEPLOY_RECLAIM_BELOW_GB  after the update, prune build space when less than
+#                        this is free (default 12)
 #   SKIP_BACKUP=1        first deploy only: there is nothing to back up yet
 set -Eeuo pipefail
 export MSYS_NO_PATHCONV=1
@@ -34,7 +38,7 @@ cd "$(dirname "$SELF")/.."
 # The backup directory and the alert settings belong to root, so the script runs
 # as root (it asks for sudo once) and does the git steps as you.
 if [ "$(id -u)" -ne 0 ]; then
-  exec sudo --preserve-env=DEPLOY_MIN_FREE_GB,DEPLOY_HEALTH_WAIT,SKIP_BACKUP,COMPOSE_FILE,BACKUP_DIR,OPS_ENV -- bash "$SELF" "$@"
+  exec sudo --preserve-env=DEPLOY_MIN_FREE_GB,DEPLOY_HEALTH_WAIT,DEPLOY_RECLAIM_BELOW_GB,SKIP_BACKUP,COMPOSE_FILE,BACKUP_DIR,OPS_ENV -- bash "$SELF" "$@"
 fi
 OPS_ENV="${OPS_ENV:-/etc/listyro/ops.env}"
 # shellcheck disable=SC1090
@@ -91,7 +95,7 @@ check_disk() {
 }
 
 # --- 1. disk ------------------------------------------------------------------
-step "1/7 disk space (need ${MIN_FREE_GB} GB free for a full build)"
+step "1/8 disk space (need ${MIN_FREE_GB} GB free for a full build)"
 if ! check_disk; then
   echo "  Below ${MIN_FREE_GB} GB. Removing build cache older than a week and looking again."
   docker builder prune -f --filter until=168h >/dev/null
@@ -106,7 +110,7 @@ if ! check_disk; then
 fi
 
 # --- 2. backup ----------------------------------------------------------------
-step "2/7 backup, verified"
+step "2/8 backup, verified"
 if [ "${SKIP_BACKUP:-0}" = "1" ]; then
   echo "  SKIP_BACKUP=1: skipped (first deploy only)"
 elif [ -z "$(compose ps -q postgres 2>/dev/null)" ]; then
@@ -127,7 +131,7 @@ else
 fi
 
 # --- 3. code ------------------------------------------------------------------
-step "3/7 git pull"
+step "3/8 git pull"
 if [ -n "$(as_operator git status --porcelain --untracked-files=no)" ]; then
   echo "  Tracked files were changed on the server:"
   as_operator git status --short --untracked-files=no | sed 's/^/    /'
@@ -141,15 +145,15 @@ after="$(as_operator git rev-parse --short HEAD)"
 echo "  $before -> $after"
 
 # --- 4. build cache -----------------------------------------------------------
-step "4/7 prune build cache older than a week"
+step "4/8 prune build cache older than a week"
 docker builder prune -f --filter until=168h | tail -1
 
 # --- 5. build and start -------------------------------------------------------
-step "5/7 build and start"
+step "5/8 build and start"
 compose up -d --build
 
 # --- 6. health ----------------------------------------------------------------
-step "6/7 waiting for every service to be healthy (up to ${HEALTH_WAIT}s)"
+step "6/8 waiting for every service to be healthy (up to ${HEALTH_WAIT}s)"
 deadline=$(( $(date +%s) + HEALTH_WAIT ))
 while :; do
   pending=""
@@ -180,8 +184,18 @@ echo "  all healthy"
 compose ps --format 'table {{.Service}}\t{{.Status}}'
 
 # --- 7. preflight -------------------------------------------------------------
-step "7/7 preflight"
+step "7/8 preflight"
 as_root bash deploy/preflight.sh
+
+# --- 8. reclaim build space ---------------------------------------------------
+# The update has succeeded by now: nothing here may turn it into a failure.
+step "8/8 reclaim build space"
+reclaimed="$(DEPLOY_RECLAIM_BELOW_GB="${DEPLOY_RECLAIM_BELOW_GB:-}" OPS_ENV="$OPS_ENV" bash deploy/reclaim.sh 2>&1)" \
+  || reclaimed="reclaim could not run: ${reclaimed:-no output}"
+printf '%s\n' "$reclaimed" | sed 's/^/  /'
+case "$(printf '%s\n' "$reclaimed" | tail -1)" in
+  reclaimed:*) notify "$(hostname): updated to $after; $(printf '%s\n' "$reclaimed" | tail -1)" ;;
+esac
 
 echo
 echo "Updated to $after. Free disk now:"

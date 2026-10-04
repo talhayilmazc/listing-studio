@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Response, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
@@ -42,6 +42,7 @@ from app.etsy.refresh import request_refresh
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.targets import shop_profiles
+from app.pipeline import upload_retention
 from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
 from app.pipeline.reference import decode_etsy_text
 from app.pipeline.generation import generate_listing_content
@@ -226,6 +227,8 @@ def _asset_out(asset: Asset) -> schemas.AssetOut:
         has_content=False,
         error=asset.error,
         cover_crop=asset.cover_crop,
+        files_removed=asset.files_removed_at is not None,
+        has_thumbnail=asset.thumbnail_key is not None,
     )
 
 
@@ -390,6 +393,8 @@ async def get_batch(
             has_content=a.id in with_content,
             error=a.error,
             cover_crop=a.cover_crop,
+            files_removed=a.files_removed_at is not None,
+            has_thumbnail=a.thumbnail_key is not None,
         )
         for a in rows.scalars()
     ]
@@ -422,6 +427,12 @@ async def get_asset_image(
     if asset is None or asset.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="asset not found")
     key = asset.processed_key or asset.storage_key
+    media_type = asset.mime_type or "application/octet-stream"
+    if asset.files_removed_at is not None:
+        # Upload retention deleted the files; the group's cover kept a small JPEG.
+        if asset.thumbnail_key is None:
+            raise HTTPException(status_code=410, detail="this image's files have been removed")
+        key, media_type = asset.thumbnail_key, "image/jpeg"
 
     # Additive preview path: only taken when ?w= is supplied. Widths are limited to
     # an allowlist so an arbitrary ?w= cannot force unbounded resize work, and each
@@ -466,7 +477,7 @@ async def get_asset_image(
         data = storage.get(key)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="image not found") from exc
-    return Response(content=data, media_type=asset.mime_type or "application/octet-stream")
+    return Response(content=data, media_type=media_type)
 
 
 # --- Per-group shop, profile and size charts (v4 §E; shop first, Priority 2) ---------
@@ -702,6 +713,14 @@ async def _own_asset(session: AsyncSession, tenant: Tenant, asset_id: uuid.UUID)
     return asset
 
 
+def _files_needed(*assets: Asset) -> None:
+    """Refuse work on images whose files upload retention has deleted: there is
+    nothing left to crop, reorder or send to Etsy. The listing on Etsy and its
+    record here are unaffected; deleting the batch still works."""
+    if any(a.files_removed_at is not None for a in assets):
+        raise HTTPException(status_code=409, detail=upload_retention.REMOVED)
+
+
 @router.put("/assets/{asset_id}/cover-crop", response_model=schemas.CoverCrop)
 async def set_cover_crop(
     asset_id: uuid.UUID,
@@ -716,6 +735,7 @@ async def set_cover_crop(
     and on "Replace images"); the uncropped image is not added separately.
     """
     asset = await _own_asset(session, tenant, asset_id)
+    _files_needed(asset)
     if asset.status is not AssetStatus.processed or not asset.width or not asset.height:
         raise HTTPException(status_code=422, detail="only an image that processed can be cropped")
     w, h = asset.width, asset.height
@@ -898,6 +918,7 @@ async def delete_image(
     and for "Replace images".
     """
     asset = await _own_asset(session, tenant, asset_id)
+    _files_needed(asset)
     batch_id, key = asset.batch_id, asset.group_key
     members = sorted(
         (
@@ -1004,6 +1025,7 @@ async def order_group(
     members = {a.id: a for a in rows.scalars()}
     if not members:
         raise HTTPException(status_code=404, detail="group not found")
+    _files_needed(*members.values())
     if len(body.asset_ids) != len(members) or set(body.asset_ids) != set(members):
         raise HTTPException(
             status_code=422, detail="send every image of the group exactly once, in the new order"
@@ -1132,6 +1154,19 @@ async def generate_content(
     paused: str | None = None
     failures: list[schemas.AssetFailure] = []
     skipped_groups: list[schemas.GroupSkipped] = []
+    if body.group_key is not None and not groups[body.group_key]:
+        # Asked for by name, and its files are gone (upload retention): say why
+        # nothing was written, instead of answering as if there were no group.
+        removed = await session.execute(
+            select(Asset.id).where(
+                Asset.batch_id == batch_id,
+                Asset.files_removed_at.is_not(None),
+                Asset.group_key == body.group_key if body.group_key else or_(Asset.group_key.is_(None), Asset.group_key == ""),
+            ).limit(1)
+        )
+        if removed.first() is not None:
+            skipped += 1
+            skipped_groups.append(schemas.GroupSkipped(group_key=body.group_key, reason=upload_retention.REMOVED))
     for key, members in groups.items():
         if not members:
             continue

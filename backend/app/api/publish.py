@@ -47,12 +47,25 @@ from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT, is_fresh, resolve_ta
 
 from app.pipeline.batch_names import names_by_id
 
+#: Why a listing cannot get another draft once upload retention took its files.
+FILES_REMOVED = (
+    "its image files have been removed (kept for a limited time after publishing); "
+    "upload the design again to create another draft"
+)
+
 router = APIRouter(prefix="/api", tags=["publish"])
 
 
 async def _content_problem(session: AsyncSession, content: GeneratedContent) -> str | None:
     """Why this listing cannot go to any shop (its own text), or None."""
     return await listing_problem(session, content)
+
+
+async def _files_removed(session: AsyncSession, content: GeneratedContent) -> bool:
+    """Upload retention deleted this listing's images: no new draft can be made
+    from it. A draft that already exists is unaffected and can still go live."""
+    asset = await session.get(Asset, content.asset_id)
+    return asset is not None and asset.files_removed_at is not None
 
 
 async def _own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConnection | None:
@@ -160,6 +173,9 @@ async def _plan_drafts(
         for connection, profile_id in shops:
             if await publication_for(session, content.id, connection.id) is not None:
                 plan.skip(content, "already has a draft in this shop", connection)
+                continue
+            if await _files_removed(session, content):
+                plan.skip(content, FILES_REMOVED, connection)
                 continue
             target = await resolve_target(session, content, connection, profile_id=profile_id)
             if not target.ok or target.profile is None:
@@ -374,6 +390,8 @@ async def _matrix(
     for content in contents:
         own = await _own_shop(session, content)
         problem = "not approved yet" if not content.approved else await _content_problem(session, content)
+        if not problem and await _files_removed(session, content):
+            problem = FILES_REMOVED
         cells = []
         for shop in shops:
             state = states.get((content.id, shop.id))

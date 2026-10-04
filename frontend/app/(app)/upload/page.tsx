@@ -349,6 +349,10 @@ export default function UploadPage() {
             name. PNG, JPG, WebP, GIF and TIFF are accepted. A ZIP keeps its folders; files at its
             top level are one group. Nothing is uploaded until you press Upload.
           </p>
+          <p className="mt-2 max-w-md text-xs text-slate-500">
+            Keep your own copies: image files are stored here for a limited time after a listing is
+            published, then deleted. The listing on Etsy is not affected.
+          </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">{pickers}</div>
           {folderInput}
           {zipInput}

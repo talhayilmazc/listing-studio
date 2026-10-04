@@ -621,6 +621,14 @@ class Asset(Base):
     status: Mapped[AssetStatus] = mapped_column(
         _enum(AssetStatus, "asset_status"), nullable=False, default=AssetStatus.uploaded
     )
+    #: When upload retention deleted this image's files: the original, the
+    #: processed copy and their previews (pipeline/upload_retention.py). The row
+    #: stays, so the batch, the listing text and its publication still read as
+    #: they did; ``processed_key`` is cleared, so nothing tries to use the file.
+    files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: A small JPEG of the listing's cover, kept after the files are deleted so
+    #: the app still shows what the listing is. Only the group's cover has one.
+    thumbnail_key: Mapped[str | None] = mapped_column(Text)
 
 
 class GeneratedContent(Base):

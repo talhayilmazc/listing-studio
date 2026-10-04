@@ -6,6 +6,7 @@ import { BatchNameForm } from "@/components/BatchName";
 import { ShopBadge } from "@/components/ShopPicker";
 import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
+import { showable } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
@@ -269,7 +270,8 @@ function BatchCard({
 
   // One image per listing group (its rank-1 image), so the mosaic shows distinct
   // designs rather than several angles of the same one.
-  const usable = assets.filter((a) => a.status === "processed");
+  // Images whose files were removed after publishing are shown by their kept cover only.
+  const usable = assets.filter((a) => a.status === "processed" && showable(a));
   const byGroup = new Map<string, Asset>();
   for (const a of usable) {
     const key = a.group_key ?? "";

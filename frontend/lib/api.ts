@@ -29,6 +29,7 @@ import type {
   InviteRequestApproved,
   TempPasswordIssued,
   Asset,
+  AdminDisk,
   AiCost,
   AiPrice,
   AiSeries,
@@ -192,6 +193,9 @@ export const api = {
     revokeInvite: (id: string) =>
       req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
     usage: () => req<AdminUsage>("/admin/usage"),
+    disk: () => req<AdminDisk>("/admin/disk"),
+    setUploadRetention: (body: AdminDisk["retention"]) =>
+      req<AdminDisk["retention"]>("/admin/upload-retention", { method: "PUT", body: JSON.stringify(body) }),
     aiCost: () => req<AiCost>("/admin/ai-cost"),
     aiSeries: (period: AiSeries["period"], seller: string) =>
       req<AiSeries>(`/admin/ai-cost/series?period=${period}&seller=${encodeURIComponent(seller)}`),
