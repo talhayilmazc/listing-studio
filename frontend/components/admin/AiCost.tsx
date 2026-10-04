@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import type { AiCost, AiPrice, AiTotals } from "@/lib/types";
+import { AiCostOverTime } from "./AiCostOverTime";
 
 /**
  * What the AI provider's work is costing us, live. Admin only: calls, tokens,
@@ -11,32 +12,48 @@ import type { AiCost, AiPrice, AiTotals } from "@/lib/types";
  *
  * Every call is one row on the server (worked, refused, unusable, retried), so
  * a day's total here should match the provider's console for the same UTC day.
+ *
+ * Two cards: cost over time per seller, in Istanbul time, under its own period
+ * and seller filters (AiCostOverTime); and below it the UTC figures the console
+ * is checked against, the latest calls and the price table.
  */
 
 const usd = (v: string | null, digits = 2) => (v === null ? "—" : `$${Number(v).toFixed(digits)}`);
 const n = (v: number) => v.toLocaleString();
+/** Istanbul time, whatever the browser's zone. */
 const time = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  new Date(iso).toLocaleString("en-GB", {
+    timeZone: "Europe/Istanbul", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
 
-type View = "sellers" | "purposes" | "days" | "calls" | "prices";
+type View = "purposes" | "days" | "calls" | "prices";
 const VIEWS: { id: View; label: string }[] = [
-  { id: "sellers", label: "By seller" },
   { id: "purposes", label: "By purpose" },
-  { id: "days", label: "By day" },
+  { id: "days", label: "UTC days by model" },
   { id: "calls", label: "Latest calls" },
   { id: "prices", label: "Prices" },
 ];
 
 export function AiCostPanel({ cost, onChanged, onError }: { cost: AiCost | null; onChanged: () => void; onError: (m: string) => void }) {
-  const [view, setView] = useState<View>("sellers");
-  if (!cost) return <p className="text-sm text-slate-400">Loading AI cost…</p>;
+  const [view, setView] = useState<View>("purposes");
 
   return (
-    <section className="card p-5" translate="no" aria-labelledby="ai-cost-title">
+    <div className="space-y-5">
+      <AiCostOverTime refreshKey={cost?.as_of} onError={onError} />
+      {cost ? <Details key="details" cost={cost} view={view} setView={setView} onChanged={onChanged} onError={onError} /> : null}
+    </div>
+  );
+}
+
+function Details({
+  cost, view, setView, onChanged, onError,
+}: { cost: AiCost; view: View; setView: (v: View) => void; onChanged: () => void; onError: (m: string) => void }) {
+  return (
+    <section className="card p-5" translate="no" aria-labelledby="ai-utc-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="ai-cost-title" className="font-display text-2xl text-slate-900">AI cost</h2>
+        <h2 id="ai-utc-title" className="font-display text-xl text-slate-900">Today and this month, in UTC</h2>
         <p className="text-xs text-slate-500">
-          <span>Every call to the AI provider · days are UTC · updated <span>{time(cost.as_of)}</span> · sellers never see this</span>
+          <span>As the provider&apos;s console counts · not affected by the filters above · updated <span>{time(cost.as_of)}</span> Istanbul time</span>
         </p>
       </div>
 
@@ -47,8 +64,8 @@ export function AiCostPanel({ cost, onChanged, onError }: { cost: AiCost | null;
       )}
 
       <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
-        <Stat label="Today" value={usd(cost.today.cost_usd)} note={`${n(cost.today.calls)} calls · ${n(cost.today.failed)} failed`} flag={cost.today.unpriced} />
-        <Stat label="This month" value={usd(cost.this_month.cost_usd)} note={`${n(cost.this_month.calls)} calls · ${n(cost.this_month.failed)} failed`} flag={cost.this_month.unpriced} />
+        <Stat label="Today (UTC)" value={usd(cost.today.cost_usd)} note={`${n(cost.today.calls)} calls · ${n(cost.today.failed)} failed`} flag={cost.today.unpriced} />
+        <Stat label="This month (UTC)" value={usd(cost.this_month.cost_usd)} note={`${n(cost.this_month.calls)} calls · ${n(cost.this_month.failed)} failed`} flag={cost.this_month.unpriced} />
         <Stat label="Per listing, this month" value={usd(cost.this_month.cost_per_listing_usd, 4)} note={`${n(cost.this_month.listings)} listings written`} />
         <Stat label="Per listing, today" value={usd(cost.today.cost_per_listing_usd, 4)} note={`${n(cost.today.listings)} listings written`} />
       </dl>
@@ -72,9 +89,6 @@ export function AiCostPanel({ cost, onChanged, onError }: { cost: AiCost | null;
       </div>
 
       <div className="mt-4 overflow-x-auto">
-        {view === "sellers" && (
-          <Breakdown key="sellers" first="Seller" rows={cost.sellers.map((s) => ({ key: s.id ?? "none", name: s.email ?? "No seller (our own runs, deleted accounts)", today: s.today, month: s.this_month }))} />
-        )}
         {view === "purposes" && (
           <Breakdown key="purposes" first="Purpose" rows={cost.purposes.map((p) => ({ key: p.purpose, name: p.label, today: p.today, month: p.this_month }))} />
         )}
@@ -193,7 +207,7 @@ function Calls({ cost }: { cost: AiCost }) {
     <table className="w-full min-w-[52rem] text-left text-xs">
       <thead>
         <tr className="border-b border-slate-200 text-slate-400">
-          <th className="py-1.5 pr-4 font-medium">When</th>
+          <th className="py-1.5 pr-4 font-medium">When (Istanbul)</th>
           <th className="py-1.5 pr-4 font-medium">Seller</th>
           <th className="py-1.5 pr-4 font-medium">Purpose</th>
           <th className="py-1.5 pr-4 font-medium">Model</th>

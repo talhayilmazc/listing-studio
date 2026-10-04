@@ -31,6 +31,7 @@ import type {
   Asset,
   AiCost,
   AiPrice,
+  AiSeries,
   BatchDetail,
   ImageDeleteResult,
   BatchPublishResult,
@@ -192,6 +193,8 @@ export const api = {
       req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
     usage: () => req<AdminUsage>("/admin/usage"),
     aiCost: () => req<AiCost>("/admin/ai-cost"),
+    aiSeries: (period: AiSeries["period"], seller: string) =>
+      req<AiSeries>(`/admin/ai-cost/series?period=${period}&seller=${encodeURIComponent(seller)}`),
     setAiPrice: (body: Omit<AiPrice, "custom">) =>
       req<AiPrice[]>("/admin/ai-prices", { method: "PUT", body: JSON.stringify(body) }),
     resetAiPrice: (model: string) =>

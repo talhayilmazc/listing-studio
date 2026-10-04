@@ -171,8 +171,9 @@ async def test_the_cost_endpoint_is_gone_and_the_admin_view_is_admin_only(world)
     bob = world["bob"]
     for client in (world["b"], world["a"], world["anon"]):
         assert (await client.get(f"/api/batches/{bob.batch_id}/cost")).status_code in (401, 404)
-    assert (await world["b"].get("/api/admin/ai-cost")).status_code == 404
-    assert (await world["anon"].get("/api/admin/ai-cost")).status_code in (401, 404)
+    for path in ("/api/admin/ai-cost", "/api/admin/ai-cost/series", "/api/admin/ai-cost/series?period=24h"):
+        assert (await world["b"].get(path)).status_code == 404
+        assert (await world["anon"].get(path)).status_code in (401, 404)
 
     seen = (await world["a"].get("/api/admin/ai-cost")).json()
     row = next(a for a in seen["sellers"] if a["email"] == "bob@example.com")

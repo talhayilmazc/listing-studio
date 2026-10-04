@@ -424,6 +424,61 @@ export interface AiCost {
   unpriced_models: string[];
 }
 
+/** Admin only: calls, listings and cost of one seller (or all) in one stretch of time. */
+export interface AiCell {
+  calls: number;
+  failed: number;
+  listings: number;
+  cost_usd: string;
+  unpriced: boolean;
+  cost_per_listing_usd: string | null;
+}
+
+export interface AiBucket {
+  /** Istanbul time, with its offset. */
+  start: string;
+  end: string;
+  label: string;
+  title: string;
+  partial: boolean;
+  /** Daily view only: the same date as a UTC day, as the provider's console counts. */
+  utc_day: string | null;
+  utc: AiCell | null;
+  total: AiCell;
+}
+
+export interface AiSeriesSeller {
+  id: string;
+  email: string | null;
+  /** The seller's colour: fixed per account, whatever the period or the filter. */
+  slot: number | null;
+  total: AiCell;
+  /** Of the period's cost for all sellers, 0..1. */
+  share: string | null;
+  cells: AiCell[];
+}
+
+/** Admin only: AI cost over time, per seller (never sent to sellers). */
+export interface AiSeries {
+  period: "24h" | "48h" | "daily" | "weekly" | "monthly";
+  seller: string;
+  time_zone: string;
+  as_of: string;
+  start: string;
+  end: string;
+  buckets: AiBucket[];
+  sellers: AiSeriesSeller[];
+  total: AiCell;
+  all_sellers: AiCell;
+  previous: AiCell;
+  previous_start: string;
+  previous_end: string;
+  previous_covered: boolean;
+  records_from: string | null;
+  change: { cost: string | null; listings: string | null; cost_per_listing: string | null };
+  options: { id: string; email: string | null; slot: number | null }[];
+}
+
 export interface QuotaDay {
   date: string; // YYYY-MM-DD (UTC)
   count: number;

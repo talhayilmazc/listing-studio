@@ -54,6 +54,7 @@ from app.etsy.categories import LABELS
 
 from decimal import Decimal
 from app.core import ai_meter, ai_prices
+from app.api import ai_series
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -955,6 +956,23 @@ async def ai_cost(
         prices=await _prices_out(session),
         unpriced_models=sorted(m for m in unpriced if ai_prices.price_for(m, table) is None),
     )
+
+
+@router.get("/ai-cost/series", response_model=ai_series.AiSeriesOut)
+async def ai_cost_series(
+    period: ai_series.Period = "daily",
+    seller: str = "all",
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ai_series.AiSeriesOut:
+    """AI cost over time, per seller: hourly, daily, weekly or monthly buckets in
+    Istanbul time, for every seller or one ("none": our own runs), with the
+    previous equal period to compare against. Counts and cost only."""
+    try:
+        who = ai_series.parse_seller(seller)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="seller is \"all\", \"none\" or an account id") from exc
+    return await ai_series.build(session, period, who)
 
 
 @router.put("/ai-prices", response_model=list[AiPriceOut])
