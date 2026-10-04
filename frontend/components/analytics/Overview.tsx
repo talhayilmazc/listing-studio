@@ -332,7 +332,7 @@ function Statement({
                         <button key="costs" type="button" className="ml-1 text-brand-700 underline" onClick={() => onTab("costs")}>Enter costs</button>
                       )}
                       {blank && key === "ads" && (
-                        <button key="ads" type="button" className="ml-1 text-brand-700 underline" onClick={() => onTab("ads")}>Upload a report</button>
+                        <button key="ads" type="button" className="ml-1 text-brand-700 underline" onClick={() => onTab("ads")}>Import from Etsy</button>
                       )}
                     </span>
                   )}
@@ -340,7 +340,7 @@ function Statement({
                     <span key="unattr" className="block text-xs text-slate-500">
                       <span translate="no">{`${money(cur.ads_unattributed, currency)} of it isn't attributed to a listing: `}</span>
                       <span>Etsy&apos;s ledger is shop-wide; per-listing spend comes from the Ads report.</span>
-                      <button type="button" className="ml-1 text-brand-700 underline" onClick={() => onTab("ads")}>Upload a report</button>
+                      <button type="button" className="ml-1 text-brand-700 underline" onClick={() => onTab("ads")}>Import from Etsy</button>
                     </span>
                   ) : null}
                 </td>

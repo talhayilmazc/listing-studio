@@ -14,7 +14,7 @@ from decimal import Decimal
 import pytest
 
 from app.db.models import AdSpend, EtsyConnection, LedgerDaily, LedgerSync, SalesDaily, SalesSync, ShopListingCache, Tenant
-from app.pipeline import ads_csv, profit
+from app.pipeline import profit
 from app.pipeline.profit import AdRow, CostSettings, DaySales, ListingFacts, Metrics, Window
 from tests.auth_support import authenticate, make_tenant, open_session
 from tests.test_publish_api import _shop, ctx  # noqa: F401  (fixture)
@@ -150,41 +150,6 @@ CSV = (
     "Idle Listing,4003,5,0,0,0,$0.00\n"
     "Total,,165,13,1,$25.00,\"$1,017.90\"\n"
 ).encode()
-
-
-def test_money_dates_and_mapping_guesses() -> None:
-    assert ads_csv.parse_money("$1,234.56") == 123456
-    assert ads_csv.parse_money("1.234,56 €") == 123456
-    assert ads_csv.parse_money("12,5") == 1250 and ads_csv.parse_money("(3.00)") == -300
-    assert ads_csv.parse_money("") is None
-    assert ads_csv.parse_date("2026-09-01") == date(2026, 9, 1) == ads_csv.parse_date("09/01/2026")
-    table = ads_csv.read_table(CSV)
-    assert ads_csv.guess_mapping(table.headers) == {
-        "listing_id": "Listing ID", "title": "Listing", "date": None,
-        "spend": "Spend", "orders": "Orders", "revenue": "Revenue", "views": "Views",
-    }
-
-
-def test_rows_match_only_the_sellers_own_listings() -> None:
-    table = ads_csv.read_table(CSV)
-    mapping = ads_csv.guess_mapping(table.headers)
-    period = (TODAY - timedelta(days=29), TODAY)
-    titles = ads_csv.own_title_index({4001: "Funny Nurse Tee", 4002: "Teacher  shirt", 4003: "Idle Listing"})
-    out = ads_csv.parse_rows(table, mapping, {4001, 4002, 4003}, titles, period)
-    assert [(r.listing_id, r.spend_minor, r.ad_orders, r.ad_revenue_minor, r.ad_views) for r in out.rows] == [
-        (4001, 1240, 1, 2500, 100),
-        (4002, 100250, 0, 0, 50),  # matched by title (spacing and case ignored)
-        (4003, 0, 0, 0, 5),  # no spend, but views count toward judging a new listing
-    ]
-    assert [(u.line, u.why) for u in out.unmatched] == [(4, "not one of your shop's listings")]
-    assert out.skipped == 1  # the totals row
-
-    # A title two of the seller's listings share matches neither.
-    assert ads_csv.own_title_index({1: "Same", 2: "same"}) == {}
-    with pytest.raises(ads_csv.CsvError):
-        ads_csv.parse_rows(table, {**mapping, "spend": None}, set(), {}, period)
-    with pytest.raises(ads_csv.CsvError):
-        ads_csv.parse_rows(table, mapping, set(), {}, None)  # no date column and no period
 
 
 # --- Endpoints --------------------------------------------------------------------------
@@ -428,41 +393,6 @@ async def _seed_scope(ctx, scopes) -> None:  # noqa: F811
     async with ctx["sm"]() as s:
         (await s.get(EtsyConnection, await _shop(s, ctx["tenant_id"]))).scopes = scopes
         await s.commit()
-
-
-async def test_ads_csv_upload_matches_and_replaces(ctx) -> None:  # noqa: F811
-    await _seed(ctx)
-    preview = (await ctx["client"].post("/api/analytics/ads/preview", files={"file": ("ads.csv", CSV, "text/csv")})).json()
-    assert preview["rows"] == 5 and preview["mapping"]["spend"] == "Spend"
-
-    form = {"mapping": json.dumps(preview["mapping"]),
-            "period_start": str(TODAY - timedelta(days=29)), "period_end": str(TODAY)}
-    first = (await ctx["client"].post("/api/analytics/ads/import", files={"file": ("ads.csv", CSV, "text/csv")}, data=form)).json()
-    assert (first["matched"], first["unmatched_total"], first["spend"]) == (3, 1, 1240 + 100250)
-    again = (await ctx["client"].post("/api/analytics/ads/import", files={"file": ("ads.csv", CSV, "text/csv")}, data=form)).json()
-    assert again["replaced"] == 3  # the same period uploaded twice is not counted twice
-    async with ctx["sm"]() as s:
-        from sqlalchemy import func, select
-
-        assert await s.scalar(select(func.count()).select_from(AdSpend)) == 3
-
-    uploads = (await ctx["client"].get("/api/analytics/ads/uploads")).json()
-    assert len(uploads) == 1 and uploads[0]["listings"] == 3
-
-    # Teacher Shirt: $1,002.50 of ads and no sale in 30 days: the biggest stake.
-    rows = (await ctx["client"].get("/api/analytics/listings")).json()["listings"]
-    sink = rows[0]
-    assert sink["listing_id"] == 4002 and sink["action"]["kind"] == "ad_sink" and "$1,002.50" in sink["action"]["reason"]
-    assert sink["action"]["stake"] == 100250 and sink["status"] == "ad_sink"
-    # With a report uploaded, listings outside it spent nothing on ads.
-    assert next(r for r in rows if r["listing_id"] == 4001)["economics"]["ads"] == 1240
-
-    # Another account can't remove this upload.
-    upload = uploads[0]["upload_id"]
-    other = await make_tenant(ctx["sm"], "other@example.com")
-    ctx["client"].cookies.clear()
-    authenticate(ctx["client"], await open_session(ctx["redis"], other))
-    assert (await ctx["client"].delete(f"/api/analytics/ads/uploads/{upload}")).status_code == 404
 
 
 async def test_listing_detail_has_weeks_and_its_cost_source(ctx) -> None:  # noqa: F811

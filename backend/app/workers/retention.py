@@ -39,6 +39,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     AiCall,
     InviteRequest,
+    AdCharge,
+    AdsDaily,
     AdSpend,
     AllowanceUse,
     DraftAttempt,
@@ -48,8 +50,12 @@ from app.db.models import (
     ListingProfile,
     ListingPublication,
     ListingSnapshot,
+    SaleLine,
     SalesDaily,
     SalesSync,
+    StatementImport,
+    StatementListingFee,
+    StatementOrder,
     ShopListingCache,
 )
 
@@ -77,6 +83,12 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.day < oldest))
     ads = await session.execute(delete(AdSpend).where(AdSpend.period_end < oldest))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.day < oldest))
+    # What "Import from Etsy" stored, and the order lines it is joined to: the same 13 months.
+    await session.execute(delete(SaleLine).where(SaleLine.day < oldest))
+    await session.execute(delete(AdsDaily).where(AdsDaily.day < oldest))
+    await session.execute(delete(AdCharge).where(AdCharge.click_day < oldest))
+    for table in (StatementImport, StatementOrder, StatementListingFee):
+        await session.execute(delete(table).where(table.month < oldest.replace(day=1)))
     # Drafts that were started and never finished or retried (etsy/publisher.py).
     await session.execute(delete(DraftAttempt).where(DraftAttempt.created_at < now - timedelta(days=DraftAttempt.RETENTION_DAYS)))
     # Allowance usage: long past any period an allowance counts over.
@@ -179,6 +191,9 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))
     await session.execute(delete(DraftAttempt).where(DraftAttempt.connection_id == connection_id))
     await session.execute(delete(LedgerSync).where(LedgerSync.connection_id == connection_id))
+    # Imported statements and Ads reports, and the order lines: the shop's, so they go with it.
+    for table in (SaleLine, AdsDaily, AdCharge, StatementImport, StatementOrder, StatementListingFee):
+        await session.execute(delete(table).where(table.connection_id == connection_id))
     return {
         "sales_days": sales.rowcount or 0,
         "ad_spend": ads.rowcount or 0,

@@ -11,13 +11,28 @@ against an Etsy that behaves badly the way the real one does:
 * 5xx, including one that outlasts the client's retries;
 * a request that hangs past the worker's time limit.
 
-Only Etsy is mocked, at the HTTP level. Time is real; the bucket runs 20x faster
-than production so some 700 requests take seconds, and the waits between tries
-are shortened to match.
+Only Etsy is mocked, at the HTTP level. The bucket runs 20x faster than
+production so some 700 requests take seconds, and the waits between tries are
+shortened to match.
+
+**Nothing here can fail because the machine is slow.** It used to, now and
+then: the worker's time limit was four real seconds, so on a busy machine
+healthy jobs were cut off until one ran out of tries, and the rate was checked
+against the wall clock, so a stalled event loop looked like a burst. Now:
+
+* the time limit is hit when the scenario says so (:class:`TimeLimit`), for the
+  one request that hangs, and never by a clock; arq's own limit is set far out
+  of reach, and so is the run lock that is derived from it;
+* the fake Etsy never sleeps: a slow answer yields, a hung one waits to be cut off;
+* the rate is checked by counting that every request took its turn from the
+  bucket, not by timing them (the bucket's own pacing has its own tests).
+
+What is left of real time is waiting only (the bucket's pacing, the shortened
+pauses between tries): it can make the run longer, not make it fail.
 
 What must hold: every one of the fifty ends as a finished draft, Etsy holds
 exactly fifty drafts (a retry never makes a second one), each with its images
-once and in order, and no second ever holds more requests than the bucket allows.
+once and in order, and every request went through the bucket.
 """
 
 from __future__ import annotations
@@ -28,6 +43,8 @@ import re
 import time
 import uuid
 from collections import Counter
+from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs
@@ -83,12 +100,66 @@ def _png(color: int) -> bytes:
     return buf.getvalue()
 
 
+class _Running:
+    """One job as the worker runs it."""
+
+    task: asyncio.Task | None = None
+    timed_out = False
+
+
+_running: ContextVar[_Running | None] = ContextVar("running_job", default=None)
+
+
+class TimeLimit:
+    """The worker's time limit, hit when the scenario says so and not by a clock.
+
+    arq cuts a job off by cancelling it and reports a timeout. ``wrap`` does
+    exactly that to the job whose request calls :meth:`hit`: the job is
+    cancelled at that point, the app's own handling of an interrupted job runs,
+    and arq is told the job timed out. No job is ever cut off for being slow.
+    """
+
+    def hit(self) -> None:
+        job = _running.get()
+        assert job is not None and job.task is not None, "a request outside a job"
+        job.timed_out = True
+        job.task.cancel()
+
+    def wrap(self, function: Callable[[dict[str, Any], str], Awaitable[Any]]) -> Callable[[dict[str, Any], str], Awaitable[Any]]:
+        async def run(ctx: dict[str, Any], job_id: str) -> Any:
+            job = _Running()
+            token = _running.set(job)
+            # The task copies this context, so every request the job makes finds it.
+            job.task = asyncio.ensure_future(function(ctx, job_id))
+            _running.reset(token)
+            try:
+                return await job.task
+            except asyncio.CancelledError:
+                if job.timed_out:
+                    raise asyncio.TimeoutError from None  # what arq raises for a job past its limit
+                job.task.cancel()
+                raise
+
+        return run
+
+
+class CountingBucket(TokenBucket):
+    """The real bucket, counting each turn it gives out."""
+
+    taken = 0
+
+    async def acquire(self, tokens: float = 1.0) -> None:
+        await super().acquire(tokens)
+        self.taken += 1
+
+
 class Etsy:
     """Etsy's side of the conversation, with the faults switched on by listing."""
 
-    def __init__(self) -> None:
+    def __init__(self, time_limit: TimeLimit) -> None:
+        self.time_limit = time_limit
         self.listings: dict[int, dict[str, Any]] = {}
-        self.sent: list[float] = []
+        self.sent = 0
         self.faults: Counter[str] = Counter()
         self.once: set[str] = set()
         self.streak: Counter[str] = Counter()
@@ -114,11 +185,12 @@ class Etsy:
     # -- the transport ---------------------------------------------------------------
     async def handle(self, request: httpx.Request) -> httpx.Response:
         self.n += 1
-        self.sent.append(time.monotonic())
+        self.sent += 1
         method, path = request.method, request.url.path.removeprefix("/v3/application")
         if self.n % 13 == 0:
+            # Other requests get in before this one is answered.
             self.fault("slow answer")
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0)
         if self.n % 37 == 0:
             self.fault("429")
             return httpx.Response(429, headers={"retry-after": "0.1"}, json={"error": "Exceeded per second rate limit"})
@@ -204,7 +276,8 @@ class Etsy:
         # Hangs past the worker's time limit, nothing stored.
         if "Design 40" in title and have == 0 and self.first("hang 40"):
             self.fault("upload: hangs past the job's time limit")
-            await asyncio.sleep(30)
+            self.time_limit.hit()  # the job's time is up now
+            await asyncio.Event().wait()  # never answered: the job is cut off here
         # Refused by Etsy's own error, nothing stored.
         if "Design 15" in title and have == 0 and self.first("503 upload 15"):
             self.fault("upload: 503, nothing stored")
@@ -277,14 +350,10 @@ async def _seed(sm: async_sessionmaker, storage: LocalStorage, cipher: TokenCiph
         return tenant.id, jobs
 
 
-def busiest_second(times: list[float]) -> int:
-    times = sorted(times)
-    return max(sum(1 for u in times if s <= u < s + 1.0) for s in times)
-
-
 async def test_fifty_drafts_at_once_all_finish_with_no_duplicate(tmp_path, test_settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     set_settings_override(test_settings.model_copy(update={
-        "storage_dir": str(tmp_path / "storage"), "thumbnail_size": 300, "worker_job_timeout": 4,
+        # The run lock lasts worker_job_timeout + 60 s: far longer than this test on any machine.
+        "storage_dir": str(tmp_path / "storage"), "thumbnail_size": 300, "worker_job_timeout": 900,
         "etsy_client_id": "k", "etsy_client_secret": "s",
     }))
     # A database of its own on disk: every job gets its own connection, as in production.
@@ -303,7 +372,8 @@ async def test_fifty_drafts_at_once_all_finish_with_no_duplicate(tmp_path, test_
     cipher = TokenCipher(Fernet.generate_key())
     tenant_id, jobs = await _seed(sm, LocalStorage(tmp_path / "storage"), cipher)
 
-    etsy = Etsy()
+    time_limit = TimeLimit()
+    etsy = Etsy(time_limit)
     monkeypatch.setattr(publish_worker, "httpx", _Httpx(etsy))
     monkeypatch.setattr(publish_worker, "get_cipher", lambda: cipher)
     # The waits between tries, shortened like the bucket; the logic is untouched.
@@ -324,21 +394,25 @@ async def test_fifty_drafts_at_once_all_finish_with_no_duplicate(tmp_path, test_
     pool = ArqRedis(connection_pool=redis.connection_pool)
     quota = DailyQuota(redis, global_daily_limit=5000, pause_percent=90)
 
+    bucket: dict[str, CountingBucket] = {}
+
     async def startup(ctx: dict[str, Any]) -> None:
         ctx["sessionmaker"] = sm
         ctx["usage"] = UsageRecorder()
-        ctx["bucket"] = TokenBucket(ctx["redis"], rate=RATE)
+        ctx["bucket"] = bucket["it"] = CountingBucket(ctx["redis"], rate=RATE)
         ctx["quota"] = quota
 
     for job_id in jobs:  # all fifty at once, as "Create drafts for all" does
         await pool.enqueue_job("run_publish_job", job_id)
     worker = Worker(
-        functions=[func(publish_worker.run_publish_job, name="run_publish_job")],
+        functions=[func(time_limit.wrap(publish_worker.run_publish_job), name="run_publish_job")],
         redis_pool=pool, on_startup=startup, burst=True, handle_signals=False, poll_delay=0.05,
-        max_jobs=10, job_timeout=4, max_tries=5,
+        # arq's own limit is out of reach: only TimeLimit cuts a job off.
+        max_jobs=10, job_timeout=3600, max_tries=5,
     )
     try:
-        await asyncio.wait_for(worker.main(), timeout=150)
+        # Not a deadline the run is expected to come near: it only stops a hung test.
+        await asyncio.wait_for(worker.main(), timeout=900)
     finally:
         await worker.close()
 
@@ -367,8 +441,8 @@ async def test_fifty_drafts_at_once_all_finish_with_no_duplicate(tmp_path, test_
         names = draft["images"]
         assert len(names) == 3 and names[0].endswith("-thumb.jpg") and names[2] == CHART, (draft["title"], names)
         assert draft["inventory"] is not None
-    # Every request, retries included, went through the bucket and was counted against the day.
-    assert busiest_second(etsy.sent) <= RATE + 2
-    assert (await quota.usage(tenant_id))[0] == len(etsy.sent)
+    # Every request, retries included, took its turn from the bucket and was counted against the day.
+    assert bucket["it"].taken == etsy.sent
+    assert (await quota.usage(tenant_id))[0] == etsy.sent
     # The jobs that could not finish in one go waited and ran again, rather than failing.
     assert sum(r.attempts for r in rows) >= 4

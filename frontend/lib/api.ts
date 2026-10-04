@@ -1,10 +1,7 @@
 import type {
   Account,
-  AdsImportResult,
   Allowance,
   AllowanceDefault,
-  AdsPreview,
-  AdsUpload,
   AnalyticsDetail,
   AnalyticsListings,
   AnalyticsSummary,
@@ -35,6 +32,8 @@ import type {
   AiSeries,
   BatchDetail,
   ImageDeleteResult,
+  ImportMonth,
+  ImportStatus,
   BatchPublishResult,
   BatchSummary,
   Connection,
@@ -351,28 +350,22 @@ export const api = {
   costs: () => req<CostSettings>("/analytics/costs"),
   saveCosts: (body: Omit<CostSettings, "defaults">) =>
     req<CostSettings>("/analytics/costs", { method: "PUT", body: JSON.stringify(body) }),
-  adsPreview: (file: File) => {
+  importStatement: (shop: string | null, file: File) => {
     const form = new FormData();
     form.append("file", file, file.name);
-    return reqForm<AdsPreview>("/analytics/ads/preview", form);
+    return reqForm<ImportMonth>(`/analytics/import/statement${shopQuery(shop)}`, form);
   },
-  adsImport: (
-    shop: string | null,
-    file: File,
-    mapping: Record<string, string | null>,
-    period: { start: string; end: string } | null,
-  ) => {
+  /** One report per month the file covers. */
+  importAds: (shop: string | null, file: File) => {
     const form = new FormData();
     form.append("file", file, file.name);
-    form.append("mapping", JSON.stringify(mapping));
-    if (period) {
-      form.append("period_start", period.start);
-      form.append("period_end", period.end);
-    }
-    return reqForm<AdsImportResult>(`/analytics/ads/import${shopQuery(shop)}`, form);
+    return reqForm<ImportMonth[]>(`/analytics/import/ads${shopQuery(shop)}`, form);
   },
-  adsUploads: (shop: string | null) => req<AdsUpload[]>(`/analytics/ads/uploads${shopQuery(shop)}`),
-  deleteAdsUpload: (id: string) => req<void>(`/analytics/ads/uploads/${id}`, { method: "DELETE" }),
+  importStatus: (shop: string | null) => req<ImportStatus>(`/analytics/import/status${shopQuery(shop)}`),
+  /** `month` is "YYYY-MM". */
+  importMonth: (shop: string | null, month: string) => req<ImportMonth>(`/analytics/import/months/${month}${shopQuery(shop)}`),
+  deleteImportMonth: (shop: string | null, month: string) =>
+    req<void>(`/analytics/import/months/${month}${shopQuery(shop)}`, { method: "DELETE" }),
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**

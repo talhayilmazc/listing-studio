@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import type { AnalyticsListings, AnalyticsSummary, ListingClass } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
 import { ShopBadge } from "@/components/ShopPicker";
-import { AdsUpload } from "@/components/analytics/AdsUpload";
+import { ImportFromEtsy } from "@/components/analytics/ImportFromEtsy";
 import { CostSettings } from "@/components/analytics/CostSettings";
 import { ListingTable } from "@/components/analytics/ListingTable";
 import { Overview } from "@/components/analytics/Overview";
@@ -18,7 +18,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "today", label: "Today" },
   { key: "overview", label: "Overview" },
   { key: "listings", label: "Listings" },
-  { key: "ads", label: "Ads report" },
+  { key: "ads", label: "Import from Etsy" },
   { key: "costs", label: "Fees & costs" },
 ];
 
@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
             exportHref={api.analyticsExportUrl("listings", shopId, days, compare)}
           />
         )}
-        {tab === "ads" && status?.connected && <AdsUpload key="ads" shopId={shopId} currency={currency} onImported={load} />}
+        {tab === "ads" && status?.connected && <ImportFromEtsy key="ads" shopId={shopId} onImported={load} />}
         {tab === "costs" && <CostSettings key="costs" shopId={shopId} currency={currency} onSaved={load} />}
       </div>
 

@@ -946,6 +946,9 @@ class SalesSync(Base):
     note: Mapped[str | None] = mapped_column(Text)
     #: Held by the run reading this shop now, so two runs never read it at once.
     lock_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The read wrote :class:`SaleLine` rows for everything it counted. False for
+    #: a shop read before those existed: the nightly round reads it once more.
+    has_lines: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
@@ -1042,11 +1045,172 @@ class LedgerSync(Base):
     )
 
 
-class AdSpend(Base):
-    """Etsy Ads spend the seller uploaded as CSV, per listing and period (v7 §C1).
+class SaleLine(Base):
+    """One line of one order, as attribution needs it (Analytics, pipeline/attribution.py).
 
-    The Open API has no Ads data; the seller exports it from Shop Manager and
-    maps its columns here. Kept 13 months like sales; deleted with the shop.
+    From getShopReceiptTransactionsByShop, the same response the daily totals
+    are made from: the order (``receipt_id``), the listing, the quantity, the
+    line's price, the shipping the buyer paid for it and the date. **Nothing
+    about the buyer**: no name, address, message or buyer id is read or stored.
+    It lets an order row of an imported statement be tied to its listings, and a
+    multi-item order's fees be split by each item's share of the price.
+
+    Kept as long as the daily totals (13 months); deleted with the shop.
+    """
+
+    __tablename__ = "sale_line"
+    __table_args__ = (
+        Index("ix_sale_line_receipt", "connection_id", "receipt_id"),
+        Index("ix_sale_line_day", "connection_id", "day"),
+    )
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    transaction_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    receipt_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)  # UTC, like sales_daily
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: The line's price (unit price x quantity) and the shipping paid for it, in minor units.
+    price_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    shipping_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    currency: Mapped[str | None] = mapped_column(Text)
+
+
+class StatementImport(Base):
+    """One month of one shop's Etsy statement, as totals (pipeline/statement.py).
+
+    The seller downloads the CSV from Shop Manager and uploads it; it is parsed
+    in memory and **the file is never kept**. What is kept: a total per
+    category (they add up to ``net_minor`` exactly), the deposits, and what the
+    reader could not classify. It is the authority for the month's money:
+    imported statement > ledger API > nothing.
+
+    Kept 13 months like the sales it explains; deleted with the shop. Importing
+    a month again replaces it.
+    """
+
+    __tablename__ = "statement_import"
+
+    RETENTION_DAYS: ClassVar[int] = 396
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    month: Mapped[date] = mapped_column(Date, primary_key=True)  # the 1st
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    currency: Mapped[str | None] = mapped_column(Text)
+    rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_day: Mapped[date] = mapped_column(Date, nullable=False)
+    last_day: Mapped[date] = mapped_column(Date, nullable=False)
+    net_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: {category: minor units} and {category: rows}, as pipeline/statement.py names them.
+    totals: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    counts: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    #: Fee credits by what they credit ({"listing": minor, "processing": ...}).
+    credits: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    #: Transfers to the bank: [{"day": "2026-09-07", "minor": 4000}]. Not income, not cost.
+    deposits: Mapped[list[Any]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
+    #: Rows with no rule ([{"type", "title", "category", "minor"}]) and reader's notes.
+    unrecognised: Mapped[list[Any]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
+    notes: Mapped[list[Any]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StatementOrder(Base):
+    """What a statement says about one order: amounts per category, by receipt id.
+
+    The per-order rows attribution needs, and nothing else: the order's number,
+    the day its sale was posted and amounts. The statement carries no buyer
+    data and none is added. Lives and dies with its :class:`StatementImport`.
+    """
+
+    __tablename__ = "statement_order"
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    month: Mapped[date] = mapped_column(Date, primary_key=True)
+    receipt_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    #: The day the sale was posted; NULL when only fees or a refund fall in this month.
+    day: Mapped[date | None] = mapped_column(Date)
+    #: {category: minor units}
+    amounts: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+
+
+class StatementListingFee(Base):
+    """Listing fees a statement ties to a listing id (``Listing #<id>`` rows)."""
+
+    __tablename__ = "statement_listing_fee"
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    month: Mapped[date] = mapped_column(Date, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    fees: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")  # negative
+    credits_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+
+
+class AdCharge(Base):
+    """What a statement billed for one day's Etsy Ads clicks ("Charged by Etsy").
+
+    The charge belongs to its click day and is posted the day after, so a
+    month's statement holds the last day of the month before and not its own
+    last day. Shop level: Etsy does not say which listing.
+    """
+
+    __tablename__ = "ad_charge"
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    click_day: Mapped[date] = mapped_column(Date, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    posted: Mapped[date] = mapped_column(Date, nullable=False)
+    #: The statement month the charge is on.
+    month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)  # a cost: positive
+
+
+class AdsDaily(Base):
+    """The Etsy Ads report, one row per day **for the whole shop** ("Ad spend for clicks").
+
+    From the report the seller downloads in Shop Manager > Marketing > Etsy Ads.
+    It has no listing column, so ad spend is never tied to a listing, not even
+    proportionally. Days are Eastern Time, as Etsy reports them. Kept 13
+    months; deleted with the shop. Importing a range again replaces its days.
+    """
+
+    __tablename__ = "ads_daily"
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    views: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    clicks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    orders: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    revenue_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    spend_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    currency: Mapped[str | None] = mapped_column(Text)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AdSpend(Base):
+    """Per-listing ad spend from the old CSV import (v7 §C1). **No longer written.**
+
+    That import matched report rows to listings by id or by title. Etsy's real
+    Ads export has no listing column, and titles must not be used to guess one,
+    so it was replaced by the shop-level daily import (:class:`AdsDaily`) and
+    migration 0043 deleted every row here. The table stays, empty, until the
+    Analytics screens that still read it are rebuilt.
     """
 
     __tablename__ = "ad_spend"

@@ -42,7 +42,7 @@ function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="4 October 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated="5 October 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listyro (&ldquo;the Service&rdquo;) is operated by{" "}
@@ -311,15 +311,15 @@ export default function PrivacyPage() {
               />
               <Row
                 data="Daily sales totals per listing (units sold, orders and revenue) worked out from your shop's sales"
-                period="13 months, so last year's season can be compared, then deleted automatically; deleted at once when you disconnect the shop. The sales themselves are never stored"
+                period="13 months, so last year's season can be compared, then deleted automatically; deleted at once when you disconnect the shop. For each sale only the order number, the listing, the quantity, the price, the shipping paid and the date are stored; nothing about the buyer is read or stored"
               />
               <Row
                 data="Daily totals of your shop's Etsy fees and ad spend, per fee type, worked out from your payment account ledger"
                 period="13 months, then deleted automatically; deleted at once when you disconnect the shop. The ledger entries themselves are never stored"
               />
               <Row
-                data="Etsy Ads figures you upload as a CSV file"
-                period="13 months, then deleted automatically; deleted at once when you disconnect the shop"
+                data="Figures from the monthly statement and Etsy Ads report you upload"
+                period="The files are read and not kept. The totals taken from them, and each order's number and amounts, are kept 13 months, then deleted automatically; deleted at once when you disconnect the shop. They contain no buyer names or addresses"
               />
               <Row
                 data="Copies of listings taken before we change them"

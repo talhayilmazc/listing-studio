@@ -154,6 +154,9 @@ class Statement:
     net_total: Decimal = Decimal("0")
     totals: dict[str, Decimal] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
+    #: Fee credits by what they credit: "listing", "transaction_items",
+    #: "transaction_shipping", "processing", "other". They add up to ``fee_credits``.
+    credits: dict[str, Decimal] = field(default_factory=dict)
     orders: dict[int, Order] = field(default_factory=dict)
     #: listing id → (fees charged, their total, credits' total)
     listing_fees: dict[int, list] = field(default_factory=dict)
@@ -236,6 +239,20 @@ def _classify(kind: str, title: str) -> str:
     return "unrecognised"
 
 
+def credit_kind(title: str) -> str:
+    """Which fee a "Credit for ..." row gives back, from the fixed start of its title."""
+    low = title.strip().lower()
+    if low.startswith("credit for listing fee"):
+        return "listing"
+    if low.startswith("credit for processing fee"):
+        return "processing"
+    if low == "credit for transaction fee on shipping":
+        return "transaction_shipping"
+    if low.startswith("credit for transaction fee on"):
+        return "transaction_items"
+    return "other"
+
+
 def parse(data: bytes | str) -> Statement:
     """Read a statement CSV. Raises StatementError when it is not one."""
     text = data.decode("utf-8-sig", errors="strict") if isinstance(data, bytes) else data.lstrip("﻿")
@@ -300,6 +317,9 @@ def parse(data: bytes | str) -> Statement:
         out.net_total += net
         out.totals[category] = out.totals.get(category, Decimal("0")) + net
         out.counts[category] = out.counts.get(category, 0) + 1
+        if category == "fee_credits":
+            kind_of_credit = credit_kind(title)
+            out.credits[kind_of_credit] = out.credits.get(kind_of_credit, Decimal("0")) + net
         if category in FALLBACKS:
             # The start of the title says what it is; an item's name is cut off.
             out.unrecognised.append(Unrecognised(kind, title.split(":")[0][:60], category, net))

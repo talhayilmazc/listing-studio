@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { relativeTime } from "@/lib/format";
 import { api } from "@/lib/api";
 import type { BatchSummary, Profile, Quota, ShopSummary } from "@/lib/types";
 import { useSession } from "./SessionProvider";
@@ -83,10 +84,14 @@ export function MetricStrip() {
           secondary={
             shop
               ? (shop.published_known ?? shop.shop_counts_known)
-                ? `all listings published in the shop: ${shop.published_this_month.toLocaleString()}`
+                ? // The last value read, for as long as it may be shown (six hours), and how old it is.
+                  `all listings published in the shop: ${shop.published_this_month.toLocaleString()}` +
+                  (shop.fetched_at ? ` · updated ${relativeTime(shop.fetched_at)}` : "")
                 : shop.syncing
                   ? "all listings published in the shop: syncing…"
-                  : "all listings published in the shop: not read from Etsy yet"
+                  : shop.fetched_at
+                    ? "all listings published in the shop: unknown (last read more than 6 hours ago; open Overview to refresh)"
+                    : "all listings published in the shop: not read from Etsy yet"
               : null
           }
         />

@@ -38,9 +38,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import limits
 from app.core.config import get_settings
-from app.db.models import ConnectionStatus, EtsyConnection, SalesDaily, SalesSync, Tenant
+from app.db.models import ConnectionStatus, EtsyConnection, SaleLine, SalesDaily, SalesSync, Tenant
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline.sales import aggregate, sale_day, sale_key
+from app.pipeline.sales import aggregate, lines as order_lines, sale_day, sale_key
 from app.workers import gate
 from app.workers.profiles import (
     ShopAccessLost,
@@ -161,6 +161,15 @@ async def _add_totals(session: AsyncSession, connection: EtsyConnection, sales: 
             row.orders += t.orders
             row.revenue_minor += t.revenue_minor
             row.currency = row.currency or t.currency
+    # The same sales as order lines, for attribution (order, listing, price,
+    # shipping: nothing about the buyer). A line already stored is left as it is.
+    for line in order_lines(sales, since):
+        if await session.get(SaleLine, (connection.id, line.transaction_id)) is None:
+            session.add(SaleLine(
+                connection_id=connection.id, transaction_id=line.transaction_id, tenant_id=connection.tenant_id,
+                receipt_id=line.receipt_id, listing_id=line.listing_id, day=line.day, quantity=line.quantity,
+                price_minor=line.price_minor, shipping_minor=line.shipping_minor, currency=line.currency,
+            ))
     return sum(t.orders for t in totals.values())
 
 
@@ -445,6 +454,8 @@ async def _update(
 async def begin_first_read(session: AsyncSession, sync: SalesSync) -> None:
     """The seller saw the estimate and started: reset the read and the shop's totals."""
     await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == sync.connection_id))
+    await session.execute(delete(SaleLine).where(SaleLine.connection_id == sync.connection_id))
+    sync.has_lines = True  # this read writes the order lines as it goes
     sync.state = "reading"
     sync.next_offset = sync.start_offset
     sync.read_count = 0
@@ -460,13 +471,24 @@ async def sync_all_sales(ctx: dict[str, Any]) -> int:
     now = _now()
     async with ctx["sessionmaker"]() as session:
         rows = await session.execute(
-            select(SalesSync.connection_id, SalesSync.state, SalesSync.updated_at, EtsyConnection.scopes)
+            select(SalesSync.connection_id, SalesSync.state, SalesSync.updated_at, EtsyConnection.scopes, SalesSync.has_lines)
             .join(EtsyConnection, EtsyConnection.id == SalesSync.connection_id)
             .where(EtsyConnection.status == ConnectionStatus.active)
         )
         due = []
-        for cid, state, updated, scopes in rows.all():
+        for cid, state, updated, scopes, has_lines in rows.all():
             if SCOPE not in (scopes or []):
+                continue
+            if state == "complete" and not has_lines:
+                # Read before order lines were kept: read once more, so orders on
+                # an imported statement can be tied to their listings. The same
+                # paced read as the first one; the totals are rebuilt with it.
+                sync = await session.get(SalesSync, cid)
+                await begin_first_read(session, sync)
+                sync.note = "reading the sales again, to tie each order to its listings"
+                await session.commit()
+                logger.info("sales: reading shop %s again for order lines", cid)
+                due.append(cid)
                 continue
             updated = updated if updated.tzinfo else updated.replace(tzinfo=timezone.utc)
             if state == "complete" or (state in ("reading", "waiting") and now - updated > timedelta(hours=1)):

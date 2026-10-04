@@ -1037,33 +1037,104 @@ export interface CostSettings {
   defaults?: Record<string, string>;
 }
 
-export type AdsField = "listing_id" | "title" | "date" | "spend" | "orders" | "revenue" | "views";
-
-export interface AdsPreview {
-  headers: string[];
-  sample: string[][];
-  rows: number;
-  mapping: Record<AdsField, string | null>;
+/** One month's import: what was read, beside the app's own calculation. Amounts are minor units. */
+export interface ImportMonth {
+  month: string;
+  shop_name: string | null;
+  statement: {
+    imported_at: string;
+    rows: number;
+    first_day: string;
+    last_day: string;
+    currency: string | null;
+    /** The categories add up to exactly this. */
+    net_minor: number;
+    categories: { key: string; label: string; group: string; minor: number; rows: number }[];
+    /** Sales less sales tax and buyer-paid state fees: never the raw sales figure. */
+    revenue_minor: number;
+    /** Refunds less the sales tax returned with them, and the two parts. */
+    refunds_net_minor: number;
+    refunded_minor: number;
+    tax_returned_minor: number;
+    etsy_fees_minor: number;
+    ads_minor: number;
+    shipping_minor: number;
+    pass_through_minor: number;
+    /** Transfers to the bank: neither income nor cost. */
+    deposits: { day: string; minor: number }[];
+    deposits_minor: number;
+    unrecognised: { type: string; title: string; category: string; minor: number }[];
+    notes: string[];
+  } | null;
+  ads: {
+    report_days: number;
+    month_days: number;
+    /** "Ad spend for clicks this month" (the Ads report); null: not imported. */
+    reported_minor: number | null;
+    report_revenue_minor: number | null;
+    report_orders: number | null;
+    clicks: number | null;
+    views: number | null;
+    /** "Charged by Etsy this month" (the statement); null: not imported. */
+    charged_minor: number | null;
+    charge_days: number;
+    matched_days: number | null;
+    billed_later: ImportAdsDay[];
+    billed_from_before: ImportAdsDay[];
+    billed_differently: ImportAdsDay[];
+    /** The listed days explain the gap to the cent; null until both are imported. */
+    exact: boolean | null;
+    note: string;
+  };
+  orders: {
+    orders: number;
+    matched: number;
+    unmatched: number;
+    exact: number;
+    statement_minor: number;
+    items_minor: number;
+    shipping_minor: number;
+    difference_minor: number;
+    unmatched_minor: number;
+    differing: number;
+    largest: { receipt_id: number; statement_minor: number; items_minor: number; shipping_minor: number; difference_minor: number }[];
+    note: string;
+  } | null;
+  listing_fees: { listings: number; fees: number; minor: number; credits_minor: number } | null;
+  comparison: {
+    key: string;
+    label: string;
+    statement_minor: number | null;
+    /** null: the app has no figure of its own (never shown as zero). */
+    ours_minor: number | null;
+    ours_source: string | null;
+    difference_minor: number | null;
+    status: "match" | "explained" | "unexplained" | "statement_only" | string;
+    reason: string;
+  }[];
 }
 
-export interface AdsImportResult {
-  upload_id: string | null;
-  matched: number;
-  replaced: number;
-  skipped: number;
-  unmatched: { line: number; label: string; why: string }[];
-  unmatched_total: number;
-  spend: number;
-  titles_refreshing: boolean;
+export interface ImportAdsDay {
+  day: string;
+  reported_minor: number | null;
+  charged_minor: number | null;
+  reason: string;
 }
 
-export interface AdsUpload {
-  upload_id: string;
-  created_at: string;
-  period_start: string;
-  period_end: string;
-  listings: number;
-  spend: number;
+export interface ImportStatus {
+  shop_name: string | null;
+  currency: string | null;
+  months: {
+    month: string;
+    statement_imported_at: string | null;
+    statement_rows: number | null;
+    statement_net_minor: number | null;
+    statement_first_day: string | null;
+    statement_last_day: string | null;
+    ads_days: number;
+    month_days: number;
+    state: string;
+  }[];
 }
 
 /** Where reading the shop's sales stands, and what it costs (v7 §C1). */
