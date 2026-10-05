@@ -20,6 +20,16 @@ number of listings, and everything here is built around that:
 * **Then only what's new** (``sync_sales`` once ``complete``): sales newer than
   the newest one counted; usually a single request.
 
+* **Once more, for shops read before order lines were kept** (the re-read).
+  The same read as the first one, over the same 13 months, but started by the
+  app rather than the seller, so it is rationed: all re-reads together use at
+  most :data:`REREAD_BUDGET_PERCENT` of the app's daily Etsy budget per UTC
+  day, shops are read **one at a time** in the order they were connected (so
+  the count is exact and a shop's totals are being rebuilt for minutes, not
+  days), and a shop is only begun when the night has room for it. A shop that
+  hasn't had its turn keeps its figures and its nightly update. What is left
+  carries on the next night (:func:`advance_rereads`, :func:`reread_plan`).
+
 The raw pages exist only in memory inside the job: only the fields
 pipeline/sales.py reads become totals, and nothing about buyers is kept.
 """
@@ -33,7 +43,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import limits
@@ -64,6 +74,12 @@ UPDATE_PAGES = 20
 #: A resumed read steps back this far, in case cancelled sales moved the pages up.
 RESUME_OVERLAP = 10
 LOCK_SECONDS = 15 * 60
+#: The one-time re-reads, all shops together, may use this share of the app's
+#: daily Etsy budget per UTC day (5,000 a day: 1,000).
+REREAD_BUDGET_PERCENT = 20
+REREAD_NOTE = "reading the sales again, to tie each order to its listings"
+REREAD_NIGHT_FULL = "tonight's share of the budget for reading sales again is used"
+REREAD_TURN = "waiting for its turn: shops are read again one at a time"
 
 
 def _now() -> datetime:
@@ -209,6 +225,134 @@ async def _defer(ctx: dict[str, Any], sync: SalesSync, connection_id: str, why: 
                        _job_id=f"sales-resume:{connection_id}:{resumes.date().isoformat()}")
 
 
+# --- the one-time re-read: a nightly share, one shop at a time -------------------------------
+
+
+def reread_cap() -> int:
+    """Requests all re-reads together may use in one UTC day."""
+    return get_settings().global_daily_limit * REREAD_BUDGET_PERCENT // 100
+
+
+async def reread_used(session: AsyncSession, today: date) -> int:
+    """Requests today by shops that are in the re-read or finished it today."""
+    used = await session.scalar(
+        select(func.coalesce(func.sum(SalesSync.requests_today), 0))
+        .where(SalesSync.reread.is_not(None), SalesSync.requests_day == today)
+    )
+    return int(used or 0)
+
+
+def used_today(sync: SalesSync, today: date) -> int:
+    return sync.requests_today if sync.requests_day == today else 0
+
+
+def reread_remaining(sync: SalesSync) -> int:
+    """Requests this shop's re-read still needs (an estimate: one per 100 sales)."""
+    if sync.reread == "done":
+        return 0
+    if sync.reread == "reading" and sync.window_count is not None:
+        return math.ceil(max(0, sync.window_count - sync.read_count) / PAGE_SIZE) + 1
+    return max(1, sync.pages_estimate or 1)
+
+
+async def reread_queue(session: AsyncSession) -> list[SalesSync]:
+    """Every shop whose re-read isn't finished, in the order it gets its turn:
+    the ones already begun, then the rest by when the shop was connected."""
+    rows = await session.execute(
+        select(SalesSync, EtsyConnection.scopes)
+        .join(EtsyConnection, EtsyConnection.id == SalesSync.connection_id)
+        .where(
+            EtsyConnection.status == ConnectionStatus.active,
+            or_(
+                and_(SalesSync.reread == "reading", SalesSync.state.in_(("reading", "waiting"))),
+                and_(SalesSync.reread.is_(None), SalesSync.state == "complete", SalesSync.has_lines.is_(False)),
+            ),
+        )
+        .order_by(EtsyConnection.connected_at, SalesSync.connection_id)
+    )
+    waiting = [sync for sync, scopes in rows.all() if SCOPE in (scopes or [])]
+    return sorted(waiting, key=lambda s: 0 if s.reread == "reading" else 1)
+
+
+def reread_plan(
+    queue: list[tuple[uuid.UUID, int, int]], *, cap: int, used_tonight: int, per_shop: int
+) -> dict[uuid.UUID, int]:
+    """How many nights from tonight (0) until each shop's re-read is finished.
+
+    ``queue``: (shop, requests it still needs, requests it used today), in turn
+    order. Each night has ``cap`` requests for all shops and ``per_shop`` for
+    one; tonight has what is left of both.
+    """
+    left = {shop: need for shop, need, _ in queue}
+    used = {shop: spent for shop, _, spent in queue}
+    done: dict[uuid.UUID, int] = {}
+    budget, night = max(0, cap - used_tonight), 0
+    while len(done) < len(queue) and night < 730:
+        for shop, _, _ in queue:
+            if shop in done:
+                continue
+            room = per_shop - (used[shop] if night == 0 else 0)
+            take = max(0, min(left[shop], room, budget))
+            left[shop] -= take
+            budget -= take
+            if left[shop] <= 0:
+                done[shop] = night
+        night, budget = night + 1, cap
+    return done
+
+
+async def advance_rereads(ctx: dict[str, Any], session: AsyncSession) -> str | None:
+    """Give the next shop its turn if tonight still has room; returns the shop.
+
+    A shop that has begun goes before one that hasn't; a shop that used its own
+    share today lets the next one go. A new shop is begun only when what is
+    left tonight covers it (or covers a whole day of it on a fresh night), so
+    its totals aren't left half rebuilt until tomorrow for want of a few requests.
+    """
+    today = _now().date()
+    cap = reread_cap()
+    left = cap - await reread_used(session, today)
+    if left <= 0:
+        return None
+    for sync in await reread_queue(session):
+        used = used_today(sync, today)
+        if used >= SalesSync.DAILY_REQUESTS:
+            continue
+        if sync.reread is None:
+            need = min(reread_remaining(sync), SalesSync.DAILY_REQUESTS - used)
+            if left < need and left < cap:
+                return None
+            await begin_first_read(session, sync)
+            sync.reread = "reading"
+            sync.requests_used = 0  # what this read costs, counted from here
+            sync.window_start = window_start(today)
+            sync.note = REREAD_NOTE
+            sync.updated_at = _now()
+            await session.commit()
+            logger.info("sales: reading shop %s again for order lines", sync.connection_id)
+        await _enqueue_job(ctx, "sync_sales", str(sync.connection_id),
+                           _job_id=f"sales-reread:{sync.connection_id}:{today.isoformat()}:{sync.requests_used}")
+        return str(sync.connection_id)
+    return None
+
+
+async def _reread_gate(ctx: dict[str, Any], session: AsyncSession, sync: SalesSync, connection_id: str) -> str | None:
+    """Before a re-read touches Etsy: has tonight room, and is it this shop's turn?"""
+    today = _now().date()
+    if reread_cap() - await reread_used(session, today) <= 0:
+        await _defer(ctx, sync, connection_id, REREAD_NIGHT_FULL)
+        await session.commit()
+        return "reread-night-full"
+    turn = next((s for s in await reread_queue(session)
+                 if s.reread == "reading" and used_today(s, today) < SalesSync.DAILY_REQUESTS), None)
+    if turn is not None and turn.connection_id != sync.connection_id:
+        sync.state, sync.note, sync.resumes_at = "waiting", REREAD_TURN, None
+        await session.commit()
+        await advance_rereads(ctx, session)  # make sure the shop whose turn it is has a run queued
+        return "reread-waiting"
+    return None
+
+
 # --- estimate ------------------------------------------------------------------------------
 
 
@@ -303,10 +447,15 @@ async def _sync(ctx: dict[str, Any], connection_id: str) -> str:
             if connection is None or sync is None:
                 return "no-connection"
             _roll_day(sync, _now().date())
+            rereading = sync.reread == "reading" and sync.state != "complete"
             if _left_today(sync) <= 0:
                 await _defer(ctx, sync, connection_id, "today's share of the budget for reading sales is used")
                 await session.commit()
+                if rereading:
+                    await advance_rereads(ctx, session)  # the next shop takes the turn
                 return "paced"
+            if rereading and (held := await _reread_gate(ctx, session, sync, connection_id)) is not None:
+                return held
             try:
                 async with httpx.AsyncClient(timeout=30.0) as http:
                     client, shop_id, kw = await _open(ctx, session, connection, http)
@@ -369,6 +518,10 @@ async def _first_read(
         # (which moves the rest up); the cursors skip whatever was counted.
         sync.next_offset = max(sync.start_offset, sync.next_offset - RESUME_OVERLAP)
     pages = min(CHUNK_PAGES, _left_today(sync))
+    rereading = sync.reread == "reading"
+    if rereading:
+        # Never past tonight's share: shops are read one at a time, so this count is exact.
+        pages = min(pages, max(0, reread_cap() - await reread_used(session, _now().date())))
     for _ in range(pages):
         offset = sync.next_offset
         rows = await reader.page(offset)
@@ -393,14 +546,27 @@ async def _first_read(
             # Sales made during a long read sit above where it began; the first
             # update picks them up (they are newer than the newest counted).
             connection.sales_synced_at = sync.finished_at
+            if rereading:
+                sync.reread = "done"
             await session.commit()
             logger.info("sales read complete: shop=%s sales=%d requests=%d",
                         connection.id, sync.read_count, sync.requests_used)
+            if rereading:
+                await advance_rereads(ctx, session)  # the next shop's turn
             # The ledger's 13-month history waits for this (workers/ledger.py).
             await _enqueue_job(ctx, "backfill_ledger", str(connection.id), _defer_by=120,
                                _job_id=f"ledger-backfill:{connection.id}:after-sales")
             return f"complete:{sync.read_count}"
 
+    if rereading:
+        await session.commit()
+        if reread_cap() - await reread_used(session, _now().date()) <= 0:
+            await _defer(ctx, sync, str(connection.id), REREAD_NIGHT_FULL)
+        elif _left_today(sync) <= 0:
+            await _defer(ctx, sync, str(connection.id), "today's share of the budget for reading sales is used")
+        await session.commit()
+        await advance_rereads(ctx, session)  # this shop's next chunk, or the next shop
+        return f"reading:{sync.read_count}"
     if _left_today(sync) > 0:
         await _enqueue_job(ctx, "sync_sales", str(connection.id), _job_id=f"sales-read:{connection.id}:{sync.next_offset}")
     else:
@@ -471,29 +637,24 @@ async def sync_all_sales(ctx: dict[str, Any]) -> int:
     now = _now()
     async with ctx["sessionmaker"]() as session:
         rows = await session.execute(
-            select(SalesSync.connection_id, SalesSync.state, SalesSync.updated_at, EtsyConnection.scopes, SalesSync.has_lines)
+            select(SalesSync.connection_id, SalesSync.state, SalesSync.updated_at, EtsyConnection.scopes)
             .join(EtsyConnection, EtsyConnection.id == SalesSync.connection_id)
             .where(EtsyConnection.status == ConnectionStatus.active)
         )
         due = []
-        for cid, state, updated, scopes, has_lines in rows.all():
+        for cid, state, updated, scopes in rows.all():
             if SCOPE not in (scopes or []):
                 continue
-            if state == "complete" and not has_lines:
-                # Read before order lines were kept: read once more, so orders on
-                # an imported statement can be tied to their listings. The same
-                # paced read as the first one; the totals are rebuilt with it.
-                sync = await session.get(SalesSync, cid)
-                await begin_first_read(session, sync)
-                sync.note = "reading the sales again, to tie each order to its listings"
-                await session.commit()
-                logger.info("sales: reading shop %s again for order lines", cid)
-                due.append(cid)
-                continue
             updated = updated if updated.tzinfo else updated.replace(tzinfo=timezone.utc)
+            # A shop still waiting for its re-read is "complete": it gets tonight's new sales too.
             if state == "complete" or (state in ("reading", "waiting") and now - updated > timedelta(hours=1)):
                 due.append(cid)
     day = now.date().isoformat()
     for cid in due:
         await _enqueue_job(ctx, "sync_sales", str(cid), _job_id=f"sales:{cid}:{day}")
+    # Shops read before order lines were kept are read once more, so orders on an
+    # imported statement can be tied to their listings: one shop at a time, inside
+    # the nightly share. Each shop that finishes hands the turn to the next.
+    async with ctx["sessionmaker"]() as session:
+        await advance_rereads(ctx, session)
     return len(due)

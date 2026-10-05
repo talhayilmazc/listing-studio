@@ -142,15 +142,17 @@ async def status(session: AsyncSession, tenant: Tenant, now: datetime | None = N
     counts = dict(rows.all())
     # Only listings written count. Rows of the old "draft" kind are still in the
     # table from when drafts counted; they are not read.
-    pending = await session.scalar(
-        select(func.count())
-        .select_from(Job)
-        .where(
+    # A queued Replace images counts only when it will write a new title and
+    # tags ("full"; a job from before the choice existed is one). Photos only
+    # calls no AI and generates nothing.
+    waiting = await session.execute(
+        select(Job.payload).where(
             Job.tenant_id == tenant.id,
             Job.type == JobType.replace_images,
             Job.status.in_((JobStatus.queued, JobStatus.running)),
         )
     )
+    pending = sum(1 for (payload,) in waiting.all() if (payload or {}).get("mode", "full") != "photos")
     return AllowanceStatus(
         amount=amount,
         period=period,

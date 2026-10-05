@@ -761,6 +761,11 @@ class ReplaceImagesRequest(BaseModel):
     #: Only this listing group's photos, in the order the seller set ("" = the
     #: files at the root of the upload). None: every photo in the batch (B4).
     group_key: str | None = None
+    #: "photos": only the images change; the title, tags and description stay
+    #: as they are. No AI call, so it does not count as a listing generated.
+    #: "full": also analyses the new cover and writes a new title and 13 tags
+    #: (one listing generated).
+    mode: Literal["photos", "full"] = "photos"
 
 
 class ReplaceImagesOut(BaseModel):

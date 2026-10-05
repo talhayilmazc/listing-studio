@@ -10,6 +10,7 @@ import { InvitesTab } from "@/components/admin/InvitesTab";
 import { InviteRequests } from "@/components/admin/InviteRequests";
 import { AiCostPanel } from "@/components/admin/AiCost";
 import { DiskPanel } from "@/components/admin/Disk";
+import { SalesRereadAdminPanel } from "@/components/analytics/SalesReread";
 import { Txt } from "@/components/Txt";
 import { UsageSummary, UsageTab } from "@/components/admin/Usage";
 
@@ -154,6 +155,11 @@ export default function AdminPage() {
           {tab === "usage" && (
             <div key="disk" className="mb-5">
               <DiskPanel disk={disk} onChanged={loadUsage} onError={setError} />
+            </div>
+          )}
+          {tab === "usage" && (
+            <div key="reread" className="mb-5 empty:hidden">
+              <SalesRereadAdminPanel />
             </div>
           )}
           {tab === "usage" && (

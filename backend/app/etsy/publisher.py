@@ -751,9 +751,9 @@ async def replace_listing_images(
     keep_image_ids: list[int],
     delete_image_ids: list[int],
     new_images: list[PublishImage],
-    new_title: str,
-    new_tags: list[str],
-    new_description: str,
+    new_title: str | None = None,
+    new_tags: list[str] | None = None,
+    new_description: str | None = None,
 ) -> ReplaceResult:
     """Update an existing listing in place: swap artwork images + refresh copy (B4).
 
@@ -800,12 +800,15 @@ async def replace_listing_images(
         )
 
     # 5) Refresh only the copy; NEVER touch state, price, taxonomy, variations, etc.
-    await client.update_listing(
-        shop_id,
-        listing_id,
-        updates={"title": new_title, "description": new_description, "tags": new_tags},
-        **ctx,
-    )
+    #    "Photos only" passes no copy: the title, tags and description are not sent
+    #    at all, so they stay exactly as they are on Etsy.
+    if new_title is not None:
+        await client.update_listing(
+            shop_id,
+            listing_id,
+            updates={"title": new_title, "description": new_description, "tags": new_tags},
+            **ctx,
+        )
 
     return ReplaceResult(
         listing_id=listing_id,

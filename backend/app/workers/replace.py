@@ -5,6 +5,11 @@ artwork images (size charts are kept and re-ranked after the new photos), and
 refreshes the title / 13 tags / description-title-block — leaving category, price,
 variations, shipping, partners, section and state untouched. Snapshots before any
 write. Queue-only, own-shop data only, tokens never logged.
+
+Two ways (``payload["mode"]``): **photos** changes only the images, calls no AI
+and so is not a listing generated; **full** also analyses the new cover and
+writes a new title and tags (one listing generated). Both count their Etsy
+requests against the account's ceiling.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
 from app.pipeline.content import AnthropicContentGenerator, policy_for
-from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
+from app.pipeline.imageclass import SIZE_CHART, AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.images import cover_image
 from app.pipeline.llm import client_for
 from app.pipeline.reference import decode_etsy_text, replace_title_block
@@ -60,10 +65,13 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
 
         # The listing's text is rewritten before any image on Etsy is touched. While
         # our AI provider is refusing us, wait: do not read Etsy, do not fail.
-        if await llm_status.current(ctx.get("redis")) if ctx.get("redis") is not None else False:
+        # "photos": only the images change, with no AI call. "full" (and a job
+        # queued before the choice existed) also writes a new title and tags.
+        full = job.payload.get("mode", "full") != "photos"
+        if full and (await llm_status.current(ctx.get("redis")) if ctx.get("redis") is not None else False):
             return await _wait_for_llm(ctx, session, job)
         try:
-            if not settings.llm_api_key:
+            if full and not settings.llm_api_key:
                 raise ValueError("writing the new listing is not available right now; try again later")
             listing_id = int(job.payload["listing_id"])
             batch_id = uuid.UUID(job.payload["batch_id"])
@@ -118,7 +126,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     )
                 )
 
-            llm = client_for(settings, "content")
+            llm = client_for(settings, "content") if full else None
             async with httpx.AsyncClient(timeout=30.0) as http:
                 client = EtsyApiClient(
                     client_id=settings.etsy_client_id,
@@ -139,7 +147,8 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
 
                 existing = await client.get_listing(listing_id, **kw)
                 images_resp = await client.get_listing_images(listing_id, **kw)
-                nodes = await client.get_seller_taxonomy_nodes(**kw)
+                # The category tree only picks the writing template: not read for photos only.
+                nodes = await client.get_seller_taxonomy_nodes(**kw) if full else {}
 
                 # Classify the listing's OWN images: keep charts, delete artwork.
                 images_meta = [
@@ -161,10 +170,17 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                         except Exception:  # noqa: BLE001
                             return None
 
+                    async def _keep_unsure(data: bytes, media_type: str) -> str:
+                        # Photos only asks no AI. An image that might be a size chart
+                        # stays (after the new photos) rather than be deleted on a guess.
+                        return SIZE_CHART
+
                     keep_ids = await classify_reference_images(
                         images_meta,
                         fetch_bytes=_fetch,
-                        vision=AnthropicImageKindClassifier(llm).classify,
+                        vision=AnthropicImageKindClassifier(llm).classify if full else _keep_unsure,
+                        # The charts this app put on the draft are known by their ids.
+                        prior_kinds={int(i): SIZE_CHART for i in job.payload.get("chart_ids") or []},
                     )
                 delete_ids = [
                     m["listing_image_id"]
@@ -173,31 +189,33 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     and m["listing_image_id"] not in keep_ids
                 ]
 
-                # Regenerate title + 13 tags from the new primary image; template from
-                # the listing's own taxonomy (Clothing -> apparel).
-                template = infer_content_template(
-                    existing.get("taxonomy_id"),
-                    clothing_taxonomy_ids(nodes),
-                    default=settings.default_content_template,
-                )
-                analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
-                generator = AnthropicContentGenerator(
-                    llm,
-                    template=load_template(f"content/{template}"),
-                    policy=policy_for(template),
-                    title_prefix=str(job.payload.get("title_prefix") or ""),
-                    trademarks=blocklist_for_tenant(tenant),
-                )
-                async with ai_meter.scope(tenant.id, session) as meter:
-                    vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
-                    result = await generator.generate(vision.analysis, primary.parsed_sku)
-                    meter.listing_written()
-                allowance.record(session, tenant.id, allowance.GENERATION)
-                new_title = result.listing.title
-                new_tags = result.listing.tags
-                new_description = replace_title_block(
-                    decode_etsy_text(existing.get("description")), new_title
-                )
+                new_title = new_tags = new_description = None
+                if full:
+                    # Regenerate title + 13 tags from the new primary image; template from
+                    # the listing's own taxonomy (Clothing -> apparel).
+                    template = infer_content_template(
+                        existing.get("taxonomy_id"),
+                        clothing_taxonomy_ids(nodes),
+                        default=settings.default_content_template,
+                    )
+                    analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
+                    generator = AnthropicContentGenerator(
+                        llm,
+                        template=load_template(f"content/{template}"),
+                        policy=policy_for(template),
+                        title_prefix=str(job.payload.get("title_prefix") or ""),
+                        trademarks=blocklist_for_tenant(tenant),
+                    )
+                    async with ai_meter.scope(tenant.id, session) as meter:
+                        vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
+                        result = await generator.generate(vision.analysis, primary.parsed_sku)
+                        meter.listing_written()
+                    allowance.record(session, tenant.id, allowance.GENERATION)
+                    new_title = result.listing.title
+                    new_tags = result.listing.tags
+                    new_description = replace_title_block(
+                        decode_etsy_text(existing.get("description")), new_title
+                    )
 
                 await replace_listing_images(
                     session,
@@ -231,8 +249,8 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             logger.exception("replace-images failed for job %s", job_id)
             return "failed"
 
-        # The review page shows what the listing now says on Etsy.
-        if job.payload.get("content_id"):
+        # The review page shows what the listing now says on Etsy (photos only changed no text).
+        if full and job.payload.get("content_id"):
             content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
             if content is not None and content.tenant_id == job.tenant_id:
                 content.title, content.tags, content.description = new_title, new_tags, new_description

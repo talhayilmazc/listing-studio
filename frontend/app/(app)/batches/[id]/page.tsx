@@ -13,6 +13,8 @@ import { useShops } from "@/components/ShopProvider";
 import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
 import { useSession } from "@/components/SessionProvider";
 import { GroupImages } from "@/components/GroupImages";
+import { ReplaceChoice } from "@/components/ReplaceChoice";
+import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 
 import { Txt } from "@/components/Txt";
 interface AssetGroup {
@@ -218,14 +220,15 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   }
 
   // A group already on Etsy: put this group's photos on its listing(s) instead,
-  // in the order shown, and rewrite the listing's title and tags there.
-  async function replaceOnEtsy(g: AssetGroup, pubs: Publication[]) {
+  // in the order shown. "photos" stops there; "full" also rewrites the listing's
+  // title and tags (one listing generated).
+  async function replaceOnEtsy(g: AssetGroup, pubs: Publication[], mode: ReplaceMode) {
     setConfirming(null);
     setBusy(g.key);
     setNotice(`Replacing the photos on Etsy for ${g.label}…`);
     try {
       const jobs = await Promise.all(
-        pubs.map((p) => api.replaceImages(p.etsy_listing_id, id, p.connection_id, g.key)),
+        pubs.map((p) => api.replaceImages(p.etsy_listing_id, id, mode, p.connection_id, g.key)),
       );
       const done = await Promise.all(jobs.map((j) => waitForJob(j.job_id)));
       const failed = done.filter((d) => d && d.status === "failed");
@@ -238,7 +241,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             ? `Queued, not failed. ${waiting.pause.message}`
             : pending
               ? "Still replacing the photos on Etsy; this page updates when you come back."
-              : `Photos, title and tags replaced on Etsy for ${g.label}.`,
+              : replacedNotice(mode, g.label),
       );
       await load();
     } catch (e: any) {
@@ -515,35 +518,36 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
-              {asking && (
+              {asking === "regenerate" && (
                 <div key="div-395-14" role="alertdialog" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  {asking === "regenerate" ? (
-                    <p>
-                      This group&apos;s content is approved. Regenerating writes a new title, tags and
-                      description (one more AI generation), replaces the approved text, and the new
-                      one needs approving again.
-                    </p>
-                  ) : (
-                    <p>
-                      <span><span>This listing is already on Etsy</span>
-                      <Txt>{pubs.length > 1 ? ` in ${pubs.length} shops` : ""}</Txt><span>. Its photos will be replaced
-                      with this group&apos;s, in the order shown, and its title and tags rewritten
-                      (one more AI generation). Its category, price, variations and whether it is live
-                      stay as they are.</span></span>
-                    </p>
-                  )}
+                  <p>
+                    This group&apos;s content is approved. Regenerating writes a new title, tags and
+                    description (one more AI generation), replaces the approved text, and the new
+                    one needs approving again.
+                  </p>
                   <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      className="btn-primary px-2.5 py-1 text-xs"
-                      onClick={() => (asking === "regenerate" ? regenerate(g, true) : replaceOnEtsy(g, pubs))}
-                    >
-                      {asking === "regenerate" ? "Replace the approved content" : "Replace on Etsy"}
+                    <button type="button" className="btn-primary px-2.5 py-1 text-xs" onClick={() => regenerate(g, true)}>
+                      Replace the approved content
                     </button>
                     <button type="button" className="text-amber-900 underline" onClick={() => setConfirming(null)}>
                       Keep it
                     </button>
                   </div>
+                </div>
+              )}
+              {asking === "replace" && (
+                <div key="replace-choice" role="alertdialog" aria-label="Replace images on Etsy" className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+                  <ReplaceChoice
+                    intro={
+                      pubs.length > 1
+                        ? `This listing is already on Etsy in ${pubs.length} shops. Choose what to replace there; the same choice applies in each shop.`
+                        : "This listing is already on Etsy. Choose what to replace there."
+                    }
+                    photos="this group's, in the order shown"
+                    confirmLabel={(m) => (m === "photos" ? "Replace the photos on Etsy" : "Replace photos, title and tags on Etsy")}
+                    onConfirm={(m) => replaceOnEtsy(g, pubs, m)}
+                    onCancel={() => setConfirming(null)}
+                  />
                 </div>
               )}
 

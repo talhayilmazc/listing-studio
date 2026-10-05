@@ -185,6 +185,7 @@ async def test_replace_images_for_a_group_on_etsy_keeps_to_that_group(ctx) -> No
     assert job.payload == {
         "listing_id": 777,
         "batch_id": str(batch),
+        "mode": "photos",  # the default: only the images change
         "group_key": "G1",
         "content_id": str(content_id),
         "title_prefix": "Comfort Colors®",

@@ -150,7 +150,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
         <div key="reading" className="space-y-1.5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span>
-              <span>{sync.state === "reading" ? "Reading your sales: " : "Paused at "}</span>
+              <span>{sync.state === "reading" ? (sync.reread === "reading" ? "Reading your sales once more: " : "Reading your sales: ") : "Paused at "}</span>
               <span className="font-medium tabular-nums">{n(sync.read_count)}</span>
               <span>{` of ${n(sync.window_count)} sales`}</span>
             </span>
@@ -164,7 +164,9 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
           <p className="text-xs text-slate-500">
             {sync.state === "waiting" && sync.resumes_at
               ? `Today's share of the budget for reading sales is used; it carries on at ${formatWhen(sync.resumes_at, timeZone)}. The figures below include what's read so far.`
-              : "The figures below include what's read so far."}
+              : sync.state === "waiting" && sync.reread === "reading"
+                ? "Shops are read again one at a time; this one carries on when the shop before it is done. The figures below include what's read so far."
+                : "The figures below include what's read so far."}
           </p>
         </div>
       )}

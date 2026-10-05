@@ -430,13 +430,15 @@ async def replace_listing_images_endpoint(
     if (await session.execute(photos.limit(1))).first() is not None:
         # Upload retention deleted them: there is nothing to send to Etsy.
         raise HTTPException(status_code=409, detail=upload_retention.REMOVED)
-    # New title, tags and description are written: one unit of the allowance.
-    try:
-        await allowance.check(session, tenant, 1)
-    except allowance.AllowanceExceeded as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from None
+    if body.mode == "full":
+        # A new title and tags are written: one listing generated (core/allowance.py).
+        # Photos only writes nothing and calls no AI, so the allowance is not asked.
+        try:
+            await allowance.check(session, tenant, 1)
+        except allowance.AllowanceExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from None
 
-    payload: dict[str, object] = {"listing_id": listing_id, "batch_id": str(body.batch_id)}
+    payload: dict[str, object] = {"listing_id": listing_id, "batch_id": str(body.batch_id), "mode": body.mode}
     if body.group_key is not None:
         payload["group_key"] = body.group_key
     # A draft this app made: keep its shop's title prefix, and bring the listing's
@@ -456,6 +458,9 @@ async def replace_listing_images_endpoint(
         profile = await session.get(ListingProfile, made.profile_id) if made.profile_id else None
         if profile is not None and profile.title_prefix:
             payload["title_prefix"] = profile.title_prefix
+        if profile is not None and profile.fixed_image_ids:
+            # The size charts this app put on the draft: known without looking at them.
+            payload["chart_ids"] = [int(i) for i in profile.fixed_image_ids]
     job = Job(
         tenant_id=tenant.id,
         connection_id=connection.id,

@@ -6,6 +6,7 @@ import type { AnalyticsListings, AnalyticsSummary, ListingClass } from "@/lib/ty
 import { useShops } from "@/components/ShopProvider";
 import { ShopBadge } from "@/components/ShopPicker";
 import { ImportFromEtsy } from "@/components/analytics/ImportFromEtsy";
+import { SalesReread } from "@/components/analytics/SalesReread";
 import { CostSettings } from "@/components/analytics/CostSettings";
 import { ListingTable } from "@/components/analytics/ListingTable";
 import { Overview } from "@/components/analytics/Overview";
@@ -95,6 +96,7 @@ export default function AnalyticsPage() {
         </p>
       )}
       {status && <StatusBar key="status" status={status} shopId={shopId} onProgress={load} />}
+      <SalesReread key="reread" onProgress={load} />
       {error && <div key="error" className="card p-3 text-sm text-rose-700">{error}</div>}
       {!summary && !error && <p key="loading" className="text-sm text-slate-400">Loading…</p>}
 

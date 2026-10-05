@@ -29,6 +29,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
+from app.api import sales_reread
 from app.api.shops import missing_scopes, selected_shop
 from app.db.models import (
     AdSpend,
@@ -212,6 +213,8 @@ class SalesSyncOut(BaseModel):
     last_update_requests: int | None = None
     resumes_at: datetime | None = None
     note: str | None = None
+    #: The one-time second read (order lines): None | "reading" | "done".
+    reread: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     synced_at: datetime | None = None
@@ -244,6 +247,7 @@ def _sync_out(connection: EtsyConnection, sync: SalesSync | None, ledger: Ledger
         last_update_requests=sync.last_update_requests,
         resumes_at=sync.resumes_at,
         note=sync.note,
+        reread=sync.reread,
         started_at=sync.started_at,
         finished_at=sync.finished_at,
         synced_at=connection.sales_synced_at,
@@ -397,6 +401,16 @@ async def start_ledger_read(
     await session.commit()
     await enqueuer.enqueue("sync_ledger", str(connection.id), _job_id=f"ledger-read:{connection.id}:start:{ledger.started_at}")
     return _sync_out(connection, await session.get(SalesSync, connection.id), ledger)
+
+
+@router.get("/sales/reread", response_model=sales_reread.RereadReport)
+async def sales_reread_status(
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> sales_reread.RereadReport:
+    """Where the one-time second read of the sales stands, for each of the
+    account's shops: it adds the order lines that tie an order to its listings."""
+    return await sales_reread.for_account(session, tenant)
 
 
 def _now_stamp() -> str:

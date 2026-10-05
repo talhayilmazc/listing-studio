@@ -8,6 +8,8 @@ import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
 import { useShops } from "@/components/ShopProvider";
+import { ReplaceChoice } from "@/components/ReplaceChoice";
+import type { ReplaceMode } from "@/lib/replaceModes";
 
 import { Txt } from "@/components/Txt";
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
@@ -21,7 +23,9 @@ export default function ProfilesPage() {
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replace, setReplace] = useState<{ id: number; status: string } | null>(null);
-  const pendingListing = useRef<number | null>(null);
+  // Asked first: which listing, then what to replace on it. The folder comes after the answer.
+  const [choosing, setChoosing] = useState<ShopListing | null>(null);
+  const pendingListing = useRef<{ id: number; mode: ReplaceMode } | null>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   // Everything on this page is the selected shop's: each shop has its own
   // profiles and listings (v5 §E). Switch shops in the rail.
@@ -96,15 +100,18 @@ export default function ProfilesPage() {
     }
   }
 
-  // Replace-images (B4): upload a folder of new photos, then update the listing in place.
-  function pickReplacement(listingId: number) {
-    pendingListing.current = listingId;
+  // Replace-images (B4): choose what to replace, upload a folder of new photos,
+  // then update the listing in place.
+  function pickReplacement(listing: ShopListing, mode: ReplaceMode) {
+    pendingListing.current = { id: listing.listing_id, mode };
+    setChoosing(null);
     replaceInput.current?.click();
   }
 
   async function onReplaceFiles(files: File[]) {
-    const listingId = pendingListing.current;
-    if (listingId == null) return;
+    const pending = pendingListing.current;
+    if (pending == null) return;
+    const { id: listingId, mode } = pending;
     const images = files.filter((f) => IMAGE_RE.test(f.name));
     if (images.length === 0) {
       setReplace({ id: listingId, status: "No image files in that folder." });
@@ -120,14 +127,14 @@ export default function ProfilesPage() {
       }
       await api.finalizeBatch(batch.id);
       setReplace({ id: listingId, status: "Updating listing…" });
-      const { job_id } = await api.replaceImages(listingId, batch.id, shopId);
+      const { job_id } = await api.replaceImages(listingId, batch.id, mode, shopId);
       const s = await waitForJob(job_id);
       if (s === null) {
         setReplace({ id: listingId, status: "Still working after 15 minutes; reload to check." });
       } else if (s.pause) {
         setReplace({ id: listingId, status: `Queued, not failed. ${s.pause.message}` });
       } else if (s.status === "succeeded") {
-        setReplace({ id: listingId, status: "Updated ✓" });
+        setReplace({ id: listingId, status: mode === "photos" ? "Photos replaced ✓ (title and tags unchanged)" : "Photos, title and tags replaced ✓" });
         loadListings();
       } else {
         setReplace({ id: listingId, status: `Failed: ${s.error ?? ""}` });
@@ -318,7 +325,7 @@ export default function ProfilesPage() {
                     </button>
                     <button
                       className="w-full rounded-md py-1 text-xs font-medium text-white/90 hover:text-white max-sm:min-h-[2.75rem] max-sm:bg-black/40"
-                      onClick={() => pickReplacement(l.listing_id)}
+                      onClick={() => setChoosing(l)}
                       title="Upload a folder of new photos to update this listing in place"
                     >
                       Replace images…
@@ -352,6 +359,29 @@ export default function ProfilesPage() {
           </div>
         )}
       </section>
+
+      {choosing && (
+        <div key="replace-choice" className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4" onClick={() => setChoosing(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Replace images"
+            className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white px-4 pt-4 shadow-lg sm:max-w-lg sm:rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-medium text-slate-900">Replace images</p>
+            <p className="mb-3 truncate text-xs text-slate-500" translate="no">{choosing.title ?? `#${choosing.listing_id}`}</p>
+            <ReplaceChoice
+              intro="Choose what to replace on this listing. You pick the folder of new photos next; nothing changes on Etsy until they are uploaded."
+              photos="the photos in the folder you choose, in file-name order"
+              confirmLabel={(m) => (m === "photos" ? "Choose the folder: photos only" : "Choose the folder: photos, title and tags")}
+              onConfirm={(m) => pickReplacement(choosing, m)}
+              onCancel={() => setChoosing(null)}
+              pinActions
+            />
+          </div>
+        </div>
+      )}
 
       {/* Hidden folder input for the replace-images flow. */}
       <input

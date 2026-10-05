@@ -949,6 +949,11 @@ class SalesSync(Base):
     #: The read wrote :class:`SaleLine` rows for everything it counted. False for
     #: a shop read before those existed: the nightly round reads it once more.
     has_lines: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: The one-time second read that adds the order lines: None (never begun; due
+    #: when the shop is ``complete`` without lines), "reading" (begun, including
+    #: while it waits for the next night) or "done". Shops in it share a nightly
+    #: slice of the app's budget and are read one at a time (workers/sales.py).
+    reread: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(

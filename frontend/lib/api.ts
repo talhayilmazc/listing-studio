@@ -1,3 +1,4 @@
+import type { ReplaceMode } from "./replaceModes";
 import type {
   Account,
   Allowance,
@@ -8,6 +9,8 @@ import type {
   Breakdown,
   BreakdownMetric,
   CostSettings,
+  SalesReread,
+  SalesRereadAdmin,
   SalesSync,
   AdminInvite,
   AdminUsage,
@@ -194,6 +197,7 @@ export const api = {
       req<AdminInvite>(`/admin/invites/${id}/revoke`, { method: "POST" }),
     usage: () => req<AdminUsage>("/admin/usage"),
     disk: () => req<AdminDisk>("/admin/disk"),
+    salesReread: () => req<SalesRereadAdmin>("/admin/sales-reread"),
     setUploadRetention: (body: AdminDisk["retention"]) =>
       req<AdminDisk["retention"]>("/admin/upload-retention", { method: "PUT", body: JSON.stringify(body) }),
     aiCost: () => req<AiCost>("/admin/ai-cost"),
@@ -333,6 +337,8 @@ export const api = {
     compare: "previous" | "year" = "previous", metric?: BreakdownMetric) =>
     `${BASE}/analytics/export${query({ view, shop, days, compare, metric })}`,
   salesStatus: (shop: string | null) => req<SalesSync>(`/analytics/sales/status${shopQuery(shop)}`),
+  /** The one-time second read of the sales, for each of the account's shops. */
+  salesReread: () => req<SalesReread>("/analytics/sales/reread"),
   /** Work out what the first read costs (a few requests), before starting it. */
   estimateSales: (shop: string | null) =>
     req<SalesSync>(`/analytics/sales/estimate${shopQuery(shop)}`, { method: "POST" }),
@@ -464,10 +470,11 @@ export const api = {
       method: "POST",
     }),
   /** `groupKey`: only that listing group's photos, in its order ("" = root files). */
-  replaceImages: (listingId: number, batchId: string, shop?: string | null, groupKey?: string) =>
+  /** `mode` "photos" leaves the title, tags and description alone; "full" writes a new title and tags. */
+  replaceImages: (listingId: number, batchId: string, mode: ReplaceMode, shop?: string | null, groupKey?: string) =>
     req<ReplaceImagesResult>(`/shop/listings/${listingId}/replace-images${shopQuery(shop)}`, {
       method: "POST",
-      body: JSON.stringify({ batch_id: batchId, ...(groupKey != null ? { group_key: groupKey } : {}) }),
+      body: JSON.stringify({ batch_id: batchId, mode, ...(groupKey != null ? { group_key: groupKey } : {}) }),
     }),
 };
 

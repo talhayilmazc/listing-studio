@@ -1152,10 +1152,50 @@ export interface SalesSync {
   last_update_requests: number | null;
   resumes_at: string | null;
   note: string | null;
+  /** The one-time second read that adds the order lines. */
+  reread: "reading" | "done" | null;
   started_at: string | null;
   finished_at: string | null;
   synced_at: string | null;
   ledger: LedgerRead;
+}
+
+/** One shop in the one-time sales re-read. Counts and dates only. */
+export interface SalesRereadShop {
+  connection_id: string;
+  shop_name: string | null;
+  /** "queued": not begun, its figures stand. "waiting": for the next night or its turn. */
+  status: "queued" | "reading" | "waiting" | "done" | "failed";
+  read_count: number;
+  window_count: number | null;
+  requests_used: number;
+  requests_left: number | null;
+  /** The UTC day it is expected to finish (an estimate). */
+  finishes_on: string | null;
+  finished_at: string | null;
+  note: string | null;
+}
+
+export interface SalesReread {
+  active: boolean;
+  reads_back_to: string;
+  per_shop_daily: number;
+  resets_at: string;
+  requests_left: number;
+  finishes_on: string | null;
+  shops: SalesRereadShop[];
+}
+
+/** Admin only: every account's shops and the nightly share of the app's budget. */
+export interface SalesRereadAdmin extends SalesReread {
+  nightly_cap: number;
+  budget_percent: number;
+  used_tonight: number;
+  queued: number;
+  reading: number;
+  done: number;
+  failed: number;
+  shops: (SalesRereadShop & { email: string | null })[];
 }
 
 /** Reading Etsy's payment ledger: the shop's fees and ad spend per day. */

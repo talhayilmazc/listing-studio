@@ -58,7 +58,7 @@ from redis.asyncio import Redis
 from app.core import ai_meter, ai_prices, disk, limits
 from app.pipeline import upload_retention
 from app.pipeline.storage import Storage
-from app.api import ai_series
+from app.api import ai_series, sales_reread
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -1081,6 +1081,16 @@ class DiskOut(BaseModel):
 
 def _days(policy: upload_retention.Policy) -> UploadRetentionDays:
     return UploadRetentionDays(published_days=policy.published_days, unpublished_days=policy.unpublished_days)
+
+
+@router.get("/sales-reread", response_model=sales_reread.RereadAdminReport)
+async def sales_reread_progress(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> sales_reread.RereadAdminReport:
+    """The one-time sales re-read across all accounts: tonight's share of the
+    budget, and each shop's progress. Counts and dates only."""
+    return await sales_reread.for_admin(session)
 
 
 @router.get("/disk", response_model=DiskOut)
