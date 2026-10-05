@@ -446,3 +446,7 @@ async def test_publishing_a_draft_deleted_in_shop_manager_says_so_and_lets_it_be
                                connection=await s.get(EtsyConnection, conn_id), client=Gone(), access_token="tok", tenant_limit=2000)
     async with async_sm() as s:
         assert await publication_for(s, content_id, conn_id) is None  # "Create draft" is offered again
+        # The record is marked, never deleted: counts and Analytics keep it (STEP 0).
+        [kept] = (await s.execute(select(ListingPublication))).scalars().all()
+        assert kept.state == "deleted_on_etsy" and kept.deleted_on_etsy_at is not None
+        assert kept.etsy_listing_id == 555 and kept.connection_id == conn_id

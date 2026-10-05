@@ -406,7 +406,7 @@ async def approve_content(
     if not body.approved:
         # A schedule is the seller's confirmation of an approved listing (v6 §G):
         # withdrawing the approval withdraws its schedules.
-        await cancel_for_content(session, content.id)
+        await cancel_for_content(session, content.id, actor=tenant)
     await session.commit()
     await session.refresh(content)
     asset = await session.get(Asset, content.asset_id)
