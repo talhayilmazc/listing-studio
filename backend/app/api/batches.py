@@ -32,6 +32,7 @@ from app.db.models import (
     ListingProfile,
     ListingPublication,
     ShopListingCache,
+    PlannedSlot,
     Tenant,
     UploadBatch,
 )
@@ -809,6 +810,11 @@ async def _delete_batch(
             publication.scheduled_for, publication.schedule_job_id = None, None
             publication.schedule_note = "cancelled: its batch was deleted"
             record_cancel(session, publication, actor=tenant, reason="batch deleted")
+    # A group schedule's drafts not made yet are not made (v8 §B).
+    for slot in (await session.execute(select(PlannedSlot).where(
+        PlannedSlot.content_id.in_(content_ids), PlannedSlot.state == "waiting"
+    ))).scalars():
+        slot.state, slot.note = "cancelled", "its batch was deleted"
     files = await session.scalar(select(func.count()).select_from(Asset).where(Asset.batch_id == batch.id))
     queued = (
         await session.execute(

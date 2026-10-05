@@ -39,6 +39,7 @@ from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
 from app.workers.upkeep import daily_upkeep
 from app.workers.schedule import release_scheduled_publishes
+from app.workers.plans import release_planned_drafts
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
 from app.workers.recovery import recover_interrupted_jobs
 from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
@@ -124,6 +125,8 @@ class WorkerSettings:
         cron(auto_refresh_profiles, minute={5, 20, 35, 50}, second=0, run_at_startup=True),
         # Scheduled publishing (v6 §G): due schedules become publish-live jobs.
         cron(release_scheduled_publishes, second=30, run_at_startup=True),
+        # Group schedules (v8 §B): each planned draft when its time comes.
+        cron(release_planned_drafts, second=40, run_at_startup=True),
         # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
         cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).

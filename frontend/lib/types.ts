@@ -243,6 +243,8 @@ export interface Shop {
   connected_at: string;
   /** Permissions added since this shop connected; reconnect once to grant them. */
   missing_scopes?: string[];
+  /** Its shop group (v8 §B); null = in no group. */
+  group_id?: string | null;
 }
 
 export interface ShopsOut {
@@ -1384,3 +1386,60 @@ export interface ShopGroups {
 }
 
 export type UseInScope = { scope: "all" } | { scope: "group"; group_id: string } | { scope: "shops"; connection_ids: string[] };
+
+// --- Distribution and group scheduling (v8 §B) ---------------------------------------
+
+export interface DistributionRow {
+  content_id: string;
+  title: string;
+  sku: string | null;
+  group_id: string;
+  group_name: string;
+  shops: { shop_id: string; shop_name: string; ok: boolean; reason: string | null }[];
+  warning: string | null;
+}
+
+export interface DistributionPreview {
+  rows: DistributionRow[];
+  left_out: { content_id: string; title: string; reason: string }[];
+  per_group: Record<string, number>;
+}
+
+export interface GroupSchedule {
+  start_date: string;
+  per_shop_per_day: number;
+  window_start: string;
+  window_end: string;
+  spacing_minutes: number;
+  stagger_minutes: number;
+}
+
+export interface GroupPlanPreview {
+  shops: {
+    shop_id: string;
+    shop_name: string;
+    group_name: string;
+    listings: number;
+    days: { date: string; slots: { time: string; zone: string; content_id: string; title: string }[] }[];
+  }[];
+  budget: { date: string; requests: number; capacity: number }[];
+  ceiling: number;
+  finishes_on: string | null;
+  drafts: number;
+  skipped: { content_id: string; shop: string; reason: string }[];
+  notes: string[];
+  time_zone: string;
+  requests_per_draft: number;
+  requests_per_publish: number;
+}
+
+export interface GroupPlanSummary {
+  id: string;
+  batch_id: string | null;
+  batch_name: string | null;
+  created_at: string;
+  cancelled: boolean;
+  counts: Record<string, number>;
+  first_publish: string | null;
+  last_publish: string | null;
+}

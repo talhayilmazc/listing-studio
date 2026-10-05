@@ -39,6 +39,7 @@ def shop_out(connection: EtsyConnection) -> schemas.ShopOut:
         position=connection.position,
         connected_at=connection.connected_at,
         missing_scopes=missing_scopes(connection),
+        group_id=connection.group_id,
     )
 
 

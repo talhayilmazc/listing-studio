@@ -338,6 +338,11 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
         job.status = JobStatus.succeeded
         job.finished_at = datetime.now(timezone.utc)
         await session.commit()
+        if (job.payload or {}).get("planned_slot"):
+            # A group schedule's draft: its go-live is set for the confirmed time (v8 §B).
+            from app.workers.plans import after_draft
+
+            await after_draft(session, content.id, connection.id)
         return "succeeded"
 
 

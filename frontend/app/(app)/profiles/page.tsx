@@ -7,6 +7,7 @@ import type { LinkSuggestion, Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
+import { ShopGroupsEditor } from "@/components/ShopGroupsEditor";
 import { useShops } from "@/components/ShopProvider";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import type { ReplaceMode } from "@/lib/replaceModes";
@@ -30,7 +31,8 @@ export default function ProfilesPage() {
   const replaceInput = useRef<HTMLInputElement>(null);
   // Profiles are the account's (v8 §C): every one is shown, with the shops it is
   // used in. The listings below are the selected shop's (switch shops in the rail).
-  const { selected } = useShops();
+  const { selected, shops } = useShops();
+  const shopCount = shops?.length;
   const shopId = selected?.id ?? null;
 
   const loadProfiles = useCallback(async () => {
@@ -252,6 +254,17 @@ export default function ProfilesPage() {
             ))}
           </ul>
         </div>
+      )}
+
+      {(shopCount ?? 0) > 1 && (
+        <details key="groups" className="card p-4 text-sm">
+          <summary className="tap cursor-pointer font-medium text-slate-800">Shop groups</summary>
+          <p className="mb-3 mt-1 text-xs text-slate-500">
+            A profile can be set up in a whole group at once (&ldquo;Use in&rdquo; on each profile). The same groups are on
+            the Shops page.
+          </p>
+          <ShopGroupsEditor />
+        </details>
       )}
 
       {suggestions.length > 0 && (

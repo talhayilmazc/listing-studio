@@ -1,5 +1,9 @@
 import type { ReplaceMode } from "./replaceModes";
 import type {
+  DistributionPreview,
+  GroupPlanPreview,
+  GroupPlanSummary,
+  GroupSchedule,
   LinkSuggestion,
   ProfileSetup,
   ShopGroups,
@@ -478,6 +482,18 @@ export const api = {
   updateShopGroup: (id: string, body: { name?: string; connection_ids?: string[] }) =>
     req<ShopGroups>(`/shop-groups/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteShopGroup: (id: string) => req<ShopGroups>(`/shop-groups/${id}`, { method: "DELETE" }),
+  // --- Distribution and group scheduling (v8 §B) ---
+  previewDistribution: (batch: string, body: { mode: "assign" | "split"; group_ids: string[]; content_ids?: string[] }) =>
+    req<DistributionPreview>(`/batches/${batch}/distribution/preview`, { method: "POST", body: JSON.stringify(body) }),
+  planDistribution: (batch: string, assignments: { content_id: string; group_id: string }[], schedule: GroupSchedule) =>
+    req<GroupPlanPreview>(`/batches/${batch}/distribution/plan`, { method: "POST", body: JSON.stringify({ assignments, schedule }) }),
+  confirmDistribution: (batch: string, assignments: { content_id: string; group_id: string }[], schedule: GroupSchedule) =>
+    req<{ plan_id: string; plan: GroupPlanPreview }>(`/batches/${batch}/distribution/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ assignments, schedule }),
+    }),
+  groupPlans: () => req<GroupPlanSummary[]>("/plans"),
+  cancelGroupPlan: (id: string) => req<GroupPlanSummary>(`/plans/${id}`, { method: "DELETE" }),
   detectProfiles: (shop?: string | null) =>
     req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),
   shopListings: (shop?: string | null) => req<ShopListings>(`/shop/listings${shopQuery(shop)}`),

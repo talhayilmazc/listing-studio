@@ -824,6 +824,8 @@ class ShopOut(BaseModel):
     # Permissions the app now asks for that this shop has not granted (connected
     # before they were added): the seller reconnects once to grant them.
     missing_scopes: list[str] = Field(default_factory=list)
+    #: Its shop group (v8 §B); None = in no group.
+    group_id: uuid.UUID | None = None
 
 
 class ShopSlotsOut(BaseModel):

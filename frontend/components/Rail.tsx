@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "./SessionProvider";
-import type { Profile, Quota } from "@/lib/types";
+import type { Profile, Quota, Shop, ShopGroups } from "@/lib/types";
 import { useShops } from "./ShopProvider";
 import { RailAllowance } from "./Allowance";
 
@@ -246,7 +246,12 @@ function RailFooter() {
   const { shops, slots, selected, select } = useShops();
   const [quota, setQuota] = useState<Quota | null>(null);
   const [open, setOpen] = useState(false);
+  const [groups, setGroups] = useState<ShopGroups | null>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
+  // Shop groups (v8 §B) head the shops in the switcher; read when it opens.
+  useEffect(() => {
+    if (open) api.shopGroups().then(setGroups).catch(() => {});
+  }, [open]);
   const shopId = selected?.id ?? null;
 
   // The list closes on Escape or a click anywhere else.
@@ -378,7 +383,12 @@ function RailFooter() {
               <p className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]">
                 Your shops
               </p>
-              {shops.map((shop) => {
+              {sections(shops, groups).map(([title, members]) => (
+                <div key={title || "none"}>
+                  {title && (
+                    <p key="group" translate="no" className="px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-[0.1em] text-stone-400/80">{title}</p>
+                  )}
+                  {members.map((shop) => {
                 const current = shop.id === selected?.id;
                 return (
                   <button
@@ -410,7 +420,9 @@ function RailFooter() {
                     ) : null}
                   </button>
                 );
-              })}
+                  })}
+                </div>
+              ))}
               <Link
                 href="/connect"
                 onClick={() => setOpen(false)}
@@ -584,4 +596,17 @@ function IconTag({ active }: { active: boolean }) {
     </>,
     active,
   );
+}
+
+/** The shops under their group names (groups first, then shops in no group). */
+function sections(shops: Shop[], groups: ShopGroups | null): [string, Shop[]][] {
+  if (!groups || groups.groups.length === 0) return [["", shops]];
+  const out: [string, Shop[]][] = [];
+  for (const g of groups.groups) {
+    const members = shops.filter((s) => s.group_id === g.id);
+    if (members.length) out.push([g.name, members]);
+  }
+  const rest = shops.filter((s) => !s.group_id || !groups.groups.some((g) => g.id === s.group_id));
+  if (rest.length) out.push([out.length ? "No group" : "", rest]);
+  return out;
 }

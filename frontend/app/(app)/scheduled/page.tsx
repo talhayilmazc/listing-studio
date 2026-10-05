@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { addDays, dayKey, formatTime, formatWhen, scheduleLabel, toWallClock, wallToInstant } from "@/lib/schedule";
 import { useSession } from "@/components/SessionProvider";
 import { ZoneNote } from "@/components/ZoneNote";
-import type { Schedule } from "@/lib/types";
+import type { GroupPlanSummary, Schedule } from "@/lib/types";
 import { ShopBadge } from "@/components/ShopPicker";
 import { useShops } from "@/components/ShopProvider";
 
@@ -66,6 +66,7 @@ export default function ScheduledPage() {
         drafts from a batch&apos;s review page.
       </p>
       <ZoneNote />
+      <GroupPlans />
 
       {error && <div key="div-64-6" className="card p-3 text-sm text-rose-700">{error}</div>}
       {rows === null && !error && <p key="p-65-6" className="text-sm text-slate-400">Loading…</p>}
@@ -250,5 +251,53 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
         </span>
       )}
     </li>
+  );
+}
+
+const STATE_LABEL: Record<string, string> = {
+  waiting: "draft not made yet",
+  drafting: "making the draft",
+  scheduled: "draft made, go-live set",
+  cancelled: "cancelled",
+  failed: "failed",
+};
+
+/** Group schedules (v8 §B): their drafts and go-lives, and cancelling what has not happened. */
+function GroupPlans() {
+  const [plans, setPlans] = useState<GroupPlanSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.groupPlans().then(setPlans).catch(() => setPlans([]));
+  }, []);
+  const active = (plans ?? []).filter((p) => !p.cancelled);
+  if (active.length === 0) return null;
+  return (
+    <section className="card space-y-2 p-4 text-sm">
+      <p className="font-medium text-slate-800">Group schedules</p>
+      <ul className="space-y-2">
+        {active.map((p) => (
+          <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span translate="no" className="font-medium">{p.batch_name ?? "Batch"}</span>
+            <span translate="no" className="text-slate-500">
+              {Object.entries(p.counts).map(([k, n]) => `${n} ${STATE_LABEL[k] ?? k}`).join(" · ")}
+            </span>
+            <span translate="no" className="text-slate-500">
+              {p.last_publish ? `until ${new Date(p.last_publish).toLocaleDateString()}` : ""}
+            </span>
+            <button type="button" className="tap text-rose-600 underline" onClick={async () => {
+              try {
+                const out = await api.cancelGroupPlan(p.id);
+                setPlans((cur) => (cur ?? []).map((x) => (x.id === p.id ? out : x)));
+              } catch (e: any) {
+                setError(String(e.message ?? e));
+              }
+            }}>
+              Cancel what has not happened
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && <p key="error" className="text-rose-600">{error}</p>}
+    </section>
   );
 }

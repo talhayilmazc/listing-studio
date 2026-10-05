@@ -1,5 +1,7 @@
 "use client";
 
+import { ShopGroupsEditor } from "@/components/ShopGroupsEditor";
+
 import { useEffect, useState } from "react";
 import { AUTH_START_URL, api } from "@/lib/api";
 import type { Shop } from "@/lib/types";
@@ -131,6 +133,19 @@ export default function ConnectPage() {
             </p>
           </div>
         </div>
+      )}
+
+      {shops && shops.length > 1 && (
+        <section key="groups" className="card space-y-3 p-6" aria-labelledby="groups-heading">
+          <div>
+            <h2 id="groups-heading" className="text-lg font-semibold text-slate-900">Shop groups</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Every shop in a group gets the same listings. On the review page you send listings to a group, or split
+              them evenly across groups, and schedule them per shop. A shop is in at most one group.
+            </p>
+          </div>
+          <ShopGroupsEditor />
+        </section>
       )}
     </div>
   );

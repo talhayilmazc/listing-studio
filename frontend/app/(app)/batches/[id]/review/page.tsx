@@ -16,6 +16,7 @@ import type {
   PublishSkipped,
 } from "@/lib/types";
 import { PublishMatrix, cellKey } from "@/components/PublishMatrix";
+import { Distribution } from "@/components/Distribution";
 import { ShopBadge } from "@/components/ShopPicker";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
@@ -355,6 +356,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           onSetup={setUpProfile}
           disabled={busy}
         />
+      )}
+      {items && items.length > 0 && shops && shops.length > 1 && (
+        <Distribution key="distribution" batchId={id} items={items} onDone={load} />
       )}
       {setupNote && (
         <p key="setup-note" role="status" translate="no" className="card p-3 text-xs text-slate-700">

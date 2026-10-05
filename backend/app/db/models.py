@@ -922,6 +922,83 @@ class ProfileShopLink(Base):
     )
 
 
+class DesignDistribution(Base):
+    """Which group a design was sent to (v8 §B), remembered so sending it to
+    another group later can be warned about (never blocked). The seller's own
+    record, not Etsy content; outlives the batch like publication history:
+    ``content_id`` and ``group_id`` become NULL, the SKU and group name stay."""
+
+    __tablename__ = "design_distribution"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    content_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_content.id", ondelete="SET NULL"), index=True
+    )
+    #: The design's SKU, so the same design uploaded again in another batch is known.
+    sku: Mapped[str | None] = mapped_column(Text, index=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("shop_group.id", ondelete="SET NULL"))
+    group_name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GroupPlan(Base):
+    """A confirmed group schedule (v8 §B): the seller's settings, and its slots."""
+
+    __tablename__ = "group_plan"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload_batch.id", ondelete="SET NULL"))
+    #: start date, listings per shop per day, window, spacing, stagger, time zone.
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PlannedSlot(Base):
+    """One listing in one shop at one time, from a confirmed group schedule.
+
+    The draft is created at ``draft_at`` (a cron releases it; a draft job is
+    gated like any other and spills to the next day when the budget is full),
+    and once it exists its publication is scheduled for ``publish_at``, the time
+    the seller confirmed. Going live re-checks the approval and the compliance
+    findings (workers/schedule.py), exactly as a schedule set by hand does.
+    """
+
+    __tablename__ = "planned_slot"
+    __table_args__ = (Index("ix_planned_slot_due", "state", "draft_at"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plan_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("group_plan.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    content_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_content.id", ondelete="SET NULL"), index=True
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    draft_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    publish_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: "waiting" (draft not started) | "drafting" | "scheduled" (draft made, go-live set)
+    #: | "cancelled" | "failed" (with ``note``).
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="waiting")
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("job.id", ondelete="SET NULL"))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
 class ShopListingCache(Base):
     """Cache of the seller's own existing listings for the dashboard (B4).
 

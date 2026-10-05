@@ -12,6 +12,7 @@ from app.api import (
     auth,
     batches,
     content,
+    distribution,
     health,
     imports,
     pnl,
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     application.include_router(profile_links.router)
     application.include_router(profiles.router)
     application.include_router(shop_groups.router)
+    application.include_router(distribution.router)
     application.include_router(shop.router)
     application.include_router(shops.router)
     application.include_router(publish.router)
