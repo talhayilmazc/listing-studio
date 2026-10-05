@@ -160,6 +160,10 @@ class ContentOut(BaseModel):
     # What the compliance scanner found (trademarks, character artwork), shown
     # on the card before anything is sent to Etsy.
     findings: list["FindingOut"] = Field(default_factory=list)
+    # What its drafts get for personalization in every shop (v8 §D), and whether
+    # it is the listing's own ("listing"), its profile's ("profile") or unknown yet.
+    personalization: "PersonalizationOut | None" = None
+    personalization_source: str = "unknown"
     # Creating a draft or going live that did not finish: why, and whether it is
     # waiting to run again by itself. Shown on the card with "Try again".
     work: list["WorkOut"] = Field(default_factory=list)
@@ -287,6 +291,15 @@ class ContentUpdate(BaseModel):
     title: str | None = None
     tags: list[str] | None = None
     description: str | None = None
+    #: This listing's personalization (v8 §D); sending null follows the profile again.
+    personalization: dict[str, Any] | None = None
+
+
+class BulkPersonalization(BaseModel):
+    """"Set for all": one setting for the batch's listings (or the ones named); null follows each profile."""
+
+    personalization: dict[str, Any] | None
+    content_ids: list[uuid.UUID] | None = None
 
 
 class ApproveUpdate(BaseModel):

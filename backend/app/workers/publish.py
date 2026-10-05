@@ -40,7 +40,7 @@ from app.workers import recovery
 from app.workers.gate import start_job
 from app.workers.guards import owned, owned_optional
 from app.etsy.connection import ConnectionService
-from app.pipeline.personalization import effective as effective_personalization
+from app.pipeline.personalization import for_listing as personalization_for_listing
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
 from app.pipeline.images import cover_image
 from app.pipeline.storage import LocalStorage
@@ -320,7 +320,10 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     access_token=access_token,
                     config=publish_config(settings),
                     reference=reference,
-                    personalization=effective_personalization(profile.personalization, profile.cached_payload),
+                    # The listing's own setting, else its profile's; the same in every shop (v8 §D).
+                    personalization=personalization_for_listing(
+                        content.personalization, profile.personalization, profile.cached_payload
+                    )[0],
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),
                     vision=vision,

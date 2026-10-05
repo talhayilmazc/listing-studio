@@ -85,3 +85,36 @@ def questions_for(setting: dict[str, Any]) -> list[dict[str, Any]]:
     if setting.get("max_allowed_characters"):
         q["max_allowed_characters"] = int(setting["max_allowed_characters"])
     return [q]
+
+
+#: The question a listing gets when the seller turns personalization on and its
+#: profile has none to copy (Etsy requires a question of 1-45 characters).
+DEFAULT_QUESTION = "Personalization"
+
+
+def for_listing(own: dict[str, Any] | None, profile_override: dict[str, Any] | None,
+                payload: dict[str, Any] | None) -> tuple[dict[str, Any] | None, str]:
+    """What a listing's drafts get (v8 §D), and where it comes from: the
+    listing's own setting ("listing"), else its profile's ("profile"; None and
+    "unknown" while the profile's reference has not been read for it)."""
+    if own is not None:
+        return own, "listing"
+    setting = effective(profile_override, payload)
+    return setting, "profile" if setting is not None else "unknown"
+
+
+def differs(sent: dict[str, Any], back: dict[str, Any] | None) -> list[str]:
+    """What Etsy did not keep of the question that was sent (the draft read-back)."""
+    questions = [q for q in (back or {}).get("personalization_questions") or []
+                 if q.get("question_text") == sent["question_text"]]
+    if not questions:
+        return ["question"]
+    q = questions[0]
+    out = []
+    if bool(q.get("required")) != bool(sent.get("required")):
+        out.append("required")
+    if sent.get("max_allowed_characters") and int(q.get("max_allowed_characters") or 0) != int(sent["max_allowed_characters"]):
+        out.append("character limit")
+    if (sent.get("instructions") or "") != (q.get("instructions") or ""):
+        out.append("instructions")
+    return out

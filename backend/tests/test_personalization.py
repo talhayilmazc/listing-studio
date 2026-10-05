@@ -92,7 +92,7 @@ async def test_personalization_off_sends_nothing(async_sm: async_sessionmaker) -
 
 
 async def test_a_question_that_did_not_save_is_reported(async_sm: async_sessionmaker) -> None:
-    with pytest.raises(ValueError, match="personalization question did not save"):
+    with pytest.raises(ValueError, match="personalization did not save as set \(question\)"):
         await _publish(async_sm, PersonalizingEtsy(saves=False), {"enabled": True, "question_text": "Name"})
 
 
@@ -120,3 +120,65 @@ async def test_the_profile_shows_and_takes_the_sellers_setting(ctx) -> None:  # 
     assert off["personalization_source"] == "custom"
     back = (await ctx["client"].patch(url, json={"personalization": None})).json()
     assert back["personalization_source"] == "reference" and back["personalization"]["enabled"] is True
+
+
+# --- per listing (v8 §D) -------------------------------------------------------------------------
+
+from app.pipeline import personalization as P  # noqa: E402
+from tests.auth_support import authenticate, make_tenant, open_session  # noqa: E402
+from tests.test_publish_api import _add_content, ctx  # noqa: E402,F401  (fixture)
+
+
+def test_a_listing_setting_wins_over_its_profiles_in_every_shop() -> None:
+    profile_q = {"enabled": True, "question_text": "Name", "required": False}
+    assert P.for_listing(None, profile_q, None) == (profile_q, "profile")
+    own = {"enabled": False}
+    assert P.for_listing(own, profile_q, None) == (own, "listing")
+    assert P.for_listing(None, None, {}) == (None, "unknown")  # the profile's reference not read for it yet
+
+
+def test_the_read_back_names_what_etsy_did_not_keep() -> None:
+    sent = {"enabled": True, "question_text": "Name", "required": True, "max_allowed_characters": 20, "instructions": "Up to 20"}
+    kept = {"personalization_questions": [{"question_text": "Name", "required": True, "max_allowed_characters": 20,
+                                           "instructions": "Up to 20"}]}
+    assert P.differs(sent, kept) == []
+    lost = {"personalization_questions": [{"question_text": "Name", "required": False, "max_allowed_characters": 256}]}
+    assert P.differs(sent, lost) == ["required", "character limit", "instructions"]
+    assert P.differs(sent, {"personalization_questions": []}) == ["question"]
+
+
+async def test_the_review_card_sets_a_listings_personalization_within_etsys_limits(ctx) -> None:  # noqa: F811
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"])
+    url = f"/api/content/{content_id}"
+    res = await ctx["client"].patch(url, json={"personalization": {
+        "enabled": True, "question_text": "Name to print", "required": True, "max_allowed_characters": 20,
+        "instructions": "Up to 20 letters"}})
+    assert res.status_code == 200, res.text
+    out = res.json()["content"]
+    assert out["personalization_source"] == "listing"
+    assert out["personalization"] == {"enabled": True, "question_text": "Name to print", "instructions": "Up to 20 letters",
+                                      "required": True, "max_allowed_characters": 20}
+    # Etsy's limits: a question of 1-45 characters; the character limit and instructions as the app allows.
+    for bad in ({"enabled": True, "question_text": "x" * 46}, {"enabled": True, "question_text": "Name", "max_allowed_characters": 0},
+                {"enabled": True, "question_text": "Name", "instructions": "x" * 257}):
+        assert (await ctx["client"].patch(url, json={"personalization": bad})).status_code == 422
+    # Turned on with no question: Etsy needs one, so it gets a plain default.
+    res = await ctx["client"].patch(url, json={"personalization": {"enabled": True, "required": False}})
+    assert res.json()["content"]["personalization"]["question_text"] == P.DEFAULT_QUESTION
+    # null follows the profile again.
+    res = await ctx["client"].patch(url, json={"personalization": None})
+    assert res.json()["content"]["personalization_source"] != "listing"
+
+
+async def test_set_for_all_reaches_every_listing_and_only_the_owners(ctx) -> None:  # noqa: F811
+    first = await _add_content(ctx["sm"], ctx["tenant_id"])
+    async with ctx["sm"]() as s:
+        batch_id = (await s.get(GeneratedContent, first)).batch_id
+    res = await ctx["client"].post(f"/api/batches/{batch_id}/personalization", json={"personalization": {"enabled": False}})
+    assert res.status_code == 200 and all(c["personalization"] == {"enabled": False, "question_text": None, "instructions": None,
+                                                                    "required": False, "max_allowed_characters": None}
+                                          for c in res.json())
+    other = await make_tenant(ctx["sm"], "someone@example.com")
+    authenticate(ctx["client"], await open_session(ctx["redis"], other))
+    res = await ctx["client"].post(f"/api/batches/{batch_id}/personalization", json={"personalization": None})
+    assert res.status_code == 404

@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 import { PublishMatrix, cellKey } from "@/components/PublishMatrix";
 import { Distribution } from "@/components/Distribution";
+import { ListingPersonalization } from "@/components/ListingPersonalization";
 import { ShopBadge } from "@/components/ShopPicker";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
@@ -356,6 +357,29 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           onSetup={setUpProfile}
           disabled={busy}
         />
+      )}
+      {items && items.length > 1 && (
+        <details key="personalize-all" className="card p-3 text-sm">
+          <summary className="tap cursor-pointer font-medium text-slate-800">Personalization: set for all listings</summary>
+          <p className="mb-2 mt-1 text-xs text-slate-500">
+            One setting for every listing of this batch, in every shop it goes to. Each card can still be changed on its
+            own; &ldquo;Use the profile&apos;s&rdquo; there goes back to its profile.
+          </p>
+          <ListingPersonalization
+            value={null}
+            source=""
+            onSave={async (setting) => {
+              await api.setPersonalizationForAll(id, setting);
+              await load();
+            }}
+          />
+          <button type="button" className="tap mt-2 text-xs text-slate-500 underline" onClick={async () => {
+            await api.setPersonalizationForAll(id, null);
+            await load();
+          }}>
+            Every listing follows its profile again
+          </button>
+        </details>
       )}
       {items && items.length > 0 && shops && shops.length > 1 && (
         <Distribution key="distribution" batchId={id} items={items} onDone={load} />

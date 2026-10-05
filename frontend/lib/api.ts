@@ -280,7 +280,7 @@ export const api = {
     },
   ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
-  updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
+  updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">> & { personalization?: Personalization | null }) =>
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   approve: (id: string, approved: boolean) =>
     req<ContentUpdateResult>(`/content/${id}/approve`, {
@@ -481,6 +481,11 @@ export const api = {
     req<ShopGroups>("/shop-groups", { method: "POST", body: JSON.stringify({ name, connection_ids }) }),
   updateShopGroup: (id: string, body: { name?: string; connection_ids?: string[] }) =>
     req<ShopGroups>(`/shop-groups/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  setPersonalizationForAll: (batch: string, personalization: Personalization | null, contentIds?: string[]) =>
+    req<Content[]>(`/batches/${batch}/personalization`, {
+      method: "POST",
+      body: JSON.stringify({ personalization, content_ids: contentIds ?? null }),
+    }),
   deleteShopGroup: (id: string) => req<ShopGroups>(`/shop-groups/${id}`, { method: "DELETE" }),
   // --- Distribution and group scheduling (v8 §B) ---
   previewDistribution: (batch: string, body: { mode: "assign" | "split"; group_ids: string[]; content_ids?: string[] }) =>

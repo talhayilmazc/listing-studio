@@ -56,6 +56,7 @@ from app.db.models import (
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
+from app.pipeline.personalization import differs as personalization_differs
 from app.pipeline.personalization import questions_for
 from app.pipeline.reference import (
     PAYLOAD_VERSION,
@@ -556,10 +557,11 @@ async def publish_content(
             shop_id, listing_id, questions=questions_for(personalization), **ctx
         )
         back = await client.get_listing_personalization(listing_id, **ctx)
-        texts = [q.get("question_text") for q in back.get("personalization_questions") or []]
-        if personalization["question_text"] not in texts:
+        lost = personalization_differs(personalization, back)
+        if lost:
+            # Read back like the category: what was sent must be what Etsy kept (v8 §D).
             raise ValueError(
-                "the draft's personalization question did not save; check it in Shop Manager"
+                "the draft's personalization did not save as set (" + ", ".join(lost) + "); check it in Shop Manager"
             )
 
     # 5b) Required category attributes (neckline, sleeve length, clothing style, ...):

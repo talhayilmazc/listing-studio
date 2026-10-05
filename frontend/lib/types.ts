@@ -114,6 +114,9 @@ export interface Content {
   findings?: Finding[];
   /** Draft or go-live jobs that failed or are still waiting, with the reason. */
   work?: Work[];
+  /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */
+  personalization?: Personalization | null;
+  personalization_source?: "listing" | "profile" | "unknown" | string;
 }
 
 /** A setting the seller must make on the draft in Shop Manager; Etsy's API cannot. */

@@ -667,6 +667,10 @@ class GeneratedContent(Base):
     listing_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
     )
+    #: This listing's own personalization (v8 §D), the setting sent to Etsy in
+    #: every shop it goes to: None follows its profile's; {"enabled": false} is off;
+    #: otherwise the question (pipeline/personalization.py).
+    personalization: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

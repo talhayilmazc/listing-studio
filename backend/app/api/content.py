@@ -29,6 +29,9 @@ from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
+from app.pipeline.personalization import DEFAULT_QUESTION
+from app.pipeline.personalization import for_listing as personalization_for_listing
+from app.pipeline.personalization import validate as validate_personalization
 
 router = APIRouter(prefix="/api", tags=["content"])
 
@@ -279,6 +282,11 @@ async def contents_out(
     )
     for out, (c, _) in zip(outs, pairs):
         profile = profiles.get(c.listing_profile_id)
+        setting, source = personalization_for_listing(
+            c.personalization, profile.personalization if profile else None, profile.cached_payload if profile else None
+        )
+        out.personalization = _personalization_out(setting)
+        out.personalization_source = source
         bounds = bounds_for(profile)
         out.title_min_length, out.title_max_length = bounds.min_length, bounds.max_length
         out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
@@ -308,6 +316,52 @@ def _to_out(
         parsed_sku=asset.parsed_sku,
         rank=asset.rank,
     )
+
+
+def _personalization_out(setting: dict | None) -> schemas.PersonalizationOut | None:
+    if setting is None:
+        return None
+    return schemas.PersonalizationOut(
+        enabled=bool(setting.get("enabled")),
+        question_text=setting.get("question_text"),
+        instructions=setting.get("instructions") or None,
+        required=bool(setting.get("required")),
+        max_allowed_characters=setting.get("max_allowed_characters"),
+    )
+
+
+def _clean_personalization(value: dict | None) -> dict | None:
+    """The seller's setting, checked against Etsy's limits (422 with the reason)."""
+    if value is None:
+        return None
+    if value.get("enabled") and not str(value.get("question_text") or "").strip():
+        value = {**value, "question_text": DEFAULT_QUESTION}
+    try:
+        return validate_personalization(value)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/batches/{batch_id}/personalization", response_model=list[schemas.ContentOut])
+async def set_personalization_for_all(
+    batch_id: uuid.UUID,
+    body: schemas.BulkPersonalization,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> list[schemas.ContentOut]:
+    """"Set for all" on the review page: one personalization for every listing of
+    the batch (or the ones named). Drafts made from now on get it, in every shop."""
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="batch not found")
+    setting = _clean_personalization(body.personalization)
+    query = select(GeneratedContent).where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
+    if body.content_ids:
+        query = query.where(GeneratedContent.id.in_(body.content_ids))
+    for content in (await session.execute(query)).scalars():
+        content.personalization = setting
+    await session.commit()
+    return await list_batch_content(batch_id, session, tenant)
 
 
 async def _validation(
@@ -378,6 +432,8 @@ async def update_content(
         content.tags = body.tags
     if body.description is not None:
         content.description = body.description
+    if "personalization" in body.model_fields_set:
+        content.personalization = _clean_personalization(body.personalization)
     await rescan(session, content)
     await session.commit()
     await session.refresh(content)

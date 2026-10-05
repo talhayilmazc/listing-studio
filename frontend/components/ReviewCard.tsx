@@ -18,6 +18,7 @@ import { TagEditor } from "./TagEditor";
 import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
+import { ListingPersonalization } from "./ListingPersonalization";
 import { useSession } from "./SessionProvider";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
 const DEFAULT_MIN_TITLE = 110;
@@ -77,6 +78,15 @@ export function ReviewCard({
   const [title, setTitle] = useState(initial.title ?? "");
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
+  const [personalization, setPersonalization] = useState(initial.personalization ?? null);
+  const [personalizationSource, setPersonalizationSource] = useState(initial.personalization_source ?? "unknown");
+  // "Set for all" on the page changes it without remounting the card.
+  const incomingPersonalization = JSON.stringify([initial.personalization, initial.personalization_source]);
+  useEffect(() => {
+    setPersonalization(initial.personalization ?? null);
+    setPersonalizationSource(initial.personalization_source ?? "unknown");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingPersonalization]);
   const [approved, setApproved] = useState(initial.approved);
   // "Approve all" on the page changes this without remounting the card.
   useEffect(() => {
@@ -389,6 +399,16 @@ export function ReviewCard({
             )}
 
             <Description value={description} onChange={change(setDescription)} />
+
+            <ListingPersonalization
+              value={personalization}
+              source={personalizationSource}
+              onSave={async (setting) => {
+                const res = await api.updateContent(initial.id, { personalization: setting });
+                setPersonalization(res.content.personalization ?? null);
+                setPersonalizationSource(res.content.personalization_source ?? "unknown");
+              }}
+            />
 
             {!valid && (
               <ul key="ul-288-12" className="space-y-0.5 text-xs text-rose-700">
