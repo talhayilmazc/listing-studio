@@ -39,6 +39,8 @@ SELLER_COST_FIELDS = {
     "product_cost", "product_cost_by_profile", "product_cost_by_sku", "shipping_cost", "costs",
     "cost_settings", "fixed_costs", "other_costs", "unit_cost", "product_costs", "shipping_costs",
     "costs_entered",  # whether the seller has typed in their own product costs
+    # The month view (api/pnl.py): the seller's own product cost, entered by them per profile.
+    "product_cost_minor", "before_cost_minor", "uncosted_units", "costed",
 }
 # Values that would give a model or the provider away.
 FORBIDDEN_VALUE = re.compile(r"claude|haiku|sonnet|opus|anthropic|max_tokens|LLM_API_KEY", re.IGNORECASE)

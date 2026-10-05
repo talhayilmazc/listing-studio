@@ -122,6 +122,9 @@ async def put_costs(
         stored = profit.validate_costs(body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    # Product costs per profile are saved on their own (api/pnl.py): keep them.
+    if (tenant.cost_settings or {}).get("profile_costs"):
+        stored["profile_costs"] = tenant.cost_settings["profile_costs"]
     tenant.cost_settings = stored
     await session.commit()
     return _costs_out(stored)

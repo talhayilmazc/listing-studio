@@ -9,6 +9,8 @@ import type {
   Breakdown,
   BreakdownMetric,
   CostSettings,
+  MonthView,
+  ProductCostsView,
   SalesReread,
   SalesRereadAdmin,
   SalesSync,
@@ -337,6 +339,12 @@ export const api = {
     compare: "previous" | "year" = "previous", metric?: BreakdownMetric) =>
     `${BASE}/analytics/export${query({ view, shop, days, compare, metric })}`,
   salesStatus: (shop: string | null) => req<SalesSync>(`/analytics/sales/status${shopQuery(shop)}`),
+  /** One month of the shop's money: the receipt, what needs attention, every listing. `month` is "YYYY-MM". */
+  analyticsMonth: (shop: string | null, month?: string | null) =>
+    req<MonthView>(`/analytics/month${shopQuery(shop)}${month ? `${shop ? "&" : "?"}month=${month}` : ""}`),
+  productCosts: (shop: string | null) => req<ProductCostsView>(`/analytics/product-costs${shopQuery(shop)}`),
+  saveProductCosts: (shop: string | null, profiles: Record<string, unknown>) =>
+    req<ProductCostsView>(`/analytics/product-costs${shopQuery(shop)}`, { method: "PUT", body: JSON.stringify({ profiles }) }),
   /** The one-time second read of the sales, for each of the account's shops. */
   salesReread: () => req<SalesReread>("/analytics/sales/reread"),
   /** Work out what the first read costs (a few requests), before starting it. */

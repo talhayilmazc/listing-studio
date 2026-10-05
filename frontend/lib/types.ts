@@ -1243,3 +1243,119 @@ export interface AllowanceDefault {
   amount: number;
   period: "daily" | "weekly" | "monthly";
 }
+
+// --- Analytics: the month view (backend/app/api/pnl.py) ------------------------------------
+
+/** How a figure was arrived at; on every number. */
+export type Basis = "exact" | "calculated" | "estimated";
+
+/** One number. `minor` null: nothing behind it, and `note` says why (never shown as zero). */
+export interface MonthFigure {
+  key: string;
+  minor: number | null;
+  basis: Basis | null;
+  source: string | null;
+  note: string | null;
+  parts: Record<string, number> | null;
+}
+
+export interface MonthSheet {
+  month: string;
+  /** Where the month's totals come from: statement > ledger > sales > none. */
+  source: "statement" | "ledger" | "sales" | "none";
+  sections: { key: string; lines: MonthFigure[]; total: MonthFigure }[];
+  /** Profit before product cost; on a statement month, the statement's net to the cent. */
+  net_etsy: MonthFigure;
+  profit: MonthFigure;
+  revenue: MonthFigure;
+  deposits_minor: number | null;
+  ads_report: { spend_minor: number | null; revenue_minor: number | null; days: number; month_days: number };
+  break_even: {
+    roas: number | null;
+    margin: number | null;
+    basis: Basis | null;
+    note: string | null;
+    complete: boolean;
+    actual_roas: number | null;
+    actual_note: string | null;
+  };
+  units: number | null;
+  complete: boolean;
+  incomplete: { key: "no_statement" | "product_cost" | "sales_lines" | string; text: string }[];
+}
+
+export type MonthClass = "winner" | "steady" | "fading" | "losing" | "new";
+
+export interface MonthListing {
+  listing_id: number;
+  title: string | null;
+  state: string | null;
+  /** The listing's page on Etsy: always present. */
+  url: string;
+  thumbnail_url: string | null;
+  sku: string | null;
+  profile_name: string | null;
+  class: MonthClass;
+  reason: string;
+  units: number;
+  orders: number;
+  items_minor: number;
+  shipping_paid_minor: number;
+  revenue_minor: number;
+  refunds_minor: number | null;
+  fees_minor: number | null;
+  offsite_ads_minor: number | null;
+  other_minor: number | null;
+  product_cost_minor: number | null;
+  uncosted_units: number;
+  before_cost_minor: number | null;
+  /** Profit before ads; null until the listing's product cost is entered. */
+  result_minor: number | null;
+  per_unit_minor: number | null;
+  costed: boolean;
+  basis: Basis;
+  units_before: number;
+  /** Items sold in each of `trend_months`, oldest first. */
+  trend: number[];
+}
+
+export interface MonthAttention {
+  kind: string;
+  stake_minor: number | null;
+  basis: Basis | null;
+  title: string;
+  why: string;
+  do: string;
+  listing_id: number | null;
+}
+
+export interface MonthView {
+  connected: boolean;
+  shop_name: string | null;
+  currency: string | null;
+  month: string;
+  months: { month: string; statement: boolean; in_progress: boolean }[];
+  sheet: MonthSheet;
+  last_month: MonthSheet | null;
+  last_year: MonthSheet | null;
+  attention: MonthAttention[];
+  unattributed: { groups: Record<string, number>; orders: number; orders_minor: number; total: number | null; etsy_ads_minor: number | null };
+  listings: MonthListing[];
+  classes: Partial<Record<MonthClass, number>>;
+  trend_months: string[];
+  titles_refreshing: boolean;
+  sizes_supported: boolean;
+}
+
+export interface ProductCostsView {
+  shop_name: string | null;
+  profiles: {
+    profile_id: string;
+    name: string;
+    /** Decimal text as entered; null: not entered (never assumed). */
+    production: string | null;
+    shipping: string | null;
+    sizes: Record<string, { production: string | null; shipping: string | null }>;
+  }[];
+  sizes_supported: boolean;
+}
