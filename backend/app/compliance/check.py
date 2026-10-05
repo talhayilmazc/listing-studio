@@ -50,6 +50,7 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent) -> s
         policy,
         trademarks=await tenant_blocklist(session, content.tenant_id),
         title_rules=bounds_for(profile),
+        for_seller=True,
     )
     if errors:
         return "; ".join(errors)

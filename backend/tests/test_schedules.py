@@ -189,7 +189,7 @@ async def test_approval_and_compliance_are_checked_again_when_due(ctx, tmp_path,
     assert await release_scheduled_publishes({"sessionmaker": ctx["sm"], "enqueue": queue}) == {"released": 0, "held": 2}
     assert queue.calls == []
     assert (await _pub(ctx, unapproved)).schedule_note == NOT_APPROVED
-    assert "trademark 'Adventure Awaits'" in (await _pub(ctx, marked)).schedule_note
+    assert "Remove: Adventure Awaits (title)" in (await _pub(ctx, marked)).schedule_note
     statuses = {r["content_id"]: r["status"] for r in (await ctx["client"].get("/api/schedules")).json()}
     assert statuses == {str(unapproved): "not_published", str(marked): "not_published"}
 

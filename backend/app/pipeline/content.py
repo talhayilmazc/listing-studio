@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from app.compliance.trademarks import Blocklist, configured_blocklist, trademark_errors
+from app.compliance.trademarks import Blocklist, configured_blocklist, trademark_errors, trademark_summary
 from app.core import ai_meter
 from app.pipeline import search_rules
 from app.pipeline.llm import LLMClient, LLMError, Usage
@@ -350,8 +350,13 @@ def validate_listing(
     trademarks: Blocklist | None = None,
     title_rules: TitleRules = LEGACY_TITLE,
     category_names: list[str] | None = None,
+    for_seller: bool = False,
 ) -> list[str]:
-    """Return validation errors (empty if valid).
+    """Return validation errors (empty if valid), each once.
+
+    ``for_seller``: trademark findings as one short line the seller reads
+    ("Remove: Disney, Mickey (title), mickey mouse tee (tags)"); otherwise
+    worded as corrections for the generator.
 
     ``title_rules`` are the title's bounds; the search rules (``readable``) also
     check the tags, the opening and the attributes against Etsy's guidance.
@@ -417,9 +422,14 @@ def validate_listing(
     blocklist = configured_blocklist() if trademarks is None else trademarks
     # Attribute values are searchable text too: a mark there is a mark in the listing.
     searchable = " ".join([listing.description, *listing.attributes.values()])
-    errors.extend(trademark_errors(listing.title, list(listing.tags), searchable, blocklist))
+    if for_seller:
+        summary = trademark_summary(listing.title, list(listing.tags), searchable, blocklist)
+        if summary:
+            errors.append(summary)
+    else:
+        errors.extend(trademark_errors(listing.title, list(listing.tags), searchable, blocklist))
 
-    return errors
+    return list(dict.fromkeys(errors))
 
 
 def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str]:

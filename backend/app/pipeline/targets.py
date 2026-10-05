@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile, ProfileShopLink
+from app.compliance.trademarks import tenant_blocklist
 from app.pipeline import profile_shops
 from app.pipeline.content import (
     bounds_for,
@@ -212,6 +213,10 @@ async def resolve_target(
         errors = validate_listing(
             GeneratedListing(title=title, tags=list(content.tags or []), description=description),
             policy_for(chosen.content_template),
+            # The account's own trademark decision, the same in every shop (v8 §E):
+            # never the app's default, which would block in one shop what another allows.
+            trademarks=await tenant_blocklist(session, content.tenant_id),
+            for_seller=True,
             # The title was written to its own profile's bounds; this shop's
             # profile may use the other style, so accept either range.
             title_rules=_widest(bounds_for(source), bounds_for(chosen)),

@@ -166,6 +166,23 @@ async def tenant_blocklist(session, tenant_id) -> Blocklist:  # noqa: ANN001
     return blocklist_for_tenant(await session.get(Tenant, tenant_id))
 
 
+def trademark_summary(title: str, tags: list[str], description: str, blocklist: Blocklist) -> str | None:
+    """The same findings as :func:`trademark_errors`, once, as the seller reads
+    them (v8 §E): "Remove: Disney, Mickey (title), mickey mouse tee (tags)".
+    None when there is nothing to remove."""
+    parts: list[str] = []
+    in_title = list(dict.fromkeys(blocklist.find(title)))
+    if in_title:
+        parts.append(", ".join(in_title) + " (title)")
+    bad_tags = list(dict.fromkeys(tag for tag in tags if blocklist.find(tag)))
+    if bad_tags:
+        parts.append(", ".join(bad_tags) + (" (tags)" if len(bad_tags) > 1 else " (tag)"))
+    in_description = list(dict.fromkeys(blocklist.find(description)))
+    if in_description:
+        parts.append(", ".join(in_description) + " (description)")
+    return "Remove: " + ", ".join(parts) if parts else None
+
+
 def trademark_errors(
     title: str, tags: list[str], description: str, blocklist: Blocklist
 ) -> list[str]:

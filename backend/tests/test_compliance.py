@@ -177,12 +177,9 @@ async def test_a_trademark_that_survives_the_retry_fails_the_listing() -> None:
 
 
 # --- the scanner --------------------------------------------------------------------
-def test_the_scanner_reports_each_place_as_blocking() -> None:
+def test_the_scanner_reports_every_place_once_as_one_blocking_list() -> None:
     findings = scan("Nike Running Tee", ["barbie pink", "tee"], "Not affiliated with Adidas.")
     assert {f.rule for f in findings} == {TRADEMARK}
     assert all(f.severity is ComplianceSeverity.blocking for f in findings)
-    assert [f.detail for f in findings] == [
-        "trademark 'Nike' in the title",
-        "trademark 'Barbie' in the tag 'barbie pink'",
-        "trademark 'Adidas' in the description",
-    ]
+    # One short list, each place once (v8 §E): not a sentence per term.
+    assert [f.detail for f in findings] == ["Remove: Nike (title), barbie pink (tag), Adidas (description)"]

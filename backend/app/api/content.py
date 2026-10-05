@@ -385,6 +385,7 @@ async def _validation(
         policy,
         trademarks=await tenant_blocklist(session, content.tenant_id),
         title_rules=bounds_for(profile),
+        for_seller=True,
     )
     return schemas.ValidationInfo(valid=not errors, errors=errors)
 

@@ -25,7 +25,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.compliance.trademarks import Blocklist, configured_blocklist, tenant_blocklist
+from app.compliance.trademarks import Blocklist, configured_blocklist, tenant_blocklist, trademark_summary
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent
 
 TRADEMARK = "trademark"
@@ -70,12 +70,10 @@ def scan(
                     "is worded; Etsy removes listings when rights holders report them.",
                 )
             )
-    places = [("the title", title), *((f"the tag '{t}'", t) for t in tags), ("the description", description)]
-    for where, text in places:
-        for term in blocklist.find(text):
-            findings.append(
-                Finding(TRADEMARK, ComplianceSeverity.blocking, f"trademark '{term}' in {where}")
-            )
+    # Every trademark in the listing, once, as one short list (v8 §E).
+    summary = trademark_summary(title, tags, description, blocklist)
+    if summary:
+        findings.append(Finding(TRADEMARK, ComplianceSeverity.blocking, summary))
     return findings
 
 

@@ -663,13 +663,13 @@ async def test_a_trademark_blocks_approval_and_is_recorded(ctx) -> None:
 
     resp = await ctx["client"].post(f"/api/content/{content}/approve", json={"approved": True})
     assert resp.status_code == 422
-    assert any("trademark 'Disney'" in e for e in resp.json()["detail"]["errors"])
+    assert "Remove: Disney (title)" in resp.json()["detail"]["errors"]
     async with ctx["sm"]() as s:
         findings = (
             await s.execute(select(ComplianceFinding).where(ComplianceFinding.generated_content_id == content))
         ).scalars().all()
     assert [(f.rule, f.severity.value, f.detail) for f in findings] == [
-        ("trademark", "blocking", "trademark 'Disney' in the title")
+        ("trademark", "blocking", "Remove: Disney (title)")
     ]
 
 
@@ -681,7 +681,7 @@ async def test_a_term_added_after_approval_stops_publishing(ctx, tmp_path, test_
 
     resp = await ctx["client"].post(f"/api/content/{content}/publish")
     assert resp.status_code == 409
-    assert "trademark 'Adventure Awaits' from the title" in str(resp.json()["detail"])
+    assert "Remove: Adventure Awaits (title)" in str(resp.json()["detail"])
 
 
 async def test_with_the_filter_off_the_same_listing_publishes(ctx, tmp_path, test_settings) -> None:
