@@ -174,9 +174,11 @@ async def _strip_display_fields(session: AsyncSession, now: datetime) -> int:
 async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUID) -> dict[str, int]:
     """Remove everything Etsy-sourced for one shop (on disconnect). Does not commit.
 
-    Deleted: that shop's cached listings, its profiles (built from its own
-    reference listings), the saved copies of its listings, and the links from
-    generated content to its drafts (v5 §E). Kept: the seller's uploads and
+    Deleted: that shop's cached listings, its links to the account's profiles
+    (a profile whose main shop it was moves to another linked shop, and the Etsy
+    data read from this shop's reference goes; a profile used in no other shop
+    is deleted), the saved copies of its listings, and the links from generated
+    content to its drafts (v5 §E, v8 §C). Kept: the seller's uploads and
     generated content, and everything belonging to the account's other shops.
     """
     shop_jobs = select(Job.id).where(Job.connection_id == connection_id)
@@ -189,9 +191,11 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     publications = await session.execute(
         delete(ListingPublication).where(ListingPublication.connection_id == connection_id)
     )
-    profiles = await session.execute(
-        delete(ListingProfile).where(ListingProfile.connection_id == connection_id)
-    )
+    # Profiles are the account's (v8 §C): only this shop's links go; a profile whose
+    # main shop this was moves to another linked shop, or goes with its last one.
+    from app.pipeline.profile_shops import detach_shop
+
+    detached = await detach_shop(session, connection_id)
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
     ads = await session.execute(delete(AdSpend).where(AdSpend.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
@@ -207,7 +211,9 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
         "snapshots": snapshots.rowcount or 0,
         "shop_listings": listings.rowcount or 0,
         "publications": publications.rowcount or 0,
-        "profiles": profiles.rowcount or 0,
+        "profiles": detached["profiles"],
+        "profiles_moved": detached["profiles_moved"],
+        "profile_links": detached["profile_links"],
     }
 
 

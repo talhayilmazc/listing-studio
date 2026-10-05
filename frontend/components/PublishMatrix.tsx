@@ -11,9 +11,24 @@ function name(row: MatrixRow): string {
 }
 
 /** What one cell says when it is not a checkbox. */
-function CellState({ cell }: { cell: MatrixCell }) {
+function CellState({ cell, shopName, onSetup, disabled }: {
+  cell: MatrixCell;
+  shopName: string | null;
+  onSetup?: (profileId: string, shopId: string) => void;
+  disabled?: boolean;
+}) {
   if (cell.state === "draft") return <span className="text-emerald-700">✓ draft there</span>;
   if (cell.state === "live") return <span className="text-emerald-700">✓ live there</span>;
+  if (cell.setup && cell.profile_id && onSetup) {
+    // The only thing wrong: the profile is not set up in this shop (v8 §C).
+    return (
+      <button type="button" className="tap text-left text-brand-700 underline" disabled={disabled}
+        onClick={() => onSetup(cell.profile_id!, cell.connection_id)}>
+        <span>Set up </span><span translate="no">{cell.profile_name ?? "the profile"}</span><span> in </span>
+        <span translate="no">{shopName ?? "this shop"}</span><span>…</span>
+      </button>
+    );
+  }
   return (
     <span className="text-amber-800">
       <span aria-hidden>✕ </span>
@@ -27,8 +42,9 @@ function CellState({ cell }: { cell: MatrixCell }) {
  * side, the account's shops across. A ticked cell will be created; a cell that
  * already has a draft or is live says so; one that cannot be created says why.
  * By default each listing goes only to the shop it was written for: another
- * shop gets a draft only where the seller ticks it. Each shop's drafts are
- * built from that shop's own profile, chosen in its column.
+ * shop gets a draft only where the seller ticks it. Each listing's own profile
+ * builds its draft in every shop it is set up in (v8 §C); a shop it is not set
+ * up in offers "Set up <profile> in <shop>…". A column can use another profile.
  */
 export function PublishMatrix({
   preview,
@@ -36,6 +52,7 @@ export function PublishMatrix({
   onProfile,
   onToggle,
   onColumn,
+  onSetup,
   disabled,
 }: {
   preview: PublishPreview;
@@ -45,6 +62,8 @@ export function PublishMatrix({
   onToggle: (row: MatrixRow, cell: MatrixCell, on: boolean) => void;
   /** Tick or untick every available cell of a shop. */
   onColumn: (column: MatrixColumn, on: boolean) => void;
+  /** Set the listing's profile up in a shop, from a cell that needs it. */
+  onSetup?: (profileId: string, shopId: string) => void;
   disabled?: boolean;
 }) {
   const { columns, rows } = preview;
@@ -55,7 +74,6 @@ export function PublishMatrix({
   const head = (col: MatrixColumn) => {
     const can = available(col.connection_id).length;
     const on = chosenIn(col.connection_id);
-    const needsChoice = rows.some((r) => cellOf(r, col.connection_id)?.reason?.includes("choose one"));
     return (
       <div className="space-y-1.5">
         <label className="flex min-h-[2rem] items-center gap-2 max-md:min-h-[2.75rem]">
@@ -80,7 +98,7 @@ export function PublishMatrix({
             disabled={disabled}
             onChange={(e) => onProfile(col.connection_id, e.target.value || null)}
           >
-            <option value="">{needsChoice ? "Choose a profile…" : "Matching profile"}</option>
+            <option value="">{"Each listing's own profile"}</option>
             {col.profiles.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -89,7 +107,7 @@ export function PublishMatrix({
             ))}
           </select>
         ) : (
-          <p className="text-[11px] font-normal text-amber-800">No confirmed profile in this shop.</p>
+          <p className="text-[11px] font-normal text-slate-500">No profile set up in this shop yet.</p>
         )}
         <p translate="no" className="text-[11px] font-normal tabular-nums text-slate-500">
           {`${col.drafts} draft${col.drafts === 1 ? "" : "s"} ≈ ${col.estimated_calls.toLocaleString()} requests`}
@@ -101,7 +119,8 @@ export function PublishMatrix({
   const cellBody = (row: MatrixRow, col: MatrixColumn) => {
     const cell = cellOf(row, col.connection_id);
     if (!cell) return null;
-    if (cell.state !== "available") return <CellState cell={cell} />;
+    if (cell.state !== "available")
+      return <CellState cell={cell} shopName={col.shop_name} onSetup={onSetup} disabled={disabled} />;
     return (
       <label className="flex min-h-[2rem] items-center gap-2 max-md:min-h-[2.75rem]">
         <input
@@ -127,8 +146,9 @@ export function PublishMatrix({
           Where drafts will be created
         </h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          Each listing goes to the shop it was written for unless you tick another. A shop builds its draft from its own
-          profile. Nothing is created in a shop you have not ticked.
+          Each listing goes to the shop it was written for unless you tick another. Its profile builds the draft in every
+          shop it is set up in, with that shop&apos;s own shipping and return settings. Nothing is created in a shop you
+          have not ticked.
         </p>
       </div>
 

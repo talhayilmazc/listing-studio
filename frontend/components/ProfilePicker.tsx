@@ -8,12 +8,13 @@ import { Sheet } from "./Sheet";
 const TEMPLATE: Record<string, string> = { apparel: "Apparel", digital_products: "Digital" };
 
 /**
- * Choosing a profile of ONE shop (v7 §D1, shop first since Priority 2): a
- * button that opens a search box and that shop's profiles. The shop is chosen
- * before the profile, so the list is never a mix of every shop's profiles;
- * with no shop chosen the picker says so and stays closed. Typing filters by
- * profile name, template and the reference listing's title; arrows and Enter
- * pick, Escape closes. A popover on a wide screen, a bottom sheet on a phone.
+ * Choosing one of the account's profiles (v8 §C): a button that opens a search
+ * box and the profiles. A profile serves every shop it is set up in, so the list
+ * is the account's; for the shop given, each row says whether the profile is set
+ * up there ("Not set up in TEETIME" can be fixed from the review page or the
+ * Profiles page). Typing filters by profile name, template and the reference
+ * listing's title; arrows and Enter pick, Escape closes. A popover on a wide
+ * screen, a bottom sheet on a phone.
  */
 export function ProfilePicker({
   profiles,
@@ -26,9 +27,9 @@ export function ProfilePicker({
   size = "sm",
   disabled = false,
 }: {
-  /** Any of the account's profiles; only ``shopId``'s are offered. */
+  /** The account's profiles. */
   profiles: Profile[];
-  /** The shop whose profiles may be chosen; null = none chosen yet. */
+  /** The shop the listing goes to, for "set up there or not"; null = not chosen yet. */
   shopId: string | null;
   shopName?: string | null;
   value: string | null;
@@ -45,9 +46,9 @@ export function ProfilePicker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const own = useMemo(() => profiles.filter((p) => p.connection_id === shopId), [profiles, shopId]);
-  // A value from another shop is never shown as if it were this shop's.
+  const own = profiles;
   const chosen = own.find((p) => p.id === value) ?? null;
+  const setUpIn = (p: Profile) => shopId === null || (p.links ?? []).some((l) => l.connection_id === shopId);
 
   const shown = useMemo(() => own.filter((p) => matchesProfile(p, q, p.reference_title)), [own, q]);
   // Row 0 is "nothing"; then the matches.
@@ -86,14 +87,13 @@ export function ProfilePicker({
   }
 
   const text = size === "xs" ? "text-xs" : "text-sm";
-  const noShop = shopId === null;
-  const shownLabel = noShop ? "Choose a shop first" : chosen ? chosen.name : emptyLabel;
+  const shownLabel = chosen ? chosen.name : emptyLabel;
 
   return (
     <div ref={root} className="relative inline-block max-w-full">
       <button
         type="button"
-        disabled={disabled || noShop}
+        disabled={disabled}
         onClick={() => {
           setOpen((o) => !o);
           setActive(0);
@@ -101,7 +101,6 @@ export function ProfilePicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`${label}: ${shownLabel}`}
-        title={noShop ? "Profiles belong to a shop: choose the shop, then one of its profiles." : undefined}
         className={`field flex min-h-[2.25rem] w-auto max-w-full items-center gap-2 py-1 text-left disabled:cursor-not-allowed sm:max-w-[18rem] ${text}`}
       >
         <span className={"min-w-0 flex-1 truncate " + (chosen ? "text-slate-900" : "text-slate-500")}>{shownLabel}</span>
@@ -130,8 +129,8 @@ export function ProfilePicker({
               <span translate="no">{shown.length}</span>
               <span>{` of `}</span>
               <span translate="no">{own.length}</span>
-              <span>{shopName ? " profiles of " : " profiles of this shop"}</span>
-              {shopName && <span key="shop" translate="no" className="font-medium text-slate-500">{shopName}</span>}
+              <span>{" profiles"}</span>
+              {shopName && <span key="shop" translate="no" className="text-slate-500">{` · for ${shopName}`}</span>}
             </p>
           </div>
           <ul ref={listRef} role="listbox" aria-label={label} className="max-h-[55vh] overflow-y-auto py-1 sm:max-h-72">
@@ -160,6 +159,11 @@ export function ProfilePicker({
                             {TEMPLATE[p.content_template] ?? p.content_template}
                           </span>
                         </span>
+                        {!setUpIn(p) && (
+                          <span key="not-here" className="w-full truncate text-xs text-amber-700">
+                            <span>Not set up in </span><span translate="no">{shopName ?? "this shop"}</span><span> yet</span>
+                          </span>
+                        )}
                         {p.reference_title && (
                           <span key="ref" className="w-full truncate text-xs text-slate-400" title={p.reference_title}>
                             {p.reference_title}
@@ -175,7 +179,7 @@ export function ProfilePicker({
             })}
             {own.length === 0 && (
               <li key="no-profiles" className="px-4 py-3 text-xs text-amber-800 sm:px-3">
-                This shop has no confirmed profile yet. Create one on the Profiles page.
+                No confirmed profile yet. Create one on the Profiles page.
               </li>
             )}
             {own.length > 0 && shown.length === 0 && (

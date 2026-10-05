@@ -331,7 +331,7 @@ async def test_set_and_clear_size_chart_profile(ctx) -> None:
 
 
 async def test_per_group_profile_assignment_and_bulk(ctx) -> None:
-    """v4 §E: bulk applies to all groups; a manual per-group choice is preserved."""
+    """v4 §E, v8 §C: "For all groups" fills every group whose listing is not written."""
     async with ctx["sm"]() as s:
         batch = UploadBatch(
             tenant_id=ctx["tenant_id"], status=UploadBatchStatus.ready, file_count=2
@@ -368,11 +368,13 @@ async def test_per_group_profile_assignment_and_bulk(ctx) -> None:
 
     # Manually override group B -> P2.
     await ctx["client"].put(base, json={"group_key": "B", "profile_id": p2_id})
-    # Bulk P1 again must NOT overwrite the manual B.
+    by_key = {g["group_key"]: g for g in (await ctx["client"].get(base)).json()}
+    assert by_key["B"]["profile_id"] == p2_id and by_key["B"]["manual"] is True
+    # "For all groups" then fills every group not written yet, B included: the row
+    # used to keep showing its old choice ("Choose…") after it (v8 §C).
     await ctx["client"].put(base, json={"profile_id": p1_id})
     by_key = {g["group_key"]: g for g in (await ctx["client"].get(base)).json()}
-    assert by_key["A"]["profile_id"] == p1_id
-    assert by_key["B"]["profile_id"] == p2_id and by_key["B"]["manual"] is True
+    assert by_key["A"]["profile_id"] == p1_id and by_key["B"]["profile_id"] == p1_id
 
 
 async def test_use_listing_as_profile_creates_and_enqueues(ctx) -> None:

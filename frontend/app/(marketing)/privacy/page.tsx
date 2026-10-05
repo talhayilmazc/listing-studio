@@ -42,7 +42,7 @@ function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="5 October 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated="6 October 2026" sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listyro (&ldquo;the Service&rdquo;) is operated by{" "}
@@ -307,7 +307,11 @@ export default function PrivacyPage() {
               />
               <Row
                 data="Your reference listing's details used to build drafts — category, attributes, price, shipping profile, variations, readiness state, description, and which of its images are size charts"
-                period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile or disconnect its shop"
+                period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile or disconnect the last shop it is used in"
+              />
+              <Row
+                data="For each other shop a profile is used in: the ids of that shop's shipping profile, return policy, processing profile and production partners that the profile uses there"
+                period="Until you stop using the profile in that shop or disconnect that shop. When a profile's size charts are used in another of your shops, they are copied from your reference listing at the moment the draft is made and are not stored"
               />
               <Row
                 data="Daily sales totals per listing (units sold, orders and revenue) worked out from your shop's sales"
@@ -381,9 +385,12 @@ export default function PrivacyPage() {
             Shops
           </Link>{" "}
           page. When you do, we <strong>immediately delete</strong> that shop&rsquo;s Etsy tokens
-          and every piece of Etsy data we hold from it: the copy of its listings, its profiles
-          (which were built from its own listings), all saved copies of its listings, and the
-          links from your generated listings to its drafts. Your other shops are not affected, and
+          and every piece of Etsy data we hold from it: the copy of its listings, the details read
+          from its reference listings, all saved copies of its listings, the links from your
+          generated listings to its drafts, and the settings that connect your profiles to it. A
+          profile you also use in another shop stays, without the details read from the
+          disconnected shop, until you choose a reference listing in a remaining shop; a profile
+          used only in the disconnected shop is deleted. Your other shops are not affected, and
           your uploads and generated listings stay, so you can reconnect later and carry on.
         </p>
         <p>

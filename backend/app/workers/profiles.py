@@ -23,6 +23,7 @@ from app.db.models import (
     ConnectionStatus,
     EtsyConnection,
     ListingProfile,
+    ProfileShopLink,
     ShopListingCache,
     Tenant,
     TenantStatus,
@@ -252,10 +253,12 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         profile = await session.get(ListingProfile, uuid.UUID(profile_id))
         if profile is None:
             return "missing"
-        # The profile's own shop (v5 §E), never another of the account's shops.
+        # The profile's main shop (v5 §E, v8 §C), never another of the account's shops.
         connection = await _active_shop(session, profile.connection_id)
         if connection is None or connection.tenant_id != profile.tenant_id:
             return "no-connection"
+        if profile.reference_listing_id is None:
+            return "no-reference"  # its main shop changed; the seller chooses a reference there
 
         tenant = await session.get(Tenant, profile.tenant_id)
         token = await _token(service, session, connection)
@@ -385,7 +388,7 @@ async def _refresh_images_body(ctx: dict[str, Any], profile_id: str) -> str:
         profile = await session.get(ListingProfile, uuid.UUID(profile_id))
         if profile is None:
             return "missing"
-        if not profile.cached_payload:  # the structure has lapsed too
+        if not profile.cached_payload or profile.reference_listing_id is None:  # the structure has lapsed too
             return await _refresh_profile_body(ctx, profile_id)
         connection = await _active_shop(session, profile.connection_id)
         if connection is None or connection.tenant_id != profile.tenant_id:
@@ -440,7 +443,7 @@ async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
         )
         profiles = list(rows.scalars())
 
-    queued = {FULL: 0, IMAGES: 0}
+    queued = {FULL: 0, IMAGES: 0, "refresh_shop_links": 0}
     for p in profiles:
         function = refresh_due(p)
         if function is None:
@@ -448,6 +451,26 @@ async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
         # One queued refresh per profile, however often the cron fires.
         await _enqueue_job(ctx, function, str(p.id), _job_id=f"auto:{function}:{p.id}")
         queued[function] += 1
+
+    # Every other shop such a profile is linked to: its ids are checked again
+    # before they are a day old (v8 §C), one shop's lists for all its links.
+    due_before = datetime.now(timezone.utc) - timedelta(seconds=ProfileShopLink.CHECK_SECONDS)
+    async with ctx["sessionmaker"]() as session:
+        shops = set((await session.execute(
+            select(ProfileShopLink.connection_id)
+            .join(EtsyConnection, EtsyConnection.id == ProfileShopLink.connection_id)
+            .join(ListingProfile, ListingProfile.id == ProfileShopLink.profile_id)
+            .where(
+                ProfileShopLink.profile_id.in_([p.id for p in profiles]),
+                EtsyConnection.status == ConnectionStatus.active,
+                ProfileShopLink.status.in_(("ready", "incomplete")),
+                ProfileShopLink.connection_id != ListingProfile.connection_id,
+                (ProfileShopLink.checked_at.is_(None)) | (ProfileShopLink.checked_at < due_before),
+            )
+        )).scalars())
+    for shop_id in shops:
+        await _enqueue_job(ctx, "refresh_shop_links", str(shop_id), _job_id=f"auto:refresh_shop_links:{shop_id}")
+        queued["refresh_shop_links"] += 1
     if any(queued.values()):
         logger.info("auto-refresh: queued %s", queued)
     return queued

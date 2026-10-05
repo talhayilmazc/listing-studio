@@ -33,6 +33,7 @@ from app.workers.profiles import (
     sync_shop_counts,
     sync_shop_listings,
 )
+from app.workers.links import create_link_resources, link_profile, refresh_shop_links
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
@@ -109,6 +110,9 @@ class WorkerSettings:
         backfill_ledger,
         detect_profiles,
         run_replace_images_job,
+        link_profile,
+        create_link_resources,
+        refresh_shop_links,
     ]
     cron_jobs = [
         cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False),

@@ -374,7 +374,8 @@ async def test_a_shop_without_a_suitable_profile_cannot_be_chosen(world) -> None
     by_shop = {shop["connection_id"]: shop for shop in preview["shops"]}
     assert by_shop[str(world["a1"])]["ready"] == 2
     assert by_shop[str(world["a2"])]["ready"] == 0
-    assert "no confirmed apparel profile" in by_shop[str(world["a2"])]["blocked"][0]["reason"]
+    # A profile is the account's (v8 §C): shop two needs it set up there.
+    assert "is not set up in this shop" in by_shop[str(world["a2"])]["blocked"][0]["reason"]
 
 
 # --- quota protection -------------------------------------------------------------------------
@@ -526,17 +527,15 @@ async def test_a_batch_is_for_the_shop_the_seller_named_never_one_picked_for_the
     assert (await world["b"].post("/api/batches")).json()["shop_name"] == "Bob Shop"
 
 
-async def test_a_groups_profile_and_size_charts_are_always_its_own_shops(world) -> None:
+async def test_a_groups_profile_is_any_of_the_accounts_and_stays_when_the_group_moves(world) -> None:
     batch = await _grouped_batch(world, "a1")
     put = lambda body: world["a"].put(f"/api/batches/{batch}/groups", json=body)  # noqa: E731
     groups = _by_key((await world["a"].get(f"/api/batches/{batch}/groups")).json())
     assert {g["shop_name"] for g in groups.values()} == {"Frost Tees"}  # the batch's shop, before anything is set
 
-    # A profile of another shop is refused, saying to choose the shop first.
+    # Profiles are the account's (v8 §C): one whose main shop is another is accepted.
     res = await put({"group_key": "g1", "profile_id": str(world["pa2"])})
-    assert res.status_code == 422 and "choose the group's shop first" in res.json()["detail"]
-    res = await put({"group_key": "g1", "size_chart_profile_id": str(world["pa2"])})
-    assert res.status_code == 422
+    assert res.status_code == 200 and _by_key(res.json())["g1"]["profile_id"] == str(world["pa2"])
     # Another account's shop or profile does not exist.
     assert (await put({"group_key": "g1", "connection_id": str(world["b1"])})).status_code == 404
     assert (await put({"group_key": "g1", "profile_id": str(world["pb1"])})).status_code == 404
@@ -544,11 +543,10 @@ async def test_a_groups_profile_and_size_charts_are_always_its_own_shops(world) 
     groups = _by_key((await put({"group_key": "g1", "profile_id": str(world["pa1"]), "size_chart_profile_id": str(world["pa1"])})).json())
     assert groups["g1"]["profile_id"] == str(world["pa1"]) and groups["g1"]["manual"] is True
 
-    # Moving a group to another shop swaps its profile for that shop's same-named
-    # one, and drops size charts that belong to the shop it left.
+    # Moving a group to another shop keeps its profile and size charts.
     groups = _by_key((await put({"group_key": "g1", "connection_id": str(world["a2"])})).json())
     assert (groups["g1"]["shop_name"], groups["g1"]["profile_id"], groups["g1"]["size_chart_profile_id"]) == (
-        "Frost Mugs", str(world["pa2"]), None)
+        "Frost Mugs", str(world["pa1"]), str(world["pa1"]))
 
 
 async def test_a_groups_settings_carry_to_the_groups_after_it_until_one_set_by_hand(world) -> None:
@@ -562,7 +560,7 @@ async def test_a_groups_settings_carry_to_the_groups_after_it_until_one_set_by_h
     await put({"group_key": "g3", "size_chart_profile_id": str(world["pa1"])})
     groups = _by_key((await put({"group_key": "g1", "connection_id": str(world["a2"])})).json())
     assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Mugs", "Frost Mugs", "Frost Tees"]
-    assert groups["g2"]["profile_id"] == str(world["pa2"]) and groups["g3"]["profile_id"] == str(world["pa1"])
+    assert groups["g2"]["profile_id"] == str(world["pa1"]) and groups["g3"]["profile_id"] == str(world["pa1"])
 
     # Bulk-apply to a selection: exactly those groups, each set by hand from then on.
     groups = _by_key((await put({"group_keys": ["g2", "g3"], "connection_id": str(world["a1"])})).json())
@@ -580,7 +578,7 @@ async def test_changing_the_batchs_shop_moves_only_the_groups_not_set_by_hand(wo
     await put({"group_keys": ["g2"], "profile_id": str(world["pa1"])})  # g2 by hand
     groups = _by_key((await world["a"].put(f"/api/batches/{batch}/shop", json={"connection_id": str(world["a2"])})).json())
     assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Mugs", "Frost Tees", "Frost Mugs"]
-    assert groups["g1"]["profile_id"] == str(world["pa2"])
+    assert groups["g1"]["profile_id"] == str(world["pa1"])  # the profile is the account's: it stays
     assert (await world["a"].put(f"/api/batches/{batch}/shop", json={"connection_id": str(world["b1"])})).status_code == 404
 
 
@@ -645,7 +643,8 @@ async def test_a_shop_that_cannot_take_a_listing_says_why_in_its_cell(world) -> 
         (await s.get(ListingProfile, world["pa2"])).content_template = "digital_products"
         await s.commit()
     cell = _cell(await _matrix(world), c0, world["a2"])
-    assert cell["state"] == "unavailable" and "no confirmed apparel profile" in cell["reason"]
+    assert cell["state"] == "unavailable" and "is not set up in this shop" in cell["reason"]
+    assert cell["setup"] is True and cell["profile_id"] == str(world["pa1"])  # "Set up Standard Tee in Frost Mugs…"
 
 
 # --- a batch has a name ---------------------------------------------------------------------------

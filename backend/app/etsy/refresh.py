@@ -45,6 +45,8 @@ def refresh_due(profile: ListingProfile, now: datetime | None = None) -> str | N
     reference listing is not asked for again and again.
     """
     now = now or datetime.now(timezone.utc)
+    if profile.reference_listing_id is None:
+        return None  # nothing to read until the seller chooses a reference (v8 §C)
     retry_after = now - timedelta(seconds=ListingProfile.AUTO_REFRESH_RETRY_SECONDS)
     if profile.refresh_failed_at is not None and not _older(profile.refresh_failed_at, retry_after):
         return None

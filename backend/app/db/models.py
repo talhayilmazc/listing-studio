@@ -390,6 +390,10 @@ class EtsyConnection(Base):
     connected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    #: The seller's shop group (v8 §B/§C), at most one; None = in no group.
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shop_group.id", ondelete="SET NULL"), index=True
+    )
 
     def __repr__(self) -> str:
         # Token columns are deliberately excluded so they cannot leak via repr/logs.
@@ -793,13 +797,18 @@ class ListingProfile(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
     )
-    #: The shop this profile belongs to: each shop has its own reference listings
-    #: (docs/duzeltmeler-v5.md §E). Deleted with that shop's Etsy data on disconnect.
+    #: The profile's **main shop** (v8 §C): its reference listing is there, and the
+    #: shared settings (category, prices, variations, size charts, description...)
+    #: are read from it. The profile is the account's: other shops use it through
+    #: a :class:`ProfileShopLink` holding their own ids. When the main shop is
+    #: disconnected and another linked shop remains, that shop becomes the main one.
     connection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    reference_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: The reference listing in the main shop; None after the main shop changed
+    #: and no reference has been chosen in the new one yet.
+    reference_listing_id: Mapped[int | None] = mapped_column(BigInteger)
     #: Fields copied from the reference listing; null until first refresh.
     cached_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: Reference listing_image_ids always appended to new drafts (B3, e.g. size
@@ -844,6 +853,70 @@ class ListingProfile(Base):
     AUTO_REFRESH_SECONDS: ClassVar[int] = 20 * 3600
     #: After a failed refresh, wait this long before auto-refresh tries again.
     AUTO_REFRESH_RETRY_SECONDS: ClassVar[int] = 3 * 3600
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ShopGroup(Base):
+    """A named group of the account's shops (v8 §B): every shop of a group gets
+    the same listings. A shop is in at most one group (``etsy_connection.group_id``)."""
+
+    __tablename__ = "shop_group"
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_shop_group_name"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProfileShopLink(Base):
+    """A profile used in one shop (v8 §C): that shop's own ids.
+
+    The main shop's link (``profile.connection_id``) holds no ids: its ids are its
+    reference listing's own. Any other shop's link holds the shipping profile,
+    return policy, processing profile and production partners of *that* shop,
+    found by exact name or identical terms, created there on the seller's
+    confirmation, or picked by the seller. They are the seller's own settings'
+    ids, not listing content; deleted with the shop's link when it is
+    disconnected. ``notes`` says, per setting, why it is not linked yet.
+    """
+
+    __tablename__ = "profile_shop_link"
+    __table_args__ = (UniqueConstraint("profile_id", "connection_id", name="uq_profile_shop_link"),)
+
+    #: Checked again in the background this often while the profile is in use.
+    CHECK_SECONDS: ClassVar[int] = 20 * 3600
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shipping_profile_id: Mapped[int | None] = mapped_column(BigInteger)
+    return_policy_id: Mapped[int | None] = mapped_column(BigInteger)
+    readiness_state_id: Mapped[int | None] = mapped_column(BigInteger)
+    production_partner_ids: Mapped[list[int] | None] = mapped_column(JSONB_TYPE)
+    #: "checking" (being linked), "ready", "incomplete" (see notes), "error".
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="checking")
+    #: {resource: why it is not linked}, the seller's words.
+    notes: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: Creations the seller confirmed, waiting for the job: [resource, ...].
+    pending_create: Mapped[list[str] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
+    )
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

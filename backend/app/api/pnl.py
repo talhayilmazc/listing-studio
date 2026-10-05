@@ -38,7 +38,7 @@ from app.db.models import (
     StatementOrder,
     Tenant,
 )
-from app.pipeline import finance, pnl, profit
+from app.pipeline import finance, pnl, profile_shops, profit
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -261,9 +261,10 @@ class ProductCostsIn(BaseModel):
 async def _costs_out(session: AsyncSession, tenant: Tenant, connection: EtsyConnection) -> dict[str, Any]:
     stored = (tenant.cost_settings or {}).get("profile_costs") or {}
     legacy = (tenant.cost_settings or {}).get("product_cost_by_profile") or {}
-    profiles = (await session.execute(
-        select(ListingProfile).where(ListingProfile.tenant_id == tenant.id, ListingProfile.connection_id == connection.id)
-        .order_by(ListingProfile.name))).scalars().all()
+    # The profiles used in this shop: its own and those linked to it (v8 §C). A
+    # profile's cost is the account's, the same in every shop it is used in.
+    profiles = [p for p in await profile_shops.shop_profiles(session, connection.id, confirmed=False)
+                if p.tenant_id == tenant.id]
     out = []
     for p in profiles:
         entry = stored.get(str(p.id)) or {}
@@ -297,8 +298,8 @@ async def put_product_costs(
     """What each profile costs to make and what the provider charges to ship it.
     An emptied field means "not set": a cost is never assumed."""
     connection = await imports_api._shop(session, tenant, shop)
-    own = set((await session.execute(
-        select(ListingProfile.id).where(ListingProfile.tenant_id == tenant.id, ListingProfile.connection_id == connection.id))).scalars())
+    own = {p.id for p in await profile_shops.shop_profiles(session, connection.id, confirmed=False)
+           if p.tenant_id == tenant.id}
     if not set(body.profiles) <= own:
         raise HTTPException(status_code=404, detail="profile not found")
     try:

@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.core import audit
-from app.db.models import ListingProfile, ShopListingCache, Tenant
+from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Tenant
+from app.pipeline import links as links_mod
+from app.pipeline import profile_shops
 from app.etsy.refresh import in_use, request_refresh
 from app.pipeline.personalization import effective as effective_personalization
 from app.pipeline.personalization import validate as validate_personalization
@@ -124,8 +126,32 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
     )
 
 
+def links_out(profile: ListingProfile, links: list[ProfileShopLink], names: dict[uuid.UUID, str]) -> list[schemas.ProfileLinkOut]:
+    """The profile's shops, the main one first; only shops still connected."""
+    by_shop = {link.connection_id: link for link in links}
+    out: list[schemas.ProfileLinkOut] = []
+    if profile.connection_id in names:
+        out.append(schemas.ProfileLinkOut(connection_id=profile.connection_id, shop_name=names[profile.connection_id],
+                                          main=True, ready=True, status="ready"))
+    for shop_id, link in sorted(by_shop.items(), key=lambda kv: names.get(kv[0], "")):
+        if shop_id == profile.connection_id or shop_id not in names:
+            continue
+        state = profile_shops.state_of(profile, link)
+        assert state is not None
+        out.append(schemas.ProfileLinkOut(
+            connection_id=shop_id, shop_name=names[shop_id], ready=state.ready, status=state.status,
+            reason=state.reason, checked_at=link.checked_at,
+            missing=[schemas.LinkMissingOut(resource=r, label=links_mod.LABEL[r], reason=why)
+                     for r, why in state.missing.items()],
+        ))
+    return out
+
+
 async def _out(session: AsyncSession, tenant: Tenant, profile: ListingProfile) -> schemas.ProfileOut:
-    return _to_out(profile, (await shop_names(session, tenant)).get(profile.connection_id))
+    names = await shop_names(session, tenant)
+    item = _to_out(profile, names.get(profile.connection_id))
+    item.links = links_out(profile, (await profile_shops.links_of(session, [profile.id]))[profile.id], names)
+    return item
 
 
 async def _reference_titles(session: AsyncSession, tenant: Tenant, listing_ids: list[int]) -> dict[int, str]:
@@ -171,19 +197,23 @@ async def list_profiles(
     """
     query = select(ListingProfile).where(ListingProfile.tenant_id == tenant.id)
     if shop is not None:
+        # The profiles usable in that shop: its own and those linked to it (v8 §C).
         if await owned_shop(session, tenant.id, shop) is None:
             raise HTTPException(status_code=404, detail="shop not found")
-        query = query.where(ListingProfile.connection_id == shop)
+        linked = select(ProfileShopLink.profile_id).where(ProfileShopLink.connection_id == shop)
+        query = query.where((ListingProfile.connection_id == shop) | ListingProfile.id.in_(linked))
     rows = await session.execute(query.order_by(ListingProfile.created_at.desc()))
     profiles = list(rows.scalars())
     names = await shop_names(session, tenant)
+    all_links = await profile_shops.links_of(session, [p.id for p in profiles])
     warm = await in_use(session, (p.id for p in profiles))
-    titles = await _reference_titles(session, tenant, [p.reference_listing_id for p in profiles])
+    titles = await _reference_titles(session, tenant, [p.reference_listing_id for p in profiles if p.reference_listing_id])
     out = []
     for p in profiles:
         item = _to_out(p, names.get(p.connection_id))
+        item.links = links_out(p, all_links.get(p.id, []), names)
         item.in_use = p.id in warm
-        item.reference_title = titles.get(p.reference_listing_id)
+        item.reference_title = titles.get(p.reference_listing_id) if p.reference_listing_id else None
         # Only profiles of a connected shop: a disconnected one cannot be read.
         if refresh and p.connection_id in names:
             item.refreshing = await request_refresh(enqueuer.enqueue, p, origin="view")
@@ -212,6 +242,8 @@ async def create_profile(
         confirmed=True,  # a profile the seller created by hand is confirmed
     )
     session.add(profile)
+    await session.flush()
+    await profile_shops.ensure_main_link(session, profile)
     await session.commit()
     await session.refresh(profile)
     # Populate the cached reference payload in the background (queued Etsy read).

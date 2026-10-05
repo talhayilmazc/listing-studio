@@ -33,6 +33,7 @@ from app.db.models import (
     Job,
     JobStatus,
     JobType,
+    ListingGroupSetting,
     ListingProfile,
     ListingPublication,
     Tenant,
@@ -69,13 +70,25 @@ async def _files_removed(session: AsyncSession, content: GeneratedContent) -> bo
 
 
 async def _own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConnection | None:
-    """The shop the listing was written for: its profile's shop."""
-    if content.listing_profile_id is None:
+    """The shop the listing was written for: its group's shop, else its batch's,
+    else its profile's main shop (a profile is the account's since v8 §C)."""
+    asset = await session.get(Asset, content.asset_id)
+    shop_id = None
+    if asset is not None:
+        setting = (await session.execute(select(ListingGroupSetting).where(
+            ListingGroupSetting.batch_id == content.batch_id,
+            ListingGroupSetting.group_key == (asset.group_key or ""),
+        ))).scalar_one_or_none()
+        shop_id = setting.connection_id if setting is not None else None
+    if shop_id is None:
+        batch = await session.get(UploadBatch, content.batch_id)
+        shop_id = batch.connection_id if batch is not None else None
+    if shop_id is None and content.listing_profile_id is not None:
+        profile = await session.get(ListingProfile, content.listing_profile_id)
+        shop_id = profile.connection_id if profile is not None else None
+    if shop_id is None:
         return None
-    profile = await session.get(ListingProfile, content.listing_profile_id)
-    if profile is None:
-        return None
-    connection = await session.get(EtsyConnection, profile.connection_id)
+    connection = await session.get(EtsyConnection, shop_id)
     if connection is None or connection.tenant_id != content.tenant_id:
         return None
     return connection if connection.status.value == "active" else None
@@ -413,6 +426,7 @@ async def _matrix(
                     connection_id=shop.id, state="unavailable", reason=target.reason or "no profile for this shop",
                     profile_id=target.profile.id if target.profile else None,
                     profile_name=target.profile.name if target.profile else None,
+                    setup=target.setup,
                 ))
                 continue
             cells.append(schemas.MatrixCellOut(

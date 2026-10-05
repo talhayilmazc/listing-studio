@@ -415,7 +415,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               />
               {pickedShops.size > 1 && (
                 <span key="mixed" className="text-xs text-amber-800">
-                  The selected groups are in different shops: choose one shop for them, then a profile.
+                  The selected groups are in different shops. A profile serves every shop it is set up in.
                 </span>
               )}
               <button type="button" className="text-xs text-slate-500 underline" onClick={() => setPicked([])}>

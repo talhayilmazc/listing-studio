@@ -1,10 +1,14 @@
-"""Publishing one piece of generated content to one or more shops (v5 §E).
+"""Publishing one piece of generated content to one or more shops (v5 §E, v8 §C).
 
-Each shop builds its draft from **its own** profile: category, price, variations,
-size charts and section all come from that shop's reference listing. The title
-and tags are written once. For another shop, the title's prefix is swapped for
-that shop's (trailing phrases dropped if that pushes it past 140 characters),
-and the description is that shop's reference body under the new title. A shop with no suitable profile cannot be chosen, and the reason is shown.
+A profile is the account's: the listing's own profile builds its draft in every
+shop it is linked to, with that shop's own shipping profile, return policy,
+processing profile and production partners (pipeline/links.py). The title, tags
+and description are the listing's own everywhere. A shop the profile is not
+linked to (or not completely) cannot be chosen until the seller sets the profile
+up there, and the reason is shown with that one action. When the seller picks a
+different profile for a shop, the title's prefix is swapped for that profile's
+(trailing phrases dropped if that pushes it past 140 characters) and the
+description is that profile's reference body under the new title.
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import EtsyConnection, GeneratedContent, ListingProfile
+from app.db.models import EtsyConnection, GeneratedContent, ListingProfile, ProfileShopLink
+from app.pipeline import profile_shops
 from app.pipeline.content import (
     bounds_for,
     MAX_TITLE_LENGTH,
@@ -49,6 +54,11 @@ class Target:
     description: str | None = None
     #: The only thing wrong is that the profile's Etsy data needs refreshing.
     stale: bool = False
+    #: The profile's link to this shop (None for its main shop's drafts' purposes
+    #: is never the case: the main shop has a link too).
+    link: ProfileShopLink | None = None
+    #: What is wrong is that the profile is not set up in this shop: one click fixes it.
+    setup: bool = False
 
     @property
     def ok(self) -> bool:
@@ -119,12 +129,8 @@ def _widest(a: TitleRules, b: TitleRules) -> TitleRules:
 
 
 async def shop_profiles(session: AsyncSession, connection_id: uuid.UUID) -> list[ListingProfile]:
-    rows = await session.execute(
-        select(ListingProfile)
-        .where(ListingProfile.connection_id == connection_id, ListingProfile.confirmed.is_(True))
-        .order_by(ListingProfile.name)
-    )
-    return list(rows.scalars())
+    """The confirmed profiles usable in one shop: its own and those linked to it."""
+    return await profile_shops.shop_profiles(session, connection_id)
 
 
 async def resolve_target(
@@ -134,39 +140,44 @@ async def resolve_target(
     *,
     profile_id: uuid.UUID | None = None,
 ) -> Target:
-    """Which profile of ``connection``'s shop builds this content's draft, and its text.
+    """Which profile builds this content's draft in ``connection``'s shop, and its text.
 
-    With ``profile_id`` the seller chose; it must be a confirmed profile of that
-    shop. Otherwise, in order: the content's own profile if it belongs to that
-    shop; a same-named profile there; the only profile there with the same
-    template. Anything else needs the seller to choose.
+    The content's own profile, or ``profile_id`` when the seller chose another.
+    Either must be one of the account's confirmed profiles, set up in this shop.
     """
     source = (
         await session.get(ListingProfile, content.listing_profile_id)
         if content.listing_profile_id
         else None
     )
-    candidates = await shop_profiles(session, connection.id)
-    chosen: ListingProfile | None = None
+    if source is not None and source.tenant_id != connection.tenant_id:
+        source = None
     if profile_id is not None:
-        chosen = next((p for p in candidates if p.id == profile_id), None)
-        if chosen is None:
-            return Target(connection, None, "that profile is not a confirmed profile of this shop")
-    elif source is not None and source.connection_id == connection.id:
+        chosen = await session.get(ListingProfile, profile_id)
+        if chosen is None or chosen.tenant_id != connection.tenant_id or not chosen.confirmed:
+            return Target(connection, None, "that profile is not one of your confirmed profiles")
+    elif source is not None and source.confirmed:
         chosen = source
     else:
-        template = source.content_template if source is not None else None
-        same_kind = [p for p in candidates if template is None or p.content_template == template]
-        named = [p for p in same_kind if source is not None and p.name.casefold() == source.name.casefold()]
-        if named:
-            chosen = named[0]
-        elif len(same_kind) == 1:
-            chosen = same_kind[0]
-        elif not same_kind:
-            kind = f"{template} " if template else ""
-            return Target(connection, None, f"this shop has no confirmed {kind}profile")
-        else:
-            return Target(connection, None, "several profiles in this shop fit; choose one")
+        return Target(connection, None, "choose a profile for this listing")
+
+    link = await profile_shops.link_for(session, chosen, connection.id)
+    if link is None and profile_id is None:
+        # Same-named profiles of two shops that were not merged (their shared
+        # settings differed, v8 §C) still serve each other's shops, as before:
+        # the exact name, never a guess.
+        twin = next((p for p in await profile_shops.shop_profiles(session, connection.id)
+                     if p.connection_id == connection.id and p.content_template == chosen.content_template
+                     and p.name.strip().casefold() == chosen.name.strip().casefold()),
+                    None)
+        if twin is not None:
+            chosen = twin
+            link = await profile_shops.link_for(session, chosen, connection.id)
+    if link is None:
+        return Target(connection, chosen, f'profile "{chosen.name}" is not set up in this shop', setup=True)
+    if chosen.reference_listing_id is None:
+        return Target(connection, chosen, f'profile "{chosen.name}" needs a reference listing in its main shop',
+                      link=link)
 
     if not is_fresh(chosen):
         return Target(
@@ -178,7 +189,13 @@ async def resolve_target(
             else f'profile "{chosen.name}" was read by an older version of the app; '
             "refresh the profile, then try again",
             stale=True,
+            link=link,
         )
+
+    state = profile_shops.state_of(chosen, link)
+    if state is not None and not state.ready:
+        return Target(connection, chosen, f'profile "{chosen.name}" in this shop: {state.reason}', link=link,
+                      setup=state.status != "checking")
 
     if source is not None and chosen.id == source.id:
         title, description = content.title or "", content.description or ""
@@ -211,5 +228,5 @@ async def resolve_target(
                 len(fitted.dropped),
             )
         if errors:
-            return Target(connection, chosen, "with this shop's title prefix: " + "; ".join(errors))
-    return Target(connection, chosen, None, title, description)
+            return Target(connection, chosen, "with this profile's title prefix: " + "; ".join(errors), link=link)
+    return Target(connection, chosen, None, title, description, link=link)

@@ -34,6 +34,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.api import RateLimitExceeded
+from app.pipeline.links import shop_reference
 from app.pipeline.targets import Target, is_fresh, resolve_target
 from app.workers import recovery
 from app.workers.gate import start_job
@@ -50,6 +51,71 @@ logger = logging.getLogger(__name__)
 def publish_config(settings: Settings) -> PublishConfig:
     return PublishConfig(quantity=settings.default_quantity)
 
+
+
+class SizeChartsUnavailable(ValueError):
+    """The main shop's size charts could not be copied for another shop's draft."""
+
+
+def _links_fresh(profile: ListingProfile) -> bool:
+    stamp = profile.images_updated_at or profile.updated_at
+    if stamp is None:
+        return False
+    if stamp.tzinfo is None:  # SQLite hands back naive datetimes
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    return age < ListingProfile.DISPLAY_MAX_AGE_SECONDS
+
+
+async def copied_size_charts(
+    ctx: dict[str, Any], session: AsyncSession, profile: ListingProfile, fetch: Any = None
+) -> list[PublishImage]:
+    """The profile's size charts as images to upload to another shop's draft.
+
+    Etsy accepts an image id only in its own shop, so for any other shop the
+    charts are fetched from the main shop's image links (renewed first if past
+    their 6-hour limit), held in memory for the upload and never stored.
+    """
+    wanted = list(profile.fixed_image_ids or [])
+    if not wanted:
+        return []
+
+    def links() -> dict[int, str]:
+        return {
+            int(img["listing_image_id"]): str(img.get("url") or img.get("display_url"))
+            for img in (profile.cached_payload or {}).get("images", [])
+            if img.get("listing_image_id") is not None and (img.get("url") or img.get("display_url"))
+        }
+
+    if not _links_fresh(profile) or not set(wanted) <= set(links()):
+        from app.workers.profiles import refresh_profile_images  # late: profiles imports gate
+
+        await refresh_profile_images(ctx, str(profile.id))
+        await session.refresh(profile)
+    urls = links()
+    if not set(wanted) <= set(urls):
+        raise SizeChartsUnavailable(
+            f'the size charts of profile "{profile.name}" could not be read from its main shop; '
+            "refresh the profile, then try again"
+        )
+
+    images: list[PublishImage] = []
+    async with httpx.AsyncClient(timeout=30.0) as img_http:  # no Etsy headers to the image host
+        for image_id in wanted:
+            try:
+                if fetch is not None:
+                    data, mime = await fetch(urls[image_id])
+                else:
+                    resp = await img_http.get(urls[image_id])
+                    resp.raise_for_status()
+                    data = resp.content
+                    mime = resp.headers.get("content-type", "image/jpeg").split(";")[0] or "image/jpeg"
+            except Exception as exc:  # noqa: BLE001 - one message for every way a fetch fails
+                raise SizeChartsUnavailable(
+                    "a size chart could not be copied from the profile's main shop; try again"
+                ) from exc
+            images.append(PublishImage(data=data, filename=f"size-chart-{image_id}.jpg", mime_type=mime))
+    return images
 
 
 async def group_siblings(session: AsyncSession, cover: Asset) -> list[Asset]:
@@ -163,13 +229,17 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             if not target.ok:
                 raise ValueError(target.reason or "no profile for this shop")
             profile = owned(target.profile, job.tenant_id, "profile")
-            if profile.connection_id != connection.id:
-                raise ValueError("the profile belongs to another shop")
+            link = target.link
+            if link is None or link.connection_id != connection.id:
+                raise ValueError("the profile is not set up in this shop")
+            # The profile's shared settings with this shop's own ids (v8 §C).
+            reference = shop_reference(
+                profile.cached_payload or {}, None if connection.id == profile.connection_id else link
+            )
 
             # Size charts (fixed images) may come from a different profile chosen per
-            # group (v4 §E), then per batch (Task 4), else this shop's own profile.
-            # Image ids belong to one shop, so an override only counts in its own shop.
-            fixed_image_ids = profile.fixed_image_ids or []
+            # group (v4 §E), then per batch (Task 4), else the listing's own profile.
+            chart_profile: ListingProfile | None = profile
             chart_profile_id = None
             group_setting = (
                 await session.execute(
@@ -190,9 +260,13 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             if chart_profile_id is not None:
                 chart_profile = owned_optional(
                     await session.get(ListingProfile, chart_profile_id), job.tenant_id
-                )
-                if chart_profile is not None and chart_profile.connection_id == connection.id:
-                    fixed_image_ids = chart_profile.fixed_image_ids or []
+                ) or profile
+            # Image ids belong to one shop: in the charts' own shop they are re-used
+            # by id; in any other shop they are copied (fetched in memory, uploaded,
+            # never stored; v8 §C).
+            fixed: list[int | PublishImage] = list(chart_profile.fixed_image_ids or [])
+            if fixed and chart_profile.connection_id != connection.id:
+                fixed = list(await copied_size_charts(ctx, session, chart_profile, ctx.get("image_fetch")))
 
             access_token = await connection_service.get_valid_access_token(session, connection)
 
@@ -241,11 +315,11 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     sku=asset.parsed_sku,
                     thumbnail=thumbnail,
                     extra_images=extras,
-                    fixed_image_ids=fixed_image_ids,
+                    fixed_image_ids=fixed,
                     client=client,
                     access_token=access_token,
                     config=publish_config(settings),
-                    reference=profile.cached_payload,
+                    reference=reference,
                     personalization=effective_personalization(profile.personalization, profile.cached_payload),
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),

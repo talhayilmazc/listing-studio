@@ -298,7 +298,7 @@ async def publish_content(
     config: PublishConfig,
     reference: dict[str, Any],
     extra_images: list[PublishImage] | None = None,
-    fixed_image_ids: list[int] | None = None,
+    fixed_image_ids: list[int | PublishImage] | None = None,
     theme: str = "",
     occasion: str = "",
     vision: dict[str, Any] | None = None,
@@ -655,11 +655,18 @@ async def publish_content(
             **ctx,
         ))
     next_rank = len(ordered)
-    for image_id in fixed:
+    for item in fixed:
         next_rank += 1
         if next_rank - 1 < done:
             continue
-        await put(next_rank - 1, lambda image_id=image_id, rank=next_rank: client.upload_listing_image(
+        if isinstance(item, PublishImage):
+            # Another shop's size chart, copied (v8 §C): uploaded like a new image.
+            await put(next_rank - 1, lambda item=item, rank=next_rank: client.upload_listing_image(
+                shop_id, listing_id, image_bytes=item.data, filename=item.filename, rank=rank,
+                mime_type=item.mime_type, **ctx
+            ))
+            continue
+        await put(next_rank - 1, lambda image_id=item, rank=next_rank: client.upload_listing_image(
             shop_id, listing_id, listing_image_id=image_id, rank=rank, **ctx
         ))
 

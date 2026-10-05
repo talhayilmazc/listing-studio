@@ -42,7 +42,6 @@ from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline.batch_names import clean_name, names_for
-from app.pipeline.targets import shop_profiles
 from app.pipeline import upload_retention
 from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
 from app.pipeline.reference import decode_etsy_text
@@ -533,49 +532,16 @@ async def list_groups(
     return await _batch_groups(session, batch_id)
 
 
-async def _matching_profile(
-    session: AsyncSession, shop_id: uuid.UUID, like: ListingProfile | None
-) -> uuid.UUID | None:
-    """The profile of ``shop_id`` that stands in for ``like`` (another shop's):
-    the one with the same name, else the only one of the same kind, else the
-    only one. None when the seller has to choose."""
-    candidates = await shop_profiles(session, shop_id)
-    if like is not None:
-        named = [p for p in candidates if p.name.casefold() == like.name.casefold()]
-        if named:
-            return named[0].id
-        same_kind = [p for p in candidates if p.content_template == like.content_template]
-        if len(same_kind) == 1:
-            return same_kind[0].id
-    return candidates[0].id if len(candidates) == 1 else None
-
-
 async def _move_to_shop(session: AsyncSession, setting: ListingGroupSetting, shop_id: uuid.UUID) -> None:
-    """Put a group in ``shop_id``. A profile or size-chart profile of another
-    shop cannot stay: the profile becomes that shop's matching one (or is left
-    for the seller to choose), the size charts go back to the profile's own."""
-    if setting.connection_id == shop_id:
-        return
+    """Put a group in ``shop_id``. Its profile and size charts stay: a profile is
+    the account's and serves every shop it is set up in (v8 §C)."""
     setting.connection_id = shop_id
-    current = await session.get(ListingProfile, setting.profile_id) if setting.profile_id else None
-    if current is None or current.connection_id != shop_id:
-        setting.profile_id = await _matching_profile(session, shop_id, current)
-    chart = await session.get(ListingProfile, setting.size_chart_profile_id) if setting.size_chart_profile_id else None
-    if chart is not None and chart.connection_id != shop_id:
-        setting.size_chart_profile_id = None
 
 
-async def _shop_profile(
-    session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID, shop_id: uuid.UUID | None, what: str
-) -> ListingProfile:
+async def _own_profile(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> ListingProfile:
     profile = await session.get(ListingProfile, profile_id)
     if profile is None or profile.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="profile not found")
-    if shop_id is not None and profile.connection_id != shop_id:
-        raise HTTPException(
-            status_code=422,
-            detail=f"that {what} belongs to another shop; choose the group's shop first, then one of its profiles",
-        )
     return profile
 
 
@@ -587,8 +553,8 @@ async def set_batch_shop(
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     """Choose the shop the batch is for. Groups the seller has not set themselves
-    move with it (each to that shop's matching profile); groups set by hand and
-    groups whose listing is already written stay where they are."""
+    move with it (keeping their profile); groups set by hand and groups whose
+    listing is already written stay where they are."""
     batch = await _get_batch(session, tenant, batch_id)
     shop = await owned_shop(session, tenant.id, body.connection_id)
     if shop is None:
@@ -613,11 +579,12 @@ async def assign_group_profile(
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.GroupOut]:
     """Set the shop, the profile and the size-chart profile of one group, of a
-    selection, or of every group the seller has not set (see GroupAssign).
+    selection, or of every group whose listing is not written yet ("For all
+    groups"; see GroupAssign).
 
-    The shop comes first: a profile or a size-chart profile must belong to the
-    group's shop, and moving a group to another shop swaps its profile for that
-    shop's matching one. Only the fields sent are changed.
+    Any of the account's profiles may be chosen: it is set up in each shop the
+    listing goes to (v8 §C), and a shop it is not set up in says so where the
+    listing is sent. Only the fields sent are changed.
     """
     batch = await _get_batch(session, tenant, batch_id)
     sent = body.model_fields_set
@@ -643,7 +610,9 @@ async def assign_group_profile(
     elif body.group_key is not None:
         keys = [body.group_key]
     else:
-        keys = [k for k in order if not (existing.get(k) and existing[k].manual)]
+        # "For all groups" fills every group whose listing is not written yet,
+        # including groups set one by one before (they showed "Choose…" after it).
+        keys = [k for k in order if k not in written]
 
     def setting_for(key: str) -> ListingGroupSetting:
         setting = existing.get(key)
@@ -663,15 +632,13 @@ async def assign_group_profile(
             await _move_to_shop(session, setting, body.connection_id)
         if "profile_id" in sent:
             if body.profile_id is not None:
-                profile = await _shop_profile(session, tenant, body.profile_id, setting.connection_id, "profile")
-                # A group with no shop yet takes the shop of the profile chosen for it.
+                profile = await _own_profile(session, tenant, body.profile_id)
+                # A group with no shop yet takes the profile's main shop.
                 setting.connection_id = setting.connection_id or profile.connection_id
             setting.profile_id = body.profile_id
         if "size_chart_profile_id" in sent:
             if body.size_chart_profile_id is not None:
-                chart = await _shop_profile(
-                    session, tenant, body.size_chart_profile_id, setting.connection_id, "size-chart profile"
-                )
+                chart = await _own_profile(session, tenant, body.size_chart_profile_id)
                 setting.connection_id = setting.connection_id or chart.connection_id
             setting.size_chart_profile_id = body.size_chart_profile_id
         if explicit:

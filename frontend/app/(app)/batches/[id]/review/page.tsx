@@ -67,6 +67,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [on, setOn] = useState<string[]>([]); // ticked cells in another shop
   const [off, setOff] = useState<string[]>([]); // the own-shop cell, unticked
   const [preview, setPreview] = useState<PublishPreview | null>(null);
+  const [previewTick, setPreviewTick] = useState(0);
   const custom = on.length > 0 || off.length > 0 || Object.values(profileFor).some(Boolean);
   const choiceKey = JSON.stringify([on, off, profileFor]);
   const shopNames = Object.fromEntries((shops ?? []).map((sh) => [sh.id, sh.name]));
@@ -157,7 +158,21 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, approvedKey, draftedKey, choiceKey]);
+  }, [id, approvedKey, draftedKey, choiceKey, previewTick]);
+
+  // "Set up NORMAL in TEETIME…" from a cell (v8 §C): exact matches link at once;
+  // anything that needs the seller is finished on the Profiles page.
+  const [setupNote, setSetupNote] = useState<string | null>(null);
+  async function setUpProfile(profileId: string, shopId: string) {
+    try {
+      const res = await api.useProfileIn(profileId, { scope: "shops", connection_ids: [shopId] });
+      const shop = res.profile.links.find((l) => l.connection_id === shopId)?.shop_name ?? "that shop";
+      setSetupNote(`Setting up ${res.profile.name} in ${shop}. Same-named settings link at once; anything else is waiting for you on the Profiles page.`);
+      for (const wait of [4000, 10000, 20000]) setTimeout(() => setPreviewTick((t) => t + 1), wait);
+    } catch (e: any) {
+      setSetupNote(String(e.message ?? e));
+    }
+  }
 
   const toggleCell = (row: MatrixRow, cell: MatrixCell, ticked: boolean) => {
     const key = cellKey(row.content_id, cell.connection_id);
@@ -337,8 +352,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           onProfile={(shop, profile) => setProfileFor((cur) => ({ ...cur, [shop]: profile }))}
           onToggle={toggleCell}
           onColumn={toggleColumn}
+          onSetup={setUpProfile}
           disabled={busy}
         />
+      )}
+      {setupNote && (
+        <p key="setup-note" role="status" translate="no" className="card p-3 text-xs text-slate-700">
+          <span>{setupNote}</span>{" "}
+          <Link href="/profiles" className="text-brand-700 underline">Profiles</Link>
+        </p>
       )}
       {items && items.length > 0 && shops && shops.length === 1 && (
         <p key="oneshop" className="flex flex-wrap items-center gap-2 text-xs text-slate-500">

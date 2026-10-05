@@ -192,6 +192,8 @@ export interface MatrixCell {
   profile_name: string | null;
   /** This request would create it. */
   chosen: boolean;
+  /** Unavailable only because the profile is not set up in this shop yet (one click fixes it). */
+  setup?: boolean;
 }
 
 export interface MatrixRow {
@@ -256,13 +258,29 @@ export interface ReferenceImage {
   is_fixed: boolean;
 }
 
+/** The profile in one shop (v8 §C): usable there, or what is missing and why. */
+export interface ProfileLink {
+  connection_id: string;
+  shop_name: string | null;
+  /** The shop its reference listing is in. */
+  main: boolean;
+  ready: boolean;
+  status: "ready" | "checking" | "incomplete" | "error" | string;
+  reason: string | null;
+  missing: { resource: string; label: string; reason: string }[];
+  checked_at: string | null;
+}
+
 export interface Profile {
   id: string;
-  /** The shop this profile belongs to: each shop has its own reference listings. */
+  /** The profile's main shop: its reference listing is there. The profile is the account's (v8 §C). */
   connection_id: string;
   shop_name: string | null;
   name: string;
-  reference_listing_id: number;
+  /** Null after its main shop changed, until a reference is chosen there. */
+  reference_listing_id: number | null;
+  /** Every shop the profile is used in, the main one first. */
+  links: ProfileLink[];
   content_template: string;
   source: string; // "manual" | "detected"
   confirmed: boolean;
@@ -1322,3 +1340,47 @@ export interface ProductCostsView {
   }[];
   sizes_supported: boolean;
 }
+
+// --- One profile across shops (v8 §C) and shop groups (v8 §B) -------------------------
+
+export interface ResourceSetup {
+  resource: "shipping_profile" | "return_policy" | "readiness_state" | "production_partners" | string;
+  label: string;
+  reason: string | null;
+  creatable: boolean;
+  create_summary: string | null;
+  requests: number;
+  options: { id: number; label: string }[];
+}
+
+export interface ShopSetup {
+  connection_id: string;
+  shop_name: string | null;
+  link: ProfileLink;
+  open: ResourceSetup[];
+  choices_expired: boolean;
+}
+
+export interface ProfileSetup {
+  profile: Profile;
+  shops: ShopSetup[];
+}
+
+export interface LinkSuggestion {
+  name: string;
+  profiles: Profile[];
+  why: string;
+}
+
+export interface ShopGroup {
+  id: string;
+  name: string;
+  shops: { id: string; name: string }[];
+}
+
+export interface ShopGroups {
+  groups: ShopGroup[];
+  ungrouped: { id: string; name: string }[];
+}
+
+export type UseInScope = { scope: "all" } | { scope: "group"; group_id: string } | { scope: "shops"; connection_ids: string[] };

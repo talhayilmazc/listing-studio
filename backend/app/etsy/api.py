@@ -456,6 +456,63 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    # --- A shop's own settings: the ids a profile links to in each shop (v8 §C) ---
+    async def _shop_list(self, shop_id: int, path: str, *, access_token: str, tenant_id: Any = None,
+                         tenant_limit: int | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            f"/application/shops/{shop_id}/{path}",
+            access_token=access_token,
+            params=params,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
+    async def get_shop_shipping_profiles(self, shop_id: int, **kw: Any) -> dict[str, Any]:
+        """getShopShippingProfiles: each with its destinations and upgrades."""
+        return await self._shop_list(shop_id, "shipping-profiles", **kw)
+
+    async def get_shop_return_policies(self, shop_id: int, **kw: Any) -> dict[str, Any]:
+        return await self._shop_list(shop_id, "policies/return", **kw)
+
+    async def get_shop_readiness_state_definitions(self, shop_id: int, **kw: Any) -> dict[str, Any]:
+        """getShopReadinessStateDefinitions: the shop's processing profiles."""
+        return await self._shop_list(shop_id, "readiness-state-definitions", params={"limit": 100}, **kw)
+
+    async def get_shop_production_partners(self, shop_id: int, **kw: Any) -> dict[str, Any]:
+        return await self._shop_list(shop_id, "production-partners", **kw)
+
+    async def _shop_create(self, shop_id: int, path: str, data: dict[str, Any], *, access_token: str,
+                           tenant_id: Any = None, tenant_limit: int | None = None) -> dict[str, Any]:
+        # A create is never sent twice blindly: no answer is not retried here.
+        return await self._request(
+            "POST",
+            f"/application/shops/{shop_id}/{path}",
+            access_token=access_token,
+            data={k: v for k, v in data.items() if v is not None},
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
+    async def create_shop_shipping_profile(self, shop_id: int, *, data: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        return await self._shop_create(shop_id, "shipping-profiles", data, **kw)
+
+    async def create_shop_shipping_profile_destination(
+        self, shop_id: int, shipping_profile_id: int, *, data: dict[str, Any], **kw: Any
+    ) -> dict[str, Any]:
+        return await self._shop_create(shop_id, f"shipping-profiles/{shipping_profile_id}/destinations", data, **kw)
+
+    async def create_shop_shipping_profile_upgrade(
+        self, shop_id: int, shipping_profile_id: int, *, data: dict[str, Any], **kw: Any
+    ) -> dict[str, Any]:
+        return await self._shop_create(shop_id, f"shipping-profiles/{shipping_profile_id}/upgrades", data, **kw)
+
+    async def create_shop_return_policy(self, shop_id: int, *, data: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        return await self._shop_create(shop_id, "policies/return", data, **kw)
+
+    async def create_shop_readiness_state_definition(self, shop_id: int, *, data: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        return await self._shop_create(shop_id, "readiness-state-definitions", data, **kw)
+
     # --- Writes ------------------------------------------------------------
     async def update_listing_personalization(
         self,

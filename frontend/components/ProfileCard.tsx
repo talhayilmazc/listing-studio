@@ -2,6 +2,7 @@
 
 import { PersonalizationEditor } from "./PersonalizationEditor";
 import { ListingStyle } from "./ListingStyle";
+import { ProfileShops } from "./ProfileShops";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Profile, ReferenceImage, ShopListing } from "@/lib/types";
@@ -113,11 +114,12 @@ export function ProfileCard({
   const charts = rest.filter((i) => i.kind === "size_chart");
   const others = rest.filter((i) => i.kind !== "size_chart");
 
-  const backLink = etsyListingLink(
-    profile.reference_listing_id,
-    listing?.state ?? "active",
-    listing?.url,
-  );
+  // No reference after its main shop was disconnected (v8 §C): nothing of it is
+  // shown, so there is nothing to link back to until one is chosen.
+  const backLink =
+    profile.reference_listing_id != null
+      ? etsyListingLink(profile.reference_listing_id, listing?.state ?? "active", listing?.url)
+      : null;
 
   return (
     <div
@@ -163,7 +165,7 @@ export function ProfileCard({
           {profile.source === "detected" && <Chip key="chip-161-10" tone="slate">detected</Chip>}
         </div>
         {/* ToU: product imagery always links back to the listing on Etsy. */}
-        <a
+        {backLink && <a key="back"
           href={backLink}
           target="_blank"
           rel="noopener noreferrer"
@@ -175,7 +177,7 @@ export function ProfileCard({
           }
         >
           {listing?.state === "draft" ? "Edit on Etsy ↗" : "View on Etsy ↗"}
-        </a>
+        </a>}
       </div>
 
       <div className="flex flex-1 flex-col gap-3 p-5">
@@ -188,14 +190,18 @@ export function ProfileCard({
             aria-label="Profile name"
           />
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
-            <a translate="no"
-              href={backLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="tap tabular-nums hover:text-brand-700 hover:underline"
-            >
-              <span>Listing #<span>{profile.reference_listing_id}</span> ↗</span>
-            </a>
+            {backLink ? (
+              <a translate="no"
+                href={backLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="tap tabular-nums hover:text-brand-700 hover:underline"
+              >
+                <span>Listing #<span>{profile.reference_listing_id}</span> ↗</span>
+              </a>
+            ) : (
+              <span className="text-amber-700">No reference listing yet</span>
+            )}
             <span>·</span>
             <span
               className={
@@ -328,6 +334,8 @@ export function ProfileCard({
         )}
 
         {error && <p key="p-321-8" className="text-xs text-rose-600">{error}</p>}
+
+        <ProfileShops profile={profile} onChange={onChange} />
 
         <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           {!profile.confirmed && (

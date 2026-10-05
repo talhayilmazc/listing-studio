@@ -225,6 +225,7 @@ async def test_shop_purge_reports_what_it_removed(world) -> None:
         await s.commit()
     assert counts == {
         "snapshots": 2, "shop_listings": 2, "publications": 0, "profiles": 2, "sales_days": 0, "ad_spend": 0,
+        "profiles_moved": 0, "profile_links": 0,
     }
 
 

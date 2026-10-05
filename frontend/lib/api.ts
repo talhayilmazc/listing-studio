@@ -1,5 +1,9 @@
 import type { ReplaceMode } from "./replaceModes";
 import type {
+  LinkSuggestion,
+  ProfileSetup,
+  ShopGroups,
+  UseInScope,
   Account,
   Allowance,
   AllowanceDefault,
@@ -452,6 +456,28 @@ export const api = {
   confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),
   refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),
   deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),
+  // --- One profile across shops (v8 §C) ---
+  useProfileIn: (id: string, scope: UseInScope) =>
+    req<{ profile: Profile; started: string[] }>(`/profiles/${id}/use-in`, { method: "POST", body: JSON.stringify(scope) }),
+  profileSetup: (id: string) => req<ProfileSetup>(`/profiles/${id}/setup`),
+  createInShops: (id: string, items: { connection_id: string; resource: string }[]) =>
+    req<{ profile: Profile; requests: number }>(`/profiles/${id}/setup/create`, { method: "POST", body: JSON.stringify({ items }) }),
+  pickInShop: (id: string, shop: string, resource: string, ids: number[]) =>
+    req<Profile>(`/profiles/${id}/setup/${shop}`, { method: "PUT", body: JSON.stringify({ resource, ids }) }),
+  checkShopAgain: (id: string, shop: string) => req<Profile>(`/profiles/${id}/setup/${shop}/check`, { method: "POST" }),
+  stopUsingInShop: (id: string, shop: string) => req<Profile>(`/profiles/${id}/links/${shop}`, { method: "DELETE" }),
+  setProfileReference: (id: string, listingId: number) =>
+    req<Profile>(`/profiles/${id}/reference`, { method: "PUT", body: JSON.stringify({ reference_listing_id: listingId }) }),
+  linkSuggestions: () => req<LinkSuggestion[]>("/profiles/link-suggestions"),
+  linkProfiles: (keep: string, other: string) =>
+    req<Profile>(`/profiles/${keep}/link-profile`, { method: "POST", body: JSON.stringify({ other_profile_id: other }) }),
+  // --- Shop groups (v8 §B) ---
+  shopGroups: () => req<ShopGroups>("/shop-groups"),
+  createShopGroup: (name: string, connection_ids: string[]) =>
+    req<ShopGroups>("/shop-groups", { method: "POST", body: JSON.stringify({ name, connection_ids }) }),
+  updateShopGroup: (id: string, body: { name?: string; connection_ids?: string[] }) =>
+    req<ShopGroups>(`/shop-groups/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteShopGroup: (id: string) => req<ShopGroups>(`/shop-groups/${id}`, { method: "DELETE" }),
   detectProfiles: (shop?: string | null) =>
     req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),
   shopListings: (shop?: string | null) => req<ShopListings>(`/shop/listings${shopQuery(shop)}`),

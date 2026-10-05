@@ -559,11 +559,14 @@ class MatrixCellOut(BaseModel):
     # there), or "unavailable" with the reason.
     state: str
     reason: str | None = None
-    # The profile of that shop the draft would be built from.
+    # The profile the draft would be built from.
     profile_id: uuid.UUID | None = None
     profile_name: str | None = None
     # Whether this request would create it.
     chosen: bool = False
+    # Unavailable only because the profile is not set up in this shop yet: the
+    # review page offers "Set up <profile> in <shop>…" (v8 §C).
+    setup: bool = False
 
 
 class MatrixRowOut(BaseModel):
@@ -663,12 +666,35 @@ class ReferenceImageOut(BaseModel):
     is_fixed: bool = False  # currently included on every draft (B3)
 
 
+class LinkMissingOut(BaseModel):
+    resource: str  # "shipping_profile" | "return_policy" | "readiness_state" | "production_partners"
+    label: str
+    reason: str
+
+
+class ProfileLinkOut(BaseModel):
+    """The profile in one shop (v8 §C): usable there, or what is missing and why."""
+
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    main: bool = False  # the shop its reference listing is in
+    ready: bool = False
+    status: str = "ready"  # "ready" | "checking" | "incomplete" | "error"
+    reason: str | None = None
+    missing: list[LinkMissingOut] = Field(default_factory=list)
+    checked_at: datetime | None = None
+
+
 class ProfileOut(BaseModel):
     id: uuid.UUID
+    #: The profile's main shop: its reference listing is there (v8 §C).
     connection_id: uuid.UUID
     shop_name: str | None = None
     name: str
-    reference_listing_id: int
+    #: None after the main shop changed, until a reference is chosen there.
+    reference_listing_id: int | None = None
+    #: Every shop the profile is used in, the main one first.
+    links: list[ProfileLinkOut] = Field(default_factory=list)
     content_template: str
     source: str = "manual"  # "manual" | "detected"
     confirmed: bool = True

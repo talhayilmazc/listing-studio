@@ -48,6 +48,14 @@ JOB_COST: dict[str, int] = {
     "refresh_profile": 9,
     # the reference's images; when they changed, the full refresh as well (v6 §H)
     "refresh_profile_images": 10,
+    # Setting a profile up in other shops (v8 §C): the main shop's four lists and,
+    # for each other shop, its four lists and the shop itself; up to 20 shops.
+    "link_profile": 110,
+    # The same reads again, then what the seller confirmed: a shipping profile with
+    # its destinations and upgrades, a return policy, a processing profile; per shop.
+    "create_link_resources": 200,
+    # One shop's four lists, checked for every profile linked to it (upkeep).
+    "refresh_shop_links": 4,
     # shop, and up to 50 pages of 100 for each of the 5 listing states
     # (profiles.SYNC_STATES, SYNC_MAX_PAGES); one per state for a small shop
     "sync_shop_listings": 251,
@@ -73,7 +81,7 @@ JOB_COST: dict[str, int] = {
 # it counts against Etsy's app-wide budget (and waits at the 90% pause) but not
 # against the seller's own daily limit (v7 §D3).
 UPKEEP = frozenset(
-    {"refresh_profile", "refresh_profile_images", "sync_shop_listings", "sync_shop_counts", "detect_profiles", "sync_sales", "estimate_sales",
+    {"refresh_profile", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger"}
 )
 

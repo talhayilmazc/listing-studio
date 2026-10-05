@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
 import { matchesProfile } from "@/lib/profileSearch";
-import type { Profile, ShopListing } from "@/lib/types";
+import type { LinkSuggestion, Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
@@ -16,6 +16,7 @@ const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [suggestions, setSuggestions] = useState<LinkSuggestion[]>([]);
   const [listings, setListings] = useState<ShopListing[]>([]);
   const [syncing, setSyncing] = useState(false);
   // Find a profile among many (v7 §D1).
@@ -27,25 +28,27 @@ export default function ProfilesPage() {
   const [choosing, setChoosing] = useState<ShopListing | null>(null);
   const pendingListing = useRef<{ id: number; mode: ReplaceMode } | null>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
-  // Everything on this page is the selected shop's: each shop has its own
-  // profiles and listings (v5 §E). Switch shops in the rail.
+  // Profiles are the account's (v8 §C): every one is shown, with the shops it is
+  // used in. The listings below are the selected shop's (switch shops in the rail).
   const { selected } = useShops();
   const shopId = selected?.id ?? null;
 
   const loadProfiles = useCallback(async () => {
     try {
-      setProfiles(await api.listProfiles(shopId));
+      setProfiles(await api.listProfiles(null));
+      setSuggestions(await api.linkSuggestions());
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
-  }, [shopId]);
+  }, []);
 
   // Opening the page refreshes what it shows: profiles not used in two weeks are
   // not kept warm in the background. Look again once the refreshes have landed.
   const openProfiles = useCallback(async () => {
     try {
-      const list = await api.listProfiles(shopId, true);
+      const list = await api.listProfiles(null, true);
       setProfiles(list);
+      api.linkSuggestions().then(setSuggestions).catch(() => {});
       if (list.some((p) => p.refreshing)) {
         setTimeout(loadProfiles, 5000);
         setTimeout(loadProfiles, 15000);
@@ -53,7 +56,7 @@ export default function ProfilesPage() {
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
-  }, [shopId, loadProfiles]);
+  }, [loadProfiles]);
 
   const loadListings = useCallback(async () => {
     try {
@@ -151,7 +154,7 @@ export default function ProfilesPage() {
 
   const byListingId = new Map(listings.map((l) => [l.listing_id, l]));
   const shown = (profiles ?? []).filter((p) =>
-    matchesProfile(p, query, p.reference_title ?? byListingId.get(p.reference_listing_id)?.title),
+    matchesProfile(p, query, p.reference_title ?? byListingId.get(p.reference_listing_id ?? -1)?.title),
   );
   const detected = shown.filter((p) => !p.confirmed);
   const confirmed = shown.filter((p) => p.confirmed);
@@ -168,19 +171,40 @@ export default function ProfilesPage() {
       setError(String(e.message ?? e));
     }
   }
-  const failing = (profiles ?? []).filter((p) => p.refresh_error);
+  const failing = (profiles ?? []).filter((p) => p.refresh_error && p.reference_listing_id != null);
+  const needsReference = (profiles ?? []).filter((p) => p.reference_listing_id == null);
+
+  async function linkThese(sg: LinkSuggestion) {
+    const [keep, ...rest] = sg.profiles;
+    try {
+      for (const other of rest) await api.linkProfiles(keep.id, other.id);
+      await loadProfiles();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+
+  async function chooseReference(p: Profile, value: string) {
+    if (!value) return;
+    try {
+      onChange(await api.setProfileReference(p.id, Number(value)));
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-slate-500">
-          <span>Profiles copy category, price, variations and description from your own listings. New
-          drafts reuse them instead of inventing metadata.</span>
+          <span>Profiles copy category, price, variations and description from one of your own listings. New
+          drafts reuse them instead of inventing metadata. A profile is used in as many of your shops as you
+          set it up in: each shop keeps its own shipping profile, return policy and processing profile.</span>
           {selected && (
             <>
               {" "}
-              Showing <span className="font-medium text-slate-700">{selected.name}</span>; each
-              shop has its own profiles. Switch shops at the bottom of the menu.
+              Listings below are from <span className="font-medium text-slate-700">{selected.name}</span>; switch shops at
+              the bottom of the menu.
             </>
           )}
         </p>
@@ -230,6 +254,48 @@ export default function ProfilesPage() {
         </div>
       )}
 
+      {suggestions.length > 0 && (
+        <section key="link-these" className="card space-y-2 border-brand-100 p-4 text-sm">
+          <p className="font-medium text-slate-800">Same name in different shops</p>
+          <p className="text-xs text-slate-500">
+            One profile can serve all of them. Linking keeps the first profile&apos;s shared settings and adds the
+            other&apos;s shop to it; batches and listings that used the other one use this one.
+          </p>
+          <ul className="space-y-2">
+            {suggestions.map((sg) => (
+              <li key={sg.name} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span translate="no" className="font-medium">{sg.name}</span>
+                <span translate="no" className="text-xs text-slate-500">{sg.profiles.map((p) => p.shop_name).join(", ")}</span>
+                <span className="text-xs text-slate-400">{sg.why}</span>
+                <button type="button" className="btn-secondary px-2 py-1 text-xs" onClick={() => linkThese(sg)}>
+                  Link these
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {needsReference.length > 0 && (
+        <section key="needs-reference" className="card space-y-2 border-amber-300 p-4 text-sm">
+          <p className="font-medium text-slate-800">Choose a reference listing</p>
+          {needsReference.map((p) => (
+            <div key={p.id} className="flex flex-wrap items-center gap-2 text-xs">
+              <span><span translate="no" className="font-medium">{p.name}</span><span> lost its main shop. Its main shop is now </span><span translate="no">{p.shop_name}</span><span>.</span></span>
+              {selected?.id === p.connection_id ? (
+                <select key="pick" className="field py-1 text-xs" defaultValue="" onChange={(e) => chooseReference(p, e.target.value)}
+                  aria-label={`Reference listing for ${p.name}`}>
+                  <option value="">Choose one of this shop&apos;s listings…</option>
+                  {listings.map((l) => <option key={l.listing_id} value={l.listing_id}>{l.title ?? `#${l.listing_id}`}</option>)}
+                </select>
+              ) : (
+                <span key="switch" className="text-slate-500">Switch to that shop to choose one of its listings.</span>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
       {detected.length > 0 && (
         <section key="section-225-6" className="space-y-3">
           <SectionHead
@@ -245,7 +311,7 @@ export default function ProfilesPage() {
                 profile={p}
                 onChange={onChange}
                 onDelete={onDelete}
-                listing={byListingId.get(p.reference_listing_id)}
+                listing={byListingId.get(p.reference_listing_id ?? -1)}
               />
             ))}
           </div>
@@ -266,7 +332,7 @@ export default function ProfilesPage() {
                 profile={p}
                 onChange={onChange}
                 onDelete={onDelete}
-                listing={byListingId.get(p.reference_listing_id)}
+                listing={byListingId.get(p.reference_listing_id ?? -1)}
               />
             ))}
           </div>

@@ -504,9 +504,13 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
             currencies[r] += 1
 
     info: dict[int, finance.ListingInfo] = defaultdict(finance.ListingInfo)
-    profiles = {p.id: p for p in (await session.execute(
-        select(ListingProfile).where(ListingProfile.connection_id == connection.id))).scalars()}
+    # The profiles used in this shop (v8 §C); a reference listing is only in its main shop.
+    from app.pipeline.profile_shops import shop_profiles
+
+    profiles = {p.id: p for p in await shop_profiles(session, connection.id, confirmed=False)}
     for p in profiles.values():
+        if p.connection_id != connection.id or p.reference_listing_id is None:
+            continue
         i = info[p.reference_listing_id]
         i.profile_id, i.profile_name = str(p.id), p.name
     for listing_id, profile_id, sku in (await session.execute(

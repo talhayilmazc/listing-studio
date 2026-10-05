@@ -114,7 +114,7 @@ async def test_the_cron_queues_what_is_due_and_nothing_else(async_sm: async_sess
         ("refresh_profile", str(all_due)),
         ("refresh_profile", str(lapsed)),
     }
-    assert counts == {"refresh_profile": 2, "refresh_profile_images": 1}
+    assert counts == {"refresh_profile": 2, "refresh_profile_images": 1, "refresh_shop_links": 0}
     assert str(fresh) not in {a[0] for _, a, _ in queue.calls}
     assert str(unconfirmed) not in {a[0] for _, a, _ in queue.calls}
     # One queued job per profile, however often the cron fires.

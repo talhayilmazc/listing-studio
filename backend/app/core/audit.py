@@ -52,6 +52,9 @@ DESTRUCTIVE = frozenset({
     "shop.disconnected",
     "publication.deleted_on_etsy",
     "schedule.cancelled",
+    "profile.unlinked",
+    "profile.merged",
+    "shop_group.deleted",
 })
 
 
