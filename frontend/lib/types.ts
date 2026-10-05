@@ -985,13 +985,6 @@ export interface ListingRow extends ListingRef {
   status: ListingClass | null;
 }
 
-export interface AnalyticsListings {
-  data: DataStatus;
-  period?: { days: number; start: string; end: string };
-  comparison?: Comparison;
-  listings: ListingRow[];
-}
-
 export interface AnalyticsDetail {
   data: DataStatus;
   listing: ListingRef;
@@ -1005,36 +998,6 @@ export interface AnalyticsDetail {
   action: Action | null;
   weeks: { start: string; units: number; revenue: number; avg4: number; last_year: number | null }[];
   ads: { period_start: string; period_end: string; spend: number; ad_orders: number; ad_revenue: number; ad_views: number }[];
-}
-
-export type BreakdownMetric =
-  | "revenue" | "units" | "orders" | "listing_fees" | "transaction_fees" | "processing_fees"
-  | "ads" | "shipping" | "product" | "net";
-
-export interface Breakdown {
-  period: { days: number; start: string; end: string };
-  metric: BreakdownMetric;
-  label: string;
-  figure: Partial<Figure> & { value: number | null };
-  listed_total: number;
-  unattributed: number | null;
-  rows: (ListingRef & { value: number; share: number | null })[];
-  ledger_types: LedgerType[];
-  daily: { day: string; value: number }[];
-  notes: string[];
-}
-
-export interface CostSettings {
-  listing_fee: string;
-  transaction_pct: string;
-  payment_pct: string;
-  payment_fixed: string;
-  shipping_cost: string;
-  monthly_fixed: string;
-  product_cost: string;
-  product_cost_by_profile: Record<string, string>;
-  product_cost_by_sku: Record<string, string>;
-  defaults?: Record<string, string>;
 }
 
 /** One month's import: what was read, beside the app's own calculation. Amounts are minor units. */

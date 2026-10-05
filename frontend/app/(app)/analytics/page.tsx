@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { AnalyticsSummary, MonthView } from "@/lib/types";
 import { useShops } from "@/components/ShopProvider";
@@ -33,32 +33,38 @@ export default function AnalyticsPage() {
   const { selected } = useShops();
   const shopId = selected?.id ?? null;
   const [tab, setTab] = useState<Tab>("month");
-  const [month, setMonth] = useState<string | null>(null);
+  // The month picked belongs to the shop it was picked in: another shop opens on its own newest month.
+  const [picked, setPicked] = useState<{ shop: string | null; month: string } | null>(null);
+  const month = picked && picked.shop === shopId ? picked.month : null;
+  const setMonth = (m: string) => setPicked({ shop: shopId, month: m });
+  const latest = useRef(0);
   const [view, setView] = useState<MonthView | null>(null);
   const [status, setStatus] = useState<AnalyticsSummary["data"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
+    const call = ++latest.current;
     setLoading(true);
     try {
       const [v, s] = await Promise.all([api.analyticsMonth(shopId, month), api.analyticsSummary(shopId, 30, "previous")]);
+      if (call !== latest.current) return; // a newer request (another shop or month) answers instead
       setView(v);
       setStatus(s.data);
       setError(null);
     } catch (e) {
+      if (call !== latest.current) return;
       setError(e instanceof Error ? e.message : "The figures could not be loaded.");
     } finally {
-      setLoading(false);
+      if (call === latest.current) setLoading(false);
     }
   }, [shopId, month]);
 
   useEffect(() => {
     load();
   }, [load]);
-  // Another shop: its own newest month.
+  // Another shop: nothing of the last one stays on screen while its figures load.
   useEffect(() => {
-    setMonth(null);
     setView(null);
   }, [shopId]);
 

@@ -62,16 +62,23 @@ from app.db.models import (
 logger = logging.getLogger(__name__)
 
 
+async def _bulk(session: AsyncSession, statement: Any) -> Any:
+    """Run a bulk DELETE/UPDATE, matching rows in the database rather than by
+    re-evaluating the condition on loaded objects in Python (which compares a
+    naive datetime from SQLite with an aware cutoff and fails)."""
+    return await session.execute(statement.execution_options(synchronize_session="fetch"))
+
+
 async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = None) -> dict[str, int]:
     """Delete or clear every Etsy-sourced row past its maximum age. Commits."""
     now = now or datetime.now(timezone.utc)
 
-    snapshots = await session.execute(
+    snapshots = await _bulk(session, 
         delete(ListingSnapshot).where(
             ListingSnapshot.taken_at < now - timedelta(days=ListingSnapshot.RETENTION_DAYS)
         )
     )
-    listings = await session.execute(
+    listings = await _bulk(session, 
         delete(ShopListingCache).where(
             ShopListingCache.fetched_at
             < now - timedelta(seconds=ShopListingCache.STALE_SECONDS)
@@ -80,21 +87,21 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     # Sales totals and uploaded ad spend: 13 months (v7 §C1), long enough for
     # last year's season.
     oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
-    sales = await session.execute(delete(SalesDaily).where(SalesDaily.day < oldest))
-    ads = await session.execute(delete(AdSpend).where(AdSpend.period_end < oldest))
-    await session.execute(delete(LedgerDaily).where(LedgerDaily.day < oldest))
+    sales = await _bulk(session, delete(SalesDaily).where(SalesDaily.day < oldest))
+    ads = await _bulk(session, delete(AdSpend).where(AdSpend.period_end < oldest))
+    await _bulk(session, delete(LedgerDaily).where(LedgerDaily.day < oldest))
     # What "Import from Etsy" stored, and the order lines it is joined to: the same 13 months.
-    await session.execute(delete(SaleLine).where(SaleLine.day < oldest))
-    await session.execute(delete(AdsDaily).where(AdsDaily.day < oldest))
-    await session.execute(delete(AdCharge).where(AdCharge.click_day < oldest))
+    await _bulk(session, delete(SaleLine).where(SaleLine.day < oldest))
+    await _bulk(session, delete(AdsDaily).where(AdsDaily.day < oldest))
+    await _bulk(session, delete(AdCharge).where(AdCharge.click_day < oldest))
     for table in (StatementImport, StatementOrder, StatementListingFee):
-        await session.execute(delete(table).where(table.month < oldest.replace(day=1)))
+        await _bulk(session, delete(table).where(table.month < oldest.replace(day=1)))
     # Drafts that were started and never finished or retried (etsy/publisher.py).
-    await session.execute(delete(DraftAttempt).where(DraftAttempt.created_at < now - timedelta(days=DraftAttempt.RETENTION_DAYS)))
+    await _bulk(session, delete(DraftAttempt).where(DraftAttempt.created_at < now - timedelta(days=DraftAttempt.RETENTION_DAYS)))
     # Allowance usage: long past any period an allowance counts over.
-    await session.execute(delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
+    await _bulk(session, delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
     # Invite requests are personal data from people who are not users.
-    await session.execute(
+    await _bulk(session, 
         delete(InviteRequest).where(
             or_(
                 InviteRequest.decided_at < now - timedelta(days=InviteRequest.DECIDED_RETENTION_DAYS),
@@ -104,9 +111,9 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     )
     # Our own record of model calls: kept 25 months, so twelve months can be
     # compared with the twelve before them.
-    await session.execute(delete(AiCall).where(AiCall.day < (now - timedelta(days=AiCall.RETENTION_DAYS)).date()))
+    await _bulk(session, delete(AiCall).where(AiCall.day < (now - timedelta(days=AiCall.RETENTION_DAYS)).date()))
     image_links = await _strip_display_fields(session, now)
-    profiles = await session.execute(
+    profiles = await _bulk(session, 
         update(ListingProfile)
         .where(
             ListingProfile.cached_payload.is_not(None),

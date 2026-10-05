@@ -12,22 +12,6 @@ export function money(minor: number | null | undefined, currency: string | null 
   }
 }
 
-/** Big figures compact: 1284000 → "$12.8K". */
-export function moneyCompact(minor: number | null | undefined, currency: string | null | undefined): string {
-  if (minor === null || minor === undefined) return "—";
-  if (Math.abs(minor) < 1_000_000) return money(minor, currency);
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency || "USD",
-      notation: "compact",
-      maximumFractionDigits: 1,
-    }).format(minor / 100);
-  } catch {
-    return money(minor, currency);
-  }
-}
-
 export function percent(ratio: number | null | undefined, digits = 0): string {
   if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return "—";
   return `${(ratio * 100).toFixed(digits)}%`;

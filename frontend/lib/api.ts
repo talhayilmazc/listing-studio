@@ -4,11 +4,7 @@ import type {
   Allowance,
   AllowanceDefault,
   AnalyticsDetail,
-  AnalyticsListings,
   AnalyticsSummary,
-  Breakdown,
-  BreakdownMetric,
-  CostSettings,
   MonthView,
   ProductCostsView,
   SalesReread,
@@ -327,17 +323,8 @@ export const api = {
   // --- Analytics (v7 §C): the seller's own sales, ads report and costs.
   analyticsSummary: (shop: string | null, days: number, compare: "previous" | "year") =>
     req<AnalyticsSummary>(`/analytics/summary${query({ shop, days, compare })}`),
-  analyticsListings: (shop: string | null, days: number, compare: "previous" | "year") =>
-    req<AnalyticsListings>(`/analytics/listings${query({ shop, days, compare })}`),
   analyticsListing: (listingId: number, shop: string | null, days: number) =>
     req<AnalyticsDetail>(`/analytics/listings/${listingId}${query({ shop, days })}`),
-  /** What a total is made of: listings, ledger entry types, days. */
-  analyticsBreakdown: (metric: BreakdownMetric, shop: string | null, days: number) =>
-    req<Breakdown>(`/analytics/breakdown${query({ metric, shop, days })}`),
-  /** A CSV download link for the seller's own spreadsheet. */
-  analyticsExportUrl: (view: "listings" | "daily" | "ledger" | "breakdown", shop: string | null, days: number,
-    compare: "previous" | "year" = "previous", metric?: BreakdownMetric) =>
-    `${BASE}/analytics/export${query({ view, shop, days, compare, metric })}`,
   salesStatus: (shop: string | null) => req<SalesSync>(`/analytics/sales/status${shopQuery(shop)}`),
   /** One month of the shop's money: the receipt, what needs attention, every listing. `month` is "YYYY-MM". */
   analyticsMonth: (shop: string | null, month?: string | null) =>
@@ -361,9 +348,6 @@ export const api = {
   /** Read the shop's latest sales now (upkeep, not the seller's quota). */
   refreshSales: (shop: string | null) =>
     req<{ queued: boolean }>(`/analytics/sales/refresh${shopQuery(shop)}`, { method: "POST" }),
-  costs: () => req<CostSettings>("/analytics/costs"),
-  saveCosts: (body: Omit<CostSettings, "defaults">) =>
-    req<CostSettings>("/analytics/costs", { method: "PUT", body: JSON.stringify(body) }),
   importStatement: (shop: string | null, file: File) => {
     const form = new FormData();
     form.append("file", file, file.name);

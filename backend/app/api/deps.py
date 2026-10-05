@@ -100,10 +100,11 @@ def get_redis() -> Redis:
     return Redis.from_url(get_settings().redis_url)
 
 
-def get_quota() -> DailyQuota:
+def get_quota(redis: Redis = Depends(get_redis)) -> DailyQuota:
+    # Through the dependency, so an overridden Redis (tests) is the one counted against.
     settings = get_settings()
     return DailyQuota(
-        get_redis(),
+        redis,
         global_daily_limit=settings.global_daily_limit,
         pause_percent=settings.global_pause_percent,
     )

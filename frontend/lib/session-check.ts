@@ -22,18 +22,24 @@ export async function checkSession(
   timeoutMs: number = CHECK_TIMEOUT_MS,
 ): Promise<SessionVerdict> {
   if (!token) return "invalid";
+  // An explicit timer rather than AbortSignal.timeout(): Node does not keep the
+  // process alive for that one, so a hung request could outlive its own deadline.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetcher(`${apiBase.replace(/\/$/, "")}/api/account/session`, {
       method: "GET",
       headers: { cookie: `${SESSION_COOKIE}=${token}`, ...forward },
       cache: "no-store",
       redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: controller.signal,
     });
     if (res.status === 204 || res.status === 200) return "valid";
     if (res.status === 401) return "invalid";
     return "unknown"; // 429, 5xx: the API could not say
   } catch {
     return "unknown"; // unreachable or too slow
+  } finally {
+    clearTimeout(timer);
   }
 }

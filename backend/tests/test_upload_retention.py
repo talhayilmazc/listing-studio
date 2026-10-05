@@ -343,9 +343,12 @@ def test_storage_says_what_a_delete_frees_and_what_is_stored(tmp_path) -> None:
         storage.measure_with_derivatives("../outside")
 
 
-async def test_disk_usage_by_category_says_unknown_until_the_host_reports(world) -> None:  # noqa: F811
+async def test_disk_usage_by_category_says_unknown_until_the_host_reports(world, test_settings) -> None:  # noqa: F811
     await _settle(world)
     storage, redis, a = _storage(world), world["redis"], world["a"]
+    # The device is measured where uploads are stored; the default "./storage" is
+    # relative to wherever the tests run, and may not exist there.
+    set_settings_override(test_settings.model_copy(update={"storage_dir": str(storage._base)}))
     await _listing(world, uploaded=1 * DAY)
     seen = (await a.get("/api/admin/disk")).json()
     by = {c["key"]: c for c in seen["categories"]}
