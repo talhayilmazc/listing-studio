@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
+from app.core import audit
 from app.db.models import ListingProfile, ShopListingCache, Tenant
 from app.etsy.refresh import in_use, request_refresh
 from app.pipeline.personalization import effective as effective_personalization
@@ -290,6 +291,10 @@ async def delete_profile(
     tenant: Tenant = Depends(active_tenant),
 ) -> None:
     profile = await _get(session, tenant, profile_id)
+    audit.destructive(
+        session, "profile.deleted", actor=tenant, tenant_id=tenant.id,
+        shop_id=profile.connection_id, object_id=profile.id, confirmed=profile.confirmed,
+    )
     await session.delete(profile)
     await session.commit()
 

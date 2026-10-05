@@ -39,6 +39,7 @@ from app.compliance.trademarks import blocklist_for_tenant
 from app.core import allowance, audit
 from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
+from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.targets import shop_profiles
@@ -840,6 +841,7 @@ async def _delete_batch(
         if publication.scheduled_for is not None and publication.state != "active":
             publication.scheduled_for, publication.schedule_job_id = None, None
             publication.schedule_note = "cancelled: its batch was deleted"
+            record_cancel(session, publication, actor=tenant, reason="batch deleted")
     files = await session.scalar(select(func.count()).select_from(Asset).where(Asset.batch_id == batch.id))
     queued = (
         await session.execute(
@@ -855,8 +857,9 @@ async def _delete_batch(
         job.status = JobStatus.cancelled
         job.finished_at = now
         job.last_error = "cancelled: the batch was deleted"
-    audit.record(session, "batch.deleted", actor=tenant, target_tenant_id=tenant.id, batch_id=str(batch.id),
-                 files=int(files or 0), publications_kept=on_etsy, jobs_cancelled=len(queued))
+    audit.destructive(session, "batch.deleted", actor=tenant, tenant_id=tenant.id, shop_id=batch.connection_id,
+                      object_id=batch.id, batch_id=str(batch.id), files=int(files or 0),
+                      publications_kept=on_etsy, jobs_cancelled=len(queued))
     # Assets, content and group settings cascade; publications are detached (content_id -> NULL).
     await session.delete(batch)
     await session.flush()
@@ -963,6 +966,7 @@ async def delete_image(
             if publication.scheduled_for is not None and publication.state != "active":
                 publication.scheduled_for, publication.schedule_job_id = None, None
                 publication.schedule_note = "cancelled: its images were deleted"
+                record_cancel(session, publication, actor=tenant, reason="images deleted")
         if content_ids:
             wanted = {str(c) for c in content_ids}
             for job in (
@@ -984,8 +988,11 @@ async def delete_image(
             await session.delete(setting)
 
     stored = [k for k in (asset.storage_key, asset.processed_key) if k]
-    audit.record(session, "image.deleted", actor=tenant, target_tenant_id=tenant.id, batch_id=str(batch_id),
-                 group_removed=not remaining, was_cover=was_cover, listings_on_etsy=len(publications))
+    batch = await session.get(UploadBatch, batch_id)
+    audit.destructive(session, "image.deleted", actor=tenant, tenant_id=tenant.id,
+                      shop_id=batch.connection_id if batch is not None else None, object_id=asset.id,
+                      batch_id=str(batch_id), group_removed=not remaining, was_cover=was_cover,
+                      listings_on_etsy=len(publications))
     await session.delete(asset)
     await session.commit()
     for stored_key in dict.fromkeys(stored):

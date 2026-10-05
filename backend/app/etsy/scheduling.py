@@ -21,7 +21,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import GeneratedContent, Job, JobStatus, JobType, ListingPublication
+from app.core import audit
+from app.db.models import GeneratedContent, Job, JobStatus, JobType, ListingPublication, Tenant
 
 #: How far ahead a listing can be scheduled.
 MAX_AHEAD = timedelta(days=60)
@@ -81,6 +82,31 @@ async def cancel(session: AsyncSession, publication: ListingPublication) -> None
     publication.schedule_note = None
 
 
+def record_cancel(
+    session: AsyncSession, publication: ListingPublication, *, actor: Tenant | None, reason: str
+) -> None:
+    """Audit one withdrawn schedule (who, which account, shop and draft, and why)."""
+    audit.destructive(
+        session,
+        "schedule.cancelled",
+        actor=actor,
+        tenant_id=publication.tenant_id,
+        shop_id=publication.connection_id,
+        object_id=publication.id,
+        reason=reason,
+    )
+
+
+async def withdraw(
+    session: AsyncSession, publication: ListingPublication, *, actor: Tenant | None, reason: str
+) -> None:
+    """:func:`cancel`, audited. Does not commit."""
+    had = publication.scheduled_for is not None
+    await cancel(session, publication)
+    if had:
+        record_cancel(session, publication, actor=actor, reason=reason)
+
+
 async def set_schedule(
     session: AsyncSession,
     content: GeneratedContent,
@@ -101,7 +127,9 @@ async def set_schedule(
     publication.scheduled_for = run_at
 
 
-async def cancel_for_content(session: AsyncSession, content_id: uuid.UUID) -> None:
+async def cancel_for_content(
+    session: AsyncSession, content_id: uuid.UUID, *, actor: Tenant | None = None
+) -> None:
     """Withdraw every schedule of one listing (it lost its approval). Does not commit."""
     rows = await session.execute(
         select(ListingPublication).where(
@@ -112,7 +140,7 @@ async def cancel_for_content(session: AsyncSession, content_id: uuid.UUID) -> No
     )
     for publication in rows.scalars():
         try:
-            await cancel(session, publication)
+            await withdraw(session, publication, actor=actor, reason="approval withdrawn")
         except ScheduleBusy:
             pass  # already going live; the job re-checks approval itself
 

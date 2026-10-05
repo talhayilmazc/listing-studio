@@ -40,14 +40,18 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.db.models import (
     ComplianceFinding,
     ComplianceSeverity,
     DraftAttempt,
     EtsyConnection,
     GeneratedContent,
+    Job,
+    JobStatus,
     ListingPublication,
     ListingSnapshot,
+    Tenant,
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
@@ -234,6 +238,51 @@ async def publication_for(
         )
     )
     return rows.scalar_one_or_none()
+
+
+async def mark_deleted_on_etsy(
+    session: AsyncSession,
+    publication: ListingPublication,
+    *,
+    actor: Tenant | None = None,
+    job_id: uuid.UUID | None = None,
+) -> None:
+    """Etsy no longer has this listing: mark the record, never delete it. Does not commit.
+
+    The row is the record that the app created (and maybe published) the
+    listing; counts and Analytics rely on it, so it stays while the shop is
+    connected. It is detached from its content (as when a batch is deleted), so
+    the same listing can be drafted in this shop again, and any schedule on it
+    is withdrawn: there is nothing left to publish. Audited.
+    """
+    if publication.state == "deleted_on_etsy":
+        return
+    previous = publication.state
+    had_schedule = publication.scheduled_for is not None
+    job_of = publication.schedule_job_id
+    job = await session.get(Job, job_of) if job_of else None
+    if job is not None and job.status is JobStatus.queued and job.id != job_id:
+        job.status = JobStatus.cancelled
+        job.finished_at = _now()
+        job.last_error = "cancelled: the draft was deleted on Etsy"
+    publication.state = "deleted_on_etsy"
+    publication.deleted_on_etsy_at = _now()
+    publication.content_id = None
+    publication.scheduled_for = None
+    publication.schedule_job_id = None
+    publication.schedule_note = "the draft was deleted on Etsy" if had_schedule else None
+    audit.destructive(
+        session,
+        "publication.deleted_on_etsy",
+        actor=actor,
+        tenant_id=publication.tenant_id,
+        shop_id=publication.connection_id,
+        object_id=publication.id,
+        etsy_listing_id=publication.etsy_listing_id,
+        previous_state=previous,
+        schedule_cleared=had_schedule,
+        job_id=str(job_id) if job_id else None,
+    )
 
 
 async def publish_content(
@@ -714,13 +763,14 @@ async def publish_live(
         if exc.status_code not in (404, 410):
             raise
         # Etsy has no such listing in this shop. If reading it says the same, the
-        # draft was deleted in Shop Manager: forget it, so it can be created again.
+        # draft was deleted in Shop Manager: mark the record (never delete it), so
+        # it can be created again and the history stays.
         try:
             await client.get_listing(listing_id, **ctx)
         except EtsyClientError as gone:
             if gone.status_code not in (404, 410):
                 raise
-            await session.delete(publication)
+            await mark_deleted_on_etsy(session, publication, job_id=job_id)
             await session.commit()
             raise ValueError(
                 "This draft is no longer on Etsy (it was deleted in Shop Manager), so there was nothing "

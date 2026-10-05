@@ -22,7 +22,7 @@ from app.core.timezones import TimeRefused, to_utc, zone_abbreviation
 from app.compliance.check import listing_problem
 from app.db.models import EtsyConnection, GeneratedContent, Job, ListingPublication, Tenant
 from app.etsy.publisher import link_for
-from app.etsy.scheduling import ScheduleBusy, ScheduleRefused, cancel, set_schedule, state_of
+from app.etsy.scheduling import ScheduleBusy, ScheduleRefused, set_schedule, state_of, withdraw
 from app.etsy.shops import owned_shop
 
 from app.pipeline.batch_names import names_by_id
@@ -183,7 +183,7 @@ async def cancel_schedule(
     if found is None or found[1].scheduled_for is None:
         raise HTTPException(status_code=404, detail="schedule not found")
     try:
-        await cancel(session, found[1])
+        await withdraw(session, found[1], actor=tenant, reason="seller cancelled")
     except ScheduleBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await session.commit()

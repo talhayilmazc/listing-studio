@@ -672,8 +672,15 @@ class ListingPublication(Base):
     """One Etsy draft made from one piece of generated content, in one shop.
 
     Publishing the same content to N shops makes N drafts (docs/duzeltmeler-v5.md
-    §E), each with its own row. Deleted when that shop is disconnected; the
-    generated content itself is the seller's work and stays.
+    §E), each with its own row. Deleted only when that shop is disconnected
+    (CLAUDE.md: Etsy content goes with the shop); the generated content itself
+    is the seller's work and stays.
+
+    **Never hard-deleted while its shop is connected.** A draft the seller
+    deleted on Etsy is marked (``state`` "deleted_on_etsy",
+    ``deleted_on_etsy_at``) and detached from its content, so the same listing
+    can be drafted again while counts and Analytics keep the record
+    (:func:`app.etsy.publisher.mark_deleted_on_etsy`).
 
     **This row is the record that a listing was created and published, and it
     outlives the batch.** Deleting a batch removes the uploads and the working
@@ -712,8 +719,11 @@ class ListingPublication(Base):
         ForeignKey("listing_profile.id", ondelete="SET NULL")
     )
     etsy_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    #: "draft" on create; "active" once the seller explicitly publishes it.
+    #: "draft" on create; "active" once the seller explicitly publishes it;
+    #: "deleted_on_etsy" once Etsy says the listing no longer exists.
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    #: When the app found the listing gone on Etsy (state "deleted_on_etsy").
+    deleted_on_etsy_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Settings the seller confirmed making by hand in Shop Manager (etsy/manual_fields.py),
     #: as {field key: the etsy_listing_id it was confirmed for}. A tick counts only
     #: for that draft, so a regenerated draft starts unticked.

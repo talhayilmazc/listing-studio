@@ -129,5 +129,5 @@ async def disconnect_shop(
     connection = await owned_shop(session, tenant.id, shop_id)
     if connection is None:
         raise _NOT_FOUND
-    await service.disconnect(session, connection)
+    await service.disconnect(session, connection, actor=tenant)
     return await _shops_out(session, tenant)

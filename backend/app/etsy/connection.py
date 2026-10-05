@@ -19,6 +19,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.crypto import TokenCipher
 from app.db.models import ConnectionStatus, EtsyConnection, Tenant
 from app.etsy.oauth import TokenResponse, refresh_tokens
@@ -153,7 +154,9 @@ class ConnectionService:
         await session.refresh(connection)
         return tokens.access_token
 
-    async def disconnect(self, session: AsyncSession, connection: EtsyConnection) -> None:
+    async def disconnect(
+        self, session: AsyncSession, connection: EtsyConnection, *, actor: Tenant | None = None
+    ) -> None:
         """Disconnect one shop: drop its tokens and delete its Etsy-sourced content.
 
         CLAUDE.md: when a seller disconnects, everything that came from Etsy for
@@ -166,5 +169,10 @@ class ConnectionService:
         connection.status = ConnectionStatus.revoked
         connection.access_token_enc = None
         connection.refresh_token_enc = None
-        await purge_shop_etsy_content(session, connection.id)
+        purged = await purge_shop_etsy_content(session, connection.id)
+        # Counts only: what went, not what it was.
+        audit.destructive(
+            session, "shop.disconnected", actor=actor, tenant_id=connection.tenant_id,
+            shop_id=connection.id, object_id=connection.id, **purged,
+        )
         await session.commit()
