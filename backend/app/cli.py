@@ -328,6 +328,49 @@ async def list_admins(sm: async_sessionmaker) -> list[str]:
         return [f"{t.email}  ({t.status.value})" for t in rows]
 
 
+def oauth_check() -> str:
+    """What the app sends Etsy to connect a shop, and what is wrong with it.
+    No secret is printed (the keystring is public: it is in every authorize URL)."""
+    from urllib.parse import parse_qs, urlparse
+
+    from app.core.config import get_settings
+    from app.etsy.oauth import build_authorize_url, clean_scopes
+
+    settings = get_settings()
+    lines = ["Etsy connect: what the authorize URL carries"]
+    problems: list[str] = []
+    try:
+        scopes = clean_scopes(settings.etsy_scopes)
+        if len(scopes) != len(settings.etsy_scopes.split()):
+            problems.append("ETSY_SCOPES repeats a scope (it is sent once)")
+    except ValueError as exc:
+        return f"FAIL: {exc}"
+    url = build_authorize_url(authorize_url=settings.etsy_oauth_authorize_url, client_id=settings.etsy_client_id,
+                              redirect_uri=settings.etsy_redirect_uri, scopes=settings.etsy_scopes,
+                              state="STATE", verifier="V" * 64)
+    query = parse_qs(urlparse(url).query)
+    lines += [
+        f"  authorize: {settings.etsy_oauth_authorize_url}",
+        f"  client_id: {'set' if settings.etsy_client_id else 'MISSING'}",
+        f"  redirect_uri: {settings.etsy_redirect_uri}",
+        f"  scopes: {' '.join(scopes)} (sent as {url.split('scope=')[1].split('&')[0]})",
+        f"  code_challenge_method: {query['code_challenge_method'][0]}",
+    ]
+    redirect = urlparse(settings.etsy_redirect_uri)
+    if not settings.etsy_client_id:
+        problems.append("ETSY_CLIENT_ID is not set")
+    if redirect.path != "/api/auth/etsy/callback":
+        problems.append("ETSY_REDIRECT_URI does not end in /api/auth/etsy/callback")
+    if redirect.scheme != "https" and redirect.hostname not in ("localhost", "127.0.0.1"):
+        problems.append("ETSY_REDIRECT_URI is not https")
+    if settings.etsy_redirect_uri.endswith("/"):
+        problems.append("ETSY_REDIRECT_URI ends with '/': Etsy compares it character by character")
+    lines.append("  Etsy refuses (HTTP 400 on its own page) unless redirect_uri is EXACTLY one of the app's")
+    lines.append("  callback URLs at etsy.com/developers/your-apps, and every scope is allowed for the app.")
+    lines += [f"PROBLEM: {p}" for p in problems] or ["no problem found in the configuration"]
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -358,7 +401,11 @@ def main(argv: list[str] | None = None) -> int:
     limits_cmd.add_argument("email")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
+    sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
     args = parser.parse_args(argv)
+    if args.command == "oauth-check":
+        print(oauth_check())
+        return 0
 
     from app.db.session import get_sessionmaker
 

@@ -488,3 +488,15 @@ async def test_state_of_reports_what_is_missing() -> None:
     state = profile_shops.state_of(profile, link)
     assert not state.ready and set(state.missing) == {"return_policy", "readiness_state", "production_partners"}
     assert state.reason.startswith("Return policy")
+
+
+def test_a_create_the_shop_did_not_grant_the_scope_for_is_not_offered() -> None:
+    """The app never adds a scope to offer creation (every seller would reconnect):
+    a shop without shops_w gets the dropdown, with the reason."""
+    target = L.ShopSettings(shipping=[{"shipping_profile_id": 1, "title": "Other"}])
+    plan = L.plan_shop(PAYLOAD, _main(), target, granted={"listings_r", "listings_w", "shops_r"})
+    ship = plan[L.SHIPPING]
+    assert not ship.creatable and ship.create is None and ship.requests == 0
+    assert "shops_w" in ship.reason and ship.options == [{"id": 1, "label": "Other"}]
+    assert L.plan_shop(PAYLOAD, _main(), target, granted={"shops_w"})[L.SHIPPING].creatable
+    assert set(L.CREATE_SCOPE.values()) <= set("listings_r listings_w shops_r shops_w transactions_r".split())

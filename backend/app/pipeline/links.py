@@ -49,6 +49,14 @@ LABEL: dict[str, str] = {
 }
 #: Which can be created through Etsy's API with our scopes (shops_w).
 CREATABLE = frozenset({SHIPPING, RETURNS, READINESS})
+#: The OAuth scope each create endpoint needs (createShopShippingProfile and its
+#: destination/upgrade endpoints, createShopReturnPolicy,
+#: createShopReadinessStateDefinition). Creation is offered only where the shop
+#: granted it; the app never asks for a new scope to get it (every seller would
+#: have to reconnect).
+CREATE_SCOPE: dict[str, str] = {SHIPPING: "shops_w", RETURNS: "shops_w", READINESS: "shops_w"}
+NO_SCOPE = ("creating it needs Etsy's \"{scope}\" permission, which this shop has not granted the app; "
+            "choose one of this shop's")
 
 # Why a resource is not linked yet, as the seller reads it.
 NO_SOURCE = "the main shop's reference has none, so this shop needs none"
@@ -243,9 +251,22 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
                            "processing_time_unit": "days"})
 
 
-def plan_shop(payload: dict[str, Any], source: ShopSettings, target: ShopSettings) -> dict[str, Outcome]:
-    """Every shop-specific setting of a profile, linked in ``target`` where it can be."""
-    return {r: plan_resource(r, payload.get(PAYLOAD_KEY[r]), source, target) for r in RESOURCES}
+def plan_shop(payload: dict[str, Any], source: ShopSettings, target: ShopSettings,
+              granted: set[str] | None = None) -> dict[str, Outcome]:
+    """Every shop-specific setting of a profile, linked in ``target`` where it can be.
+
+    ``granted``: the scopes the target shop granted (None = not known: assume the
+    app's own). A create whose scope is not granted is not offered; the seller
+    picks one of the shop's own instead.
+    """
+    out = {r: plan_resource(r, payload.get(PAYLOAD_KEY[r]), source, target) for r in RESOURCES}
+    if granted is not None:
+        for outcome in out.values():
+            scope = CREATE_SCOPE.get(outcome.resource)
+            if outcome.creatable and scope not in granted:
+                outcome.creatable, outcome.create, outcome.requests = False, None, 0
+                outcome.reason = NO_SCOPE.format(scope=scope)
+    return out
 
 
 def currency_problem(source_currency: str | None, target_currency: str | None) -> str | None:

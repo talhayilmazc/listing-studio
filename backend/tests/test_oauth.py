@@ -332,3 +332,74 @@ async def test_status_without_connection(auth_client: httpx.AsyncClient) -> None
         "connected_at": None,
         "expires_at": None,
     }
+
+
+# --- the reconnect loop (v8 Part B5): every cause, one test each ---------------------------------
+
+
+def test_scopes_are_sent_space_separated_as_percent_20_once_each_and_known() -> None:
+    url = oauth.build_authorize_url(
+        authorize_url="https://www.etsy.com/oauth/connect", client_id="k",
+        redirect_uri="https://api.example.com/api/auth/etsy/callback",
+        scopes="listings_r  shops_r listings_r transactions_r", state="s", verifier="v" * 64,
+    )
+    assert "scope=listings_r%20shops_r%20transactions_r&" in url  # %20, not "+"; the repeat dropped
+    assert parse_qs(urlparse(url).query)["redirect_uri"] == ["https://api.example.com/api/auth/etsy/callback"]
+    assert "code_challenge_method=S256" in url
+    with pytest.raises(ValueError, match="unknown Etsy scope"):
+        oauth.clean_scopes("listings_r transaction_r")  # a typo would send every seller to Etsy's 400 page
+
+
+async def test_two_authorizations_at_once_never_overwrite_each_other(auth_client: httpx.AsyncClient) -> None:
+    """A reconnect in one tab and a second shop in another: each has its own state and verifier."""
+    first = parse_qs(urlparse((await auth_client.get("/api/auth/etsy/start")).headers["location"]).query)
+    second = parse_qs(urlparse((await auth_client.get("/api/auth/etsy/start")).headers["location"]).query)
+    assert first["state"] != second["state"] and first["code_challenge"] != second["code_challenge"]
+    for q in (second, first):  # finished in either order
+        cb = await auth_client.get(f"/api/auth/etsy/callback?state={q['state'][0]}&code=c")
+        assert "status=connected" in cb.headers["location"]
+
+
+async def test_etsys_refusal_is_logged_and_shown_without_secrets(auth_client: httpx.AsyncClient, caplog) -> None:  # noqa: ANN001
+    state = parse_qs(urlparse((await auth_client.get("/api/auth/etsy/start")).headers["location"]).query)["state"][0]
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&error=invalid_scope"
+                               "&error_description=The+requested+scope+is+invalid")
+    location = cb.headers["location"]
+    assert "status=etsy_error" in location and "invalid_scope" in location
+    assert any("invalid_scope: The requested scope is invalid" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_refused_token_exchange_says_etsys_reason_and_logs_no_code(auth_client: httpx.AsyncClient, caplog) -> None:  # noqa: ANN001
+    from app.main import create_app  # noqa: F401  (the app is the fixture's)
+
+    transport = auth_client._transport  # type: ignore[attr-defined]
+    app = transport.app
+    app.dependency_overrides[deps.get_token_http_factory] = lambda: (
+        lambda: _token_client({"error": "invalid_grant", "error_description": "code_verifier is invalid"}, status=400)
+    )
+    state = parse_qs(urlparse((await auth_client.get("/api/auth/etsy/start")).headers["location"]).query)["state"][0]
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=SECRET-CODE")
+    assert "status=etsy_error" in cb.headers["location"] and "invalid_grant" in cb.headers["location"]
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "invalid_grant: code_verifier is invalid" in logged and "SECRET-CODE" not in logged
+
+
+async def test_after_a_reconnect_the_shop_has_every_scope_and_is_no_longer_asked(auth_client: httpx.AsyncClient) -> None:
+    from app.api.shops import missing_scopes
+
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        # Connected before transactions_r was added.
+        s.add(EtsyConnection(tenant_id=auth_client.tenant_id, etsy_user_id=555, shop_id=555,  # type: ignore[attr-defined]
+                             status=ConnectionStatus.active, scopes=["listings_r", "listings_w", "shops_r", "shops_w"]))
+        await s.commit()
+        assert missing_scopes((await s.execute(select(EtsyConnection))).scalar_one()) == ["transactions_r"]
+    state = parse_qs(urlparse((await auth_client.get("/api/auth/etsy/start")).headers["location"]).query)["state"][0]
+    assert "status=connected" in (await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=c")).headers["location"]
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        shop = (await s.execute(select(EtsyConnection))).scalar_one()  # the same shop, not a second row
+        assert missing_scopes(shop) == []
+
+
+def test_the_token_responses_own_scope_list_is_kept() -> None:
+    tokens = oauth._parse_token({"access_token": "a", "refresh_token": "r", "scope": "listings_r shops_r"})
+    assert tokens.scopes == ["listings_r", "shops_r"]

@@ -15,6 +15,7 @@ const BAD = "border-rose-200 bg-rose-50 text-rose-700";
 const BANNERS: Record<string, { cls: string; text: string }> = {
   connected: { cls: OK, text: "Shop connected. Its listings are being fetched now." },
   error: { cls: BAD, text: "Something went wrong during authorization. Please try again." },
+  etsy_error: { cls: BAD, text: "Etsy refused the authorization." },
   denied: { cls: WARN, text: "Authorization was cancelled." },
   expired: { cls: WARN, text: "That authorization link expired. Please start again." },
   unconfigured: { cls: BAD, text: "Etsy API credentials are not configured on the server." },
@@ -35,12 +36,15 @@ const BANNERS: Record<string, { cls: string; text: string }> = {
 export default function ConnectPage() {
   const { shops, slots, refresh, select } = useShops();
   const [banner, setBanner] = useState<string | null>(null);
+  // Etsy's own reason when it refused the authorization (shown as Etsy wrote it).
+  const [etsyReason, setEtsyReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("status");
     if (status) setBanner(status);
+    setEtsyReason(params.get("reason"));
     const shop = params.get("shop");
     if (status === "connected" && shop) select(shop); // show the shop just connected
     refresh();
@@ -77,7 +81,14 @@ export default function ConnectPage() {
         </p>
       </div>
 
-      {b && <div key="div-77-6" className={`card p-3 text-sm ${b.cls}`}>{b.text}</div>}
+      {b && (
+        <div key="div-77-6" className={`card p-3 text-sm ${b.cls}`}>
+          <span>{b.text}</span>
+          {banner === "etsy_error" && etsyReason && (
+            <span key="reason" translate="no">{` Etsy's reason: ${etsyReason}`}</span>
+          )}
+        </div>
+      )}
       {error && <div key="div-78-6" className={`card p-3 text-sm ${BAD}`}>{error}</div>}
 
       {shops === null ? (

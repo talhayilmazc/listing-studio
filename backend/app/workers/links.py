@@ -214,7 +214,7 @@ async def _link_profile_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                 client = _client(ctx, http, shop.id, upkeep=False)
                 tkw = {**kw, "access_token": await _token(session, shop)}
                 target = await _settings(client, await _shop_id(session, client, shop, tkw), tkw, currency=True)
-                outcomes = L.plan_shop(payload, source, target)
+                outcomes = L.plan_shop(payload, source, target, set(shop.scopes) if shop.scopes is not None else None)
                 left = _apply(link, outcomes, L.currency_problem(payload.get("currency"), target.currency))
                 plan[str(shop.id)] = left
         await session.commit()
@@ -301,7 +301,7 @@ async def _create_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                 shop_id = await _shop_id(session, client, shop, tkw)
                 # Read again: what appeared since the plan is linked, not made twice.
                 target = await _settings(client, shop_id, tkw, currency=True)
-                outcomes = L.plan_shop(payload, source, target)
+                outcomes = L.plan_shop(payload, source, target, set(shop.scopes) if shop.scopes is not None else None)
                 confirmed = set(link.pending_create or [])
                 for resource in L.RESOURCES:
                     outcome = outcomes[resource]
