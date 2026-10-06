@@ -360,6 +360,27 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def get_listings_by_listing_ids(
+        self,
+        listing_ids: list[int],
+        *,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """getListingsByListingIds: up to 100 listings in one request (Part D:
+        each one's lifetime ``views`` and ``num_favorers``)."""
+        if not 0 < len(listing_ids) <= 100:
+            raise ValueError("between 1 and 100 listing ids per request")
+        return await self._request(
+            "GET",
+            "/application/listings/batch",
+            access_token=access_token,
+            params={"listing_ids": ",".join(str(i) for i in listing_ids)},
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     async def get_listing_inventory(
         self,
         listing_id: int,

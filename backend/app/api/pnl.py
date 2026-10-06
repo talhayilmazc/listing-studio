@@ -38,7 +38,7 @@ from app.db.models import (
     StatementOrder,
     Tenant,
 )
-from app.pipeline import finance, pnl, profile_shops, profit
+from app.pipeline import finance, listing_traffic, pnl, profile_shops, profit
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -202,13 +202,22 @@ async def month_view(
     for lid, sold in before.items():
         if sold >= pnl.FADING_MIN_BEFORE and lid not in rows:
             rows[lid] = pnl.ListingRow(lid, fees_known=data.statement is not None)
+    # Views and favourites of the listings the app published (Part D); one that had
+    # views this month and no sale is in the table too, so its conversion shows.
+    traffic = await listing_traffic.month_traffic(session, connection.id, chosen, _last(chosen))
+    for lid, t in traffic.items():
+        if t.views and lid not in rows:
+            rows[lid] = pnl.ListingRow(lid, fees_known=data.statement is not None)
     top = pnl.winners(rows)
     classes = {
         lid: pnl.classify(r, before.get(lid, 0), (loaded.shop.info.get(lid) or finance.ListingInfo()).launched, _last(chosen), top, money)
         for lid, r in rows.items()
     }
     listing_rows = [
-        _row_out(r, loaded.shop, classes[lid], units.get(lid, [0] * 6), data.statement is not None)
+        {**_row_out(r, loaded.shop, classes[lid], units.get(lid, [0] * 6), data.statement is not None),
+         **(traffic[lid].out(r.orders) if lid in traffic else {
+             "views": None, "favorites": None, "conversion": None, "views_days": 0,
+             "traffic_note": listing_traffic.NOT_APP})}
         for lid, r in rows.items()
     ]
     listing_rows.sort(key=lambda r: -(r["result_minor"] if r["result_minor"] is not None else r["before_cost_minor"] or r["revenue_minor"]))
@@ -235,7 +244,37 @@ async def month_view(
         "trend_months": trend_months,
         "titles_refreshing": not loaded.shop.cache_fresh,
         "sizes_supported": SIZES_SUPPORTED,
+        "traffic_label": listing_traffic.LABEL,
     }
+
+
+#: The title-style comparison looks back this far by default (days).
+STYLE_PERIOD_DAYS = 90
+
+
+@router.get("/title-styles")
+async def title_styles(
+    shop: uuid.UUID | None = None,
+    days: int = STYLE_PERIOD_DAYS,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> dict[str, Any]:
+    """Listings published with the app in the last ``days``, by title style: views per
+    listing per day, favourites per view, orders per view, with sample sizes and 95%
+    intervals; "not enough data yet" below the thresholds. Nothing is rewritten."""
+    if days not in (30, 60, 90, 180, 365):
+        raise HTTPException(status_code=422, detail="days must be 30, 60, 90, 180 or 365")
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        return {"connected": False}
+    loaded = await analytics_api._load(session, tenant, connection, enqueuer)
+    today = datetime.now(timezone.utc).date()
+    out = await listing_traffic.compare_styles(
+        session, connection.id, today - timedelta(days=days - 1), today, today,
+        orders_known=loaded.shop.sales_from is not None,
+    )
+    return {"connected": True, "shop_name": shop_label(connection), **out}
 
 
 # --- product costs --------------------------------------------------------------------------------------

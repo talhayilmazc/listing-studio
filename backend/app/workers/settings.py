@@ -42,6 +42,7 @@ from app.workers.schedule import release_scheduled_publishes
 from app.workers.plans import release_planned_drafts
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
 from app.workers.recovery import recover_interrupted_jobs
+from app.workers.listing_stats import read_all_listing_stats, read_listing_stats
 from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
@@ -114,6 +115,7 @@ class WorkerSettings:
         link_profile,
         create_link_resources,
         refresh_shop_links,
+        read_listing_stats,
     ]
     cron_jobs = [
         cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False),
@@ -133,6 +135,8 @@ class WorkerSettings:
         cron(sync_all_sales, hour={2}, minute={30}, second=0, run_at_startup=False),
         # The shop's fees and ad spend from its payment ledger, likewise.
         cron(sync_all_ledgers, hour={2}, minute={40}, second=0, run_at_startup=False),
+        # Views and favourites of the listings the app published (Part D).
+        cron(read_all_listing_stats, hour={3}, minute={10}, second=0, run_at_startup=False),
         # Image files past their time are deleted and the day's disk summary is
         # sent (workers/upkeep.py). At most once a day; also at startup, so a
         # worker that was down at the hour catches up.

@@ -57,6 +57,9 @@ JOB_COST: dict[str, int] = {
     "create_link_resources": 200,
     # One shop's four lists, checked for every profile linked to it (upkeep).
     "refresh_shop_links": 4,
+    # Views and favourites of a shop's app-published listings: one request per
+    # 100 listings, up to 1,000 (upkeep; Part D).
+    "read_listing_stats": 10,
     # shop, and up to 50 pages of 100 for each of the 5 listing states
     # (profiles.SYNC_STATES, SYNC_MAX_PAGES); one per state for a small shop
     "sync_shop_listings": 251,
@@ -83,7 +86,7 @@ JOB_COST: dict[str, int] = {
 # against the seller's own daily limit (v7 §D3).
 UPKEEP = frozenset(
     {"refresh_profile", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "detect_profiles", "sync_sales", "estimate_sales",
-     "sync_ledger", "estimate_ledger", "backfill_ledger"}
+     "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats"}
 )
 
 # Resume a little after midnight, so the new day's counters are in place.

@@ -51,6 +51,8 @@ from app.db.models import (
     ListingSnapshot,
     SaleLine,
     SalesDaily,
+    ListingStatDaily,
+    ContentVersion,
     SalesSync,
     StatementImport,
     StatementListingFee,
@@ -88,6 +90,11 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
     sales = await _bulk(session, delete(SalesDaily).where(SalesDaily.day < oldest))
     await _bulk(session, delete(LedgerDaily).where(LedgerDaily.day < oldest))
+    # Views and favourites per listing per day, and the text versions that ended
+    # more than 13 months ago (Part D).
+    await _bulk(session, delete(ListingStatDaily).where(ListingStatDaily.day < oldest))
+    await _bulk(session, delete(ContentVersion).where(
+        ContentVersion.active_to < now - timedelta(days=ContentVersion.RETENTION_DAYS)))
     # What "Import from Etsy" stored, and the order lines it is joined to: the same 13 months.
     await _bulk(session, delete(SaleLine).where(SaleLine.day < oldest))
     await _bulk(session, delete(AdsDaily).where(AdsDaily.day < oldest))
@@ -185,6 +192,8 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     listings = await session.execute(
         delete(ShopListingCache).where(ShopListingCache.connection_id == connection_id)
     )
+    versions = await session.execute(delete(ContentVersion).where(ContentVersion.connection_id == connection_id))
+    stats = await session.execute(delete(ListingStatDaily).where(ListingStatDaily.connection_id == connection_id))
     publications = await session.execute(
         delete(ListingPublication).where(ListingPublication.connection_id == connection_id)
     )
@@ -206,6 +215,8 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
         "snapshots": snapshots.rowcount or 0,
         "shop_listings": listings.rowcount or 0,
         "publications": publications.rowcount or 0,
+        "content_versions": versions.rowcount or 0,
+        "listing_stat_days": stats.rowcount or 0,
         "profiles": detached["profiles"],
         "profiles_moved": detached["profiles_moved"],
         "profile_links": detached["profile_links"],

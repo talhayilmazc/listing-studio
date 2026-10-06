@@ -1303,6 +1303,14 @@ export interface MonthListing {
   units_before: number;
   /** Items sold in each of `trend_months`, oldest first. */
   trend: number[];
+  /** Listing views on Etsy in the month (not search impressions); null when not measured. */
+  views: number | null;
+  favorites: number | null;
+  /** Orders ÷ views; null without views. */
+  conversion: number | null;
+  views_days: number;
+  /** Why the views are blank, if they are. */
+  traffic_note: string | null;
 }
 
 export interface MonthAttention {
@@ -1331,6 +1339,8 @@ export interface MonthView {
   trend_months: string[];
   titles_refreshing: boolean;
   sizes_supported: boolean;
+  /** "listing views on Etsy, not search impressions" */
+  traffic_label?: string;
 }
 
 export interface ProductCostsView {
@@ -1445,4 +1455,35 @@ export interface GroupPlanSummary {
   counts: Record<string, number>;
   first_publish: string | null;
   last_publish: string | null;
+}
+
+export interface StyleRate {
+  value: number;
+  low: number;
+  high: number;
+}
+
+export interface StyleResult {
+  style: "short" | "long";
+  listings: number;
+  views: number;
+  enough: boolean;
+  note: string | null;
+  views_per_listing_day: StyleRate | null;
+  favorites_per_view: StyleRate | null;
+  orders_per_view: StyleRate | null;
+}
+
+export type StyleRateKey = "views_per_listing_day" | "favorites_per_view" | "orders_per_view";
+
+export interface TitleStyleComparison {
+  connected: boolean;
+  shop_name?: string;
+  label: string;
+  period: { start: string; end: string };
+  styles: StyleResult[];
+  difference: Record<StyleRateKey, (StyleRate & { clear: boolean }) | null> | null;
+  orders_note: string | null;
+  thresholds: { listings: number; views: number };
+  caveats: string[];
 }

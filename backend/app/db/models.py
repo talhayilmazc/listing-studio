@@ -1061,6 +1061,80 @@ class SalesDaily(Base):
     currency: Mapped[str | None] = mapped_column(Text)
 
 
+class ListingStatDaily(Base):
+    """One app-published listing's views and favourites on Etsy, one row per UTC day (Part D).
+
+    Etsy gives each listing's **lifetime** ``views`` and ``num_favorers``; the
+    daily figure is the difference from the day before. ``views``/``favorites``
+    are None when there is no earlier total to subtract (the first reading of a
+    listing published more than :data:`app.workers.listing_stats.FIRST_DAY_WINDOW`
+    ago), never a made-up number. These are listing page views on Etsy, not
+    search impressions: Etsy's API has neither impressions, search terms nor
+    traffic sources (docs/analytics.md). Only for listings the app published;
+    kept :attr:`RETENTION_DAYS` (13 months), deleted at once with the shop.
+    """
+
+    __tablename__ = "listing_stat_daily"
+    __table_args__ = (Index("ix_listing_stat_daily_tenant_day", "tenant_id", "day"),)
+
+    RETENTION_DAYS: ClassVar[int] = 396
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
+    )
+    listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Etsy's lifetime totals as read that day (None: Etsy returned none).
+    views_total: Mapped[int | None] = mapped_column(Integer)
+    favorites_total: Mapped[int | None] = mapped_column(Integer)
+    #: That day's increase; None = unknown (no earlier total).
+    views: Mapped[int | None] = mapped_column(Integer)
+    favorites: Mapped[int | None] = mapped_column(Integer)
+
+
+class ContentVersion(Base):
+    """One version of a listing's text as it went to Etsy in one shop (Part D).
+
+    Written when the draft is made (``active_from`` None while it is a draft),
+    opened when it goes live, closed (``active_to``) when the app replaces the
+    text. ``reason``: "generated" (as the app wrote it), "edited" (the seller
+    changed it in the app first) or "replaced" (Replace images, full mode).
+    Edits made directly on Etsy are not seen. ``title_style`` is "short" or
+    "long". Survives batch deletion (it hangs off the publication); kept 13
+    months after it was closed and deleted with the shop.
+    """
+
+    __tablename__ = "content_version"
+    __table_args__ = (Index("ix_content_version_publication", "publication_id", "active_from"),)
+
+    RETENTION_DAYS: ClassVar[int] = 396
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
+    )
+    publication_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("listing_publication.id", ondelete="CASCADE"), nullable=False
+    )
+    etsy_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    title: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
+    description: Mapped[str | None] = mapped_column(Text)
+    #: The attributes written on the draft, ``{name: value}``.
+    attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    title_style: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    active_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    active_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SalesSync(Base):
     """Where reading one shop's sales stands (v7 §C1): resumable, paced, measured.
 

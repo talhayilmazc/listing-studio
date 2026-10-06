@@ -55,6 +55,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
+from app.pipeline import versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
@@ -683,18 +684,24 @@ async def publish_content(
 
     # 8) Record the listing id. It is created as a DRAFT (state never set), so mark
     # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
-    session.add(
-        ListingPublication(
-            tenant_id=tenant_id,
-            content_id=content.id,
-            connection_id=connection.id,
-            profile_id=profile_id,
-            etsy_listing_id=listing_id,
-            state="draft",
-            title=listing["title"],
-            sku=sku,
-            manual_done={},  # a new draft: nothing has been set by hand on it yet
-        )
+    publication = ListingPublication(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        content_id=content.id,
+        connection_id=connection.id,
+        profile_id=profile_id,
+        etsy_listing_id=listing_id,
+        state="draft",
+        title=listing["title"],
+        sku=sku,
+        manual_done={},  # a new draft: nothing has been set by hand on it yet
+    )
+    session.add(publication)
+    await session.flush()  # the version refers to it
+    # The text this shop's draft carries, kept as its first version (Part D).
+    versions.drafted(
+        session, publication, content, title=listing.get("title"), tags=listing.get("tags"),
+        description=listing.get("description"), attributes=written,
     )
     # Finished: from here the publication is the record, in the same commit.
     await session.delete(attempt)
@@ -798,6 +805,7 @@ async def publish_live(
         raise
     publication.state = "active"
     publication.published_at = _now()
+    await versions.went_live(session, publication, publication.published_at)
     await session.commit()
 
     return PublishResult(

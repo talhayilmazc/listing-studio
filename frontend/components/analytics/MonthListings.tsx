@@ -23,13 +23,15 @@ const CLASS_STYLE: Record<MonthClass, string> = {
 };
 const CLASS_ORDER: MonthClass[] = ["losing", "fading", "winner", "steady", "new"];
 
-type SortKey = "result" | "units" | "revenue" | "fees" | "per_unit" | "title" | "class";
+type SortKey = "result" | "units" | "revenue" | "fees" | "per_unit" | "views" | "conversion" | "title" | "class";
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "result", label: "Profit before ads" },
   { key: "per_unit", label: "Per item" },
   { key: "units", label: "Sold" },
   { key: "revenue", label: "Sales" },
   { key: "fees", label: "Etsy fees" },
+  { key: "views", label: "Views" },
+  { key: "conversion", label: "Conversion" },
   { key: "class", label: "Class" },
   { key: "title", label: "Name" },
 ];
@@ -40,6 +42,8 @@ function sortValue(r: MonthListing, key: SortKey): number | string | null {
   switch (key) {
     case "result": return best(r);
     case "per_unit": return r.per_unit_minor;
+    case "views": return r.views;
+    case "conversion": return r.conversion;
     case "units": return r.units;
     case "revenue": return r.revenue_minor;
     case "fees": return r.fees_minor === null ? null : -r.fees_minor;
@@ -71,6 +75,13 @@ function Trend({ values, months }: { values: number[]; months: string[] }) {
       ))}
     </span>
   );
+}
+
+/** Views, favourites or conversion: blank (with the reason) when not measured, never 0. */
+function Measured({ value, note, percent = false }: { value: number | null; note: string | null; percent?: boolean }) {
+  if (value === null) return <span className="text-slate-400" title={note ?? undefined}>—</span>;
+  const text = percent ? `${(value * 100).toFixed(value < 0.1 ? 1 : 0)}%` : value.toLocaleString();
+  return <span translate="no" className="tabular-nums">{text}</span>;
 }
 
 function Money({ minor, currency }: { minor: number | null; currency: string | null }) {
@@ -169,6 +180,7 @@ export function MonthListings({ view, onCosts }: { view: MonthView; onCosts: () 
       <p className="text-xs text-slate-500">
         <span>{`${monthName(view.month)}. Results are before Etsy Ads, which is a cost of the whole shop. `}</span>
         <Txt>{statement ? "" : "Etsy's fees per listing need the month's statement: until it is imported, those columns are blank. "}</Txt>
+        <span>{`Views are ${view.traffic_label ?? "listing views on Etsy, not search impressions"}, read once a day for listings published with the app; conversion is orders ÷ views. `}</span>
         {uncosted > 0 && (
           <span key="uncosted">
             <span>{`${uncosted} ${uncosted === 1 ? "listing has" : "listings have"} no product cost, so their result is before product cost. `}</span>
@@ -179,7 +191,7 @@ export function MonthListings({ view, onCosts }: { view: MonthView; onCosts: () 
 
       {/* Wide screens: the table. */}
       <div className="card hidden overflow-x-auto sm:block">
-        <table className="w-full min-w-[60rem] text-sm">
+        <table className="w-full min-w-[72rem] text-sm">
           <thead className="border-b border-slate-200 text-xs text-slate-500">
             <tr>
               <Head k="title" def={{ label: "Listing", text: "The listing, its SKU and profile, and its page on Etsy." }} right={false} />
@@ -190,6 +202,9 @@ export function MonthListings({ view, onCosts }: { view: MonthView; onCosts: () 
               <th scope="col" className="px-2 py-2 text-right font-medium" title={COLUMNS.product_cost.text}>{COLUMNS.product_cost.label}</th>
               <Head k="result" def={COLUMNS.result} />
               <Head k="per_unit" def={COLUMNS.per_unit} />
+              <Head k="views" def={COLUMNS.views} />
+              <th scope="col" className="px-2 py-2 text-right font-medium" title={COLUMNS.favorites.text}>{COLUMNS.favorites.label}</th>
+              <Head k="conversion" def={COLUMNS.conversion} />
               <th scope="col" className="px-2 py-2 text-right font-medium" title={COLUMNS.trend.text}>{COLUMNS.trend.label}</th>
             </tr>
           </thead>
@@ -221,6 +236,9 @@ export function MonthListings({ view, onCosts }: { view: MonthView; onCosts: () 
                   {r.result_minor === null && r.before_cost_minor !== null && <span key="pre" className="block text-xs text-amber-700">before product cost</span>}
                 </td>
                 <td className="px-2 py-2 text-right"><Money minor={r.per_unit_minor} currency={c} /></td>
+                <td className="px-2 py-2 text-right"><Measured value={r.views} note={r.traffic_note} /></td>
+                <td className="px-2 py-2 text-right"><Measured value={r.favorites} note={r.traffic_note} /></td>
+                <td className="px-2 py-2 text-right"><Measured value={r.conversion} note={r.traffic_note} percent /></td>
                 <td className="px-2 py-2 text-right"><Trend values={r.trend} months={view.trend_months} /></td>
               </tr>
             ))}
@@ -260,6 +278,12 @@ export function MonthListings({ view, onCosts }: { view: MonthView; onCosts: () 
               </dd>
               <dt className="text-slate-500"><Term def={COLUMNS.per_unit} /></dt>
               <dd className="text-right"><Money minor={r.per_unit_minor} currency={c} /></dd>
+              <dt className="text-slate-500"><Term def={COLUMNS.views} /></dt>
+              <dd className="text-right"><Measured value={r.views} note={r.traffic_note} /></dd>
+              <dt className="text-slate-500"><Term def={COLUMNS.favorites} /></dt>
+              <dd className="text-right"><Measured value={r.favorites} note={r.traffic_note} /></dd>
+              <dt className="text-slate-500"><Term def={COLUMNS.conversion} /></dt>
+              <dd className="text-right"><Measured value={r.conversion} note={r.traffic_note} percent /></dd>
             </dl>
           </li>
         ))}

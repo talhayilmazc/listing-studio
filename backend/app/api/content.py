@@ -28,6 +28,7 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
+from app.pipeline import versions
 from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
 from app.pipeline.personalization import DEFAULT_QUESTION
 from app.pipeline.personalization import for_listing as personalization_for_listing
@@ -427,12 +428,15 @@ async def update_content(
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
+    before = (content.title, list(content.tags or []), content.description)
     if body.title is not None:
         content.title = body.title
     if body.tags is not None:
         content.tags = body.tags
     if body.description is not None:
         content.description = body.description
+    if (content.title, list(content.tags or []), content.description) != before:
+        versions.mark_edited(content)  # its published versions say "edited" (Part D)
     if "personalization" in body.model_fields_set:
         content.personalization = _clean_personalization(body.personalization)
     await rescan(session, content)

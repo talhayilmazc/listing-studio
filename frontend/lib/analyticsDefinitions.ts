@@ -86,6 +86,9 @@ export const COLUMNS: Record<string, Definition> = {
   result: { label: "Profit before ads", text: "Sales less refunds, Etsy fees and your product cost. Before Etsy Ads, which is a cost of the whole shop. Without a product cost it is the result before product cost, and says so." },
   per_unit: { label: "Per item", text: "Profit before ads divided by the items sold: what one more sale is worth." },
   trend: { label: "Last 6 months", text: "Items sold in each of the last six months, oldest first." },
+  views: { label: "Views", text: "Listing views on Etsy in the month, not search impressions. Read once a day, only for listings published with the app. Etsy's API has no impressions, search terms or traffic sources." },
+  favorites: { label: "Favourites", text: "Times the listing was favourited in the month (listings published with the app)." },
+  conversion: { label: "Conversion", text: "Orders ÷ listing views on Etsy in the month. Not a search click-through rate." },
 };
 
 export const CLASSES: Record<"winner" | "steady" | "fading" | "losing" | "new", Definition> = {
@@ -101,6 +104,10 @@ export function refundsParts(refunded: string, taxReturned: string): string {
 }
 
 /** The whole reference, as the document. */
+/** The title style comparison's thresholds (backend pipeline/listing_traffic.py). */
+export const STYLE_MIN_LISTINGS = 30;
+export const STYLE_MIN_VIEWS = 1000;
+
 export function document(): string {
   const out: string[] = [
     "# Analytics: what every number means",
@@ -134,6 +141,16 @@ export function document(): string {
   table("Totals, advertising and what is beside the account", TOTALS);
   table("The listings table", COLUMNS);
   table("Listing classes", CLASSES);
+  out.push(
+    "",
+    "## Views, favourites and title styles",
+    "",
+    "For the listings published with the app, Etsy's lifetime views and favourites are read once a day and the day's increase is kept for 13 months (deleted with the shop). A listing's first reading is a starting point, not a day's views, unless it went live in the 48 hours before; a day that was not read is included in the next reading. The read costs one Etsy request per 100 listings per shop per day, and none for listings the shop sync already read that day.",
+    "",
+    "These are **listing views on Etsy, not search impressions**. Etsy's API has no impressions, no search terms and no traffic sources, so how often a listing appeared in search, for which searches, and where its visitors came from cannot be measured here. Conversion is orders ÷ views; it is not a search click-through rate.",
+    "",
+    `The title style comparison takes the listings published with the app in the same period, by the style their first published text was written in ("Etsy recommended (short)" or "Long keyword"), while that text was live. It shows views per listing per day, favourites per view and orders per view, each with its number of listings and a 95% interval clustered by listing. Below ${STYLE_MIN_LISTINGS} listings or ${STYLE_MIN_VIEWS.toLocaleString("en-US")} views for a style it says "not enough data yet". Etsy gives new listings a small temporary boost and shoppers' context varies, so the comparison is of listings published at the same time; it is a measurement, not a ranking promise, and nothing is ever rewritten from it.`,
+  );
   out.push(
     "",
     "## Refunds",

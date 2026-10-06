@@ -23,6 +23,7 @@ _BY_JOB: dict[str, str] = {
     "sync_ledger": "ledger",
     "estimate_ledger": "ledger",
     "backfill_ledger": "ledger",
+    "read_listing_stats": "listing_stats",
     "run_publish_job": "drafts",
     "run_publish_live_job": "publishing",
     "run_replace_images_job": "replace_images",
@@ -38,6 +39,7 @@ LABELS: dict[str, str] = {
     "profile_setup": "Setting profiles up in shops",
     "sales": "Sales read",
     "ledger": "Fee ledger read",
+    "listing_stats": "Listing views and favourites",
     "other": "Other",
 }
 

@@ -82,6 +82,9 @@ A number with nothing behind it is left blank with the reason beside it. It is n
 | Profit before ads | Sales less refunds, Etsy fees and your product cost. Before Etsy Ads, which is a cost of the whole shop. Without a product cost it is the result before product cost, and says so. |
 | Per item | Profit before ads divided by the items sold: what one more sale is worth. |
 | Last 6 months | Items sold in each of the last six months, oldest first. |
+| Views | Listing views on Etsy in the month, not search impressions. Read once a day, only for listings published with the app. Etsy's API has no impressions, search terms or traffic sources. |
+| Favourites | Times the listing was favourited in the month (listings published with the app). |
+| Conversion | Orders ÷ listing views on Etsy in the month. Not a search click-through rate. |
 
 ## Listing classes
 
@@ -92,6 +95,14 @@ A number with nothing behind it is left blank with the reason beside it. It is n
 | Fading | Sold half or less of the month before, when it sold at least 3 then. |
 | Losing money | Its sales left less than they cost: after Etsy's fees and your product cost, or even before product cost. |
 | New | Listed fewer than 45 days before the end of the month: too early to judge. |
+
+## Views, favourites and title styles
+
+For the listings published with the app, Etsy's lifetime views and favourites are read once a day and the day's increase is kept for 13 months (deleted with the shop). A listing's first reading is a starting point, not a day's views, unless it went live in the 48 hours before; a day that was not read is included in the next reading. The read costs one Etsy request per 100 listings per shop per day, and none for listings the shop sync already read that day.
+
+These are **listing views on Etsy, not search impressions**. Etsy's API has no impressions, no search terms and no traffic sources, so how often a listing appeared in search, for which searches, and where its visitors came from cannot be measured here. Conversion is orders ÷ views; it is not a search click-through rate.
+
+The title style comparison takes the listings published with the app in the same period, by the style their first published text was written in ("Etsy recommended (short)" or "Long keyword"), while that text was live. It shows views per listing per day, favourites per view and orders per view, each with its number of listings and a 95% interval clustered by listing. Below 30 listings or 1,000 views for a style it says "not enough data yet". Etsy gives new listings a small temporary boost and shoppers' context varies, so the comparison is of listings published at the same time; it is a measurement, not a ranking promise, and nothing is ever rewritten from it.
 
 ## Refunds
 

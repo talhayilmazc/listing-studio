@@ -14,6 +14,7 @@ import type {
   AnalyticsDetail,
   AnalyticsSummary,
   MonthView,
+  TitleStyleComparison,
   ProductCostsView,
   SalesReread,
   SalesRereadAdmin,
@@ -337,6 +338,9 @@ export const api = {
   /** One month of the shop's money: the receipt, what needs attention, every listing. `month` is "YYYY-MM". */
   analyticsMonth: (shop: string | null, month?: string | null) =>
     req<MonthView>(`/analytics/month${shopQuery(shop)}${month ? `${shop ? "&" : "?"}month=${month}` : ""}`),
+  /** Listings published with the app in the last `days`, by title style (Part D). */
+  titleStyles: (shop: string | null, days = 90) =>
+    req<TitleStyleComparison>(`/analytics/title-styles${shopQuery(shop)}${shop ? "&" : "?"}days=${days}`),
   productCosts: (shop: string | null) => req<ProductCostsView>(`/analytics/product-costs${shopQuery(shop)}`),
   saveProductCosts: (shop: string | null, profiles: Record<string, unknown>) =>
     req<ProductCostsView>(`/analytics/product-costs${shopQuery(shop)}`, { method: "PUT", body: JSON.stringify({ profiles }) }),

@@ -28,10 +28,20 @@ from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import blocklist_for_tenant
-from app.db.models import Asset, AssetStatus, EtsyConnection, GeneratedContent, Job, JobStatus, Tenant
+from app.db.models import (
+    Asset,
+    AssetStatus,
+    EtsyConnection,
+    GeneratedContent,
+    Job,
+    JobStatus,
+    ListingPublication,
+    Tenant,
+)
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
+from app.pipeline import versions
 from app.pipeline.content import AnthropicContentGenerator, policy_for
 from app.pipeline.imageclass import SIZE_CHART, AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.images import cover_image
@@ -249,6 +259,19 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             logger.exception("replace-images failed for job %s", job_id)
             return "failed"
 
+        if full:
+            # The listing's text changed on Etsy: a new version from now (Part D).
+            publication = (await session.execute(
+                select(ListingPublication).where(
+                    ListingPublication.connection_id == connection.id,
+                    ListingPublication.etsy_listing_id == listing_id,
+                )
+            )).scalars().first()
+            if publication is not None:
+                await versions.replaced(
+                    session, publication, datetime.now(timezone.utc),
+                    title=new_title, tags=new_tags, description=new_description,
+                )
         # The review page shows what the listing now says on Etsy (photos only changed no text).
         if full and job.payload.get("content_id"):
             content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))

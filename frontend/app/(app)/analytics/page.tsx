@@ -8,6 +8,7 @@ import { ShopBadge } from "@/components/ShopPicker";
 import { ImportFromEtsy } from "@/components/analytics/ImportFromEtsy";
 import { Month, monthName } from "@/components/analytics/Month";
 import { MonthListings } from "@/components/analytics/MonthListings";
+import { TitleStyles } from "@/components/analytics/TitleStyles";
 import { ProductCosts } from "@/components/analytics/ProductCosts";
 import { SalesReread } from "@/components/analytics/SalesReread";
 import { StatusBar } from "@/components/analytics/Shared";
@@ -135,7 +136,12 @@ export default function AnalyticsPage() {
         {view && connected && tab === "month" && (
           <Month key="month" view={view} onCosts={() => setTab("costs")} onImport={() => setTab("import")} />
         )}
-        {view && connected && tab === "listings" && <MonthListings key="listings" view={view} onCosts={() => setTab("costs")} />}
+        {view && connected && tab === "listings" && (
+          <div key="listings" className="space-y-5">
+            <MonthListings view={view} onCosts={() => setTab("costs")} />
+            <TitleStyles shopId={shopId} />
+          </div>
+        )}
         {tab === "import" && connected && <ImportFromEtsy key="import" shopId={shopId} onImported={load} />}
         {tab === "costs" && connected && <ProductCosts key="costs" shopId={shopId} currency={view?.currency ?? null} onSaved={load} />}
         {view && !connected && <p key="none" className="card p-4 text-sm text-slate-500">Connect a shop to see its figures.</p>}
