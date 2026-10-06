@@ -96,6 +96,7 @@ async def _profile(s, tenant_id, shop, *, name="Standard Tee", prefix=None, body
         name=name,
         reference_listing_id=shop.etsy_user_id * 10,
         content_template="apparel",
+        listing_style="classic",  # profiles made before Part C keep the long keyword style
         confirmed=True,
         title_prefix=prefix,
         cached_payload={"description": f"Reference title\n\n{body}", "images": [], "payload_version": 2},

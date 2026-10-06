@@ -32,7 +32,7 @@ import asyncio
 import html
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -55,6 +55,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
+from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
 from app.pipeline.personalization import questions_for
@@ -159,6 +160,8 @@ class PublishResult:
     section_id: int | None = None
     sizes_applied: bool = False
     image_count: int = 0
+    #: Every attribute written on the draft, ``{name: value}`` (Part C report).
+    attributes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -576,6 +579,11 @@ async def publish_content(
         raise ValueError(
             "required clothing attributes could not be determined: " + ", ".join(missing)
         )
+    # The garment's optional properties the profile's reference (or the mockup) gives.
+    resolved = [*resolved, *garment_attributes(
+        props.get("results", []), reference.get("attributes"), vision, {a.property_id for a in resolved}
+    )]
+    written = {a.property_name: ", ".join(a.values) for a in resolved}
     for attr in resolved:
         await client.update_listing_property(
             shop_id,
@@ -597,6 +605,7 @@ async def publish_content(
         )
         if unmatched:
             logger.info("draft %s: %d optional attribute(s) not offered by its category", listing_id, len(unmatched))
+        written.update({a.property_name: ", ".join(a.values) for a in chosen})
         for attr in chosen:
             await client.update_listing_property(
                 shop_id,
@@ -697,6 +706,7 @@ async def publish_content(
         section_id=section_id,
         sizes_applied=has_variations,
         image_count=next_rank,
+        attributes=written,
     )
 
 

@@ -51,9 +51,9 @@ def test_a_clear_short_title_with_distinct_tags_passes() -> None:
 
 def test_the_old_keyword_title_is_what_the_new_rules_reject() -> None:
     errors = " | ".join(check(listing(OLD_TITLE)))
-    assert "exceeds 100 characters" in errors
     assert "6 phrases" in errors
-    assert "fewer than 15" in errors
+    assert "19 words; keep it to 15 or fewer" in errors
+    assert "remove 'gift' from the title" in errors
     assert "repeats 'humor', 'nurse'" in errors
     assert "names the product type 3 times" in errors
 
@@ -75,13 +75,14 @@ def test_every_spelling_of_tshirt_is_one_product_word() -> None:
     assert "repeats 'tshirt'" in " ".join(sr.title_errors("Nurse T-Shirt, Flu Season Tshirt", RULES))
 
 
-def test_a_tag_that_only_repeats_the_title_is_rejected() -> None:
-    tags = ["funny nurse shirt", "flu season", *TAGS[2:]]
-    errors = " | ".join(check(listing(tags=tags)))
-    assert "only repeat words already in the title" in errors
-    assert "funny nurse shirt" in errors and "flu season" in errors
-    # A tag that adds one new word to a title word is a new search.
-    assert "er nurse gift" not in errors
+def test_a_tag_that_only_repeats_the_title_is_used_only_when_no_distinct_phrase_is_left() -> None:
+    title = "Funny Nurse Shirt, Flu Season Humor"
+    candidates = ["funny nurse shirt", "flu season", *TAGS]
+    tags, _ = sr.select_tags(title, candidates, ["humor", "subject", *INTENTS])
+    assert "funny nurse shirt" not in tags and "flu season" not in tags and tags == TAGS
+    # Too few distinct phrases: the title's own phrase fills the 13th place.
+    tags, _ = sr.select_tags(title, ["flu season", *TAGS[:12]], ["subject", *INTENTS[:12]])
+    assert tags == [*TAGS[:12], "flu season"]
 
 
 def test_reordered_and_plural_tags_are_one_search() -> None:
@@ -96,9 +97,11 @@ def test_tags_must_be_phrases_and_cover_several_kinds_of_search() -> None:
     assert "cover only 2 kinds of search" in " | ".join(check(listing(tag_intents=narrow)))
 
 
-def test_the_opening_is_two_or_three_sentences_and_not_the_title() -> None:
-    assert "1 sentence(s)" in " | ".join(check(listing(opening="A nurse shirt.", description="A nurse shirt.")))
-    copied = "Funny Nurse Shirt, Flu Season Humor, Hand Washing Joke. It is great. Buy it."
+def test_the_opening_is_one_or_two_sentences_and_not_the_title() -> None:
+    assert check(listing(opening="A funny nurse shirt about flu season.", description="x")) == []
+    three = "A nurse shirt. It is about flu. It is funny."
+    assert "3 sentence(s)" in " | ".join(check(listing(opening=three, description=three)))
+    copied = "Funny Nurse Shirt, Flu Season Humor, Hand Washing Joke. It is great."
     assert "copies the title" in " | ".join(check(listing(opening=copied, description=copied)))
     assert "write the opening" in " | ".join(check(listing(opening="", description="")))
 
@@ -145,9 +148,9 @@ def test_a_spare_tag_of_a_missing_kind_replaces_one_of_a_crowded_kind() -> None:
 
 
 def test_profile_bounds_stay_inside_etsys_limit() -> None:
-    assert (sr.title_rules().min_length, sr.title_rules().max_length) == (40, 100)
+    assert (sr.title_rules().min_length, sr.title_rules().max_length) == (40, 140)
     wide = sr.title_rules(60, 400)
-    assert (wide.min_length, wide.max_length, wide.max_words) == (60, 140, 14)
+    assert (wide.min_length, wide.max_length, wide.max_words) == (60, 140, 15)
     assert sr.title_rules(90, 50).min_length == 50  # never above its own maximum
 
 
@@ -236,7 +239,7 @@ def test_a_profile_chooses_its_style_and_its_bounds() -> None:
             cached_payload={"category_attributes": {"Holiday": ["Christmas"]}, "category_names": ["Clothing", "T-shirts"]})
     assert content_template_for(new) == "content/apparel_search"
     style = search_style(new)
-    assert (style["title_rules"].min_length, style["title_rules"].max_length, style["title_rules"].readable) == (50, 100, True)
+    assert (style["title_rules"].min_length, style["title_rules"].max_length, style["title_rules"].readable) == (50, 140, True)
     assert style["attribute_choices"] == {"Holiday": ["Christmas"]} and style["category_names"] == ["Clothing", "T-shirts"]
     # A seller's edit is held to the length only, never to the writing rules.
     assert bounds_for(new).readable is False and bounds_for(new).min_length == 50

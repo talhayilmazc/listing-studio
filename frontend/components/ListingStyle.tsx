@@ -4,8 +4,9 @@ import { useState } from "react";
 import type { Profile } from "@/lib/types";
 
 /**
- * How listings are written with this profile. The seller tries the search style
- * on one profile and compares; nothing changes for the others.
+ * How listings are written with this profile: "Etsy recommended (short)" (the
+ * default for new profiles) or "Long keyword" (the earlier style, which existing
+ * profiles kept). One click switches; nothing changes for the other profiles.
  *
  * The wording never promises a ranking: the style follows Etsy's published
  * guidance on what search matches, which is all anyone outside Etsy can know.
@@ -30,7 +31,7 @@ export function ListingStyle({
 
   const n = (v: string) => (v.trim() === "" ? null : Number(v));
   const ok = (v: number | null) => v === null || (Number.isInteger(v) && v >= 20 && v <= 140);
-  const valid = ok(n(low)) && ok(n(high)) && (n(low) ?? 40) <= (n(high) ?? 100);
+  const valid = ok(n(low)) && ok(n(high)) && (n(low) ?? 40) <= (n(high) ?? 140);
   const changed = low !== String(profile.title_min_length) || high !== String(profile.title_max_length);
   const saveBounds = () =>
     valid && changed && onSave({ title_min_length: n(low), title_max_length: n(high) });
@@ -41,8 +42,8 @@ export function ListingStyle({
       <div className="grid gap-2 sm:grid-cols-2">
         {(
           [
-            ["classic", "Current", "110–140 character title made of keyword phrases."],
-            ["search", "Search matching", "Short, readable title; tags, description opening and attributes carry the other keywords."],
+            ["search", "Etsy recommended (short)", "Up to 15 words: what the item is, what makes the design special, a few objective traits. Gift and occasion phrases go in the tags."],
+            ["classic", "Long keyword", "110–140 character title made of keyword phrases, as before."],
           ] as const
         ).map(([value, label, detail]) => (
           <label
@@ -99,7 +100,7 @@ export function ListingStyle({
               />
             </div>
             <p className="pb-2 text-xs text-slate-500">
-              <span>characters, at most 14 words</span>
+              <span>characters, at most 15 words</span>
               {profile.title_length_custom && (
                 <button
                   key="reset"
@@ -108,11 +109,11 @@ export function ListingStyle({
                   disabled={busy}
                   onClick={() => {
                     setLow("40");
-                    setHigh("100");
+                    setHigh("140");
                     onSave({ title_min_length: null, title_max_length: null });
                   }}
                 >
-                  reset to 40–100
+                  reset to 40–140
                 </button>
               )}
             </p>

@@ -14,6 +14,6 @@ Design analysis:
 - Seller SKU: $sku
 - Embedded text (context only, to understand the joke; never copy it into the title or tags): $embedded_text
 
-Title limits for this shop: $title_min to $title_max characters, at most $title_words words, 2 to 4 comma-separated phrases.
+Title limits for this shop: $title_min to $title_max characters, at most $title_words words, 1 to 4 comma-separated phrases.
 
-Write the listing for this garment design: the title (one garment word, in the first phrase only), 20 tags (best first, each 20 characters or fewer) each labelled with the kind of search it serves, the two-or-three-sentence opening, and the attributes chosen from the lists below.
+Write the listing for this garment design: the title (one garment word, in the first phrase only), 20 tags (best first, each 20 characters or fewer) each labelled with the kind of search it serves, the one-or-two-sentence opening, and the attributes chosen from the lists below.

@@ -1,0 +1,1288 @@
+{
+ "_note": "SYNTHETIC. Invented designs and hand-written model-style outputs for the offline style check; no seller's data and no LLM output. Titles and tags here measure this fixture's wording, not the model.",
+ "designs": [
+  {
+   "sku": "SYN001",
+   "analysis": {
+    "themes": [
+     "nurse",
+     "flu season"
+    ],
+    "theme": "nurse",
+    "profession": "nurse",
+    "occasion": "",
+    "season": "winter",
+    "style": "retro lettering",
+    "colors": [
+     "red",
+     "cream"
+    ]
+   },
+   "old": {
+    "title": "Funny Nurse Shirt, Flu Season Humor Tee, Hand Washing Nurse Gift, Healthcare Worker Humor, ER Nurse Shirt, Nurses Week Gift",
+    "tags": [
+     "nurse shirt",
+     "nurse shirts",
+     "funny nurse tee",
+     "nurse gift",
+     "nurse gifts",
+     "flu season",
+     "er nurse",
+     "nurses week",
+     "rn shirt",
+     "nurse humor",
+     "healthcare worker",
+     "nursing student",
+     "gift for nurse"
+    ]
+   },
+   "new": {
+    "title": "Funny Nurse Shirt, Flu Season Humor, Retro Red Lettering",
+    "tag_candidates": [
+     "er nurse gift",
+     "nurses week",
+     "healthcare worker",
+     "rn graduation gift",
+     "sarcastic tee",
+     "medical humor",
+     "hospital staff",
+     "coworker gift idea",
+     "nursing student",
+     "graphic tshirt",
+     "winter germs",
+     "hand washing joke",
+     "gift for her",
+     "nurse shirt",
+     "nurse shirts",
+     "icu nurse tee",
+     "nurse life",
+     "christmas",
+     "t-shirts",
+     "red"
+    ],
+    "tag_intents": [],
+    "opening": "A funny nurse shirt about flu season and the hand washing nobody remembers, lettered in retro red.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN002",
+   "analysis": {
+    "themes": [
+     "camping",
+     "bear"
+    ],
+    "theme": "camping",
+    "profession": "",
+    "occasion": "",
+    "season": "summer",
+    "style": "vintage badge",
+    "colors": [
+     "green",
+     "brown"
+    ]
+   },
+   "old": {
+    "title": "Camping Shirt, Bear Camping Tee, Vintage Camping Gift, Outdoor Adventure Shirt, Camper Gift for Him, Mountain Hiking Tee",
+    "tags": [
+     "camping shirt",
+     "camping tee",
+     "camping gift",
+     "camper gift",
+     "bear shirt",
+     "hiking shirt",
+     "outdoor shirt",
+     "mountain tee",
+     "adventure tee",
+     "gift for him",
+     "camp life",
+     "happy camper",
+     "nature lover"
+    ]
+   },
+   "new": {
+    "title": "Bear Camping Shirt, Vintage Mountain Badge, Green Brown",
+    "tag_candidates": [
+     "happy camper",
+     "camp life",
+     "hiking gift for him",
+     "outdoor adventure",
+     "national park tee",
+     "nature lover gift",
+     "summer camp tee",
+     "forest hiking",
+     "rv camping",
+     "campfire tee",
+     "wilderness",
+     "bear lover",
+     "dad camping gift",
+     "camping shirts",
+     "camping shirt",
+     "t-shirts",
+     "vintage",
+     "green",
+     "mountain lover",
+     "trail tee"
+    ],
+    "tag_intents": [],
+    "opening": "A bear camping shirt with a vintage mountain badge for anyone who would rather be outdoors.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN003",
+   "analysis": {
+    "themes": [
+     "teacher",
+     "pencil"
+    ],
+    "theme": "teacher",
+    "profession": "teacher",
+    "occasion": "back to school",
+    "season": "fall",
+    "style": "minimalist line",
+    "colors": [
+     "black",
+     "yellow"
+    ]
+   },
+   "old": {
+    "title": "Teacher Shirt, Back to School Teacher Tee, Teacher Gift, Pencil Teacher Shirt, Cute Teacher Gift for Her, Teacher Appreciation",
+    "tags": [
+     "teacher shirt",
+     "teacher tee",
+     "teacher gift",
+     "teacher gifts",
+     "pencil shirt",
+     "back to school",
+     "teacher appreciation",
+     "cute teacher tee",
+     "gift for teacher",
+     "teacher life",
+     "elementary teacher",
+     "teaching tee",
+     "school staff"
+    ]
+   },
+   "new": {
+    "title": "Teacher Shirt, Minimalist Pencil, Black Yellow",
+    "tag_candidates": [
+     "back to school",
+     "teacher appreciation",
+     "teacher life",
+     "elementary teacher",
+     "first day of school",
+     "school staff tee",
+     "teaching gift",
+     "new teacher gift",
+     "kindergarten tee",
+     "teacher team shirts",
+     "classroom tee",
+     "fall teacher outfit",
+     "teacher gifts",
+     "teacher gift",
+     "t-shirts",
+     "black",
+     "pencil art",
+     "school year",
+     "teacher crew",
+     "educator tee"
+    ],
+    "tag_intents": [],
+    "opening": "A minimalist teacher shirt with a single pencil, made for the first day back in the classroom.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN004",
+   "analysis": {
+    "themes": [
+     "4th of july",
+     "eagle"
+    ],
+    "theme": "4th of july",
+    "profession": "",
+    "occasion": "4th of july",
+    "season": "summer",
+    "style": "retro 70s",
+    "colors": [
+     "red",
+     "white",
+     "navy blue"
+    ]
+   },
+   "old": {
+    "title": "4th of July Shirt, Patriotic Eagle Tee, American Flag Shirt, Retro USA Shirt, Independence Day Gift, Patriotic Gift for Him",
+    "tags": [
+     "4th of july shirt",
+     "july 4th shirt",
+     "patriotic shirt",
+     "eagle shirt",
+     "usa shirt",
+     "american shirt",
+     "independence day",
+     "fourth of july",
+     "patriotic tee",
+     "merica shirt",
+     "usa tee",
+     "4th of july tee",
+     "patriotic gift"
+    ]
+   },
+   "new": {
+    "title": "Patriotic Eagle Shirt, Retro 70s Stars, Red White Blue",
+    "tag_candidates": [
+     "july 4th outfit",
+     "fourth of july tee",
+     "merica",
+     "usa tee",
+     "american eagle",
+     "stars and stripes",
+     "bbq party tee",
+     "family 4th matching",
+     "patriotic dad gift",
+     "summer party tee",
+     "red white blue tee",
+     "land of the free",
+     "independence day",
+     "4th of july",
+     "eagle tees",
+     "eagle tee",
+     "t-shirts",
+     "retro",
+     "fireworks tee",
+     "america tee"
+    ],
+    "tag_intents": [],
+    "opening": "A patriotic eagle shirt in retro 70s stars and stripes, ready for the Fourth of July cookout.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN005",
+   "analysis": {
+    "themes": [
+     "cat",
+     "coffee"
+    ],
+    "theme": "cat",
+    "profession": "",
+    "occasion": "",
+    "season": "",
+    "style": "hand lettered",
+    "colors": [
+     "pink",
+     "black"
+    ]
+   },
+   "old": {
+    "title": "Cat Coffee Shirt, Funny Cat Tee, Coffee Lover Gift, Cat Mom Shirt, Cute Cat Shirt for Women, Coffee and Cats Gift for Her",
+    "tags": [
+     "cat shirt",
+     "cat tee",
+     "cat mom",
+     "coffee shirt",
+     "coffee lover",
+     "cat lover gift",
+     "cat gifts",
+     "funny cat shirt",
+     "cute cat tee",
+     "coffee and cats",
+     "cat lady",
+     "gift for her",
+     "caffeine tee"
+    ]
+   },
+   "new": {
+    "title": "Funny Cat Coffee Shirt, Pink Black Lettering",
+    "tag_candidates": [
+     "cat mom gift",
+     "coffee lover gift",
+     "cat lady tee",
+     "caffeine humor",
+     "morning person tee",
+     "cat dad",
+     "crazy cat lady",
+     "pet lover gift",
+     "barista tee",
+     "coffee addict",
+     "kitten tee",
+     "gift for her",
+     "cat lovers",
+     "cat lover",
+     "t-shirts",
+     "pink",
+     "latte lover",
+     "pet parent tee",
+     "cat humor",
+     "espresso tee"
+    ],
+    "tag_intents": [],
+    "opening": "A funny cat coffee shirt for anyone who needs both before they can talk, lettered in pink and black.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN006",
+   "analysis": {
+    "themes": [
+     "christmas",
+     "gingerbread"
+    ],
+    "theme": "christmas",
+    "profession": "",
+    "occasion": "christmas",
+    "season": "winter",
+    "style": "retro",
+    "colors": [
+     "red",
+     "brown",
+     "white"
+    ]
+   },
+   "old": {
+    "title": "Christmas Sweatshirt, Gingerbread Christmas Shirt, Retro Christmas Gift, Holiday Sweatshirt, Christmas Gift for Her, Xmas Tee",
+    "tags": [
+     "christmas sweatshirt",
+     "christmas shirt",
+     "gingerbread shirt",
+     "christmas gift",
+     "holiday sweatshirt",
+     "xmas tee",
+     "christmas tee",
+     "gingerbread man",
+     "retro christmas",
+     "winter sweatshirt",
+     "holiday gift",
+     "christmas crewneck",
+     "gift for her"
+    ]
+   },
+   "new": {
+    "title": "Gingerbread Christmas Sweatshirt, Retro Cookie, Red Brown",
+    "tag_candidates": [
+     "holiday crewneck",
+     "xmas pullover",
+     "cookie baking",
+     "christmas party",
+     "ugly sweater party",
+     "family christmas",
+     "secret santa gift",
+     "winter outfit",
+     "gift for her",
+     "baking lover",
+     "holiday baking",
+     "christmas cookies",
+     "gingerbread men",
+     "gingerbread man",
+     "t-shirts",
+     "christmas",
+     "retro xmas",
+     "festive pullover",
+     "cozy winter",
+     "stocking stuffer"
+    ],
+    "tag_intents": [],
+    "opening": "A gingerbread Christmas sweatshirt with a retro cookie, for holiday baking and party season.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN007",
+   "analysis": {
+    "themes": [
+     "dog",
+     "dad"
+    ],
+    "theme": "dog",
+    "profession": "",
+    "occasion": "father's day",
+    "season": "",
+    "style": "vintage",
+    "colors": [
+     "brown",
+     "black"
+    ]
+   },
+   "old": {
+    "title": "Dog Dad Shirt, Funny Dog Dad Tee, Dog Lover Gift, Fathers Day Dog Shirt, Dog Dad Gift for Him, Best Dog Dad Ever",
+    "tags": [
+     "dog dad shirt",
+     "dog dad",
+     "dog dad gift",
+     "dog lover",
+     "dog shirt",
+     "fathers day gift",
+     "dog tee",
+     "best dog dad",
+     "dog owner",
+     "dog dad tee",
+     "gift for him",
+     "pet dad",
+     "dog daddy"
+    ]
+   },
+   "new": {
+    "title": "Dog Dad Shirt, Vintage Paw Badge, Brown Black",
+    "tag_candidates": [
+     "fathers day gift",
+     "dog lover gift",
+     "pet dad",
+     "dog owner gift",
+     "best dog dad",
+     "puppy dad",
+     "rescue dog tee",
+     "gift for him",
+     "dog daddy",
+     "dog walker tee",
+     "paw print tee",
+     "husband gift",
+     "dog dads",
+     "dog dad",
+     "t-shirts",
+     "vintage",
+     "fur dad",
+     "pet lover",
+     "new dog dad",
+     "dog people"
+    ],
+    "tag_intents": [],
+    "opening": "A vintage dog dad shirt with a paw badge for the man whose best friend has four legs.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN008",
+   "analysis": {
+    "themes": [
+     "halloween",
+     "ghost"
+    ],
+    "theme": "halloween",
+    "profession": "",
+    "occasion": "halloween",
+    "season": "fall",
+    "style": "minimalist",
+    "colors": [
+     "white",
+     "black",
+     "orange"
+    ]
+   },
+   "old": {
+    "title": "Halloween Shirt, Ghost Halloween Tee, Cute Ghost Shirt, Spooky Season Shirt, Halloween Gift, Fall Halloween Sweatshirt",
+    "tags": [
+     "halloween shirt",
+     "halloween tee",
+     "ghost shirt",
+     "cute ghost",
+     "spooky season",
+     "halloween gift",
+     "fall shirt",
+     "spooky shirt",
+     "ghost tee",
+     "october shirt",
+     "halloween costume",
+     "spooky vibes",
+     "fall sweatshirt"
+    ]
+   },
+   "new": {
+    "title": "Ghost Halloween Shirt, Minimalist Spooky, White Orange",
+    "tag_candidates": [
+     "spooky season",
+     "october tee",
+     "halloween party",
+     "fall outfit",
+     "trick or treat",
+     "boo crew",
+     "spooky vibes",
+     "teacher halloween",
+     "halloween costume",
+     "ghost lover",
+     "pumpkin season",
+     "fall vibes tee",
+     "ghosts",
+     "ghost",
+     "t-shirts",
+     "halloween",
+     "minimalist tee",
+     "haunted tee",
+     "witchy tee",
+     "autumn tee"
+    ],
+    "tag_intents": [],
+    "opening": "A minimalist ghost Halloween shirt for spooky season, in white and orange.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN009",
+   "analysis": {
+    "themes": [
+     "mom",
+     "flowers"
+    ],
+    "theme": "mom",
+    "profession": "",
+    "occasion": "mother's day",
+    "season": "spring",
+    "style": "boho",
+    "colors": [
+     "pink",
+     "green"
+    ]
+   },
+   "old": {
+    "title": "Mama Shirt, Floral Mama Tee, Mom Shirt, Mothers Day Gift, Boho Mom Shirt, Gift for Mom, New Mom Gift, Mama Floral Shirt",
+    "tags": [
+     "mama shirt",
+     "mom shirt",
+     "mama tee",
+     "mothers day gift",
+     "gift for mom",
+     "new mom gift",
+     "floral mama",
+     "boho mom",
+     "mom life",
+     "mama floral",
+     "mom gift",
+     "mothers day",
+     "mama shirts"
+    ]
+   },
+   "new": {
+    "title": "Floral Mama Shirt, Boho Wildflowers, Pink Green",
+    "tag_candidates": [
+     "mothers day gift",
+     "new mom gift",
+     "mom life",
+     "gift for mom",
+     "mom to be",
+     "baby shower gift",
+     "wildflower tee",
+     "spring outfit",
+     "cottagecore",
+     "pregnancy reveal",
+     "mama bear",
+     "garden lover",
+     "mama shirts",
+     "mama shirt",
+     "t-shirts",
+     "boho",
+     "pink",
+     "grandma gift",
+     "flower lover",
+     "mom birthday gift"
+    ],
+    "tag_intents": [],
+    "opening": "A floral mama shirt with boho wildflowers, an easy Mother's Day gift for a new mom.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN010",
+   "analysis": {
+    "themes": [
+     "fishing",
+     "bass"
+    ],
+    "theme": "fishing",
+    "profession": "",
+    "occasion": "",
+    "season": "summer",
+    "style": "vintage",
+    "colors": [
+     "blue",
+     "green"
+    ]
+   },
+   "old": {
+    "title": "Fishing Shirt, Bass Fishing Tee, Fishing Gift for Him, Funny Fishing Shirt, Fisherman Gift, Lake Life Shirt, Fishing Dad",
+    "tags": [
+     "fishing shirt",
+     "fishing tee",
+     "bass fishing",
+     "fishing gift",
+     "fisherman gift",
+     "lake life",
+     "fishing dad",
+     "gift for him",
+     "funny fishing",
+     "fishing lover",
+     "angler shirt",
+     "outdoor tee",
+     "fishing shirts"
+    ]
+   },
+   "new": {
+    "title": "Bass Fishing Shirt, Vintage Lake Badge, Blue Green",
+    "tag_candidates": [
+     "fisherman gift",
+     "lake life",
+     "fishing dad",
+     "angler tee",
+     "gift for him",
+     "fathers day gift",
+     "outdoor dad",
+     "bass fisherman",
+     "river tee",
+     "grandpa gift",
+     "boat day",
+     "fish lover",
+     "fishing shirts",
+     "fishing shirt",
+     "t-shirts",
+     "vintage",
+     "weekend tee",
+     "reel cool dad",
+     "tackle box",
+     "summer lake"
+    ],
+    "tag_intents": [],
+    "opening": "A bass fishing shirt with a vintage lake badge for weekends on the water.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN011",
+   "analysis": {
+    "themes": [
+     "book",
+     "reading"
+    ],
+    "theme": "book",
+    "profession": "",
+    "occasion": "",
+    "season": "fall",
+    "style": "hand drawn",
+    "colors": [
+     "brown",
+     "beige"
+    ]
+   },
+   "old": {
+    "title": "Book Lover Shirt, Reading Tee, Bookish Gift, Librarian Shirt, Book Lover Gift for Her, Cute Reading Shirt, Bookworm Tee",
+    "tags": [
+     "book lover",
+     "book shirt",
+     "reading shirt",
+     "bookish",
+     "bookworm",
+     "librarian",
+     "book lover gift",
+     "reading tee",
+     "book club",
+     "gift for her",
+     "cute book tee",
+     "books shirt",
+     "library tee"
+    ]
+   },
+   "new": {
+    "title": "Book Lover Shirt, Stacked Books, Brown Beige",
+    "tag_candidates": [
+     "bookish gift",
+     "bookworm tee",
+     "librarian gift",
+     "book club",
+     "reading teacher",
+     "library tee",
+     "english teacher",
+     "dark academia",
+     "gift for her",
+     "cozy reading",
+     "fall reading",
+     "literature tee",
+     "books",
+     "book",
+     "t-shirts",
+     "beige",
+     "page turner",
+     "reader gift",
+     "bibliophile",
+     "story lover"
+    ],
+    "tag_intents": [],
+    "opening": "A book lover shirt with a tall stack of books, for the reader who always has one more chapter.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN012",
+   "analysis": {
+    "themes": [
+     "hiking",
+     "mountain"
+    ],
+    "theme": "hiking",
+    "profession": "",
+    "occasion": "",
+    "season": "summer",
+    "style": "minimalist line",
+    "colors": [
+     "green",
+     "white"
+    ]
+   },
+   "old": {
+    "title": "Hiking Shirt, Mountain Hiking Tee, Hiker Gift, Outdoor Adventure Shirt, Nature Lover Tee, Mountain Shirt, Hiking Gift",
+    "tags": [
+     "hiking shirt",
+     "hiking tee",
+     "hiker gift",
+     "mountain shirt",
+     "nature lover",
+     "outdoor shirt",
+     "adventure tee",
+     "hiking gift",
+     "mountain tee",
+     "trail shirt",
+     "outdoors tee",
+     "hiking lover",
+     "camping shirt"
+    ]
+   },
+   "new": {
+    "title": "Mountain Hiking Shirt, Minimalist Line, Green White",
+    "tag_candidates": [
+     "hiker gift",
+     "nature lover",
+     "outdoor adventure",
+     "trail tee",
+     "national park",
+     "camping tee",
+     "adventure gift",
+     "backpacking",
+     "mountain lover",
+     "wanderlust tee",
+     "summit tee",
+     "rock climbing",
+     "hikers",
+     "hiker",
+     "t-shirts",
+     "green",
+     "minimalist tee",
+     "explore more",
+     "outdoorsy",
+     "forest lover"
+    ],
+    "tag_intents": [],
+    "opening": "A mountain hiking shirt drawn in one minimalist line, for trail days and summit views.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN013",
+   "analysis": {
+    "themes": [
+     "valentine",
+     "heart"
+    ],
+    "theme": "valentine",
+    "profession": "",
+    "occasion": "valentine's day",
+    "season": "",
+    "style": "retro",
+    "colors": [
+     "pink",
+     "red"
+    ]
+   },
+   "old": {
+    "title": "Valentines Day Shirt, Retro Heart Tee, Valentine Gift for Her, Love Shirt, Cute Valentine Shirt, Valentines Gift, XOXO Tee",
+    "tags": [
+     "valentines shirt",
+     "valentine tee",
+     "valentine gift",
+     "love shirt",
+     "heart shirt",
+     "retro heart",
+     "gift for her",
+     "valentines day",
+     "xoxo tee",
+     "cute valentine",
+     "galentines",
+     "heart tee",
+     "love tee"
+    ]
+   },
+   "new": {
+    "title": "Retro Heart Valentines Shirt, Pink Red",
+    "tag_candidates": [
+     "galentines day",
+     "gift for her",
+     "valentine outfit",
+     "love tee",
+     "xoxo",
+     "heart lover",
+     "teacher valentine",
+     "date night tee",
+     "be mine",
+     "wife gift",
+     "girlfriend gift",
+     "pink aesthetic",
+     "valentines",
+     "valentine",
+     "t-shirts",
+     "retro",
+     "red",
+     "sweetheart tee",
+     "love is love",
+     "cupid tee"
+    ],
+    "tag_intents": [],
+    "opening": "A retro heart Valentines shirt in pink and red, made for Galentine's brunch or date night.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN014",
+   "analysis": {
+    "themes": [
+     "gaming",
+     "controller"
+    ],
+    "theme": "gaming",
+    "profession": "",
+    "occasion": "",
+    "season": "",
+    "style": "pixel art",
+    "colors": [
+     "black",
+     "purple"
+    ]
+   },
+   "old": {
+    "title": "Gamer Shirt, Video Game Tee, Gaming Gift for Him, Funny Gamer Shirt, Controller Shirt, Gamer Gift, Retro Gaming Tee",
+    "tags": [
+     "gamer shirt",
+     "gamer tee",
+     "gaming gift",
+     "video game",
+     "controller",
+     "funny gamer",
+     "gamer gift",
+     "retro gaming",
+     "gaming shirt",
+     "gift for him",
+     "geek tee",
+     "nerd shirt",
+     "gamer boy"
+    ]
+   },
+   "new": {
+    "title": "Gamer Shirt, Pixel Controller, Black Purple",
+    "tag_candidates": [
+     "video game tee",
+     "gaming gift",
+     "gift for him",
+     "retro gaming",
+     "geek tee",
+     "nerd gift",
+     "teen boy gift",
+     "console gamer",
+     "arcade tee",
+     "player one",
+     "game night",
+     "boyfriend gift",
+     "gamers",
+     "gamer",
+     "t-shirts",
+     "black",
+     "purple",
+     "level up",
+     "pixel lover",
+     "esports tee"
+    ],
+    "tag_intents": [],
+    "opening": "A gamer shirt with a pixel controller in black and purple for marathon game nights.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN015",
+   "analysis": {
+    "themes": [
+     "coffee",
+     "teacher"
+    ],
+    "theme": "coffee",
+    "profession": "teacher",
+    "occasion": "",
+    "season": "",
+    "style": "hand lettered",
+    "colors": [
+     "brown",
+     "white"
+    ]
+   },
+   "old": {
+    "title": "Teacher Coffee Shirt, Coffee Teacher Tee, Teacher Gift, Funny Teacher Shirt, Coffee Lover Gift, Teacher Life Shirt, Teacher",
+    "tags": [
+     "teacher shirt",
+     "coffee shirt",
+     "teacher gift",
+     "teacher tee",
+     "coffee lover",
+     "teacher life",
+     "funny teacher",
+     "coffee tee",
+     "gift for teacher",
+     "teacher coffee",
+     "teachers",
+     "coffee gift",
+     "school tee"
+    ]
+   },
+   "new": {
+    "title": "Teacher Coffee Shirt, Hand Lettered Mug, Brown",
+    "tag_candidates": [
+     "teacher life",
+     "coffee lover gift",
+     "teacher appreciation",
+     "school staff",
+     "back to school",
+     "caffeine tee",
+     "new teacher gift",
+     "coworker gift",
+     "end of year gift",
+     "classroom tee",
+     "teacher humor",
+     "barista tee",
+     "teachers",
+     "teacher",
+     "t-shirts",
+     "brown",
+     "morning tee",
+     "school year",
+     "educator gift",
+     "latte tee"
+    ],
+    "tag_intents": [],
+    "opening": "A teacher coffee shirt with a hand lettered mug for mornings that start with a full cup.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN016",
+   "analysis": {
+    "themes": [
+     "sunflower",
+     "farm"
+    ],
+    "theme": "sunflower",
+    "profession": "",
+    "occasion": "",
+    "season": "summer",
+    "style": "vintage",
+    "colors": [
+     "yellow",
+     "brown"
+    ]
+   },
+   "old": {
+    "title": "Sunflower Shirt, Farm Sunflower Tee, Vintage Sunflower Shirt, Farmers Market Tee, Floral Shirt, Sunflower Gift for Her",
+    "tags": [
+     "sunflower shirt",
+     "sunflower tee",
+     "farm shirt",
+     "farmers market",
+     "floral shirt",
+     "sunflower gift",
+     "vintage floral",
+     "gift for her",
+     "summer shirt",
+     "farm life",
+     "flower shirt",
+     "sunflowers",
+     "country tee"
+    ]
+   },
+   "new": {
+    "title": "Sunflower Farm Shirt, Vintage Market, Yellow Brown",
+    "tag_candidates": [
+     "farmers market",
+     "farm life",
+     "country tee",
+     "summer outfit",
+     "gift for her",
+     "flower lover",
+     "garden tee",
+     "cottagecore",
+     "floral tee",
+     "rustic farm",
+     "boho flowers",
+     "southern tee",
+     "sunflowers",
+     "sunflower",
+     "t-shirts",
+     "yellow",
+     "vintage",
+     "harvest tee",
+     "field tee",
+     "wildflower"
+    ],
+    "tag_intents": [],
+    "opening": "A sunflower farm shirt in a vintage market style for slow summer weekends.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN017",
+   "analysis": {
+    "themes": [
+     "st patrick's day",
+     "clover"
+    ],
+    "theme": "st patrick's day",
+    "profession": "",
+    "occasion": "st patrick's day",
+    "season": "spring",
+    "style": "retro",
+    "colors": [
+     "green",
+     "white"
+    ]
+   },
+   "old": {
+    "title": "St Patricks Day Shirt, Lucky Clover Tee, Irish Shirt, Shamrock Shirt, St Patricks Gift, Lucky Shirt, Retro Irish Tee",
+    "tags": [
+     "st patricks day",
+     "lucky shirt",
+     "clover shirt",
+     "irish shirt",
+     "shamrock",
+     "st patricks gift",
+     "lucky tee",
+     "irish tee",
+     "green shirt",
+     "st pattys",
+     "clover tee",
+     "shamrock tee",
+     "irish gift"
+    ]
+   },
+   "new": {
+    "title": "Lucky Clover Shirt, Retro Shamrock, Green White",
+    "tag_candidates": [
+     "st patricks day",
+     "st pattys",
+     "irish tee",
+     "shamrock",
+     "feeling lucky",
+     "pub crawl tee",
+     "teacher st patrick",
+     "drinking tee",
+     "parade outfit",
+     "green outfit",
+     "irish pride",
+     "lucky charm",
+     "clovers",
+     "clover",
+     "t-shirts",
+     "green",
+     "retro",
+     "march tee",
+     "spring tee",
+     "four leaf"
+    ],
+    "tag_intents": [],
+    "opening": "A lucky clover shirt with a retro shamrock for St Patrick's Day parades and pub crawls.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN018",
+   "analysis": {
+    "themes": [
+     "graduation",
+     "cap"
+    ],
+    "theme": "graduation",
+    "profession": "",
+    "occasion": "graduation",
+    "season": "spring",
+    "style": "minimalist",
+    "colors": [
+     "black",
+     "gold"
+    ]
+   },
+   "old": {
+    "title": "Graduation Shirt, Class of 2026 Tee, Grad Gift, Senior Shirt, Graduation Gift for Her, Proud Grad Shirt, Senior 2026",
+    "tags": [
+     "graduation shirt",
+     "grad shirt",
+     "class of 2026",
+     "senior shirt",
+     "grad gift",
+     "graduation gift",
+     "senior 2026",
+     "proud grad",
+     "graduate tee",
+     "gift for her",
+     "grad tee",
+     "college grad",
+     "high school grad"
+    ]
+   },
+   "new": {
+    "title": "Class of 2026 Graduation Shirt, Minimalist Cap, Black Gold",
+    "tag_candidates": [
+     "grad gift",
+     "senior 2026",
+     "proud grad",
+     "college grad",
+     "high school grad",
+     "gift for her",
+     "senior year",
+     "grad party tee",
+     "nursing grad",
+     "masters degree",
+     "family grad tee",
+     "grad trip",
+     "graduations",
+     "graduation",
+     "t-shirts",
+     "black",
+     "gold",
+     "cap toss",
+     "diploma tee",
+     "grad squad"
+    ],
+    "tag_intents": [],
+    "opening": "A Class of 2026 graduation shirt with a minimalist cap in black and gold for the big day.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN019",
+   "analysis": {
+    "themes": [
+     "pickleball",
+     "paddle"
+    ],
+    "theme": "pickleball",
+    "profession": "",
+    "occasion": "",
+    "season": "summer",
+    "style": "retro 70s",
+    "colors": [
+     "orange",
+     "yellow"
+    ]
+   },
+   "old": {
+    "title": "Pickleball Shirt, Funny Pickleball Tee, Pickleball Gift, Retro Pickleball Shirt, Pickleball Player Gift for Her, Dink Tee",
+    "tags": [
+     "pickleball shirt",
+     "pickleball tee",
+     "pickleball gift",
+     "pickleball player",
+     "retro pickleball",
+     "funny pickleball",
+     "dink tee",
+     "pickleball lover",
+     "gift for her",
+     "sports tee",
+     "paddle shirt",
+     "pickleball mom",
+     "pickleball team"
+    ]
+   },
+   "new": {
+    "title": "Pickleball Shirt, Retro 70s Paddle, Orange Yellow",
+    "tag_candidates": [
+     "pickleball gift",
+     "dink responsibly",
+     "pickleball team",
+     "pickleball mom",
+     "sports tee",
+     "retirement gift",
+     "gift for her",
+     "court life",
+     "paddle lover",
+     "grandma gift",
+     "club tee",
+     "racket sport",
+     "pickleballs",
+     "pickleball",
+     "t-shirts",
+     "orange",
+     "retro",
+     "summer sport",
+     "game day tee",
+     "kitchen line"
+    ],
+    "tag_intents": [],
+    "opening": "A pickleball shirt with a retro 70s paddle in orange and yellow for every court day.",
+    "attributes": {}
+   }
+  },
+  {
+   "sku": "SYN020",
+   "analysis": {
+    "themes": [
+     "astronaut",
+     "space"
+    ],
+    "theme": "astronaut",
+    "profession": "",
+    "occasion": "",
+    "season": "",
+    "style": "minimalist line",
+    "colors": [
+     "blue",
+     "white"
+    ]
+   },
+   "old": {
+    "title": "Astronaut Shirt, Space Tee, Galaxy Shirt, Astronaut Gift, Space Lover Gift for Him, Science Shirt, Cute Astronaut Tee",
+    "tags": [
+     "astronaut shirt",
+     "space shirt",
+     "astronaut gift",
+     "space lover",
+     "galaxy shirt",
+     "science shirt",
+     "astronaut tee",
+     "space tee",
+     "nasa style",
+     "gift for him",
+     "planets",
+     "cute astronaut",
+     "stars shirt"
+    ]
+   },
+   "new": {
+    "title": "Astronaut Space Shirt, Minimalist Line, Blue White",
+    "tag_candidates": [
+     "space lover",
+     "science gift",
+     "galaxy tee",
+     "planet tee",
+     "stargazing",
+     "science teacher",
+     "nerd gift",
+     "gift for him",
+     "rocket tee",
+     "moon tee",
+     "cosmos",
+     "outer space",
+     "astronauts",
+     "astronaut",
+     "t-shirts",
+     "blue",
+     "minimalist tee",
+     "star lover",
+     "kids space",
+     "solar system"
+    ],
+    "tag_intents": [],
+    "opening": "An astronaut space shirt drawn in a minimalist line, for stargazers and science lovers.",
+    "attributes": {}
+   }
+  }
+ ]
+}

@@ -12,9 +12,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from app.compliance.trademarks import Blocklist, configured_blocklist, trademark_errors, trademark_summary
+from app.compliance.trademarks import (
+    Blocklist,
+    configured_blocklist,
+    trademark_errors,
+    trademark_summary,
+)
 from app.core import ai_meter
 from app.pipeline import search_rules
+from app.pipeline.attribute_fill import fill_design_attributes
 from app.pipeline.llm import LLMClient, LLMError, Usage
 from app.pipeline.search_rules import LEGACY_TITLE, TitleRules
 from app.pipeline.templates import PromptTemplate, load_template
@@ -351,6 +357,7 @@ def validate_listing(
     title_rules: TitleRules = LEGACY_TITLE,
     category_names: list[str] | None = None,
     for_seller: bool = False,
+    title_prefix: str | None = None,
 ) -> list[str]:
     """Return validation errors (empty if valid), each once.
 
@@ -383,7 +390,7 @@ def validate_listing(
             f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
         )
     if title:
-        errors.extend(search_rules.title_errors(title, title_rules))
+        errors.extend(search_rules.title_errors(title, title_rules, prefix=title_prefix))
 
     if len(listing.tags) != REQUIRED_TAG_COUNT:
         errors.append(f"expected exactly {REQUIRED_TAG_COUNT} tags, got {len(listing.tags)}")
@@ -794,6 +801,9 @@ class AnthropicContentGenerator:
             # One character over is not a reason to throw the listing away (v7 §A3).
             listing.title = fit_title(listing.title, self._rules.min_length, self._rules.max_length)
             if self._rules.readable:
+                # Every attribute the design shows, from Etsy's lists (Part C): the
+                # model's choices stay; the empty ones the analysis answers are filled.
+                listing.attributes, _ = fill_design_attributes(listing.attributes, self._choices, analysis)
                 # More tags are asked for than Etsy takes; the usable first 13 are kept.
                 listing.tags, listing.tag_intents = search_rules.select_tags(
                     listing.title,
@@ -810,6 +820,7 @@ class AnthropicContentGenerator:
                 trademarks=self._trademarks,
                 title_rules=self._rules,
                 category_names=self._category,
+                title_prefix=self._title_prefix,
             )
             if self._rules.readable:
                 errors.extend(search_rules.attribute_errors(listing.attributes, self._choices))

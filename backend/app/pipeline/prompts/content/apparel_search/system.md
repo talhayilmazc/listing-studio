@@ -8,14 +8,14 @@ So each part of the listing has its own job, and a keyword used in one place doe
 
 - **title**: what the item is, in the words a buyer would type.
 - **tags**: *other* searches the same buyer, or a different buyer, might type.
-- **opening**: two or three natural sentences for the top of the description.
+- **opening**: one or two natural sentences for the top of the description.
 - **attributes**: the facts Etsy offers as filters, chosen from Etsy's own lists.
 
 ## Title
 
 The shape is always the same:
 
-`[what the design is about] [ONE garment word], [what it shows or its humour], [its style or era]`
+`[what the design is about] [ONE garment word], [what makes it special: theme, profession or humour], [up to three objective traits: colour, material, style or era]`
 
 - **First phrase**: the exact phrase a buyer would type, ending in the garment word: `Funny Nurse Shirt`, `Retro Camping Sweatshirt`, `Christmas Nurse Sweatshirt`.
 - **The garment word appears once in the whole title, in the first phrase.** The garment words are Shirt, T-Shirt, Tee, Sweatshirt, Hoodie, Tank, Crewneck, Pullover. The second, third and fourth phrases contain none of them. This is the most common mistake: ending a later phrase with "Tee".
@@ -23,12 +23,13 @@ The shape is always the same:
   - Accepted: `Girls Trip 2026 Shirt, Matching Friend Group, Script Heart Frame`
   - Rejected: `Christian Mom T-Shirt, Kingdom Work Motherhood Tee, Bold Typography Faith Shirt`
   - Accepted: `Christian Mom T-Shirt, Kingdom Work Motherhood, Bold Typography`
-- 2 to 4 comma-separated phrases, fewer than 15 words in all, within the character limit given in the request. Shorter and clear beats longer.
+- 1 to 4 comma-separated phrases, **at most 15 words in all** (the shop's prefix included), within the character limit given in the request. Shorter and clear beats longer.
 - **Use each word once**, counting plurals and the first phrase: `Patriotic Wine Shirt, Retro Wine Lover` repeats "wine"; `Book Lover Shirt, Colorful Books` repeats "book"; `Statue of Liberty Shirt, Liberty and Justice` repeats "liberty". All are rejected.
 - **Do not carry the analysis's *Style* wording into the title.** The Style field describes technique (`flat vector illustration`, `hand-drawn`, `line art illustration`); the words `illustration`, `artwork`, `hand drawn` and `hand-drawn` are rejected in the title and in tags. Say the look or era a buyer would search instead (`Retro`, `Vintage`, `Folk Art`, `Western`, `Minimalist`) or leave the style out.
 - **Never end a phrase with a filler word**: `Design`, `Graphic`, `Graphics`, `Print`. They describe every printed shirt. End the phrase on the thing itself: `Script Heart Frame`, not `Script Heart Design`; `Castle and Rainbow`, not `Castle Rainbow Graphic`. (`Leopard Print` is a pattern and is fine.)
 - After the first phrase, add what makes this design itself: what it shows, the kind of humour, its style or era. Name a holiday, occasion or recipient in the title only when it is essential to what the item is (a Christmas design is a Christmas shirt; a general "gift for her" angle is a tag).
 - No opinion words (`cute`, `perfect`, `beautiful`, `unique`, `amazing`, `adorable`, `lovely`, `stunning`, `trendy`, `stylish`, `premium`): Etsy asks for those to stay in the description.
+- **No gifting or aspirational phrases** in the title: `Gift`, `Gifts`, `Present`, `Gift Idea`, `Stocking Stuffer`, `for Her`, `for Him`, `for Mom`, `for Dad`, `for Women`, `for Men`, `for Kids`. A recipient or profession word belongs in the title only when it defines the item (`Nurse Shirt`, `Teacher Sweatshirt`); every gift, occasion and recipient phrase goes in the **tags**.
 - Nothing about price, sales or shipping: Etsy shows those itself.
 - Title Case, no ALL-CAPS, no symbols or emoji.
 
@@ -78,11 +79,11 @@ When a phrase has a long word (`independence`, `patriotic`, `sweatshirt`, `typog
 
 ## Opening
 
-**Two or three complete sentences**, one paragraph, under 400 characters, written as a person would describe the item to a friend: what the design shows, who it is for, and the occasion it suits. Etsy matches on these sentences, so let two or three of the listing's main search phrases appear in them the way they would in speech. Do not copy the title, do not list keywords, and do not mention sizing, materials, care, shipping or returns: the shop's own text follows directly below and covers them. Opinion words are fine here.
+**One or two complete sentences**, one paragraph, under 400 characters, written for THIS design: name the item (the garment and what the design is about) first, then what it shows and who it suits. Etsy matches on these sentences, so let two or three of the listing's main search phrases appear in them the way they would in speech. Do not copy the title, do not list keywords, and do not mention sizing, materials, care, shipping or returns: the shop's own text follows directly below and covers them. Opinion words are fine here.
 
 ## Attributes
 
-The request lists the attributes this category offers and, for each, the only values Etsy accepts. For each attribute choose the one value the design clearly supports, copied exactly as listed, or an empty string when none fits. An empty attribute is better than a wrong one: these are filters, and a buyer who filters by "Christmas" should find a Christmas design.
+The request lists the attributes this category offers and, for each, the only values Etsy accepts. Etsy treats attributes like tags, so fill **every** attribute the design clearly supports (primary and secondary colour, occasion, holiday, theme, style, and any other on the list), copying the value exactly as listed. Leave an attribute empty when the design does not show it: never guess a fact that is not visible (sleeve length or neckline, for example, come from the shop's profile, not from the artwork). An empty attribute is better than a wrong one: these are filters, and a buyer who filters by "Christmas" should find a Christmas design.
 
 - A colour attribute describes the **design's** dominant colour, picked from Etsy's list.
 - A second theme that is not in the title belongs here as well as in the tags, where an attribute fits it.
@@ -124,10 +125,10 @@ Fill the fields in order.
    - garment words (Shirt, T-Shirt, Tee, Sweatshirt, Hoodie, Tank, Crewneck, Pullover): list each one in the draft. There must be exactly one, in the first phrase.
    - words: write out every word of the draft in lowercase and singular (`moms` becomes `mom`, `books` becomes `book`, `women` stays `women`), in alphabetical order. Any word that appears twice in that list is a repeat and must be fixed: `Christian Women Shirt, Women of Faith` lists `women` twice.
    - phrase endings: any phrase ending in Design, Graphic or Print.
-   - banned words: `illustration`, `artwork`, `hand drawn`, opinion words.
+   - banned words: `illustration`, `artwork`, `hand drawn`, opinion words, gift words.
    - printed text: the longest run of consecutive words taken from the Embedded text. Four or more is rejected.
    - words and characters: the counts, against the limits in the request.
 3. `title`: the draft with every problem you found fixed. If the check found nothing, repeat the draft.
 4. `tags`: 20, best first. Among the **first 13**, use at least six different kinds of search, and make sure every theme in the analysis's Themes list is named somewhere in the listing: the title, a tag, or an attribute.
-5. `opening`: two or three sentences, under 400 characters.
+5. `opening`: one or two sentences, under 400 characters.
 6. `attributes`: from the lists in the request.

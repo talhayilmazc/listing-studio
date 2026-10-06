@@ -830,12 +830,14 @@ class ListingProfile(Base):
     #: Auto-filled from the reference title's leading words; editable. Null = not yet
     #: derived; "" = deliberately none.
     title_prefix: Mapped[str | None] = mapped_column(Text)
-    #: How listings are written with this profile: "classic" (110-140 character
-    #: keyword titles) or "search" (Etsy's current guidance: a short readable
-    #: title, tags that do not repeat it, a design-specific description opening
-    #: and attributes; pipeline/search_rules.py). The seller chooses, per profile.
-    listing_style: Mapped[str] = mapped_column(Text, nullable=False, server_default="classic")
-    #: The "search" style's title length bounds; None = the default (40-100).
+    #: How listings are written with this profile: "classic" ("Long keyword":
+    #: 110-140 character keyword titles) or "search" ("Etsy recommended (short)":
+    #: at most 15 words, tags that do not repeat it, a design-specific description
+    #: opening and attributes; pipeline/search_rules.py). The seller chooses, per
+    #: profile. New profiles start on "search"; migration 0050 left existing ones
+    #: on "classic".
+    listing_style: Mapped[str] = mapped_column(Text, nullable=False, server_default="search")
+    #: The "search" style's title length bounds; None = the default (40-140).
     title_min_length: Mapped[int | None] = mapped_column(Integer)
     title_max_length: Mapped[int | None] = mapped_column(Integer)
     #: How the profile was created: "manual" | "detected" (auto-clustered).

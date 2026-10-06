@@ -36,10 +36,11 @@ class TitleRules:
 
 #: The rule the app shipped with: 110-140 characters of comma-separated keywords.
 LEGACY_TITLE = TitleRules(min_length=110, max_length=140)
-#: Etsy's guidance: fewer than 15 words, 2-4 phrases. The character bounds are
-#: the default a profile may change.
+#: "Etsy recommended (short)": at most 15 words (the prefix included) and 140
+#: characters, 1-4 phrases (Part C; docs/etsy-growth-research.md). The character
+#: bounds are the default a profile may change.
 SEARCH_TITLE = TitleRules(
-    min_length=40, max_length=100, max_words=14, min_phrases=2, max_phrases=4, readable=True
+    min_length=40, max_length=140, max_words=15, min_phrases=1, max_phrases=4, readable=True
 )
 
 
@@ -75,6 +76,16 @@ SUBJECTIVE = (
     "cute", "perfect", "beautiful", "unique", "amazing", "awesome", "adorable", "lovely",
     "gorgeous", "stunning", "premium", "high quality", "trendy", "must have", "stylish",
 )
+# Gifting and aspirational phrases: Etsy asks for none in the title; they go in
+# the tags. A recipient or profession word that defines the item ("Nurse Shirt")
+# is not one of these; "for <someone>" and "gift" are.
+GIFT = (
+    "gift", "gifts", "gift idea", "gift ideas", "present", "presents", "stocking stuffer",
+    "stocking stuffers", "for her", "for him", "for mom", "for mum", "for dad", "for women",
+    "for men", "for kids", "for girls", "for boys", "for wife", "for husband", "for grandma",
+    "for grandpa", "for friends", "for friend", "for sister", "for brother", "for teachers",
+    "for nurses", "for them", "for everyone",
+)
 # Price, sale and shipping: Etsy badges these itself.
 COMMERCE = (
     "sale", "on sale", "discount", "% off", "percent off", "free shipping", "fast shipping",
@@ -97,8 +108,8 @@ INTENTS = ("recipient", "occasion", "profession", "season", "style", "humor", "p
 MIN_INTENTS = 5
 MIN_MULTI_WORD_TAGS = 9
 
-OPENING_MIN_SENTENCES = 2
-OPENING_MAX_SENTENCES = 3
+OPENING_MIN_SENTENCES = 1
+OPENING_MAX_SENTENCES = 2
 OPENING_MAX_LENGTH = 500
 
 
@@ -131,8 +142,24 @@ def _has(text: str, term: str) -> bool:
     return re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE) is not None
 
 
-def title_errors(title: str, rules: TitleRules, *, names_type: bool = True) -> list[str]:
-    """What keeps ``title`` from following ``rules`` (length is checked by the caller)."""
+def without_prefix(title: str, prefix: str | None) -> str:
+    """``title`` after the profile's fixed prefix (which is the seller's, not ours)."""
+    prefix = (prefix or "").strip()
+    if prefix and title.strip().casefold().startswith(prefix.casefold()):
+        return title.strip()[len(prefix):].lstrip(" ,")
+    return title
+
+
+def gift_in(title: str) -> list[str]:
+    """The gifting phrases in ``title``."""
+    return [term for term in GIFT if _has(title, term)]
+
+
+def title_errors(
+    title: str, rules: TitleRules, *, names_type: bool = True, prefix: str | None = None
+) -> list[str]:
+    """What keeps ``title`` from following ``rules`` (length is checked by the caller).
+    The word count includes ``prefix``; the repeated-word check does not."""
     errors: list[str] = []
     parts = phrases(title)
     if rules.min_phrases and len(parts) < rules.min_phrases:
@@ -148,14 +175,14 @@ def title_errors(title: str, rules: TitleRules, *, names_type: bool = True) -> l
     count = len(title.split())
     if rules.max_words and count > rules.max_words:
         errors.append(
-            f"the title has {count} words; Etsy asks for fewer than {rules.max_words + 1}. "
+            f"the title has {count} words; keep it to {rules.max_words} or fewer. "
             "Move the extra keywords to the tags"
         )
     if not rules.readable:
         return errors
 
     seen: dict[str, int] = {}
-    for w in keywords(title):
+    for w in keywords(without_prefix(title, prefix)):
         seen[w] = seen.get(w, 0) + 1
     repeated = sorted(w for w, n in seen.items() if n > 1)
     if repeated:
@@ -188,6 +215,10 @@ def title_errors(title: str, rules: TitleRules, *, names_type: bool = True) -> l
             errors.append(
                 f"remove '{term}' from the title: nothing about price, sales or shipping"
             )
+    for term in gift_in(title):
+        errors.append(
+            f"remove '{term}' from the title: gift, occasion and recipient phrases go in the tags"
+        )
     return errors
 
 
@@ -225,13 +256,8 @@ def tag_errors(
                 f"the tag {tag!r} only restates the category or attribute '{said}', which Etsy "
                 "already matches on: use the tag for a different search"
             )
-    in_title = set(keywords(title))
-    repeats = [t for t in tags if keywords(t) and set(keywords(t)) <= in_title]
-    if repeats:
-        errors.append(
-            f"these tags only repeat words already in the title: {repeats}. The title already "
-            "matches those searches; use each tag for a phrase the title does not cover"
-        )
+    # A tag that only repeats the title is not an error by itself: ``select_tags``
+    # takes one only when no distinct phrase is left to fill the 13.
     by_words: dict[frozenset[str], str] = {}
     for tag in tags:
         key = frozenset(keywords(tag))
@@ -269,25 +295,36 @@ def select_tags(
     """The first ``count`` candidate tags that are usable, with their intents.
 
     The model is asked for a few more tags than Etsy takes, best first. One that
-    is a character too long, only repeats the title, or is another tag's words
-    reordered is passed over rather than costing the whole listing a retry.
+    is a character too long, an opinion, the category or an attribute value
+    again, or another tag's root words (reordered, plural/singular) is passed
+    over rather than costing the whole listing a retry. One made only of the
+    title's words is kept back and used only if the distinct ones run out.
     """
     in_title = set(keywords(title))
     kept: list[str] = []
     kept_intents: list[str] = []
+    #: Tags made only of title words: used only when no distinct phrase is left.
+    spare: list[tuple[str, str]] = []
     seen: set[frozenset[str]] = set()
     for i, raw in enumerate(candidates):
         tag = " ".join(raw.split())
+        # Root words: "nurse shirts" and "nurse shirt" are one search to Etsy.
         key = frozenset(keywords(tag))
         if not tag or len(tag) > max_length or "," in tag:
             continue
-        if key and (key <= in_title or key in seen):
+        if key in seen:
             continue
         if opinion_in(tag) or restates(tag, already or []) or any(_has(tag, term) for term in banned):
             continue
         seen.add(key)
+        if key and key <= in_title:
+            spare.append((tag, intents[i] if i < len(intents) else ""))
+            continue
         kept.append(tag)
         kept_intents.append(intents[i] if i < len(intents) else "")
+    for tag, intent in spare[: max(0, count - len(kept))]:
+        kept.append(tag)
+        kept_intents.append(intent)
     # The first ``count`` usable ones, best first. If those serve too few kinds
     # of search and a spare serves a kind they lack, the spare takes the place of
     # the last tag of the most crowded kind.
@@ -314,12 +351,13 @@ def opening_errors(opening: str, title: str) -> list[str]:
     """The design-specific sentences that go above the shop's own description."""
     text = opening.strip()
     if not text:
-        return ["write the opening: two or three sentences about what the design shows, who it is for and the occasion"]
+        return ["write the opening: one or two sentences naming the item and what the design shows"]
     errors: list[str] = []
     n = len(sentences(text))
     if not OPENING_MIN_SENTENCES <= n <= OPENING_MAX_SENTENCES:
         errors.append(
-            f"the opening has {n} sentence(s); write {OPENING_MIN_SENTENCES} or {OPENING_MAX_SENTENCES}"
+            f"the opening has {n} sentence(s); write {OPENING_MIN_SENTENCES} or {OPENING_MAX_SENTENCES}, "
+            "naming the item first"
         )
     if len(text) > OPENING_MAX_LENGTH:
         errors.append(f"the opening is {len(text)} characters; keep it under {OPENING_MAX_LENGTH}")

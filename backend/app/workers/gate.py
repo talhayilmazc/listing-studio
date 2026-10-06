@@ -38,8 +38,9 @@ from app.etsy.rate_limiter import PAUSE_TENANT
 JOB_COST: dict[str, int] = {
     # shop, section, create, read-back, properties, ~8 attribute writes,
     # inventory, up to 10 new images and the fixed ones, personalization with
-    # its read-back (v7 §D4), and up to 8 optional attributes (search style)
-    "run_publish_job": 40,
+    # its read-back (v7 §D4), up to 8 optional design attributes (short style)
+    # and up to 5 garment attributes from the profile's reference (Part C)
+    "run_publish_job": 45,
     "run_publish_live_job": 3,
     # listing, images, up to 10 deletes and 10 uploads, update, inventory
     "run_replace_images_job": 30,
