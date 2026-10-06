@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.db.models import AdSpend, EtsyConnection, LedgerDaily, LedgerSync, SalesDaily, SalesSync, ShopListingCache, Tenant
+from app.db.models import EtsyConnection, LedgerDaily, LedgerSync, SalesDaily, SalesSync, ShopListingCache, Tenant
 from app.pipeline import profit
 from app.pipeline.profit import AdRow, CostSettings, DaySales, ListingFacts, Metrics, Window
 from tests.auth_support import authenticate, make_tenant, open_session

@@ -41,7 +41,6 @@ from app.db.models import (
     InviteRequest,
     AdCharge,
     AdsDaily,
-    AdSpend,
     AllowanceUse,
     DraftAttempt,
     LedgerDaily,
@@ -84,11 +83,10 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
             < now - timedelta(seconds=ShopListingCache.STALE_SECONDS)
         )
     )
-    # Sales totals and uploaded ad spend: 13 months (v7 §C1), long enough for
+    # Sales totals: 13 months (v7 §C1), long enough for
     # last year's season.
     oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
     sales = await _bulk(session, delete(SalesDaily).where(SalesDaily.day < oldest))
-    ads = await _bulk(session, delete(AdSpend).where(AdSpend.period_end < oldest))
     await _bulk(session, delete(LedgerDaily).where(LedgerDaily.day < oldest))
     # What "Import from Etsy" stored, and the order lines it is joined to: the same 13 months.
     await _bulk(session, delete(SaleLine).where(SaleLine.day < oldest))
@@ -132,7 +130,6 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
         "profile_image_links": image_links,
         "profile_payloads": profiles.rowcount or 0,
         "sales_days": sales.rowcount or 0,
-        "ad_spend": ads.rowcount or 0,
     }
     if any(counts.values()):
         logger.info("retention: purged %s", counts)
@@ -197,7 +194,6 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
 
     detached = await detach_shop(session, connection_id)
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
-    ads = await session.execute(delete(AdSpend).where(AdSpend.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))
     await session.execute(delete(DraftAttempt).where(DraftAttempt.connection_id == connection_id))
@@ -207,7 +203,6 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
         await session.execute(delete(table).where(table.connection_id == connection_id))
     return {
         "sales_days": sales.rowcount or 0,
-        "ad_spend": ads.rowcount or 0,
         "snapshots": snapshots.rowcount or 0,
         "shop_listings": listings.rowcount or 0,
         "publications": publications.rowcount or 0,

@@ -32,7 +32,6 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.api import sales_reread
 from app.api.shops import missing_scopes, selected_shop
 from app.db.models import (
-    AdSpend,
     Asset,
     EtsyConnection,
     GeneratedContent,
@@ -491,10 +490,9 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
         sales[s.listing_id].append(profit.DaySales(s.listing_id, s.day, s.units, s.orders, s.revenue_minor))
         if s.currency:
             currencies[s.currency] += 1
+    # No per-listing ad spend: Etsy's Ads report is shop-level (ads_daily) and is
+    # never given to listings; the old per-listing table is gone (migration 0049).
     ads: dict[int, list[profit.AdRow]] = defaultdict(list)
-    for a in (await session.execute(select(AdSpend).where(AdSpend.connection_id == connection.id))).scalars():
-        ads[a.listing_id].append(profit.AdRow(
-            a.listing_id, a.period_start, a.period_end, a.spend_minor, a.ad_orders, a.ad_revenue_minor, a.ad_views))
     ledger = [
         finance.LedgerDay(r.day, r.ledger_type, r.amount_minor, r.entries)
         for r in (await session.execute(select(LedgerDaily).where(LedgerDaily.connection_id == connection.id))).scalars()

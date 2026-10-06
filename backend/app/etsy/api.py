@@ -42,6 +42,8 @@ from app.etsy.usage import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
+#: A shop's section list, cached 24 hours (dropped when the app creates a section).
+SECTIONS_KEY = "etsy:shop:{shop_id}:sections"
 # Taxonomy rarely changes and is NOT Member Content, so the 24h cache rule applies.
 _TAXONOMY_TTL = 24 * 3600
 
@@ -639,13 +641,21 @@ class EtsyApiClient:
         tenant_id: Any = None,
         tenant_limit: int | None = None,
     ) -> dict[str, Any]:
-        return await self._request(
+        # The shop's own section names: "other Etsy content", kept 24 hours (CLAUDE.md),
+        # so a batch of drafts reads them once a day per shop, not once per draft.
+        key = SECTIONS_KEY.format(shop_id=shop_id)
+        cached = await self._cache_get(key)
+        if cached is not None:
+            return cached
+        result = await self._request(
             "GET",
             f"/application/shops/{shop_id}/sections",
             access_token=access_token,
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
         )
+        await self._cache_set(key, result)
+        return result
 
     async def create_shop_section(
         self,
@@ -656,7 +666,7 @@ class EtsyApiClient:
         tenant_id: Any = None,
         tenant_limit: int | None = None,
     ) -> dict[str, Any]:
-        return await self._request(
+        created = await self._request(
             "POST",
             f"/application/shops/{shop_id}/sections",
             access_token=access_token,
@@ -664,6 +674,9 @@ class EtsyApiClient:
             tenant_id=tenant_id,
             tenant_limit=tenant_limit,
         )
+        if self._cache is not None:  # the cached list no longer has every section
+            await self._cache.delete(SECTIONS_KEY.format(shop_id=shop_id))
+        return created
 
     async def update_listing(
         self,

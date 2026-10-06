@@ -223,3 +223,24 @@ async def test_get_shop_sections_path() -> None:
         await client.get_shop_sections(7, access_token="t")
     assert seen[0].method == "GET"
     assert seen[0].url.path == "/v3/application/shops/7/sections"
+
+
+async def test_a_shops_sections_are_read_once_a_day_and_dropped_when_one_is_created() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path}")
+        if request.method == "POST":
+            return httpx.Response(201, json={"shop_section_id": 9, "title": "New"})
+        return httpx.Response(200, json={"results": [{"shop_section_id": 1, "title": "Tees"}]})
+
+    redis = FakeAsyncRedis()
+    client, http = _make(handler, cache=redis)
+    async with http:
+        for _ in range(3):  # three drafts in the same shop
+            assert (await client.get_shop_sections(900, access_token="t"))["results"][0]["title"] == "Tees"
+        assert calls == ["GET /v3/application/shops/900/sections"]
+        assert await redis.ttl("etsy:shop:900:sections") > 23 * 3600  # 24 hours at most
+        await client.create_shop_section(900, title="New", access_token="t")
+        await client.get_shop_sections(900, access_token="t")  # read again: the new one is there
+    assert calls[-1] == "GET /v3/application/shops/900/sections" and len(calls) == 3

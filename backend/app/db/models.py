@@ -1372,40 +1372,6 @@ class AdsDaily(Base):
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-class AdSpend(Base):
-    """Per-listing ad spend from the old CSV import (v7 §C1). **No longer written.**
-
-    That import matched report rows to listings by id or by title. Etsy's real
-    Ads export has no listing column, and titles must not be used to guess one,
-    so it was replaced by the shop-level daily import (:class:`AdsDaily`) and
-    migration 0043 deleted every row here. The table stays, empty, until the
-    Analytics screens that still read it are rebuilt.
-    """
-
-    __tablename__ = "ad_spend"
-    __table_args__ = (Index("ix_ad_spend_tenant_period", "tenant_id", "period_end"),)
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
-    )
-    connection_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    upload_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
-    listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    period_start: Mapped[date] = mapped_column(Date, nullable=False)
-    period_end: Mapped[date] = mapped_column(Date, nullable=False)
-    spend_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
-    ad_orders: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    ad_revenue_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
-    #: Views the listing's ad got, when the report has them (judging new listings).
-    ad_views: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
 class ComplianceFinding(Base):
     __tablename__ = "compliance_finding"
 

@@ -247,3 +247,35 @@ async def test_another_account_gets_404(world) -> None:  # noqa: F811
     bob_batch = (await b.post("/api/batches")).json()["id"]
     res = await b.post(f"/api/batches/{bob_batch}/distribution/preview", json={"mode": "split", "group_ids": [g["A"]]})
     assert res.status_code == 404
+
+
+async def test_a_planned_go_live_whose_listing_is_no_longer_approved_is_not_published(world) -> None:  # noqa: F811
+    """Rule 3 (v8 §B): at its time a planned go-live is checked again; a listing
+    no longer approved is not published, and the seller is told why."""
+    from app.workers.schedule import release_scheduled_publishes
+
+    g = await _groups(world)
+    c0 = world["contents"][0]
+    body = {"assignments": [{"content_id": str(c0), "group_id": g["A"]}], "schedule": SCHEDULE}
+    assert (await world["a"].post(f"/api/batches/{world['batch']}/distribution/confirm", json=body)).status_code == 200
+    async with world["sm"]() as s:
+        await plans.release_due(s, lambda *a: _noop(), now=datetime.now(timezone.utc) + timedelta(days=2))
+        s.add(ListingPublication(tenant_id=world["alice"], content_id=c0, connection_id=world["a1"],
+                                 etsy_listing_id=777, state="draft"))
+        await s.commit()
+        await plans.after_draft(s, c0, world["a1"])
+        publication = (await s.execute(select(ListingPublication))).scalar_one()
+        publication.scheduled_for = datetime.now(timezone.utc) - timedelta(minutes=1)  # its time has come
+        (await s.get(GeneratedContent, c0)).approved = False  # ...but the seller withdrew the approval
+        await s.commit()
+    queued: list = []
+
+    async def enqueue(*args):  # noqa: ANN002, ANN202
+        queued.append(args)
+
+    await release_scheduled_publishes({"sessionmaker": world["sm"], "enqueue": enqueue, "redis": world["redis"]})
+    async with world["sm"]() as s:
+        publication = (await s.execute(select(ListingPublication))).scalar_one()
+        assert publication.state == "draft" and publication.schedule_job_id is None
+        assert publication.schedule_note  # the reason, shown on the Scheduled page
+    assert not [q for q in queued if "run_publish_live_job" in q]
