@@ -169,6 +169,8 @@ docs/             # data-model.md ve diğer spesifikasyonlar
 
 ## Geliştirme notları
 
+- **Veritabanı dökümü ve dışa aktarım asla commit edilmez.** `.gitignore`: `*.sql`, `*.dump`, `*.sql.gz`, `backup_*`, `acts-*.json`; `backend/tests/test_no_dumps_tracked.py` bunlardan biri izleniyorsa kırılır. Her klonda bir kez `git config core.hooksPath .githooks` (pre-commit böyle bir dosyayı ekleyen commit'i reddeder). Bir üretim dökümü bir kez commit edildi ve geçmiş yeniden yazılarak çıkarıldı; eski klondan force-push yapılmaz.
+
 - **arq worker'ının reload'u yoktur.** `api` servisi `uvicorn --reload` ile çalıştığı için
   backend değişikliklerini anında alır; worker almaz. Job kodunu etkileyen bir değişiklikten
   sonra `docker compose restart worker` çalıştırılmalıdır — aksi halde job'lar **sessizce eski

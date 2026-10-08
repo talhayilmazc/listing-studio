@@ -35,3 +35,10 @@ docs/samples/
 
 # Evaluation sets and results: the seller's own design text
 backend/evals/data/
+
+# Database dumps and exports: never committed (backend/tests/test_no_dumps_tracked.py fails if one is)
+*.sql
+*.dump
+*.sql.gz
+backup_*
+acts-*.json
