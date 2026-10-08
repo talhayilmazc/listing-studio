@@ -189,4 +189,5 @@ async def test_replace_images_for_a_group_on_etsy_keeps_to_that_group(ctx) -> No
         "group_key": "G1",
         "content_id": str(content_id),
         "title_prefix": "Comfort Colors®",
+        "profile_id": str(profile),  # "full" writes in this profile's title style
     }
