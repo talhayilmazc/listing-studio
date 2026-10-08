@@ -12,7 +12,8 @@ function disk(bytes: Record<string, number | null>, over: Partial<AdminDisk> = {
     as_of: "2026-10-04T12:00:00Z", total_bytes: 30 * GB, free_bytes: 9 * GB,
     categories: Object.keys(label).map((key) => ({ key, label: label[key], note: "", bytes: bytes[key] ?? null, files: null })),
     host_reported_at: null, host_fresh: false, retention: { drafted_days: 3, unpublished_days: 30 },
-    retention_defaults: { drafted_days: 3, unpublished_days: 30 }, retention_applies: true, last_run: null, ...over,
+    retention_defaults: { drafted_days: 3, unpublished_days: 30 }, retention_applies: true, last_run: null, accounts: [], growth_per_day: null,
+    storage_growth_per_day: null, days_until_full: null, growth_basis_days: 0, ...over,
   };
 }
 

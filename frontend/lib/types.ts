@@ -489,6 +489,13 @@ export interface AdminDisk {
     thumbnail_bytes: number;
     waiting: number;
   } | null;
+  /** Stored image files per account, largest first; tenant_id null: no account owns the folder. */
+  accounts: { tenant_id: string | null; email: string | null; bytes: number; cap_bytes: number | null }[];
+  /** At the last days' rate (one reading a day): null when not enough readings or not growing. */
+  growth_per_day: number | null;
+  storage_growth_per_day: number | null;
+  days_until_full: number | null;
+  growth_basis_days: number;
 }
 
 /** Admin only: calls, listings and cost of one seller (or all) in one stretch of time. */

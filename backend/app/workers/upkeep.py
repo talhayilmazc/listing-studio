@@ -25,8 +25,13 @@ logger = logging.getLogger(__name__)
 _DONE = "upkeep:done:{day}"
 
 
-def summary(result: upload_retention.Result, snapshot: disk.Snapshot, day: str) -> str:
+def summary(
+    result: upload_retention.Result, snapshot: disk.Snapshot, day: str, growth: disk.Forecast | None = None
+) -> str:
     """The daily message. Plain text: it is read in a notification."""
+    pace = ""
+    if growth is not None and growth.days_left is not None:
+        pace = f" At the last {growth.basis_days} days' rate ({disk.size(int(growth.per_day or 0))} a day) it is full in {growth.days_left:.0f} days."
     verb = "freed" if result.applied else "would free (dry run, nothing was deleted)"
     if result.groups:
         parts = []
@@ -48,7 +53,7 @@ def summary(result: upload_retention.Result, snapshot: disk.Snapshot, day: str) 
         space = "Disk: free space unknown."
     use = ", ".join(f"{disk.LABELS[c.key].lower()} {disk.size(c.bytes)}" for c in snapshot.categories)
     stale = "" if snapshot.host_fresh else " (Backups and Docker are measured by deploy/disk-check.sh, which has not reported lately.)"
-    return f"Listyro daily summary, {day}. {cleanup} {space} In use: {use}.{stale}"
+    return f"Listyro daily summary, {day}. {cleanup} {space}{pace} In use: {use}.{stale}"
 
 
 async def daily_upkeep(ctx: dict[str, Any]) -> dict[str, Any] | None:
@@ -65,10 +70,12 @@ async def daily_upkeep(ctx: dict[str, Any]) -> dict[str, Any] | None:
             result = await upload_retention.run(session, storage, now=now, apply=get_settings().upload_retention_apply)
             await upload_retention.remember(session, result)
             snapshot = await disk.snapshot(session, storage, redis, fresh=True)
+            # One reading a day: the "days until the disk is full" rate (Admin > Usage).
+            growth = disk.forecast(await disk.record_history(session, snapshot, day), snapshot.free_bytes)
     except Exception:
         # Let a later start today try again, and say that today's did not finish.
         await redis.delete(_DONE.format(day=day))
         await alerts.send(f"Listyro daily summary, {day}: the upload cleanup failed; see the worker log.")
         raise
-    await alerts.send(summary(result, snapshot, day))
+    await alerts.send(summary(result, snapshot, day, growth))
     return result.as_dict()

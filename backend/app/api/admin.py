@@ -1109,6 +1109,21 @@ class DiskOut(BaseModel):
     #: False: the daily job only counts (UPLOAD_RETENTION_APPLY=false).
     retention_applies: bool
     last_run: UploadRetentionRun | None
+    #: Stored image files per account, largest first, with its cap (core/storage_cap.py).
+    accounts: list["AccountStorage"] = []
+    #: At the last days' rate (daily readings, core/disk.py::forecast): bytes a day the
+    #: disk fills, and days until it is full; None: not enough readings, or not growing.
+    growth_per_day: float | None = None
+    storage_growth_per_day: float | None = None
+    days_until_full: float | None = None
+    growth_basis_days: int = 0
+
+
+class AccountStorage(BaseModel):
+    tenant_id: uuid.UUID | None  # None: files under a folder no account owns
+    email: str | None
+    bytes: int
+    cap_bytes: int | None
 
 
 def _days(policy: upload_retention.Policy) -> UploadRetentionDays:
@@ -1135,6 +1150,7 @@ async def disk_usage(
     """What is using the server's disk, by category, and what upload retention
     last freed. Sizes and counts only: no file, no name, no seller."""
     snapshot = await disk.snapshot(session, storage, redis)
+    growth = disk.forecast(await disk.history(session), snapshot.free_bytes)
     last = await upload_retention.last(session)
     run = None
     if last:
@@ -1156,7 +1172,24 @@ async def disk_usage(
         retention_defaults=_days(upload_retention.defaults()),
         retention_applies=get_settings().upload_retention_apply,
         last_run=run,
+        accounts=await _account_storage(session, snapshot.accounts or {}),
+        growth_per_day=growth.per_day,
+        storage_growth_per_day=growth.storage_per_day,
+        days_until_full=growth.days_left,
+        growth_basis_days=growth.basis_days,
     )
+
+
+async def _account_storage(session: AsyncSession, by_folder: dict[str, int]) -> list[AccountStorage]:
+    out: list[AccountStorage] = []
+    tenants = {str(t.id): t for t in (await session.execute(select(Tenant))).scalars()}
+    for folder, size_ in sorted(by_folder.items(), key=lambda kv: -kv[1]):
+        t = tenants.get(folder)
+        out.append(AccountStorage(
+            tenant_id=t.id if t else None, email=t.email if t else None, bytes=size_,
+            cap_bytes=storage_cap.limit(t) if t else None,
+        ))
+    return out
 
 
 @router.put("/upload-retention", response_model=UploadRetentionDays)

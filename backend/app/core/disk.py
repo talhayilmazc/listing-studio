@@ -76,6 +76,8 @@ class Snapshot:
     #: When the host last reported (epoch seconds), and whether that is recent.
     host_at: float | None
     host_fresh: bool
+    #: Stored bytes per account (its id), from the same measurement.
+    accounts: dict[str, int] | None = None
 
     def get(self, key: str) -> int | None:
         return next((c.bytes for c in self.categories if c.key == key), None)
@@ -109,10 +111,87 @@ async def app_usage(session: AsyncSession, storage: Storage, redis: Redis, *, fr
             except ValueError:
                 pass
     measured: dict[str, Any] = await asyncio.to_thread(storage.usage)
+    measured["accounts"] = await asyncio.to_thread(_by_account, storage)
     measured["database_bytes"] = await _database_bytes(session)
     measured["at"] = time.time()
     await redis.set(APP_KEY, json.dumps(measured), ex=APP_CACHE_SECONDS)
     return measured
+
+
+def _by_account(storage: Storage) -> dict[str, int]:
+    """Stored bytes per account folder (the account's id). Sizes only."""
+    files = getattr(storage, "files", None)
+    out: dict[str, int] = {}
+    if files is None:
+        return out
+    for key, size_, _ in files():
+        account = key.split("/", 1)[0]
+        out[account] = out.get(account, 0) + size_
+    return out
+
+
+# --- How fast the disk fills ------------------------------------------------------------
+#: app_setting: one reading a day, newest last: {"day", "used", "free", "storage"}.
+HISTORY_KEY = "disk_history"
+HISTORY_DAYS = 30
+#: The rate is the average over at most this many days of readings.
+RATE_DAYS = 7
+
+
+async def record_history(session: AsyncSession, snap: "Snapshot", day: str) -> list[dict[str, Any]]:
+    """Keep today's reading (the daily job calls this); one per day, 30 days."""
+    from app.db.models import AppSetting
+
+    if snap.total_bytes is None or snap.free_bytes is None:
+        return []
+    storage = sum(c.bytes or 0 for c in snap.categories if c.key in ("uploads", "derivatives"))
+    row = await session.get(AppSetting, HISTORY_KEY)
+    history = [h for h in (row.value if row is not None and isinstance(row.value, list) else []) if h.get("day") != day]
+    history.append({"day": day, "used": snap.total_bytes - snap.free_bytes, "free": snap.free_bytes, "storage": storage})
+    history = sorted(history, key=lambda h: h["day"])[-HISTORY_DAYS:]
+    if row is None:
+        session.add(AppSetting(key=HISTORY_KEY, value=history))
+    else:
+        row.value = history
+    await session.commit()
+    return history
+
+
+async def history(session: AsyncSession) -> list[dict[str, Any]]:
+    from app.db.models import AppSetting
+
+    row = await session.get(AppSetting, HISTORY_KEY)
+    return list(row.value) if row is not None and isinstance(row.value, list) else []
+
+
+@dataclass
+class Forecast:
+    #: Bytes a day the disk's used space grew, on average; None: fewer than two readings.
+    per_day: float | None
+    #: Days until no space is left at that rate; None: not growing, or not known.
+    days_left: float | None
+    #: Days the average covers.
+    basis_days: int
+    storage_per_day: float | None = None
+
+
+def forecast(readings: list[dict[str, Any]], free_now: int | None) -> Forecast:
+    """At the current rate (the last :data:`RATE_DAYS` days of daily readings),
+    how long until the disk is full."""
+    from datetime import date
+
+    recent = sorted(readings, key=lambda h: h["day"])[-(RATE_DAYS + 1):]
+    if len(recent) < 2:
+        return Forecast(None, None, 0)
+    first, last = recent[0], recent[-1]
+    days = (date.fromisoformat(last["day"]) - date.fromisoformat(first["day"])).days
+    if days <= 0:
+        return Forecast(None, None, 0)
+    per_day = (last["used"] - first["used"]) / days
+    storage_per_day = (last.get("storage", 0) - first.get("storage", 0)) / days
+    free = free_now if free_now is not None else last.get("free")
+    days_left = (free / per_day) if per_day > 0 and free is not None else None
+    return Forecast(per_day, days_left, days, storage_per_day)
 
 
 async def host_report(redis: Redis) -> dict[str, Any] | None:
@@ -150,6 +229,7 @@ async def snapshot(session: AsyncSession, storage: Storage, redis: Redis, *, fre
     return Snapshot(
         at=time.time(), total_bytes=total, free_bytes=free, categories=categories, host_at=host_at,
         host_fresh=host_at is not None and time.time() - host_at < HOST_FRESH_SECONDS,
+        accounts={str(k): int(v) for k, v in (app.get("accounts") or {}).items()},
     )
 
 

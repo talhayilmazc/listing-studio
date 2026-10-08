@@ -39,7 +39,7 @@ export function DiskPanel({ disk, onChanged, onError }: { disk: AdminDisk | null
         </p>
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-5">
         <Stat label="Free" value={size(disk.free_bytes)} note={total !== null ? `of ${size(total)}` : "Total size unknown"} />
         <Stat
           label="Used"
@@ -56,7 +56,20 @@ export function DiskPanel({ disk, onChanged, onError }: { disk: AdminDisk | null
           value={run ? size(run.freed_bytes) : "—"}
           note={run ? when(run.at) : "The daily cleanup has not run yet"}
         />
+        <Stat
+          label="Days until the disk is full"
+          value={disk.days_until_full !== null ? `${Math.floor(disk.days_until_full)}` : "—"}
+          note={
+            disk.growth_per_day === null
+              ? "Needs two daily readings (taken by the daily cleanup)"
+              : disk.growth_per_day <= 0
+                ? `Not filling over the last ${disk.growth_basis_days} days`
+                : `At ${size(disk.growth_per_day)} a day (last ${disk.growth_basis_days} days; uploads ${size(Math.max(0, disk.storage_growth_per_day ?? 0))} a day)`
+          }
+        />
       </dl>
+
+      <AccountsTable disk={disk} />
 
       {parts.length > 0 ? (
         <div key="bar" className="mt-5">
@@ -151,6 +164,39 @@ export function DiskPanel({ disk, onChanged, onError }: { disk: AdminDisk | null
 
       <Cleanup disk={disk} onChanged={onChanged} onError={onError} />
     </section>
+  );
+}
+
+/** Stored image files per account against its cap. Sizes only. */
+function AccountsTable({ disk }: { disk: AdminDisk }) {
+  if (!disk.accounts.length) return null;
+  const all = disk.accounts.reduce((n, a) => n + a.bytes, 0);
+  return (
+    <div className="mt-5 overflow-x-auto">
+      <h3 className="text-sm font-medium text-slate-900">Storage per account</h3>
+      <table className="mt-2 w-full min-w-[26rem] text-xs">
+        <thead className="border-b border-slate-200 text-slate-500">
+          <tr>
+            <th scope="col" className="px-3 py-1.5 text-left font-medium">Account</th>
+            <th scope="col" className="px-3 py-1.5 text-right font-medium">Stored</th>
+            <th scope="col" className="px-3 py-1.5 text-right font-medium">Share</th>
+            <th scope="col" className="px-3 py-1.5 text-right font-medium">Of its cap</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {disk.accounts.map((a, i) => (
+            <tr key={a.tenant_id ?? `none-${i}`}>
+              <td className="max-w-[16rem] truncate px-3 py-1.5 text-slate-700">{a.email ?? "No account (left-over folder)"}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{size(a.bytes)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{all ? percent(a.bytes / all) : "—"}</td>
+              <td className={"px-3 py-1.5 text-right tabular-nums " + (a.cap_bytes && a.bytes >= a.cap_bytes ? "font-medium text-rose-700" : "")}>
+                {a.cap_bytes ? `${percent(a.bytes / a.cap_bytes)} of ${size(a.cap_bytes)}` : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

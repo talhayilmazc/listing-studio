@@ -23,6 +23,11 @@ MIN_FREE_GB="${DISK_ALERT_FREE_GB:-8}"
 ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/listyro}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+# Uploads: alert when they grow more than STORAGE_GROWTH_ALERT_GB (1) in a day.
+STORAGE_VOLUME="${STORAGE_VOLUME:-listyro_storage_data}"
+STORAGE_STATE="${STORAGE_STATE:-/var/lib/listyro/storage-size.log}"
+# shellcheck source=deploy/storage-growth.sh
+. "$(dirname "$0")/storage-growth.sh"
 
 report_usage() {
   local root backups all volumes docker_bytes
@@ -43,6 +48,15 @@ report_usage() {
 report_usage || echo "disk report could not be written: Admin > Usage will show backups and Docker as unknown" >&2
 
 alerts=""
+storage_mount="$(docker volume inspect -f '{{.Mountpoint}}' "$STORAGE_VOLUME" 2>/dev/null || true)"
+if [ -n "$storage_mount" ] && [ -d "$storage_mount" ]; then
+  storage_bytes="$(du -sb "$storage_mount" 2>/dev/null | cut -f1)"
+  echo "uploads: $(( ${storage_bytes:-0} / 1048576 )) MB"
+  growth="$(storage_growth "${storage_bytes:-0}" "$STORAGE_STATE")"
+  [ -z "$growth" ] || alerts="${alerts}$(hostname): ${growth}"
+else
+  echo "the storage volume $STORAGE_VOLUME was not found: its daily growth is not checked" >&2
+fi
 for mount in / /var/lib/docker /var/backups; do
   [ -d "$mount" ] || continue
   used="$(df --output=pcent "$mount" | tail -1 | tr -dc '0-9')"
