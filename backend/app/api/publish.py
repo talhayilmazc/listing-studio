@@ -25,7 +25,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.pauses import pause_out
 from app.api.content import manual_steps
 from app.api.shops import shop_label
-from app.core import limits
+from app.core import limits, request_cost
 from app.db.models import (
     Asset,
     EtsyConnection,
@@ -44,7 +44,7 @@ from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, owned_shop
 from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
-from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT, is_fresh, resolve_target, shop_profiles
+from app.pipeline.targets import is_fresh, resolve_target, shop_profiles
 
 from app.pipeline.batch_names import names_by_id
 
@@ -210,16 +210,20 @@ class _Budget:
     ceiling: limits.EtsyCeiling | None = None
     #: "account" or "app": which of the two is the smaller right now.
     limited_by: str = "account"
+    #: Requests one draft is planned at: the measured average + margin (core/request_cost.py).
+    per_draft: int = request_cost.DEFAULT_PER_DRAFT
 
 
-async def _budget(quota: DailyQuota, tenant: Tenant, plan: _Plan) -> _Budget:
-    """Will these drafts fit in what may still be spent today? (v5 §E)"""
+async def _budget(session: AsyncSession, quota: DailyQuota, tenant: Tenant, plan: _Plan) -> _Budget:
+    """Will these drafts fit in what may still be spent today? (v5 §E) Each draft at
+    the measured average plus a margin, not its worst case (core/request_cost.py)."""
     room = await limits.spendable(quota, tenant)
     remaining = room.amount
+    per_draft = (await request_cost.draft_estimate(session)).per_draft
     drafts = len(plan.jobs)
-    estimated = drafts * ESTIMATED_CALLS_PER_DRAFT
+    estimated = drafts * per_draft
     shops = max(1, len({c.id for _, c, _ in plan.jobs}))
-    per_listing = shops * ESTIMATED_CALLS_PER_DRAFT
+    per_listing = shops * per_draft
     listings = len({content.id for content, _, _ in plan.jobs})
     fits = estimated <= remaining
     fit = min(listings, remaining // per_listing)
@@ -242,7 +246,7 @@ async def _budget(quota: DailyQuota, tenant: Tenant, plan: _Plan) -> _Budget:
                 else f"None would fit; wait for the reset at {reset}."
             )
         )
-    return _Budget(estimated, remaining, fits, fit, message, ceiling=room.ceiling, limited_by=room.limited_by)
+    return _Budget(estimated, remaining, fits, fit, message, ceiling=room.ceiling, limited_by=room.limited_by, per_draft=per_draft)
 
 
 async def _enqueue(
@@ -335,7 +339,7 @@ async def _publish(
         reasons = "; ".join(dict.fromkeys(s.reason for s in plan.skipped)) or "nothing to publish"
         raise HTTPException(status_code=409, detail=reasons)
     # Drafts are not part of the listing allowance: only Etsy requests limit them.
-    budget = await _budget(quota, tenant, plan)
+    budget = await _budget(session, quota, tenant, plan)
     if not budget.fits:
         raise HTTPException(status_code=409, detail=budget.message)
     result = schemas.BatchPublishResult(skipped=plan.skipped)
@@ -385,6 +389,7 @@ async def _matrix(
     plan: _Plan,
 ) -> tuple[list[schemas.MatrixColumnOut], list[schemas.MatrixRowOut]]:
     """Every listing of the batch against every connected shop."""
+    per_draft = (await request_cost.draft_estimate(session)).per_draft
     shops = await active_shops(session, tenant.id)
     overrides = {t.connection_id: t.profile_id for t in request.targets or []}
     planned = {(content.id, connection.id) for content, connection, _ in plan.jobs}
@@ -450,7 +455,7 @@ async def _matrix(
                 for p in profiles[shop.id]
             ],
             drafts=plan.ready.get(shop.id, 0),
-            estimated_calls=plan.ready.get(shop.id, 0) * ESTIMATED_CALLS_PER_DRAFT,
+            estimated_calls=plan.ready.get(shop.id, 0) * per_draft,
         )
         for shop in shops
     ]
@@ -469,7 +474,7 @@ async def publish_preview(
     request = request or schemas.PublishRequest()
     contents = await _batch_contents(session, tenant, batch_id, request.content_ids)
     plan = await _plan_drafts(session, tenant, contents, request)
-    budget = await _budget(quota, tenant, plan)
+    budget = await _budget(session, quota, tenant, plan)
     shops = []
     for connection in plan.shops.values():
         profiles = await shop_profiles(session, connection.id)
@@ -494,7 +499,7 @@ async def publish_preview(
         rows=rows,
         drafts=len(plan.jobs),
         estimated_calls=budget.estimated,
-        calls_per_draft=ESTIMATED_CALLS_PER_DRAFT,
+        calls_per_draft=budget.per_draft,
         budget_remaining=budget.remaining,
         limited_by=budget.limited_by,
         ceiling=schemas.EtsyCeilingOut(**budget.ceiling.out()) if budget.ceiling else None,
@@ -683,7 +688,7 @@ async def batch_action_preview(
             out.act.append(_item(content, names, shop_name=shop_label(connection)))
         for s in plan.skipped:
             out.skipped.append(_item(by_id[s.content_id], names, shop_name=s.shop_name, reason=s.reason))
-        budget = await _budget(quota, tenant, plan)
+        budget = await _budget(session, quota, tenant, plan)
         out.estimated_calls, out.fits, out.message = budget.estimated, budget.fits, budget.message
     else:
         planned: list[tuple[GeneratedContent, EtsyConnection]] = []

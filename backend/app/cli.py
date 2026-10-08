@@ -371,6 +371,25 @@ def oauth_check() -> str:
     return "\n".join(lines)
 
 
+async def draft_cost(sm: async_sessionmaker) -> str:
+    """Requests per draft: the measured average, the estimate plans use, the worst case."""
+    from app.core import request_cost
+
+    async with sm() as session:
+        e = await request_cost.measure(session)
+    mean = f"{e.measured_mean:.1f}" if e.measured_mean is not None else "none yet"
+    lines = [
+        f"window: last {request_cost.WINDOW_DAYS} complete UTC days" + (f" (data since {e.since})" if e.since else " (no data)"),
+        f"draft requests: {e.requests:,}   drafts finished: {e.drafts:,}   measured average: {mean}",
+        f"estimate used: {e.per_draft} per draft ({e.source}"
+        + (f", average + {int(e.margin * 100)}%" if e.source == "measured" else f", fewer than {request_cost.MIN_DRAFTS} drafts measured")
+        + ")",
+        f"worst case: {e.worst_case} per draft (gate.JOB_COST; no longer used to admit drafts)",
+        f"240 drafts (a 16-shop day): {240 * e.per_draft:,} estimated, {240 * e.worst_case:,} at the worst case",
+    ]
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -402,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
+    sub.add_parser("draft-cost", help="Etsy requests per draft: measured average, the estimate used, the worst case")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
         print(oauth_check())
@@ -417,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(demote_admin(sm, args.email)))
     elif args.command == "sales-report":
         print(asyncio.run(sales_report(sm, args.email)))
+    elif args.command == "draft-cost":
+        print(asyncio.run(draft_cost(sm)))
     elif args.command == "limits-report":
         print(asyncio.run(limits_report(sm, args.email)))
     elif args.command == "upload-retention":

@@ -91,7 +91,7 @@ async def test_scheduled_go_lives_keep_their_budget(ctx) -> None:  # noqa: F811
     quota = DailyQuota(redis, global_daily_limit=5000)
     async with ctx["sm"]() as s:
         tenant = await s.get(Tenant, ctx["tenant_id"])
-        tenant.etsy_ceiling_override = 40
+        tenant.etsy_ceiling_override = 20
         await s.commit()
     # Three go-lives due before tonight's reset: 3 x 3 requests held back.
     for listing_id in (801, 802, 803):
@@ -108,7 +108,7 @@ async def test_scheduled_go_lives_keep_their_budget(ctx) -> None:  # noqa: F811
 
     async with ctx["sm"]() as s:
         tenant = await s.get(Tenant, ctx["tenant_id"])
-    # A 32-request draft fits 40 but not the 31 left beside the go-lives: it waits...
+    # A draft (15 requests until drafts are measured) fits 20 but not the 11 left beside the go-lives: it waits...
     verdict = await gate.check(wctx, tenant, "run_publish_job")
     assert verdict.action == "paused" and verdict.reason == PAUSE_TENANT
     # ...and the go-lives themselves still run.

@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
 from app.api.shops import shop_label
 from app.compliance.check import listing_problem
-from app.core import audit, limits
+from app.core import audit, limits, request_cost
 from app.core.timezones import valid_zone, zone_abbreviation
 from app.db.models import (
     Asset,
@@ -259,7 +259,7 @@ async def _rows(session: AsyncSession, tenant: Tenant, batch: UploadBatch, assig
     return rows, groups
 
 
-async def _capacity(session: AsyncSession, tenant: Tenant, quota: DailyQuota, now: datetime) -> Any:
+async def _capacity(session: AsyncSession, tenant: Tenant, quota: DailyQuota, now: datetime, per_draft: int) -> Any:
     """Per UTC day: what this plan may spend. The account's ceiling, never more
     than the app's pause point, less what is spent today and what is reserved
     already (other plans' slots, go-lives scheduled by hand)."""
@@ -273,7 +273,7 @@ async def _capacity(session: AsyncSession, tenant: Tenant, quota: DailyQuota, no
         draft_at = slot.draft_at if slot.draft_at.tzinfo else slot.draft_at.replace(tzinfo=timezone.utc)
         publish_at = slot.publish_at if slot.publish_at.tzinfo else slot.publish_at.replace(tzinfo=timezone.utc)
         if slot.state == "waiting":
-            reserved[draft_at.date()] += G.DRAFT_REQUESTS
+            reserved[draft_at.date()] += per_draft
         reserved[publish_at.date()] += G.PUBLISH_REQUESTS
     for when in (await session.execute(select(ListingPublication.scheduled_for).where(
         ListingPublication.tenant_id == tenant.id, ListingPublication.scheduled_for.is_not(None),
@@ -303,13 +303,15 @@ async def _plan(session: AsyncSession, tenant: Tenant, batch: UploadBatch, body:
         for r in rows
     ]
     now = datetime.now(timezone.utc)
-    capacity, ceiling = await _capacity(session, tenant, quota, now)
+    # A draft at the measured average + margin, not its worst case (core/request_cost.py).
+    per_draft = (await request_cost.draft_estimate(session)).per_draft
+    capacity, ceiling = await _capacity(session, tenant, quota, now, per_draft)
     s = body.schedule
     settings = G.Settings(start=s.start_date, per_shop_per_day=s.per_shop_per_day, window_start=s.window_start,
                           window_end=s.window_end, spacing_minutes=s.spacing_minutes, stagger_minutes=s.stagger_minutes,
                           zone=zone)
     try:
-        result = G.plan(settings, listings, shops, capacity=capacity, now=now)
+        result = G.plan(settings, listings, shops, capacity=capacity, now=now, draft_requests=per_draft)
     except G.PlanRefused as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     names = {s.id: s.name for s in shops}
@@ -328,7 +330,7 @@ async def _plan(session: AsyncSession, tenant: Tenant, batch: UploadBatch, body:
         budget=[BudgetDay(date=d, requests=n, capacity=result.capacity[d]) for d, n in result.requests.items()],
         ceiling=ceiling, finishes_on=result.finishes_on, drafts=len(result.slots),
         skipped=[{"content_id": str(c), "shop": names.get(sid, ""), "reason": why} for c, sid, why in result.skipped],
-        notes=result.notes, time_zone=zone,
+        notes=result.notes, time_zone=zone, requests_per_draft=per_draft,
     )
     return result, rows, groups, out
 

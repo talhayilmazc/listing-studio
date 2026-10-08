@@ -28,7 +28,7 @@ from typing import Any, Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import limits
+from app.core import limits, request_cost
 from app.db.models import Job, JobStatus, ListingPublication, Tenant, TenantStatus
 from app.etsy.calllog import current_job
 from app.etsy.rate_limiter import PAUSE_TENANT
@@ -40,6 +40,8 @@ JOB_COST: dict[str, int] = {
     # inventory, up to 10 new images and the fixed ones, personalization with
     # its read-back (v7 §D4), up to 8 optional design attributes (short style)
     # and up to 5 garment attributes from the profile's reference (Part C)
+    # The worst case; a draft is admitted on the measured average (gate.job_cost,
+    # core/request_cost.py), and request_cost.WORST_CASE matches this.
     "run_publish_job": 45,
     "run_publish_live_job": 3,
     # listing, images, up to 10 deletes and 10 uploads, update, inventory
@@ -141,6 +143,22 @@ async def scheduled_reserve(ctx: dict[str, Any], tenant_id: Any) -> int:
     return int(due or 0) * JOB_COST[SCHEDULED_GO_LIVE]
 
 
+#: The seller's job whose admission uses the measured per-draft estimate.
+DRAFT_JOB = "run_publish_job"
+
+
+async def job_cost(ctx: dict[str, Any], function: str) -> int:
+    """What must still fit before ``function`` starts. A draft is admitted on the
+    measured average plus a margin (core/request_cost.py), not its worst case:
+    the worst case would hold back the end of every day's budget. One that runs
+    over stops at the wall and resumes after the reset."""
+    sessionmaker = ctx.get("sessionmaker")
+    if function != DRAFT_JOB or sessionmaker is None:
+        return JOB_COST[function]
+    async with sessionmaker() as session:
+        return (await request_cost.draft_estimate(session)).per_draft
+
+
 async def check(ctx: dict[str, Any], tenant: Tenant | None, function: str) -> Verdict:
     """May this tenant's job start now?"""
     if tenant is None or tenant.status is TenantStatus.suspended:
@@ -151,7 +169,7 @@ async def check(ctx: dict[str, Any], tenant: Tenant | None, function: str) -> Ve
     if function in UPKEEP:
         reason = await quota.admission_upkeep(JOB_COST[function])
     else:
-        cost = JOB_COST[function]
+        cost = await job_cost(ctx, function)
         reason = await quota.admission(tenant.id, limits.ceiling_limit(tenant), cost)
         if reason is None and function != SCHEDULED_GO_LIVE:
             # With go-lives waiting, the whole job must fit beside them (no

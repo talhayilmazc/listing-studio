@@ -37,10 +37,9 @@ from app.pipeline.reference import PAYLOAD_VERSION, replace_title_block
 from app.pipeline.reference import with_opening
 from app.pipeline.search_rules import TitleRules
 
-# Typical Etsy requests to create one draft: create, read back, category
-# attributes, inventory and the images. Used for the estimate shown before a
-# multi-shop publish ("3 shops x 5 listings = ~225 requests"). The worker's own
-# check before each job uses the worst case (workers/gate.py JOB_COST).
+# Requests per draft until enough drafts are measured. Plans, the publish
+# preview and the gate use the measured average + margin instead
+# (core/request_cost.py); this is its default.
 ESTIMATED_CALLS_PER_DRAFT = 15
 
 logger = logging.getLogger(__name__)

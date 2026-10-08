@@ -446,6 +446,9 @@ class ApiUsage(Base):
     )
     usage_date: Mapped[date] = mapped_column(Date, primary_key=True)
     request_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: The same requests by what they were for, ``{"drafts": n, ...}``
+    #: (etsy/categories.py); NULL on days recorded before it was kept.
+    categories: Mapped[dict[str, int] | None] = mapped_column(JSONB_TYPE)
 
 
 class DraftAttempt(Base):

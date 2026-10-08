@@ -18,14 +18,16 @@ from app.db.models import ApiUsage
 
 
 class UsageRecorder:
-    """In-memory accumulator of (tenant, day) -> request count."""
+    """In-memory accumulator of (tenant, day) -> request count, and by category."""
 
     def __init__(self, flush_threshold: int = 50) -> None:
         self._buffer: dict[tuple[uuid.UUID, date], int] = defaultdict(int)
+        self._by_category: dict[tuple[uuid.UUID, date], dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self._threshold = flush_threshold
 
-    def record(self, tenant_id: uuid.UUID, day: date, count: int = 1) -> None:
+    def record(self, tenant_id: uuid.UUID, day: date, count: int = 1, category: str | None = None) -> None:
         self._buffer[(tenant_id, day)] += count
+        self._by_category[(tenant_id, day)][category or "other"] += count
 
     @property
     def pending(self) -> int:
@@ -36,15 +38,22 @@ class UsageRecorder:
         if not self._buffer:
             return
         items = list(self._buffer.items())
+        categories = {k: dict(v) for k, v in self._by_category.items()}
         self._buffer.clear()
+        self._by_category.clear()
         for (tenant_id, day), delta in items:
+            spent = categories.get((tenant_id, day), {})
             row = await session.get(ApiUsage, (tenant_id, day))
             if row is None:
                 session.add(
-                    ApiUsage(tenant_id=tenant_id, usage_date=day, request_count=delta)
+                    ApiUsage(tenant_id=tenant_id, usage_date=day, request_count=delta, categories=spent)
                 )
             else:
                 row.request_count += delta
+                merged = dict(row.categories or {})
+                for name, n in spent.items():
+                    merged[name] = merged.get(name, 0) + n
+                row.categories = merged  # reassigned: a JSON column notices only a new value
         await session.commit()
 
     async def maybe_flush(self, session: AsyncSession) -> None:

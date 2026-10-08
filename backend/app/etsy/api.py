@@ -235,7 +235,7 @@ class EtsyApiClient:
             )
         # The seller's usage history is their own requests; upkeep is the app's.
         if self._usage is not None and tenant_id is not None and not self._upkeep:
-            self._usage.record(tenant_id, date.today())
+            self._usage.record(tenant_id, date.today(), category=category_of(current_job.get()))
         return resp.json() if resp.content else {}
 
     async def _cache_get(self, key: str) -> dict[str, Any] | None:

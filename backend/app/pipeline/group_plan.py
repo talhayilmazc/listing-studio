@@ -136,6 +136,7 @@ def plan(
     *,
     capacity: callable,  # type: ignore[valid-type]  # (UTC date) -> requests this plan may use that day
     now: datetime,
+    draft_requests: int = DRAFT_REQUESTS,
 ) -> Plan:
     groups: dict[uuid.UUID, list[Shop]] = {}
     for shop in shops:
@@ -177,7 +178,7 @@ def plan(
                     continue  # a time the clocks skip, or already past
                 draft_at = max(now, publish_at - DRAFT_LEAD)
                 d_day, p_day = draft_at.date(), publish_at.date()
-                need = {d_day: DRAFT_REQUESTS}
+                need = {d_day: draft_requests}
                 need[p_day] = need.get(p_day, 0) + PUBLISH_REQUESTS
                 if any(left(k) < v for k, v in need.items()):
                     break  # this shop's day is full: the rest of its queue spills to tomorrow
