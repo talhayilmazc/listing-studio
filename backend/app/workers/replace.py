@@ -35,6 +35,7 @@ from app.db.models import (
     GeneratedContent,
     Job,
     JobStatus,
+    ListingProfile,
     ListingPublication,
     Tenant,
 )
@@ -42,11 +43,17 @@ from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
 from app.pipeline import versions
-from app.pipeline.content import AnthropicContentGenerator, policy_for
+from app.pipeline.content import (
+    AnthropicContentGenerator,
+    content_template_for,
+    policy_for,
+    search_style,
+    uses_search_style,
+)
 from app.pipeline.imageclass import SIZE_CHART, AnthropicImageKindClassifier, classify_reference_images
 from app.pipeline.images import cover_image
 from app.pipeline.llm import client_for
-from app.pipeline.reference import decode_etsy_text, replace_title_block
+from app.pipeline.reference import decode_etsy_text, replace_title_block, with_opening
 from app.pipeline.storage import LocalStorage
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 from app.pipeline.templates import load_template
@@ -201,20 +208,33 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
 
                 new_title = new_tags = new_description = None
                 if full:
-                    # Regenerate title + 13 tags from the new primary image; template from
-                    # the listing's own taxonomy (Clothing -> apparel).
-                    template = infer_content_template(
-                        existing.get("taxonomy_id"),
-                        clothing_taxonomy_ids(nodes),
-                        default=settings.default_content_template,
-                    )
+                    # Regenerate title + 13 tags from the new primary image. A draft this
+                    # app made is written in its profile's title style ("Etsy recommended
+                    # (short)" or "Long keyword"), exactly as a new listing would be;
+                    # otherwise the long style, template from the listing's own taxonomy.
+                    profile = await replace_profile(session, job, connection.id, listing_id)
+                    if profile is not None and uses_search_style(profile):
+                        template_name, style_args = content_template_for(profile), search_style(profile)
+                        policy = policy_for(profile.content_template)
+                        style = versions.SHORT
+                    else:
+                        template = (
+                            profile.content_template if profile is not None else infer_content_template(
+                                existing.get("taxonomy_id"),
+                                clothing_taxonomy_ids(nodes),
+                                default=settings.default_content_template,
+                            )
+                        )
+                        template_name, style_args, policy = f"content/{template}", {}, policy_for(template)
+                        style = versions.LONG
                     analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
                     generator = AnthropicContentGenerator(
                         llm,
-                        template=load_template(f"content/{template}"),
-                        policy=policy_for(template),
+                        template=load_template(template_name),
+                        policy=policy,
                         title_prefix=str(job.payload.get("title_prefix") or ""),
                         trademarks=blocklist_for_tenant(tenant),
+                        **style_args,
                     )
                     async with ai_meter.scope(tenant.id, session) as meter:
                         vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
@@ -223,9 +243,14 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     allowance.record(session, tenant.id, allowance.GENERATION)
                     new_title = result.listing.title
                     new_tags = result.listing.tags
-                    new_description = replace_title_block(
-                        decode_etsy_text(existing.get("description")), new_title
-                    )
+                    new_opening = result.listing.opening
+                    if style == versions.SHORT:
+                        # The new design-specific opening above the listing's own body.
+                        new_description = with_opening(decode_etsy_text(existing.get("description")), new_opening)
+                    else:
+                        new_description = replace_title_block(
+                            decode_etsy_text(existing.get("description")), new_title
+                        )
 
                 await replace_listing_images(
                     session,
@@ -270,18 +295,44 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             if publication is not None:
                 await versions.replaced(
                     session, publication, datetime.now(timezone.utc),
-                    title=new_title, tags=new_tags, description=new_description,
+                    title=new_title, tags=new_tags, description=new_description, style=style,
                 )
         # The review page shows what the listing now says on Etsy (photos only changed no text).
         if full and job.payload.get("content_id"):
             content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
             if content is not None and content.tenant_id == job.tenant_id:
                 content.title, content.tags, content.description = new_title, new_tags, new_description
+                # The style it is now written in (the review page and its versions read it).
+                attrs = {k: v for k, v in (content.attributes or {}).items() if k != "search"}
+                if style == versions.SHORT:
+                    attrs["search"] = {"opening": new_opening}
+                content.attributes = attrs
                 await rescan(session, content)
         job.status = JobStatus.succeeded
         job.finished_at = datetime.now(timezone.utc)
         await session.commit()
         return "succeeded"
+
+
+async def replace_profile(
+    session: Any, job: Job, connection_id: uuid.UUID, listing_id: int
+) -> ListingProfile | None:
+    """The profile a replaced listing is written with: the one the job names, else
+    (a job queued before it named one) the profile of the draft this app made."""
+    profile_id = job.payload.get("profile_id")
+    if profile_id is None:
+        made = (await session.execute(
+            select(ListingPublication.profile_id).where(
+                ListingPublication.tenant_id == job.tenant_id,
+                ListingPublication.connection_id == connection_id,
+                ListingPublication.etsy_listing_id == listing_id,
+            )
+        )).scalars().first()
+        profile_id = str(made) if made else None
+    if profile_id is None:
+        return None
+    profile = await session.get(ListingProfile, uuid.UUID(str(profile_id)))
+    return profile if profile is not None and profile.tenant_id == job.tenant_id else None
 
 
 async def _wait_for_llm(ctx: dict[str, Any], session: Any, job: Job) -> str:
