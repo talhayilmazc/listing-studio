@@ -358,7 +358,7 @@ export default function PrivacyPage() {
                 period="Rotated automatically, and kept only as long as needed for security and troubleshooting"
               />
               <Row
-                data="Backups"
+                data="Backups of our database (the image files you upload are not backed up)"
                 period="14 days; data you delete may remain in a backup until that backup expires"
               />
             </tbody>

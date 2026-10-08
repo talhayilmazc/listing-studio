@@ -104,7 +104,7 @@ if ! check_disk; then
     echo "Not enough free disk for a build. Nothing was changed. To free space:"
     echo "  docker builder prune -af          # all build cache"
     echo "  docker image prune -f             # images no container uses"
-    echo "  sudo ls -lh $BACKUP_DIR/storage   # old storage archives (deploy/backup.sh keeps STORAGE_KEEP of them)"
+    echo "  sudo ls -lh $BACKUP_DIR/storage   # storage archives (none with STORAGE_BACKUP=off, the default)"
     false
   fi
 fi
@@ -117,7 +117,16 @@ elif [ -z "$(compose ps -q postgres 2>/dev/null)" ]; then
   echo "  the database is not running, so there is nothing to back up (first deploy)"
 else
   started="$(date +%s)"
-  as_root bash deploy/backup.sh
+  # Exit 2 is a skipped storage archive (or one that is off): the database dump,
+  # which is what an update needs, was written and checked. Anything else stops here.
+  backup_rc=0
+  as_root bash deploy/backup.sh || backup_rc=$?
+  if [ "$backup_rc" -eq 2 ]; then
+    echo "  the storage archive was skipped (alerted by backup.sh); the database dump is checked below"
+  elif [ "$backup_rc" -ne 0 ]; then
+    echo "  the backup failed (exit $backup_rc)"
+    false
+  fi
   # backup.sh already checks that the dump parses; make sure this run produced one.
   newest="$(as_root sh -c "ls -1t '$BACKUP_DIR'/db/db-*.dump 2>/dev/null | head -1")"
   [ -n "$newest" ] || { echo "  no database dump was written"; false; }

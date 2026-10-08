@@ -173,18 +173,21 @@ docker compose -f docker-compose.prod.yml exec postgres \
 ## 7. Backups (F5)
 
 Cron runs `deploy/backup.sh` at 03:15 every night:
-- a verified `pg_dump` every night, kept 14 days
-- an archive of the upload directory every week; only the newest stays on the
-  server (`STORAGE_KEEP=1`). Preview images are left out: the app rebuilds them
-- before an archive is written the script checks there is room for it. If there
-  is not, it skips the archive, alerts, and exits non-zero rather than fill the disk
+- a verified `pg_dump` every night, kept 14 days. A dump that `pg_restore
+  --list` cannot read fails the backup (exit 1) and is not kept
+- **uploads are not archived** (`STORAGE_BACKUP=off`, the default). They are
+  working copies: sellers keep their originals, published images live on Etsy,
+  and the app deletes them a few days after use. An archive of them on the same
+  30 GB disk was what filled it. With it off, storage archives left from before
+  are removed on the next run. `STORAGE_BACKUP=on` in `/etc/listyro/ops.env`
+  brings back the weekly archive (only the newest kept, previews left out,
+  written only when there is room; a skipped archive alerts and exits 2)
+- `deploy/update.sh` treats exit 2 (archive skipped) as a warning; only a failed
+  or unverified database dump stops a deploy
 
-**Disk the backups use.** At steady state: one storage archive, about the size
-of the upload directory without previews (2.7 GB when this was written, growing
-with uploads), plus 14 database dumps (megabytes each). For a few minutes each
-week, while the new archive is written and checked, two archives. Three
-archives of 2.7 GB kept for 14 days on a 30 GB disk was itself a reason the
-disk filled. The script prints the total and the free space at the end of each run.
+**Disk the backups use.** 14 database dumps (megabytes each; the database was
+93 MB on 2026-10-08). The script prints the total and the free space at the end
+of each run.
 
 Off-server copies and alerts are configured in `/etc/listyro/ops.env`. It is
 owned by root with mode 600, because cron starts with an empty environment:
@@ -313,6 +316,7 @@ order, and stops at the first thing that fails:
 1. checks free disk space and refuses below `DEPLOY_MIN_FREE_GB` (8), after
    trying a build-cache prune
 2. runs the backup and checks this run produced a database dump that parses
+   (a skipped storage archive is only a warning)
 3. `git pull --ff-only` (edits made on the server are listed, never discarded;
    a changed executable bit is ignored)
 4. prunes build cache older than a week

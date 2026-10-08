@@ -135,6 +135,7 @@ Job → queue → tenant kota kontrolü → global token bucket (3 req/s, burst 
 - Frontend: Next.js (App Router), TypeScript, Tailwind
 - Görsel işleme: pyvips (fallback: Pillow)
 - Storage: yerel Docker volume (`LocalStorage`); S3 uyumlu depolama (R2) henüz yok
+- Yedek (`deploy/backup.sh`): her gece doğrulanmış `pg_dump` (14 gün). **Yüklemeler arşivlenmez** (`STORAGE_BACKUP=off` varsayılan; çalışma kopyalarıdır, kapalıyken eski storage arşivleri silinir); `on` haftalık arşivi geri getirir. Atlanan arşiv exit 2'dir ve `update.sh`'i durdurmaz; yalnızca başarısız ya da doğrulanamayan DB dökümü durdurur.
 - Deploy: Docker Compose + Cloudflare Tunnel, Türkiye'de tek VPS — adımlar `docs/deploy.md`. **Güncelleme yalnızca `bash deploy/update.sh` ile yapılır** (disk kontrolü → doğrulanmış yedek → `git pull` → build cache temizliği → `up -d --build` → tüm servisler healthy → preflight; ilk hatada durur, `ALERT_WEBHOOK_URL`'e bildirir). Elle `up --build` yapılmaz: disk dolunca build yarıda kalmış ve Redis AOF'u bozulup site düşmüştü. Deploy betikleri her yerde `bash` ile çağrılır (çalıştırma biti kaybolsa da çalışsın). Redis başlangıçta bozuk AOF'u kendi onarır, onaramazsa kenara alıp boş başlar; 256 MB sınırı, `volatile-lru`
 
 ## Klasör yapısı

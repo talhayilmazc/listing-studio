@@ -3,12 +3,15 @@
 #
 #   * database: a pg_dump every run, verified readable before it is kept;
 #     kept RETENTION_DAYS (14, the period the Privacy Policy states)
-#   * uploaded files: an archive once a week; only the newest STORAGE_KEEP (1)
-#     stay on this server. Kept two weeks' worth, three 2.7 GB archives sat on a
-#     30 GB disk and the backups themselves became the risk. Preview images
-#     (rebuilt on demand) are left out of the archive.
+#   * uploaded files: NOT archived by default (STORAGE_BACKUP=off). Uploads are
+#     working copies: sellers keep their originals, published images live on
+#     Etsy, and the app deletes them days after use (upload retention). An
+#     archive of them on the same 30 GB disk was what filled it. With it off,
+#     any storage archives still here are removed. STORAGE_BACKUP=on brings back
+#     the weekly archive (only the newest STORAGE_KEEP (1) kept; previews left out).
 #   * never the thing that fills the disk: an archive is only written when there
-#     is room for it, and a skipped archive is reported like a failure
+#     is room for it; a skipped archive is alerted and exits 2 (the database dump
+#     is safe). Only a failed or unreadable database dump is a failure (exit 1).
 #
 # Disk used at steady state: one storage archive (about the size of the upload
 # directory without previews) plus RETENTION_DAYS small database dumps; for a
@@ -37,6 +40,8 @@ compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/listyro}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 STORAGE_KEEP="${STORAGE_KEEP:-1}"
+# off (default): uploads are working copies and are not archived. on: weekly archive.
+STORAGE_BACKUP="${STORAGE_BACKUP:-off}"
 # Free space that must remain after an archive is written.
 BACKUP_FREE_MARGIN_MB="${BACKUP_FREE_MARGIN_MB:-3072}"
 ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
@@ -46,7 +51,8 @@ HEALTHCHECK_URL="${HEALTHCHECK_URL:-}"
 ping_fail() {
   [ -n "$HEALTHCHECK_URL" ] && curl -fsS -m 10 --retry 3 "$HEALTHCHECK_URL/fail" >/dev/null || true
 }
-trap 'echo "backup FAILED"; ping_fail' ERR
+# To stderr: the trap can run while the failed command's stdout is redirected.
+trap 'echo "backup FAILED" >&2; ping_fail' ERR
 
 umask 077
 mkdir -p "$BACKUP_DIR/db" "$BACKUP_DIR/storage"
@@ -63,7 +69,12 @@ echo "database: $(du -h "$db" | cut -f1)  $db"
 
 # --- uploaded files, weekly ---------------------------------------------------
 skipped=""
-if [ -z "$(find "$BACKUP_DIR/storage" -name 'storage-*.tar.gz' -mmin -$((6 * 1440)) 2>/dev/null)" ]; then
+if [ "$STORAGE_BACKUP" != "on" ]; then
+  echo "storage:  not archived (STORAGE_BACKUP=$STORAGE_BACKUP): uploads are working copies"
+  # Archives from when it was on: copies of working files, and the biggest thing here.
+  find "$BACKUP_DIR/storage" -type f \( -name 'storage-*.tar.gz' -o -name 'storage-*.partial' \) -print -delete \
+    | sed 's/^/removed:  /'
+elif [ -z "$(find "$BACKUP_DIR/storage" -name 'storage-*.tar.gz' -mmin -$((6 * 1440)) 2>/dev/null)" ]; then
   # Room first. Images do not compress, so the archive is about as large as the
   # directory; without previews it is somewhat smaller, which only adds margin.
   need_mb="$(compose exec -T api du -sm /data/storage | cut -f1)"
