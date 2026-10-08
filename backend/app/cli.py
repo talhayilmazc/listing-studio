@@ -249,6 +249,25 @@ async def storage_report(sm: async_sessionmaker) -> str:
     return sr.render(report)
 
 
+async def storage_originals(sm: async_sessionmaker, *, apply: bool, storage=None) -> str:  # noqa: ANN001
+    """Delete the original uploads stored before only processed copies were kept.
+    Dry run by default."""
+    from app.api.deps import get_storage
+    from app.core.disk import size
+    from app.pipeline import originals
+
+    async with sm() as session:
+        result = await originals.run(session, storage or get_storage(), apply=apply)
+    verb = "deleted" if apply else "would delete (dry run: nothing deleted; run again with --apply)"
+    lines = [
+        f"originals {verb}: {result.assets:,} images, {result.files:,} files, {size(result.freed_bytes)}",
+        f"keys cleared with no file left: {result.cleared_only:,}",
+    ]
+    if result.kept_no_processed:
+        lines.append(f"kept, because their processed copy is missing: {result.kept_no_processed:,}")
+    return "\n".join(lines)
+
+
 async def upload_retention_report(sm: async_sessionmaker, *, apply: bool) -> str:
     """What upload retention would delete now, or (with ``apply``) delete it.
 
@@ -539,6 +558,8 @@ def main(argv: list[str] | None = None) -> int:
         help="ONE read-only Etsy request: are views and num_favorers in a shop's listing data (counts only)",
     )
     stats_check.add_argument("shop", help="the shop's id in the app, its Etsy shop id, or the account's e-mail")
+    originals_cmd = sub.add_parser("storage-originals", help="delete the original uploads stored before only processed copies were kept (dry run unless --apply)")
+    originals_cmd.add_argument("--apply", action="store_true", help="delete them (default: only count)")
     sub.add_parser("storage-report", help="stored image files per account and kind, their ages and whether they are still needed")
     sub.add_parser("draft-cost", help="Etsy requests per draft: measured average, the estimate used, the worst case")
     args = parser.parse_args(argv)
@@ -558,6 +579,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(sales_report(sm, args.email)))
     elif args.command == "listing-stats-check":
         print(asyncio.run(listing_stats_check(sm, args.shop)))
+    elif args.command == "storage-originals":
+        print(asyncio.run(storage_originals(sm, apply=args.apply)))
     elif args.command == "storage-report":
         print(asyncio.run(storage_report(sm)))
     elif args.command == "draft-cost":
