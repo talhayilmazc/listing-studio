@@ -271,7 +271,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             access_token = await connection_service.get_valid_access_token(session, connection)
 
             # Primary image -> prepared thumbnail (rank=1).
-            primary_bytes = storage.get(asset.processed_key or asset.storage_key)
+            primary_bytes = storage.get(asset.processed_key or asset.storage_key)  # the processed copy; old rows may still have an original
             # The seller's crop if they set one, else the automatic square.
             thumb = cover_image(
                 primary_bytes,

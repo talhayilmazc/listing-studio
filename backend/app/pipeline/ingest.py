@@ -194,9 +194,10 @@ class BatchIngestor:
         sku = self._sku.parse_group(group_key) or self._sku.parse(upload.filename)
         # Extension and type come from the sniffed contents, never the filename:
         # "photo.png" holding HTML is stored and served as nothing but refused.
-        original_key = f"{tenant_id}/{batch_id}/original/{asset_id}{admitted.ext}"
-        self._storage.put(original_key, upload.data, admitted.mime)
-
+        # The original is not kept (storage fix, 2026-10): every later step (cover
+        # crop, previews, writing, drafts in every shop, Replace images) reads the
+        # processed copy, and the seller keeps their own original. Only the
+        # processed copy is written; a file that cannot be processed stores nothing.
         try:
             # Image work is CPU-bound; keep the event loop free.
             processed = await asyncio.to_thread(
@@ -210,7 +211,7 @@ class BatchIngestor:
                 original_filename=upload.filename,
                 parsed_sku=sku,
                 group_key=group_key,
-                storage_key=original_key,
+                storage_key=None,
                 mime_type=admitted.mime,
                 byte_size=len(upload.data),
                 rank=rank,
@@ -226,7 +227,7 @@ class BatchIngestor:
             original_filename=upload.filename,
             parsed_sku=sku,
             group_key=group_key,
-            storage_key=original_key,
+            storage_key=None,
             processed_key=processed_key,
             mime_type=processed.mime_type,
             width=processed.width,

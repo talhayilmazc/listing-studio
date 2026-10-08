@@ -71,8 +71,8 @@ async def test_ingest_persists_assets_with_rank_and_sku(
         assert asset.status is AssetStatus.processed
         assert asset.mime_type == "image/jpeg"
         assert asset.width and asset.height
-        # Both original and processed derivatives were written to storage.
-        assert storage.exists(asset.storage_key)
+        # Only the processed copy is kept: nothing reads an original once it exists.
+        assert asset.storage_key is None
         assert storage.exists(asset.processed_key)
 
 
@@ -101,7 +101,7 @@ async def test_corrupt_file_marked_failed_without_aborting_batch(
     assert "broken_2.png" not in by_name
     stored = [p.name for p in tmp_path.rglob("*") if p.is_file()]
     assert all(str(batch_id) in str(p) for p in tmp_path.rglob("*") if p.is_file())
-    assert len(stored) == 2  # the good file's original + its processed derivative
+    assert len(stored) == 1  # the good file's processed copy (originals are not kept)
 
 
 async def test_all_failed_marks_batch_failed(

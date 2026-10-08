@@ -429,6 +429,8 @@ async def get_asset_image(
         raise HTTPException(status_code=404, detail="asset not found")
     key = asset.processed_key or asset.storage_key
     media_type = asset.mime_type or "application/octet-stream"
+    if key is None and asset.files_removed_at is None:
+        raise HTTPException(status_code=404, detail="image not found")
     if asset.files_removed_at is not None:
         # Upload retention deleted the files; the group's cover kept a small JPEG.
         if asset.thumbnail_key is None:

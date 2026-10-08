@@ -132,6 +132,9 @@ class Tenant(Base):
     #: The account's own Etsy requests per day, when an admin set one. NULL: the
     #: account follows the default (``ACCOUNT_DAILY_CEILING``). Never read this
     #: directly to decide a limit: ``core/limits.py::ceiling_limit`` does.
+    #: An admin's cap on this account's stored image files, in bytes; None follows
+    #: the default (``STORAGE_CAP_GB``; core/storage_cap.py).
+    storage_cap_bytes: Mapped[int | None] = mapped_column(BigInteger)
     etsy_ceiling_override: Mapped[int | None] = mapped_column(Integer)
     # Set when an admin issues a temporary password: the tenant must replace it
     # before the rest of the API will answer (production-spec A4).
@@ -613,7 +616,10 @@ class Asset(Base):
     #: a group_key are one listing's images; "" is the root (single) group; null is
     #: an ungrouped legacy asset. SKU is parsed from the folder name (D2).
     group_key: Mapped[str | None] = mapped_column(Text, index=True)
-    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The original upload's key. None: not kept (every upload since migration
+    #: 0053, and older ones once ``storage-originals --apply`` has run): nothing
+    #: reads an original once its processed copy exists.
+    storage_key: Mapped[str | None] = mapped_column(Text)
     mime_type: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)

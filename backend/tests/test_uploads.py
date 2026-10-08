@@ -144,14 +144,14 @@ async def test_disguised_file_is_refused_and_never_stored(client: AsyncClient, t
 
 
 async def test_type_comes_from_contents_not_the_name(client: AsyncClient, tmp_path) -> None:
-    """A PNG named .jpg is stored and served as the PNG it is."""
+    """A PNG named .jpg is read as the PNG it is (and stored as its processed JPEG)."""
     batch_id = await _batch(client)
     resp = await _upload(client, batch_id, "actually-a-png.jpg", _image("PNG"))
     assert resp.status_code == 201
 
     async with client.sm() as s:  # type: ignore[attr-defined]
         asset = (await s.execute(select(Asset))).scalars().one()
-    assert asset.storage_key.endswith(".png")
+    assert asset.storage_key is None and asset.processed_key.endswith(".jpg")  # no original is kept
     assert asset.byte_size == len(_image("PNG"))
     assert asset.original_filename == "actually-a-png.jpg"  # kept for display only
 
