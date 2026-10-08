@@ -178,7 +178,7 @@ async def test_users_list_shows_metadata(world) -> None:
         "shop_name", "shop_connected", "listings_published", "etsy",
         # Counts per kind of work, never what the work was about.
         "spent_today", "spent_yesterday",
-        "shops", "shops_used", "shops_limit", "shops_limit_custom",
+        "shops", "shops_used", "shops_limit", "shops_limit_custom", "storage_cap_bytes", "storage_cap_custom",
         # An account setting, not the seller's content (v7 §A4).
         "trademark_filter", "trademark_filter_seller", "trademark_filter_changed_at",
         "trademark_filter_effective", "features",
