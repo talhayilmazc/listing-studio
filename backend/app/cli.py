@@ -390,6 +390,107 @@ async def draft_cost(sm: async_sessionmaker) -> str:
     return "\n".join(lines)
 
 
+def _client_for_check(shop_id: uuid.UUID, http):  # noqa: ANN001, ANN202
+    """An Etsy client paced by the app's own bucket and counted in its budget (upkeep)."""
+    from redis.asyncio import Redis
+
+    from app.etsy.api import EtsyApiClient
+    from app.etsy.rate_limiter import DailyQuota, TokenBucket
+
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    return EtsyApiClient(
+        client_id=settings.etsy_client_id, shared_secret=settings.etsy_client_secret, http_client=http,
+        bucket=TokenBucket(redis, rate=settings.etsy_requests_per_second),
+        quota=DailyQuota(redis, global_daily_limit=settings.global_daily_limit, pause_percent=settings.global_pause_percent),
+        shop=shop_id, upkeep=True,
+    )
+
+
+def _token_service():  # noqa: ANN202
+    from app.core.crypto import get_cipher
+    from app.etsy.connection import ConnectionService
+
+    settings = get_settings()
+    return ConnectionService(get_cipher(), client_id=settings.etsy_client_id, token_url=settings.etsy_oauth_token_url)
+
+
+async def listing_stats_check(
+    sm: async_sessionmaker, target: str, *, client_factory: Callable | None = None, token_service=None,  # noqa: ANN001
+) -> str:
+    """Does Etsy's listing data carry ``views`` and ``num_favorers`` for this shop?
+
+    Exactly ONE read-only Etsy request: getListingsByListingIds for up to 100 of
+    the listings the app published there (what the daily read uses), or, when it
+    published none, getListingsByShop for up to 100 active listings (what the
+    shop sync reads). Prints counts only: no title, no listing content, no
+    buyer data. ``target``: the shop's id in the app, its Etsy shop id, or the
+    account's e-mail (when the account has one connected shop).
+    """
+    import httpx
+
+    from app.db.models import ConnectionStatus, EtsyConnection
+
+    async with sm() as session:
+        shops: list[EtsyConnection] = []
+        try:
+            found = await session.get(EtsyConnection, uuid.UUID(target))
+            shops = [found] if found is not None else []
+        except ValueError:
+            if target.isdigit():
+                shops = list((await session.execute(
+                    select(EtsyConnection).where(EtsyConnection.shop_id == int(target)))).scalars())
+            else:
+                tenant = (await session.execute(
+                    select(Tenant).where(func.lower(Tenant.email) == target.strip().lower()))).scalar_one_or_none()
+                if tenant is not None:
+                    shops = list((await session.execute(
+                        select(EtsyConnection).where(EtsyConnection.tenant_id == tenant.id))).scalars())
+        shops = [c for c in shops if c.status is ConnectionStatus.active]
+        if not shops:
+            return f"no connected shop found for {target!r}; no request made"
+        if len(shops) > 1:
+            listed = "\n".join(f"  {c.id}  {c.shop_name or c.shop_id}" for c in shops)
+            return f"{target!r} has {len(shops)} connected shops; run again with one shop id (no request made):\n{listed}"
+        shop = shops[0]
+        if shop.shop_id is None:
+            return "this shop's Etsy shop id is not known yet (open the app once); no request made"
+        ids = list((await session.execute(
+            select(ListingPublication.etsy_listing_id).where(
+                ListingPublication.connection_id == shop.id, ListingPublication.published_at.is_not(None),
+                ListingPublication.state != "deleted_on_etsy",
+            ).order_by(ListingPublication.published_at.desc()).limit(100)
+        )).scalars())
+        token = await (token_service or _token_service()).get_valid_access_token(session, shop)
+        kw = {"access_token": token, "tenant_id": shop.tenant_id}
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            client = (client_factory or _client_for_check)(shop.id, http)
+            if ids:
+                endpoint = f"getListingsByListingIds ({len(ids)} listing(s) published with the app)"
+                resp = await client.get_listings_by_listing_ids(ids, **kw)
+            else:
+                endpoint = "getListingsByShop (state=active, limit=100; the app has published none here)"
+                resp = await client.get_listings_by_shop(shop.shop_id, state="active", limit=100, **kw)
+    results = [r for r in resp.get("results") or [] if isinstance(r, dict)]
+
+    def counts(field: str) -> str:
+        has = sum(1 for r in results if field in r)
+        numbers = sum(1 for r in results if isinstance(r.get(field), int))
+        return f"{field}: present in {has} of {len(results)}, a number in {numbers}, missing in {len(results) - has}"
+
+    lines = [
+        f"shop: {shop.id} (Etsy shop {shop.shop_id})",
+        "Etsy requests made: 1",
+        f"endpoint: {endpoint}",
+        f"listings returned: {len(results)}",
+        counts("views"),
+        counts("num_favorers"),
+    ]
+    if results and not any("views" in r for r in results):
+        lines.append("Etsy did not return views: the daily read will store them as unknown, never as zero.")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -421,6 +522,11 @@ def main(argv: list[str] | None = None) -> int:
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
+    stats_check = sub.add_parser(
+        "listing-stats-check",
+        help="ONE read-only Etsy request: are views and num_favorers in a shop's listing data (counts only)",
+    )
+    stats_check.add_argument("shop", help="the shop's id in the app, its Etsy shop id, or the account's e-mail")
     sub.add_parser("draft-cost", help="Etsy requests per draft: measured average, the estimate used, the worst case")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
@@ -437,6 +543,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(demote_admin(sm, args.email)))
     elif args.command == "sales-report":
         print(asyncio.run(sales_report(sm, args.email)))
+    elif args.command == "listing-stats-check":
+        print(asyncio.run(listing_stats_check(sm, args.shop)))
     elif args.command == "draft-cost":
         print(asyncio.run(draft_cost(sm)))
     elif args.command == "limits-report":
