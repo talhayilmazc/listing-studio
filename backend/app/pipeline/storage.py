@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Protocol
 
 #: A cached preview, stored beside its source as ``<key>.v<N>.w<width>[-ratio].jpg``.
@@ -106,6 +107,20 @@ class LocalStorage:
             except FileNotFoundError:
                 pass  # gone between the listing and the delete: nothing to free
         return freed
+
+    def files(self, prefix: str = "") -> Iterator[tuple[str, int, float]]:
+        """Every stored file under ``prefix``: (key, bytes, modified time)."""
+        root = self._base / prefix.strip("/") if prefix.strip("/") else self._base
+        if not root.is_dir():
+            return
+        for folder, _, names in os.walk(root):
+            for name in names:
+                path = os.path.join(folder, name)
+                try:
+                    stat = os.stat(path)
+                except OSError:
+                    continue  # deleted while we were walking
+                yield os.path.relpath(path, self._base).replace(os.sep, "/"), stat.st_size, stat.st_mtime
 
     def usage(self) -> dict[str, int]:
         """What is stored, by kind, in bytes and files: ``uploads`` are the

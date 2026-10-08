@@ -238,6 +238,17 @@ async def limits_report(sm: async_sessionmaker, email: str) -> str:
     return "\n".join(lines)
 
 
+async def storage_report(sm: async_sessionmaker) -> str:
+    """Stored image files per account (id prefix) and kind: counts, sizes, ages, and
+    whether their listing group still needs them. No file names, no personal data."""
+    from app.pipeline import storage_report as sr
+    from app.pipeline.storage import LocalStorage
+
+    async with sm() as session:
+        report = await sr.build(session, LocalStorage(get_settings().storage_dir))
+    return sr.render(report)
+
+
 async def upload_retention_report(sm: async_sessionmaker, *, apply: bool) -> str:
     """What upload retention would delete now, or (with ``apply``) delete it.
 
@@ -527,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
         help="ONE read-only Etsy request: are views and num_favorers in a shop's listing data (counts only)",
     )
     stats_check.add_argument("shop", help="the shop's id in the app, its Etsy shop id, or the account's e-mail")
+    sub.add_parser("storage-report", help="stored image files per account and kind, their ages and whether they are still needed")
     sub.add_parser("draft-cost", help="Etsy requests per draft: measured average, the estimate used, the worst case")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
@@ -545,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(sales_report(sm, args.email)))
     elif args.command == "listing-stats-check":
         print(asyncio.run(listing_stats_check(sm, args.shop)))
+    elif args.command == "storage-report":
+        print(asyncio.run(storage_report(sm)))
     elif args.command == "draft-cost":
         print(asyncio.run(draft_cost(sm)))
     elif args.command == "limits-report":
