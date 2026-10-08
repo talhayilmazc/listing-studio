@@ -140,10 +140,11 @@ class Settings(BaseSettings):
     storage_dir: str = "./storage"
     # Upload retention (pipeline/upload_retention.py): the server's disk cannot
     # grow, and uploads are what fills it. A listing's image files are deleted
-    # this many days after it is published; a group nothing was published from,
-    # this many days after it was last worked on. The defaults: an admin can
-    # change the days in the panel (app_setting "upload_retention").
-    upload_retention_days: int = Field(default=14, ge=1, le=3650)
+    # this many days after it has drafts in every target shop with nothing
+    # pending; any other group, this many days after it was last worked on. The
+    # defaults: an admin can change the days in the panel (app_setting
+    # "upload_retention").
+    drafted_retention_days: int = Field(default=3, ge=1, le=3650)
     unpublished_retention_days: int = Field(default=30, ge=1, le=3650)
     # False: the daily job only reports what it would delete. Development runs
     # this way, because local storage holds real accounts' designs.

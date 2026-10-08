@@ -126,19 +126,19 @@ def _left(storage: LocalStorage, listing: dict) -> list[str]:
 DAY = timedelta(days=1)
 
 
-async def test_files_go_14_days_after_publishing_and_every_record_stays(world) -> None:  # noqa: F811
+async def test_files_go_3_days_after_drafts_exist_in_every_target_shop_and_every_record_stays(world) -> None:  # noqa: F811
     await _settle(world)
     storage = _storage(world)
-    old = await _listing(world, uploaded=20 * DAY, written=20 * DAY, drafted=20 * DAY, published=15 * DAY)
-    recent = await _listing(world, uploaded=20 * DAY, written=20 * DAY, drafted=20 * DAY, published=13 * DAY, group="BR200")
+    old = await _listing(world, uploaded=20 * DAY, written=20 * DAY, drafted=4 * DAY, published=1 * DAY)
+    recent = await _listing(world, uploaded=20 * DAY, written=20 * DAY, drafted=2 * DAY, group="BR200")
     async with world["sm"]() as s:
         result = await upload_retention.run(s, storage, now=NOW)
 
-    assert (result.published_groups, result.unpublished_groups, result.images, result.applied) == (1, 0, 3, True)
+    assert (result.drafted_groups, result.unpublished_groups, result.images, result.applied) == (1, 0, 3, True)
     # Three images: the original, the processed copy and its cached preview each.
     assert result.files == 9 and result.freed_bytes == 3 * (2 * len(IMAGE) + 500)
     assert _left(storage, old) == [] and not storage.exists(f"{old['keys'][0][1]}.v3.w224.jpg")
-    assert len(_left(storage, recent)) == 6  # published 13 days ago: not yet
+    assert len(_left(storage, recent)) == 6  # drafted 2 days ago: not yet
 
     async with world["sm"]() as s:
         rows = {a.id: a for a in (await s.execute(select(Asset).where(Asset.batch_id == old["batch_id"]))).scalars()}
@@ -164,18 +164,18 @@ async def test_files_go_14_days_after_publishing_and_every_record_stays(world) -
     assert (again.groups, again.files, again.freed_bytes) == (0, 0, 0)
 
 
-async def test_a_group_nobody_published_is_kept_30_days_from_when_it_was_last_worked_on(world) -> None:  # noqa: F811
+async def test_a_group_not_drafted_everywhere_is_kept_30_days_from_when_it_was_last_worked_on(world) -> None:  # noqa: F811
     await _settle(world)
     storage = _storage(world)
     abandoned = await _listing(world, uploaded=31 * DAY, group="A")
     fresh = await _listing(world, uploaded=29 * DAY, group="B")
     written_lately = await _listing(world, uploaded=40 * DAY, written=5 * DAY, group="C")
     drafted_long_ago = await _listing(world, uploaded=45 * DAY, written=45 * DAY, drafted=31 * DAY, group="D")
-    drafted_lately = await _listing(world, uploaded=45 * DAY, written=45 * DAY, drafted=10 * DAY, group="E")
+    drafted_lately = await _listing(world, uploaded=45 * DAY, written=45 * DAY, drafted=2 * DAY, group="E")
     async with world["sm"]() as s:
         result = await upload_retention.run(s, storage, now=NOW)
 
-    assert (result.published_groups, result.unpublished_groups) == (0, 2)
+    assert (result.drafted_groups, result.unpublished_groups) == (1, 1)
     assert _left(storage, abandoned) == [] and _left(storage, drafted_long_ago) == []
     for kept in (fresh, written_lately, drafted_lately):
         assert len(_left(storage, kept)) == 6
@@ -195,7 +195,7 @@ async def test_each_group_of_a_batch_is_judged_on_its_own(world) -> None:  # noq
     waiting = await _listing(world, uploaded=16 * DAY, written=16 * DAY, group="B", batch_id=published["batch_id"])
     async with world["sm"]() as s:
         result = await upload_retention.run(s, storage, now=NOW)
-    assert (result.published_groups, result.unpublished_groups) == (1, 0)
+    assert (result.drafted_groups, result.unpublished_groups) == (1, 0)
     assert _left(storage, published) == [] and len(_left(storage, waiting)) == 6
 
 
@@ -205,7 +205,7 @@ async def test_a_dry_run_counts_the_same_and_deletes_nothing(world) -> None:  # 
     old = await _listing(world, uploaded=20 * DAY, written=20 * DAY, drafted=20 * DAY, published=15 * DAY)
     async with world["sm"]() as s:
         dry = await upload_retention.run(s, storage, now=NOW, apply=False)
-    assert (dry.applied, dry.published_groups, dry.files, dry.thumbnails) == (False, 1, 9, 0)
+    assert (dry.applied, dry.drafted_groups, dry.files, dry.thumbnails) == (False, 1, 9, 0)
     assert len(_left(storage, old)) == 6
     async with world["sm"]() as s:
         assert all(a.files_removed_at is None for a in (await s.execute(select(Asset).where(Asset.batch_id == old["batch_id"]))).scalars())
@@ -252,28 +252,59 @@ async def test_a_run_that_was_cut_off_is_finished_by_the_next(world) -> None:  #
 async def test_the_days_are_the_admins_to_set_and_the_change_is_audited(world) -> None:  # noqa: F811
     await _settle(world)
     storage = _storage(world)
-    week_old = await _listing(world, uploaded=9 * DAY, written=9 * DAY, drafted=9 * DAY, published=8 * DAY)
+    two_days = await _listing(world, uploaded=9 * DAY, written=9 * DAY, drafted=2 * DAY, published=1 * DAY)
     a, b = world["a"], world["b"]
-    assert (await b.put("/api/admin/upload-retention", json={"published_days": 7, "unpublished_days": 30})).status_code == 404
+    assert (await b.put("/api/admin/upload-retention", json={"drafted_days": 1, "unpublished_days": 30})).status_code == 404
     assert (await b.get("/api/admin/disk")).status_code == 404
     assert (await world["anon"].get("/api/admin/disk")).status_code in (401, 404)
-    for bad in ({"published_days": 0, "unpublished_days": 30}, {"published_days": 7}, {"published_days": 7, "unpublished_days": 99999}):
+    for bad in ({"drafted_days": 0, "unpublished_days": 30}, {"drafted_days": 7}, {"drafted_days": 7, "unpublished_days": 99999}):
         assert (await a.put("/api/admin/upload-retention", json=bad)).status_code == 422
 
     seen = (await a.get("/api/admin/disk")).json()
-    assert seen["retention"] == seen["retention_defaults"] == {"published_days": 14, "unpublished_days": 30}
+    assert seen["retention"] == seen["retention_defaults"] == {"drafted_days": 3, "unpublished_days": 30}
     async with world["sm"]() as s:
         assert (await upload_retention.run(s, storage, now=NOW)).groups == 0
 
-    changed = await a.put("/api/admin/upload-retention", json={"published_days": 7, "unpublished_days": 21})
-    assert changed.status_code == 200 and changed.json() == {"published_days": 7, "unpublished_days": 21}
+    changed = await a.put("/api/admin/upload-retention", json={"drafted_days": 1, "unpublished_days": 21})
+    assert changed.status_code == 200 and changed.json() == {"drafted_days": 1, "unpublished_days": 21}
     seen = (await a.get("/api/admin/disk")).json()
-    assert seen["retention"] == {"published_days": 7, "unpublished_days": 21} and seen["retention_defaults"]["published_days"] == 14
+    assert seen["retention"] == {"drafted_days": 1, "unpublished_days": 21} and seen["retention_defaults"]["drafted_days"] == 3
     async with world["sm"]() as s:
         entry = (await s.execute(select(AuditLog).where(AuditLog.action == "app.upload_retention_changed"))).scalars().one()
-        assert entry.details["previous"] == {"published_days": 14, "unpublished_days": 30} and entry.details["new"]["published_days"] == 7
+        assert entry.details["previous"] == {"drafted_days": 3, "unpublished_days": 30} and entry.details["new"]["drafted_days"] == 1
         result = await upload_retention.run(s, storage, now=NOW)
-    assert (result.published_groups, result.published_days) == (1, 7) and _left(storage, week_old) == []
+    assert (result.drafted_groups, result.drafted_days) == (1, 1) and _left(storage, two_days) == []
+
+
+async def test_an_older_setting_counted_from_publishing_keeps_only_its_unpublished_days(world) -> None:  # noqa: F811
+    async with world["sm"]() as s:
+        s.add(AppSetting(key=upload_retention.KEY, value={"published_days": 14, "unpublished_days": 21}))
+        await s.commit()
+        policy = await upload_retention.policy(s)
+    assert (policy.drafted_days, policy.unpublished_days) == (3, 21)
+
+
+async def test_a_group_with_a_planned_draft_or_scheduled_go_live_waits(world) -> None:  # noqa: F811
+    from app.db.models import GroupPlan, PlannedSlot
+
+    await _settle(world)
+    storage = _storage(world)
+    bob = world["bob"]
+    planned = await _listing(world, uploaded=40 * DAY, written=40 * DAY, drafted=10 * DAY, group="PLAN")
+    scheduled = await _listing(world, uploaded=40 * DAY, written=40 * DAY, drafted=10 * DAY, group="SCHED")
+    async with world["sm"]() as s:
+        plan = GroupPlan(tenant_id=bob.tenant_id, settings={})
+        s.add(plan)
+        await s.flush()
+        # A draft in another shop still to be made from these files.
+        s.add(PlannedSlot(tenant_id=bob.tenant_id, plan_id=plan.id, content_id=planned["content_id"], connection_id=bob.connection_id,
+                          draft_at=NOW + DAY, publish_at=NOW + 2 * DAY, state="waiting"))
+        await s.execute(update(ListingPublication).where(ListingPublication.id == scheduled["publication_id"])
+                        .values(scheduled_for=NOW + DAY))
+        await s.commit()
+        result = await upload_retention.run(s, storage, now=NOW)
+    assert (result.groups, result.waiting) == (0, 2)
+    assert len(_left(storage, planned)) == 6 and len(_left(storage, scheduled)) == 6
 
 
 async def test_after_the_files_are_gone_the_app_shows_the_cover_and_refuses_what_needs_them(world, monkeypatch) -> None:  # noqa: F811
@@ -400,18 +431,18 @@ async def test_the_daily_job_runs_once_a_day_and_reports_what_it_freed(world, tm
     # Development: the job only reports.
     set_settings_override(test_settings.model_copy(update={"storage_dir": str(tmp_path), "upload_retention_apply": False}))
     dry = await upkeep.daily_upkeep(ctx)
-    assert dry["applied"] is False and dry["published_groups"] == 1 and len(_left(storage, old)) == 6
+    assert dry["applied"] is False and dry["drafted_groups"] == 1 and len(_left(storage, old)) == 6
     assert "would free (dry run, nothing was deleted)" in sent[-1]
     assert await upkeep.daily_upkeep(ctx) is None and len(sent) == 1  # once a day
 
     await world["redis"].delete(*await world["redis"].keys("upkeep:done:*"))  # the next day
     set_settings_override(test_settings.model_copy(update={"storage_dir": str(tmp_path), "upload_retention_apply": True}))
     done = await upkeep.daily_upkeep(ctx)
-    assert done["applied"] is True and (done["published_groups"], done["unpublished_groups"], done["files"]) == (1, 1, 18)
+    assert done["applied"] is True and (done["drafted_groups"], done["unpublished_groups"], done["files"]) == (1, 1, 18)
     assert _left(storage, old) == [] and _left(storage, abandoned) == []
     text = sent[-1]
     assert text.startswith("Listyro daily summary, ")
-    assert "Upload cleanup freed" in text and "18 files of 2 listings (1 published 14+ days ago, 1 not published after 30 days)" in text
+    assert "Upload cleanup freed" in text and "18 files of 2 listings (1 drafted in every shop 3+ days ago, 1 not worked on for 30 days)" in text
     assert "free of" in text and "uploads " in text and "backups unknown" in text and "disk-check.sh" in text
     # Counts and sizes only.
     for private in ("bob@example.com", "BR100", VALID_TITLE, str(world["bob"].tenant_id)):
@@ -421,7 +452,7 @@ async def test_the_daily_job_runs_once_a_day_and_reports_what_it_freed(world, tm
     async with world["sm"]() as s:
         assert (await s.get(AppSetting, upload_retention.LAST_KEY)).value["freed_bytes"] == done["freed_bytes"]
     last = (await world["a"].get("/api/admin/disk")).json()["last_run"]
-    assert (last["applied"], last["files"], last["published_groups"], last["thumbnails"]) == (True, 18, 1, 2)
+    assert (last["applied"], last["files"], last["drafted_groups"], last["thumbnails"]) == (True, 18, 1, 2)
 
     # A day with nothing due still sends its summary.
     await world["redis"].delete(*await world["redis"].keys("upkeep:done:*"))  # the next day

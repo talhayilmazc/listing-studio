@@ -1045,16 +1045,17 @@ class DiskCategory(BaseModel):
 
 
 class UploadRetentionDays(BaseModel):
-    #: Image files are deleted this many days after their listing is published.
-    published_days: int = Field(ge=1, le=upload_retention.MAX_DAYS)
-    #: A group nothing was published from: this many days after it was last worked on.
+    #: Image files are deleted this many days after the group has drafts in every
+    #: target shop and nothing is pending (schedule, distribution, replace).
+    drafted_days: int = Field(ge=1, le=upload_retention.MAX_DAYS)
+    #: Any other group: this many days after it was last worked on.
     unpublished_days: int = Field(ge=1, le=upload_retention.MAX_DAYS)
 
 
 class UploadRetentionRun(BaseModel):
     at: datetime
     applied: bool  # False: a dry run, nothing was deleted
-    published_groups: int
+    drafted_groups: int
     unpublished_groups: int
     images: int
     files: int
@@ -1080,7 +1081,7 @@ class DiskOut(BaseModel):
 
 
 def _days(policy: upload_retention.Policy) -> UploadRetentionDays:
-    return UploadRetentionDays(published_days=policy.published_days, unpublished_days=policy.unpublished_days)
+    return UploadRetentionDays(drafted_days=policy.drafted_days, unpublished_days=policy.unpublished_days)
 
 
 @router.get("/sales-reread", response_model=sales_reread.RereadAdminReport)

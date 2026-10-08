@@ -473,14 +473,14 @@ export interface AdminDisk {
   categories: { key: string; label: string; note: string; bytes: number | null; files: number | null }[];
   host_reported_at: string | null;
   host_fresh: boolean;
-  retention: { published_days: number; unpublished_days: number };
-  retention_defaults: { published_days: number; unpublished_days: number };
+  retention: { drafted_days: number; unpublished_days: number };
+  retention_defaults: { drafted_days: number; unpublished_days: number };
   /** False: the daily job only counts, nothing is deleted. */
   retention_applies: boolean;
   last_run: {
     at: string;
     applied: boolean;
-    published_groups: number;
+    drafted_groups: number;
     unpublished_groups: number;
     images: number;
     files: number;

@@ -64,7 +64,9 @@ class GroupState:
     targets: set[uuid.UUID] = field(default_factory=set)
     drafted: set[uuid.UUID] = field(default_factory=set)
     draft_times: dict[uuid.UUID, datetime] = field(default_factory=dict)
-    #: The latest draft creation in a target shop (when ``drafted``).
+    #: Drafts exist in every target shop (pending or not).
+    complete: bool = False
+    #: The latest draft creation in a target shop (when ``complete``).
     drafted_at: datetime | None = None
     #: The last work on it: uploaded, written, or a draft created.
     worked_at: datetime | None = None
@@ -185,6 +187,7 @@ async def group_states(
         else:
             g.state = IN_REVIEW
     for g in groups.values():
-        if g.state == DRAFTED:  # the drafted clock starts at the last target shop's draft
+        g.complete = bool(g.targets) and g.targets <= g.drafted
+        if g.complete:  # the drafted clock starts at the last target shop's draft
             g.drafted_at = max((g.draft_times[s] for s in g.targets if s in g.draft_times), default=None)
     return groups

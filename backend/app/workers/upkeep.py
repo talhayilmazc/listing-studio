@@ -30,10 +30,10 @@ def summary(result: upload_retention.Result, snapshot: disk.Snapshot, day: str) 
     verb = "freed" if result.applied else "would free (dry run, nothing was deleted)"
     if result.groups:
         parts = []
-        if result.published_groups:
-            parts.append(f"{result.published_groups} published {result.published_days}+ days ago")
+        if result.drafted_groups:
+            parts.append(f"{result.drafted_groups} drafted in every shop {result.drafted_days}+ days ago")
         if result.unpublished_groups:
-            parts.append(f"{result.unpublished_groups} not published after {result.unpublished_days} days")
+            parts.append(f"{result.unpublished_groups} not worked on for {result.unpublished_days} days")
         cleanup = (
             f"Upload cleanup {verb} {disk.size(result.freed_bytes)}: {result.files} files of "
             f"{result.groups} listings ({', '.join(parts)})."
@@ -41,7 +41,7 @@ def summary(result: upload_retention.Result, snapshot: disk.Snapshot, day: str) 
     else:
         cleanup = "Upload cleanup: nothing was due."
     if result.waiting:
-        cleanup += f" {result.waiting} more wait for running work to finish."
+        cleanup += f" {result.waiting} more wait for something pending (a schedule, a distribution, a draft or replace)."
     if snapshot.free_bytes is not None and snapshot.total_bytes is not None:
         space = f"Disk: {disk.size(snapshot.free_bytes)} free of {disk.size(snapshot.total_bytes)}."
     else:

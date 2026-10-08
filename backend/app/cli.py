@@ -264,11 +264,12 @@ async def upload_retention_report(sm: async_sessionmaker, *, apply: bool) -> str
         if apply:
             await upload_retention.remember(session, result)
     lines = [
-        f"kept {result.published_days} days after publishing, {result.unpublished_days} days when nothing was published",
-        f"listings published {result.published_days}+ days ago:      {result.published_groups}",
-        f"groups not published after {result.unpublished_days} days:    {result.unpublished_groups}",
+        f"kept {result.drafted_days} days after drafts exist in every target shop, "
+        f"{result.unpublished_days} days after the last work otherwise",
+        f"drafted everywhere {result.drafted_days}+ days ago:   {result.drafted_groups}",
+        f"not worked on for {result.unpublished_days}+ days:      {result.unpublished_groups}",
         f"images: {result.images}   files (with previews): {result.files}   size: {size(result.freed_bytes)}",
-        f"waiting for running work to finish: {result.waiting}",
+        f"waiting for something pending (schedule, distribution, draft or replace): {result.waiting}",
     ]
     if apply:
         lines.append(f"deleted. Cover thumbnails kept: {result.thumbnails} ({size(result.thumbnail_bytes)})")

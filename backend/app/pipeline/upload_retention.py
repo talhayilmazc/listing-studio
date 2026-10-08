@@ -1,11 +1,12 @@
 """Upload retention: image files are deleted once their listing no longer needs them.
 
 The production disk cannot grow and uploads are what fills it. A listing's
-images are needed to create its draft on Etsy; once the listing is published
-they are not needed again, so they are deleted a set number of days later.
+images are needed to create its drafts on Etsy; once it has a draft in every
+shop it is meant for and nothing is pending, they are not needed again (going
+live needs no files), so they are deleted a set number of days later.
 
-What is deleted, per listing group: every image's original upload, its
-processed copy and the previews cached beside them.
+What is deleted, per listing group: every image's processed copy, its original
+upload where one is still kept, and the previews cached beside them.
 
 What is kept:
   * every row: the batch, the group's images (names, order), the listing text
@@ -14,12 +15,14 @@ What is kept:
     the listing was
   * everything on Etsy: nothing there is touched
 
-When, per group:
-  * published through the app: ``published_days`` after its latest publication
-  * nothing published from it: ``unpublished_days`` after it was last worked on
+When, per group (its state: pipeline/group_state.py):
+  * drafted in every target shop with nothing pending: ``drafted_days`` (3)
+    after the last of those drafts was made; publishing needs no files
+  * otherwise: ``unpublished_days`` (30) after it was last worked on
     (uploaded, written, or a draft created)
 
-A group with work queued or running is left for the next run. Files are deleted
+A group with something pending (a planned draft or go-live, a distribution to
+shops not drafted yet, a queued draft or replace) is left for a later run. Files are deleted
 before the rows are marked, so a run that is cut off is simply finished by the
 next one: nothing is ever marked removed while its files stay on disk.
 
@@ -41,13 +44,15 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import AppSetting, Asset, GeneratedContent, Job, JobStatus, ListingPublication, UploadBatch
+from app.db.models import AppSetting, Asset, UploadBatch
+from app.pipeline import group_state as gs
 from app.pipeline.images import ImageProcessingError, resize_preview
 from app.pipeline.storage import Storage
 
 logger = logging.getLogger(__name__)
 
-#: app_setting: the days an admin set, {"published_days": n, "unpublished_days": n}.
+#: app_setting: the days an admin set, {"drafted_days": n, "unpublished_days": n}.
+#: (An older {"published_days": ...} counted from publishing; it is not read.)
 KEY = "upload_retention"
 #: app_setting: what the last run that deleted anything (or tried to) did.
 LAST_KEY = "upload_retention_last"
@@ -64,19 +69,19 @@ REMOVED = (
 
 @dataclass(frozen=True)
 class Policy:
-    published_days: int
+    drafted_days: int
     unpublished_days: int
 
 
 def defaults() -> Policy:
     settings = get_settings()
-    return Policy(settings.upload_retention_days, settings.unpublished_retention_days)
+    return Policy(settings.drafted_retention_days, settings.unpublished_retention_days)
 
 
 def validate(value: dict[str, Any]) -> dict[str, int]:
     """The two day counts as whole numbers from 1 to ten years, or ValueError."""
     out = {}
-    for name in ("published_days", "unpublished_days"):
+    for name in ("drafted_days", "unpublished_days"):
         days = value.get(name)
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= MAX_DAYS:
             raise ValueError(f"{name} must be a whole number of days from 1 to {MAX_DAYS}")
@@ -85,11 +90,14 @@ def validate(value: dict[str, Any]) -> dict[str, int]:
 
 
 async def policy(session: AsyncSession) -> Policy:
-    """The days in force: the admin's, or the configured defaults."""
+    """The days in force: the admin's, or the configured defaults. A setting
+    saved before the drafted rule keeps its unpublished days only."""
     row = await session.get(AppSetting, KEY)
     if row is not None:
+        value = dict(row.value or {})
+        value.setdefault("drafted_days", defaults().drafted_days)
         try:
-            return Policy(**validate(row.value or {}))
+            return Policy(**validate(value))
         except ValueError:
             logger.error("app_setting %s is not usable; using the defaults", KEY)
     return defaults()
@@ -110,7 +118,7 @@ class Due:
 
     tenant_id: uuid.UUID
     batch_id: uuid.UUID
-    reason: str  # "published" | "unpublished"
+    reason: str  # "drafted" | "unpublished"
     since: datetime
     images: list[_Image] = field(default_factory=list)
     cover: _Image | None = None
@@ -119,22 +127,22 @@ class Due:
 @dataclass
 class Result:
     applied: bool
-    published_days: int
+    drafted_days: int
     unpublished_days: int
-    published_groups: int = 0
+    drafted_groups: int = 0
     unpublished_groups: int = 0
     images: int = 0
     files: int = 0
     freed_bytes: int = 0
     thumbnails: int = 0
     thumbnail_bytes: int = 0
-    #: Groups past their time whose batch has work queued or running: next run.
+    #: Groups past their time with something pending: a later run.
     waiting: int = 0
     at: str = ""
 
     @property
     def groups(self) -> int:
-        return self.published_groups + self.unpublished_groups
+        return self.drafted_groups + self.unpublished_groups
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -146,82 +154,26 @@ def _utc(value: datetime) -> datetime:
 
 async def due_groups(session: AsyncSession, now: datetime, days: Policy) -> tuple[list[Due], int]:
     """Groups whose files should go now, and how many more are only waiting for
-    running work to finish."""
-    horizon = now - timedelta(days=min(days.published_days, days.unpublished_days))
-    rows = (
-        await session.execute(
-            select(Asset, UploadBatch.created_at)
-            .join(UploadBatch, UploadBatch.id == Asset.batch_id)
-            .where(Asset.files_removed_at.is_(None), UploadBatch.created_at < horizon)
-            .order_by(Asset.batch_id)
-        )
-    ).all()
-    if not rows:
+    pending work (a schedule, a distribution, a queued draft or replace)."""
+    horizon = now - timedelta(days=min(days.drafted_days, days.unpublished_days))
+    batch_ids = set((await session.execute(
+        select(Asset.batch_id)
+        .join(UploadBatch, UploadBatch.id == Asset.batch_id)
+        .where(Asset.files_removed_at.is_(None), UploadBatch.created_at < horizon)
+        .distinct()
+    )).scalars())
+    if not batch_ids:
         return [], 0
-    batch_ids = {asset.batch_id for asset, _ in rows}
-
-    contents = (
-        await session.execute(
-            select(GeneratedContent.id, GeneratedContent.asset_id, GeneratedContent.created_at).where(
-                GeneratedContent.batch_id.in_(batch_ids)
-            )
-        )
-    ).all()
-    publications = (
-        await session.execute(
-            select(ListingPublication.content_id, ListingPublication.published_at, ListingPublication.created_at).where(
-                ListingPublication.content_id.in_([c.id for c in contents])
-            )
-        )
-    ).all() if contents else []
-    # Work that has not finished may still read the files (a draft being
-    # created, images being replaced): its batch waits for the next run.
-    busy: set[uuid.UUID] = set()
-    for job in (
-        await session.execute(select(Job).where(Job.status.in_([JobStatus.queued, JobStatus.running])))
-    ).scalars():
-        for value in (job.batch_id, (job.payload or {}).get("batch_id")):
-            try:
-                busy.add(uuid.UUID(str(value)))
-            except (TypeError, ValueError):
-                pass
-
-    group_of: dict[uuid.UUID, tuple[uuid.UUID, str]] = {}
-    created: dict[uuid.UUID, datetime] = {}
-    members: dict[tuple[uuid.UUID, str], list[Asset]] = {}
-    for asset, batch_created in rows:
-        group = (asset.batch_id, asset.group_key or "")  # the root group, as everywhere else
-        group_of[asset.id] = group
-        created[asset.batch_id] = _utc(batch_created)
-        members.setdefault(group, []).append(asset)
-
-    written: dict[tuple[uuid.UUID, str], list[tuple[uuid.UUID, uuid.UUID, datetime]]] = {}
-    for content_id, asset_id, at in contents:
-        if asset_id in group_of:
-            written.setdefault(group_of[asset_id], []).append((content_id, asset_id, _utc(at)))
-    published: dict[uuid.UUID, list[datetime]] = {}
-    drafted: dict[uuid.UUID, list[datetime]] = {}
-    for content_id, published_at, drafted_at in publications:
-        if published_at is not None:
-            published.setdefault(content_id, []).append(_utc(published_at))
-        if drafted_at is not None:
-            drafted.setdefault(content_id, []).append(_utc(drafted_at))
-
     due: list[Due] = []
     waiting = 0
-    for group, assets in members.items():
-        batch_id = group[0]
-        texts = written.get(group, [])
-        went_live = [at for content_id, _, _ in texts for at in published.get(content_id, [])]
-        if went_live:
-            reason, since, keep = "published", max(went_live), days.published_days
+    for group in (await gs.group_states(session, batch_ids=batch_ids)).values():
+        if group.complete and group.drafted_at is not None:
+            reason, since, keep = "drafted", group.drafted_at, days.drafted_days
         else:
-            worked = [created[batch_id], *(at for _, _, at in texts)]
-            worked += [at for content_id, _, _ in texts for at in drafted.get(content_id, [])]
-            reason, since, keep = "unpublished", max(worked), days.unpublished_days
-        if since > now - timedelta(days=keep):
+            reason, since, keep = "unpublished", group.worked_at, days.unpublished_days
+        if since is None or since > now - timedelta(days=keep):
             continue
-        if batch_id in busy:
+        if group.state == gs.PENDING:
             waiting += 1
             continue
         images = [
@@ -229,17 +181,17 @@ async def due_groups(session: AsyncSession, now: datetime, days: Policy) -> tupl
                 id=a.id, keys=[k for k in (a.storage_key, a.processed_key) if k], name=a.original_filename.lower(),
                 rank=a.rank, usable=a.processed_key is not None,
             )
-            for a in assets
+            for a in group.assets
         ]
         by_id = {i.id: i for i in images}
         # The cover is the image the listing text is attached to; without text,
         # the first image in the seller's order.
-        newest = max(texts, key=lambda t: t[2], default=None)
+        newest = max(group.content_ids, key=lambda t: t[2], default=None)
         cover = by_id.get(newest[1]) if newest else None
         if cover is None:
             usable = [i for i in images if i.usable]
             cover = min(usable, key=lambda i: (i.rank if i.rank is not None else 1_000_000, i.name), default=None)
-        due.append(Due(tenant_id=assets[0].tenant_id, batch_id=batch_id, reason=reason, since=since, images=images, cover=cover))
+        due.append(Due(tenant_id=group.tenant_id, batch_id=group.batch_id, reason=reason, since=since, images=images, cover=cover))
     return due, waiting
 
 
@@ -281,7 +233,7 @@ async def run(
     count what would go. Commits group by group."""
     now = now or datetime.now(timezone.utc)
     days = await policy(session)
-    result = Result(applied=apply, published_days=days.published_days, unpublished_days=days.unpublished_days, at=now.isoformat())
+    result = Result(applied=apply, drafted_days=days.drafted_days, unpublished_days=days.unpublished_days, at=now.isoformat())
     due, result.waiting = await due_groups(session, now, days)
     for group in due:
         files, size = await asyncio.to_thread(_measure, storage, group)
@@ -298,8 +250,8 @@ async def run(
                 result.thumbnails += 1
                 result.thumbnail_bytes += kept[1]
             await session.commit()
-        if group.reason == "published":
-            result.published_groups += 1
+        if group.reason == "drafted":
+            result.drafted_groups += 1
         else:
             result.unpublished_groups += 1
         result.images += len(group.images)

@@ -171,27 +171,27 @@ function Stat({ label, value, note }: { label: string; value: string; note: stri
 
 /** The upload cleanup: how long files are kept, and what the last run did. */
 function Cleanup({ disk, onChanged, onError }: { disk: AdminDisk; onChanged: () => void; onError: (m: string) => void }) {
-  const [published, setPublished] = useState(String(disk.retention.published_days));
+  const [published, setPublished] = useState(String(disk.retention.drafted_days));
   const [unpublished, setUnpublished] = useState(String(disk.retention.unpublished_days));
   const [busy, setBusy] = useState(false);
   // Follow the server unless the admin is in the middle of typing a change.
   const [touched, setTouched] = useState(false);
   useEffect(() => {
     if (touched) return;
-    setPublished(String(disk.retention.published_days));
+    setPublished(String(disk.retention.drafted_days));
     setUnpublished(String(disk.retention.unpublished_days));
-  }, [disk.retention.published_days, disk.retention.unpublished_days, touched]);
+  }, [disk.retention.drafted_days, disk.retention.unpublished_days, touched]);
 
   const run = disk.last_run;
-  const changed = Number(published) !== disk.retention.published_days || Number(unpublished) !== disk.retention.unpublished_days;
-  const shorter = Number(published) < disk.retention.published_days || Number(unpublished) < disk.retention.unpublished_days;
+  const changed = Number(published) !== disk.retention.drafted_days || Number(unpublished) !== disk.retention.unpublished_days;
+  const shorter = Number(published) < disk.retention.drafted_days || Number(unpublished) < disk.retention.unpublished_days;
   const defaults = disk.retention_defaults;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await api.admin.setUploadRetention({ published_days: Number(published), unpublished_days: Number(unpublished) });
+      await api.admin.setUploadRetention({ drafted_days: Number(published), unpublished_days: Number(unpublished) });
       setTouched(false);
       onChanged();
     } catch (err: any) {
@@ -205,7 +205,7 @@ function Cleanup({ disk, onChanged, onError }: { disk: AdminDisk; onChanged: () 
     <div className="mt-5 border-t border-slate-200 pt-4">
       <h3 className="text-sm font-medium text-slate-900">Upload cleanup</h3>
       <p className="mt-1 max-w-3xl text-xs text-slate-600">
-        Once a day, a listing&apos;s image files (the uploads, their processed copies and previews) are deleted after the time below.
+        Once a day, a listing&apos;s image files (its processed copies and previews; originals are no longer kept) are deleted after the time below.
         The listing&apos;s text, its publication record and a small cover thumbnail stay, and nothing on Etsy changes. Deleted
         files do not come back: a seller who needs them again uploads the design again.
       </p>
@@ -217,7 +217,7 @@ function Cleanup({ disk, onChanged, onError }: { disk: AdminDisk; onChanged: () 
 
       <form className="mt-3 flex flex-wrap items-end gap-3" onSubmit={save}>
         <label className="block">
-          <span className="block text-[11px] text-slate-500">Days kept after a listing is published</span>
+          <span className="block text-[11px] text-slate-500">Days kept after drafts exist in every target shop</span>
           <input
             className="field mt-0.5 w-28 tabular-nums"
             type="number" min={1} max={3650} required inputMode="numeric"
@@ -226,7 +226,7 @@ function Cleanup({ disk, onChanged, onError }: { disk: AdminDisk; onChanged: () 
           />
         </label>
         <label className="block">
-          <span className="block text-[11px] text-slate-500">Days kept when nothing was published</span>
+          <span className="block text-[11px] text-slate-500">Days kept otherwise (from the last work)</span>
           <input
             className="field mt-0.5 w-28 tabular-nums"
             type="number" min={1} max={3650} required inputMode="numeric"
@@ -238,8 +238,9 @@ function Cleanup({ disk, onChanged, onError }: { disk: AdminDisk; onChanged: () 
       </form>
       <p className="mt-2 max-w-3xl text-[11px] text-slate-500">
         <span>
-          <span>Defaults: <span>{defaults.published_days}</span> and <span>{defaults.unpublished_days}</span> days. The second counts from when a group was last worked on
-          (uploaded, written, or a draft created). The Privacy Policy states <span>{defaults.published_days}</span> and <span>{defaults.unpublished_days}</span> days:
+          <span>Defaults: <span>{defaults.drafted_days}</span> and <span>{defaults.unpublished_days}</span> days. The first counts from the last draft once a group has a draft
+          in every shop it is meant for and nothing is pending (a schedule, a distribution, a draft or replace still to run); the second
+          from when any other group was last worked on (uploaded, written, or a draft created). The Privacy Policy states <span>{defaults.drafted_days}</span> and <span>{defaults.unpublished_days}</span> days:
           change its text if you change these.</span>
         </span>
       </p>
@@ -254,10 +255,10 @@ function Cleanup({ disk, onChanged, onError }: { disk: AdminDisk; onChanged: () 
         <p key="run" className="mt-1 text-xs text-slate-600">
           <span>
             <span><span>{when(run.at)}</span>: <span>{run.applied ? "freed" : "would free (dry run)"}</span> </span><span className="font-medium text-slate-900">{size(run.freed_bytes)}</span>
-            <span>{" "}<span>in </span><span>{count(run.files, "file")}</span><span> of </span><span>{count(run.published_groups + run.unpublished_groups, "listing")}</span><span> (</span><span>{run.published_groups.toLocaleString("en-US")}</span><span> published,</span>{" "}
-            <span>{run.unpublished_groups.toLocaleString("en-US")}</span><span> never published).</span>
+            <span>{" "}<span>in </span><span>{count(run.files, "file")}</span><span> of </span><span>{count(run.drafted_groups + run.unpublished_groups, "listing")}</span><span> (</span><span>{run.drafted_groups.toLocaleString("en-US")}</span><span> drafted in every shop,</span>{" "}
+            <span>{run.unpublished_groups.toLocaleString("en-US")}</span><span> not drafted everywhere).</span>
             <Txt>{run.applied ? ` Kept ${count(run.thumbnails, "cover thumbnail")} (${size(run.thumbnail_bytes)}).` : ""}</Txt>
-            <Txt>{run.waiting > 0 ? ` ${count(run.waiting, "more listing")} waited for running work to finish.` : ""}</Txt></span>
+            <Txt>{run.waiting > 0 ? ` ${count(run.waiting, "more listing")} waited for something pending (a schedule, a distribution, a draft or replace).` : ""}</Txt></span>
           </span>
         </p>
       ) : (

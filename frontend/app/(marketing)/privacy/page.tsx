@@ -338,8 +338,8 @@ export default function PrivacyPage() {
                 period="Until you disconnect your shop or your account is deleted"
               />
               <Row
-                data="The image files you upload, and the resized versions made from them"
-                period="14 days after the listing made from them is published through the Service; 30 days after you last worked on them if no listing was published from them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch"
+                data="The image files you upload, and the resized versions made from them (we keep only the resized, Etsy-ready version, not the file as you sent it)"
+                period="3 days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise 30 days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch"
               />
               <Row
                 data="Generated content, profiles, task records, usage counts, and the names and order of your uploads"
