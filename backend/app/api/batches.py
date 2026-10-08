@@ -37,7 +37,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.compliance.trademarks import blocklist_for_tenant
-from app.core import allowance, audit
+from app.core import allowance, audit, storage_cap
 from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
@@ -292,6 +292,9 @@ async def add_archive(
             if "batch" in str(exc):
                 break  # the batch is full; the rest would fail the same way
             continue
+        except storage_cap.StorageFull as exc:
+            result.failed.append(schemas.ArchiveFailure(filename=entry.filename, error=str(exc)))
+            break  # the account is at its storage cap; the rest would fail the same way
         except UploadRejected as exc:
             result.failed.append(schemas.ArchiveFailure(filename=entry.filename, error=str(exc)))
             continue

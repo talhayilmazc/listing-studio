@@ -55,7 +55,7 @@ from app.etsy.categories import LABELS
 from decimal import Decimal
 from redis.asyncio import Redis
 
-from app.core import ai_meter, ai_prices, disk, limits
+from app.core import ai_meter, ai_prices, disk, limits, storage_cap
 from app.pipeline import upload_retention
 from app.pipeline.storage import Storage
 from app.api import ai_series, sales_reread
@@ -133,6 +133,9 @@ class AdminUserOut(BaseModel):
     shops_used: int
     shops_limit: int
     shops_limit_custom: bool  # an admin override of MAX_SHOPS_PER_TENANT
+    # Stored image files allowed (core/storage_cap.py); custom: an admin's own number.
+    storage_cap_bytes: int = 0
+    storage_cap_custom: bool = False
     listings_published: int
     # "Etsy requests today": the account's ceiling, as the seller's own screens
     # show it (core/limits.py). ``follows_default`` false: an admin set its number.
@@ -187,6 +190,11 @@ class AllowanceDefault(BaseModel):
 class QuotaUpdate(BaseModel):
     # The account's own Etsy requests per day. None: follow the default.
     daily_quota: int | None = Field(default=None, ge=0)
+
+
+class StorageCapUpdate(BaseModel):
+    # The account's stored-image cap in GB. None: follow the default (STORAGE_CAP_GB).
+    gb: float | None = Field(default=None, gt=0, le=1000)
 
 
 class TempPasswordIssued(BaseModel):
@@ -311,6 +319,27 @@ async def set_user_quota(
     return await _one(session, quota, target.id)
 
 
+@router.put("/users/{tenant_id}/storage-cap", response_model=AdminUserOut)
+async def set_storage_cap(
+    tenant_id: uuid.UUID,
+    body: StorageCapUpdate,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    quota: DailyQuota = Depends(get_quota),
+) -> AdminUserOut:
+    """Give one account its own cap on stored image files, or (None) put it back on
+    the default. Lowering it refuses new uploads only; nothing stored is deleted."""
+    target = await _target(session, tenant_id)
+    new = int(body.gb * storage_cap.GB) if body.gb is not None else None
+    previous = target.storage_cap_bytes
+    if previous != new:
+        target.storage_cap_bytes = new
+        audit.record(session, "user.storage_cap_changed", actor=admin, target_tenant_id=target.id,
+                     previous=previous, new=new)
+        await session.commit()
+    return await _one(session, quota, target.id)
+
+
 async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> AdminUserOut:
     """Account metadata and counts only: an admin sees how much, never what."""
     from app.api.shops import shop_label
@@ -334,6 +363,8 @@ async def _user_out(session: AsyncSession, quota: DailyQuota, t: Tenant) -> Admi
         shops_used=len(shops),
         shops_limit=tenant_shop_limit(t),
         shops_limit_custom=t.max_shops is not None,
+        storage_cap_bytes=storage_cap.limit(t),
+        storage_cap_custom=t.storage_cap_bytes is not None,
         listings_published=int(published or 0),
         spent_today=_spend(await quota.spending(t.id)),
         spent_yesterday=_spend(await quota.spending(t.id, days_ago=1)),

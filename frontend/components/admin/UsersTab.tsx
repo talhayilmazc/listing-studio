@@ -66,14 +66,24 @@ export function UsersTab({
         </p>
       ),
       shops: (
-        <ShopsCell
-          user={u}
-          onSave={async (n) => {
-            const next = await run(() => api.admin.setShopLimit(u.id, n));
-            if (next) onChanged(next);
-            return Boolean(next);
-          }}
-        />
+        <div className="space-y-1">
+          <ShopsCell
+            user={u}
+            onSave={async (n) => {
+              const next = await run(() => api.admin.setShopLimit(u.id, n));
+              if (next) onChanged(next);
+              return Boolean(next);
+            }}
+          />
+          <StorageCapCell
+            user={u}
+            onSave={async (gb) => {
+              const next = await run(() => api.admin.setStorageCap(u.id, gb));
+              if (next) onChanged(next);
+              return Boolean(next);
+            }}
+          />
+        </div>
       ),
       allowance: (
         <AllowanceCell
@@ -374,6 +384,52 @@ function ShopsCell({
         </button>
       )}
     </div>
+  );
+}
+
+/** The account's cap on stored image files (core/storage_cap.py); empty = the default. */
+function StorageCapCell({ user, onSave }: { user: AdminUser; onSave: (gb: number | null) => Promise<boolean> }) {
+  const gb = (bytes: number) => Math.round((bytes / 1024 ** 3) * 10) / 10;
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(user.storage_cap_custom ? String(gb(user.storage_cap_bytes)) : "");
+  const n = value.trim() === "" ? null : Number(value);
+  const valid = n === null || (Number.isFinite(n) && n > 0 && n <= 1000);
+  if (editing) {
+    return (
+      <form
+        className="flex items-center gap-1.5"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (valid && (await onSave(n))) setEditing(false);
+        }}
+      >
+        <input
+          autoFocus
+          inputMode="decimal"
+          value={value}
+          placeholder="default"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
+          aria-label={`Storage cap in GB for ${user.email}`}
+          aria-invalid={!valid}
+          className="field w-16 py-0.5 text-xs tabular-nums"
+        />
+        <span className="text-xs text-slate-500">GB</span>
+        <button type="submit" disabled={!valid} className="btn-primary px-2 py-0.5 text-xs">Save</button>
+        <button type="button" onClick={() => setEditing(false)} className="px-1 text-xs text-slate-500">Cancel</button>
+      </form>
+    );
+  }
+  return (
+    <button translate="no"
+      type="button"
+      onClick={() => setEditing(true)}
+      title="Change how much image storage this account may use; uploads past it are refused"
+      className="tap text-xs tabular-nums text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 hover:text-slate-900 max-sm:py-2"
+    >
+      <span><span>{gb(user.storage_cap_bytes)}</span><span> GB storage cap</span>
+      <Txt>{user.storage_cap_custom ? " (custom)" : ""}</Txt></span>
+    </button>
   );
 }
 

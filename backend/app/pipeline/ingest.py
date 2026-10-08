@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Asset, AssetStatus, UploadBatch, UploadBatchStatus
+from app.core import storage_cap
 from app.core.config import get_settings
+from app.db.models import Asset, AssetStatus, Tenant, UploadBatch, UploadBatchStatus
 from app.pipeline.images import ImageProcessingError, ImageProcessor, ProcessingSpec
 from app.pipeline.uploads import AdmittedImage, UploadRejected, UploadTooLarge, admit_image
 from app.pipeline.sku import SkuParser
@@ -142,7 +144,8 @@ class BatchIngestor:
             select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id)
         )
         rank = int(count or 0) + 1
-        asset = await self._ingest_one(tenant_id, batch_id, rank, upload, admitted, group_key)
+        room = await self._room(session, tenant_id)
+        asset = await self._ingest_one(tenant_id, batch_id, rank, upload, admitted, group_key, room)
         session.add(asset)
         batch = await session.get(UploadBatch, batch_id)
         if batch is not None:
@@ -180,6 +183,25 @@ class BatchIngestor:
         await session.refresh(batch)
         return batch
 
+    async def _room(self, session: AsyncSession, tenant_id: uuid.UUID) -> Callable[[int], None] | None:
+        """The account's storage cap as a check on what is about to be stored."""
+        from app.pipeline import upload_retention
+
+        tenant = await session.get(Tenant, tenant_id)
+        if tenant is None:
+            return None
+        cap = storage_cap.limit(tenant)
+        in_use = await asyncio.to_thread(storage_cap.used, self._storage, tenant_id)
+        days = await upload_retention.policy(session)
+
+        def room(incoming: int) -> None:
+            if in_use + incoming > cap:
+                raise storage_cap.StorageFull(
+                    storage_cap.message(in_use, cap, incoming, days.drafted_days, days.unpublished_days)
+                )
+
+        return room
+
     async def _ingest_one(
         self,
         tenant_id: uuid.UUID,
@@ -188,7 +210,10 @@ class BatchIngestor:
         upload: UploadFile,
         admitted: AdmittedImage,
         group_key: str | None = None,
+        room: Callable[[int], None] | None = None,
     ) -> Asset:
+        """``room(n)`` raises when storing ``n`` more bytes would pass the
+        account's storage cap (core/storage_cap.py); nothing is stored then."""
         asset_id = uuid.uuid4()
         # Folder-name SKU takes precedence over the filename rule (D2).
         sku = self._sku.parse_group(group_key) or self._sku.parse(upload.filename)
@@ -218,8 +243,11 @@ class BatchIngestor:
                 status=AssetStatus.failed,
             )
 
+        if room is not None:
+            room(len(processed.data))
         processed_key = f"{tenant_id}/{batch_id}/processed/{asset_id}{processed.extension}"
         self._storage.put(processed_key, processed.data, processed.mime_type)
+        storage_cap.added(tenant_id, len(processed.data))
         return Asset(
             id=asset_id,
             batch_id=batch_id,

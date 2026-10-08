@@ -179,6 +179,8 @@ export const api = {
     setAllowanceDefault: (body: AllowanceDefault) =>
       req<AllowanceDefault>("/admin/allowance-default", { method: "PUT", body: JSON.stringify(body) }),
     /** null = back to the default ceiling. */
+    setStorageCap: (id: string, gb: number | null) =>
+      req<AdminUser>(`/admin/users/${id}/storage-cap`, { method: "PUT", body: JSON.stringify({ gb }) }),
     setShopLimit: (id: string, maxShops: number | null) =>
       req<AdminUser>(`/admin/users/${id}/shops`, {
         method: "PUT",

@@ -693,6 +693,9 @@ export interface AdminUser {
   shops_used: number;
   shops_limit: number;
   shops_limit_custom: boolean;
+  /** Stored image files allowed, in bytes; custom: an admin's own number. */
+  storage_cap_bytes: number;
+  storage_cap_custom: boolean;
   listings_published: number;
   /** "Etsy requests today" for the account, as its own screens show it. */
   etsy: EtsyCeiling;

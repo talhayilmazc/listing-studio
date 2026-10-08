@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # Upload limits. Type is decided from the bytes, never the filename.
     max_upload_bytes: int = 25 * 1024 * 1024  # per file
     max_batch_bytes: int = 1024 * 1024 * 1024  # per batch, all files
+    # Per account: stored image files (core/storage_cap.py). An admin can give an
+    # account its own cap (tenant.storage_cap_bytes).
+    storage_cap_gb: float = Field(default=5.0, gt=0, le=1000)
     max_image_pixels: int = 60_000_000  # decompression-bomb ceiling (~7746 x 7746)
     # ZIP uploads (v6 §F). One archive per request: 95 MB stays under the 100 MB
     # request cap of Cloudflare's tunnel; a larger set goes up as several ZIPs.
