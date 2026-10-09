@@ -666,6 +666,10 @@ class GeneratedContent(Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("asset.id", ondelete="CASCADE"), nullable=False
     )
+    #: The cover the title and tags were written from. ``asset_id`` follows the
+    #: group's cover; when they differ, the seller is told the text came from the
+    #: old cover and offered "Regenerate". Not a foreign key: the photo may be gone.
+    written_from_asset_id: Mapped[uuid.UUID | None] = mapped_column(Uuid())
     title: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[str] | None] = mapped_column(TEXT_ARRAY_TYPE)
     description: Mapped[str | None] = mapped_column(Text)

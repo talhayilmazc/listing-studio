@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
 import { GroupingChoice } from "@/components/GroupingChoice";
+import { GroupingBoard } from "@/components/GroupingBoard";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
@@ -54,10 +55,15 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   // A group waiting for the seller to confirm replacing something.
   const [confirming, setConfirming] = useState<{ key: string; kind: "regenerate" | "replace" } | null>(null);
 
+  // The grouping board starts open until anything is written from the batch.
+  const [boardOpen, setBoardOpen] = useState<boolean | null>(null);
   const load = useCallback(async () => {
     try {
       setBatch(await api.getBatch(id));
-      setContents(await api.listContent(id));
+      const listed = await api.listContent(id);
+      setContents(listed);
+      // Open the board until anything is written; decided once, not on every reload.
+      setBoardOpen((cur) => cur ?? listed.length === 0);
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -358,6 +364,23 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {batch.assets.length > 0 && boardOpen !== null && (
+        <GroupingBoard
+          key="board"
+          batchId={id}
+          assets={batch.assets}
+          contents={contents}
+          open={boardOpen}
+          onToggle={() => setBoardOpen(!boardOpen)}
+          onChanged={async (b) => {
+            setBatch(b);
+            setPicked((cur) => cur.filter((k) => b.assets.some((a) => (a.group_key ?? "") === k)));
+            await load();
+            await loadGroups();
+          }}
+        />
+      )}
+
       {/* Step 1: the shop. Step 2: that shop's profile and size charts, for all groups. */}
       <div className="card space-y-3 p-4">
         {noProfiles ? (
@@ -582,6 +605,31 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
+              {mine.some((c) => c.written_from_asset_id && c.written_from_asset_id !== c.asset_id) && (
+                <div key="cover-changed" role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <span>
+                    <span>The cover changed. The title and tags were written from </span>
+                    <span translate="no">{writtenFromName(mine, batch.assets)}</span>
+                    <span>, not from the current cover.</span>
+                    {pubs.length > 0 ? (
+                      <span key="etsy"> “Replace images on Etsy” with new title and tags rewrites them from the new cover.</span>
+                    ) : (
+                      <span key="regen"> Regenerate to write them from the new cover (counts as one generated listing).</span>
+                    )}
+                  </span>
+                  {pubs.length === 0 && (
+                    <button
+                      key="regen-btn"
+                      type="button"
+                      className="btn-secondary px-3 py-1.5 text-xs"
+                      disabled={anyBusy || noProfiles}
+                      onClick={() => (approved ? setConfirming({ key: g.key, kind: "regenerate" }) : regenerate(g, false))}
+                    >
+                      Regenerate
+                    </button>
+                  )}
+                </div>
+              )}
               {asking === "regenerate" && (
                 <div key="div-395-14" role="alertdialog" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   <p>
@@ -709,6 +757,12 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 }
 
 /** Why writing waits, in the same words the server uses. */
+/** The photo a group's text was written from: its file name, or "a photo that was deleted". */
+function writtenFromName(mine: Content[], assets: Asset[]): string {
+  const from = mine.find((c) => c.written_from_asset_id && c.written_from_asset_id !== c.asset_id)?.written_from_asset_id;
+  return assets.find((a) => a.id === from)?.original_filename ?? "a photo that was deleted";
+}
+
 function unsortedMessage(n: number): string {
   return `${n} photo${n === 1 ? " is" : "s are"} still unsorted: no SKU could be read from ${n === 1 ? "its name" : "their names"}. Move ${n === 1 ? "it" : "them"} into a group, or choose "Ignore unsorted" to write the groups without ${n === 1 ? "it" : "them"}.`;
 }

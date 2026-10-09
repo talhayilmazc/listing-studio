@@ -107,6 +107,8 @@ export interface Finding {
 export interface Content {
   id: string;
   asset_id: string;
+  /** The cover the title and tags were written from; differs from asset_id once the cover changed. */
+  written_from_asset_id?: string | null;
   title: string | null;
   tags: string[];
   description: string | null;

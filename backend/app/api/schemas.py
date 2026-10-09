@@ -76,6 +76,27 @@ class BatchSummary(BaseModel):
     regroupable: bool = True
 
 
+class BoardMove(BaseModel):
+    """Move photos to another group, to Unsorted ("~unsorted"), or (``new_group``)
+    into a new group named ``to`` (its SKU). They join the end of the group."""
+
+    asset_ids: list[uuid.UUID] = Field(min_length=1, max_length=2000)
+    to: str = Field(max_length=200)
+    new_group: bool = False
+
+
+class BoardMerge(BaseModel):
+    """Put every photo of ``from_key`` into ``into_key``, after its own."""
+
+    from_key: str = Field(max_length=500)
+    into_key: str = Field(max_length=500)
+
+
+class BoardSku(BaseModel):
+    group_key: str = Field(max_length=500)
+    sku: str = Field(min_length=1, max_length=200)
+
+
 class GroupingChoice(BaseModel):
     mode: Literal["folder", "sku", "one"]
 
@@ -156,6 +177,9 @@ class BatchDetail(BatchSummary):
 class ContentOut(BaseModel):
     id: uuid.UUID
     asset_id: uuid.UUID
+    # The cover the title and tags were written from; differs from asset_id once
+    # the group's cover changed (the page offers "Regenerate").
+    written_from_asset_id: uuid.UUID | None = None
     title: str | None
     tags: list[str]
     description: str | None

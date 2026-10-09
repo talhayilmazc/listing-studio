@@ -11,19 +11,20 @@ from app.api import (
     analytics,
     auth,
     batches,
+    board,
     content,
     distribution,
     health,
     imports,
-    pnl,
     invite_requests,
     meta,
+    pnl,
     profile_links,
     profiles,
-    shop_groups,
     publish,
     schedules,
     shop,
+    shop_groups,
     shops,
 )
 from app.core.config import get_settings
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     application.include_router(pnl.router)
     application.include_router(auth.router)
     application.include_router(batches.router)
+    application.include_router(board.router)
     application.include_router(content.router)
     application.include_router(invite_requests.router)
     application.include_router(meta.router)

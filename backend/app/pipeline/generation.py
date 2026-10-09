@@ -158,6 +158,7 @@ async def generate_listing_content(
         tenant_id=tenant_id,
         batch_id=batch_id,
         asset_id=asset_id,
+        written_from_asset_id=asset_id,
         title=listing.title,
         tags=listing.tags,
         description=description,

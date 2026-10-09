@@ -274,6 +274,19 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ group_key: groupKey, asset_ids: assetIds }),
     }),
+  // The grouping board: move photos (to a group, to Unsorted "~unsorted", or into a new group), merge, edit a SKU.
+  boardMove: (batchId: string, assetIds: string[], to: string, newGroup = false) =>
+    req<BatchDetail>(`/batches/${batchId}/board/move`, {
+      method: "POST",
+      body: JSON.stringify({ asset_ids: assetIds, to, new_group: newGroup }),
+    }),
+  boardMerge: (batchId: string, fromKey: string, intoKey: string) =>
+    req<BatchDetail>(`/batches/${batchId}/board/merge`, {
+      method: "POST",
+      body: JSON.stringify({ from_key: fromKey, into_key: intoKey }),
+    }),
+  boardSku: (batchId: string, groupKey: string, sku: string) =>
+    req<BatchDetail>(`/batches/${batchId}/board/sku`, { method: "PUT", body: JSON.stringify({ group_key: groupKey, sku }) }),
   listGroups: (id: string) => req<Group[]>(`/batches/${id}/groups`),
   assignGroup: (
     id: string,

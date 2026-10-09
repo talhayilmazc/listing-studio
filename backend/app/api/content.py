@@ -307,6 +307,7 @@ def _to_out(
     return schemas.ContentOut(
         id=content.id,
         asset_id=content.asset_id,
+        written_from_asset_id=content.written_from_asset_id,
         title=content.title,
         tags=list(content.tags or []),
         description=content.description,
