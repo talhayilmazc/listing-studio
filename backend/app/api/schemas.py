@@ -59,6 +59,14 @@ class BatchSummary(BaseModel):
     connection_id: uuid.UUID | None = None
     shop_name: str | None = None
     shop_names: list[str] = Field(default_factory=list)
+    # How its images were grouped (pipeline/grouping.py): listing groups, those
+    # found by the SKU in file names and from folders, and photos left Unsorted.
+    groups: int = 0
+    sku_groups: int = 0
+    folder_groups: int = 0
+    unsorted: int = 0
+    #: "Found 42 groups by SKU, 3 photos unsorted".
+    grouping: str = ""
 
 
 class BatchCreate(BaseModel):
@@ -430,6 +438,9 @@ class GenerateRequest(BaseModel):
     # (v4 §E). None => every group must have its own assigned profile.
     profile_id: uuid.UUID | None = None
     group_key: str | None = None  # limit to one folder group; None = all groups (D3)
+    #: Write the groups and leave the photos in Unsorted as they are. Without it,
+    #: writing does not start while any photo is unsorted.
+    ignore_unsorted: bool = False
     #: "Regenerate": write new content for groups that already have some. The old
     #: content is removed only once the new one is saved.
     replace: bool = False

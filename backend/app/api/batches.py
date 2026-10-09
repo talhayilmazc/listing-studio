@@ -42,6 +42,7 @@ from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
+from app.pipeline import grouping
 from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline import upload_retention
 from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
@@ -124,7 +125,12 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
         shop_ids.add(batch.connection_id)
     shops = [c for c in await active_shops(session, batch.tenant_id) if c.id in shop_ids]
     own = next((c for c in shops if c.id == batch.connection_id), None)
+    grouped = grouping.summarise(list((await session.execute(
+        select(Asset.group_key, Asset.parsed_sku).where(Asset.batch_id == batch.id)
+    )).all()))
     return schemas.BatchSummary(
+        **grouped,
+        grouping=grouping.found_message(grouped),
         name=(await names_for(session, [batch]))[batch.id],
         named=bool(batch.name),
         id=batch.id,
@@ -502,6 +508,8 @@ async def _batch_groups(
 
     grouped: dict[str, list[Asset]] = {}
     for asset in assets:
+        if grouping.is_unsorted(asset.group_key):
+            continue  # the Unsorted tray is not a listing group
         grouped.setdefault(asset.group_key or "", []).append(asset)
 
     out: list[schemas.GroupOut] = []
@@ -1030,6 +1038,26 @@ async def order_group(
 
 
 # --- Content generation -----------------------------------------------------
+async def _refuse_unsorted(session: AsyncSession, batch_id: uuid.UUID, body: schemas.GenerateRequest) -> None:
+    """Writing does not start while photos sit in Unsorted, unless the seller chose
+    to ignore them: a photo left there would be missing from its listing."""
+    if body.group_key is not None and grouping.is_unsorted(body.group_key):
+        raise HTTPException(status_code=409, detail="Unsorted photos are not a listing: move them into a group first.")
+    if body.ignore_unsorted:
+        return
+    n = int(await session.scalar(
+        select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id, Asset.group_key == grouping.UNSORTED)
+    ) or 0)
+    if n:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{n} photo{'s are' if n != 1 else ' is'} still unsorted. Move {'them' if n != 1 else 'it'} into a "
+                'group, or choose "Ignore unsorted" to write the groups without them.'
+            ),
+        )
+
+
 @router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)
 async def generate_content(
     batch_id: uuid.UUID,
@@ -1043,6 +1071,7 @@ async def generate_content(
     # Ownership first: a caller with no claim on this batch must learn nothing
     # about it, not even whether the service is configured (production-spec B3).
     await _get_batch(session, tenant, batch_id)
+    await _refuse_unsorted(session, batch_id, body)
     if body.profile_id is not None:
         requested = await session.get(ListingProfile, body.profile_id)
         if requested is None or requested.tenant_id != tenant.id:
@@ -1130,6 +1159,8 @@ async def generate_content(
     )
     groups: dict[str, list[Asset]] = {}
     for asset in rows.scalars():
+        if grouping.is_unsorted(asset.group_key):
+            continue  # never written: the seller puts them in a group first
         if asset.processed_key is not None:
             groups.setdefault(asset.group_key or "", []).append(asset)
     if body.group_key is not None:  # per-group action (D3)

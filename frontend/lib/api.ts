@@ -251,7 +251,7 @@ export const api = {
     id: string,
     profileId?: string,
     groupKey?: string,
-    opts: { replace?: boolean; replaceApproved?: boolean } = {},
+    opts: { replace?: boolean; replaceApproved?: boolean; ignoreUnsorted?: boolean } = {},
   ) =>
     req<GenerateResult>(`/batches/${id}/generate`, {
       method: "POST",
@@ -260,6 +260,7 @@ export const api = {
         ...(groupKey != null ? { group_key: groupKey } : {}),
         ...(opts.replace ? { replace: true } : {}),
         ...(opts.replaceApproved ? { replace_approved: true } : {}),
+        ...(opts.ignoreUnsorted ? { ignore_unsorted: true } : {}),
       }),
     }),
   // Per-group profile selection (v4 §E): omit group_key to bulk-apply to all groups.

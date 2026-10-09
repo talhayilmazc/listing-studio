@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core import storage_cap
 from app.core.config import get_settings
 from app.db.models import Asset, AssetStatus, Tenant, UploadBatch, UploadBatchStatus
+from app.pipeline import grouping
 from app.pipeline.images import ImageProcessingError, ImageProcessor, ProcessingSpec
 from app.pipeline.uploads import AdmittedImage, UploadRejected, UploadTooLarge, admit_image
 from app.pipeline.sku import SkuParser
@@ -216,7 +217,9 @@ class BatchIngestor:
         account's storage cap (core/storage_cap.py); nothing is stored then."""
         asset_id = uuid.uuid4()
         # Folder-name SKU takes precedence over the filename rule (D2).
-        sku = self._sku.parse_group(group_key) or self._sku.parse(upload.filename)
+        # A folder keeps its group (its name gives the SKU, D2); a loose file is
+        # grouped by the SKU in its name, or goes to Unsorted (pipeline/grouping.py).
+        group_key, sku = grouping.place(group_key, upload.filename, self._sku)
         # Extension and type come from the sniffed contents, never the filename:
         # "photo.png" holding HTML is stored and served as nothing but refused.
         # The original is not kept (storage fix, 2026-10): every later step (cover

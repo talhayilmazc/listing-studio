@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { isUnsorted } from "@/lib/grouping";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
@@ -84,6 +85,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     if (!batch) return [];
     const by = new Map<string, Asset[]>();
     for (const a of batch.assets) {
+      if (isUnsorted(a.group_key)) continue; // the Unsorted tray is not a listing group
       const key = a.group_key ?? "";
       (by.get(key) ?? by.set(key, []).get(key)!).push(a);
     }
@@ -97,6 +99,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [batch]);
+
+  const unsorted = useMemo(() => (batch ? batch.assets.filter((a) => isUnsorted(a.group_key)) : []), [batch]);
+  // Writing does not start while photos are unsorted, unless the seller ignores them.
+  const [ignoreUnsorted, setIgnoreUnsorted] = useState(false);
+  const blockedByUnsorted = unsorted.length > 0 && !ignoreUnsorted;
 
   // Persist a choice: for one group (the unset groups after it take the same),
   // for the ticked groups, or for every group not set by hand. Only the fields
@@ -130,6 +137,10 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   // the server kept generating. Group by group, every result and the cost land
   // as they happen.
   async function generateAll() {
+    if (blockedByUnsorted) {
+      setProblem(unsortedMessage(unsorted.length));
+      return;
+    }
     const todo = groups.filter((g) => !g.done);
     if (todo.length === 0) {
       setNotice("Every group already has content.");
@@ -144,7 +155,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     for (const [i, g] of todo.entries()) {
       setNotice(`Generating ${i + 1} of ${todo.length}: ${g.label}…`);
       try {
-        const res = await api.generate(id, bulkProfileId || undefined, g.key);
+        const res = await api.generate(id, bulkProfileId || undefined, g.key, { ignoreUnsorted });
         if (res.paused) {
           // Paused on our side: stop asking. Nothing failed; the rest simply wait.
           setProblem(res.paused);
@@ -171,7 +182,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     setProblem(null);
     setFailures([]);
     try {
-      const res = await api.generate(id, bulkProfileId || undefined, groupKey);
+      const res = await api.generate(id, bulkProfileId || undefined, groupKey, { ignoreUnsorted });
       if (res.paused) {
         setProblem(res.paused);
         return;
@@ -199,6 +210,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       const res = await api.generate(id, bulkProfileId || undefined, g.key, {
         replace: true,
         replaceApproved: approved,
+        ignoreUnsorted,
       });
       if (res.paused) {
         setProblem(res.paused);
@@ -293,6 +305,27 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           Review listings
         </Link>
       </div>
+
+      {batch.grouping && (
+        <p key="grouping" className="text-sm text-slate-600" translate="no">
+          <span>{batch.grouping}</span>
+        </p>
+      )}
+      {unsorted.length > 0 && (
+        <div key="unsorted" className={"rounded-lg border px-4 py-3 text-sm " + (ignoreUnsorted ? "border-slate-200 bg-slate-50 text-slate-600" : "border-amber-200 bg-amber-50 text-amber-900")}>
+          <p>
+            <span>{unsortedMessage(unsorted.length)}</span>
+          </p>
+          <p className="mt-1 text-xs" translate="no">
+            <span>{unsorted.slice(0, 8).map((a) => a.original_filename).join(", ")}</span>
+            <Txt>{unsorted.length > 8 ? ` and ${unsorted.length - 8} more` : ""}</Txt>
+          </p>
+          <label className="tap mt-2 inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={ignoreUnsorted} onChange={(e) => setIgnoreUnsorted(e.target.checked)} />
+            <span>Ignore unsorted: write the groups without these photos</span>
+          </label>
+        </div>
+      )}
 
       {/* Step 1: the shop. Step 2: that shop's profile and size charts, for all groups. */}
       <div className="card space-y-3 p-4">
@@ -642,4 +675,9 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 
     </div>
   );
+}
+
+/** Why writing waits, in the same words the server uses. */
+function unsortedMessage(n: number): string {
+  return `${n} photo${n === 1 ? " is" : "s are"} still unsorted: no SKU could be read from ${n === 1 ? "its name" : "their names"}. Move ${n === 1 ? "it" : "them"} into a group, or choose "Ignore unsorted" to write the groups without ${n === 1 ? "it" : "them"}.`;
 }

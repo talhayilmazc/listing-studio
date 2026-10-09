@@ -19,6 +19,7 @@ import {
   type StagedGroup,
 } from "@/lib/staging";
 import { smallPreview } from "@/lib/thumbs";
+import { groupLabel, isUnsorted } from "@/lib/grouping";
 
 import { Txt } from "@/components/Txt";
 interface Row {
@@ -66,6 +67,7 @@ export default function UploadPage() {
   const [recent, setRecent] = useState<BatchSummary[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
+  const photosRef = useRef<HTMLInputElement>(null);
   // What each ZIP skipped or refused, so nothing disappears without a word (v6 §F).
   const [notes, setNotes] = useState<string[]>([]);
   // Object URLs this page made, by folder key, so removing a folder frees its
@@ -217,8 +219,12 @@ export default function UploadPage() {
           (pct) => setRows((r) => update(r, key, { pct })),
           groupKeyOf(sf.relpath),
         );
+        // The server decides the group: a folder, else the SKU in the name, else Unsorted.
         setRows((r) =>
-          update(r, key, { status: "done", pct: 100, sku: asset.parsed_sku, assetStatus: asset.status }),
+          update(r, key, {
+            status: "done", pct: 100, sku: asset.parsed_sku, assetStatus: asset.status,
+            group: asset.group_key || "(root)",
+          }),
         );
       } catch (e: any) {
         setRows((r) => update(r, key, { status: "error", error: String(e.message ?? e) }));
@@ -239,7 +245,10 @@ export default function UploadPage() {
       }
     }
 
-    await api.finalizeBatch(batch.id);
+    const finished = await api.finalizeBatch(batch.id);
+    // "Found 42 groups by SKU, 3 photos unsorted": before anything is written.
+    const found = finished.grouping;
+    if (found) setNotes((n) => [found, ...n]);
     setStaged([]);
     setArchives([]);
     setPhase("done");
@@ -273,6 +282,8 @@ export default function UploadPage() {
   };
 
   const groups = groupRows(rows);
+  // The Unsorted tray holds photos, not a listing.
+  const listingGroups = groups.filter((g) => !isUnsorted(g.key)).length;
   const done = rows.filter((r) => r.status === "done").length;
   const failed = rows.filter((r) => r.status === "error").length;
   const empty = phase === "staging" && staged.length === 0 && archives.length === 0;
@@ -310,8 +321,28 @@ export default function UploadPage() {
     />
   );
 
+  // Loose photos, no folder: grouped on the server by the SKU in each file name.
+  const photosInput = (
+    <input
+      ref={photosRef}
+      type="file"
+      multiple
+      accept="image/png,image/jpeg,image/webp,image/gif,image/tiff"
+      className="hidden"
+      data-testid="photos-input"
+      onChange={(e) => {
+        const files = Array.from(e.target.files ?? []);
+        e.target.value = "";
+        if (files.length) addItems(files.map((f) => ({ file: f, relpath: f.name })));
+      }}
+    />
+  );
+
   const pickers = (
     <>
+      <button type="button" disabled={busy} className="btn-secondary" onClick={() => photosRef.current?.click()}>
+        {empty ? "Choose photos" : "Add photos"}
+      </button>
       <button type="button" disabled={busy} className="btn-secondary" onClick={() => inputRef.current?.click()}>
         {empty ? "Choose a folder" : "Add folder"}
       </button>
@@ -345,9 +376,10 @@ export default function UploadPage() {
           </div>
           <h2 className="mt-4 font-display text-3xl text-slate-900">Drop a folder or ZIP of designs</h2>
           <p className="mt-1.5 max-w-md text-sm text-slate-500">
-            Each subfolder becomes one listing group, and the SKU is read from the folder or file
-            name. PNG, JPG, WebP, GIF and TIFF are accepted. A ZIP keeps its folders; files at its
-            top level are one group. Nothing is uploaded until you press Upload.
+            Each subfolder becomes one listing group. Photos without a folder are grouped by the SKU
+            in their file names (BR5229-1.png and BR5229 copy.png go together); a photo with no SKU in
+            its name waits in Unsorted for you to place. PNG, JPG, WebP, GIF and TIFF are accepted. A
+            ZIP keeps its folders. Nothing is uploaded until you press Upload.
           </p>
           <p className="mt-2 max-w-md text-xs text-slate-500">
             Keep your own copies: image files are stored here for a limited time after a listing is
@@ -356,6 +388,7 @@ export default function UploadPage() {
           <div className="mt-5 flex flex-wrap justify-center gap-2">{pickers}</div>
           {folderInput}
           {zipInput}
+          {photosInput}
         </div>
 
         <RecentUploads batches={recent} />
@@ -411,6 +444,7 @@ export default function UploadPage() {
           </div>
           {folderInput}
           {zipInput}
+          {photosInput}
         </div>
 
         {undecided.length > 0 && (
@@ -463,8 +497,8 @@ export default function UploadPage() {
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
             <span translate="no" className="tabular-nums">{done}</span><span> / <span>{rows.length}</span> files ·{" "}</span>
-            <span translate="no" className="tabular-nums">{groups.length}</span><span>{" "}
-            <span>{groups.length === 1 ? "listing group" : "listing groups"}</span></span>
+            <span translate="no" className="tabular-nums">{listingGroups}</span><span>{" "}
+            <span>{listingGroups === 1 ? "listing group" : "listing groups"}</span></span>
             {failed > 0 && (
               <span key="span-448-12" className="text-rose-700">
                 {" · "}
@@ -483,6 +517,7 @@ export default function UploadPage() {
         </div>
         {folderInput}
         {zipInput}
+        {photosInput}
       </div>
 
       {notes.length > 0 && (
@@ -681,7 +716,7 @@ function GroupCard({ group }: { group: DetectedGroup }) {
             className="min-w-0 flex-1 truncate font-display text-lg leading-tight text-slate-900"
             title={group.key}
           >
-            {group.key === "(root)" ? "Root folder" : group.key}
+            {groupLabel(group.key)}
           </h2>
           {complete && <StatusPill key="statuspill-666-10" status={rows[0]?.assetStatus ?? "uploaded"} />}
         </div>

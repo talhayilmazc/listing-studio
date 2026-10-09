@@ -44,6 +44,14 @@ export interface BatchSummary {
   connection_id?: string | null;
   shop_name?: string | null;
   shop_names?: string[];
+  /** How the images were grouped (lib/grouping.ts): listing groups, those found
+   *  by the SKU in file names and from folders, and photos left Unsorted. */
+  groups?: number;
+  sku_groups?: number;
+  folder_groups?: number;
+  unsorted?: number;
+  /** "Found 42 groups by SKU, 3 photos unsorted". */
+  grouping?: string;
 }
 
 export interface ReplaceImagesResult {

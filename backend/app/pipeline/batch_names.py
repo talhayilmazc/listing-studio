@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.pipeline.grouping import UNSORTED
 from app.db.models import Asset, UploadBatch
 
 MAX_NAME_LENGTH = 80
@@ -46,6 +47,8 @@ async def names_for(session: AsyncSession, batches: Iterable[UploadBatch]) -> di
             select(Asset.batch_id, Asset.group_key, Asset.parsed_sku).where(Asset.batch_id.in_(unnamed)).order_by(Asset.rank)
         )
         for batch_id, group_key, sku in rows.all():
+            if group_key == UNSORTED:
+                continue  # the Unsorted tray is not a listing
             key = group_key or ""
             groups[batch_id][key] = groups[batch_id].get(key) or sku
         for batch_id in unnamed:

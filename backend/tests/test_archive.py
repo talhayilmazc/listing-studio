@@ -146,7 +146,7 @@ async def test_a_zip_upload_keeps_the_folders_and_reports_what_it_skipped(client
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert sorted((a["group_key"] or "", a["original_filename"]) for a in body["assets"]) == sorted([
-        ("BR5475", "front.png"), ("BR5475", "back.png"), ("BR6001", "a.png"), ("", "loose.png"),
+        ("BR5475", "front.png"), ("BR5475", "back.png"), ("BR6001", "a.png"), ("~unsorted", "loose.png"),  # no SKU in its name: Unsorted
     ])
     assert all(a["status"] == "processed" for a in body["assets"])
     assert (body["skipped_unsupported"], body["skipped_nested"], body["skipped_unsafe"]) == (1, 1, 1)
