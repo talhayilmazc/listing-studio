@@ -17,7 +17,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 #: The same patterns as .gitignore's "Database dumps and exports" block.
-FORBIDDEN = ("*.sql", "*.dump", "*.sql.gz", "backup_*", "acts-*.json")
+FORBIDDEN = ("*.sql", "*.dump", "*.sql.gz", "*.rdb", "backup_*", "acts-*.json")
 
 
 def _tracked() -> list[str]:
@@ -32,8 +32,10 @@ def forbidden(paths: list[str]) -> list[str]:
 
 
 def test_the_patterns_catch_what_they_should_and_nothing_else() -> None:
-    assert forbidden(["backup_2026-09-01.sql", "x/db.dump", "a.sql.gz", "docs/acts-1.json", "deploy/backup_db.sh"]) == [
-        "backup_2026-09-01.sql", "x/db.dump", "a.sql.gz", "docs/acts-1.json", "deploy/backup_db.sh"]
+    assert forbidden(["backup_2026-09-01.sql", "x/db.dump", "a.sql.gz", "docs/acts-1.json", "deploy/backup_db.sh",
+                      "backend/dump.rdb"]) == [
+        "backup_2026-09-01.sql", "x/db.dump", "a.sql.gz", "docs/acts-1.json", "deploy/backup_db.sh",
+        "backend/dump.rdb"]
     assert forbidden(["backend/alembic/versions/0049_drop_ad_spend.py", "facts.json", "sqlite.py"]) == []
 
 

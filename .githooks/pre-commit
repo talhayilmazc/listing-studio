@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refuses a commit that adds a database dump or data export (see .gitignore).
 # Enable once per clone: git config core.hooksPath .githooks
-bad=$(git diff --cached --name-only --diff-filter=AR | grep -iE '(\.sql|\.dump|\.sql\.gz)$|(^|/)backup_[^/]*$|(^|/)acts-[^/]*\.json$')
+bad=$(git diff --cached --name-only --diff-filter=AR | grep -iE '(\.sql|\.dump|\.sql\.gz|\.rdb)$|(^|/)backup_[^/]*$|(^|/)acts-[^/]*\.json$')
 if [ -n "$bad" ]; then
   echo "Refusing to commit database dumps or exports:" >&2
   echo "$bad" >&2

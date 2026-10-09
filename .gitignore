@@ -40,5 +40,6 @@ backend/evals/data/
 *.sql
 *.dump
 *.sql.gz
+*.rdb
 backup_*
 acts-*.json
