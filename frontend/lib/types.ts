@@ -6,6 +6,8 @@ export interface Asset {
   original_filename: string;
   parsed_sku: string | null;
   group_key: string | null;
+  /** The folder it was uploaded in ("" or null: loose). */
+  upload_folder?: string | null;
   rank: number | null;
   status: AssetStatus;
   mime_type: string | null;
@@ -52,6 +54,10 @@ export interface BatchSummary {
   unsorted?: number;
   /** "Found 42 groups by SKU, 3 photos unsorted". */
   grouping?: string;
+  /** The seller's choice (lib/grouping.ts); null: folders, then SKUs. */
+  grouping_mode?: "folder" | "sku" | "one" | null;
+  /** The grouping can still change: nothing has been written yet. */
+  regroupable?: boolean;
 }
 
 export interface ReplaceImagesResult {

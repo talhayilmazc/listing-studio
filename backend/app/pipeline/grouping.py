@@ -74,9 +74,11 @@ def sku_of(filename: str, parser: SkuParser | None = None) -> str | None:
         if at > 0 and stem[at - 1].isalnum():
             sku = stem if _TOKEN.fullmatch(stem) else None
     # A SKU has letters and digits: "mockup" or "front" alone is not one.
-    if not sku or not re.search(r"\d", sku) or not re.search(r"[A-Za-z]", sku):
-        return None
-    return sku.upper()
+    return sku.upper() if sku and _is_sku(sku) else None
+
+
+def _is_sku(text: str) -> bool:
+    return bool(re.search(r"\d", text) and re.search(r"[A-Za-z]", text))
 
 
 def folder_key(group_key: str | None) -> str | None:
@@ -86,13 +88,44 @@ def folder_key(group_key: str | None) -> str | None:
     return group_key or None
 
 
-def place(group_key: str | None, filename: str, parser: SkuParser) -> tuple[str, str | None]:
+#: How the seller asked for the photos to become listings (the upload page's choice):
+#:   "folder": one listing per folder; files inside a folder are never split,
+#:             whatever their names; loose files are one listing (as before)
+#:   "sku":    every photo by the SKU in its file name; a photo whose name has
+#:             none takes its folder's SKU, else it waits in Unsorted
+#:   "one":    all the photos are one listing
+#: None (no choice sent): folders as folders, loose files by SKU.
+MODES = ("folder", "sku", "one")
+#: The group key of "all these photos are one listing" (and of loose files in
+#: "folder" mode): the batch's root group, as before.
+ROOT = ""
+
+
+def place(
+    group_key: str | None, filename: str, parser: SkuParser, mode: str | None = None
+) -> tuple[str, str | None]:
     """(group key, SKU) for one uploaded file. ``group_key`` is the folder it came in."""
     folder = folder_key(group_key)
+    folder_sku = parser.parse_group(folder) if folder else None
+    if mode == "folder":
+        return (folder, folder_sku or parser.parse(filename)) if folder else (ROOT, parser.parse(filename))
+    if mode == "one":
+        return ROOT, sku_of(filename, parser) or folder_sku
+    if mode == "sku":
+        # A folder's name counts only when it is a SKU ("BR6001"), not "Shots".
+        named = folder_sku if folder_sku and _is_sku(folder_sku) else None
+        sku = sku_of(filename, parser) or named
+        return (sku, sku) if sku else (UNSORTED, None)
     if folder:
-        return folder, parser.parse_group(folder) or parser.parse(filename)
+        return folder, folder_sku or parser.parse(filename)
     sku = sku_of(filename, parser)
     return (sku, sku) if sku else (UNSORTED, None)
+
+
+def check_mode(mode: str | None) -> str | None:
+    if mode is not None and mode not in MODES:
+        raise ValueError(f"grouping must be one of {', '.join(MODES)}")
+    return mode
 
 
 def is_unsorted(group_key: str | None) -> bool:
@@ -115,8 +148,15 @@ def summarise(rows: list[tuple[str | None, str | None]]) -> dict[str, int]:
     return {"groups": len(keys), "sku_groups": by_sku, "folder_groups": len(keys) - by_sku, "unsorted": unsorted}
 
 
-def found_message(summary: dict[str, int]) -> str:
+def found_message(summary: dict[str, int], mode: str | None = None) -> str:
     """"Found 42 groups by SKU, 3 photos unsorted" (and the folders, if any)."""
+    n = summary["groups"]
+    if mode in ("folder", "one"):
+        head = f"{n} listing{'s' if n != 1 else ''}" + (" (one per folder)" if mode == "folder" else "")
+        if mode == "one" and n == 1:
+            head = "All the photos are one listing"
+        u = summary["unsorted"]
+        return head + (f", {u} photo{'s' if u != 1 else ''} unsorted" if u else "")
     parts = []
     if summary["sku_groups"]:
         parts.append(f"{summary['sku_groups']} group{'s' if summary['sku_groups'] != 1 else ''} by SKU")

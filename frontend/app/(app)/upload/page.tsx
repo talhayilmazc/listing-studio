@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadArchive, uploadAsset } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
 import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
@@ -19,7 +19,17 @@ import {
   type StagedGroup,
 } from "@/lib/staging";
 import { smallPreview } from "@/lib/thumbs";
-import { groupLabel, isUnsorted } from "@/lib/grouping";
+import {
+  autoMode,
+  groupLabel,
+  isUnsorted,
+  rememberChoice,
+  rememberedChoices,
+  uploadKind,
+  type GroupingMode,
+  type PreviewFile,
+} from "@/lib/grouping";
+import { GroupingChoice } from "@/components/GroupingChoice";
 
 import { Txt } from "@/components/Txt";
 interface Row {
@@ -34,6 +44,9 @@ interface Row {
   error?: string;
   /** Local object URL, so a tile appears the moment a file lands. */
   preview?: string;
+  /** The folder it came from ("" when loose): what a regrouping counts from. */
+  folder: string;
+  assetId?: string;
 }
 
 interface Item {
@@ -70,10 +83,18 @@ export default function UploadPage() {
   const photosRef = useRef<HTMLInputElement>(null);
   // What each ZIP skipped or refused, so nothing disappears without a word (v6 §F).
   const [notes, setNotes] = useState<string[]>([]);
+  // How the photos become listings: the seller's pick, else a default from the files.
+  const [modeChoice, setModeChoice] = useState<GroupingMode | null>(null);
+  // The batch as the server grouped it, once uploaded ("Found 42 groups by SKU…").
+  const [summary, setSummary] = useState<BatchSummary | null>(null);
+  const [regrouping, setRegrouping] = useState(false);
   // Object URLs this page made, by folder key, so removing a folder frees its
   // previews: adding and removing folders over and over must not leak memory.
   const owned = useRef<Map<string, string[]>>(new Map());
-  const making = useRef<Set<string>>(new Set());
+  // The preview run each folder is on: a run started before a Clear or removal
+  // must not put its (revoked) previews back on a newer card.
+  const making = useRef<Map<string, number>>(new Map());
+  const runs = useRef(0);
   const busy = phase === "uploading";
 
   // The last few uploads, so an empty page is not a single box in a void.
@@ -114,18 +135,23 @@ export default function UploadPage() {
     for (const g of staged) {
       const want = Math.min(5, g.files.length);
       if ((thumbs[g.key]?.length ?? 0) >= want || making.current.has(g.key)) continue;
-      making.current.add(g.key);
+      const run = ++runs.current;
+      making.current.set(g.key, run);
       (async () => {
         const have = thumbs[g.key] ?? [];
         const made: (string | null)[] = [...have];
         for (const sf of g.files.slice(have.length, want)) {
           const url = await smallPreview(sf.file);
-          if (!making.current.has(g.key)) {
+          if (making.current.get(g.key) !== run) {
             if (url) URL.revokeObjectURL(url); // removed meanwhile
             return;
           }
           if (url) owned.current.set(g.key, [...(owned.current.get(g.key) ?? []), url]);
           made.push(url);
+        }
+        if (making.current.get(g.key) !== run) {
+          made.forEach((u) => u && URL.revokeObjectURL(u));
+          return;
         }
         making.current.delete(g.key);
         setThumbs((t) => ({ ...t, [g.key]: made }));
@@ -144,6 +170,8 @@ export default function UploadPage() {
         releaseAll();
         setRows([]);
         setNotes([]);
+        setSummary(null);
+        setModeChoice(null);
         setBatchId(null);
         setPhase("staging");
         setStaged(stage([], incoming));
@@ -166,6 +194,7 @@ export default function UploadPage() {
 
   function clearAll() {
     releaseAll();
+    setModeChoice(null);
     setStaged([]);
     setArchives([]);
     setIgnored(0);
@@ -173,11 +202,48 @@ export default function UploadPage() {
 
   const undecided = staged.filter((g) => g.pending.length > 0);
   const imageCount = staged.reduce((n, g) => n + g.files.length, 0);
+  const folderCount = staged.filter((g) => g.key !== "").length;
+  const stagedFiles: PreviewFile[] = useMemo(
+    () => staged.flatMap((g) => g.files.map((sf) => ({ folder: groupKeyOf(sf.relpath), name: sf.file.name }))),
+    [staged],
+  );
+  // Folders present -> one per folder; flat with SKUs -> by SKU; flat without -> one listing.
+  // The seller's last choice for the same kind of upload wins.
+  const mode: GroupingMode = modeChoice ?? autoMode(stagedFiles, rememberedChoices());
+
+  function chooseMode(next: GroupingMode, files: PreviewFile[]) {
+    setModeChoice(next);
+    rememberChoice(uploadKind(files), next);
+  }
+
+  // After upload, before anything is written: switching regroups on the server.
+  async function regroup(next: GroupingMode) {
+    if (!batchId) return;
+    const files = rows.filter((r) => r.assetId).map((r) => ({ folder: r.folder, name: r.name }));
+    chooseMode(next, files);
+    setRegrouping(true);
+    try {
+      setSummary(await api.regroup(batchId, next));
+      const detail = await api.getBatch(batchId);
+      const byId = new Map(detail.assets.map((a) => [a.id, a]));
+      setRows((rs) =>
+        rs.map((r) => {
+          const a = r.assetId ? byId.get(r.assetId) : undefined;
+          return a ? { ...r, group: a.group_key || "(root)", sku: a.parsed_sku } : r;
+        }),
+      );
+    } catch (e: any) {
+      setNotes((n) => [String(e.message ?? e), ...n]);
+    } finally {
+      setRegrouping(false);
+    }
+  }
 
   async function upload() {
     if (undecided.length || (imageCount === 0 && archives.length === 0)) return;
     setPhase("uploading");
     setNotes([]);
+    const chosen = mode;
     const files = staged.flatMap((g) =>
       g.files.map((sf, i) => ({ sf, key: `f-${g.key}-${i}`, preview: i < 5 ? thumbs[g.key]?.[i] ?? undefined : undefined })),
     );
@@ -188,6 +254,7 @@ export default function UploadPage() {
         pct: 0,
         status: "pending" as const,
         group: groupKeyOf(sf.relpath) || "(root)",
+        folder: groupKeyOf(sf.relpath),
         preview,
       })),
       // A ZIP shows as one row until the server has unpacked it.
@@ -197,6 +264,7 @@ export default function UploadPage() {
         pct: 0,
         status: "pending" as const,
         group: z.name,
+        folder: "",
       })),
     ]);
 
@@ -218,12 +286,13 @@ export default function UploadPage() {
           sf.file,
           (pct) => setRows((r) => update(r, key, { pct })),
           groupKeyOf(sf.relpath),
+          chosen,
         );
         // The server decides the group: a folder, else the SKU in the name, else Unsorted.
         setRows((r) =>
           update(r, key, {
             status: "done", pct: 100, sku: asset.parsed_sku, assetStatus: asset.status,
-            group: asset.group_key || "(root)",
+            group: asset.group_key || "(root)", assetId: asset.id,
           }),
         );
       } catch (e: any) {
@@ -235,8 +304,11 @@ export default function UploadPage() {
       const key = `z${j}`;
       setRows((r) => update(r, key, { status: "uploading" }));
       try {
-        const res = await uploadArchive(batch.id, zip, (pct) =>
-          setRows((r) => update(r, key, { pct, name: pct >= 100 ? `${zip.name}: unpacking…` : zip.name })),
+        const res = await uploadArchive(
+          batch.id,
+          zip,
+          (pct) => setRows((r) => update(r, key, { pct, name: pct >= 100 ? `${zip.name}: unpacking…` : zip.name })),
+          chosen,
         );
         setRows((r) => r.flatMap((row) => (row.key === key ? archiveRows(key, res) : [row])));
         setNotes((n) => [...n, ...archiveNotes(zip.name, res)]);
@@ -245,10 +317,8 @@ export default function UploadPage() {
       }
     }
 
-    const finished = await api.finalizeBatch(batch.id);
-    // "Found 42 groups by SKU, 3 photos unsorted": before anything is written.
-    const found = finished.grouping;
-    if (found) setNotes((n) => [found, ...n]);
+    // "Found 42 groups by SKU, 3 photos unsorted": shown before anything is written.
+    setSummary(await api.finalizeBatch(batch.id));
     setStaged([]);
     setArchives([]);
     setPhase("done");
@@ -374,12 +444,12 @@ export default function UploadPage() {
               <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
             </svg>
           </div>
-          <h2 className="mt-4 font-display text-3xl text-slate-900">Drop a folder or ZIP of designs</h2>
+          <h2 className="mt-4 font-display text-3xl text-slate-900">Drop photos, folders or ZIPs of designs</h2>
           <p className="mt-1.5 max-w-md text-sm text-slate-500">
-            Each subfolder becomes one listing group. Photos without a folder are grouped by the SKU
-            in their file names (BR5229-1.png and BR5229 copy.png go together); a photo with no SKU in
-            its name waits in Unsorted for you to place. PNG, JPG, WebP, GIF and TIFF are accepted. A
-            ZIP keeps its folders. Nothing is uploaded until you press Upload.
+            Drop everything at once. Before uploading you choose how the photos become listings: one
+            per folder, grouped by the SKU in their file names (BR5229-1.png and BR5229 copy.png go
+            together), or all as one listing. PNG, JPG, WebP, GIF and TIFF are accepted. A ZIP keeps
+            its folders. Nothing is uploaded until you press Upload.
           </p>
           <p className="mt-2 max-w-md text-xs text-slate-500">
             Keep your own copies: image files are stored here for a limited time after a listing is
@@ -409,7 +479,9 @@ export default function UploadPage() {
           <div className="min-w-0">
             <p className="text-sm font-medium text-slate-800">Ready to upload</p>
             <p className="mt-0.5 text-xs text-slate-500">
-              <span translate="no" className="tabular-nums">{staged.length}</span> <span><span>{staged.length === 1 ? "folder" : "folders"}</span> ·{" "}</span>
+              {folderCount > 0 && (
+                <span key="folders"><span translate="no" className="tabular-nums">{folderCount}</span> <span><span>{folderCount === 1 ? "folder" : "folders"}</span> ·{" "}</span></span>
+              )}
               <span translate="no" className="tabular-nums">{imageCount}</span> <span><span>{imageCount === 1 ? "image" : "images"}</span></span>
               {archives.length > 0 && (
                 <>
@@ -446,6 +518,17 @@ export default function UploadPage() {
           {zipInput}
           {photosInput}
         </div>
+
+        {imageCount > 0 && (
+          <div key="choice" className="card p-4">
+            <GroupingChoice
+              files={stagedFiles}
+              value={mode}
+              onChange={(m) => chooseMode(m, stagedFiles)}
+              extra={archives.length ? "Photos inside ZIP files are counted once they are unpacked; you can still switch then." : "You can still switch after the upload, until anything is written."}
+            />
+          </div>
+        )}
 
         {undecided.length > 0 && (
           <p key="p-396-8" role="status" translate="no" className="text-xs text-amber-800">
@@ -520,6 +603,25 @@ export default function UploadPage() {
         {photosInput}
       </div>
 
+      {!busy && summary && (
+        <div key="choice" className="card space-y-3 p-4">
+          <p role="status" translate="no" className="text-sm font-medium text-slate-800" data-testid="grouping-found">
+            {summary.grouping}
+          </p>
+          {summary.regroupable !== false && (
+            <GroupingChoice
+              key="choice-radios"
+              name="grouping-done"
+              files={rows.filter((r) => r.assetId).map((r) => ({ folder: r.folder, name: r.name }))}
+              value={(summary.grouping_mode as GroupingMode | null) ?? mode}
+              onChange={regroup}
+              disabled={regrouping}
+              extra="Switching regroups the uploaded photos now; nothing has been written yet."
+            />
+          )}
+        </div>
+      )}
+
       {notes.length > 0 && (
         <ul key="ul-468-6" role="status" translate="no" className="card space-y-1 p-3 text-xs text-slate-600">
           {notes.map((n, i) => (
@@ -576,7 +678,7 @@ function StagedCard({
   onMerge: () => void;
   onSkip: () => void;
 }) {
-  const label = group.key === "" ? "Root folder" : group.key;
+  const label = group.key === "" ? "Photos without a folder" : group.key;
   const n = group.files.length;
   return (
     <div className="card relative flex flex-col overflow-hidden">
@@ -782,6 +884,8 @@ function archiveRows(key: string, res: ArchiveResult): Row[] {
     status: "done" as const,
     sku: a.parsed_sku,
     group: a.group_key || "(root)",
+    folder: a.upload_folder ?? "",
+    assetId: a.id,
     assetStatus: a.status,
     preview: a.status === "processed" ? api.assetImage(a.id, 224) : undefined,
   }));

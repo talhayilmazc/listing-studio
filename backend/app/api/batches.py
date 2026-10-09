@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Response, UploadFile
+from redis.asyncio import Redis
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,10 +18,15 @@ from app.api.deps import (
     active_tenant,
     get_enqueuer,
     get_ingestor,
+    get_redis,
     get_session,
     get_storage,
 )
+from app.api.shops import shop_label
+from app.compliance.trademarks import blocklist_for_tenant
+from app.core import ai_meter, allowance, audit, llm_status, storage_cap
 from app.core.config import get_settings
+from app.core.llm_status import LLMUnavailable
 from app.db.models import (
     Asset,
     AssetStatus,
@@ -31,22 +37,23 @@ from app.db.models import (
     ListingGroupSetting,
     ListingProfile,
     ListingPublication,
-    ShopListingCache,
     PlannedSlot,
+    ShopListingCache,
     Tenant,
     UploadBatch,
 )
-from app.compliance.trademarks import blocklist_for_tenant
-from app.core import allowance, audit, storage_cap
-from app.api.shops import shop_label
 from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
-from app.pipeline import grouping
+from app.pipeline import grouping, upload_retention
+from app.pipeline.archive import read_archive
 from app.pipeline.batch_names import clean_name, names_for
-from app.pipeline import upload_retention
-from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
-from app.pipeline.reference import decode_etsy_text
+from app.pipeline.content import (
+    AnthropicContentGenerator,
+    content_template_for,
+    policy_for,
+    search_style,
+)
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.images import (
     PREVIEW_ASPECTS,
@@ -55,18 +62,14 @@ from app.pipeline.images import (
     ImageProcessingError,
     resize_preview,
 )
-from app.pipeline.ingest import BatchIngestor, UploadFile as IngestFile
-from app.pipeline.archive import read_archive
-from app.pipeline.uploads import UploadRejected, UploadTooLarge
+from app.pipeline.ingest import BatchIngestor
+from app.pipeline.ingest import UploadFile as IngestFile
 from app.pipeline.llm import client_for
+from app.pipeline.reference import decode_etsy_text
 from app.pipeline.storage import Storage
 from app.pipeline.templates import load_template
+from app.pipeline.uploads import UploadRejected, UploadTooLarge
 from app.pipeline.vision import AnthropicVisionAnalyzer
-
-from app.core import ai_meter, llm_status
-from app.core.llm_status import LLMUnavailable
-from redis.asyncio import Redis
-from app.api.deps import get_redis
 
 router = APIRouter(prefix="/api", tags=["batches"])
 
@@ -128,9 +131,14 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
     grouped = grouping.summarise(list((await session.execute(
         select(Asset.group_key, Asset.parsed_sku).where(Asset.batch_id == batch.id)
     )).all()))
+    written = await session.scalar(
+        select(func.count()).select_from(GeneratedContent).where(GeneratedContent.batch_id == batch.id)
+    )
     return schemas.BatchSummary(
         **grouped,
-        grouping=grouping.found_message(grouped),
+        grouping=grouping.found_message(grouped, batch.grouping_mode),
+        grouping_mode=batch.grouping_mode,
+        regroupable=not written,
         name=(await names_for(session, [batch]))[batch.id],
         named=bool(batch.name),
         id=batch.id,
@@ -187,11 +195,13 @@ async def add_asset(
     batch_id: uuid.UUID,
     file: UploadFile,
     group_key: str | None = Form(None),
+    grouping_mode: str | None = Form(None, alias="grouping"),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.AssetOut:
     await _get_batch(session, tenant, batch_id)
+    mode = _mode(grouping_mode)
     # The security middleware has already capped the request body, so this read
     # is bounded; admission below still enforces the exact per-file limit.
     data = await file.read()
@@ -202,6 +212,7 @@ async def add_asset(
             tenant.id,
             IngestFile(filename=file.filename or "upload", data=data),
             group_key=group_key or None,
+            mode=mode,
         )
     except UploadRejected as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
@@ -210,6 +221,7 @@ async def add_asset(
         original_filename=asset.original_filename,
         parsed_sku=asset.parsed_sku,
         group_key=asset.group_key,
+        upload_folder=asset.upload_folder,
         rank=asset.rank,
         status=asset.status.value,
         mime_type=asset.mime_type,
@@ -226,6 +238,7 @@ def _asset_out(asset: Asset) -> schemas.AssetOut:
         original_filename=asset.original_filename,
         parsed_sku=asset.parsed_sku,
         group_key=asset.group_key,
+        upload_folder=asset.upload_folder,
         rank=asset.rank,
         status=asset.status.value,
         mime_type=asset.mime_type,
@@ -243,6 +256,7 @@ def _asset_out(asset: Asset) -> schemas.AssetOut:
 async def add_archive(
     batch_id: uuid.UUID,
     file: UploadFile,
+    grouping_mode: str | None = Form(None, alias="grouping"),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
@@ -254,6 +268,7 @@ async def add_archive(
     single upload. What was skipped is counted, not silently lost.
     """
     await _get_batch(session, tenant, batch_id)
+    mode = _mode(grouping_mode)
     settings = get_settings()
     data = await file.read()  # bounded by the security middleware
     if len(data) > settings.max_archive_bytes:
@@ -292,6 +307,7 @@ async def add_archive(
                 tenant.id,
                 IngestFile(filename=entry.filename, data=entry.data),
                 group_key=entry.group_key,
+                mode=mode,
             )
         except UploadTooLarge as exc:
             result.failed.append(schemas.ArchiveFailure(filename=entry.filename, error=str(exc)))
@@ -323,6 +339,37 @@ async def set_size_chart_profile(
             raise HTTPException(status_code=404, detail="profile not found")
     batch.size_chart_profile_id = body.profile_id
     await session.commit()
+    return await _summary(session, batch)
+
+
+def _mode(value: str | None) -> str | None:
+    try:
+        return grouping.check_mode(value or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/batches/{batch_id}/grouping", response_model=schemas.BatchSummary)
+async def regroup_batch(
+    batch_id: uuid.UUID,
+    body: schemas.GroupingChoice,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    ingestor: BatchIngestor = Depends(get_ingestor),
+) -> schemas.BatchSummary:
+    """Turn the photos into listings another way: one per folder, by the SKU in the
+    file name, or all one listing. Only before anything is written: once a listing
+    has text, its photos are its own."""
+    batch = await _get_batch(session, tenant, batch_id)
+    written = await session.scalar(
+        select(func.count()).select_from(GeneratedContent).where(GeneratedContent.batch_id == batch_id)
+    )
+    if written:
+        raise HTTPException(
+            status_code=409,
+            detail="Listings have already been written from this batch, so its photos can no longer be regrouped.",
+        )
+    await ingestor.regroup(session, batch, body.mode)
     return await _summary(session, batch)
 
 
@@ -395,6 +442,7 @@ async def get_batch(
             original_filename=a.original_filename,
             parsed_sku=a.parsed_sku,
             group_key=a.group_key,
+            upload_folder=a.upload_folder,
             rank=a.rank,
             status=a.status.value,
             mime_type=a.mime_type,

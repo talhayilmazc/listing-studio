@@ -128,3 +128,85 @@ async def test_the_batch_name_does_not_count_the_unsorted_tray(client: AsyncClie
     await _upload(client, batch, "BR5229-1.png")
     await _upload(client, batch, "IMG_4411.jpg")
     assert (await client.post(f"/api/batches/{batch}/finalize")).json()["name"] == "BR5229"
+
+
+# --- The seller's choice: one listing per folder, by SKU, or all one listing ---------
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+CASES = json.loads((Path(__file__).parent / "fixtures" / "grouping_cases.json").read_text())
+
+
+@pytest.mark.parametrize("name, expected", CASES["sku_of"])
+def test_the_shared_cases_read_the_same_sku(name: str, expected: str | None) -> None:
+    assert grouping.sku_of(name) == expected
+
+
+@pytest.mark.parametrize("folder, name, mode, key, sku", CASES["place"])
+def test_the_shared_cases_land_in_the_same_group(folder, name, mode, key, sku) -> None:  # noqa: ANN001
+    assert grouping.place(folder, name, SkuParser(), mode) == (key, sku)
+
+
+async def _upload_as(client: AsyncClient, batch_id: str, name: str, mode: str, group: str | None = None):  # noqa: F811
+    data = {"grouping": mode, **({"group_key": group} if group else {})}
+    res = await client.post(f"/api/batches/{batch_id}/assets", files={"file": (name, io.BytesIO(_png()), "image/png")}, data=data)
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+async def test_one_listing_per_folder_never_splits_a_folder(client: AsyncClient) -> None:  # noqa: F811
+    batch = (await client.post("/api/batches")).json()["id"]
+    for name in ("BR5229-1.png", "AB1234.png", "IMG_4411.jpg"):
+        await _upload_as(client, batch, name, "folder", "Mixed")
+    await _upload_as(client, batch, "CD7788.png", "folder")
+    summary = (await client.post(f"/api/batches/{batch}/finalize")).json()
+    assert summary["grouping_mode"] == "folder" and summary["groups"] == 2 and summary["unsorted"] == 0
+    assert summary["grouping"] == "2 listings (one per folder)"
+
+
+async def test_all_one_listing(client: AsyncClient) -> None:  # noqa: F811
+    batch = (await client.post("/api/batches")).json()["id"]
+    for name in ("front.png", "back.png", "IMG_4411.jpg"):
+        await _upload_as(client, batch, name, "one")
+    summary = (await client.post(f"/api/batches/{batch}/finalize")).json()
+    assert (summary["groups"], summary["unsorted"], summary["grouping"]) == (1, 0, "All the photos are one listing")
+
+
+async def test_switching_regroups_until_something_is_written(client: AsyncClient) -> None:  # noqa: F811
+    from app.db.models import GeneratedContent
+
+    batch = (await client.post("/api/batches")).json()["id"]
+    await _upload_as(client, batch, "BR5229-1.png", "folder", "Drop")
+    await _upload_as(client, batch, "BR5229 copy.png", "folder", "Drop")
+    await _upload_as(client, batch, "AB1234.png", "folder", "Drop")
+    await _upload_as(client, batch, "IMG_4411.jpg", "folder", "Drop")
+    assert (await client.post(f"/api/batches/{batch}/finalize")).json()["groups"] == 1
+    by_sku = (await client.post(f"/api/batches/{batch}/grouping", json={"mode": "sku"})).json()
+    assert (by_sku["groups"], by_sku["unsorted"], by_sku["grouping_mode"]) == (2, 1, "sku")
+    detail = (await client.get(f"/api/batches/{batch}")).json()
+    ranks = sorted((a["group_key"], a["rank"], a["original_filename"]) for a in detail["assets"])
+    assert ranks[:2] == [("AB1234", 1, "AB1234.png"), ("BR5229", 1, "BR5229 copy.png")]
+    back = (await client.post(f"/api/batches/{batch}/grouping", json={"mode": "folder"})).json()
+    assert (back["groups"], back["unsorted"]) == (1, 0)
+    assert (await client.post(f"/api/batches/{batch}/grouping", json={"mode": "rows"})).status_code == 422
+    # Once a listing is written, its photos are its own.
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        asset = (await s.execute(select(Asset).where(Asset.batch_id == uuid.UUID(batch)))).scalars().first()
+        s.add(GeneratedContent(tenant_id=asset.tenant_id, batch_id=asset.batch_id, asset_id=asset.id, title="t", tags=[], description="d"))
+        await s.commit()
+    refused = await client.post(f"/api/batches/{batch}/grouping", json={"mode": "sku"})
+    assert refused.status_code == 409
+    assert (await client.get(f"/api/batches/{batch}/summary")).json()["regroupable"] is False
+
+
+async def test_another_account_cannot_regroup(client: AsyncClient) -> None:  # noqa: F811
+    from app.db.models import Tenant, UploadBatch, UploadBatchStatus
+
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        other = Tenant(email=f"{uuid.uuid4()}@e.com", password_hash="x")
+        s.add(other)
+        await s.flush()
+        theirs = UploadBatch(tenant_id=other.id, status=UploadBatchStatus.ready, file_count=0)
+        s.add(theirs)
+        await s.commit()
+    assert (await client.post(f"/api/batches/{theirs.id}/grouping", json={"mode": "sku"})).status_code == 404

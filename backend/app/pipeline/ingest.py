@@ -24,10 +24,9 @@ from app.core.config import get_settings
 from app.db.models import Asset, AssetStatus, Tenant, UploadBatch, UploadBatchStatus
 from app.pipeline import grouping
 from app.pipeline.images import ImageProcessingError, ImageProcessor, ProcessingSpec
-from app.pipeline.uploads import AdmittedImage, UploadRejected, UploadTooLarge, admit_image
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
-
+from app.pipeline.uploads import AdmittedImage, UploadRejected, UploadTooLarge, admit_image
 
 
 @dataclass
@@ -122,6 +121,7 @@ class BatchIngestor:
         tenant_id: uuid.UUID,
         upload: UploadFile,
         group_key: str | None = None,
+        mode: str | None = None,
     ) -> Asset:
         """Process and persist one uploaded file.
 
@@ -146,9 +146,16 @@ class BatchIngestor:
         )
         rank = int(count or 0) + 1
         room = await self._room(session, tenant_id)
-        asset = await self._ingest_one(tenant_id, batch_id, rank, upload, admitted, group_key, room)
-        session.add(asset)
         batch = await session.get(UploadBatch, batch_id)
+        # The seller's choice of how photos become listings; one per batch, so a
+        # file sent without one follows the batch's.
+        if batch is not None and mode is not None:
+            batch.grouping_mode = mode
+        asset = await self._ingest_one(
+            tenant_id, batch_id, rank, upload, admitted, group_key, room,
+            mode=batch.grouping_mode if batch is not None else mode,
+        )
+        session.add(asset)
         if batch is not None:
             batch.file_count = rank
             if batch.status is UploadBatchStatus.uploading:
@@ -169,14 +176,7 @@ class BatchIngestor:
 
         rows = await session.execute(select(Asset).where(Asset.batch_id == batch_id))
         assets = list(rows.scalars())
-        groups: dict[str, list[Asset]] = {}
-        for asset in assets:
-            groups.setdefault(asset.group_key or "", []).append(asset)
-        for members in groups.values():
-            for rank, asset in enumerate(
-                sorted(members, key=lambda a: a.original_filename.lower()), start=1
-            ):
-                asset.rank = rank
+        _rerank(assets)
 
         processed = sum(1 for a in assets if a.status is AssetStatus.processed)
         batch.status = UploadBatchStatus.ready if processed > 0 else UploadBatchStatus.failed
@@ -203,6 +203,20 @@ class BatchIngestor:
 
         return room
 
+    async def regroup(self, session: AsyncSession, batch: UploadBatch, mode: str) -> None:
+        """Group the batch's photos again another way (pipeline/grouping.py), from the
+        folder each was uploaded in and its file name. Only before anything is
+        written: the caller checks. Each group is ordered alphabetically again."""
+        assets = list((await session.execute(select(Asset).where(Asset.batch_id == batch.id))).scalars())
+        for asset in assets:
+            asset.group_key, asset.parsed_sku = grouping.place(
+                asset.upload_folder, asset.original_filename, self._sku, mode
+            )
+        batch.grouping_mode = mode
+        _rerank(assets)
+        await session.commit()
+        await session.refresh(batch)
+
     async def _ingest_one(
         self,
         tenant_id: uuid.UUID,
@@ -212,14 +226,16 @@ class BatchIngestor:
         admitted: AdmittedImage,
         group_key: str | None = None,
         room: Callable[[int], None] | None = None,
+        mode: str | None = None,
     ) -> Asset:
         """``room(n)`` raises when storing ``n`` more bytes would pass the
         account's storage cap (core/storage_cap.py); nothing is stored then."""
         asset_id = uuid.uuid4()
-        # Folder-name SKU takes precedence over the filename rule (D2).
-        # A folder keeps its group (its name gives the SKU, D2); a loose file is
-        # grouped by the SKU in its name, or goes to Unsorted (pipeline/grouping.py).
-        group_key, sku = grouping.place(group_key, upload.filename, self._sku)
+        # The group comes from the seller's choice (pipeline/grouping.py): per
+        # folder, by the SKU in the file name, or all one listing. The folder is
+        # kept, so the batch can be grouped again another way before writing.
+        folder = group_key or None
+        group_key, sku = grouping.place(folder, upload.filename, self._sku, mode)
         # Extension and type come from the sniffed contents, never the filename:
         # "photo.png" holding HTML is stored and served as nothing but refused.
         # The original is not kept (storage fix, 2026-10): every later step (cover
@@ -239,6 +255,7 @@ class BatchIngestor:
                 original_filename=upload.filename,
                 parsed_sku=sku,
                 group_key=group_key,
+                upload_folder=folder,
                 storage_key=None,
                 mime_type=admitted.mime,
                 byte_size=len(upload.data),
@@ -258,6 +275,7 @@ class BatchIngestor:
             original_filename=upload.filename,
             parsed_sku=sku,
             group_key=group_key,
+            upload_folder=folder,
             storage_key=None,
             processed_key=processed_key,
             mime_type=processed.mime_type,
@@ -267,3 +285,13 @@ class BatchIngestor:
             rank=rank,
             status=AssetStatus.processed,
         )
+
+
+def _rerank(assets: list[Asset]) -> None:
+    """Each group in alphabetical order by file name; the first is the cover (D1)."""
+    groups: dict[str, list[Asset]] = {}
+    for asset in assets:
+        groups.setdefault(asset.group_key or "", []).append(asset)
+    for members in groups.values():
+        for rank, asset in enumerate(sorted(members, key=lambda a: a.original_filename.lower()), start=1):
+            asset.rank = rank

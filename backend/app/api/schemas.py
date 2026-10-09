@@ -25,6 +25,9 @@ class AssetOut(BaseModel):
     original_filename: str
     parsed_sku: str | None
     group_key: str | None = None  # folder-derived listing group (D1)
+    #: The folder it was uploaded in ("" or None: loose): lets the page preview
+    #: another grouping before it is chosen (pipeline/grouping.py).
+    upload_folder: str | None = None
     rank: int | None
     status: str
     mime_type: str | None
@@ -67,6 +70,14 @@ class BatchSummary(BaseModel):
     unsorted: int = 0
     #: "Found 42 groups by SKU, 3 photos unsorted".
     grouping: str = ""
+    #: The seller's choice: "folder" | "sku" | "one"; None: folders, then SKUs.
+    grouping_mode: str | None = None
+    #: The grouping can still be changed: nothing has been written yet.
+    regroupable: bool = True
+
+
+class GroupingChoice(BaseModel):
+    mode: Literal["folder", "sku", "one"]
 
 
 class BatchCreate(BaseModel):

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { isUnsorted } from "@/lib/grouping";
+import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
+import { GroupingChoice } from "@/components/GroupingChoice";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
@@ -104,6 +105,25 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   // Writing does not start while photos are unsorted, unless the seller ignores them.
   const [ignoreUnsorted, setIgnoreUnsorted] = useState(false);
   const blockedByUnsorted = unsorted.length > 0 && !ignoreUnsorted;
+  // Until anything is written, the photos can be turned into listings another way.
+  const uploaded = useMemo(
+    () => (batch ? batch.assets.map((a) => ({ folder: a.upload_folder ?? "", name: a.original_filename })) : []),
+    [batch],
+  );
+  const [regrouping, setRegrouping] = useState(false);
+  async function regroup(mode: GroupingMode) {
+    setRegrouping(true);
+    rememberChoice(uploadKind(uploaded), mode);
+    try {
+      await api.regroup(id, mode);
+      await load();
+      await loadGroups();
+    } catch (e: any) {
+      setProblem(String(e.message ?? e));
+    } finally {
+      setRegrouping(false);
+    }
+  }
 
   // Persist a choice: for one group (the unset groups after it take the same),
   // for the ticked groups, or for every group not set by hand. Only the fields
@@ -310,6 +330,17 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         <p key="grouping" className="text-sm text-slate-600" translate="no">
           <span>{batch.grouping}</span>
         </p>
+      )}
+      {batch.regroupable && batch.grouping_mode && uploaded.length > 0 && (
+        <div key="regroup" className="card p-4">
+          <GroupingChoice
+            files={uploaded}
+            value={batch.grouping_mode as GroupingMode}
+            onChange={regroup}
+            disabled={regrouping}
+            extra="You can switch until anything is written from this batch."
+          />
+        </div>
       )}
       {unsorted.length > 0 && (
         <div key="unsorted" className={"rounded-lg border px-4 py-3 text-sm " + (ignoreUnsorted ? "border-slate-200 bg-slate-50 text-slate-600" : "border-amber-200 bg-amber-50 text-amber-900")}>

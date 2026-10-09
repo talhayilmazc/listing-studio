@@ -545,6 +545,9 @@ class UploadBatch(Base):
     #: the one supplying metadata (Task 4). Null = use each content's own profile.
     #: The name the seller gave it, to find it again; NULL = the name derived
     #: from its contents (pipeline/batch_names.py).
+    #: How the seller chose to turn the photos into listings: "folder" | "sku" |
+    #: "one" (pipeline/grouping.py::MODES); None: folders, then SKUs (the default).
+    grouping_mode: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str | None] = mapped_column(Text)
     #: The shop this batch is for: the seller's explicit choice, shown first on the
     #: batch page. Groups start from it and may each choose another (Priority 2).
@@ -616,6 +619,9 @@ class Asset(Base):
     #: a group_key are one listing's images; "" is the root (single) group; null is
     #: an ungrouped legacy asset. SKU is parsed from the folder name (D2).
     group_key: Mapped[str | None] = mapped_column(Text, index=True)
+    #: The folder the file was uploaded in ("" or None: loose), kept so the batch
+    #: can be grouped again another way before anything is written (pipeline/grouping.py).
+    upload_folder: Mapped[str | None] = mapped_column(Text)
     #: The original upload's key. None: not kept (every upload since migration
     #: 0053, and older ones once ``storage-originals --apply`` has run): nothing
     #: reads an original once its processed copy exists.

@@ -1,4 +1,5 @@
 import type { ReplaceMode } from "./replaceModes";
+import type { GroupingMode } from "./grouping";
 import type {
   DistributionPreview,
   GroupPlanPreview,
@@ -234,6 +235,9 @@ export const api = {
   setBatchShop: (id: string, shop: string) =>
     req<Group[]>(`/batches/${id}/shop`, { method: "PUT", body: JSON.stringify({ connection_id: shop }) }),
   finalizeBatch: (id: string) => req<BatchSummary>(`/batches/${id}/finalize`, { method: "POST" }),
+  /** Turn the batch's photos into listings another way (before anything is written). */
+  regroup: (id: string, mode: GroupingMode) =>
+    req<BatchSummary>(`/batches/${id}/grouping`, { method: "POST", body: JSON.stringify({ mode }) }),
   // Choose which profile's size charts to append when publishing this batch (Task 4).
   setSizeChartProfile: (id: string, profileId: string | null) =>
     req<BatchSummary>(`/batches/${id}/size-chart-profile`, {
@@ -530,11 +534,14 @@ export function uploadAsset(
   file: File,
   onProgress: (pct: number) => void,
   groupKey?: string,
+  grouping?: GroupingMode,
 ): Promise<Asset> {
   const form = new FormData();
   form.append("file", file, file.name);
-  // Folder-derived listing group (D1); empty string = root (single) group.
+  // The folder it is in (D1); empty string = loose.
   if (groupKey !== undefined) form.append("group_key", groupKey);
+  // How photos become listings (lib/grouping.ts); the server groups by it.
+  if (grouping) form.append("grouping", grouping);
   return postForm<Asset>(`${BASE}/batches/${batchId}/assets`, form, onProgress);
 }
 
@@ -543,9 +550,11 @@ export function uploadArchive(
   batchId: string,
   file: File,
   onProgress: (pct: number) => void,
+  grouping?: GroupingMode,
 ): Promise<ArchiveResult> {
   const form = new FormData();
   form.append("file", file, file.name);
+  if (grouping) form.append("grouping", grouping);
   return postForm<ArchiveResult>(`${BASE}/batches/${batchId}/archive`, form, onProgress);
 }
 
