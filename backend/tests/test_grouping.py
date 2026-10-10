@@ -210,3 +210,32 @@ async def test_another_account_cannot_regroup(client: AsyncClient) -> None:  # n
         s.add(theirs)
         await s.commit()
     assert (await client.post(f"/api/batches/{theirs.id}/grouping", json={"mode": "sku"})).status_code == 404
+
+
+async def test_photos_sent_one_by_one_without_skus_are_never_split(client: AsyncClient) -> None:  # noqa: F811
+    """The upload page sends one request per photo. Photos with no SKU in their names
+    stay together however they are sent: one listing when the seller chose "all one
+    listing" or "per folder", Unsorted (together, for the seller to place) by SKU."""
+    names = ["design1.png", "design2.png", "photo 3.jpg", "IMG_4411.jpg", "mockup03.png"]
+    for mode, expected in (("one", {"": 5}), ("folder", {"": 5}), ("sku", {grouping.UNSORTED: 5}), (None, {grouping.UNSORTED: 5})):
+        batch = (await client.post("/api/batches")).json()["id"]
+        for name in names:
+            if mode is None:
+                await _upload(client, batch, name)
+            else:
+                await _upload_as(client, batch, name, mode)
+        summary = (await client.post(f"/api/batches/{batch}/finalize")).json()
+        detail = (await client.get(f"/api/batches/{batch}")).json()
+        groups: dict[str, int] = {}
+        for a in detail["assets"]:
+            groups[a["group_key"] or ""] = groups.get(a["group_key"] or "", 0) + 1
+        assert groups == expected, (mode, groups)
+        assert summary["groups"] == (1 if mode in ("one", "folder") else 0)
+
+
+async def test_a_photo_sent_later_without_a_mode_follows_the_batchs_choice(client: AsyncClient) -> None:  # noqa: F811
+    batch = (await client.post("/api/batches")).json()["id"]
+    await _upload_as(client, batch, "design1.png", "one")
+    await _upload(client, batch, "design2.png")  # no grouping field: the batch's choice
+    detail = (await client.get(f"/api/batches/{batch}")).json()
+    assert {a["group_key"] for a in detail["assets"]} == {""}

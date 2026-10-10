@@ -1,40 +1,225 @@
 {
   "_note": "File names -> SKU and (folder, name, mode) -> group, for backend/app/pipeline/grouping.py and its TypeScript port frontend/lib/grouping.ts: both test suites read this file, so the preview on the upload page and the server never disagree.",
   "sku_of": [
-    ["BR5229-1.png", "BR5229"],
-    ["br5229_2.jpg", "BR5229"],
-    ["BR5229 (3).jpg", "BR5229"],
-    ["BR5229 copy.png", "BR5229"],
-    ["BR5229-front.png", "BR5229"],
-    ["BR5229_back.jpg", "BR5229"],
-    ["BR5229_mockup.png", "BR5229"],
-    ["BR5229-back copy (2).png", "BR5229"],
-    ["tasarim_BR5475.png", "BR5475"],
-    ["AB-1234_front.jpg", "AB-1234"],
-    ["SUNSET123.png", "SUNSET123"],
-    ["Summer Tee BR5229.png", "BR5229"],
-    ["DESIGN9.png", "DESIGN9"],
-    ["IMG_4411.jpg", null],
-    ["DSC01234.JPG", null],
-    ["PXL_20261001_123456.jpg", null],
-    ["Screenshot 2026-10-01 at 10.22.11.png", null],
-    ["WhatsApp Image 2026-10-01.jpeg", null],
-    ["mockup.png", null],
-    ["front.png", null],
-    ["untitled.png", null],
-    ["TSHIRT-RED_2.jpg", null]
+    [
+      "BR5229-1.png",
+      "BR5229"
+    ],
+    [
+      "br5229_2.jpg",
+      "BR5229"
+    ],
+    [
+      "BR5229 (3).jpg",
+      "BR5229"
+    ],
+    [
+      "BR5229 copy.png",
+      "BR5229"
+    ],
+    [
+      "BR5229-front.png",
+      "BR5229"
+    ],
+    [
+      "BR5229_back.jpg",
+      "BR5229"
+    ],
+    [
+      "BR5229_mockup.png",
+      "BR5229"
+    ],
+    [
+      "BR5229-back copy (2).png",
+      "BR5229"
+    ],
+    [
+      "tasarim_BR5475.png",
+      "BR5475"
+    ],
+    [
+      "AB-1234_front.jpg",
+      "AB-1234"
+    ],
+    [
+      "SUNSET123.png",
+      "SUNSET123"
+    ],
+    [
+      "Summer Tee BR5229.png",
+      "BR5229"
+    ],
+    [
+      "DESIGN9.png",
+      null
+    ],
+    [
+      "IMG_4411.jpg",
+      null
+    ],
+    [
+      "DSC01234.JPG",
+      null
+    ],
+    [
+      "PXL_20261001_123456.jpg",
+      null
+    ],
+    [
+      "Screenshot 2026-10-01 at 10.22.11.png",
+      null
+    ],
+    [
+      "WhatsApp Image 2026-10-01.jpeg",
+      null
+    ],
+    [
+      "mockup.png",
+      null
+    ],
+    [
+      "front.png",
+      null
+    ],
+    [
+      "untitled.png",
+      null
+    ],
+    [
+      "TSHIRT-RED_2.jpg",
+      null
+    ],
+    [
+      "design1.png",
+      null
+    ],
+    [
+      "design2.png",
+      null
+    ],
+    [
+      "photo 3.jpg",
+      null
+    ],
+    [
+      "mockup03.png",
+      null
+    ],
+    [
+      "tshirt12.png",
+      null
+    ],
+    [
+      "BLOOM7.png",
+      null
+    ],
+    [
+      "CAT9.png",
+      "CAT9"
+    ],
+    [
+      "TS-1042.jpg",
+      "TS-1042"
+    ]
   ],
   "place": [
-    ["Designs/BR6001", "a.png", null, "Designs/BR6001", "BR6001"],
-    [null, "BR5229 copy.png", null, "BR5229", "BR5229"],
-    [null, "IMG_4411.jpg", null, "~unsorted", null],
-    ["Designs/BR6001", "BR5229-1.png", "folder", "Designs/BR6001", "BR6001"],
-    [null, "BR5229-1.png", "folder", "", "BR5229"],
-    ["Designs/BR6001", "BR5229-1.png", "sku", "BR5229", "BR5229"],
-    ["Designs/BR6001", "front.png", "sku", "BR6001", "BR6001"],
-    ["Shots", "front.png", "sku", "~unsorted", null],
-    [null, "IMG_4411.jpg", "sku", "~unsorted", null],
-    ["Designs/BR6001", "BR5229-1.png", "one", "", "BR5229"],
-    [null, "IMG_4411.jpg", "one", "", null]
+    [
+      "Designs/BR6001",
+      "a.png",
+      null,
+      "Designs/BR6001",
+      "BR6001"
+    ],
+    [
+      null,
+      "BR5229 copy.png",
+      null,
+      "BR5229",
+      "BR5229"
+    ],
+    [
+      null,
+      "IMG_4411.jpg",
+      null,
+      "~unsorted",
+      null
+    ],
+    [
+      "Designs/BR6001",
+      "BR5229-1.png",
+      "folder",
+      "Designs/BR6001",
+      "BR6001"
+    ],
+    [
+      null,
+      "BR5229-1.png",
+      "folder",
+      "",
+      "BR5229"
+    ],
+    [
+      "Designs/BR6001",
+      "BR5229-1.png",
+      "sku",
+      "BR5229",
+      "BR5229"
+    ],
+    [
+      "Designs/BR6001",
+      "front.png",
+      "sku",
+      "BR6001",
+      "BR6001"
+    ],
+    [
+      "Shots",
+      "front.png",
+      "sku",
+      "~unsorted",
+      null
+    ],
+    [
+      null,
+      "IMG_4411.jpg",
+      "sku",
+      "~unsorted",
+      null
+    ],
+    [
+      "Designs/BR6001",
+      "BR5229-1.png",
+      "one",
+      "",
+      "BR5229"
+    ],
+    [
+      null,
+      "IMG_4411.jpg",
+      "one",
+      "",
+      null
+    ],
+    [
+      "",
+      "design1.png",
+      "sku",
+      "~unsorted",
+      null
+    ],
+    [
+      "",
+      "design1.png",
+      "one",
+      "",
+      null
+    ],
+    [
+      "design2",
+      "a.png",
+      "sku",
+      "~unsorted",
+      null
+    ]
   ]
 }

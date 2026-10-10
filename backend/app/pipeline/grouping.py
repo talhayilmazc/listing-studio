@@ -77,8 +77,20 @@ def sku_of(filename: str, parser: SkuParser | None = None) -> str | None:
     return sku.upper() if sku and _is_sku(sku) else None
 
 
+# Names people give photos one at a time: a word and a count ("design1.png",
+# "photo 2.jpg", "mockup03.png"). Each would otherwise read as its own SKU and
+# split one design's photos into as many listings; they wait in Unsorted.
+_COUNTED = re.compile(
+    r"^(?:design|photo|image|picture|pic|mockup|mock|file|new|final|sample|test|draft|version|page|slide|frame|"
+    r"copy|shirt|tshirt|t-shirt|tee|item|product)[\s_-]?\d+$"
+    r"|^[A-Za-z]{5,}[\s_-]?\d{1,2}$",
+    re.IGNORECASE,
+)
+
+
 def _is_sku(text: str) -> bool:
-    return bool(re.search(r"\d", text) and re.search(r"[A-Za-z]", text))
+    """A SKU has letters and digits, and is not a word with a count."""
+    return bool(re.search(r"\d", text) and re.search(r"[A-Za-z]", text)) and not _COUNTED.match(text)
 
 
 def folder_key(group_key: str | None) -> str | None:

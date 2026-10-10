@@ -79,7 +79,11 @@ const SUFFIXES = [
 const DEVICE =
   /^(?:img|dsc|dscn|dscf|dcim|pxl|mvimg|vid|photo|image|pic|screenshot|screen[\s_-]?shot|whatsapp[\s_-]?image|untitled|scan|capture)\b|^(?:img|dsc|pxl|p)[\s_-]?\d/i;
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9\-_]*$/;
-const isSku = (text: string) => /\d/.test(text) && /[A-Za-z]/.test(text);
+// Names people give photos one at a time ("design1.png", "photo 2.jpg"): a word and
+// a count would split one design's photos into as many listings; not a SKU.
+const COUNTED =
+  /^(?:design|photo|image|picture|pic|mockup|mock|file|new|final|sample|test|draft|version|page|slide|frame|copy|shirt|tshirt|t-shirt|tee|item|product)[\s_-]?\d+$|^[A-Za-z]{5,}[\s_-]?\d{1,2}$/i;
+const isSku = (text: string) => /\d/.test(text) && /[A-Za-z]/.test(text) && !COUNTED.test(text);
 
 export function normalisedStem(filename: string): string {
   let stem = stripExtension(filename).trim();

@@ -88,9 +88,17 @@ export default function UploadPage() {
   // The batch as the server grouped it, once uploaded ("Found 42 groups by SKU…").
   const [summary, setSummary] = useState<BatchSummary | null>(null);
   const [regrouping, setRegrouping] = useState(false);
+  // Photos added after an upload finished join that upload (same batch), until
+  // anything is written from it: dropping photos one at a time never splits them
+  // into separate uploads.
+  const [appending, setAppending] = useState(false);
+  // Upload rounds into one batch, so each round's row keys are unique.
+  const round = useRef(0);
   // Object URLs this page made, by folder key, so removing a folder frees its
   // previews: adding and removing folders over and over must not leak memory.
   const owned = useRef<Map<string, string[]>>(new Map());
+  // Previews still shown on rows of an earlier round of the same upload.
+  const kept = useRef<string[]>([]);
   // The preview run each folder is on: a run started before a Clear or removal
   // must not put its (revoked) previews back on a newer card.
   const making = useRef<Map<string, number>>(new Map());
@@ -122,6 +130,8 @@ export default function UploadPage() {
 
   const releaseAll = useCallback(() => {
     for (const urls of owned.current.values()) urls.forEach((u) => URL.revokeObjectURL(u));
+    kept.current.forEach((u) => URL.revokeObjectURL(u));
+    kept.current = [];
     owned.current.clear();
     making.current.clear();
     setThumbs({});
@@ -165,9 +175,24 @@ export default function UploadPage() {
       const zips = items.filter((it) => ZIP_RE.test(it.file.name)).map((it) => it.file);
       const others = items.length - images.length - zips.length;
       const incoming = images.map((it) => ({ file: it.file, relpath: it.relpath }));
+      if (phase === "done" && batchId && summary && summary.regroupable !== false) {
+        // The last upload is finished but nothing is written from it yet: these join
+        // it. The rows already shown keep their previews; new folders make their own.
+        for (const urls of owned.current.values()) kept.current.push(...urls);
+        owned.current.clear();
+        making.current.clear();
+        setThumbs({});
+        setAppending(true);
+        setPhase("staging");
+        setStaged(stage([], incoming));
+        setArchives(stageArchives([], zips));
+        setIgnored(others);
+        return;
+      }
       if (phase === "done") {
-        // The last upload is finished: this starts the next one.
+        // Listings are already written from the last upload: this starts the next one.
         releaseAll();
+        setAppending(false);
         setRows([]);
         setNotes([]);
         setSummary(null);
@@ -184,8 +209,19 @@ export default function UploadPage() {
       setArchives((a) => stageArchives(a, zips));
       setIgnored((n) => n + others);
     },
-    [phase, releaseAll],
+    [phase, releaseAll, batchId, summary],
   );
+
+  /** Make what is staged a separate upload instead of joining the last one. */
+  function separate() {
+    releaseAll();
+    setRows([]);
+    setNotes([]);
+    setSummary(null);
+    setBatchId(null);
+    setAppending(false);
+    setModeChoice(null);
+  }
 
   function removeFolder(key: string) {
     release(key);
@@ -193,6 +229,15 @@ export default function UploadPage() {
   }
 
   function clearAll() {
+    if (appending) {
+      // Back to the finished upload; nothing new is added.
+      setStaged([]);
+      setArchives([]);
+      setIgnored(0);
+      setPhase("done");
+      setAppending(false);
+      return;
+    }
     releaseAll();
     setModeChoice(null);
     setStaged([]);
@@ -207,9 +252,21 @@ export default function UploadPage() {
     () => staged.flatMap((g) => g.files.map((sf) => ({ folder: groupKeyOf(sf.relpath), name: sf.file.name }))),
     [staged],
   );
+  // When joining the last upload the choice covers its photos too.
+  const uploadedFiles: PreviewFile[] = useMemo(
+    () => rows.filter((r) => r.assetId).map((r) => ({ folder: r.folder, name: r.name })),
+    [rows],
+  );
+  const previewFiles = useMemo(
+    () => (appending ? [...uploadedFiles, ...stagedFiles] : stagedFiles),
+    [appending, uploadedFiles, stagedFiles],
+  );
   // Folders present -> one per folder; flat with SKUs -> by SKU; flat without -> one listing.
-  // The seller's last choice for the same kind of upload wins.
-  const mode: GroupingMode = modeChoice ?? autoMode(stagedFiles, rememberedChoices());
+  // The seller's last choice for the same kind of upload wins; a joined upload keeps its own.
+  const mode: GroupingMode =
+    modeChoice ??
+    ((appending ? summary?.grouping_mode : null) as GroupingMode | null) ??
+    autoMode(previewFiles, rememberedChoices());
 
   function chooseMode(next: GroupingMode, files: PreviewFile[]) {
     setModeChoice(next);
@@ -244,10 +301,14 @@ export default function UploadPage() {
     setPhase("uploading");
     setNotes([]);
     const chosen = mode;
+    const joining = appending && batchId ? batchId : null;
+    const before = joining ? (summary?.grouping_mode ?? null) : null;
+    const r0 = (round.current += 1);
     const files = staged.flatMap((g) =>
-      g.files.map((sf, i) => ({ sf, key: `f-${g.key}-${i}`, preview: i < 5 ? thumbs[g.key]?.[i] ?? undefined : undefined })),
+      g.files.map((sf, i) => ({ sf, key: `r${r0}-f-${g.key}-${i}`, preview: i < 5 ? thumbs[g.key]?.[i] ?? undefined : undefined })),
     );
-    setRows([
+    setRows((earlier) => [
+      ...(joining ? earlier : []),
       ...files.map(({ sf, key, preview }) => ({
         key,
         name: sf.file.name,
@@ -259,7 +320,7 @@ export default function UploadPage() {
       })),
       // A ZIP shows as one row until the server has unpacked it.
       ...archives.map((z, j) => ({
-        key: `z${j}`,
+        key: `r${r0}-z${j}`,
         name: z.name,
         pct: 0,
         status: "pending" as const,
@@ -268,15 +329,19 @@ export default function UploadPage() {
       })),
     ]);
 
-    let batch: BatchSummary;
-    try {
-      batch = await api.createBatch(uploadShop);
-    } catch (e: any) {
-      setNotes([String(e.message ?? e)]);
-      setPhase("staging");
-      return;
+    let batch: { id: string };
+    if (joining) {
+      batch = { id: joining };
+    } else {
+      try {
+        batch = await api.createBatch(uploadShop);
+      } catch (e: any) {
+        setNotes([String(e.message ?? e)]);
+        setPhase("staging");
+        return;
+      }
+      setBatchId(batch.id);
     }
-    setBatchId(batch.id);
 
     for (const { sf, key } of files) {
       setRows((r) => update(r, key, { status: "uploading" }));
@@ -301,7 +366,7 @@ export default function UploadPage() {
     }
 
     for (const [j, zip] of archives.entries()) {
-      const key = `z${j}`;
+      const key = `r${r0}-z${j}`;
       setRows((r) => update(r, key, { status: "uploading" }));
       try {
         const res = await uploadArchive(
@@ -317,8 +382,32 @@ export default function UploadPage() {
       }
     }
 
+    // Joining with another choice than before: the earlier photos follow it too.
+    if (joining && before && before !== chosen) {
+      try {
+        await api.regroup(batch.id, chosen);
+      } catch (e: any) {
+        setNotes((n) => [String(e.message ?? e), ...n]);
+      }
+    }
     // "Found 42 groups by SKU, 3 photos unsorted": shown before anything is written.
     setSummary(await api.finalizeBatch(batch.id));
+    if (joining) {
+      // Every row's group as the server has it now (earlier photos may have joined new ones).
+      try {
+        const detail = await api.getBatch(batch.id);
+        const byId = new Map(detail.assets.map((a) => [a.id, a]));
+        setRows((rs) =>
+          rs.map((r) => {
+            const a = r.assetId ? byId.get(r.assetId) : undefined;
+            return a ? { ...r, group: a.group_key || "(root)", sku: a.parsed_sku } : r;
+          }),
+        );
+      } catch {
+        /* the groups shown stay as each upload answered */
+      }
+    }
+    setAppending(false);
     setStaged([]);
     setArchives([]);
     setPhase("done");
@@ -477,7 +566,16 @@ export default function UploadPage() {
           }
         >
           <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-800">Ready to upload</p>
+            <p className="text-sm font-medium text-slate-800">{appending ? "Adding to this upload" : "Ready to upload"}</p>
+            {appending && (
+              <p key="joining" className="mt-0.5 text-xs text-slate-600">
+                <span translate="no" className="tabular-nums">{uploadedFiles.length}</span>
+                <span> photos are already uploaded; these join them, grouped the same way. </span>
+                <button type="button" className="tap text-brand-700 underline" onClick={separate} data-testid="separate-upload">
+                  Make it a separate upload
+                </button>
+              </p>
+            )}
             <p className="mt-0.5 text-xs text-slate-500">
               {folderCount > 0 && (
                 <span key="folders"><span translate="no" className="tabular-nums">{folderCount}</span> <span><span>{folderCount === 1 ? "folder" : "folders"}</span> ·{" "}</span></span>
@@ -511,7 +609,7 @@ export default function UploadPage() {
               disabled={undecided.length > 0}
               title={undecided.length ? "Merge or skip the folders added twice first" : undefined}
             >
-              <span>Upload <span>{staged.length + archives.length}</span> <span>{staged.length + archives.length === 1 ? "item" : "items"}</span></span>
+              <span><span>{appending ? "Add" : "Upload"}</span> <span>{staged.length + archives.length}</span> <span>{staged.length + archives.length === 1 ? "item" : "items"}</span></span>
             </button>
           </div>
           {folderInput}
@@ -522,9 +620,9 @@ export default function UploadPage() {
         {imageCount > 0 && (
           <div key="choice" className="card p-4">
             <GroupingChoice
-              files={stagedFiles}
+              files={previewFiles}
               value={mode}
-              onChange={(m) => chooseMode(m, stagedFiles)}
+              onChange={(m) => chooseMode(m, previewFiles)}
               extra={archives.length ? "Photos inside ZIP files are counted once they are unpacked; you can still switch then." : "You can still switch after the upload, until anything is written."}
             />
           </div>
@@ -590,7 +688,7 @@ export default function UploadPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!busy && pickers}
           {batchId && !busy && (
             <button key="button-458-10" className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)}>
@@ -641,7 +739,7 @@ export default function UploadPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {groups.map((g) => (
-          <GroupCard key={g.key} group={g} />
+          <GroupCard key={g.key} group={g} oneListing={summary?.grouping_mode === "one"} />
         ))}
       </div>
     </div>
@@ -794,7 +892,7 @@ function groupRows(rows: Row[]): DetectedGroup[] {
   }));
 }
 
-function GroupCard({ group }: { group: DetectedGroup }) {
+function GroupCard({ group, oneListing = false }: { group: DetectedGroup; oneListing?: boolean }) {
   const rows = group.rows;
   const done = rows.filter((r) => r.status === "done").length;
   const errors = rows.filter((r) => r.status === "error");
@@ -818,7 +916,7 @@ function GroupCard({ group }: { group: DetectedGroup }) {
             className="min-w-0 flex-1 truncate font-display text-lg leading-tight text-slate-900"
             title={group.key}
           >
-            {groupLabel(group.key)}
+            {group.key === "(root)" || group.key === "" ? (oneListing ? "All photos (one listing)" : "Photos without a folder") : groupLabel(group.key)}
           </h2>
           {complete && <StatusPill key="statuspill-666-10" status={rows[0]?.assetStatus ?? "uploaded"} />}
         </div>
