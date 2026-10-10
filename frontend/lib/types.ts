@@ -1571,3 +1571,13 @@ export interface SectionCreateResult {
   requests: number;
   message: string;
 }
+
+/** A listing's SKU after an edit (api/skus.py). */
+export interface SkuResult {
+  group_key: string;
+  sku: string;
+  /** Another listing in the same shop has it: a warning, never a refusal. */
+  warnings: string[];
+  /** Drafts on Etsy with the old SKU; nothing is sent until "Update SKU on Etsy". */
+  etsy: { connection_id: string; shop_name: string | null; etsy_listing_id: number; current_sku: string | null; requests: number }[];
+}

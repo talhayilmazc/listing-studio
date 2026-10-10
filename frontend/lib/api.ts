@@ -66,6 +66,7 @@ import type {
   ShopSummary,
   ItemOptions,
   SectionCreateResult,
+  SkuResult,
 } from "./types";
 
 // Same-origin: Next rewrites /api/* to the FastAPI backend.
@@ -330,6 +331,22 @@ export const api = {
     req<{ updated: number; skipped: { content_id: string; reason: string }[] }>(`/batches/${batchId}/options`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  // The listing's SKU (Etsy's rules; drafts on Etsy only change on "Update SKU on Etsy").
+  setGroupSku: (batchId: string, groupKey: string, sku: string) =>
+    req<SkuResult>(`/batches/${batchId}/groups/sku`, { method: "PUT", body: JSON.stringify({ group_key: groupKey, sku }) }),
+  setListingSku: (contentId: string, sku: string) =>
+    req<SkuResult>(`/content/${contentId}/sku`, { method: "PUT", body: JSON.stringify({ sku }) }),
+  setSkuForSelected: (batchId: string, body: { content_ids: string[]; sku?: string; prefix?: string; suffix?: string }) =>
+    req<{ updated: number; results: SkuResult[]; skipped: { content_id: string; reason: string }[] }>(`/batches/${batchId}/sku`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** Without ``confirm`` it only says which shops and what it costs. */
+  updateSkuOnEtsy: (contentId: string, confirm = false, connectionIds: string[] = []) =>
+    req<{ queued: boolean; sku: string; shops: SkuResult["etsy"]; requests: number }>(`/content/${contentId}/sku/etsy`, {
+      method: "POST",
+      body: JSON.stringify({ confirm, connection_ids: connectionIds }),
     }),
   /** Nothing is created unless ``confirm``. */
   createSection: (connectionId: string, title: string, contentIds: string[], confirm = false) =>

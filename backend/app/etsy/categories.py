@@ -14,6 +14,7 @@ _BY_JOB: dict[str, str] = {
     "sync_shop_counts": "shop_sync",
     "sync_shop_sections": "shop_sync",
     "create_shop_section": "sections",
+    "update_sku_on_etsy": "sku_updates",
     "refresh_profile": "profiles",
     "refresh_profile_images": "profiles",
     "detect_profiles": "profiles",
@@ -43,6 +44,7 @@ LABELS: dict[str, str] = {
     "ledger": "Fee ledger read",
     "listing_stats": "Listing views and favourites",
     "sections": "Creating shop sections",
+    "sku_updates": "Updating SKUs on drafts",
     "other": "Other",
 }
 

@@ -278,8 +278,12 @@ def build_inventory_from_reference(
     price_on_property: list[int] | None = None,
     quantity_on_property: list[int] | None = None,
     sku_on_property: list[int] | None = None,
+    skus_by_product: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Reshape a read-back inventory into a writable ``updateListingInventory`` body.
+
+    ``skus_by_product``: each reference product's own SKU (by position), when the
+    profile gives variations per-size SKUs (pipeline/skus.py); else ``sku`` on all.
 
     A ``getListingInventory`` response is NOT directly writable: prices come back as
     ``{amount, divisor}`` (float on write), offerings carry read-only fields, and
@@ -298,7 +302,7 @@ def build_inventory_from_reference(
     from ``fallback_price`` (the reference listing price) when there are no variations.
     """
     products: list[dict[str, Any]] = []
-    for product in reference_products or []:
+    for index, product in enumerate(reference_products or []):
         offerings = []
         for offering in product.get("offerings", []):
             price = _offering_price(offering)
@@ -325,7 +329,7 @@ def build_inventory_from_reference(
             for value in product.get("property_values", [])
         ]
         products.append(
-            {"sku": sku or "", "offerings": offerings, "property_values": property_values}
+            {"sku": (skus_by_product or {}).get(index, sku or ""), "offerings": offerings, "property_values": property_values}
         )
 
     if not products:

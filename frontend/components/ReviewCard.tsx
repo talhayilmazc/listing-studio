@@ -19,6 +19,7 @@ import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
+import { SkuEditor } from "@/components/SkuEditor";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { useSession } from "./SessionProvider";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
@@ -87,6 +88,9 @@ export function ReviewCard({
   const [title, setTitle] = useState(initial.title ?? "");
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
+  // The listing's SKU, prefilled from the file or folder name; editable here.
+  const [sku, setSku] = useState<string | null>(initial.parsed_sku ?? null);
+  useEffect(() => setSku(initial.parsed_sku ?? null), [initial.parsed_sku]);
   const [personalization, setPersonalization] = useState(initial.personalization ?? null);
   const [personalizationSource, setPersonalizationSource] = useState(initial.personalization_source ?? "unknown");
   // "Set for all" on the page changes it without remounting the card.
@@ -330,9 +334,16 @@ export function ReviewCard({
           </div>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-200 p-4 text-xs">
             <Meta label="File" value={initial.original_filename} truncate />
-            <Meta label="SKU" value={initial.parsed_sku ?? "—"} />
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
           </dl>
+          <div className="border-t border-slate-200 px-4 py-3">
+            <SkuEditor
+              value={sku}
+              contentId={initial.id}
+              save={(next) => api.setListingSku(initial.id, next)}
+              onSaved={(res) => setSku(res.sku)}
+            />
+          </div>
         </div>
 
         {/* Editable fields */}

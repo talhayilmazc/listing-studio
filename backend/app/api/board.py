@@ -252,29 +252,12 @@ async def set_group_sku(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
-    """Set a group's SKU. A group named after its SKU takes the new one as its name."""
+    """Set a group's SKU (Etsy's SKU rules, audited; api/skus.py). A group named
+    after its SKU takes the new one as its name."""
+    from app.api.skus import apply_group_sku
+
     await _get_batch(session, tenant, batch_id)
-    key = _norm(body.group_key)
-    if grouping.is_unsorted(key):
-        raise HTTPException(status_code=422, detail="Unsorted photos have no SKU: move them into a group.")
-    groups = _groups(await _batch_assets(session, tenant, batch_id))
-    members = groups.get(key)
-    if not members:
-        raise HTTPException(status_code=404, detail="group not found")
-    sku = " ".join(body.sku.split()).upper()
-    if not sku:
-        raise HTTPException(status_code=422, detail="Enter a SKU.")
-    if len(sku) > MAX_KEY:
-        raise HTTPException(status_code=422, detail=f"A SKU can be at most {MAX_KEY} characters.")
-    old = _sku_of_group(members, key)
-    for a in members:
-        a.parsed_sku = sku
-    if key and old and key == old and sku != key and sku not in groups and not sku.startswith("~"):
-        for a in members:
-            a.group_key = sku
-        setting = await _setting(session, batch_id, key)
-        if setting is not None:
-            setting.group_key = sku
+    await apply_group_sku(session, tenant, batch_id, _norm(body.group_key), body.sku)
     await session.commit()
     return await get_batch(batch_id, session, tenant)
 

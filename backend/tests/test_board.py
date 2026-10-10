@@ -157,7 +157,7 @@ async def test_a_written_group_keeps_a_photo_and_its_listing_follows_the_cover(c
 
 async def test_editing_a_groups_sku(client: AsyncClient) -> None:  # noqa: F811
     batch, ids = await _batch(client, NAMES)
-    res = await client.put(f"/api/batches/{batch}/board/sku", json={"group_key": "BR5229", "sku": " br5230 "})
+    res = await client.put(f"/api/batches/{batch}/board/sku", json={"group_key": "BR5229", "sku": " BR5230 "})  # trimmed; case as typed
     assert res.status_code == 200, res.text
     groups = _groups(res.json())
     # A group named after its SKU takes the new one as its name.

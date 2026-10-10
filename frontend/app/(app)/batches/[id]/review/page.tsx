@@ -392,7 +392,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           selected={selectedIds.filter((x) => items.some((c) => c.id === x))}
           total={items.length}
           onSelectAll={(all) => setSelectedIds(all ? items.map((c) => c.id) : [])}
-          onDone={() => setOptionsVersion((v) => v + 1)}
+          onDone={() => {
+            setOptionsVersion((v) => v + 1);
+            load(); // "Set SKU for selected" changes each card's SKU
+          }}
         />
       )}
       {items && items.length > 0 && shops && shops.length > 1 && (

@@ -44,6 +44,7 @@ from app.workers.retention import purge_expired
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
 from app.workers.schedule import release_scheduled_publishes
 from app.workers.sections import create_shop_section, sync_shop_sections
+from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
@@ -119,6 +120,7 @@ class WorkerSettings:
         read_listing_stats,
         sync_shop_sections,
         create_shop_section,
+        update_sku_on_etsy,
     ]
     cron_jobs = [
         cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False),

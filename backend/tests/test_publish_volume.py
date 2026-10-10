@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import re
 import time
 import uuid
@@ -57,7 +58,8 @@ from arq.worker import Worker, func
 from cryptography.fernet import Fernet
 from fakeredis import FakeAsyncRedis, FakeServer
 from PIL import Image
-from sqlalchemy import event, func as sa_func, select
+from sqlalchemy import event, select
+from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import Settings, set_settings_override
@@ -254,6 +256,9 @@ class Etsy:
         return httpx.Response(200, json={k: row[k] for k in ("listing_id", "title", "state", "taxonomy_id", "who_made", "when_made", "production_partners")})
 
     def inventory(self, listing_id: int, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":  # the draft's read-back: what was stored
+            stored = self.listings[listing_id]["inventory"]
+            return httpx.Response(200, json=json.loads(stored) if stored else {"products": []})
         title = self.title_of(listing_id)
         # Down four times running: more than the client retries.
         if "Design 30" in title and self.streak["inventory 30"] < 4:

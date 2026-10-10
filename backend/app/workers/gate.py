@@ -71,6 +71,8 @@ JOB_COST: dict[str, int] = {
     "sync_shop_sections": 2,
     # shop, its sections read fresh, and the section the seller confirmed
     "create_shop_section": 3,
+    # shop, the draft's inventory read, written with the new SKU, read again
+    "update_sku_on_etsy": 4,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,

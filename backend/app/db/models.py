@@ -1166,6 +1166,8 @@ class ContentVersion(Base):
     attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: The shop section the draft was given (its title), part of what Etsy shows.
     section: Mapped[str | None] = mapped_column(Text)
+    #: The SKU on the draft's products (their base; per-size SKUs keep the pattern).
+    sku: Mapped[str | None] = mapped_column(Text)
     title_style: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

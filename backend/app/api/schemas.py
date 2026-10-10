@@ -1053,3 +1053,64 @@ class SectionCreateOut(BaseModel):
     requests: int = 3
     message: str
 
+
+
+# --- Editable SKU (pipeline/skus.py, api/skus.py) ----------------------------------------------
+
+
+class GroupSku(BaseModel):
+    group_key: str = Field(max_length=500)
+    sku: str = Field(max_length=200)
+
+
+class ListingSku(BaseModel):
+    sku: str = Field(max_length=200)
+
+
+class EtsySkuUpdate(BaseModel):
+    """A shop where this listing's draft still has another SKU."""
+
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    etsy_listing_id: int
+    current_sku: str | None = None
+    #: Etsy requests updating it there takes.
+    requests: int = 3
+
+
+class SkuResult(BaseModel):
+    group_key: str
+    sku: str
+    #: Another listing in the same shop has it: a warning, never a refusal.
+    warnings: list[str] = Field(default_factory=list)
+    #: Drafts on Etsy with the old SKU; nothing is sent until "Update SKU on Etsy".
+    etsy: list[EtsySkuUpdate] = Field(default_factory=list)
+
+
+class SkuBulk(BaseModel):
+    """"Set SKU for selected": one SKU, or each listing's own with a prefix/suffix."""
+
+    content_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    sku: str | None = Field(default=None, max_length=200)
+    prefix: str | None = Field(default=None, max_length=40)
+    suffix: str | None = Field(default=None, max_length=40)
+
+
+class SkuBulkOut(BaseModel):
+    updated: int
+    results: list[SkuResult] = Field(default_factory=list)
+    skipped: list["BulkSkipped"] = Field(default_factory=list)
+
+
+class SkuEtsyRequest(BaseModel):
+    #: Only these shops; empty = every shop whose draft has another SKU.
+    connection_ids: list[uuid.UUID] = Field(default_factory=list)
+    #: Nothing is sent until the seller confirms.
+    confirm: bool = False
+
+
+class SkuEtsyOut(BaseModel):
+    queued: bool
+    sku: str
+    shops: list[EtsySkuUpdate] = Field(default_factory=list)
+    requests: int = 0

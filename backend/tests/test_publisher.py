@@ -146,6 +146,9 @@ class FakeEtsy:
         self.inventory = inventory
         return {}
 
+    async def get_listing_inventory(self, listing_id: int, **_: Any) -> dict[str, Any]:
+        return dict(self.inventory or {"products": []})
+
     async def update_listing(self, shop_id: int, listing_id: int, *, updates: dict[str, Any], **_: Any):
         self.calls.append("update_listing")
         self.last_update = updates
@@ -660,7 +663,8 @@ async def test_publish_writes_sku_to_every_product_and_marks_draft(
 
     products = fake.inventory["products"]
     assert products, "inventory must contain products"
-    assert all(p["sku"] == "BR5475" for p in products)  # our SKU on every variation
+    # Our SKU on every variation, in the reference's per-size pattern (OLD-S, OLD-M).
+    assert [p["sku"] for p in products] == ["BR5475-S", "BR5475-M"]
 
     async with async_sm() as s:
         assert (await publication_for(s, content_id, conn_id)).state == "draft"

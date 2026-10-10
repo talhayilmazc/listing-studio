@@ -33,6 +33,36 @@ export function BulkItemOptions({
   const [section, setSection] = useState(KEEP);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  // "Set SKU for selected": one SKU, or each listing's own with a prefix / suffix.
+  const [skuAll, setSkuAll] = useState("");
+  const [prefix, setPrefix] = useState("");
+  const [suffix, setSuffix] = useState("");
+
+  async function applySku() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await api.setSkuForSelected(batchId, {
+        content_ids: selected,
+        ...(skuAll.trim() ? { sku: skuAll.trim() } : {}),
+        ...(prefix ? { prefix } : {}),
+        ...(suffix ? { suffix } : {}),
+      });
+      const warned = res.results.flatMap((r) => r.warnings);
+      const onEtsy = res.results.filter((r) => r.etsy.length > 0).length;
+      setResult(
+        `SKU set for ${res.updated} listing${res.updated === 1 ? "" : "s"}.` +
+          (res.skipped.length ? ` Left as they were: ${[...new Set(res.skipped.map((s) => s.reason))].join("; ")}.` : "") +
+          (warned.length ? ` ${warned[0]}${warned.length > 1 ? ` (+${warned.length - 1} more)` : ""}` : "") +
+          (onEtsy ? ` ${onEtsy === 1 ? "1 listing already has drafts" : `${onEtsy} listings already have drafts`} on Etsy: use “Update SKU on Etsy” on ${onEtsy === 1 ? "its card" : "their cards"}.` : ""),
+      );
+      onDone();
+    } catch (e: any) {
+      setResult(e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   const first = selected[0];
 
   useEffect(() => {
@@ -107,6 +137,15 @@ export function BulkItemOptions({
           <button key="apply" type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy || nothing} onClick={apply}>
             {busy ? "Setting…" : "Set for selected"}
           </button>
+          <span key="sku-row" className="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
+            <span className="font-medium text-slate-800">SKU for selected:</span>
+            <input className="field w-28 py-1 font-mono text-sm" placeholder="Prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)} aria-label="SKU prefix" maxLength={40} />
+            <input className="field w-32 py-1 font-mono text-sm" placeholder="Same SKU" value={skuAll} onChange={(e) => setSkuAll(e.target.value)} aria-label="One SKU for all (empty: each keeps its own)" maxLength={40} />
+            <input className="field w-28 py-1 font-mono text-sm" placeholder="Suffix, e.g. -CC" value={suffix} onChange={(e) => setSuffix(e.target.value)} aria-label="SKU suffix" maxLength={40} />
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy || !(skuAll.trim() || prefix || suffix)} onClick={applySku}>
+              Set SKU for selected
+            </button>
+          </span>
         </>
       )}
       {result && (

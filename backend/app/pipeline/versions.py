@@ -49,12 +49,13 @@ def drafted(
     session: AsyncSession, publication: ListingPublication, content: GeneratedContent, *,
     title: str | None, tags: list[str] | None, description: str | None, attributes: dict[str, str],
     section: str | None = None,
+    sku: str | None = None,
 ) -> ContentVersion:
     """The version a new draft carries (not live yet)."""
     version = ContentVersion(
         tenant_id=publication.tenant_id, connection_id=publication.connection_id, publication_id=publication.id,
         etsy_listing_id=publication.etsy_listing_id, title=title, tags=list(tags or []), description=description,
-        attributes=dict(attributes), section=section, title_style=title_style(content), reason=reason_for(content),
+        attributes=dict(attributes), section=section, sku=sku, title_style=title_style(content), reason=reason_for(content),
     )
     session.add(version)
     return version
@@ -78,8 +79,30 @@ async def replaced(
         tenant_id=publication.tenant_id, connection_id=publication.connection_id, publication_id=publication.id,
         etsy_listing_id=publication.etsy_listing_id, title=title, tags=list(tags or []), description=description,
         attributes=dict(before.attributes or {}) if before is not None else None,
-        section=before.section if before is not None else None, title_style=style,
+        section=before.section if before is not None else None,
+        sku=before.sku if before is not None else publication.sku, title_style=style,
         reason="replaced", active_from=at if publication.published_at is not None else None,
+    )
+    session.add(version)
+    return version
+
+
+async def sku_changed(session: AsyncSession, publication: ListingPublication, at: datetime, sku: str) -> ContentVersion:
+    """The seller changed the SKU on Etsy: the version in force ends now and a new
+    one carries the same text with the new SKU (reason "sku_edited")."""
+    before = await current(session, publication.id)
+    if before is not None:
+        before.active_to = at
+    version = ContentVersion(
+        tenant_id=publication.tenant_id, connection_id=publication.connection_id, publication_id=publication.id,
+        etsy_listing_id=publication.etsy_listing_id,
+        title=before.title if before is not None else publication.title,
+        tags=list(before.tags or []) if before is not None else [],
+        description=before.description if before is not None else None,
+        attributes=dict(before.attributes or {}) if before is not None else None,
+        section=before.section if before is not None else None, sku=sku,
+        title_style=before.title_style if before is not None else LONG,
+        reason="sku_edited", active_from=at if publication.published_at is not None else None,
     )
     session.add(version)
     return version

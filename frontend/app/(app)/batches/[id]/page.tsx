@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
 import { GroupingChoice } from "@/components/GroupingChoice";
 import { GroupingBoard } from "@/components/GroupingBoard";
+import { SkuEditor } from "@/components/SkuEditor";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { StatusPill } from "@/components/StatusPill";
@@ -564,7 +565,17 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-sm text-slate-600">
                     {g.label}
                   </span>
-                  {g.sku && <span key="span-354-18" className="font-mono text-xs text-slate-500"><span>SKU <span>{g.sku}</span></span></span>}
+                  <SkuEditor
+                    key="sku"
+                    compact
+                    value={g.sku}
+                    contentId={mine[0]?.id ?? null}
+                    save={(sku) => api.setGroupSku(id, g.key, sku)}
+                    onSaved={() => {
+                      load();
+                      loadGroups();
+                    }}
+                  />
                   <span className="text-xs text-slate-400">
                     <span><span>{g.assets.length}</span><span> image</span><Txt>{g.assets.length === 1 ? "" : "s"}</Txt></span>
                   </span>

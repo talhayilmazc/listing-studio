@@ -57,7 +57,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline import chart_order, item_options, versions
+from app.pipeline import chart_order, item_options, skus, versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
@@ -646,10 +646,19 @@ async def publish_content(
                     "the draft's " + " and ".join(lost) + " did not save as set; check them in Shop Manager"
                 )
 
-    # 6) Inventory: the reference variation structure with OUR sku on every product.
+    # 6) Inventory: the reference variation structure with OUR sku on every product
+    # (its per-size pattern kept when the reference has one: pipeline/skus.py).
+    if sku:
+        try:
+            sku = skus.validate(sku)
+        except skus.SkuInvalid as exc:
+            raise ValueError(f"the listing's SKU cannot go to Etsy: {exc}") from exc
+    per_product = skus.product_skus(reference.get("inventory_products") or [], sku)
+    skus.check_lengths(per_product.values())
     inventory = build_inventory_from_reference(
         reference.get("inventory_products") or [],
         sku=sku,
+        skus_by_product=per_product,
         quantity=config.quantity,
         fallback_price=reference.get("price"),
         readiness_state_id=reference.get("readiness_state_id"),
@@ -659,6 +668,11 @@ async def publish_content(
     )
     await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
     has_variations = len(inventory["products"]) > 1
+    if sku:
+        # The SKUs are read back: what was sent must be what Etsy kept, on every product.
+        kept = (await client.get_listing_inventory(listing_id, **ctx)).get("products") or []
+        if sorted(str(p.get("sku") or "").strip() for p in kept) != sorted(p["sku"] for p in inventory["products"]):
+            raise ValueError("the draft's SKU did not save as sent; check its inventory in Shop Manager")
 
     # 7) Images in listing order: the cover (prepared thumbnail) first, the photos in
     # the seller's order, the size charts where the seller placed them (B3, v8 §C:
@@ -738,7 +752,7 @@ async def publish_content(
     # The text this shop's draft carries, kept as its first version (Part D).
     versions.drafted(
         session, publication, content, title=listing.get("title"), tags=listing.get("tags"),
-        description=listing.get("description"), attributes=written, section=section_title,
+        description=listing.get("description"), attributes=written, section=section_title, sku=sku,
     )
     # Finished: from here the publication is the record, in the same commit.
     await session.delete(attempt)
