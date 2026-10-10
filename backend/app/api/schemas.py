@@ -729,6 +729,10 @@ class ProfileUpdate(BaseModel):
     title_max_length: int | None = Field(default=None, ge=20, le=140)
     #: Where the size charts go on its drafts (pipeline/chart_order.py).
     size_chart_position: Literal["after_cover", "third", "last"] | None = None
+    #: Its listings' Occasion / Holiday unless the design shows another: one of
+    #: Etsy's values, "" = none; sending null removes the default.
+    default_occasion: str | None = Field(default=None, max_length=200)
+    default_holiday: str | None = Field(default=None, max_length=200)
     #: The seller's personalization override (v7 §D4). Sending null resets it to
     #: the reference's question; leaving it out changes nothing.
     personalization: dict[str, Any] | None = None
@@ -795,6 +799,12 @@ class ProfileOut(BaseModel):
     attribute_lists: int | None = None
     fixed_image_ids: list[int] = Field(default_factory=list)
     size_chart_position: str = "last"  # "after_cover" | "third" | "last"
+    #: Occasion / Holiday defaults ("" = none, null = no default) and Etsy's values
+    #: for its category to choose them from.
+    default_occasion: str | None = None
+    default_holiday: str | None = None
+    occasion_values: list[str] = Field(default_factory=list)
+    holiday_values: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
     is_fresh: bool = False  # cached reference payload present and <24h old
     reference_images: list[ReferenceImageOut] = Field(default_factory=list)
@@ -949,3 +959,97 @@ class MetaOut(BaseModel):
             "Etsy API but is not endorsed or certified by Etsy, Inc."
         )
     )
+
+
+# --- Occasion, Holiday and Section on the review card (pipeline/item_options.py) ---------------
+
+
+class PropertyOptionsOut(BaseModel):
+    name: str
+    #: Etsy's own values for the listing's category.
+    values: list[str]
+    #: How many it takes (1: one).
+    max_values: int = 1
+    selected: list[str] = Field(default_factory=list)
+    source: str = "none"  # "seller" | "writer" | "none"
+    #: The profile's default: a value, "" = none, null = no default.
+    profile_default: str | None = None
+
+
+class SectionOptionOut(BaseModel):
+    id: int
+    title: str
+
+
+class ShopSectionOut(BaseModel):
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    #: None while the shop's sections are being read (kept 24 hours).
+    sections: list[SectionOptionOut] | None = None
+    selected_id: int | None = None
+    selected_title: str | None = None
+    source: str = "none"  # "seller" | "carried" | "suggested" | "none"
+    reason: str = ""
+    #: A section chosen in another shop (or chosen here and deleted on Etsy) that
+    #: this shop does not have: the card offers to create it, or another pick.
+    missing_title: str | None = None
+    #: The shop gave the app permission to create sections (shops_w).
+    can_create: bool = False
+
+
+class ItemOptionsOut(BaseModel):
+    content_id: uuid.UUID
+    occasion: PropertyOptionsOut | None = None
+    holiday: PropertyOptionsOut | None = None
+    shops: list[ShopSectionOut] = Field(default_factory=list)
+    #: Why Occasion / Holiday are not offered (category not read yet, ...).
+    note: str | None = None
+
+
+class ItemOptionsUpdate(BaseModel):
+    """Only the fields sent change. ``occasion`` / ``holiday``: Etsy's values ([] =
+    none); null = back to the writer's. ``sections``: per shop, a section id, null
+    (no section) or "default" (the suggestion again)."""
+
+    occasion: list[str] | None = Field(default=None, max_length=20)
+    holiday: list[str] | None = Field(default=None, max_length=20)
+    sections: dict[uuid.UUID, int | Literal["default"] | None] | None = None
+
+
+class ItemOptionsBulk(BaseModel):
+    """"Set for selected" on the review page: the same values for each listing."""
+
+    content_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    occasion: list[str] | None = Field(default=None, max_length=20)
+    holiday: list[str] | None = Field(default=None, max_length=20)
+    #: One shop's section for every selected listing that goes there.
+    section_connection_id: uuid.UUID | None = None
+    section_id: int | Literal["default"] | None = None
+
+
+class BulkSkipped(BaseModel):
+    content_id: uuid.UUID
+    reason: str
+
+
+class ItemOptionsBulkOut(BaseModel):
+    updated: int
+    skipped: list[BulkSkipped] = Field(default_factory=list)
+
+
+class SectionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=24)
+    #: The listings that get it as their section in that shop.
+    content_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+    #: Nothing is created until the seller confirms.
+    confirm: bool = False
+
+
+class SectionCreateOut(BaseModel):
+    queued: bool
+    title: str
+    shop_name: str | None = None
+    #: Etsy requests it takes (its sections read again, then the create).
+    requests: int = 3
+    message: str
+

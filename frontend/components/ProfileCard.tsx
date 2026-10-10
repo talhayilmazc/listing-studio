@@ -325,6 +325,43 @@ export function ProfileCard({
           </label>
         )}
 
+        {((profile.occasion_values?.length ?? 0) > 0 || (profile.holiday_values?.length ?? 0) > 0) && (
+          <div key="defaults" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-700">
+            {(
+              [
+                ["default_occasion", "Default occasion", profile.occasion_values ?? [], profile.default_occasion],
+                ["default_holiday", "Default holiday", profile.holiday_values ?? [], profile.default_holiday],
+              ] as const
+            )
+              .filter(([, , values]) => values.length > 0)
+              .map(([field, label, values, current]) => (
+                <label key={field} className="flex items-center gap-2">
+                  <span>{label}</span>
+                  <select
+                    className="field w-auto py-1.5 text-sm"
+                    value={current === null || current === undefined ? "__unset__" : current === "" ? "__none__" : current}
+                    disabled={busy !== null}
+                    data-testid={field}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const value = v === "__unset__" ? null : v === "__none__" ? "" : v;
+                      run(field, () => api.updateProfile(profile.id, { [field]: value }));
+                    }}
+                  >
+                    <option value="__unset__">No default (the writer decides)</option>
+                    <option value="__none__">None</option>
+                    {values.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            <span className="text-xs text-slate-500">used unless the design clearly shows another</span>
+          </div>
+        )}
+
         {others.length > 0 && (
           <ImageRow key="imagerow-291-8"
             title="Other reference images"

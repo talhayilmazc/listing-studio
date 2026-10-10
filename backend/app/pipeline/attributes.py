@@ -129,16 +129,18 @@ def attribute_choices(taxonomy_properties: list[dict[str, Any]] | None) -> dict[
 
 def resolve_optional_attributes(
     taxonomy_properties: list[dict[str, Any]],
-    proposed: dict[str, str] | None,
+    proposed: dict[str, str | list[str]] | None,
     already_set: set[int] | None = None,
 ) -> tuple[list[ResolvedAttribute], list[str]]:
     """The listing's chosen optional attributes, as this category's own ids.
 
-    ``proposed`` is ``{property name: value name}``, chosen from Etsy's lists
-    when the listing was written. Each is looked up again in the category the
-    draft is going to (another shop's profile may use another category): the
-    property must exist there, be optional and list exactly that value. Nothing
-    is guessed; what does not match is left unset and returned in the second list.
+    ``proposed`` is ``{property name: value name}`` (or a list of names, for a
+    property that takes several: Occasion, Holiday), chosen from Etsy's lists
+    when the listing was written or on the review card. Each is looked up again
+    in the category the draft is going to (another shop's profile may use another
+    category): the property must exist there, be optional and list exactly that
+    value; a property takes no more values than Etsy allows. Nothing is guessed;
+    what does not match is left unset and returned in the second list.
     """
     taken = set(already_set or ())
     resolved: list[ResolvedAttribute] = []
@@ -147,18 +149,25 @@ def resolve_optional_attributes(
         str(p.get("property_name") or p.get("name") or "").strip().lower(): p for p in taxonomy_properties or []
     }
     for name, wanted in (proposed or {}).items():
-        wanted = (wanted or "").strip()
+        names = [str(v).strip() for v in (wanted if isinstance(wanted, (list, tuple)) else [wanted]) if v and str(v).strip()]
         prop = by_name.get(name.strip().lower())
-        if not wanted or prop is None or prop.get("is_required") or prop.get("property_id") in taken:
+        if not names or prop is None or prop.get("is_required") or prop.get("property_id") in taken:
             continue
-        match = next(
-            (v for v in prop.get("possible_values") or [] if str(v.get("name", "")).strip().lower() == wanted.lower()),
-            None,
-        )
-        if match is None:
-            unmatched.append(f"{name}: {wanted}")
+        values = {str(v.get("name", "")).strip().lower(): v for v in prop.get("possible_values") or []}
+        matches = []
+        for value in names:
+            match = values.get(value.lower())
+            if match is None:
+                unmatched.append(f"{name}: {value}")
+            elif match not in matches:
+                matches.append(match)
+        if not matches:
             continue
+        limit = (int(prop.get("max_values_allowed") or len(matches)) if prop.get("is_multivalued") else 1)
+        matches = matches[: max(1, limit)]
         pid = int(prop["property_id"])
         taken.add(pid)
-        resolved.append(ResolvedAttribute(pid, name, [int(match["value_id"])], [str(match["name"])]))
+        resolved.append(
+            ResolvedAttribute(pid, name, [int(m["value_id"]) for m in matches], [str(m["name"]) for m in matches])
+        )
     return resolved, unmatched

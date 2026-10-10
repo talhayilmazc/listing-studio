@@ -24,6 +24,10 @@ from app.db.session import get_sessionmaker
 from app.etsy.client import UnavailableEtsyClient
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
+from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
+from app.workers.links import create_link_resources, link_profile, refresh_shop_links
+from app.workers.listing_stats import read_all_listing_stats, read_listing_stats
+from app.workers.plans import release_planned_drafts
 from app.workers.processor import JobProcessor, ProcessResult
 from app.workers.profiles import (
     auto_refresh_profiles,
@@ -33,17 +37,14 @@ from app.workers.profiles import (
     sync_shop_counts,
     sync_shop_listings,
 )
-from app.workers.links import create_link_resources, link_profile, refresh_shop_links
 from app.workers.publish import run_publish_job, run_publish_live_job
+from app.workers.recovery import recover_interrupted_jobs
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
-from app.workers.upkeep import daily_upkeep
-from app.workers.schedule import release_scheduled_publishes
-from app.workers.plans import release_planned_drafts
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
-from app.workers.recovery import recover_interrupted_jobs
-from app.workers.listing_stats import read_all_listing_stats, read_listing_stats
-from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
+from app.workers.schedule import release_scheduled_publishes
+from app.workers.sections import create_shop_section, sync_shop_sections
+from app.workers.upkeep import daily_upkeep
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -116,6 +117,8 @@ class WorkerSettings:
         create_link_resources,
         refresh_shop_links,
         read_listing_stats,
+        sync_shop_sections,
+        create_shop_section,
     ]
     cron_jobs = [
         cron(flush_usage, second={0, 15, 30, 45}, run_at_startup=False),

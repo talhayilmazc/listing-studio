@@ -64,6 +64,8 @@ import type {
   ReplaceImagesResult,
   ShopListings,
   ShopSummary,
+  ItemOptions,
+  SectionCreateResult,
 } from "./types";
 
 // Same-origin: Next rewrites /api/* to the FastAPI backend.
@@ -307,6 +309,34 @@ export const api = {
     },
   ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
+  // Occasion, Holiday and Section per shop on the review card (Etsy's own values).
+  itemOptions: (contentId: string) => req<ItemOptions>(`/content/${contentId}/options`),
+  /** Only the fields sent change: values ([] = none), null = back to the writer's;
+   *  sections per shop: an id, null (no section) or "default" (the suggestion). */
+  setItemOptions: (
+    contentId: string,
+    body: { occasion?: string[] | null; holiday?: string[] | null; sections?: Record<string, number | null | "default"> },
+  ) => req<ItemOptions>(`/content/${contentId}/options`, { method: "PUT", body: JSON.stringify(body) }),
+  setItemOptionsForSelected: (
+    batchId: string,
+    body: {
+      content_ids: string[];
+      occasion?: string[] | null;
+      holiday?: string[] | null;
+      section_connection_id?: string;
+      section_id?: number | null | "default";
+    },
+  ) =>
+    req<{ updated: number; skipped: { content_id: string; reason: string }[] }>(`/batches/${batchId}/options`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** Nothing is created unless ``confirm``. */
+  createSection: (connectionId: string, title: string, contentIds: string[], confirm = false) =>
+    req<SectionCreateResult>(`/shops/${connectionId}/sections`, {
+      method: "POST",
+      body: JSON.stringify({ title, content_ids: contentIds, confirm }),
+    }),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">> & { personalization?: Personalization | null }) =>
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   approve: (id: string, approved: boolean) =>
@@ -481,6 +511,9 @@ export const api = {
       title_prefix: string;
       listing_style: "classic" | "search";
       size_chart_position: "after_cover" | "third" | "last";
+      /** "" = none, null = no default. */
+      default_occasion: string | null;
+      default_holiday: string | null;
       /** null: back to the default bound. */
       title_min_length: number | null;
       title_max_length: number | null;

@@ -106,8 +106,9 @@ class Settings(BaseSettings):
     thumbnail_padding_pct: int = 8
     thumbnail_size: int = 2000
 
-    # Shop-section auto-assignment. Off by default: never create sections in the
-    # user's shop without permission.
+    # No longer read: a draft never creates a shop section. A section is created
+    # only when the seller confirms "Create section ..." on the review card
+    # (pipeline/item_options.py). Kept so an old .env still loads.
     auto_create_sections: bool = False
 
     # Default content prompt when the taxonomy doesn't say otherwise (apparel shop).

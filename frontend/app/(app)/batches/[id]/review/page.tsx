@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 import { PublishMatrix, cellKey } from "@/components/PublishMatrix";
 import { Distribution } from "@/components/Distribution";
+import { BulkItemOptions } from "@/components/BulkItemOptions";
 import { ListingPersonalization } from "@/components/ListingPersonalization";
 import { ShopBadge } from "@/components/ShopPicker";
 import { resumeTime } from "@/lib/format";
@@ -56,6 +57,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const { timeZone } = useSession();
   const { id } = params;
   const [items, setItems] = useState<Content[] | null>(null);
+  // Ticked for "Set for selected" (Occasion, Holiday, Section); a bump re-reads the cards' options.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [optionsVersion, setOptionsVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [busy, setBusy] = useState(false);
@@ -381,6 +385,16 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           </button>
         </details>
       )}
+      {items && items.length > 1 && (
+        <BulkItemOptions
+          key="bulk-options"
+          batchId={id}
+          selected={selectedIds.filter((x) => items.some((c) => c.id === x))}
+          total={items.length}
+          onSelectAll={(all) => setSelectedIds(all ? items.map((c) => c.id) : [])}
+          onDone={() => setOptionsVersion((v) => v + 1)}
+        />
+      )}
       {items && items.length > 0 && shops && shops.length > 1 && (
         <Distribution key="distribution" batchId={id} items={items} onDone={load} />
       )}
@@ -542,6 +556,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               profileFor={profileFor}
               shopNames={shopNames}
               bulkRunning={busy}
+              selected={selectedIds.includes(c.id)}
+              onSelect={items.length > 1 ? (on) => setSelectedIds((cur) => (on ? [...cur, c.id] : cur.filter((x) => x !== c.id))) : undefined}
+              optionsVersion={optionsVersion}
             />
           ))}
         </div>

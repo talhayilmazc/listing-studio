@@ -14,15 +14,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import characters_seen
-from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.core.llm_status import LLMUnavailable
+from app.db.models import Asset, GeneratedContent, ListingProfile
+from app.pipeline import item_options
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
 from app.pipeline.reference import replace_title_block, with_opening
@@ -129,12 +130,27 @@ async def generate_listing_content(
         description.split("\n", 1)[0] == listing.title,
     )
     chosen = dict(listing.attributes)
+    # The profile's Occasion / Holiday unless the design clearly shows another
+    # (pipeline/item_options.py); a value Etsy does not list is never used.
+    payload = profile.cached_payload or {}
+    shows = {
+        item_options.OCCASION: getattr(analysis, "occasion", "") if analysis is not None else "",
+        item_options.HOLIDAY: " ".join(
+            str(getattr(analysis, k, "") or "") for k in ("occasion", "season")
+        ) if analysis is not None else "",
+    }
+    for name, default in ((item_options.OCCASION, profile.default_occasion), (item_options.HOLIDAY, profile.default_holiday)):
+        options = item_options.options_for(payload, name)
+        key = options.name if options is not None else name
+        chosen = item_options.apply_profile_default(chosen, key, default, shows[name], options)
 
     attributes = None
     if analysis is not None:
         attributes = {
             "vision": {
                 "theme": analysis.theme,
+                # Every theme, for picking the shop section that fits (pipeline/item_options.py).
+                "themes": list(analysis.themes or []),
                 "occasion": analysis.occasion,
                 "audience": analysis.target_audience,
                 # Garment attributes for Etsy's required clothing properties (v4 §B).

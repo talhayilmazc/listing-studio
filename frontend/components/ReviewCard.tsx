@@ -18,6 +18,7 @@ import { TagEditor } from "./TagEditor";
 import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
+import { ItemOptions } from "@/components/ItemOptions";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { useSession } from "./SessionProvider";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
@@ -59,7 +60,15 @@ export function ReviewCard({
   profileFor,
   shopNames,
   bulkRunning,
+  selected,
+  onSelect,
+  optionsVersion = 0,
 }: {
+  /** Ticked for "Set for selected" on the review page. */
+  selected?: boolean;
+  onSelect?: (on: boolean) => void;
+  /** Bumped by the page after a bulk change, so the card reads its options again. */
+  optionsVersion?: number;
   initial: Content;
   /** Shops ticked for this listing on the review page; omitted = its own shop. */
   targets?: string[];
@@ -296,6 +305,13 @@ export function ReviewCard({
       <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
         {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
         <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
+          {onSelect && (
+            <label key="select" className="flex min-h-[44px] cursor-pointer items-center gap-2 border-b border-slate-100 px-4 py-2 text-xs text-slate-600">
+              <input type="checkbox" className="h-4 w-4" checked={!!selected} onChange={(e) => onSelect(e.target.checked)}
+                aria-label={`Select ${initial.original_filename}`} data-testid="select-listing" />
+              <span>Select</span>
+            </label>
+          )}
           {initial.connection_id && shopNames?.[initial.connection_id] && (
             <p key="shop" className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
               <span>Written for</span>
@@ -391,6 +407,7 @@ export function ReviewCard({
                 </p>
               </div>
             )}
+            <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} />
             {initial.listing_style === "search" && (
               <p key="search-note" className="text-xs text-slate-500">
                 Written to be optimised for search matching: a short title, with the other keywords in the tags,

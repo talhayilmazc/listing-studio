@@ -35,7 +35,7 @@ from app.db.models import (
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
-from app.pipeline import chart_order
+from app.pipeline import chart_order, item_options
 from app.pipeline.images import cover_image
 from app.pipeline.links import shop_reference
 from app.pipeline.personalization import for_listing as personalization_for_listing
@@ -339,9 +339,12 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     theme=str(vision.get("theme", "")),
                     occasion=str(vision.get("occasion", "")),
                     vision=vision,
-                    optional_attributes=(content.attributes or {}).get("listing"),
+                    # The writer's attributes with the seller's Occasion / Holiday; the
+                    # section the seller chose for this shop (pipeline/item_options.py).
+                    optional_attributes=item_options.draft_attributes(content.attributes, content.item_options),
+                    section_choice=item_options.section_choice(content.item_options, connection.id),
+                    theme_words=item_options.theme_words(content.attributes),
                     profile_name=profile.name,
-                    auto_create_sections=settings.auto_create_sections,
                     tenant_limit=limits.ceiling_limit(tenant),
                     profile_id=profile.id,
                     title=target.title,

@@ -110,6 +110,7 @@ class FakeEtsy:
             "taxonomy_id": taxonomy,
             "who_made": submitted.get("who_made"),
             "when_made": submitted.get("when_made"),
+            "shop_section_id": submitted.get("shop_section_id"),
             "production_partners": [
                 {"production_partner_id": pid, "partner_name": "Print Co"}
                 for pid in submitted.get("production_partner_ids") or []
@@ -180,6 +181,11 @@ class FakeEtsy:
         self.listing_images = [i for i in getattr(self, "listing_images", []) if i != new_id]
         self.listing_images.insert(rank - 1, new_id)
         return {"listing_image_id": new_id}
+
+    async def get_listing_properties(self, shop_id: int, listing_id: int, **_: Any) -> dict[str, Any]:
+        # What Etsy keeps: the properties written, by id (last write wins).
+        kept = {p["property_id"]: p for p in self.properties_set}
+        return {"results": [{"property_id": pid, "value_ids": p["value_ids"]} for pid, p in kept.items()]}
 
     async def get_listing_images(self, listing_id: int, **_: Any) -> dict[str, Any]:
         order = getattr(self, "listing_images", [])
@@ -260,7 +266,6 @@ async def test_publish_copies_reference_and_snapshots(async_sm: async_sessionmak
             config=CONFIG,
             reference=REFERENCE,
             theme="patriotic eagle",
-            auto_create_sections=False,
             tenant_limit=2000,
         )
 

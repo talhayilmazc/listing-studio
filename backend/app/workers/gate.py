@@ -67,6 +67,10 @@ JOB_COST: dict[str, int] = {
     "sync_shop_listings": 251,
     # shop, and one request per listing state for its count (the top strip)
     "sync_shop_counts": 6,
+    # shop, and its sections (the review card's Section control; upkeep)
+    "sync_shop_sections": 2,
+    # shop, its sections read fresh, and the section the seller confirmed
+    "create_shop_section": 3,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,
@@ -87,7 +91,7 @@ JOB_COST: dict[str, int] = {
 # it counts against Etsy's app-wide budget (and waits at the 90% pause) but not
 # against the seller's own daily limit (v7 §D3).
 UPKEEP = frozenset(
-    {"refresh_profile", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "detect_profiles", "sync_sales", "estimate_sales",
+    {"refresh_profile", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats"}
 )
 

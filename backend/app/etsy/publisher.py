@@ -57,7 +57,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline import chart_order, versions
+from app.pipeline import chart_order, item_options, versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
@@ -67,7 +67,6 @@ from app.pipeline.reference import (
     build_inventory_from_reference,
     production_partner_ids,
 )
-from app.pipeline.sections import choose_section
 
 logger = logging.getLogger(__name__)
 
@@ -313,18 +312,25 @@ async def publish_content(
     #: (``{property name: value name}``, search style); None writes none.
     optional_attributes: dict[str, str] | None = None,
     profile_name: str = "",
-    auto_create_sections: bool = False,
     tenant_limit: int,
     profile_id: uuid.UUID | None = None,
     title: str | None = None,
     description: str | None = None,
     personalization: dict[str, Any] | None = None,
     chart_slots: list[int] | None = None,
+    section_choice: dict[str, Any] | None = None,
+    theme_words: list[str] | None = None,
 ) -> PublishResult:
     """Create the draft in ``connection``'s shop from ``reference`` (that shop's profile).
 
     ``personalization`` is the profile's effective setting (pipeline/personalization.py):
     when enabled, the draft gets that question, verified on read-back.
+
+    ``section_choice``: the shop section the seller chose on the review card for
+    this shop (``{"id", "title", "explicit"}``; ``id`` None with ``explicit`` = no
+    section), or one chosen in another shop, matched here by title; None: the
+    shop's existing section that fits the design (pipeline/item_options.py). A
+    section is never created here: that needs the seller's confirmation.
 
     ``chart_slots``: where the size charts (``fixed_image_ids``) sit among the
     photos (pipeline/chart_order.py); None puts them after every photo.
@@ -388,54 +394,50 @@ async def publish_content(
                 listing_id, readback = None, None
     resumed = listing_id is not None
 
-    # 3) Choose a shop section (v3 §F): a Comfort Colors profile ALWAYS maps to the
-    # shop's "Comfort Colors" section (deterministic, no LLM); otherwise match by
-    # theme (rules.json). Every branch is logged so a missing section is diagnosable.
-    # A draft being resumed already has its section.
+    # 3) The shop section (pipeline/item_options.py): the seller's choice for this
+    # shop, else the title they chose in another shop when this shop has it, else
+    # this shop's existing section that fits the design. Never a new one: creating
+    # a section is the seller's confirmed action on the review card.
     sections_resp = {"results": []} if resumed else await client.get_shop_sections(shop_id, **ctx)
     section_by_title = {
         str(s["title"]): int(s["shop_section_id"]) for s in sections_resp.get("results", [])
     }
     section_by_lower = {title.lower(): sid for title, sid in section_by_title.items()}
+    title_by_id = {sid: title for title, sid in section_by_title.items()}
 
     section_id: int | None = None
+    section_title: str | None = None
+    choice = section_choice or {}
     if resumed:
         section_id = (readback or {}).get("shop_section_id")
-    elif "comfort colors" in profile_name.lower():
-        section_id = section_by_lower.get("comfort colors")
-        if section_id is not None:
-            logger.info("section: Comfort Colors profile rule -> section %s", section_id)
-        else:
-            logger.warning(
-                "section: Comfort Colors profile %r but shop has no 'Comfort Colors' "
-                "section; leaving unset (existing: %s)",
-                profile_name,
-                list(section_by_title),
-            )
+        section_title = choice.get("title") if choice.get("id") == section_id else None
+    elif choice.get("explicit"):
+        wanted = choice.get("id")
+        if wanted is not None:
+            if int(wanted) in title_by_id:
+                section_id, section_title = int(wanted), title_by_id[int(wanted)]
+            elif str(choice.get("title") or "").lower() in section_by_lower:
+                section_title = str(choice.get("title"))
+                section_id = section_by_lower[section_title.lower()]
+            else:
+                raise ValueError(
+                    f'the shop section "{choice.get("title") or wanted}" is not in this shop any more; '
+                    "choose another on the review card"
+                )
+        logger.info("section: the seller's choice -> %s", section_id)
     else:
-        decision = choose_section(
-            theme=theme,
-            occasion=occasion,
-            existing_sections=list(section_by_title),
-            auto_create=auto_create_sections,
-        )
-        if decision.name and decision.exists:
-            section_id = section_by_title[decision.name]
-            logger.info("section: theme rule matched existing '%s' (%s)", decision.name, section_id)
-        elif decision.name and decision.create:
-            created = await client.create_shop_section(shop_id, title=decision.name, **ctx)
-            section_id = int(created["shop_section_id"])
-            logger.info("section: theme rule created '%s' (%s)", decision.name, section_id)
-        elif decision.name:
-            logger.info(
-                "section: theme rule matched '%s' but shop has no such section and "
-                "auto-create is off; leaving unset",
-                decision.name,
-            )
+        carried = str(choice.get("title") or "")
+        if carried and carried.lower() in section_by_lower:
+            section_id = section_by_lower[carried.lower()]
+            section_title = title_by_id[section_id]
+            logger.info("section: the title chosen in another shop -> %s", section_id)
         else:
-            logger.info(
-                "section: no rule matched (theme=%r occasion=%r); leaving unset", theme, occasion
+            picked = item_options.suggest_section(
+                list(section_by_title), theme_words=theme_words or [theme], occasion=occasion, profile_name=profile_name
             )
+            if picked.title is not None:
+                section_id, section_title = section_by_title[picked.title], picked.title
+            logger.info("section: %s -> %s", picked.reason, section_id)
 
     logger.info(
         "section: %s",
@@ -494,6 +496,11 @@ async def publish_content(
             listing[key] = reference[key]
     if section_id is not None:
         listing["shop_section_id"] = section_id
+    if resumed and choice.get("explicit") and choice.get("id") is not None and section_id != choice.get("id"):
+        # The seller chose another section between tries: the draft takes it.
+        await client.update_listing(shop_id, listing_id, updates={"shop_section_id": int(choice["id"])}, **ctx)
+        section_id, section_title = int(choice["id"]), choice.get("title")
+        readback = None
     if listing_id is None:
         # The attempt is on record before the request goes out, so whatever
         # happens next, the following try knows a create was sent and with what title.
@@ -554,6 +561,8 @@ async def publish_content(
     ]
     if production_partner_ids(readback) != sorted(listing.get("production_partner_ids") or []):
         differs.append("production partners")
+    if section_id is not None and readback.get("shop_section_id") != section_id:
+        differs.append("shop section")
     if differs:
         raise ValueError(
             "the draft's production details do not match the reference ("
@@ -623,6 +632,19 @@ async def publish_content(
                 scale_id=attr.scale_id,
                 **ctx,
             )
+        # Occasion and Holiday are read back: what the seller set must be what Etsy kept.
+        checked = [a for a in chosen if a.property_name.strip().lower() in {p.lower() for p in item_options.PROPERTIES}]
+        if checked:
+            kept = {
+                int(p["property_id"]): sorted(int(v) for v in p.get("value_ids") or [])
+                for p in (await client.get_listing_properties(shop_id, listing_id, **ctx)).get("results") or []
+                if p.get("property_id") is not None
+            }
+            lost = [a.property_name for a in checked if kept.get(a.property_id) != sorted(a.value_ids)]
+            if lost:
+                raise ValueError(
+                    "the draft's " + " and ".join(lost) + " did not save as set; check them in Shop Manager"
+                )
 
     # 6) Inventory: the reference variation structure with OUR sku on every product.
     inventory = build_inventory_from_reference(
@@ -716,7 +738,7 @@ async def publish_content(
     # The text this shop's draft carries, kept as its first version (Part D).
     versions.drafted(
         session, publication, content, title=listing.get("title"), tags=listing.get("tags"),
-        description=listing.get("description"), attributes=written,
+        description=listing.get("description"), attributes=written, section=section_title,
     )
     # Finished: from here the publication is the record, in the same commit.
     await session.delete(attempt)

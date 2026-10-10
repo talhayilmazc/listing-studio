@@ -36,9 +36,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     false,
-    true,
     func,
     text,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -385,6 +385,10 @@ class EtsyConnection(Base):
     #: sync ({"active": 2940, "draft": 37, ...}), and whether every page was read.
     listing_counts: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     listing_counts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The shop's own sections ([{"id", "title"}]), read through the queue and kept
+    #: 24 hours (other Etsy content); deleted with the shop.
+    sections: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
+    sections_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ConnectionStatus] = mapped_column(
         _enum(ConnectionStatus, "connection_status"),
         nullable=False,
@@ -694,6 +698,10 @@ class GeneratedContent(Base):
     #: every shop it goes to: None follows its profile's; {"enabled": false} is off;
     #: otherwise the question (pipeline/personalization.py).
     personalization: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: The seller's Occasion / Holiday (Etsy's values; [] = cleared) and Section per
+    #: shop ({"sections": {connection id: {"id", "title"}}}), set on the review card;
+    #: what is not here follows the writer and the profile (pipeline/item_options.py).
+    item_options: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -866,6 +874,10 @@ class ListingProfile(Base):
     #: Where its size charts go on a draft: "after_cover" (2nd), "third" or "last"
     #: (the default, what drafts always did). A group can drag them elsewhere.
     size_chart_position: Mapped[str] = mapped_column(Text, nullable=False, server_default="last")
+    #: Its listings' Occasion / Holiday unless the design clearly shows another:
+    #: one of Etsy's values, "" = none, NULL = no default (pipeline/item_options.py).
+    default_occasion: Mapped[str | None] = mapped_column(Text)
+    default_holiday: Mapped[str | None] = mapped_column(Text)
     #: How the profile was created: "manual" | "detected" (auto-clustered).
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")
     #: Auto-detected profiles start unconfirmed; the seller confirms/renames them
@@ -1152,6 +1164,8 @@ class ContentVersion(Base):
     description: Mapped[str | None] = mapped_column(Text)
     #: The attributes written on the draft, ``{name: value}``.
     attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: The shop section the draft was given (its title), part of what Etsy shows.
+    section: Mapped[str | None] = mapped_column(Text)
     title_style: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

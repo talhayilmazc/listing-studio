@@ -37,27 +37,28 @@ from sqlalchemy import delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    AiCall,
-    InviteRequest,
     AdCharge,
     AdsDaily,
+    AiCall,
     AllowanceUse,
+    ContentVersion,
     DraftAttempt,
+    EtsyConnection,
+    InviteRequest,
+    Job,
     LedgerDaily,
     LedgerSync,
-    Job,
     ListingProfile,
     ListingPublication,
     ListingSnapshot,
+    ListingStatDaily,
     SaleLine,
     SalesDaily,
-    ListingStatDaily,
-    ContentVersion,
     SalesSync,
+    ShopListingCache,
     StatementImport,
     StatementListingFee,
     StatementOrder,
-    ShopListingCache,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,6 +203,10 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     from app.pipeline.profile_shops import detach_shop
 
     detached = await detach_shop(session, connection_id)
+    # Its sections (other Etsy content, kept on the shop for the review card).
+    connection = await session.get(EtsyConnection, connection_id)
+    if connection is not None:
+        connection.sections, connection.sections_at = None, None
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))

@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from sqlalchemy import delete, select, true
 
+from app.core import ai_meter, limits
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.db.models import (
@@ -29,13 +30,16 @@ from app.db.models import (
     TenantStatus,
 )
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
+from app.etsy.calllog import current_job
+from app.etsy.connection import ConnectionService
 from app.etsy.errors import EtsyClientError
 from app.etsy.refresh import FULL, IMAGES, refresh_due, used_recently
-from app.pipeline.personalization import from_reference as personalization_from_reference
-from app.etsy.connection import ConnectionService
+from app.pipeline.attributes import attribute_choices
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
+from app.pipeline.item_options import attribute_limits
 from app.pipeline.llm import AnthropicLLMClient
+from app.pipeline.personalization import from_reference as personalization_from_reference
 from app.pipeline.reference import (
     build_profile_payload,
     common_title_prefix,
@@ -44,10 +48,7 @@ from app.pipeline.reference import (
     prefix_from_shop,
     production_partner_ids,
 )
-from app.core import ai_meter, limits
-from app.pipeline.attributes import attribute_choices
 from app.pipeline.taxonomy import category_path, clothing_taxonomy_ids, infer_content_template
-from app.etsy.calllog import current_job
 from app.workers import gate
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,8 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
 
         payload = build_profile_payload(listing, inventory, images, properties)
         payload["category_attributes"] = attribute_choices((category_properties or {}).get("results"))
+        # How many values each property takes (Occasion / Holiday on the review card).
+        payload["category_attribute_limits"] = attribute_limits((category_properties or {}).get("results"))
         payload["category_names"] = category_path(category_nodes, listing.get("taxonomy_id"))
         payload["personalization"] = personalization_from_reference(personalization)
 

@@ -18,15 +18,14 @@ from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.core import audit
 from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Tenant
-from app.pipeline import links as links_mod
-from app.pipeline import profile_shops
 from app.etsy.refresh import in_use, request_refresh
+from app.etsy.shops import active_shops, owned_shop
+from app.pipeline import item_options, profile_shops
+from app.pipeline import links as links_mod
+from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
 from app.pipeline.personalization import effective as effective_personalization
 from app.pipeline.personalization import validate as validate_personalization
-from app.etsy.shops import active_shops, owned_shop
 from app.pipeline.reference import decode_etsy_text
-
-from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
 from app.pipeline.search_rules import SEARCH_TITLE
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -111,6 +110,10 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         ),
         fixed_image_ids=list(profile.fixed_image_ids or []),
         size_chart_position=profile.size_chart_position or "last",
+        default_occasion=profile.default_occasion,
+        default_holiday=profile.default_holiday,
+        occasion_values=(o.values if (o := item_options.options_for(payload, item_options.OCCASION)) else []),
+        holiday_values=(h.values if (h := item_options.options_for(payload, item_options.HOLIDAY)) else []),
         updated_at=profile.updated_at,
         is_fresh=_is_fresh(profile),
         reference_images=images,
@@ -281,6 +284,16 @@ async def update_profile(
         profile.title_prefix = body.title_prefix
     if body.size_chart_position is not None:
         profile.size_chart_position = body.size_chart_position
+    for field, name in (("default_occasion", item_options.OCCASION), ("default_holiday", item_options.HOLIDAY)):
+        if field not in body.model_fields_set:
+            continue
+        value = getattr(body, field)
+        if value:
+            try:
+                value = item_options.validate([value], item_options.options_for(profile.cached_payload, name), name)[0]
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        setattr(profile, field, value)
     if body.listing_style is not None:
         if body.listing_style == "search" and profile.content_template not in _SEARCH_TEMPLATES:
             raise HTTPException(status_code=422, detail="the search style is available for apparel profiles")

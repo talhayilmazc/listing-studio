@@ -327,6 +327,11 @@ export interface Profile {
   fixed_image_ids: number[];
   /** Where its size charts go on a draft. */
   size_chart_position?: "after_cover" | "third" | "last";
+  /** Occasion / Holiday defaults ("" = none, null = no default) and Etsy's values for its category. */
+  default_occasion?: string | null;
+  default_holiday?: string | null;
+  occasion_values?: string[];
+  holiday_values?: string[];
   updated_at: string | null;
   is_fresh: boolean;
   reference_images: ReferenceImage[];
@@ -1523,4 +1528,46 @@ export interface TitleStyleComparison {
   orders_note: string | null;
   thresholds: { listings: number; views: number };
   caveats: string[];
+}
+
+/** Occasion / Holiday on the review card: Etsy's own values for the listing's category. */
+export interface PropertyOptions {
+  name: string;
+  values: string[];
+  /** How many it takes (1: one). */
+  max_values: number;
+  selected: string[];
+  source: "seller" | "writer" | "none";
+  /** The profile's default: a value, "" = none, null = no default. */
+  profile_default: string | null;
+}
+
+export interface ShopSection {
+  connection_id: string;
+  shop_name: string | null;
+  /** null while the shop's sections are being read. */
+  sections: { id: number; title: string }[] | null;
+  selected_id: number | null;
+  selected_title: string | null;
+  source: "seller" | "carried" | "suggested" | "none";
+  reason: string;
+  /** A section chosen elsewhere that this shop does not have. */
+  missing_title: string | null;
+  can_create: boolean;
+}
+
+export interface ItemOptions {
+  content_id: string;
+  occasion: PropertyOptions | null;
+  holiday: PropertyOptions | null;
+  shops: ShopSection[];
+  note: string | null;
+}
+
+export interface SectionCreateResult {
+  queued: boolean;
+  title: string;
+  shop_name: string | null;
+  requests: number;
+  message: string;
 }
