@@ -11,7 +11,8 @@
 #     the weekly archive (only the newest STORAGE_KEEP (1) kept; previews left out).
 #   * never the thing that fills the disk: an archive is only written when there
 #     is room for it; a skipped archive is alerted and exits 2 (the database dump
-#     is safe). Only a failed or unreadable database dump is a failure (exit 1).
+#     is safe). Only a failed or unreadable database dump is a failure (exit 1,
+#     "backup FAILED"); any later step that fails leaves it INCOMPLETE (exit 2).
 #
 # Disk used at steady state: one storage archive (about the size of the upload
 # directory without previews) plus RETENTION_DAYS small database dumps; for a
@@ -51,8 +52,28 @@ HEALTHCHECK_URL="${HEALTHCHECK_URL:-}"
 ping_fail() {
   [ -n "$HEALTHCHECK_URL" ] && curl -fsS -m 10 --retry 3 "$HEALTHCHECK_URL/fail" >/dev/null || true
 }
+# What a failed step means. Only the database dump and its check are a failed
+# backup (exit 1); a step after a good dump (an archive, the off-site copy) leaves
+# the backup incomplete (exit 2: update.sh goes on, the dump is safe).
+# Errors inside $(...) and pipeline parts run in a subshell and are ignored here:
+# the command around them fails in this shell if it matters (set -e, pipefail).
 # To stderr: the trap can run while the failed command's stdout is redirected.
-trap 'echo "backup FAILED" >&2; ping_fail' ERR
+phase="database"
+on_error() {
+  local rc=$? line=$1 cmd=$2
+  [ "$BASHPID" = "$$" ] || return 0
+  trap - ERR
+  if [ "$phase" = "database" ]; then
+    echo "backup FAILED: the database dump or its check failed (line $line: $cmd)" >&2
+    ping_fail
+    exit 1
+  fi
+  echo "backup INCOMPLETE: the database dump is safe, but a later step failed (line $line, exit $rc: $cmd)" >&2
+  [ -n "$ALERT_WEBHOOK_URL" ] && curl -fsS -m 10 --retry 3 -d "$(hostname): backup incomplete: $cmd failed" "$ALERT_WEBHOOK_URL" >/dev/null || true
+  ping_fail
+  exit 2
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 
 umask 077
 mkdir -p "$BACKUP_DIR/db" "$BACKUP_DIR/storage"
@@ -66,6 +87,7 @@ compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --
 compose exec -T postgres pg_restore --list < "$db.partial" > /dev/null
 mv "$db.partial" "$db"
 echo "database: $(du -h "$db" | cut -f1)  $db"
+phase="after-database"
 
 # --- uploaded files, weekly ---------------------------------------------------
 skipped=""
@@ -101,7 +123,7 @@ fi
 
 # --- retention: database dumps, and anything left half-written ------------------
 find "$BACKUP_DIR" -type f \( -name '*.dump' -o -name '*.tar.gz' -o -name '*.partial' \)   -mmin +$((RETENTION_DAYS * 1440)) -print -delete | sed 's/^/expired:  /'
-echo "on disk:  $(du -sh "$BACKUP_DIR" | cut -f1) in $BACKUP_DIR ($(ls -1 "$BACKUP_DIR"/db/*.dump 2>/dev/null | wc -l) dumps, $(ls -1 "$BACKUP_DIR"/storage/*.tar.gz 2>/dev/null | wc -l) storage archive(s)); $(df -h --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ') free"
+echo "on disk:  $(du -sh "$BACKUP_DIR" | cut -f1) in $BACKUP_DIR ($(find "$BACKUP_DIR/db" -type f -name '*.dump' | wc -l) dumps, $(find "$BACKUP_DIR/storage" -type f -name '*.tar.gz' | wc -l) storage archive(s)); $(df -h --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ') free"
 
 # --- off the server -------------------------------------------------------------
 # sync, not copy: the remote keeps the same 14 days, so deleted data expires

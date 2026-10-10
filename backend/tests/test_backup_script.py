@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 FAKE_DOCKER = """#!/usr/bin/env bash
 case "$*" in
-  *pg_dump*) printf 'PGDMP fake dump' ;;
+  *pg_dump*) [ "${FAKE_DUMP_RC:-0}" = 0 ] || exit "$FAKE_DUMP_RC"; printf 'PGDMP fake dump' ;;
   *pg_restore*) cat > /dev/null; exit "${FAKE_RESTORE_RC:-0}" ;;
   *"du -sm"*) printf '100\\t/data/storage\\n' ;;
   *tar*) printf 'archive' | gzip ;;
@@ -32,6 +32,9 @@ def _run(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
     docker = bin_dir / "docker"
     docker.write_text(FAKE_DOCKER)
     docker.chmod(0o755)
+    rclone = bin_dir / "rclone"
+    rclone.write_text('#!/usr/bin/env bash\nexit "${FAKE_RCLONE_RC:-0}"\n')
+    rclone.chmod(0o755)
     environment = {
         "PATH": f"{bin_dir}:/usr/bin:/bin", "OPS_ENV": str(tmp_path / "none.env"),
         "BACKUP_DIR": str(tmp_path / "backups"), "HOME": str(tmp_path), **env,
@@ -50,6 +53,33 @@ def test_by_default_the_database_is_dumped_and_uploads_are_not_archived(tmp_path
     assert len(dumps) == 1 and dumps[0].read_bytes() == b"PGDMP fake dump"
     # The archive from when it was on is removed: it was the biggest thing on the disk.
     assert list(old.iterdir()) == [] and "removed:" in run.stdout
+
+
+def test_skipping_storage_never_says_failed(tmp_path) -> None:
+    # No storage archive at all (the usual state with STORAGE_BACKUP=off): the run is
+    # a success and nothing in it says FAILED.
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "FAILED" not in run.stdout + run.stderr
+    assert run.stdout.rstrip().endswith("backup ok")
+    assert "(1 dumps, 0 storage archive(s))" in run.stdout
+
+
+def test_a_failed_dump_fails_the_backup(tmp_path) -> None:
+    run = _run(tmp_path, FAKE_DUMP_RC="3")
+    assert run.returncode == 1 and "backup FAILED" in run.stderr
+    assert "backup ok" not in run.stdout
+    assert list((tmp_path / "backups" / "db").glob("db-*.dump")) == []
+
+
+def test_a_step_after_a_good_dump_is_incomplete_not_failed(tmp_path) -> None:
+    # The database dump is safe; copying it off the server failed. Exit 2 (update.sh
+    # goes on), and the words say what happened, not "FAILED".
+    run = _run(tmp_path, BACKUP_REMOTE="remote:x", FAKE_RCLONE_RC="1")
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "FAILED" not in run.stdout + run.stderr and "backup ok" not in run.stdout
+    assert "backup INCOMPLETE" in run.stderr and "rclone" in run.stderr
+    assert len(list((tmp_path / "backups" / "db").glob("db-*.dump"))) == 1
 
 
 def test_an_unreadable_dump_fails_the_backup(tmp_path) -> None:
