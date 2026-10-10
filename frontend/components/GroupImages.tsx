@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { makeCover, moveBefore, nudge, sameOrder } from "@/lib/order";
+import { arrange, sameSlots, slotsFromOrder } from "@/lib/chartOrder";
 import { cropStyle } from "@/lib/crop";
 import { CoverCropper } from "./CoverCropper";
 import type { Asset, BatchDetail, ImageDeleteResult } from "@/lib/types";
@@ -53,6 +54,12 @@ export function GroupImages({
   listingsOnEtsy = 0,
   hasContent = false,
   onDeleted,
+  charts = [],
+  chartSlots = [],
+  chartCustom = false,
+  chartProfileName,
+  chartListingId,
+  onChartSlots,
 }: {
   batchId: string;
   groupKey: string;
@@ -64,6 +71,17 @@ export function GroupImages({
   hasContent?: boolean;
   /** An image was deleted (the page says so when the group went with it). */
   onDeleted?: (result: ImageDeleteResult) => void;
+  /** The profile's size charts its drafts get: shown as marked tiles, placed by dragging. */
+  charts?: { listing_image_id: number; url: string | null }[];
+  /** Where they sit (lib/chartOrder.ts): one slot per chart. */
+  chartSlots?: number[];
+  /** Placed on this group; otherwise the profile's position. */
+  chartCustom?: boolean;
+  chartProfileName?: string | null;
+  /** The listing on Etsy the charts are on. */
+  chartListingId?: number | null;
+  /** Save a new placement; null follows the profile's position again. */
+  onChartSlots?: (slots: number[] | null) => Promise<void>;
 }) {
   const incoming = assets.map((a) => a.id);
   const [order, setOrder] = useState<string[]>(incoming);
@@ -97,11 +115,44 @@ export function GroupImages({
   useEffect(() => {
     setOrder(incomingKey ? incomingKey.split(",") : []);
   }, [incomingKey]);
+  // The size charts as tiles among the photos ("chart:<id>").
+  const chartKeys = charts.map((c) => `chart:${c.listing_image_id}`);
+  const chartByKey = new Map(charts.map((c) => [`chart:${c.listing_image_id}`, c]));
+  const incomingSlots = chartSlots.join(",");
+  const [slots, setSlots] = useState<number[]>(chartSlots);
+  useEffect(() => {
+    setSlots(incomingSlots ? incomingSlots.split(",").map(Number) : []);
+  }, [incomingSlots]);
+  const strip: string[] = arrange(order, chartKeys, slots);
 
   const byId = new Map(assets.map((a) => [a.id, a]));
   const coverAsset = byId.get(order[0]);
   if (assets.some((a) => a.files_removed)) return <RemovedImages assets={assets} listingsOnEtsy={listingsOnEtsy} />;
   const usable = (id: string) => byId.get(id)?.status === "processed";
+
+  /** A change to the whole strip: the photos' order and the charts' places are saved apart. */
+  async function apply(next: string[]) {
+    const photos = next.filter((x) => !chartByKey.has(x));
+    const nextSlots = slotsFromOrder(next, chartKeys);
+    if (!sameOrder(photos, order)) await save(photos);
+    if (chartKeys.length && !sameSlots(nextSlots, slots)) await saveSlots(nextSlots);
+  }
+
+  async function saveSlots(next: number[] | null) {
+    if (!onChartSlots) return;
+    const before = slots;
+    if (next) setSlots(next);
+    setSaving(true);
+    setError(null);
+    try {
+      await onChartSlots(next);
+    } catch (e: any) {
+      setSlots(before);
+      setError(e.message ?? String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save(next: string[]) {
     if (sameOrder(next, order)) return;
@@ -126,7 +177,64 @@ export function GroupImages({
   return (
     <div className="mt-3">
       <ul className="flex flex-wrap gap-2 pb-1" aria-label="Images, in listing order">
-        {order.map((id, i) => {
+        {strip.map((id, i) => {
+          const chart = chartByKey.get(id);
+          if (chart)
+            return (
+              <li
+                key={id}
+                draggable={!saving}
+                onDragStart={(e) => {
+                  setDragging(id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", id);
+                }}
+                onDragEnd={() => {
+                  setDragging(null);
+                  setOver(null);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (over !== id) setOver(id);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragging) apply(moveBefore(strip, dragging, id));
+                  setDragging(null);
+                  setOver(null);
+                }}
+                onClick={() => setPicked((cur) => (cur === id ? null : id))}
+                aria-current={picked === id ? "true" : undefined}
+                aria-label={`Size chart, from profile, image ${i + 1}`}
+                data-testid="chart-tile"
+                className={
+                  "group relative h-24 w-24 shrink-0 cursor-grab overflow-hidden rounded border-2 border-dashed bg-amber-50 active:cursor-grabbing " +
+                  (picked === id ? "border-slate-900 ring-2 ring-slate-900/30 " : "border-amber-400 ") +
+                  (over === id && dragging && dragging !== id ? "ring-2 ring-brand-500/40 " : "") +
+                  (dragging === id ? "opacity-40" : "")
+                }
+                title="Size chart, from profile"
+              >
+                {chart.url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key="img" src={chart.url} alt="" draggable={false} decoding="async" loading="lazy" className="h-full w-full object-cover" />
+                ) : (
+                  <span key="none" className="flex h-full items-center justify-center p-1 text-center text-[10px] text-amber-800">
+                    image renewing
+                  </span>
+                )}
+                <span className="absolute inset-x-0 bottom-0 bg-amber-500/90 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">
+                  Size chart, from profile
+                </span>
+                <span
+                  className="absolute inset-x-0 top-0 hidden items-center justify-between bg-white/90 px-0.5 py-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:flex"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button type="button" className="px-1 text-xs text-slate-600 disabled:opacity-30" onClick={() => apply(nudge(strip, id, -1))} disabled={saving || i <= 1} aria-label="Move the size chart earlier">◀</button>
+                  <button type="button" className="px-1 text-xs text-slate-600 disabled:opacity-30" onClick={() => apply(nudge(strip, id, 1))} disabled={saving || i === strip.length - 1} aria-label="Move the size chart later">▶</button>
+                </span>
+              </li>
+            );
           const a = byId.get(id);
           if (!a) return null;
           const cover = i === 0;
@@ -149,7 +257,7 @@ export function GroupImages({
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                if (dragging) save(moveBefore(order, dragging, id));
+                if (dragging) apply(moveBefore(strip, dragging, id));
                 setDragging(null);
                 setOver(null);
               }}
@@ -223,7 +331,7 @@ export function GroupImages({
                 <button
                   type="button"
                   className="px-1 text-xs text-slate-600 hover:text-slate-900 disabled:opacity-30"
-                  onClick={() => save(nudge(order, id, -1))}
+                  onClick={() => apply(nudge(strip, id, -1))}
                   disabled={saving || i === 0}
                   aria-label={`Move ${a.original_filename} earlier`}
                 >
@@ -242,8 +350,8 @@ export function GroupImages({
                 <button
                   type="button"
                   className="px-1 text-xs text-slate-600 hover:text-slate-900 disabled:opacity-30"
-                  onClick={() => save(nudge(order, id, 1))}
-                  disabled={saving || i === order.length - 1}
+                  onClick={() => apply(nudge(strip, id, 1))}
+                  disabled={saving || i === strip.length - 1}
                   aria-label={`Move ${a.original_filename} later`}
                 >
                   ▶
@@ -254,7 +362,7 @@ export function GroupImages({
         })}
       </ul>
       {/* The same three actions as buttons, for the image that was tapped. */}
-      {order.length === 1 && byId.get(order[0]) && !deleting && (
+      {strip.length === 1 && byId.get(order[0]) && !deleting && (
         <div key="only" className="mt-1 text-xs">
           <button
             type="button"
@@ -266,29 +374,54 @@ export function GroupImages({
           </button>
         </div>
       )}
-      {order.length > 1 && (
+      {strip.length > 1 && (
         <div key="buttons" className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-          {picked && byId.get(picked) ? (
+          {picked && chartByKey.has(picked) ? (
             <>
               <span className="text-slate-600">
-                <span>Image </span>
-                <span translate="no">{order.indexOf(picked) + 1}</span>
+                <span>Size chart · image </span>
+                <span translate="no">{strip.indexOf(picked) + 1}</span>
                 <span> of </span>
-                <span translate="no">{order.length}</span>
+                <span translate="no">{strip.length}</span>
               </span>
               <button
                 type="button"
                 className="btn-secondary px-3 py-1.5 text-xs"
-                onClick={() => save(nudge(order, picked, -1))}
-                disabled={saving || order.indexOf(picked) === 0}
+                onClick={() => apply(nudge(strip, picked, -1))}
+                disabled={saving || strip.indexOf(picked) <= 1}
               >
                 ◀ Earlier
               </button>
               <button
                 type="button"
                 className="btn-secondary px-3 py-1.5 text-xs"
-                onClick={() => save(nudge(order, picked, 1))}
-                disabled={saving || order.indexOf(picked) === order.length - 1}
+                onClick={() => apply(nudge(strip, picked, 1))}
+                disabled={saving || strip.indexOf(picked) === strip.length - 1}
+              >
+                Later ▶
+              </button>
+            </>
+          ) : picked && byId.get(picked) ? (
+            <>
+              <span className="text-slate-600">
+                <span>Image </span>
+                <span translate="no">{strip.indexOf(picked) + 1}</span>
+                <span> of </span>
+                <span translate="no">{strip.length}</span>
+              </span>
+              <button
+                type="button"
+                className="btn-secondary px-3 py-1.5 text-xs"
+                onClick={() => apply(nudge(strip, picked, -1))}
+                disabled={saving || strip.indexOf(picked) === 0}
+              >
+                ◀ Earlier
+              </button>
+              <button
+                type="button"
+                className="btn-secondary px-3 py-1.5 text-xs"
+                onClick={() => apply(nudge(strip, picked, 1))}
+                disabled={saving || strip.indexOf(picked) === strip.length - 1}
               >
                 Later ▶
               </button>
@@ -355,6 +488,26 @@ export function GroupImages({
             </button>
           </div>
         </div>
+      )}
+      {charts.length > 0 && (
+        <p key="charts" className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+          <span>
+            <span>{charts.length === 1 ? "The size chart" : "The size charts"}</span>
+            <span>{chartProfileName ? " from profile " : " from the profile"}</span>
+            {chartProfileName && <span key="name" translate="no">{chartProfileName}</span>}
+            <span>{chartCustom ? " are placed here for this listing." : " follow the profile's position; drag to place them elsewhere for this listing."}</span>
+          </span>
+          {chartListingId && (
+            <a key="etsy" className="tap text-brand-700 underline" href={`https://www.etsy.com/listing/${chartListingId}`} target="_blank" rel="noopener noreferrer">
+              View that listing on Etsy
+            </a>
+          )}
+          {chartCustom && onChartSlots && (
+            <button key="reset" type="button" className="tap text-brand-700 underline" onClick={() => saveSlots(null)} disabled={saving}>
+              Use the profile&apos;s position
+            </button>
+          )}
+        </p>
       )}
       {coverAsset && coverAsset.status === "processed" && coverAsset.width && coverAsset.height && (
         <p key="p-171-6" className="mt-1 text-xs">

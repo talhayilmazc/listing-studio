@@ -288,6 +288,12 @@ export const api = {
   boardSku: (batchId: string, groupKey: string, sku: string) =>
     req<BatchDetail>(`/batches/${batchId}/board/sku`, { method: "PUT", body: JSON.stringify({ group_key: groupKey, sku }) }),
   listGroups: (id: string) => req<Group[]>(`/batches/${id}/groups`),
+  /** Where a group's size charts sit among its photos; null follows the profile again. */
+  setChartSlots: (batchId: string, groupKey: string, slots: number[] | null) =>
+    req<Group[]>(`/batches/${batchId}/groups/chart-slots`, {
+      method: "PUT",
+      body: JSON.stringify({ group_key: groupKey, slots }),
+    }),
   assignGroup: (
     id: string,
     /** Only the fields sent are changed. One group (the following unset ones take
@@ -474,6 +480,7 @@ export const api = {
       confirmed: boolean;
       title_prefix: string;
       listing_style: "classic" | "search";
+      size_chart_position: "after_cover" | "third" | "last";
       /** null: back to the default bound. */
       title_min_length: number | null;
       title_max_length: number | null;

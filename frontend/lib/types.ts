@@ -79,6 +79,15 @@ export interface Group {
   manual: boolean;
   /** One of the seller's own listings this group follows (v7 §B). */
   pattern_listing_id?: number | null;
+  /** The size charts its drafts get, in order, and where they sit (lib/chartOrder.ts). */
+  size_charts?: { listing_image_id: number; url: string | null }[];
+  chart_slots?: number[];
+  /** Dragged on this group; otherwise the profile's position. */
+  chart_slots_custom?: boolean;
+  chart_position?: "after_cover" | "third" | "last" | null;
+  chart_profile_name?: string | null;
+  /** The listing on Etsy the charts are on (the back link). */
+  chart_listing_id?: number | null;
 }
 
 export interface BatchDetail extends BatchSummary {
@@ -316,6 +325,8 @@ export interface Profile {
   /** Attribute value lists Etsy gave for the category; null until refreshed. */
   attribute_lists: number | null;
   fixed_image_ids: number[];
+  /** Where its size charts go on a draft. */
+  size_chart_position?: "after_cover" | "third" | "last";
   updated_at: string | null;
   is_fresh: boolean;
   reference_images: ReferenceImage[];

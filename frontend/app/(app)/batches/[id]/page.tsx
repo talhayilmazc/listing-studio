@@ -732,6 +732,15 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 onSaved={setBatch}
                 listingsOnEtsy={pubs.length}
                 hasContent={g.done}
+                charts={s?.size_charts ?? []}
+                chartSlots={s?.chart_slots ?? []}
+                chartCustom={s?.chart_slots_custom ?? false}
+                chartProfileName={s?.chart_profile_name}
+                chartListingId={s?.chart_listing_id}
+                onChartSlots={async (slots) => {
+                  const gs = await api.setChartSlots(id, g.key, slots);
+                  setSettings(Object.fromEntries(gs.map((x) => [x.group_key, x])));
+                }}
                 onDeleted={(result) => {
                   if (result.group_removed) {
                     setPicked((cur) => cur.filter((k) => k !== g.key));

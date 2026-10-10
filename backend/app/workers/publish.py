@@ -32,18 +32,18 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.etsy.api import EtsyApiClient
-from app.etsy.api import RateLimitExceeded
+from app.etsy.api import EtsyApiClient, RateLimitExceeded
+from app.etsy.connection import ConnectionService
+from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
+from app.pipeline import chart_order
+from app.pipeline.images import cover_image
 from app.pipeline.links import shop_reference
+from app.pipeline.personalization import for_listing as personalization_for_listing
+from app.pipeline.storage import LocalStorage
 from app.pipeline.targets import Target, is_fresh, resolve_target
 from app.workers import recovery
 from app.workers.gate import start_job
 from app.workers.guards import owned, owned_optional
-from app.etsy.connection import ConnectionService
-from app.pipeline.personalization import for_listing as personalization_for_listing
-from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
-from app.pipeline.images import cover_image
-from app.pipeline.storage import LocalStorage
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,35 @@ def _links_fresh(profile: ListingProfile) -> bool:
         stamp = stamp.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
     return age < ListingProfile.DISPLAY_MAX_AGE_SECONDS
+
+
+async def chart_plan(
+    session: AsyncSession, tenant_id: uuid.UUID, content: GeneratedContent, asset: Asset, profile: ListingProfile
+) -> tuple[ListingProfile, list[int] | None]:
+    """Whose size charts a draft gets and the group's own placement of them.
+
+    The charts come from the group's size-chart profile, else the batch's, else
+    the listing's own profile (v4 §E, Task 4). The placement is the group's drag
+    (``chart_slots``) or None, which follows that profile's ``size_chart_position``
+    (pipeline/chart_order.py). The same in every shop.
+    """
+    group_setting = (
+        await session.execute(
+            select(ListingGroupSetting).where(
+                ListingGroupSetting.batch_id == content.batch_id,
+                ListingGroupSetting.group_key == (asset.group_key or ""),
+            )
+        )
+    ).scalar_one_or_none()
+    chart_profile_id = group_setting.size_chart_profile_id if group_setting is not None else None
+    if chart_profile_id is None:
+        batch = owned_optional(await session.get(UploadBatch, content.batch_id), tenant_id)
+        if batch is not None:
+            chart_profile_id = batch.size_chart_profile_id
+    chart_profile = profile
+    if chart_profile_id is not None:
+        chart_profile = owned_optional(await session.get(ListingProfile, chart_profile_id), tenant_id) or profile
+    return chart_profile, (group_setting.chart_slots if group_setting is not None else None)
 
 
 async def copied_size_charts(
@@ -239,34 +268,16 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
 
             # Size charts (fixed images) may come from a different profile chosen per
             # group (v4 §E), then per batch (Task 4), else the listing's own profile.
-            chart_profile: ListingProfile | None = profile
-            chart_profile_id = None
-            group_setting = (
-                await session.execute(
-                    select(ListingGroupSetting).where(
-                        ListingGroupSetting.batch_id == content.batch_id,
-                        ListingGroupSetting.group_key == (asset.group_key or ""),
-                    )
-                )
-            ).scalar_one_or_none()
-            if group_setting is not None and group_setting.size_chart_profile_id is not None:
-                chart_profile_id = group_setting.size_chart_profile_id
-            else:
-                batch = owned_optional(
-                    await session.get(UploadBatch, content.batch_id), job.tenant_id
-                )
-                if batch is not None and batch.size_chart_profile_id is not None:
-                    chart_profile_id = batch.size_chart_profile_id
-            if chart_profile_id is not None:
-                chart_profile = owned_optional(
-                    await session.get(ListingProfile, chart_profile_id), job.tenant_id
-                ) or profile
+            chart_profile, own_slots = await chart_plan(session, job.tenant_id, content, asset, profile)
             # Image ids belong to one shop: in the charts' own shop they are re-used
             # by id; in any other shop they are copied (fetched in memory, uploaded,
             # never stored; v8 §C).
             fixed: list[int | PublishImage] = list(chart_profile.fixed_image_ids or [])
             if fixed and chart_profile.connection_id != connection.id:
                 fixed = list(await copied_size_charts(ctx, session, chart_profile, ctx.get("image_fetch")))
+            # Where they sit: the group's own drag, else the chart profile's position;
+            # the same in every shop (pipeline/chart_order.py).
+            chart_slots = chart_order.clean_slots(own_slots, len(fixed), chart_profile.size_chart_position)
 
             access_token = await connection_service.get_valid_access_token(session, connection)
 
@@ -316,6 +327,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     thumbnail=thumbnail,
                     extra_images=extras,
                     fixed_image_ids=fixed,
+                    chart_slots=chart_slots,
                     client=client,
                     access_token=access_token,
                     config=publish_config(settings),

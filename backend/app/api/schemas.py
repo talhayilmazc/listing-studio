@@ -132,6 +132,29 @@ class GroupOut(BaseModel):
     manual: bool = False
     # One of the seller's own listings this group's listing is modelled on (v7 §B).
     pattern_listing_id: int | None = None
+    # The size charts its drafts get (from its size-chart profile, else its profile),
+    # in their order, and where they sit among the photos (pipeline/chart_order.py):
+    # one slot per chart (photos before it, -1 = after every photo).
+    size_charts: list["SizeChartOut"] = Field(default_factory=list)
+    chart_slots: list[int] = Field(default_factory=list)
+    chart_slots_custom: bool = False  # dragged here; otherwise the profile's position
+    chart_position: str | None = None  # the profile's: "after_cover" | "third" | "last"
+    chart_profile_name: str | None = None
+    # The listing on Etsy the charts are on (the profile's reference): the back link.
+    chart_listing_id: int | None = None
+
+
+class SizeChartOut(BaseModel):
+    listing_image_id: int
+    # Withheld once past the 6-hour image limit; the tile still shows it is there.
+    url: str | None = None
+
+
+class GroupChartSlots(BaseModel):
+    """A group's own size chart placement; ``slots`` null follows the profile again."""
+
+    group_key: str = Field(max_length=500)
+    slots: list[int] | None = Field(default=None, max_length=20)
 
 
 class GroupAssign(BaseModel):
@@ -704,6 +727,8 @@ class ProfileUpdate(BaseModel):
     #: The search style's title bounds. Sending null resets one to the default.
     title_min_length: int | None = Field(default=None, ge=20, le=140)
     title_max_length: int | None = Field(default=None, ge=20, le=140)
+    #: Where the size charts go on its drafts (pipeline/chart_order.py).
+    size_chart_position: Literal["after_cover", "third", "last"] | None = None
     #: The seller's personalization override (v7 §D4). Sending null resets it to
     #: the reference's question; leaving it out changes nothing.
     personalization: dict[str, Any] | None = None
@@ -769,6 +794,7 @@ class ProfileOut(BaseModel):
     #: fills attributes only from them); None until the profile is next refreshed.
     attribute_lists: int | None = None
     fixed_image_ids: list[int] = Field(default_factory=list)
+    size_chart_position: str = "last"  # "after_cover" | "third" | "last"
     updated_at: datetime | None = None
     is_fresh: bool = False  # cached reference payload present and <24h old
     reference_images: list[ReferenceImageOut] = Field(default_factory=list)

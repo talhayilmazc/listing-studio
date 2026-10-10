@@ -22,12 +22,12 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from app.core import ai_meter, allowance, limits, llm_status
-from app.core.llm_status import LLMUnavailable
-from app.core.config import get_settings
-from app.core.crypto import get_cipher
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import blocklist_for_tenant
+from app.core import ai_meter, allowance, limits, llm_status
+from app.core.config import get_settings
+from app.core.crypto import get_cipher
+from app.core.llm_status import LLMUnavailable
 from app.db.models import (
     Asset,
     AssetStatus,
@@ -42,7 +42,7 @@ from app.db.models import (
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
-from app.pipeline import versions
+from app.pipeline import chart_order, versions
 from app.pipeline.content import (
     AnthropicContentGenerator,
     content_template_for,
@@ -50,7 +50,11 @@ from app.pipeline.content import (
     search_style,
     uses_search_style,
 )
-from app.pipeline.imageclass import SIZE_CHART, AnthropicImageKindClassifier, classify_reference_images
+from app.pipeline.imageclass import (
+    SIZE_CHART,
+    AnthropicImageKindClassifier,
+    classify_reference_images,
+)
 from app.pipeline.images import cover_image
 from app.pipeline.llm import client_for
 from app.pipeline.reference import decode_etsy_text, replace_title_block, with_opening
@@ -62,6 +66,31 @@ from app.workers.gate import start_job
 from app.workers.guards import owned, public_error
 
 logger = logging.getLogger(__name__)
+
+
+async def _chart_slots(session: Any, job: Job, batch_id: uuid.UUID, charts: int) -> list[int]:
+    """Where the kept size charts go among the new photos: the group's own drag,
+    else its size-chart profile's position, else the listing's profile's, else last."""
+    from app.db.models import ListingGroupSetting, ListingProfile, UploadBatch
+
+    key = job.payload.get("group_key")
+    setting = None
+    if key is not None:
+        setting = (await session.execute(
+            select(ListingGroupSetting).where(
+                ListingGroupSetting.batch_id == batch_id, ListingGroupSetting.group_key == (key or "")
+            )
+        )).scalar_one_or_none()
+    profile_id = setting.size_chart_profile_id if setting is not None else None
+    if profile_id is None:
+        batch = await session.get(UploadBatch, batch_id)
+        profile_id = batch.size_chart_profile_id if batch is not None and batch.tenant_id == job.tenant_id else None
+    if profile_id is None and job.payload.get("content_id"):
+        content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
+        profile_id = content.listing_profile_id if content is not None and content.tenant_id == job.tenant_id else None
+    profile = await session.get(ListingProfile, profile_id) if profile_id is not None else None
+    position = profile.size_chart_position if profile is not None and profile.tenant_id == job.tenant_id else None
+    return chart_order.clean_slots(setting.chart_slots if setting is not None else None, charts, position)
 
 
 async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
@@ -199,6 +228,9 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                         # The charts this app put on the draft are known by their ids.
                         prior_kinds={int(i): SIZE_CHART for i in job.payload.get("chart_ids") or []},
                     )
+                # The charts in their order on the listing now.
+                rank_of = {m["listing_image_id"]: m.get("rank") or 0 for m in images_meta}
+                keep_ids = sorted(keep_ids, key=lambda i: rank_of.get(i, 0))
                 delete_ids = [
                     m["listing_image_id"]
                     for m in images_meta
@@ -265,6 +297,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     keep_image_ids=keep_ids,
                     delete_image_ids=delete_ids,
                     new_images=new_images,
+                    chart_slots=await _chart_slots(session, job, batch_id, len(keep_ids)),
                     new_title=new_title,
                     new_tags=new_tags,
                     new_description=new_description,

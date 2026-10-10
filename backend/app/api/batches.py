@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Response, UploadFile
@@ -45,7 +44,7 @@ from app.db.models import (
 from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
-from app.pipeline import grouping, upload_retention
+from app.pipeline import chart_order, grouping, upload_retention
 from app.pipeline.archive import read_archive
 from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.content import (
@@ -560,10 +559,28 @@ async def _batch_groups(
             continue  # the Unsorted tray is not a listing group
         grouped.setdefault(asset.group_key or "", []).append(asset)
 
+    # The size charts each group's drafts get: its size-chart profile, else the
+    # batch's, else its own profile's (as the draft decides, workers/publish.py).
+    def chart_profile_id(s: ListingGroupSetting | None) -> uuid.UUID | None:
+        if s is not None and s.size_chart_profile_id is not None:
+            return s.size_chart_profile_id
+        if batch is not None and batch.size_chart_profile_id is not None:
+            return batch.size_chart_profile_id
+        return s.profile_id if s is not None else None
+
+    wanted = {pid for pid in (chart_profile_id(group_settings.get(k)) for k in grouped) if pid is not None}
+    chart_profiles = {
+        p.id: p
+        for p in (await session.execute(select(ListingProfile).where(ListingProfile.id.in_(wanted)))).scalars()
+        if batch is not None and p.tenant_id == batch.tenant_id
+    } if wanted else {}
+
     out: list[schemas.GroupOut] = []
     for key in sorted(grouped):
         members = grouped[key]
         s = group_settings.get(key)
+        cp = chart_profiles.get(chart_profile_id(s))  # type: ignore[arg-type]
+        charts = _size_charts(cp) if cp is not None else []
         # A group with nothing set is in the batch's shop.
         shop_id = (s.connection_id if s and s.connection_id else None) or (batch.connection_id if batch else None)
         shop = shops.get(shop_id) if shop_id else None
@@ -579,9 +596,68 @@ async def _batch_groups(
                 size_chart_profile_id=s.size_chart_profile_id if s else None,
                 manual=s.manual if s else False,
                 pattern_listing_id=s.pattern_listing_id if s else None,
+                size_charts=charts,
+                chart_slots=chart_order.clean_slots(
+                    s.chart_slots if s else None, len(charts), cp.size_chart_position if cp else None
+                ),
+                chart_slots_custom=bool(s and s.chart_slots is not None and charts),
+                chart_position=(cp.size_chart_position or chart_order.DEFAULT_POSITION) if cp else None,
+                chart_profile_name=cp.name if cp else None,
+                chart_listing_id=cp.reference_listing_id if cp else None,
             )
         )
     return out
+
+
+def _size_charts(profile: ListingProfile) -> list[schemas.SizeChartOut]:
+    """The profile's size charts in their order, with links only while within the
+    6-hour image limit (the tile still says a chart is there)."""
+    from app.api.profiles import _images_displayable
+
+    show = _images_displayable(profile)
+    urls = {
+        img.get("listing_image_id"): img.get("display_url") or img.get("url")
+        for img in (profile.cached_payload or {}).get("images", [])
+    }
+    return [
+        schemas.SizeChartOut(listing_image_id=int(i), url=urls.get(int(i)) if show else None)
+        for i in profile.fixed_image_ids or []
+    ]
+
+
+@router.put("/batches/{batch_id}/groups/chart-slots", response_model=list[schemas.GroupOut])
+async def set_chart_slots(
+    batch_id: uuid.UUID,
+    body: schemas.GroupChartSlots,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> list[schemas.GroupOut]:
+    """Save where a group's size charts sit among its photos (dragged in its strip);
+    null follows the profile's position again. Drafts in every shop and "Replace
+    images" use it."""
+    await _get_batch(session, tenant, batch_id)
+    key = body.group_key or ""
+    if grouping.is_unsorted(key):
+        raise HTTPException(status_code=422, detail="Unsorted photos are not a listing.")
+    exists = await session.scalar(
+        select(func.count()).select_from(Asset).where(
+            Asset.batch_id == batch_id, Asset.tenant_id == tenant.id,
+            Asset.group_key == key if key else or_(Asset.group_key == "", Asset.group_key.is_(None)),
+        )
+    )
+    if not exists:
+        raise HTTPException(status_code=404, detail="group not found")
+    if body.slots is not None and any(s != chart_order.END and s < 1 for s in body.slots):
+        raise HTTPException(status_code=422, detail="A size chart cannot come before the cover.")
+    setting = (await session.execute(
+        select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id, ListingGroupSetting.group_key == key)
+    )).scalar_one_or_none()
+    if setting is None:
+        setting = ListingGroupSetting(tenant_id=tenant.id, batch_id=batch_id, group_key=key)
+        session.add(setting)
+    setting.chart_slots = list(body.slots) if body.slots is not None else None
+    await session.commit()
+    return await _batch_groups(session, batch_id)
 
 
 @router.get("/batches/{batch_id}/groups", response_model=list[schemas.GroupOut])

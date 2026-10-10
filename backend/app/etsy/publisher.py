@@ -10,7 +10,9 @@ Sequence (every HTTP call is gated by the client's quota + token bucket):
 6. snapshot the created listing before any further write (rollback anchor),
 7. updateListingInventory with size variations + SKU,
 8. upload images in rank order: prepared thumbnail ``rank=1``, then the rest,
-   with the optional size-chart image second-to-last,
+   with the profile's size charts where the seller placed them (after the cover,
+   3rd, last, or a group's own drag; pipeline/chart_order.py), read back to check
+   the order,
 9. record the draft as a :class:`ListingPublication` for this content in this shop
    (one content can have a draft in each of several shops, v5 §E).
 
@@ -55,7 +57,7 @@ from app.db.models import (
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline import versions
+from app.pipeline import chart_order, versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
@@ -317,11 +319,15 @@ async def publish_content(
     title: str | None = None,
     description: str | None = None,
     personalization: dict[str, Any] | None = None,
+    chart_slots: list[int] | None = None,
 ) -> PublishResult:
     """Create the draft in ``connection``'s shop from ``reference`` (that shop's profile).
 
     ``personalization`` is the profile's effective setting (pipeline/personalization.py):
     when enabled, the draft gets that question, verified on read-back.
+
+    ``chart_slots``: where the size charts (``fixed_image_ids``) sit among the
+    photos (pipeline/chart_order.py); None puts them after every photo.
 
     ``title`` / ``description`` override the content's own when the draft goes to
     a shop other than the one the content was written for: the title carries that
@@ -632,55 +638,64 @@ async def publish_content(
     await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
     has_variations = len(inventory["products"]) > 1
 
-    # 7) Upload new images (thumbnail rank 1, then siblings), then re-use the
-    # reference's fixed images (B3, e.g. size charts) by id, in order.
+    # 7) Images in listing order: the cover (prepared thumbnail) first, the photos in
+    # the seller's order, the size charts where the seller placed them (B3, v8 §C:
+    # re-used by id in their own shop, copied elsewhere; the same place in every shop).
     # Images go up one at a time in order, so "how many the listing has" says
     # exactly which are done. A resumed draft starts from that count; an upload
     # whose answer never came is checked the same way before it is sent again.
-    ordered = _rank([thumbnail, *extras])
+    photos = _rank([thumbnail, *extras])
+    slots = chart_order.clean_slots(chart_slots, len(fixed), None)
+    sequence = chart_order.arrange(photos, fixed, slots)
 
     async def have() -> int:
         return len((await client.get_listing_images(listing_id, **ctx)).get("results") or [])
 
-    async def put(position: int, send: Any) -> None:
+    async def put(position: int, send: Any) -> Any:
         for tries in range(1, UPLOAD_TRIES + 1):
             try:
-                await send()
-                return
+                return await send()
             except UNCERTAIN:
                 if await have() > position:  # it arrived; only the answer was lost
-                    return
+                    return None
                 if tries == UPLOAD_TRIES:
                     raise
+        return None
 
     done = await have() if resumed else 0
-    for position, image in enumerate(ordered):
+    # The ids the charts got on this listing, by rank, to check the order after.
+    chart_ids_at: dict[int, int] = {}
+    for position, item in enumerate(sequence):
+        rank = position + 1
+        if isinstance(item, int):
+            chart_ids_at[rank] = item  # re-used by id: it keeps that id
         if position < done:
             continue
-        await put(position, lambda image=image: client.upload_listing_image(
-            shop_id,
-            listing_id,
-            image_bytes=image.data,
-            filename=image.filename,
-            rank=image.rank,
-            mime_type=image.mime_type,
-            **ctx,
-        ))
-    next_rank = len(ordered)
-    for item in fixed:
-        next_rank += 1
-        if next_rank - 1 < done:
-            continue
         if isinstance(item, PublishImage):
-            # Another shop's size chart, copied (v8 §C): uploaded like a new image.
-            await put(next_rank - 1, lambda item=item, rank=next_rank: client.upload_listing_image(
+            answer = await put(position, lambda item=item, rank=rank: client.upload_listing_image(
                 shop_id, listing_id, image_bytes=item.data, filename=item.filename, rank=rank,
-                mime_type=item.mime_type, **ctx
+                mime_type=item.mime_type, **ctx,
             ))
+            if any(item is f for f in fixed) and isinstance(answer, dict) and answer.get("listing_image_id") is not None:
+                chart_ids_at[rank] = int(answer["listing_image_id"])
             continue
-        await put(next_rank - 1, lambda image_id=item, rank=next_rank: client.upload_listing_image(
+        await put(position, lambda image_id=item, rank=rank: client.upload_listing_image(
             shop_id, listing_id, listing_image_id=image_id, rank=rank, **ctx
         ))
+    next_rank = len(sequence)
+
+    # 7a) Read the images back: the size charts must be where the seller put them.
+    if fixed:
+        back = (await client.get_listing_images(listing_id, **ctx)).get("results") or []
+        back = sorted(back, key=lambda r: (r.get("rank") is None, r.get("rank") or 0))
+        found = {i + 1: r.get("listing_image_id") for i, r in enumerate(back)}
+        wrong = [rank for rank, image_id in chart_ids_at.items() if found.get(rank) != image_id]
+        if len(back) != len(sequence) or wrong:
+            expected = ", ".join(str(r) for r in chart_order.positions(len(photos), slots))
+            raise ValueError(
+                f"the draft's images did not save in the order set (size charts expected at "
+                f"{expected}, Etsy has {len(back)} image(s)); check them in Shop Manager"
+            )
 
     # 8) Record the listing id. It is created as a DRAFT (state never set), so mark
     # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
@@ -831,11 +846,13 @@ async def replace_listing_images(
     new_title: str | None = None,
     new_tags: list[str] | None = None,
     new_description: str | None = None,
+    chart_slots: list[int] | None = None,
 ) -> ReplaceResult:
     """Update an existing listing in place: swap artwork images + refresh copy (B4).
 
-    Deletes only the artwork images (size charts are retained and re-ranked after the
-    new photos), uploads the new photos in order, and updates title/13-tags/description
+    Deletes only the artwork images (size charts are retained and keep their place
+    among the new photos: ``chart_slots``, pipeline/chart_order.py; None = after
+    them), uploads the new photos in order, and updates title/13-tags/description
     — the title block only. Category, price, variations, shipping, partners, section
     and **state** are never touched. Snapshots the listing before any write.
     """
@@ -856,25 +873,26 @@ async def replace_listing_images(
     for image_id in delete_image_ids:
         await client.delete_listing_image(shop_id, listing_id, image_id, **ctx)
 
-    # 3) Upload the new photos first (thumbnail rank 1), ...
+    # 3) The new photos (thumbnail rank 1) and the retained size charts, in listing
+    # order: the charts where the seller placed them, as on a new draft. Each goes
+    # to its rank in turn, so what is already placed never moves.
     ranked = _rank(list(new_images))
-    for image in ranked:
-        await client.upload_listing_image(
-            shop_id,
-            listing_id,
-            image_bytes=image.data,
-            filename=image.filename,
-            rank=image.rank,
-            mime_type=image.mime_type,
-            **ctx,
-        )
-    # 4) ... then re-rank the retained size charts to come after them.
-    rank = len(ranked)
-    for image_id in keep_image_ids:
-        rank += 1
-        await client.upload_listing_image(
-            shop_id, listing_id, listing_image_id=image_id, rank=rank, **ctx
-        )
+    slots = chart_order.clean_slots(chart_slots, len(keep_image_ids), None)
+    for position, item in enumerate(chart_order.arrange(ranked, list(keep_image_ids), slots)):
+        if isinstance(item, PublishImage):
+            await client.upload_listing_image(
+                shop_id,
+                listing_id,
+                image_bytes=item.data,
+                filename=item.filename,
+                rank=position + 1,
+                mime_type=item.mime_type,
+                **ctx,
+            )
+        else:
+            await client.upload_listing_image(
+                shop_id, listing_id, listing_image_id=item, rank=position + 1, **ctx
+            )
 
     # 5) Refresh only the copy; NEVER touch state, price, taxonomy, variations, etc.
     #    "Photos only" passes no copy: the title, tags and description are not sent

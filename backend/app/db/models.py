@@ -601,6 +601,10 @@ class ListingGroupSetting(Base):
     #: listing follows (v7 §B). Only the id is kept; its text is read from the
     #: shop's own 6-hour listing cache when content is generated.
     pattern_listing_id: Mapped[int | None] = mapped_column(BigInteger)
+    #: Where the size charts sit among this group's photos, dragged by the seller:
+    #: one slot per chart (photos before it, -1 = after every photo); None follows
+    #: the profile's ``size_chart_position`` (pipeline/chart_order.py).
+    chart_slots: Mapped[list[int] | None] = mapped_column(JSONB_TYPE)
 
 
 class Asset(Base):
@@ -859,6 +863,9 @@ class ListingProfile(Base):
     #: The "search" style's title length bounds; None = the default (40-140).
     title_min_length: Mapped[int | None] = mapped_column(Integer)
     title_max_length: Mapped[int | None] = mapped_column(Integer)
+    #: Where its size charts go on a draft: "after_cover" (2nd), "third" or "last"
+    #: (the default, what drafts always did). A group can drag them elsewhere.
+    size_chart_position: Mapped[str] = mapped_column(Text, nullable=False, server_default="last")
     #: How the profile was created: "manual" | "detected" (auto-clustered).
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")
     #: Auto-detected profiles start unconfirmed; the seller confirms/renames them

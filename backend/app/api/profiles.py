@@ -110,6 +110,7 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
             len(payload["category_attributes"]) if isinstance(payload.get("category_attributes"), dict) else None
         ),
         fixed_image_ids=list(profile.fixed_image_ids or []),
+        size_chart_position=profile.size_chart_position or "last",
         updated_at=profile.updated_at,
         is_fresh=_is_fresh(profile),
         reference_images=images,
@@ -278,6 +279,8 @@ async def update_profile(
         profile.confirmed = body.confirmed
     if body.title_prefix is not None:
         profile.title_prefix = body.title_prefix
+    if body.size_chart_position is not None:
+        profile.size_chart_position = body.size_chart_position
     if body.listing_style is not None:
         if body.listing_style == "search" and profile.content_template not in _SEARCH_TEMPLATES:
             raise HTTPException(status_code=422, detail="the search style is available for apparel profiles")

@@ -2,6 +2,7 @@
 
 import { PersonalizationEditor } from "./PersonalizationEditor";
 import { ListingStyle } from "./ListingStyle";
+import { POSITION_LABELS, type ChartPosition } from "@/lib/chartOrder";
 import { ProfileShops } from "./ProfileShops";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -301,6 +302,27 @@ export function ProfileCard({
             disabled={busy !== null}
             emphasise
           />
+        )}
+        {profile.fixed_image_ids.length > 0 && (
+          <label key="chart-position" className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+            <span>Size chart position</span>
+            <select
+              className="field w-auto py-1.5 text-sm"
+              value={profile.size_chart_position ?? "last"}
+              disabled={busy !== null}
+              onChange={(e) =>
+                run("chartpos", () => api.updateProfile(profile.id, { size_chart_position: e.target.value as ChartPosition }))
+              }
+              data-testid="chart-position"
+            >
+              {(Object.keys(POSITION_LABELS) as ChartPosition[]).map((p) => (
+                <option key={p} value={p}>
+                  {POSITION_LABELS[p]}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-500">among each listing&apos;s photos; a listing can be dragged otherwise on its batch</span>
+          </label>
         )}
 
         {others.length > 0 && (

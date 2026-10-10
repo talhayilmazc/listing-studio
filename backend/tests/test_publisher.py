@@ -15,21 +15,21 @@ from app.db.models import (
     ConnectionStatus,
     EtsyConnection,
     GeneratedContent,
-    ListingPublication,
     Job,
     JobType,
+    ListingPublication,
     ListingSnapshot,
     Tenant,
     UploadBatch,
     UploadBatchStatus,
 )
 from app.etsy.publisher import (
-    publication_for,
     PublishBlocked,
     PublishConfig,
     PublishImage,
     listing_edit_url,
     listing_url,
+    publication_for,
     publish_content,
     publish_live,
     replace_listing_images,
@@ -175,7 +175,15 @@ class FakeEtsy:
     ):
         # Record bytes uploads by filename; copied reference images by their id.
         self.uploaded.append((rank, filename if listing_image_id is None else listing_image_id))
-        return {}
+        # Etsy: a new image gets an id; an image re-used by id keeps it; rank places it.
+        new_id = listing_image_id if listing_image_id is not None else 70_000 + len(self.uploaded)
+        self.listing_images = [i for i in getattr(self, "listing_images", []) if i != new_id]
+        self.listing_images.insert(rank - 1, new_id)
+        return {"listing_image_id": new_id}
+
+    async def get_listing_images(self, listing_id: int, **_: Any) -> dict[str, Any]:
+        order = getattr(self, "listing_images", [])
+        return {"results": [{"listing_image_id": i, "rank": n} for n, i in enumerate(order, start=1)]}
 
 
 async def _seed(sm: async_sessionmaker, *, blocking: bool = False, taxonomy_id=None):
