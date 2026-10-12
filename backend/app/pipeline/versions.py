@@ -56,6 +56,7 @@ def drafted(
         tenant_id=publication.tenant_id, connection_id=publication.connection_id, publication_id=publication.id,
         etsy_listing_id=publication.etsy_listing_id, title=title, tags=list(tags or []), description=description,
         attributes=dict(attributes), section=section, sku=sku, title_style=title_style(content), reason=reason_for(content),
+        vision_model=getattr(content, "vision_model", None), content_model=getattr(content, "model_used", None),
     )
     session.add(version)
     return version
@@ -70,6 +71,7 @@ async def went_live(session: AsyncSession, publication: ListingPublication, at: 
 async def replaced(
     session: AsyncSession, publication: ListingPublication, at: datetime, *,
     title: str | None, tags: list[str] | None, description: str | None, style: str = LONG,
+    vision_model: str | None = None, content_model: str | None = None,
 ) -> ContentVersion:
     """The app rewrote the listing's text on Etsy: the old version ends now."""
     before = await current(session, publication.id)
@@ -82,6 +84,7 @@ async def replaced(
         section=before.section if before is not None else None,
         sku=before.sku if before is not None else publication.sku, title_style=style,
         reason="replaced", active_from=at if publication.published_at is not None else None,
+        vision_model=vision_model, content_model=content_model,
     )
     session.add(version)
     return version
@@ -103,6 +106,9 @@ async def sku_changed(session: AsyncSession, publication: ListingPublication, at
         section=before.section if before is not None else None, sku=sku,
         title_style=before.title_style if before is not None else LONG,
         reason="sku_edited", active_from=at if publication.published_at is not None else None,
+        # The same text, so the same models wrote it.
+        vision_model=before.vision_model if before is not None else None,
+        content_model=before.content_model if before is not None else None,
     )
     session.add(version)
     return version

@@ -134,14 +134,16 @@ class Settings(BaseSettings):
     # LLM provider (Anthropic) for vision analysis + content generation.
     # Key is read from the environment only, never hardcoded (see CLAUDE.md).
     llm_api_key: str = ""
-    llm_model: str = "claude-haiku-4-5-20251001"
+    llm_model: str = "claude-sonnet-5-5"
     # Separate models for the image analysis and the listing text (v7 §A2);
-    # empty = LLM_MODEL. E.g. VISION_MODEL=claude-sonnet-5 for better theme
-    # detection while CONTENT_MODEL stays on Haiku, or the other way round.
+    # empty = LLM_MODEL. Supported: claude-sonnet-5-5 (the default), claude-sonnet-5
+    # and claude-haiku-5-5; what each accepts as a thinking setting is in
+    # pipeline/llm.py::MODEL_CAPABILITIES.
     vision_model: str = ""
     content_model: str = ""
-    # Thinking on models that support it: "off" (cheapest, what Haiku does) or
-    # "adaptive". LLM_EFFORT (low|medium|high) applies where the model takes it.
+    # Thinking: "off" (the cheapest setting each model accepts; some models
+    # cannot turn it off and run at low effort instead) or "adaptive".
+    # LLM_EFFORT (low|medium|high) applies where the model takes it.
     llm_thinking: str = "off"
     llm_effort: str = ""
 

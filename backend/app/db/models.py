@@ -683,7 +683,10 @@ class GeneratedContent(Base):
     description: Mapped[str | None] = mapped_column(Text)
     taxonomy_id: Mapped[int | None] = mapped_column(BigInteger)
     attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: The model that wrote the title and tags (the content step), and the one
+    #: that read the design (the vision step). Ours to know: never sent to a seller.
     model_used: Mapped[str | None] = mapped_column(Text)
+    vision_model: Mapped[str | None] = mapped_column(Text)
     # Required for per-listing cost measurement.
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
@@ -1170,6 +1173,11 @@ class ContentVersion(Base):
     sku: Mapped[str | None] = mapped_column(Text)
     title_style: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The models that read the design and wrote this text, so what a model
+    #: change did to views and sales can be measured by version. NULL where it
+    #: is not known (written before this was kept). Never sent to a seller.
+    vision_model: Mapped[str | None] = mapped_column(Text)
+    content_model: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

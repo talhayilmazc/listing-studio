@@ -122,8 +122,12 @@ echo "== models"
 # Production ran on Haiku for days after Sonnet was chosen: VISION_MODEL and
 # CONTENT_MODEL were unset, and each falls back to LLM_MODEL without a word.
 fallback="$(get LLM_MODEL)"
-fallback="${fallback:-claude-haiku-4-5-20251001}"   # the app's default when unset
-uses_sonnet=0
+fallback="${fallback:-claude-sonnet-5-5}"   # the app's default when unset
+# The models the app knows how to call (backend/app/pipeline/llm.py:
+# MODEL_CAPABILITIES; each takes a different thinking setting, and the app has
+# been run against exactly these). Another model is called too, and if it
+# refuses the thinking setting the app drops the setting and alerts, but it is
+# untested here: warn.
 for key in VISION_MODEL CONTENT_MODEL; do
   model="$(get "$key")"
   if [ -z "$model" ]; then
@@ -131,19 +135,22 @@ for key in VISION_MODEL CONTENT_MODEL; do
     model="$fallback"
   fi
   case "$model" in
-    *haiku*)  warn "$key resolves to Haiku ($model)" ;;
-    *sonnet*) pass "$key is $model"; uses_sonnet=1 ;;
-    *)        pass "$key is $model" ;;
+    claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5) pass "$key is $model" ;;
+    *) warn "$key is $model, which is not one of the supported models (claude-sonnet-5-5, claude-sonnet-5, claude-haiku-5-5)" ;;
   esac
 done
 thinking="$(get LLM_THINKING)"
-if [ "$uses_sonnet" = "1" ] && [ "${thinking:-off}" != "off" ]; then
-  warn "LLM_THINKING is '$thinking' with a Sonnet model; set LLM_THINKING=off (thinking costs more and is slower here)"
-elif [ "$uses_sonnet" = "1" ] && [ -z "$thinking" ]; then
+if [ "${thinking:-off}" != "off" ]; then
+  warn "LLM_THINKING is '$thinking'; set LLM_THINKING=off (thinking costs more and is slower for listings)"
+elif [ -z "$thinking" ]; then
   warn "LLM_THINKING is not set; the app's default is off, but say so in $ENV_FILE: LLM_THINKING=off"
-elif [ "$uses_sonnet" = "1" ]; then
+else
   pass "LLM_THINKING=off"
 fi
+case "$(get LLM_EFFORT)" in
+  ""|low|medium|high) ;;
+  *) warn "LLM_EFFORT is '$(get LLM_EFFORT)'; with thinking off the models take low, medium or high (the app sends high instead)" ;;
+esac
 
 echo "== tunnel"
 if grep -q '<TUNNEL_ID>' "$TUNNEL_CONFIG"; then

@@ -522,6 +522,100 @@ async def listing_stats_check(
     return "\n".join(lines)
 
 
+def _check_design() -> bytes:
+    """A small made-up design to show the model: never a seller's."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (800, 800), (245, 240, 230))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((180, 170, 620, 690), fill=(60, 110, 90))  # the garment
+    draw.ellipse((300, 280, 500, 480), fill=(240, 200, 60))  # a sun
+    for n, word in enumerate(("PLANT", "LADY")):
+        draw.text((330, 520 + 50 * n), word, fill=(250, 250, 245))
+    out = io.BytesIO()
+    image.save(out, "JPEG", quality=85)
+    return out.getvalue()
+
+
+async def llm_check(models: list[str] | None = None) -> tuple[str, bool]:
+    """One real vision call and one real content call per model, as listings make
+    them (same prompts, schema and thinking setting), on a made-up design.
+
+    Proves the provider accepts what this app sends each model: a refused
+    setting is a 400 on every listing. Returns the report and whether every
+    call was accepted as sent. Costs a few cents; the calls are metered as our
+    own (``eval``), with no seller. Never prints the key.
+    """
+    import time
+
+    from app.core import ai_meter, ai_prices
+    from app.pipeline import llm
+    from app.pipeline.content import AnthropicContentGenerator, ContentValidationError, policy_for
+    from app.pipeline.templates import load_template
+    from app.pipeline.vision import AnthropicVisionAnalyzer
+
+    settings = get_settings()
+    if not settings.llm_api_key:
+        return "LLM_API_KEY is not set: nothing was called.", False
+    wanted = models or list(dict.fromkeys(
+        m for m in (settings.vision_model or settings.llm_model, settings.content_model or settings.llm_model) if m))
+    design = _check_design()
+    table = ai_prices.merged(None)
+    lines = [f"LLM_THINKING={settings.llm_thinking}" + (f", LLM_EFFORT={settings.llm_effort}" if settings.llm_effort else "")]
+    fine, total = True, 0.0
+
+    def priced(usage) -> float:  # noqa: ANN001
+        value = ai_prices.cost(
+            usage.model, table, input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+            cache_write_tokens=usage.cache_creation_input_tokens - usage.cache_creation_1h_input_tokens,
+            cache_write_1h_tokens=usage.cache_creation_1h_input_tokens, cache_read_tokens=usage.cache_read_input_tokens,
+        )
+        return float(value or 0)
+
+    for model in wanted:
+        client = llm.AnthropicLLMClient(
+            api_key=settings.llm_api_key, model=model, thinking=settings.llm_thinking, effort=settings.llm_effort)
+        sent = llm.thinking_params(model, settings.llm_thinking, settings.llm_effort)
+        listed = "" if model in llm.SUPPORTED_MODELS else "  (not one of the supported models)"
+        lines.append(f"{model}{listed}: thinking setting sent: {sent.get('thinking') or 'none'}"
+                     + (f", effort {sent['effort']}" if sent.get("effort") else ""))
+        analysis = None
+        with ai_meter.origin("eval"):
+            started = time.monotonic()
+            try:
+                vision = await AnthropicVisionAnalyzer(client).analyze(design, "image/jpeg")
+                analysis = vision.analysis
+                spent = priced(vision.usage)
+                total += spent
+                lines.append(f"  vision   ok   {time.monotonic() - started:5.1f} s  in {vision.usage.input_tokens + vision.usage.cache_read_input_tokens + vision.usage.cache_creation_input_tokens:,} / out {vision.usage.output_tokens:,}  ${spent:.4f}")
+            except Exception as exc:  # noqa: BLE001 - the report is the point
+                fine = False
+                lines.append(f"  vision   FAILED  {type(exc).__name__} (status {getattr(exc, 'status_code', None)}): {str(exc)[:200]}")
+            if analysis is not None:
+                started = time.monotonic()
+                generator = AnthropicContentGenerator(client, template=load_template("content/apparel"), policy=policy_for("apparel"))
+                try:
+                    result = await generator.generate(analysis, None)
+                    usages, note = result.usages, f"{result.attempts} attempt(s)"
+                except ContentValidationError as exc:
+                    # The provider answered; our own checks sent the text back twice. Not a refused request.
+                    usages, note = exc.usages, "answered; the text failed our checks twice"
+                except Exception as exc:  # noqa: BLE001
+                    fine, usages, note = False, [], ""
+                    lines.append(f"  content  FAILED  {type(exc).__name__} (status {getattr(exc, 'status_code', None)}): {str(exc)[:200]}")
+                if usages:
+                    spent = sum(priced(u) for u in usages)
+                    total += spent
+                    lines.append(f"  content  ok   {time.monotonic() - started:5.1f} s  in {sum(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens for u in usages):,} / out {sum(u.output_tokens for u in usages):,}  ${spent:.4f}  ({note})")
+        if model in llm._REFUSED:  # noqa: SLF001
+            fine = False
+            lines.append("  REFUSED: the provider answered 400 to this thinking setting; the calls above went through without one.")
+    lines.append(f"Total: ${total:.4f}. " + ("Every call was accepted as sent." if fine else "NOT every call was accepted as sent: see above."))
+    return "\n".join(lines), fine
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -562,6 +656,12 @@ def main(argv: list[str] | None = None) -> int:
     originals_cmd.add_argument("--apply", action="store_true", help="delete them (default: only count)")
     sub.add_parser("storage-report", help="stored image files per account and kind, their ages and whether they are still needed")
     sub.add_parser("draft-cost", help="Etsy requests per draft: measured average, the estimate used, the worst case")
+    llm_cmd = sub.add_parser(
+        "llm-check",
+        help="one real vision and content call per model on a made-up design: does the provider accept what the app sends (costs a few cents)",
+    )
+    llm_cmd.add_argument("models", nargs="*", help="model ids (default: the configured VISION_MODEL and CONTENT_MODEL)")
+    llm_cmd.add_argument("--supported", action="store_true", help="check every supported model")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
         print(oauth_check())
@@ -570,6 +670,12 @@ def main(argv: list[str] | None = None) -> int:
     from app.db.session import get_sessionmaker
 
     sm = get_sessionmaker()
+    if args.command == "llm-check":
+        from app.pipeline.llm import SUPPORTED_MODELS
+
+        report_text, fine = asyncio.run(llm_check(list(SUPPORTED_MODELS) if args.supported else args.models or None))
+        print(report_text)
+        return 0 if fine else 1
     if args.command == "create-admin":
         print(asyncio.run(create_admin(sm, args.email, ask_password=prompt_password,
                                        set_password=args.set_password)))

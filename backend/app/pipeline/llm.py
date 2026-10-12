@@ -22,13 +22,17 @@ keeps the concrete Anthropic SDK out of the unit tests — they pass a fake.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 
-from app.core import ai_meter
+from app.core import ai_meter, alerts
 from app.core.llm_status import classify
+
+logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
@@ -83,37 +87,91 @@ class LLMClient(Protocol):
     ) -> LLMResult: ...
 
 
-# How each model family treats thinking (see the Claude API model table):
-# - Haiku 4.5 runs without thinking unless given a token budget, and takes no
-#   ``effort``: send neither.
-# - Fable, Mythos and Opus 5.5 always think; ``{"type": "disabled"}`` is a 400,
-#   so "off" means leaving the parameter out and asking for low effort.
-# - The rest (Sonnet 5, Opus 5, Opus 4.x, Sonnet 4.6) think adaptively when the
-#   parameter is omitted, so "off" must be said explicitly.
-_NO_THINKING_PARAM = ("claude-haiku",)
-_ALWAYS_THINKING = ("claude-fable", "claude-mythos", "claude-opus-5-5")
+@dataclass(frozen=True)
+class ModelCapability:
+    """How one model family takes the thinking setting. Each model accepts a
+    different one, and a setting it does not accept is a 400 for every request."""
+
+    #: What LLM_THINKING=off is on this model: the ``thinking`` value to send.
+    #: None: nothing is sent (the model does not think unless asked, or cannot stop).
+    off: dict[str, str] | None = None
+    #: Thinking cannot be turned off: "off" is the lowest effort instead.
+    always_thinks: bool = False
+    #: Takes ``thinking: {"type": "adaptive"}``.
+    adaptive: bool = True
+    #: Takes ``output_config.effort``.
+    effort: bool = True
+    #: With thinking off, effort may be at most "high" (above it the API answers 400).
+    off_needs_high_or_below: bool = False
+
+
+_DISABLED = {"type": "disabled"}
+#: Every model family this app knows, by the start of its id; **the longest match
+#: wins**, so ``claude-sonnet-5-5`` is never read as ``claude-sonnet-5`` and a dated
+#: snapshot follows its family. The one place a model's thinking setting is decided:
+#: a new model is added here, with a test (tests/test_llm_models.py).
+MODEL_CAPABILITIES: dict[str, ModelCapability] = {
+    # Haiku 4.5 and older: no thinking unless given a token budget, and no effort.
+    "claude-haiku": ModelCapability(off=None, adaptive=False, effort=False),
+    # Haiku 5.5 thinks by default: off must be said, and only up to high effort.
+    "claude-haiku-5-5": ModelCapability(off=_DISABLED, off_needs_high_or_below=True),
+    # Sonnet 5 thinks when the field is left out: off is said explicitly.
+    "claude-sonnet-5": ModelCapability(off=_DISABLED),
+    # Sonnet 5.5 answers 400 to "disabled"; its lowest setting is "between_tools",
+    # sent with no other field, and only up to high effort.
+    "claude-sonnet-5-5": ModelCapability(off={"type": "between_tools"}, off_needs_high_or_below=True),
+    "claude-opus-5": ModelCapability(off=_DISABLED, off_needs_high_or_below=True),
+    # These always think; "disabled" is a 400. Off means low effort.
+    "claude-opus-5-5": ModelCapability(always_thinks=True),
+    "claude-fable": ModelCapability(always_thinks=True),
+    "claude-mythos": ModelCapability(always_thinks=True),
+}
+#: The models listings are written with: run against the real API, and the ones
+#: deploy/preflight.sh accepts for VISION_MODEL and CONTENT_MODEL.
+SUPPORTED_MODELS = ("claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5")
+#: A model not listed (Opus 4.x, Sonnet 4.6, one newer than this file): said off
+#: explicitly. If it refuses that, the call is made again without it (see
+#: ``complete_json``), so an unknown model is slower and dearer, never stopped.
+_UNLISTED = ModelCapability(off=_DISABLED)
+#: Models whose thinking setting the provider refused in this process: they are
+#: called without one from then on.
+_REFUSED: set[str] = set()
 #: Room for thinking plus the JSON answer; thinking counts against max_tokens.
 THINKING_MAX_TOKENS = 8000
+_ABOVE_HIGH = ("xhigh", "max")
+
+
+def capability(model: str) -> ModelCapability:
+    """The model's entry in :data:`MODEL_CAPABILITIES` (longest id prefix)."""
+    matches = [name for name in MODEL_CAPABILITIES if model.startswith(name)]
+    return MODEL_CAPABILITIES[max(matches, key=len)] if matches else _UNLISTED
+
+
+def is_listed(model: str) -> bool:
+    return any(model.startswith(name) for name in MODEL_CAPABILITIES)
 
 
 def thinking_params(model: str, mode: str, effort: str = "") -> dict[str, Any]:
     """The ``thinking`` / ``output_config.effort`` request fields for this model."""
-    if model.startswith(_NO_THINKING_PARAM):
-        return {}
+    can = capability(model)
     out: dict[str, Any] = {}
-    if model.startswith(_ALWAYS_THINKING):
-        out["effort"] = effort or ("low" if mode != "adaptive" else "")
+    if can.always_thinks:
+        effort = effort or ("low" if mode != "adaptive" else "")
     elif mode == "adaptive":
-        out["thinking"] = {"type": "adaptive"}
-        if effort:
-            out["effort"] = effort
-    else:
-        out["thinking"] = {"type": "disabled"}
-        if effort:
-            out["effort"] = effort
-    if not out.get("effort"):
-        out.pop("effort", None)
+        if can.adaptive:
+            out["thinking"] = {"type": "adaptive"}
+    elif can.off is not None:
+        out["thinking"] = dict(can.off)
+        if can.off_needs_high_or_below and effort in _ABOVE_HIGH:
+            effort = "high"  # thinking off is what was asked for; it caps the effort
+    if effort and can.effort:
+        out["effort"] = effort
     return out
+
+
+def _about_thinking(status: int | None, message: str) -> bool:
+    """A 400 that names the thinking or effort setting: the request shape, not the content."""
+    return status == 400 and bool(re.search(r"thinking|effort", message, re.IGNORECASE))
 
 
 class AnthropicLLMClient:
@@ -132,6 +190,7 @@ class AnthropicLLMClient:
         self.model = model
         self._max_tokens = max_tokens
         self._thinking = thinking_params(model, thinking, effort)
+        self._always_thinks = capability(model).always_thinks
         if messages_client is not None:
             self._messages = messages_client
         else:
@@ -149,8 +208,10 @@ class AnthropicLLMClient:
         max_tokens: int | None = None,
     ) -> dict[str, Any]:
         output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": schema}}
-        if "effort" in self._thinking:
-            output_config["effort"] = self._thinking["effort"]
+        # A model that refused its thinking setting is called without one.
+        thinking = {} if self.model in _REFUSED else self._thinking
+        if "effort" in thinking:
+            output_config["effort"] = thinking["effort"]
         params: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens or self._max_tokens,
@@ -164,11 +225,33 @@ class AnthropicLLMClient:
             "messages": [{"role": "user", "content": content_blocks}],
             "output_config": output_config,
         }
-        if "thinking" in self._thinking:
-            params["thinking"] = self._thinking["thinking"]
-        if self._thinking.get("thinking", {}).get("type") == "adaptive" or self.model.startswith(_ALWAYS_THINKING):
+        if "thinking" in thinking:
+            params["thinking"] = thinking["thinking"]
+        if thinking.get("thinking", {}).get("type") == "adaptive" or self._always_thinks or self.model in _REFUSED:
             params["max_tokens"] = max(params["max_tokens"], THINKING_MAX_TOKENS)
         return params
+
+    async def _without_thinking_setting(self, exc: Exception, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """The provider refused the thinking setting this model was sent (a 400).
+
+        That would fail every listing, with nothing wrong with any of them. So
+        the call is made again with no thinking setting at all, which every
+        model accepts (it then thinks as it does by default: slower and dearer,
+        but the listing is written), the model is remembered for this process,
+        and the operator is told once. Nothing is hidden: the refusal is logged
+        and metered like any failed call.
+        """
+        first = self.model not in _REFUSED
+        _REFUSED.add(self.model)
+        if first:
+            logger.error("the provider refused the thinking setting sent to %s: %s", self.model, str(exc)[:300])
+            await alerts.send(
+                f"Listyro: the AI model {self.model} refused the thinking setting this app sends "
+                f"({self._thinking.get('thinking') or self._thinking or 'none'}). Listings are still being written, without a thinking "
+                "setting, which is slower and costs more. Add the model to MODEL_CAPABILITIES (backend/app/pipeline/llm.py) "
+                "or set VISION_MODEL / CONTENT_MODEL to a supported model."
+            )
+        return self.build_params(**kwargs)
 
     async def complete_json(
         self,
@@ -188,7 +271,19 @@ class AnthropicLLMClient:
         # worked, the ones refused, the ones whose answer could not be used.
         started = time.monotonic()
         try:
-            response = await self._messages.create(**params)
+            try:
+                response = await self._messages.create(**params)
+            except Exception as exc:  # noqa: BLE001 - only to tell a refused setting apart
+                status = getattr(exc, "status_code", None)
+                if classify(status, str(exc)) is not None or not _about_thinking(status, str(exc)) or self.model in _REFUSED:
+                    raise
+                # The refused attempt is on record; the call goes again without the setting.
+                await ai_meter.record(model=self.model, usage=None, ok=False, started=started, error="http_400_thinking")
+                params = await self._without_thinking_setting(
+                    exc, {"system": system, "content_blocks": content_blocks, "schema": schema, "max_tokens": max_tokens}
+                )
+                started = time.monotonic()
+                response = await self._messages.create(**params)
         except Exception as exc:  # noqa: BLE001 - only to tell an account refusal apart
             outage = classify(getattr(exc, "status_code", None), str(exc))
             status = getattr(exc, "status_code", None)

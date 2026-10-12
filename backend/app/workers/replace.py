@@ -275,6 +275,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                         result = await generator.generate(vision.analysis, primary.parsed_sku)
                         meter.listing_written()
                     allowance.record(session, tenant.id, allowance.GENERATION)
+                    wrote = (vision.usage.model, result.usages[-1].model)
                     new_title = result.listing.title
                     new_tags = result.listing.tags
                     new_opening = result.listing.opening
@@ -331,6 +332,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 await versions.replaced(
                     session, publication, datetime.now(timezone.utc),
                     title=new_title, tags=new_tags, description=new_description, style=style,
+                    vision_model=wrote[0], content_model=wrote[1],
                 )
         # The review page shows what the listing now says on Etsy (photos only changed no text).
         if full and job.payload.get("content_id"):
@@ -338,6 +340,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             if content is not None and content.tenant_id == job.tenant_id:
                 content.title, content.tags, content.description = new_title, new_tags, new_description
                 content.written_from_asset_id = content.asset_id  # the cover just analysed
+                content.vision_model, content.model_used = wrote
                 # The style it is now written in (the review page and its versions read it).
                 attrs = {k: v for k, v in (content.attributes or {}).items() if k != "search"}
                 if style == versions.SHORT:

@@ -350,6 +350,32 @@ and every screenshot on the site was broken. Do not update by hand with
 - The scripts are called through `bash` everywhere (cron included), so a
   checkout that resets their executable bit breaks nothing.
 
+## Changing the model that writes listings
+
+The model that reads a design (`VISION_MODEL`) and the one that writes the
+listing (`CONTENT_MODEL`) are two lines in `.env`. Supported:
+`claude-sonnet-5-5` (the default), `claude-sonnet-5`, `claude-haiku-5-5`. Each
+takes a different thinking setting; the app knows which
+(`backend/app/pipeline/llm.py`), and preflight warns on a model it does not list.
+
+```bash
+cd /opt/listyro
+nano .env                       # VISION_MODEL=... and CONTENT_MODEL=...
+docker compose -f docker-compose.prod.yml up -d --force-recreate api worker
+docker compose -f docker-compose.prod.yml exec api python -m app.cli llm-check
+sudo bash deploy/preflight.sh
+```
+
+`up -d --force-recreate` is needed: `restart` keeps the old environment, so the
+old model would go on being used. `llm-check` makes one real vision call and one
+real content call on a made-up design with the configured models and says
+whether the provider accepted them (a few cents; it prints no key). To go back,
+put the previous model in the two lines and run the same three commands.
+
+If a model ever refuses the thinking setting it is sent, listings are still
+written (the call is repeated without the setting, which is slower and costs
+more) and one alert goes to `ALERT_WEBHOOK_URL`.
+
 ## Launch checklist (H)
 
 | | Item | How |

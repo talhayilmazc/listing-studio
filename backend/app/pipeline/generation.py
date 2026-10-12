@@ -182,6 +182,7 @@ async def generate_listing_content(
         listing_profile_id=profile.id,
         attributes=attributes,
         model_used=result.usages[-1].model,
+        vision_model=vision.usage.model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         approved=False,

@@ -241,14 +241,14 @@ async def _run_full(ctx, monkeypatch, *, listing_style: str, template: str) -> t
         async def generate(self, analysis: Any, sku: Any = None) -> Any:
             listing = SimpleNamespace(title="Retro Frog Shirt, Pond Humor", tags=[f"t{i}" for i in range(13)],
                                       opening="A retro frog shirt for pond lovers.")
-            return SimpleNamespace(listing=listing)
+            return SimpleNamespace(listing=listing, usages=[SimpleNamespace(model="claude-sonnet-5-5")])
 
     class Analyzer:
         def __init__(self, *_: Any) -> None:
             pass
 
         async def analyze(self, *_: Any) -> Any:
-            return SimpleNamespace(analysis=None)
+            return SimpleNamespace(analysis=None, usage=SimpleNamespace(model="claude-haiku-5-5"))
 
     class Classifier:
         def __init__(self, *_: Any) -> None:
@@ -298,6 +298,8 @@ async def test_full_replace_writes_in_the_profiles_short_style(ctx, monkeypatch)
     # The new opening above the listing's own body; the old title block is gone.
     assert sent["description"] == "A retro frog shirt for pond lovers.\n\nBody"
     assert [(r.reason, r.title_style) for r in rows] == [("generated", "long"), ("replaced", "short")]
+    # The new version says which models read the new cover and wrote the new text.
+    assert (rows[1].vision_model, rows[1].content_model) == ("claude-haiku-5-5", "claude-sonnet-5-5")
     assert rows[1].attributes == {"Holiday": "Christmas"} and rows[0].active_to is not None
 
 

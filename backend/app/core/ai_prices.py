@@ -8,11 +8,17 @@ USD per million tokens, one rate per billing class, as the provider bills them:
 - ``cache_write_1h``: tokens written to the 1-hour cache (2x input)
 - ``cache_read``: tokens served from the cache
 
-The defaults are the published first-party rates as of 2026-09-25. An admin can
+The defaults are the published first-party rates as of 2026-10-12
+(https://platform.claude.com/docs/en/about-claude/pricing). An admin can
 change a model's rates or add a model (``app_setting`` key ``ai_prices``); the
 stored table is laid over the defaults. A call is costed when it is recorded,
 so changing a price does not rewrite history; a call whose model had no price
 is stored with no cost and costed when a price is given.
+
+Some models have a second rate card for long prompts (Claude Haiku 5.5: above
+100,000 prompt tokens). ``Price.long_prompt`` holds it and a call is costed by
+its own prompt length. The admin panel edits the standard rates; a model's
+long-prompt rates stay the published ones.
 """
 
 from __future__ import annotations
@@ -30,6 +36,11 @@ FIELDS = ("input", "output", "cache_write", "cache_write_1h", "cache_read")
 _MILLION = Decimal(1_000_000)
 
 
+#: A prompt longer than this (input plus cached tokens) is billed on the model's
+#: long-prompt rate card, where it has one.
+LONG_PROMPT_TOKENS = 100_000
+
+
 @dataclass(frozen=True)
 class Price:
     input: Decimal
@@ -37,20 +48,30 @@ class Price:
     cache_write: Decimal
     cache_write_1h: Decimal
     cache_read: Decimal
+    #: The rates for a call whose prompt is over LONG_PROMPT_TOKENS; None: one rate card.
+    long_prompt: "Price | None" = None
 
     def as_strings(self) -> dict[str, str]:
         return {name: str(getattr(self, name)) for name in FIELDS}
 
+    def for_prompt(self, prompt_tokens: int) -> "Price":
+        return self.long_prompt if self.long_prompt is not None and prompt_tokens > LONG_PROMPT_TOKENS else self
 
-def _price(input_: str, output: str, cache_read: str) -> Price:
+
+def _price(input_: str, output: str, cache_read: str, long_prompt: Price | None = None) -> Price:
+    """Cache writes follow the input rate: 1.25x for five minutes, 2x for an hour."""
     base = Decimal(input_)
-    return Price(base, Decimal(output), base * Decimal("1.25"), base * 2, Decimal(cache_read))
+    return Price(base, Decimal(output), base * Decimal("1.25"), base * 2, Decimal(cache_read), long_prompt)
 
 
+# https://platform.claude.com/docs/en/about-claude/pricing (USD per million tokens)
 DEFAULTS: dict[str, Price] = {
     "claude-haiku-4-5": _price("1.00", "5.00", "0.10"),
+    # Two rate cards: prompts up to 100K tokens, and longer ones (0.50 / 2.50).
+    "claude-haiku-5-5": _price("0.10", "0.50", "0.01", long_prompt=_price("0.50", "2.50", "0.05")),
     "claude-sonnet-5": _price("2.00", "10.00", "0.20"),
-    "claude-sonnet-5-5": _price("2.00", "10.00", "0.20"),
+    # 2 in, 10 out, 2.50 five-minute cache write, 0.10 cache read.
+    "claude-sonnet-5-5": _price("2.00", "10.00", "0.10"),
     "claude-opus-5": _price("5.00", "25.00", "0.50"),
     "claude-opus-5-5": _price("4.00", "20.00", "0.20"),
 }
@@ -74,7 +95,12 @@ def merged(stored: dict[str, Any] | None) -> dict[str, Price]:
     table = dict(DEFAULTS)
     for model, raw in (stored or {}).items():
         try:
-            table[model] = Price(**{name: Decimal(str(raw[name])) for name in FIELDS})
+            # The panel sets the standard rates; the published long-prompt card stays.
+            published = DEFAULTS.get(model)
+            table[model] = Price(
+                **{name: Decimal(str(raw[name])) for name in FIELDS},
+                long_prompt=published.long_prompt if published is not None else None,
+            )
         except (KeyError, InvalidOperation, TypeError):
             continue  # a damaged entry falls back to the default, if there is one
     return table
@@ -100,6 +126,8 @@ def cost(model: str, table: dict[str, Price], *, input_tokens: int, output_token
     price = price_for(model, table)
     if price is None:
         return None
+    # The whole prompt decides the rate card: what was sent, cached or not.
+    price = price.for_prompt(input_tokens + cache_write_tokens + cache_write_1h_tokens + cache_read_tokens)
     total = (
         input_tokens * price.input
         + output_tokens * price.output
