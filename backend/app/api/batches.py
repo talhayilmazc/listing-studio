@@ -581,6 +581,16 @@ async def _batch_groups(
         s = group_settings.get(key)
         cp = chart_profiles.get(chart_profile_id(s))  # type: ignore[arg-type]
         charts = _size_charts(cp) if cp is not None else []
+        # The group's own placement, else the profile's, else its preset: the
+        # charts in the order they appear and a slot for each (as drafts get them).
+        chart_ids, chart_slots, chart_source = chart_order.resolve(
+            [c.listing_image_id for c in charts],
+            group=s.chart_slots if s else None,
+            profile=cp.size_chart_slots if cp else None,
+            position=cp.size_chart_position if cp else None,
+        )
+        by_id = {c.listing_image_id: c for c in charts}
+        charts = [by_id[i] for i in chart_ids]
         # A group with nothing set is in the batch's shop.
         shop_id = (s.connection_id if s and s.connection_id else None) or (batch.connection_id if batch else None)
         shop = shops.get(shop_id) if shop_id else None
@@ -597,10 +607,9 @@ async def _batch_groups(
                 manual=s.manual if s else False,
                 pattern_listing_id=s.pattern_listing_id if s else None,
                 size_charts=charts,
-                chart_slots=chart_order.clean_slots(
-                    s.chart_slots if s else None, len(charts), cp.size_chart_position if cp else None
-                ),
+                chart_slots=chart_slots,
                 chart_slots_custom=bool(s and s.chart_slots is not None and charts),
+                chart_source=chart_source if charts else "preset",
                 chart_position=(cp.size_chart_position or chart_order.DEFAULT_POSITION) if cp else None,
                 chart_profile_name=cp.name if cp else None,
                 chart_listing_id=cp.reference_listing_id if cp else None,
@@ -649,13 +658,24 @@ async def set_chart_slots(
         raise HTTPException(status_code=404, detail="group not found")
     if body.slots is not None and any(s != chart_order.END and s < 1 for s in body.slots):
         raise HTTPException(status_code=422, detail="A size chart cannot come before the cover.")
+    placement: list[dict[str, int]] | None = None
+    if body.placement is not None:
+        # The charts are the ones this group's drafts get (its size-chart profile,
+        # else the batch's, else its own profile's): only those can be placed.
+        shown = next((g for g in await _batch_groups(session, batch_id) if g.group_key == key), None)
+        try:
+            placement = chart_order.check_placement(
+                [p.model_dump() for p in body.placement], [c.listing_image_id for c in shown.size_charts] if shown else []
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
     setting = (await session.execute(
         select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id, ListingGroupSetting.group_key == key)
     )).scalar_one_or_none()
     if setting is None:
         setting = ListingGroupSetting(tenant_id=tenant.id, batch_id=batch_id, group_key=key)
         session.add(setting)
-    setting.chart_slots = list(body.slots) if body.slots is not None else None
+    setting.chart_slots = placement if placement is not None else list(body.slots) if body.slots is not None else None
     await session.commit()
     return await _batch_groups(session, batch_id)
 

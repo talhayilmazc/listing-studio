@@ -137,8 +137,11 @@ class GroupOut(BaseModel):
     # one slot per chart (photos before it, -1 = after every photo).
     size_charts: list["SizeChartOut"] = Field(default_factory=list)
     chart_slots: list[int] = Field(default_factory=list)
-    chart_slots_custom: bool = False  # dragged here; otherwise the profile's position
-    chart_position: str | None = None  # the profile's: "after_cover" | "third" | "last"
+    chart_slots_custom: bool = False  # dragged here; otherwise the profile's default
+    chart_position: str | None = None  # the profile's preset: "after_cover" | "third" | "last"
+    # Who decided the placement: "group" (changed for this group), "profile" (each
+    # chart dragged on the profile) or "preset" (the profile's preset).
+    chart_source: str = "preset"
     chart_profile_name: str | None = None
     # The listing on Etsy the charts are on (the profile's reference): the back link.
     chart_listing_id: int | None = None
@@ -150,11 +153,21 @@ class SizeChartOut(BaseModel):
     url: str | None = None
 
 
+class ChartPlacement(BaseModel):
+    """One size chart's place: the photos before it, or -1 for after every photo."""
+
+    listing_image_id: int
+    slot: int
+
+
 class GroupChartSlots(BaseModel):
-    """A group's own size chart placement; ``slots`` null follows the profile again."""
+    """A group's own size chart placement. ``placement`` is the charts in the order
+    they appear, each with its slot; ``slots`` is the older form (one slot per
+    chart, in the order the group lists them). Both null follows the profile again."""
 
     group_key: str = Field(max_length=500)
     slots: list[int] | None = Field(default=None, max_length=20)
+    placement: list[ChartPlacement] | None = Field(default=None, max_length=20)
 
 
 class GroupAssign(BaseModel):
@@ -729,6 +742,10 @@ class ProfileUpdate(BaseModel):
     title_max_length: int | None = Field(default=None, ge=20, le=140)
     #: Where the size charts go on its drafts (pipeline/chart_order.py).
     size_chart_position: Literal["after_cover", "third", "last"] | None = None
+    #: Each chart dragged to its own place: the charts in the order they appear,
+    #: each with its slot. Null goes back to the preset above. Choosing a preset
+    #: (sending ``size_chart_position``) also clears it.
+    size_chart_placement: list["ChartPlacement"] | None = Field(default=None, max_length=20)
     #: Its listings' Occasion / Holiday unless the design shows another: one of
     #: Etsy's values, "" = none; sending null removes the default.
     default_occasion: str | None = Field(default=None, max_length=200)
@@ -799,6 +816,12 @@ class ProfileOut(BaseModel):
     attribute_lists: int | None = None
     fixed_image_ids: list[int] = Field(default_factory=list)
     size_chart_position: str = "last"  # "after_cover" | "third" | "last"
+    # Where each chart goes by default, in the order they appear (what drafts use
+    # unless a group moved them), and whether the seller dragged them (else the preset).
+    size_chart_placement: list["ChartPlacement"] = Field(default_factory=list)
+    size_chart_custom: bool = False
+    # The most images a listing holds: the editor shows this many places.
+    max_listing_images: int = 20
     #: Occasion / Holiday defaults ("" = none, null = no default) and Etsy's values
     #: for its category to choose them from.
     default_occasion: str | None = None

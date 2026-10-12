@@ -75,8 +75,9 @@ async def chart_plan(
 
     The charts come from the group's size-chart profile, else the batch's, else
     the listing's own profile (v4 §E, Task 4). The placement is the group's drag
-    (``chart_slots``) or None, which follows that profile's ``size_chart_position``
-    (pipeline/chart_order.py). The same in every shop.
+    (``chart_slots``) or None, which follows that profile's own placement
+    (``size_chart_slots``) or its preset (pipeline/chart_order.py::resolve).
+    The same in every shop.
     """
     group_setting = (
         await session.execute(
@@ -95,6 +96,28 @@ async def chart_plan(
     if chart_profile_id is not None:
         chart_profile = owned_optional(await session.get(ListingProfile, chart_profile_id), tenant_id) or profile
     return chart_profile, (group_setting.chart_slots if group_setting is not None else None)
+
+
+async def draft_charts(
+    ctx: dict[str, Any], session: AsyncSession, chart_profile: ListingProfile, own_slots: Any, connection: EtsyConnection
+) -> tuple[list[int | PublishImage], list[int]]:
+    """The size charts a draft in ``connection``'s shop gets, in the order they
+    appear, and a slot for each.
+
+    Where they sit and in which order is decided once, by the group's own drag,
+    else the chart profile's placement, else its preset (pipeline/chart_order.py:
+    resolve), so it is the same in every shop. Only what is uploaded differs:
+    the profile's own image ids in its main shop, copies of them anywhere else.
+    """
+    attached = [int(i) for i in chart_profile.fixed_image_ids or []]
+    chart_ids, slots, _ = chart_order.resolve(
+        attached, group=own_slots, profile=chart_profile.size_chart_slots, position=chart_profile.size_chart_position
+    )
+    fixed: list[int | PublishImage] = list(chart_ids)
+    if fixed and chart_profile.connection_id != connection.id:
+        copies = dict(zip(attached, await copied_size_charts(ctx, session, chart_profile, ctx.get("image_fetch"))))
+        fixed = [copies[i] for i in chart_ids]
+    return fixed, slots
 
 
 async def copied_size_charts(
@@ -274,12 +297,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             # Image ids belong to one shop: in the charts' own shop they are re-used
             # by id; in any other shop they are copied (fetched in memory, uploaded,
             # never stored; v8 §C).
-            fixed: list[int | PublishImage] = list(chart_profile.fixed_image_ids or [])
-            if fixed and chart_profile.connection_id != connection.id:
-                fixed = list(await copied_size_charts(ctx, session, chart_profile, ctx.get("image_fetch")))
-            # Where they sit: the group's own drag, else the chart profile's position;
-            # the same in every shop (pipeline/chart_order.py).
-            chart_slots = chart_order.clean_slots(own_slots, len(fixed), chart_profile.size_chart_position)
+            fixed, chart_slots = await draft_charts(ctx, session, chart_profile, own_slots, connection)
 
             access_token = await connection_service.get_valid_access_token(session, connection)
 

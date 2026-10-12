@@ -20,6 +20,7 @@ from app.core import audit
 from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Tenant
 from app.etsy.refresh import in_use, request_refresh
 from app.etsy.shops import active_shops, owned_shop
+from app.pipeline import chart_order
 from app.pipeline import item_options, profile_shops
 from app.pipeline import links as links_mod
 from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
@@ -110,6 +111,9 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         ),
         fixed_image_ids=list(profile.fixed_image_ids or []),
         size_chart_position=profile.size_chart_position or "last",
+        size_chart_placement=_chart_placement(profile),
+        size_chart_custom=profile.size_chart_slots is not None and bool(profile.fixed_image_ids),
+        max_listing_images=chart_order.MAX_IMAGES,
         default_occasion=profile.default_occasion,
         default_holiday=profile.default_holiday,
         occasion_values=(o.values if (o := item_options.options_for(payload, item_options.OCCASION)) else []),
@@ -264,6 +268,14 @@ async def get_profile(
     return await _out(session, tenant, await _get(session, tenant, profile_id))
 
 
+def _chart_placement(profile: ListingProfile) -> list[schemas.ChartPlacement]:
+    """Where each of the profile's size charts goes by default, in the order they appear."""
+    ids, slots, _ = chart_order.resolve(
+        profile.fixed_image_ids or [], profile=profile.size_chart_slots, position=profile.size_chart_position
+    )
+    return [schemas.ChartPlacement(listing_image_id=i, slot=s) for i, s in zip(ids, slots)]
+
+
 @router.patch("/{profile_id}", response_model=schemas.ProfileOut)
 async def update_profile(
     profile_id: uuid.UUID,
@@ -283,7 +295,22 @@ async def update_profile(
     if body.title_prefix is not None:
         profile.title_prefix = body.title_prefix
     if body.size_chart_position is not None:
+        # A preset: the charts go back together, where the preset says.
         profile.size_chart_position = body.size_chart_position
+        profile.size_chart_slots = None
+    if "size_chart_placement" in body.model_fields_set:
+        if body.size_chart_placement is None:
+            profile.size_chart_slots = None
+        else:
+            # Each chart dragged to its own place: the default for every listing
+            # made with this profile from now on (drafts on Etsy are not touched).
+            fixed = body.fixed_image_ids if body.fixed_image_ids is not None else profile.fixed_image_ids
+            try:
+                profile.size_chart_slots = chart_order.check_placement(
+                    [p.model_dump() for p in body.size_chart_placement], fixed or []
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
     for field, name in (("default_occasion", item_options.OCCASION), ("default_holiday", item_options.HOLIDAY)):
         if field not in body.model_fields_set:
             continue

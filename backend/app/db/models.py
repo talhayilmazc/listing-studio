@@ -608,7 +608,7 @@ class ListingGroupSetting(Base):
     #: Where the size charts sit among this group's photos, dragged by the seller:
     #: one slot per chart (photos before it, -1 = after every photo); None follows
     #: the profile's ``size_chart_position`` (pipeline/chart_order.py).
-    chart_slots: Mapped[list[int] | None] = mapped_column(JSONB_TYPE)
+    chart_slots: Mapped[list[Any] | None] = mapped_column(JSONB_TYPE)
 
 
 class Asset(Base):
@@ -877,6 +877,11 @@ class ListingProfile(Base):
     #: Where its size charts go on a draft: "after_cover" (2nd), "third" or "last"
     #: (the default, what drafts always did). A group can drag them elsewhere.
     size_chart_position: Mapped[str] = mapped_column(Text, nullable=False, server_default="last")
+    #: Each chart dragged to its own place on the profile: ``[{"id": chart image
+    #: id, "slot": photos before it or -1}, ...]`` in the charts' order; NULL = the
+    #: preset above (pipeline/chart_order.py). The default for every listing made
+    #: with the profile; a group's own drag still wins.
+    size_chart_slots: Mapped[list[Any] | None] = mapped_column(JSONB_TYPE)
     #: Its listings' Occasion / Holiday unless the design clearly shows another:
     #: one of Etsy's values, "" = none, NULL = no default (pipeline/item_options.py).
     default_occasion: Mapped[str | None] = mapped_column(Text)

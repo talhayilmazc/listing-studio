@@ -70,8 +70,19 @@ logger = logging.getLogger(__name__)
 
 
 async def _chart_slots(session: Any, job: Job, batch_id: uuid.UUID, charts: int) -> list[int]:
-    """Where the kept size charts go among the new photos: the group's own drag,
-    else its size-chart profile's position, else the listing's profile's, else last."""
+    """One slot for each of ``charts`` kept size charts, in the order they are on the listing."""
+    return (await _chart_placement(session, job, batch_id, list(range(charts))))[1]
+
+
+async def _chart_placement(session: Any, job: Job, batch_id: uuid.UUID, kept: list[int]) -> tuple[list[int], list[int]]:
+    """The kept size charts in the order they go back, and a slot for each: the
+    group's own drag, else its size-chart profile's placement or preset, else the
+    listing's profile's, else last (pipeline/chart_order.py::resolve).
+
+    In the profile's main shop the listing's charts are the profile's own images,
+    so they also take the placement's order. In another shop they are copies with
+    their own ids: they keep the order they have on the listing.
+    """
     from app.db.models import ListingGroupSetting, ListingProfile, UploadBatch
 
     key = job.payload.get("group_key")
@@ -90,8 +101,19 @@ async def _chart_slots(session: Any, job: Job, batch_id: uuid.UUID, charts: int)
         content = await session.get(GeneratedContent, uuid.UUID(job.payload["content_id"]))
         profile_id = content.listing_profile_id if content is not None and content.tenant_id == job.tenant_id else None
     profile = await session.get(ListingProfile, profile_id) if profile_id is not None else None
-    position = profile.size_chart_position if profile is not None and profile.tenant_id == job.tenant_id else None
-    return chart_order.clean_slots(setting.chart_slots if setting is not None else None, charts, position)
+    if profile is not None and profile.tenant_id != job.tenant_id:
+        profile = None
+    position = profile.size_chart_position if profile is not None else None
+    attached = [int(i) for i in (profile.fixed_image_ids or [])] if profile is not None else []
+    ids, slots, _ = chart_order.resolve(
+        attached if attached else list(range(len(kept))),
+        group=setting.chart_slots if setting is not None else None,
+        profile=profile.size_chart_slots if profile is not None else None,
+        position=position,
+    )
+    if attached and set(kept) == set(attached):
+        return ids, slots  # the profile's own images: its order too
+    return list(kept), chart_order.clean_slots(slots, len(kept), position)
 
 
 async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
@@ -287,6 +309,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                             decode_etsy_text(existing.get("description")), new_title
                         )
 
+                kept_charts, kept_slots = await _chart_placement(session, job, batch_id, list(keep_ids))
                 await replace_listing_images(
                     session,
                     job_id=job.id,
@@ -297,10 +320,10 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     access_token=token,
                     tenant_limit=limits.ceiling_limit(tenant),
                     existing_listing=existing,
-                    keep_image_ids=keep_ids,
+                    keep_image_ids=kept_charts,
                     delete_image_ids=delete_ids,
                     new_images=new_images,
-                    chart_slots=await _chart_slots(session, job, batch_id, len(keep_ids)),
+                    chart_slots=kept_slots,
                     new_title=new_title,
                     new_tags=new_tags,
                     new_description=new_description,

@@ -291,11 +291,11 @@ export const api = {
   boardSku: (batchId: string, groupKey: string, sku: string) =>
     req<BatchDetail>(`/batches/${batchId}/board/sku`, { method: "PUT", body: JSON.stringify({ group_key: groupKey, sku }) }),
   listGroups: (id: string) => req<Group[]>(`/batches/${id}/groups`),
-  /** Where a group's size charts sit among its photos; null follows the profile again. */
-  setChartSlots: (batchId: string, groupKey: string, slots: number[] | null) =>
+  /** Where a group's size charts sit among its photos (in the order they appear); null follows the profile again. */
+  setChartSlots: (batchId: string, groupKey: string, placement: { listing_image_id: number; slot: number }[] | null) =>
     req<Group[]>(`/batches/${batchId}/groups/chart-slots`, {
       method: "PUT",
-      body: JSON.stringify({ group_key: groupKey, slots }),
+      body: JSON.stringify({ group_key: groupKey, placement }),
     }),
   assignGroup: (
     id: string,
@@ -528,6 +528,8 @@ export const api = {
       title_prefix: string;
       listing_style: "classic" | "search";
       size_chart_position: "after_cover" | "third" | "last";
+      /** Each chart's own place, in the order they appear; null: back to the preset. */
+      size_chart_placement: { listing_image_id: number; slot: number }[] | null;
       /** "" = none, null = no default. */
       default_occasion: string | null;
       default_holiday: string | null;

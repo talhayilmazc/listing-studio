@@ -2,7 +2,8 @@
 
 import { PersonalizationEditor } from "./PersonalizationEditor";
 import { ListingStyle } from "./ListingStyle";
-import { POSITION_LABELS, type ChartPosition } from "@/lib/chartOrder";
+import { presetPlacement, type ChartPosition } from "@/lib/chartOrder";
+import { ChartPlacementEditor } from "./ChartPlacementEditor";
 import { ProfileShops } from "./ProfileShops";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -304,25 +305,18 @@ export function ProfileCard({
           />
         )}
         {profile.fixed_image_ids.length > 0 && (
-          <label key="chart-position" className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
-            <span>Size chart position</span>
-            <select
-              className="field w-auto py-1.5 text-sm"
-              value={profile.size_chart_position ?? "last"}
-              disabled={busy !== null}
-              onChange={(e) =>
-                run("chartpos", () => api.updateProfile(profile.id, { size_chart_position: e.target.value as ChartPosition }))
-              }
-              data-testid="chart-position"
-            >
-              {(Object.keys(POSITION_LABELS) as ChartPosition[]).map((p) => (
-                <option key={p} value={p}>
-                  {POSITION_LABELS[p]}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-slate-500">among each listing&apos;s photos; a listing can be dragged otherwise on its batch</span>
-          </label>
+          <ChartPlacementEditor
+            key="chart-position"
+            placement={profile.size_chart_placement ?? presetPlacement(profile.size_chart_position ?? "last", profile.fixed_image_ids)}
+            chartIds={profile.fixed_image_ids}
+            custom={profile.size_chart_custom ?? false}
+            position={profile.size_chart_position ?? "last"}
+            images={new Map(images.map((i) => [i.listing_image_id ?? -1, imagesHidden ? null : i.url]))}
+            total={profile.max_listing_images}
+            busy={busy !== null}
+            onPlacement={(next) => run("chartpos", () => api.updateProfile(profile.id, { size_chart_placement: next }))}
+            onPreset={(p: ChartPosition) => run("chartpos", () => api.updateProfile(profile.id, { size_chart_position: p }))}
+          />
         )}
 
         {((profile.occasion_values?.length ?? 0) > 0 || (profile.holiday_values?.length ?? 0) > 0) && (

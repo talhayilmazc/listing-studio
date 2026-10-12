@@ -82,8 +82,10 @@ export interface Group {
   /** The size charts its drafts get, in order, and where they sit (lib/chartOrder.ts). */
   size_charts?: { listing_image_id: number; url: string | null }[];
   chart_slots?: number[];
-  /** Dragged on this group; otherwise the profile's position. */
+  /** Dragged on this group; otherwise the profile's default. */
   chart_slots_custom?: boolean;
+  /** Who decided: "group" (changed for this group), "profile" (dragged on the profile) or "preset". */
+  chart_source?: "group" | "profile" | "preset";
   chart_position?: "after_cover" | "third" | "last" | null;
   chart_profile_name?: string | null;
   /** The listing on Etsy the charts are on (the back link). */
@@ -325,8 +327,13 @@ export interface Profile {
   /** Attribute value lists Etsy gave for the category; null until refreshed. */
   attribute_lists: number | null;
   fixed_image_ids: number[];
-  /** Where its size charts go on a draft. */
+  /** Where its size charts go on a draft: the preset... */
   size_chart_position?: "after_cover" | "third" | "last";
+  /** ...and each chart's own place (in the order they appear), which is what drafts use. */
+  size_chart_placement?: { listing_image_id: number; slot: number }[];
+  /** The seller dragged them; otherwise the preset. */
+  size_chart_custom?: boolean;
+  max_listing_images?: number;
   /** Occasion / Holiday defaults ("" = none, null = no default) and Etsy's values for its category. */
   default_occasion?: string | null;
   default_holiday?: string | null;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { makeCover, moveBefore, nudge, sameOrder } from "@/lib/order";
-import { arrange, sameSlots, slotsFromOrder } from "@/lib/chartOrder";
+import { arrange, placementFromOrder, samePlacement, type Placement } from "@/lib/chartOrder";
 import { cropStyle } from "@/lib/crop";
 import { CoverCropper } from "./CoverCropper";
 import type { Asset, BatchDetail, ImageDeleteResult } from "@/lib/types";
@@ -80,8 +80,8 @@ export function GroupImages({
   chartProfileName?: string | null;
   /** The listing on Etsy the charts are on. */
   chartListingId?: number | null;
-  /** Save a new placement; null follows the profile's position again. */
-  onChartSlots?: (slots: number[] | null) => Promise<void>;
+  /** Save a new placement (the charts in the order they appear); null follows the profile again. */
+  onChartSlots?: (placement: Placement[] | null) => Promise<void>;
 }) {
   const incoming = assets.map((a) => a.id);
   const [order, setOrder] = useState<string[]>(incoming);
@@ -118,12 +118,17 @@ export function GroupImages({
   // The size charts as tiles among the photos ("chart:<id>").
   const chartKeys = charts.map((c) => `chart:${c.listing_image_id}`);
   const chartByKey = new Map(charts.map((c) => [`chart:${c.listing_image_id}`, c]));
-  const incomingSlots = chartSlots.join(",");
-  const [slots, setSlots] = useState<number[]>(chartSlots);
+  // The placement in force: the charts in the order they appear, each with its slot.
+  const incomingPlaced = charts.map((c, i) => `${c.listing_image_id}:${chartSlots[i] ?? -1}`).join(",");
+  const [placed, setPlaced] = useState<Placement[]>(() => charts.map((c, i) => ({ listing_image_id: c.listing_image_id, slot: chartSlots[i] ?? -1 })));
   useEffect(() => {
-    setSlots(incomingSlots ? incomingSlots.split(",").map(Number) : []);
-  }, [incomingSlots]);
-  const strip: string[] = arrange(order, chartKeys, slots);
+    setPlaced(
+      incomingPlaced
+        ? incomingPlaced.split(",").map((x) => ({ listing_image_id: Number(x.split(":")[0]), slot: Number(x.split(":")[1]) }))
+        : [],
+    );
+  }, [incomingPlaced]);
+  const strip: string[] = arrange(order, placed.map((p) => `chart:${p.listing_image_id}`), placed.map((p) => p.slot));
 
   const byId = new Map(assets.map((a) => [a.id, a]));
   const coverAsset = byId.get(order[0]);
@@ -133,21 +138,21 @@ export function GroupImages({
   /** A change to the whole strip: the photos' order and the charts' places are saved apart. */
   async function apply(next: string[]) {
     const photos = next.filter((x) => !chartByKey.has(x));
-    const nextSlots = slotsFromOrder(next, chartKeys);
+    const nextPlaced = placementFromOrder(next, chartKeys);
     if (!sameOrder(photos, order)) await save(photos);
-    if (chartKeys.length && !sameSlots(nextSlots, slots)) await saveSlots(nextSlots);
+    if (chartKeys.length && !samePlacement(nextPlaced, placed)) await saveSlots(nextPlaced);
   }
 
-  async function saveSlots(next: number[] | null) {
+  async function saveSlots(next: Placement[] | null) {
     if (!onChartSlots) return;
-    const before = slots;
-    if (next) setSlots(next);
+    const before = placed;
+    if (next) setPlaced(next);
     setSaving(true);
     setError(null);
     try {
       await onChartSlots(next);
     } catch (e: any) {
-      setSlots(before);
+      setPlaced(before);
       setError(e.message ?? String(e));
     } finally {
       setSaving(false);
@@ -490,12 +495,21 @@ export function GroupImages({
         </div>
       )}
       {charts.length > 0 && (
-        <p key="charts" className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+        <p key="charts" className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+          <span
+            className={
+              "rounded-full px-2 py-0.5 font-medium ring-1 ring-inset " +
+              (chartCustom ? "bg-amber-50 text-amber-800 ring-amber-200" : "bg-slate-50 text-slate-600 ring-slate-200")
+            }
+            data-testid="chart-source"
+          >
+            {chartCustom ? "Changed for this group" : "Profile default"}
+          </span>
           <span>
             <span>{charts.length === 1 ? "The size chart" : "The size charts"}</span>
             <span>{chartProfileName ? " from profile " : " from the profile"}</span>
             {chartProfileName && <span key="name" translate="no">{chartProfileName}</span>}
-            <span>{chartCustom ? " are placed here for this listing." : " follow the profile's position; drag to place them elsewhere for this listing."}</span>
+            <span>{chartCustom ? " are placed here for this listing only." : " are where the profile puts them; drag one to change it for this listing."}</span>
           </span>
           {chartListingId && (
             <a key="etsy" className="tap text-brand-700 underline" href={`https://www.etsy.com/listing/${chartListingId}`} target="_blank" rel="noopener noreferrer">
@@ -503,8 +517,8 @@ export function GroupImages({
             </a>
           )}
           {chartCustom && onChartSlots && (
-            <button key="reset" type="button" className="tap text-brand-700 underline" onClick={() => saveSlots(null)} disabled={saving}>
-              Use the profile&apos;s position
+            <button key="reset" type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => saveSlots(null)} disabled={saving} data-testid="chart-reset">
+              Reset to profile
             </button>
           )}
         </p>
