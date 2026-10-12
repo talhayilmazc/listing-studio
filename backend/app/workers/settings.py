@@ -12,6 +12,7 @@ all boot and run.
 from __future__ import annotations
 
 import uuid
+import logging
 from typing import Any
 
 from arq import cron
@@ -47,6 +48,8 @@ from app.workers.sections import create_shop_section, sync_shop_sections
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
 
+logger = logging.getLogger(__name__)
+
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
 init_error_tracking("worker")
@@ -76,6 +79,11 @@ async def flush_usage(ctx: dict[str, Any]) -> None:
 
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
+    # Said at every start, so the log shows which way this worker is running.
+    if settings.etsy_calls_blocked:
+        logger.warning("ETSY_CALLS_BLOCKED is on: this worker sends nothing to Etsy (no API call, token refresh or image fetch)")
+    else:
+        logger.info("Etsy calls are enabled (ETSY_CALLS_BLOCKED is off)")
     redis = ctx["redis"]  # arq provides the pool
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["usage"] = UsageRecorder()

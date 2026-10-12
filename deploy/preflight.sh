@@ -42,6 +42,21 @@ perms="$(stat -c %a "$ENV_FILE" 2>/dev/null || echo "?")"
 
 [ "$(get APP_ENV)" = "production" ] && pass "APP_ENV=production" || fail "APP_ENV must be production"
 
+# The development switch that refuses every Etsy call before it is sent
+# (backend/app/etsy/guard.py). Left on in production the app looks healthy and
+# does nothing on Etsy. Compose's environment outranks .env, so both are read.
+etsy_blocked="$(get ETSY_CALLS_BLOCKED | tr '[:upper:]' '[:lower:]')"
+if grep -qsiE '^[[:space:]]*-?[[:space:]]*ETSY_CALLS_BLOCKED[:=][[:space:]]*"?(true|1|yes|on|t|y)"?[[:space:]]*$' "${COMPOSE_FILE:-docker-compose.prod.yml}"; then
+  etsy_blocked=true
+fi
+case "$etsy_blocked" in
+  true|1|yes|on|t|y)
+    if [ "$(get APP_ENV)" = "production" ]; then
+      fail "ETSY_CALLS_BLOCKED is on in production: no drafts, publishes or syncs will reach Etsy"
+    fi ;;
+  *) pass "Etsy calls are not blocked" ;;
+esac
+
 for key in POSTGRES_PASSWORD DATABASE_URL ENCRYPTION_KEY ADMIN_TOKEN SECRET_KEY \
            FRONTEND_URL CORS_ORIGINS ETSY_REDIRECT_URI ETSY_CLIENT_ID ETSY_CLIENT_SECRET \
            LLM_API_KEY SUPPORT_EMAIL OPERATOR_NAME OPERATOR_LOCATION GOVERNING_LAW DISPUTE_VENUE; do

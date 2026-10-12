@@ -39,7 +39,8 @@ services:
       # Development never calls Etsy: the local database can hold real shops
       # that production already serves, and a local sync, stats read, draft or
       # token refresh for them must not happen (backend/app/etsy/guard.py).
-      # Set to "false" here only to work against a test shop of your own.
+      # Local development always runs with this on; Etsy features are
+      # smoke-tested on production, with the test shop only.
       ETSY_CALLS_BLOCKED: "true"
       # Development never deletes uploads by itself: local storage holds real
       # accounts' designs. The daily job only reports what it would delete.
