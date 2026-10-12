@@ -32,6 +32,7 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.db.models import Tenant
+from app.etsy import guard
 from app.etsy.connection import ConnectionService
 from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops
 from app.etsy.oauth import (
@@ -65,6 +66,9 @@ async def start(
 ) -> RedirectResponse:
     """Begin the OAuth flow: store PKCE state, redirect the browser to Etsy."""
     settings = get_settings()
+    if guard.blocked():
+        # Development switch: the browser is not sent to Etsy to authorise a shop.
+        return _refused(f"{settings.frontend_url}/connect", guard.MESSAGE)
     if not settings.etsy_client_id:
         # Can't start without credentials; bounce back with an error marker.
         return _redirect(f"{settings.frontend_url}/connect?status=unconfigured")
@@ -120,6 +124,10 @@ async def callback(
     """Handle Etsy's redirect back: validate state, exchange code, persist tokens."""
     settings = get_settings()
     back = f"{settings.frontend_url}/connect"
+    if guard.blocked():
+        if state:
+            await redis.delete(_state_key(state))
+        return _refused(back, guard.MESSAGE)
 
     if error:
         # Etsy sent the browser back with its reason (invalid_scope, access_denied...).

@@ -23,6 +23,8 @@ from urllib.parse import quote, urlencode
 
 import httpx
 
+from app.etsy import guard
+
 
 class OAuthError(Exception):
     """Token exchange or refresh failed.
@@ -158,6 +160,7 @@ async def exchange_code(
     verifier: str,
 ) -> TokenResponse:
     """Exchange an authorization code for tokens (PKCE, no client secret)."""
+    guard.check("token exchange")
     resp = await client.post(
         token_url,
         data={
@@ -181,6 +184,9 @@ async def refresh_tokens(
     refresh_token: str,
 ) -> TokenResponse:
     """Exchange a refresh token for a fresh access (and refresh) token."""
+    # Refused before the request when Etsy calls are blocked: a refresh replaces
+    # the refresh token, and the stored one must stay as it is.
+    guard.check("token refresh")
     resp = await client.post(
         token_url,
         data={

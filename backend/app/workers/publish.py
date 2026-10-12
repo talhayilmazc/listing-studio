@@ -32,6 +32,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
+from app.etsy import guard
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishConfig, PublishImage, publish_content, publish_live
@@ -129,6 +130,7 @@ async def copied_size_charts(
         )
 
     images: list[PublishImage] = []
+    guard.check("size chart images")
     async with httpx.AsyncClient(timeout=30.0) as img_http:  # no Etsy headers to the image host
         for image_id in wanted:
             try:

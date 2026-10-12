@@ -29,6 +29,7 @@ from app.db.models import (
     Tenant,
     TenantStatus,
 )
+from app.etsy import guard
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.calllog import current_job
 from app.etsy.connection import ConnectionService
@@ -338,6 +339,7 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         async with httpx.AsyncClient(timeout=20.0) as img_http:
 
             async def _fetch(url: str) -> tuple[bytes, str] | None:
+                guard.check("reference image")
                 try:
                     resp = await img_http.get(url)
                     resp.raise_for_status()

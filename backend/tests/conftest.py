@@ -40,6 +40,9 @@ def test_settings() -> Settings:
         global_pause_percent=90,
         etsy_client_id="",
         etsy_client_secret="",
+        # The development switch that refuses every Etsy call (app/etsy/guard.py) is
+        # on in the dev containers' environment; tests decide it for themselves.
+        etsy_calls_blocked=False,
         # The legal-identity fields decide whether production starts; tests set them explicitly.
         support_email="support@example.com",
         operator_name="",

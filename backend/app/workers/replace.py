@@ -39,6 +39,7 @@ from app.db.models import (
     ListingPublication,
     Tenant,
 )
+from app.etsy import guard
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
 from app.etsy.publisher import PublishImage, replace_listing_images
@@ -208,6 +209,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 async with httpx.AsyncClient(timeout=20.0) as img_http:
 
                     async def _fetch(url: str) -> tuple[bytes, str] | None:
+                        guard.check("listing image")
                         try:
                             resp = await img_http.get(url)
                             resp.raise_for_status()

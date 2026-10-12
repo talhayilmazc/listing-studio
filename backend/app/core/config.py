@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     etsy_oauth_authorize_url: str = "https://www.etsy.com/oauth/connect"
     etsy_oauth_token_url: str = "https://api.etsy.com/v3/public/oauth/token"
     etsy_redirect_uri: str = "http://localhost:8000/api/auth/etsy/callback"
+    # Development only (ETSY_CALLS_BLOCKED): refuse every outbound Etsy call before
+    # any network I/O, token refresh included (app/etsy/guard.py). For a local
+    # database that holds real shops production is already serving. Off by
+    # default; docker-compose.yml turns it on for local work.
+    etsy_calls_blocked: bool = False
     # transactions_r (added 2026-09-26): read the shop's own sales for the seller's
     # analytics. Only listing id, quantity, price and date are read; buyer fields
     # (names, addresses, emails, messages) are never stored (CLAUDE.md rule 2).

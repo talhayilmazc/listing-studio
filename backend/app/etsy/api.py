@@ -37,6 +37,7 @@ from app.etsy.client import ETSY_API_BASE, auth_headers
 from app.etsy.calllog import CallLog, current_job
 from app.etsy.categories import category_of
 from app.etsy.errors import raise_for_etsy_status
+from app.etsy import guard
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
 
@@ -152,6 +153,8 @@ class EtsyApiClient:
         repeat: bool | None = None,
     ) -> dict[str, Any]:
         """``repeat`` overrides whether no-answer/5xx is retried here (default: by method)."""
+        # Development switch: nothing leaves for Etsy, and no quota or bucket is spent.
+        guard.check(f"{method.upper()} {path}")
         repeatable = (method.upper() in REPEATABLE) if repeat is None else repeat
         attempt = 0  # every send
         refused = 0  # 429s
