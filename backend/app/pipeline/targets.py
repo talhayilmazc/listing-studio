@@ -59,6 +59,9 @@ class Target:
     link: ProfileShopLink | None = None
     #: What is wrong is that the profile is not set up in this shop: one click fixes it.
     setup: bool = False
+    #: What is wrong is the listing's own text under this shop's profile (its
+    #: title or tags), not the shop's setup.
+    by_text: bool = False
 
     @property
     def ok(self) -> bool:
@@ -133,6 +136,31 @@ async def shop_profiles(session: AsyncSession, connection_id: uuid.UUID) -> list
     return await profile_shops.shop_profiles(session, connection_id)
 
 
+def retext(
+    content: GeneratedContent, source: ListingProfile | None, chosen: ListingProfile
+) -> tuple[str, str, FittedTitle]:
+    """The listing's title and description as ``chosen`` builds them, when it was
+    written with ``source``: the title's prefix is swapped for the new profile's
+    (trailing phrases dropped only if that pushes it past 140 characters) and the
+    description is the new profile's reference body under the listing's opening
+    (short style) or title (long style). A title the seller has not written yet
+    stays empty."""
+    from app.pipeline import manual
+
+    fitted = retarget_title(content.title or "", source.title_prefix if source else None, chosen.title_prefix)
+    if manual.is_manual(content):
+        # The seller's own title: no prefix was added for them, so none is swapped.
+        fitted = FittedTitle(content.title or "", True)
+        return fitted.title, manual.description_for(chosen, fitted.title), fitted
+    title = fitted.title
+    body = str((chosen.cached_payload or {}).get("description", ""))
+    opening = str(((content.attributes or {}).get("search") or {}).get("opening") or "")
+    # A listing written with a design-specific opening keeps it in every shop;
+    # the body below it is that profile's own.
+    description = with_opening(body, opening) if opening else replace_title_block(body, title)
+    return title, description, fitted
+
+
 async def resolve_target(
     session: AsyncSession,
     content: GeneratedContent,
@@ -200,15 +228,7 @@ async def resolve_target(
     if source is not None and chosen.id == source.id:
         title, description = content.title or "", content.description or ""
     else:
-        fitted = retarget_title(
-            content.title or "", source.title_prefix if source else None, chosen.title_prefix
-        )
-        title = fitted.title
-        body = str((chosen.cached_payload or {}).get("description", ""))
-        opening = str(((content.attributes or {}).get("search") or {}).get("opening") or "")
-        # A listing written with a design-specific opening keeps it in every shop;
-        # the body below it is that shop's own.
-        description = with_opening(body, opening) if opening else replace_title_block(body, title)
+        title, description, fitted = retext(content, source, chosen)
         errors = validate_listing(
             GeneratedListing(title=title, tags=list(content.tags or []), description=description),
             policy_for(chosen.content_template),
@@ -232,5 +252,5 @@ async def resolve_target(
                 len(fitted.dropped),
             )
         if errors:
-            return Target(connection, chosen, "with this profile's title prefix: " + "; ".join(errors), link=link)
+            return Target(connection, chosen, "with this profile's title prefix: " + "; ".join(errors), link=link, by_text=True)
     return Target(connection, chosen, None, title, description, link=link)

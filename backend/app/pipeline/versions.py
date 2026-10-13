@@ -17,16 +17,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ContentVersion, GeneratedContent, ListingPublication
 
-SHORT, LONG = "short", "long"
-REASONS = ("generated", "edited", "replaced")
+SHORT, LONG, MANUAL = "short", "long", "manual"
+#: The styles the app writes: only these are compared with each other.
+WRITTEN_STYLES = (SHORT, LONG)
+REASONS = ("generated", "edited", "manual", "replaced")
+
+
+def source_of(content: GeneratedContent | None) -> str:
+    """"manual" when the seller wrote the title and tags themselves (pipeline/manual.py)."""
+    return MANUAL if getattr(content, "source", "ai") == MANUAL else "ai"
 
 
 def title_style(content: GeneratedContent | None) -> str:
-    """"short" when the listing was written in the "Etsy recommended (short)" style."""
+    """"short" when the listing was written in the "Etsy recommended (short)" style;
+    "manual" when the seller wrote the title, which is in neither of the app's styles."""
+    if source_of(content) == MANUAL:
+        return MANUAL
     return SHORT if content is not None and (content.attributes or {}).get("search") else LONG
 
 
 def reason_for(content: GeneratedContent | None) -> str:
+    if source_of(content) == MANUAL:
+        return "manual"  # nothing was generated: the seller's own text from the start
     return "edited" if content is not None and (content.attributes or {}).get("edited") else "generated"
 
 
@@ -57,6 +69,7 @@ def drafted(
         etsy_listing_id=publication.etsy_listing_id, title=title, tags=list(tags or []), description=description,
         attributes=dict(attributes), section=section, sku=sku, title_style=title_style(content), reason=reason_for(content),
         vision_model=getattr(content, "vision_model", None), content_model=getattr(content, "model_used", None),
+        source=source_of(content),
     )
     session.add(version)
     return version
@@ -85,6 +98,7 @@ async def replaced(
         sku=before.sku if before is not None else publication.sku, title_style=style,
         reason="replaced", active_from=at if publication.published_at is not None else None,
         vision_model=vision_model, content_model=content_model,
+        source="ai",  # Replace images (full) is always written by the app
     )
     session.add(version)
     return version
@@ -106,9 +120,10 @@ async def sku_changed(session: AsyncSession, publication: ListingPublication, at
         section=before.section if before is not None else None, sku=sku,
         title_style=before.title_style if before is not None else LONG,
         reason="sku_edited", active_from=at if publication.published_at is not None else None,
-        # The same text, so the same models wrote it.
+        # The same text, so the same models wrote it (or the seller did).
         vision_model=before.vision_model if before is not None else None,
         content_model=before.content_model if before is not None else None,
+        source=before.source if before is not None else "ai",
     )
     session.add(version)
     return version

@@ -372,6 +372,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 content.title, content.tags, content.description = new_title, new_tags, new_description
                 content.written_from_asset_id = content.asset_id  # the cover just analysed
                 content.vision_model, content.model_used = wrote
+                content.source = "ai"  # a listing the seller wrote themselves is the app's from here
                 # The style it is now written in (the review page and its versions read it).
                 attrs = {k: v for k, v in (content.attributes or {}).items() if k != "search"}
                 if style == versions.SHORT:

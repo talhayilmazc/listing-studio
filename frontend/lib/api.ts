@@ -62,6 +62,8 @@ import type {
   Shop,
   ShopsOut,
   ReplaceImagesResult,
+  ReferenceText,
+  ShopTickResult,
   ShopListings,
   ShopSummary,
   ItemOptions,
@@ -310,6 +312,23 @@ export const api = {
     },
   ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
+  /**
+   * "Write title and tags myself": an empty listing for one group (or every group
+   * not written yet), with everything else from its profile. No AI is called.
+   */
+  writeManually: (id: string, groupKey?: string, opts: { ignoreUnsorted?: boolean } = {}) =>
+    req<GenerateResult>(`/batches/${id}/manual`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...(groupKey != null ? { group_key: groupKey } : {}),
+        ...(opts.ignoreUnsorted ? { ignore_unsorted: true } : {}),
+      }),
+    }),
+  /** The title and tags of the listing's profile's reference listing (the seller's own). */
+  referenceText: (contentId: string) => req<ReferenceText>(`/content/${contentId}/reference-text`),
+  /** Tick or untick one shop for the batch's listings (all, or the ones named); kept on each listing. */
+  tickShop: (id: string, body: { connection_id: string; on: boolean; content_ids?: string[] }) =>
+    req<ShopTickResult>(`/batches/${id}/targets`, { method: "PUT", body: JSON.stringify(body) }),
   // Occasion, Holiday and Section per shop on the review card (Etsy's own values).
   itemOptions: (contentId: string) => req<ItemOptions>(`/content/${contentId}/options`),
   /** Only the fields sent change: values ([] = none), null = back to the writer's;

@@ -141,8 +141,60 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       setProblem(null);
       const gs = await api.assignGroup(id, body);
       setSettings(Object.fromEntries(gs.map((g) => [g.group_key, g])));
+      // A listing already written takes the profile chosen for its group.
+      const keys = body.group_key != null ? [body.group_key] : body.group_keys ?? [];
+      const moved = body.profile_id ? groups.filter((g) => keys.includes(g.key) && g.done) : [];
+      if (moved.length) {
+        const name = profiles.find((p) => p.id === body.profile_id)?.name ?? "the new profile";
+        setNotice(
+          `${moved.map((g) => g.label).join(", ")} now ${moved.length === 1 ? "uses" : "use"} ${name}: price, variations, shipping, ` +
+            "returns and the description come from it, and the title has its prefix. No AI was used. Approve again on the review page.",
+        );
+        await load();
+      }
     } catch (e: any) {
       setProblem(e.message ?? String(e));
+    }
+  }
+
+  // "Set up <profile> in <shop>" on a group whose profile is not usable in its shop yet.
+  async function setUpProfile(profileId: string, shopId: string) {
+    try {
+      setProblem(null);
+      await api.useProfileIn(profileId, { scope: "shops", connection_ids: [shopId] });
+      for (const wait of [1500, 6000, 15000]) setTimeout(loadGroups, wait);
+    } catch (e: any) {
+      setProblem(e.message ?? String(e));
+    }
+  }
+
+  // "Write title and tags myself": an empty listing with everything else from the
+  // group's profile. No AI is called; it counts as one listing, like any other.
+  async function writeMyself(groupKey?: string) {
+    if (blockedByUnsorted) {
+      setProblem(unsortedMessage(unsorted.length));
+      return;
+    }
+    setBusy(groupKey ?? "__all__");
+    setNotice(null);
+    setProblem(null);
+    setFailures([]);
+    try {
+      const res = await api.writeManually(id, groupKey, { ignoreUnsorted });
+      const why = (res.skipped_groups ?? []).map((s) => s.reason).join("; ");
+      setNotice(
+        res.generated
+          ? `${res.generated} listing${res.generated === 1 ? "" : "s"} ready for you to write: open Review listings to type the title and tags.` +
+              (res.failed ? ` ${res.failed} could not be started.` : "")
+          : why || (res.failed ? "Nothing could be started." : "Every group is already written."),
+      );
+      setFailures(res.failures);
+      await load();
+      await loadGroups();
+    } catch (e: any) {
+      setProblem(e.message ?? String(e));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -451,6 +503,12 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               <button className="btn-secondary sm:ml-auto" onClick={generateAll} disabled={anyBusy || noProfiles}>
                 {busy === "__all__" ? "Generating all…" : "Generate content for all"}
               </button>
+              {groups.some((g) => !g.done) && (
+                <button key="manual-all" className="tap text-sm text-brand-700 underline" onClick={() => writeMyself()} disabled={anyBusy || noProfiles}
+                  title="No AI: you type each title and its 13 tags; everything else comes from the group's profile" data-testid="manual-all">
+                  Write titles and tags myself
+                </button>
+              )}
             </div>
           </>
         )}
@@ -551,7 +609,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           const pubs = mine.flatMap((c) => c.publications);
           const asking = confirming?.key === g.key ? confirming.kind : null;
           return (
-            <div key={g.key} className="card p-3">
+            <div key={g.key} id={`group-${g.key}`} className="card scroll-mt-4 p-3 target:ring-2 target:ring-brand-500/50">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   {groups.length > 1 && !noProfiles && (
@@ -584,7 +642,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   </span>
                   {g.done && pubs.length === 0 && (
                     <span key="span-358-18" className="text-xs text-emerald-600">
-                      <span><span>✓ content ready</span><Txt>{approved ? " · approved" : ""}</Txt></span>
+                      <span><span>{s?.source === "manual" ? "✓ written by you" : "✓ content ready"}</span><Txt>{approved ? " · approved" : ""}</Txt></span>
                     </span>
                   )}
                   {pubs.length > 0 && (
@@ -603,19 +661,34 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     {busy === g.key ? "Replacing…" : "Replace images on Etsy"}
                   </button>
                 ) : (
-                  <button
-                    className="btn-secondary py-1 text-xs"
-                    onClick={() =>
-                      !g.done
-                        ? generate(g.key)
-                        : approved
-                          ? setConfirming({ key: g.key, kind: "regenerate" })
-                          : regenerate(g, false)
-                    }
-                    disabled={anyBusy || noProfiles}
-                  >
-                    {busy === g.key ? "Generating…" : g.done ? "Regenerate" : "Generate"}
-                  </button>
+                  <span className="flex flex-wrap items-center justify-end gap-2">
+                    {!g.done && (
+                      <button
+                        key="manual"
+                        className="tap text-xs text-brand-700 underline"
+                        onClick={() => writeMyself(g.key)}
+                        disabled={anyBusy || noProfiles}
+                        title="No AI: you type the title and the 13 tags; everything else comes from this group's profile"
+                        data-testid="manual-one"
+                      >
+                        Write title and tags myself
+                      </button>
+                    )}
+                    <button
+                      className="btn-secondary py-1 text-xs"
+                      onClick={() =>
+                        !g.done
+                          ? generate(g.key)
+                          : approved
+                            ? setConfirming({ key: g.key, kind: "regenerate" })
+                            : regenerate(g, false)
+                      }
+                      disabled={anyBusy || noProfiles}
+                      data-testid="generate-one"
+                    >
+                      {busy === g.key ? "Working…" : !g.done ? "Generate" : s?.source === "manual" ? "Generate with AI" : "Regenerate"}
+                    </button>
+                  </span>
                 )}
               </div>
 
@@ -727,6 +800,38 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     {s?.manual ? "set here" : s?.profile_id ? "carried from above" : shopOf(g.key) ? "choose a profile" : "choose a shop"}
                   </span>
                 </div>
+              )}
+              {s?.profile_setup && (
+                <p key="profile-setup" role="status" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="profile-setup">
+                  <span className="font-medium" translate="no">{s.profile_setup.profile_name}</span>
+                  <span>{s.profile_setup.checking ? " is being set up in " : " cannot build a draft in "}</span>
+                  <span translate="no">{s.profile_setup.shop_name ?? "this shop"}</span>
+                  <span>{s.profile_setup.checking ? " now." : ` yet: ${s.profile_setup.reason}.`}</span>
+                  {s.profile_setup.setup && (
+                    <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={anyBusy}
+                      onClick={() => setUpProfile(s.profile_setup!.profile_id, s.profile_setup!.connection_id)}>
+                      <span>Set it up there</span>
+                    </button>
+                  )}
+                  {!s.profile_setup.setup && !s.profile_setup.checking && (
+                    <Link key="profiles" href="/profiles" className="tap ml-1 text-brand-700 underline">Finish on the Profiles page</Link>
+                  )}
+                </p>
+              )}
+              {g.done && s?.profile_id && s.listing_profile_id && s.listing_profile_id !== s.profile_id && (
+                <p key="profile-differs" role="status" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="profile-differs">
+                  <span>This listing is built with </span>
+                  <span className="font-medium" translate="no">{s.listing_profile_name ?? "another profile"}</span>
+                  <span>, not the profile shown here. </span>
+                  {pubs.length === 0 ? (
+                    <button key="apply" type="button" className="tap text-brand-700 underline" disabled={anyBusy}
+                      onClick={() => assign({ group_key: g.key, profile_id: s.profile_id })}>
+                      Use the profile shown here for it
+                    </button>
+                  ) : (
+                    <span key="etsy">It is already on Etsy, so it keeps that profile.</span>
+                  )}
+                </p>
               )}
               {patternsOn && (
                 <PatternPicker key="patternpicker-460-14"

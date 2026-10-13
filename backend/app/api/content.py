@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import active_tenant, get_session
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.db.models import (
     Asset,
     ComplianceFinding,
@@ -20,6 +21,7 @@ from app.db.models import (
     JobType,
     ListingProfile,
     ListingPublication,
+    ShopListingCache,
     Tenant,
     UploadBatch,
 )
@@ -28,9 +30,10 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline import versions
+from app.pipeline import manual, versions
 from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
 from app.pipeline.personalization import DEFAULT_QUESTION
+from app.pipeline.reference import decode_etsy_text
 from app.pipeline.personalization import for_listing as personalization_for_listing
 from app.pipeline.personalization import validate as validate_personalization
 
@@ -179,16 +182,20 @@ async def mark_manual_steps_done(
     return schemas.ManualStepsDone(updated_drafts=updated)
 
 
-async def _profile_shops(
+async def _own_shops(
     session: AsyncSession, contents: list[GeneratedContent]
 ) -> dict[uuid.UUID, uuid.UUID]:
-    ids = {c.listing_profile_id for c in contents if c.listing_profile_id}
-    if not ids:
-        return {}
-    rows = await session.execute(
-        select(ListingProfile.id, ListingProfile.connection_id).where(ListingProfile.id.in_(ids))
-    )
-    return {pid: cid for pid, cid in rows.all()}
+    """The shop each listing was written for, by listing: its group's shop, else
+    its batch's, else its profile's main shop (pipeline/shop_targets.py). The
+    same shop the review page's matrix calls its own."""
+    from app.pipeline import shop_targets
+
+    out: dict[uuid.UUID, uuid.UUID] = {}
+    for content in contents:
+        shop = await shop_targets.own_shop(session, content)
+        if shop is not None:
+            out[content.id] = shop.id
+    return out
 
 
 async def unfinished_work(
@@ -262,7 +269,7 @@ async def contents_out(
 ) -> list[schemas.ContentOut]:
     pubs = await publications(session, [c.id for c, _ in pairs])
     work = await unfinished_work(session, [c for c, _ in pairs])
-    shops = await _profile_shops(session, [c for c, _ in pairs])
+    shops = await _own_shops(session, [c for c, _ in pairs])
     findings: dict[uuid.UUID, list[schemas.FindingOut]] = {c.id: [] for c, _ in pairs}
     if pairs:
         rows = await session.execute(
@@ -274,7 +281,7 @@ async def contents_out(
             findings[f.generated_content_id].append(
                 schemas.FindingOut(rule=f.rule, severity=f.severity.value, detail=f.detail)
             )
-    outs = [_to_out(c, a, pubs[c.id], shops.get(c.listing_profile_id)) for c, a in pairs]
+    outs = [_to_out(c, a, pubs[c.id], shops.get(c.id)) for c, a in pairs]
     profile_ids = {c.listing_profile_id for c, _ in pairs if c.listing_profile_id}
     profiles = (
         {p.id: p for p in (await session.execute(select(ListingProfile).where(ListingProfile.id.in_(profile_ids)))).scalars()}
@@ -291,6 +298,8 @@ async def contents_out(
         bounds = bounds_for(profile)
         out.title_min_length, out.title_max_length = bounds.min_length, bounds.max_length
         out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
+        # The listing's profile: chosen at upload or on its group, changed there.
+        out.profile_id, out.profile_name = (profile.id, profile.name) if profile else (None, None)
         out.attributes = dict((c.attributes or {}).get("listing") or {})
     for out in outs:
         out.findings = findings.get(out.id, [])
@@ -327,6 +336,8 @@ def _to_out(
         original_filename=asset.original_filename,
         parsed_sku=asset.parsed_sku,
         rank=asset.rank,
+        group_key=asset.group_key or "",
+        source=manual.MANUAL if manual.is_manual(content) else manual.AI,
     )
 
 
@@ -426,9 +437,16 @@ async def list_batch_content(
         select(GeneratedContent, Asset)
         .join(Asset, Asset.id == GeneratedContent.asset_id)
         .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
-        .order_by(Asset.rank)
     )
-    return await contents_out(session, [(content, asset) for content, asset in rows.all()])
+    # One fixed order: by group, as the batch page and the matrix list them. Every
+    # cover has rank 1, so ordering by rank alone left the database to choose, and
+    # the cards changed places after each change to a listing ("Set for all",
+    # "Approve all", an edit).
+    pairs = sorted(
+        ((content, asset) for content, asset in rows.all()),
+        key=lambda pair: ((pair[1].group_key or "").lower(), pair[1].original_filename.lower(), str(pair[0].id)),
+    )
+    return await contents_out(session, pairs)
 
 
 @router.patch("/content/{content_id}", response_model=schemas.ContentUpdateResult)
@@ -446,6 +464,11 @@ async def update_content(
         content.tags = body.tags
     if body.description is not None:
         content.description = body.description
+    if manual.is_manual(content) and (content.title, content.description) != (before[0], before[2]):
+        # A listing the seller writes: the description's title block follows the
+        # title they type, for as long as they have not edited the description.
+        profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+        manual.follow_title(content, profile, before[0])
     if (content.title, list(content.tags or []), content.description) != before:
         versions.mark_edited(content)  # its published versions say "edited" (Part D)
     if "personalization" in body.model_fields_set:
@@ -456,6 +479,40 @@ async def update_content(
     asset = await session.get(Asset, content.asset_id)
     return schemas.ContentUpdateResult(
         content=(await contents_out(session, [(content, asset)]))[0], validation=await _validation(session, content)
+    )
+
+
+@router.get("/content/{content_id}/reference-text", response_model=schemas.ReferenceText)
+async def reference_text(
+    content_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.ReferenceText:
+    """"Start from the profile's reference title and tags": the seller's own
+    reference listing, from their shop's listing cache while it is fresh (6 hours).
+    Nothing is saved: the card fills its fields and the seller edits and saves."""
+    content = await _get(session, tenant, content_id)
+    profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+    if profile is None or profile.tenant_id != tenant.id or profile.reference_listing_id is None:
+        raise HTTPException(status_code=409, detail="This listing's profile has no reference listing to start from.")
+    row = await session.get(ShopListingCache, (tenant.id, profile.reference_listing_id))
+    fetched = None
+    if row is not None:
+        fetched = row.fetched_at if row.fetched_at.tzinfo else row.fetched_at.replace(tzinfo=timezone.utc)
+    if row is None or (datetime.now(timezone.utc) - fetched).total_seconds() >= ShopListingCache.STALE_SECONDS:
+        # Listing content is shown for six hours at most: read the shop again first.
+        await enqueuer.enqueue("sync_shop_listings", str(profile.connection_id))
+        raise HTTPException(
+            status_code=409,
+            detail="Your shop's listings are being read from Etsy again; try in a minute.",
+        )
+    payload = row.payload or {}
+    return schemas.ReferenceText(
+        title=decode_etsy_text(payload.get("title")) or "",
+        tags=[str(t) for t in payload.get("tags") or []],
+        listing_id=profile.reference_listing_id,
+        profile_name=profile.name,
     )
 
 

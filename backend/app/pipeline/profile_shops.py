@@ -91,6 +91,33 @@ async def ensure_main_link(session: AsyncSession, profile: ListingProfile) -> Pr
     return link
 
 
+async def start_links(
+    session: AsyncSession, profile: ListingProfile, shop_ids: list[uuid.UUID]
+) -> list[uuid.UUID]:
+    """Begin setting ``profile`` up in each of ``shop_ids`` ("Use in").
+
+    A shop it is already linked to, or being linked to, is left as it is; a link
+    that failed is tried again. Returns the shops started: the caller commits and
+    queues one ``link_profile`` job, which reads the shops, links every exact
+    match at once and keeps what is left for the seller (workers/links.py).
+    """
+    links = {link.connection_id: link for link in (await links_of(session, [profile.id]))[profile.id]}
+    started: list[uuid.UUID] = []
+    for shop_id in shop_ids:
+        if shop_id == profile.connection_id:
+            continue
+        link = links.get(shop_id)
+        if link is not None and link.status not in ("error",):
+            continue  # linked or being linked: left as it is
+        if link is None:
+            link = ProfileShopLink(tenant_id=profile.tenant_id, profile_id=profile.id, connection_id=shop_id)
+            session.add(link)
+        link.status, link.notes, link.pending_create = "checking", None, None
+        started.append(shop_id)
+    await ensure_main_link(session, profile)
+    return started
+
+
 async def shop_profiles(
     session: AsyncSession, connection_id: uuid.UUID, *, confirmed: bool = True
 ) -> list[ListingProfile]:

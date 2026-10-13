@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ContentVersion, ListingPublication, ListingStatDaily, SalesDaily
+from app.pipeline import versions
 
 LABEL = "listing views on Etsy, not search impressions"
 MIN_LISTINGS = 30
@@ -184,6 +185,8 @@ async def compare_styles(
         )).scalar_one_or_none()
         if first is None:  # published before versions were kept: its style is unknown
             continue
+        if first.title_style not in versions.WRITTEN_STYLES:
+            continue  # the seller wrote its title themselves: it is in neither style
         unit = Unit(p.etsy_listing_id, first.title_style)
         # A listing whose text was later replaced counts only while its first text was live.
         ended = first.active_to.date() if first.active_to is not None else today

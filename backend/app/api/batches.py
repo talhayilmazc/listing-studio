@@ -44,7 +44,9 @@ from app.db.models import (
 from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
-from app.pipeline import chart_order, grouping, upload_retention
+from app.compliance.scanner import rescan
+from app.pipeline import chart_order, grouping, manual, profile_shops, upload_retention
+from app.pipeline.targets import retext
 from app.pipeline.archive import read_archive
 from app.pipeline.batch_names import clean_name, names_for
 from app.pipeline.content import (
@@ -575,6 +577,47 @@ async def _batch_groups(
         if batch is not None and p.tenant_id == batch.tenant_id
     } if wanted else {}
 
+    # Each group's written listing: who wrote it and with which profile.
+    written: dict[str, GeneratedContent] = {}
+    asset_group = {a.id: a.group_key or "" for a in assets}
+    for content in (
+        await session.execute(select(GeneratedContent).where(GeneratedContent.batch_id == batch_id))
+    ).scalars():
+        written.setdefault(asset_group.get(content.asset_id, ""), content)
+    # The account's profiles, for saying whether a group's profile is set up in its shop.
+    mine = [
+        p for p in (
+            await session.execute(select(ListingProfile).where(ListingProfile.tenant_id == batch.tenant_id))
+        ).scalars()
+    ] if batch is not None else []
+    by_profile = {p.id: p for p in mine}
+    links = await profile_shops.links_of(session, [p.id for p in mine]) if mine else {}
+
+    def setup_note(profile_id: uuid.UUID | None, shop: EtsyConnection | None) -> schemas.ProfileSetupNote | None:
+        """Why the group's profile cannot build a draft in the group's shop yet, or None."""
+        profile = by_profile.get(profile_id) if profile_id else None
+        if profile is None or shop is None or profile.connection_id == shop.id:
+            return None
+        link = next((x for x in links.get(profile.id, []) if x.connection_id == shop.id), None)
+        if link is None:
+            # A same-named profile that lives in that shop serves it, as drafts do (pipeline/targets.py).
+            if any(p.connection_id == shop.id and p.confirmed and p.content_template == profile.content_template
+                   and p.name.strip().casefold() == profile.name.strip().casefold() for p in mine):
+                return None
+            return schemas.ProfileSetupNote(
+                profile_id=profile.id, profile_name=profile.name, connection_id=shop.id, shop_name=shop_label(shop),
+                reason="not set up in this shop yet", setup=True,
+            )
+        state = profile_shops.state_of(profile, link)
+        if state is None or state.ready:
+            return None
+        return schemas.ProfileSetupNote(
+            profile_id=profile.id, profile_name=profile.name, connection_id=shop.id, shop_name=shop_label(shop),
+            reason=state.reason or "not ready in this shop",
+            # A setup that failed is tried again in one click; what is missing is chosen on the Profiles page.
+            setup=state.status == "error", checking=state.status == "checking",
+        )
+
     out: list[schemas.GroupOut] = []
     for key in sorted(grouped):
         members = grouped[key]
@@ -629,6 +672,14 @@ async def _batch_groups(
                 chart_profile_name=cp.name if cp else None,
                 chart_listing_id=cp.reference_listing_id if cp else None,
                 image_limit=image_limit,
+                source=(manual.MANUAL if manual.is_manual(written[key]) else manual.AI) if key in written else None,
+                listing_profile_id=written[key].listing_profile_id if key in written else None,
+                listing_profile_name=(
+                    by_profile[written[key].listing_profile_id].name
+                    if key in written and written[key].listing_profile_id in by_profile
+                    else None
+                ),
+                profile_setup=setup_note(s.profile_id if s else None, shop),
             )
         )
     return out
@@ -719,6 +770,54 @@ async def _own_profile(session: AsyncSession, tenant: Tenant, profile_id: uuid.U
     return profile
 
 
+async def _follow_profile(
+    session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, keys: list[str], profile: ListingProfile
+) -> None:
+    """The written listings of ``keys`` take ``profile``: the profile shown on a
+    group is the one its drafts are built with (it used to change on the card
+    only, while the draft kept the profile the listing was written with).
+
+    The title's prefix is swapped for the new profile's and the description is
+    the new profile's reference description under the listing's own title or
+    opening; the title's own words and the tags stay. No AI is called and nothing
+    counts as generated. The listing must be approved again, since what will be
+    sent changed. A listing that already has a draft or a live listing on Etsy is
+    refused: that one was built with its profile.
+    """
+    if not keys:
+        return
+    rows = (await session.execute(
+        select(GeneratedContent, Asset)
+        .join(Asset, Asset.id == GeneratedContent.asset_id)
+        .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
+    )).all()
+    moving = [(c, a) for c, a in rows if (a.group_key or "") in keys and c.listing_profile_id != profile.id]
+    if not moving:
+        return
+    on_etsy = set((await session.execute(
+        select(ListingPublication.content_id).where(ListingPublication.content_id.in_([c.id for c, _ in moving]))
+    )).scalars())
+    if on_etsy:
+        names = ", ".join(sorted({(a.group_key or a.original_filename) for c, a in moving if c.id in on_etsy}))
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{names}: already on Etsy, built with the profile it has. Its profile cannot be changed here any more; "
+                "what is on Etsy is edited on Etsy."
+            ),
+        )
+    for content, _ in moving:
+        source = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+        if source is not None and source.tenant_id != tenant.id:
+            source = None
+        title, description, _fitted = retext(content, source, profile)
+        content.title, content.description = title, description
+        content.listing_profile_id = profile.id
+        content.taxonomy_id = (profile.cached_payload or {}).get("taxonomy_id")
+        content.approved = False  # what would be sent changed: the seller approves it again
+        await rescan(session, content)
+
+
 @router.put("/batches/{batch_id}/shop", response_model=list[schemas.GroupOut])
 async def set_batch_shop(
     batch_id: uuid.UUID,
@@ -800,6 +899,12 @@ async def assign_group_profile(
             setting.connection_id = batch.connection_id
         return setting
 
+    if "profile_id" in sent and body.profile_id is not None and explicit:
+        # A listing that is already written follows the profile chosen for its
+        # group; one that is on Etsy was built with its profile and keeps it.
+        await _follow_profile(
+            session, tenant, batch_id, [k for k in keys if k in written], await _own_profile(session, tenant, body.profile_id)
+        )
     for key in keys:
         setting = setting_for(key)
         if "connection_id" in sent and body.connection_id is not None:
@@ -1216,6 +1321,87 @@ async def _refuse_unsorted(session: AsyncSession, batch_id: uuid.UUID, body: sch
                 'group, or choose "Ignore unsorted" to write the groups without them.'
             ),
         )
+
+
+@router.post("/batches/{batch_id}/manual", response_model=schemas.GenerateResult)
+async def write_manually(
+    batch_id: uuid.UUID,
+    body: schemas.ManualRequest,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.GenerateResult:
+    """"Write title and tags myself": an empty listing for one group, or for every
+    group not written yet, with everything else from its profile exactly as for a
+    listing the app writes (pipeline/manual.py). **No vision or content call is
+    made and nothing is metered.** It counts as one listing of the plan's
+    allowance, like any listing. The seller can generate it with AI later
+    (``/generate`` with ``replace``)."""
+    await _get_batch(session, tenant, batch_id)
+    await _refuse_unsorted(session, batch_id, body)  # type: ignore[arg-type]
+    allowance_now = await allowance.status(session, tenant)
+    left = allowance_now.remaining
+
+    profile_of = {
+        s.group_key: s.profile_id
+        for s in (await session.execute(
+            select(ListingGroupSetting).where(ListingGroupSetting.batch_id == batch_id)
+        )).scalars()
+    }
+    has_content = await _content_asset_ids(session, batch_id)
+    groups: dict[str, list[Asset]] = {}
+    for asset in (await session.execute(
+        select(Asset).where(Asset.batch_id == batch_id, Asset.status == AssetStatus.processed)
+    )).scalars():
+        if not grouping.is_unsorted(asset.group_key) and asset.processed_key is not None:
+            groups.setdefault(asset.group_key or "", []).append(asset)
+    if body.group_key is not None:
+        groups = {body.group_key: groups.get(body.group_key, [])}
+
+    written = failed = skipped = 0
+    failures: list[schemas.AssetFailure] = []
+    skipped_groups: list[schemas.GroupSkipped] = []
+    for key, members in groups.items():
+        if not members:
+            if body.group_key is not None:
+                skipped += 1
+                skipped_groups.append(schemas.GroupSkipped(group_key=key, reason="it has no photos to make a listing from"))
+            continue
+        if any(m.id in has_content for m in members):
+            skipped += 1
+            if body.group_key is not None:
+                skipped_groups.append(schemas.GroupSkipped(group_key=key, reason="it is already written; edit it on the review page"))
+            continue
+        cover = min(members, key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()))
+
+        def _fail(reason: str) -> None:
+            nonlocal failed
+            failed += 1
+            failures.append(schemas.AssetFailure(asset_id=cover.id, original_filename=cover.original_filename, error=reason))
+
+        profile = await session.get(ListingProfile, profile_of[key]) if profile_of.get(key) else None
+        if profile is None or profile.tenant_id != tenant.id:
+            _fail("no profile selected for this group")
+            continue
+        if not _profile_is_fresh(profile):
+            # Its description, category and Occasion / Holiday lists come from the reference.
+            await request_refresh(enqueuer.enqueue, profile, origin="use")
+            _fail("this profile's reference is being refreshed from Etsy now; try again in a minute")
+            continue
+        if left <= 0:
+            if body.group_key is not None:
+                raise HTTPException(status_code=429, detail=allowance_now.message())
+            _fail(allowance_now.message())
+            continue
+        await manual.write(session, tenant_id=tenant.id, batch_id=batch_id, asset=cover, profile=profile)
+        # A listing of the plan, like any other; no AI call, so nothing is metered.
+        allowance.record(session, tenant.id, allowance.GENERATION)
+        left -= 1
+        written += 1
+        await session.commit()
+    return schemas.GenerateResult(
+        generated=written, failed=failed, skipped=skipped, failures=failures, skipped_groups=skipped_groups
+    )
 
 
 @router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)

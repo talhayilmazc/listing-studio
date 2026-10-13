@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ScheduleControl } from "./ScheduleControl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -8,6 +9,7 @@ import type {
   Content,
   ManualStep,
   Pause,
+  Personalization,
   Publication,
   PublishSkipped,
   Work,
@@ -59,7 +61,8 @@ export function ReviewCard({
   initial,
   onChange,
   targets,
-  profileFor,
+  batchId,
+  onPersonalizationForAll,
   shopNames,
   bulkRunning,
   selected,
@@ -74,8 +77,10 @@ export function ReviewCard({
   initial: Content;
   /** Shops ticked for this listing on the review page; omitted = its own shop. */
   targets?: string[];
-  /** The profile chosen for a shop's drafts on the review page, by shop. */
-  profileFor?: Record<string, string | null>;
+  /** The batch, for the link back to the listing's group (where its profile is chosen). */
+  batchId?: string;
+  /** Give every listing of the batch this listing's personalization. */
+  onPersonalizationForAll?: (setting: Personalization) => Promise<void>;
   shopNames?: Record<string, string>;
   /** The page is running a bulk action and watching its jobs itself. */
   bulkRunning?: boolean;
@@ -89,6 +94,9 @@ export function ReviewCard({
   const [title, setTitle] = useState(initial.title ?? "");
   const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [description, setDescription] = useState(initial.description ?? "");
+  // A listing the seller writes themselves: no AI wrote it and none is called here.
+  const manual = initial.source === "manual";
+  const [starting, setStarting] = useState(false);
   // The listing's SKU, prefilled from the file or folder name; editable here.
   const [sku, setSku] = useState<string | null>(initial.parsed_sku ?? null);
   useEffect(() => setSku(initial.parsed_sku ?? null), [initial.parsed_sku]);
@@ -153,7 +161,9 @@ export function ReviewCard({
     setSaving(true);
     setMessage(null);
     try {
-      await api.updateContent(initial.id, { title, tags, description });
+      const res = await api.updateContent(initial.id, { title, tags, description });
+      // A listing the seller writes: its description's title line follows the title.
+      if (manual && res.content.description != null) setDescription(res.content.description);
       setDirty(false);
       setMessage("Saved");
     } catch (e: any) {
@@ -171,7 +181,25 @@ export function ReviewCard({
       onChange?.({ id: initial.id, approved: res.content.approved });
       setMessage(res.content.approved ? "Approved" : "Approval cleared");
     } catch (e: any) {
+      setMessage(approveError(e.message ?? String(e)));
+    }
+  }
+
+  // "Start from the profile's reference title and tags": the seller's own listing,
+  // put in the empty fields to edit. Nothing is saved until they save.
+  async function startFromReference() {
+    setStarting(true);
+    setMessage(null);
+    try {
+      const ref = await api.referenceText(initial.id);
+      if (!title.trim()) setTitle(ref.title);
+      if (tags.length === 0) setTags(ref.tags.slice(0, REQUIRED_TAGS));
+      setDirty(true);
+      setMessage(`Filled from ${ref.profile_name}'s reference listing: edit it for this design, then save`);
+    } catch (e: any) {
       setMessage(e.message ?? String(e));
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -262,9 +290,8 @@ export function ReviewCard({
   const createDraftIn = (shops: string[]) =>
     runJobs(
       () =>
-        api.publishContent(initial.id, {
-          targets: shops.map((connection_id) => ({ connection_id, profile_id: profileFor?.[connection_id] ?? undefined })),
-        }),
+        // The shops only: every draft is built with the listing's own profile.
+        api.publishContent(initial.id, { targets: shops.map((connection_id) => ({ connection_id })) }),
       "draft",
       "still working after 15 minutes; reload to check.",
     );
@@ -337,6 +364,21 @@ export function ReviewCard({
             <Meta label="File" value={initial.original_filename} truncate />
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
           </dl>
+          <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-600" data-testid="card-profile">
+            <span>Profile: </span>
+            <span className="font-medium text-slate-800" translate="no">{initial.profile_name ?? "none chosen"}</span>
+            {batchId && (
+              <span key="change">
+                <span> · </span>
+                <Link href={`/batches/${batchId}#group-${encodeURIComponent(initial.group_key ?? "")}`} className="tap text-brand-700 underline">
+                  change on its group
+                </Link>
+              </span>
+            )}
+            <span className="mt-0.5 block text-slate-400">
+              Price, variations, shipping, returns, size charts and the description come from it, in every shop.
+            </span>
+          </p>
           <div className="border-t border-slate-200 px-4 py-3">
             <SkuEditor
               value={sku}
@@ -372,6 +414,23 @@ export function ReviewCard({
               <p key="image-limit" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="image-limit" translate="no">
                 {limitNotice(initial.image_limit)}
               </p>
+            )}
+            {manual && (
+              <div key="manual" className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700" data-testid="manual-note">
+                <p>
+                  <span className="font-medium text-slate-900">You write this one. </span>
+                  <span>
+                    No AI is used for its title and tags; everything else comes from its profile. The same checks apply:
+                    title length, 13 tags, 20 characters each, no duplicates.
+                  </span>
+                </p>
+                {(!title.trim() || tags.length === 0) && (
+                  <button key="start" type="button" className="btn-secondary mt-2 h-auto max-w-full whitespace-normal px-3 py-1.5 text-left text-xs" onClick={startFromReference}
+                    disabled={starting} data-testid="manual-start">
+                    {starting ? "Reading…" : "Start from the profile’s reference title and tags"}
+                  </button>
+                )}
+              </div>
             )}
             <div>
               <span className="label">Title</span>
@@ -425,7 +484,7 @@ export function ReviewCard({
               </div>
             )}
             <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} />
-            {initial.listing_style === "search" && (
+            {initial.listing_style === "search" && !manual && (
               <p key="search-note" className="text-xs text-slate-500">
                 Written to be optimised for search matching: a short title, with the other keywords in the tags,
                 the description&apos;s opening and the attributes. This is not a promise of ranking.
@@ -442,6 +501,7 @@ export function ReviewCard({
                 setPersonalization(res.content.personalization ?? null);
                 setPersonalizationSource(res.content.personalization_source ?? "unknown");
               }}
+              onUseForAll={onPersonalizationForAll}
             />
 
             {!valid && (
@@ -626,6 +686,17 @@ export function ReviewCard({
       </div>
     </div>
   );
+}
+
+/** A refused approval says why in the server's own list; show the reasons, not the JSON. */
+function approveError(message: string): string {
+  try {
+    const detail = JSON.parse(message);
+    if (Array.isArray(detail?.errors) && detail.errors.length) return `Not approved: ${detail.errors.join("; ")}`;
+  } catch {
+    /* a plain sentence */
+  }
+  return message;
 }
 
 /**

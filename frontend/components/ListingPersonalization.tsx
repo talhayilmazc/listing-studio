@@ -22,28 +22,51 @@ export function ListingPersonalization({
   source,
   disabled,
   onSave,
+  onUseForAll,
 }: {
   value: Personalization | null;
   source: string;
   disabled?: boolean;
   /** null: follow the profile again. */
   onSave: (setting: Personalization | null) => Promise<void>;
+  /** On a listing's card: give every listing of the batch this listing's setting. */
+  onUseForAll?: (setting: Personalization) => Promise<void>;
 }) {
   const blank: Personalization = { enabled: false, question_text: "", instructions: "", required: false, max_allowed_characters: null };
   const [draft, setDraft] = useState<Personalization>(value ?? blank);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applied, setApplied] = useState(false);
   const incoming = JSON.stringify(value);
   useEffect(() => {
-    if (!dirty) setDraft(value ?? blank);
+    // What is saved changed (this card saved, or "for all" did): show that. An
+    // edit left unsaved here used to stay on screen as if it were the setting.
+    setDraft(value ?? blank);
+    setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incoming]);
 
   const set = (patch: Partial<Personalization>) => {
     setDraft((d) => ({ ...d, ...patch }));
     setDirty(true);
+    setApplied(false);
   };
+
+  async function useForAll() {
+    setBusy(true);
+    setError(null);
+    try {
+      // Exactly what this card shows: an edit not saved yet is saved with it.
+      await onUseForAll?.(draft);
+      setDirty(false);
+      setApplied(true);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
   const problems = personalizationErrors(draft);
 
   async function save(setting: Personalization | null) {
@@ -108,6 +131,13 @@ export function ListingPersonalization({
             Use the profile&apos;s
           </button>
         )}
+        {onUseForAll && (dirty || source === "listing") && (
+          <button key="for-all" type="button" className="tap text-brand-700 underline" disabled={problems.length > 0}
+            onClick={useForAll} data-testid="personalization-for-all">
+            Use this for all listings
+          </button>
+        )}
+        {applied && <span key="applied" role="status" className="text-emerald-700">Set on every listing of this batch</span>}
         {error && <span key="error" className="text-rose-700"><Txt>{error}</Txt></span>}
       </div>
     </fieldset>

@@ -191,3 +191,26 @@ async def test_replace_images_for_a_group_on_etsy_keeps_to_that_group(ctx) -> No
         "title_prefix": "Comfort Colors®",
         "profile_id": str(profile),  # "full" writes in this profile's title style
     }
+
+
+async def test_a_listing_the_seller_wrote_can_be_generated_with_ai_later(ctx, llm) -> None:  # noqa: F811
+    """"Generate with AI" on a manual group: the app writes it now, it is no longer
+    manual, and it counts as a listing generated (as any regenerate does)."""
+    from app.db.models import AiCall
+
+    batch, old, profile = await _group(ctx, tokens=(None, None))
+    async with ctx["sm"]() as s:
+        content = await s.get(GeneratedContent, old)
+        content.source, content.title, content.tags, content.model_used = "manual", "", [], None
+        await s.commit()
+    # "Generate for all" leaves a group the seller is writing alone.
+    assert (await _generate(ctx, batch, profile))["skipped"] == 1 and llm.calls == []
+
+    llm._responses += [fake_response(VISION), fake_response(_content_reply())]
+    res = await _generate(ctx, batch, profile, replace=True)
+    assert res["generated"] == 1, res
+    [new] = await _contents(ctx, batch)
+    assert (new.source, new.title) == ("ai", NEW_TITLE) and new.model_used and new.vision_model
+    async with ctx["sm"]() as s:
+        assert len((await s.execute(select(AiCall))).scalars().all()) == 2  # the vision call and the content call
+    assert (await ctx["client"].get("/api/account/allowance")).json()["used"] == 1

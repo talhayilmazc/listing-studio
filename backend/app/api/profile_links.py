@@ -185,20 +185,7 @@ async def use_in(
     if not profile.confirmed:
         raise HTTPException(status_code=409, detail="confirm the profile first")
     targets = await _scope_shops(session, tenant, body)
-    links = {link.connection_id: link for link in (await profile_shops.links_of(session, [profile.id]))[profile.id]}
-    started: list[uuid.UUID] = []
-    for shop_id in targets:
-        if shop_id == profile.connection_id:
-            continue
-        link = links.get(shop_id)
-        if link is not None and link.status not in ("error",):
-            continue  # linked or being linked: left as it is
-        if link is None:
-            link = ProfileShopLink(tenant_id=tenant.id, profile_id=profile.id, connection_id=shop_id)
-            session.add(link)
-        link.status, link.notes, link.pending_create = "checking", None, None
-        started.append(shop_id)
-    await profile_shops.ensure_main_link(session, profile)
+    started = await profile_shops.start_links(session, profile, targets)
     await session.commit()
     if started:
         await enqueuer.enqueue("link_profile", str(profile.id))

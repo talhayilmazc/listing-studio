@@ -25,6 +25,18 @@ export function addTags(existing: string[], text: string): string[] {
   return out;
 }
 
+/** How long "Undo" is offered after "Delete all". */
+export const UNDO_SECONDS = 10;
+
+/**
+ * "Undo" after "Delete all": the deleted tags back in their order, followed by
+ * any the seller typed in the meantime that are not among them (any case).
+ */
+export function restoreTags(deleted: string[], current: string[]): string[] {
+  const seen = new Set(deleted.map((t) => t.trim().toLowerCase()));
+  return [...deleted, ...current.filter((t) => !seen.has(t.trim().toLowerCase()))];
+}
+
 /** Replace tag ``i`` with what was typed; a comma in it makes it several tags. */
 export function editTag(tags: string[], i: number, value: string): string[] {
   if (!/[,;\n]/.test(value)) return tags.map((t, idx) => (idx === i ? value : t));

@@ -11,10 +11,12 @@ A listing group (a batch's images sharing a ``group_key``) is:
     in only some of its target shops;
   * ``removed``: upload retention already deleted its files.
 
-Its **target shops** are every shop it is meant for: the shop it was written for
-(the group's own choice, else its batch's), the shops of its planned drafts, the
-shops of the shop group it was distributed to, and every shop it already has a
-draft in. A draft deleted on Etsy does not count as one.
+Its **target shops** are every shop it is meant for: the shops the seller ticked
+for it on the review page (pipeline/shop_targets.py), or, while they never
+changed that, the shop it was written for (the group's own choice, else its
+batch's); the shops of its planned drafts, the shops of the shop group it was
+distributed to, and every shop it already has a draft in. A draft deleted on
+Etsy does not count as one.
 
 Pure reads; used by upload retention (pipeline/upload_retention.py) and the
 storage report (pipeline/storage_report.py).
@@ -103,14 +105,16 @@ async def group_states(
             select(ListingGroupSetting).where(ListingGroupSetting.batch_id.in_(batches))
         )).scalars()
     }
+    own: dict[GroupKey, uuid.UUID] = {}
     for key, g in groups.items():
         shop = chosen.get(key) or batch_shop.get(g.batch_id)
         if shop is not None:
             g.targets.add(shop)
+            own[key] = shop
 
     content_group: dict[uuid.UUID, GroupKey] = {}
-    for cid, asset_id, written in (await session.execute(
-        select(GeneratedContent.id, GeneratedContent.asset_id, GeneratedContent.created_at).where(
+    for cid, asset_id, written, ticked in (await session.execute(
+        select(GeneratedContent.id, GeneratedContent.asset_id, GeneratedContent.created_at, GeneratedContent.target_shops).where(
             GeneratedContent.batch_id.in_(batches)
         )
     )).all():
@@ -118,6 +122,14 @@ async def group_states(
         if key is None:
             continue
         g = groups[key]
+        if ticked is not None:
+            # The seller chose its shops on the review page: those, not the default.
+            g.targets.discard(own.get(key))  # type: ignore[arg-type]
+            for value in ticked:
+                try:
+                    g.targets.add(uuid.UUID(str(value)))
+                except (TypeError, ValueError):
+                    pass
         g.content_ids.append((cid, asset_id, _utc(written)))
         g.worked_at = max(g.worked_at, _utc(written))
         content_group[cid] = key

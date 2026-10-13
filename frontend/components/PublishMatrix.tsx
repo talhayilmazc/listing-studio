@@ -1,6 +1,8 @@
 "use client";
 
-import type { MatrixCell, MatrixColumn, MatrixRow, PublishPreview } from "@/lib/types";
+import Link from "next/link";
+import type { MatrixCell, MatrixColumn, MatrixRow, PublishPreview, ShopNeed } from "@/lib/types";
+import { needAction, needsHeading } from "@/lib/shopNeeds";
 import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
@@ -10,107 +12,97 @@ function name(row: MatrixRow): string {
   return row.title || row.original_filename || "Listing";
 }
 
-/** What one cell says when it is not a checkbox. */
-function CellState({ cell, shopName, onSetup, disabled }: {
-  cell: MatrixCell;
-  shopName: string | null;
-  onSetup?: (profileId: string, shopId: string) => void;
-  disabled?: boolean;
-}) {
-  if (cell.state === "draft") return <span className="text-emerald-700">✓ draft there</span>;
-  if (cell.state === "live") return <span className="text-emerald-700">✓ live there</span>;
-  if (cell.setup && cell.profile_id && onSetup) {
-    // The only thing wrong: the profile is not set up in this shop (v8 §C).
-    return (
-      <button type="button" className="tap text-left text-brand-700 underline" disabled={disabled}
-        onClick={() => onSetup(cell.profile_id!, cell.connection_id)}>
-        <span>Set up </span><span translate="no">{cell.profile_name ?? "the profile"}</span><span> in </span>
-        <span translate="no">{shopName ?? "this shop"}</span><span>…</span>
-      </button>
-    );
-  }
-  return (
-    <span className="text-amber-800">
-      <span aria-hidden>✕ </span>
-      <span>{cell.reason ?? "cannot go to this shop"}</span>
-    </span>
-  );
+/** What a ticked or unticked cell says beside its checkbox. */
+function cellText(cell: MatrixCell): { text: string; tone: string } {
+  if (cell.state === "available") return cell.wanted ? { text: "create draft", tone: "text-slate-700" } : { text: "not sent", tone: "text-slate-400" };
+  // Unavailable: its own text first (approve it), else what this shop lacks.
+  return { text: cell.reason ?? "cannot go to this shop yet", tone: cell.wanted ? "text-amber-800" : "text-slate-400" };
 }
 
 /**
- * Which listing becomes a draft in which shop (Priority 2). Listings down the
- * side, the account's shops across. A ticked cell will be created; a cell that
- * already has a draft or is live says so; one that cannot be created says why.
- * By default each listing goes only to the shop it was written for: another
- * shop gets a draft only where the seller ticks it. Each listing's own profile
- * builds its draft in every shop it is set up in (v8 §C); a shop it is not set
- * up in offers "Set up <profile> in <shop>…". A column can use another profile.
+ * The approve step chooses shops, and only shops (customer feedback, item 3).
+ * Listings down the side, the account's shops across: a ticked cell is a shop
+ * the listing goes to. The ticks are kept on the listing, so they are the same
+ * after a reload and before and after approval; by default a listing goes to
+ * the shop it was written for.
+ *
+ * The profile is not chosen here. It is the one chosen at upload or on the
+ * listing's group, shown read-only with a link back to change it there, and it
+ * builds the draft in every ticked shop with that shop's own shipping, return
+ * and processing settings. Ticking a shop the profile is not set up in sets it
+ * up there as "Use in" does; what a shop still needs is listed under it before
+ * anything is approved or created.
  */
 export function PublishMatrix({
   preview,
-  profileFor,
-  onProfile,
+  batchId,
   onToggle,
   onColumn,
   onSetup,
   disabled,
+  busyShop,
 }: {
   preview: PublishPreview;
-  /** The profile chosen for a shop's column; unset = the matching one. */
-  profileFor: Record<string, string | null>;
-  onProfile: (shopId: string, profileId: string | null) => void;
+  batchId: string;
   onToggle: (row: MatrixRow, cell: MatrixCell, on: boolean) => void;
-  /** Tick or untick every available cell of a shop. */
+  /** Tick or untick a shop for every listing. */
   onColumn: (column: MatrixColumn, on: boolean) => void;
-  /** Set the listing's profile up in a shop, from a cell that needs it. */
+  /** Set the listing's profile up in a shop, from a need that offers it. */
   onSetup?: (profileId: string, shopId: string) => void;
   disabled?: boolean;
+  /** The shop whose ticks are being saved. */
+  busyShop?: string | null;
 }) {
   const { columns, rows } = preview;
   const cellOf = (row: MatrixRow, shop: string) => row.cells.find((c) => c.connection_id === shop);
-  const available = (shop: string) => rows.filter((r) => cellOf(r, shop)?.state === "available");
-  const chosenIn = (shop: string) => available(shop).filter((r) => cellOf(r, shop)?.chosen).length;
+  /** Listings that can still be ticked for the shop (no draft or live listing there yet). */
+  const open = (shop: string) => rows.filter((r) => { const c = cellOf(r, shop); return c && c.state !== "draft" && c.state !== "live"; });
+  const tickedIn = (shop: string) => open(shop).filter((r) => cellOf(r, shop)?.wanted).length;
+
+  const needRow = (col: MatrixColumn, n: ShopNeed, i: number) => {
+    const action = needAction(n);
+    return (
+      <li key={`${n.kind}-${i}`} className={n.blocking ? "text-amber-900" : "text-slate-600"} data-testid="shop-need">
+        <span aria-hidden>{n.blocking ? "✕ " : "• "}</span>
+        {n.profile_name && <span key="profile" className="font-medium" translate="no">{`${n.profile_name}: `}</span>}
+        <span>{n.message}</span>
+        <span translate="no" className="text-slate-500">{` (${n.listings} listing${n.listings === 1 ? "" : "s"})`}</span>
+        {action === "setup" && n.profile_id && onSetup && (
+          <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={disabled}
+            onClick={() => onSetup(n.profile_id!, col.connection_id)}>
+            <span>Set it up in </span><span translate="no">{col.shop_name ?? "this shop"}</span>
+          </button>
+        )}
+        {action === "profiles" && (
+          <Link key="profiles" href="/profiles" className="tap ml-1 text-brand-700 underline">Finish on the Profiles page</Link>
+        )}
+        {action === "wait" && <span key="wait" className="ml-1 text-slate-500">This updates by itself.</span>}
+      </li>
+    );
+  };
 
   const head = (col: MatrixColumn) => {
-    const can = available(col.connection_id).length;
-    const on = chosenIn(col.connection_id);
+    const can = open(col.connection_id).length;
+    const on = tickedIn(col.connection_id);
     return (
       <div className="space-y-1.5">
         <label className="flex min-h-[2rem] items-center gap-2 max-md:min-h-[2.75rem]">
           <input
             type="checkbox"
             className="h-4 w-4"
-            disabled={disabled || can === 0}
+            disabled={disabled || can === 0 || busyShop === col.connection_id}
             checked={can > 0 && on === can}
             ref={(el) => {
               if (el) el.indeterminate = on > 0 && on < can;
             }}
             onChange={(e) => onColumn(col, e.target.checked)}
             aria-label={`All listings to ${col.shop_name ?? "this shop"}`}
+            data-testid="shop-tick"
           />
           <ShopBadge name={col.shop_name} className="text-xs" />
         </label>
-        {col.profiles.length > 0 ? (
-          <select
-            className="field w-full py-1 text-xs font-normal"
-            aria-label={`Profile for ${col.shop_name ?? "this shop"}`}
-            value={profileFor[col.connection_id] ?? ""}
-            disabled={disabled}
-            onChange={(e) => onProfile(col.connection_id, e.target.value || null)}
-          >
-            <option value="">{"Each listing's own profile"}</option>
-            {col.profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.is_fresh ? "" : " (needs refresh)"}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <p className="text-[11px] font-normal text-slate-500">No profile set up in this shop yet.</p>
-        )}
         <p translate="no" className="text-[11px] font-normal tabular-nums text-slate-500">
-          {`${col.drafts} draft${col.drafts === 1 ? "" : "s"} ≈ ${col.estimated_calls.toLocaleString()} requests`}
+          {`${col.ticked} of ${rows.length} listings · ${col.drafts} draft${col.drafts === 1 ? "" : "s"} to create ≈ ${col.estimated_calls.toLocaleString()} requests`}
         </p>
       </div>
     );
@@ -119,38 +111,67 @@ export function PublishMatrix({
   const cellBody = (row: MatrixRow, col: MatrixColumn) => {
     const cell = cellOf(row, col.connection_id);
     if (!cell) return null;
-    if (cell.state !== "available")
-      return <CellState cell={cell} shopName={col.shop_name} onSetup={onSetup} disabled={disabled} />;
+    if (cell.state === "draft") return <span className="text-emerald-700">✓ draft there</span>;
+    if (cell.state === "live") return <span className="text-emerald-700">✓ live there</span>;
+    const said = cellText(cell);
     return (
-      <label className="flex min-h-[2rem] items-center gap-2 max-md:min-h-[2.75rem]">
+      <label className="flex min-h-[2rem] items-start gap-2 py-1 max-md:min-h-[2.75rem]">
         <input
           type="checkbox"
-          className="h-4 w-4"
-          checked={cell.chosen}
-          disabled={disabled}
+          className="mt-0.5 h-4 w-4 shrink-0"
+          checked={cell.wanted}
+          disabled={disabled || busyShop === col.connection_id}
           onChange={(e) => onToggle(row, cell, e.target.checked)}
           aria-label={`${name(row)} to ${col.shop_name ?? "this shop"}`}
         />
-        <span className="min-w-0 truncate text-slate-600">
-          <span>{cell.chosen ? "create draft" : "not sent"}</span>
-          <Txt>{cell.profile_name ? ` · ${cell.profile_name}` : ""}</Txt>
+        <span className={"min-w-0 " + said.tone}>
+          <Txt>{said.text}</Txt>
         </span>
       </label>
     );
   };
 
+  /** Read-only: the profile is chosen on the listing's group. */
+  const profileOf = (row: MatrixRow) => (
+    <p className="text-[11px] text-slate-500" data-testid="row-profile">
+      <span>Profile: </span>
+      <span className="font-medium text-slate-700" translate="no">{row.profile_name ?? "none chosen"}</span>
+      <span> · </span>
+      <Link href={`/batches/${batchId}#group-${encodeURIComponent(row.group_key ?? "")}`} className="tap text-brand-700 underline">
+        change on its group
+      </Link>
+    </p>
+  );
+
+  const waiting = columns.filter((c) => c.needs.length > 0);
+
   return (
     <section className="card space-y-3 p-4 sm:p-5" aria-labelledby="matrix-heading">
       <div>
         <h2 id="matrix-heading" className="text-sm font-medium text-slate-800">
-          Where drafts will be created
+          Shops for these drafts
         </h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          Each listing goes to the shop it was written for unless you tick another. Its profile builds the draft in every
-          shop it is set up in, with that shop&apos;s own shipping and return settings. Nothing is created in a shop you
-          have not ticked.
+          Tick the shops each listing goes to; your ticks are kept. A listing is built with its own profile in every
+          shop, with that shop&apos;s own shipping, return and processing settings. Nothing is created in a shop you
+          have not ticked, and nothing is created until you press Create draft.
         </p>
       </div>
+
+      {waiting.length > 0 && (
+        <div key="needs" role="status" className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs" data-testid="shop-needs">
+          <p className="font-medium text-amber-900">Before these go to every ticked shop</p>
+          {waiting.map((col) => (
+            <div key={col.connection_id}>
+              <p className="flex flex-wrap items-center gap-1.5 text-slate-700">
+                <ShopBadge name={col.shop_name} className="text-xs" />
+                <span>{needsHeading(col.needs)}</span>
+              </p>
+              <ul className="mt-1 space-y-1 pl-1">{col.needs.map((n, i) => needRow(col, n, i))}</ul>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Wide screens: the matrix. */}
       <div className="hidden max-h-[28rem] overflow-auto rounded-lg border border-slate-200 md:block">
@@ -159,7 +180,7 @@ export function PublishMatrix({
             <tr>
               <th className="px-3 py-2 font-medium">Listing</th>
               {columns.map((col) => (
-                <th key={col.connection_id} className="w-56 px-3 py-2 font-medium">{head(col)}</th>
+                <th key={col.connection_id} className="w-60 px-3 py-2 font-medium">{head(col)}</th>
               ))}
             </tr>
           </thead>
@@ -173,6 +194,7 @@ export function PublishMatrix({
                     <span>written for </span>
                     <span translate="no">{columns.find((c) => c.connection_id === row.own_connection_id)?.shop_name ?? "no shop"}</span>
                   </p>
+                  {profileOf(row)}
                 </td>
                 {columns.map((col) => (
                   <td key={col.connection_id} className="px-3 py-1.5">{cellBody(row, col)}</td>
@@ -194,6 +216,7 @@ export function PublishMatrix({
           {rows.map((row) => (
             <li key={row.content_id} className="space-y-1.5 p-3 text-xs">
               <p className="line-clamp-2 text-sm text-slate-800">{name(row)}</p>
+              {profileOf(row)}
               {columns.map((col) => (
                 <div key={col.connection_id} className="flex items-start gap-2">
                   <ShopBadge name={col.shop_name} className="mt-1.5 shrink-0" />

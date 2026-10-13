@@ -119,6 +119,20 @@ class SizeChartProfileUpdate(BaseModel):
     profile_id: uuid.UUID | None = None  # null clears it (use each content's own profile)
 
 
+class ProfileSetupNote(BaseModel):
+    """A group's profile cannot build a draft in the group's shop yet: said on the
+    group card where the profile is chosen, not first when a draft fails."""
+
+    profile_id: uuid.UUID
+    profile_name: str
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    reason: str
+    #: One click sets it up there ("Use in"); otherwise it is finished on the Profiles page.
+    setup: bool = False
+    checking: bool = False
+
+
 class GroupOut(BaseModel):
     group_key: str
     sku: str | None = None
@@ -132,6 +146,13 @@ class GroupOut(BaseModel):
     manual: bool = False
     # One of the seller's own listings this group's listing is modelled on (v7 §B).
     pattern_listing_id: int | None = None
+    # Its written listing: who wrote the title and tags ("ai" / "manual"; None =
+    # not written), and the profile it is built with (normally the group's).
+    source: str | None = None
+    listing_profile_id: uuid.UUID | None = None
+    listing_profile_name: str | None = None
+    # Set when the group's profile is not usable in the group's shop yet.
+    profile_setup: "ProfileSetupNote | None" = None
     # The size charts its drafts get (from its size-chart profile, else its profile),
     # in their order, and where they sit among the photos (pipeline/chart_order.py):
     # one slot per chart (photos before it, -1 = after every photo).
@@ -234,7 +255,8 @@ class ContentOut(BaseModel):
     approved: bool
     # Which model wrote it and what it cost are ours, not the seller's: they are
     # not in any response a seller can receive (core/ai_meter.py).
-    # The shop this content was written for (its profile's shop).
+    # The shop this content was written for: its group's, else its batch's, else
+    # its profile's main shop.
     connection_id: uuid.UUID | None = None
     # One draft per shop it was sent to (v5 §E).
     publications: list["PublicationOut"] = Field(default_factory=list)
@@ -242,6 +264,13 @@ class ContentOut(BaseModel):
     original_filename: str
     parsed_sku: str | None
     rank: int | None
+    # Its listing group in the batch (the link back to where its profile is chosen).
+    group_key: str = ""
+    # Who wrote the title and tags: "ai" (the app) or "manual" (the seller; no AI call).
+    source: str = "ai"
+    # The listing's profile, read-only here: it is chosen at upload or on the group.
+    profile_id: uuid.UUID | None = None
+    profile_name: str | None = None
     # The title length this listing's profile asks for (the counter follows it),
     # how it was written, and the category attributes chosen from Etsy's lists.
     title_min_length: int = 110
@@ -260,6 +289,15 @@ class ContentOut(BaseModel):
     work: list["WorkOut"] = Field(default_factory=list)
     # Set when its group's photos and size charts are more than Etsy keeps.
     image_limit: "ImageLimitOut | None" = None
+
+
+class ReferenceText(BaseModel):
+    """The title and tags of a profile's reference listing (the seller's own), to start a manual listing from."""
+
+    title: str
+    tags: list[str]
+    listing_id: int
+    profile_name: str
 
 
 class WorkOut(BaseModel):
@@ -533,6 +571,13 @@ class GenerateRequest(BaseModel):
     replace_approved: bool = False
 
 
+class ManualRequest(BaseModel):
+    """"Write title and tags myself": one group, or every group not written yet."""
+
+    group_key: str | None = None
+    ignore_unsorted: bool = False
+
+
 class GroupSkipped(BaseModel):
     group_key: str
     reason: str
@@ -616,9 +661,8 @@ class BatchActionPreview(BaseModel):
 
 class PublishTarget(BaseModel):
     connection_id: uuid.UUID
-    # Which of that shop's profiles builds its draft; omitted = chosen for you
-    # (the content's own profile in its own shop, else a same-named one, else the
-    # only one of the same kind).
+    # Not used any more: a listing is always built with its own profile, the one
+    # chosen at upload or on its group (kept so older clients are not refused).
     profile_id: uuid.UUID | None = None
 
 
@@ -662,6 +706,41 @@ class ProfileChoiceOut(BaseModel):
     is_fresh: bool
 
 
+class ShopTick(BaseModel):
+    """Tick (or untick) one shop for the batch's listings on the review page."""
+
+    connection_id: uuid.UUID
+    on: bool
+    #: Only these listings; omitted = every listing of the batch.
+    content_ids: list[uuid.UUID] | None = None
+
+
+class ShopTickOut(BaseModel):
+    changed: int
+    #: Profiles now being set up in that shop because a ticked listing needs them there.
+    setting_up: list["ProfileChoiceOut"] = Field(default_factory=list)
+
+
+class ShopNeedOut(BaseModel):
+    """Something a ticked shop still needs, said before anything is approved or created."""
+
+    #: "profile" (not set up there), "shipping_profile" / "return_policy" /
+    #: "readiness_state" / "production_partners" (set up, that one missing),
+    #: "checking" (being set up now), "section", or "other".
+    kind: str
+    message: str
+    #: How many ticked listings it concerns.
+    listings: int = 0
+    #: True: no draft is created there until it is settled. False: the draft is
+    #: created without it (a section this shop does not have).
+    blocking: bool = True
+    profile_id: uuid.UUID | None = None
+    profile_name: str | None = None
+    #: One click sets the profile up in this shop; what is then left is chosen on the Profiles page.
+    setup: bool = False
+    checking: bool = False
+
+
 class MatrixCellOut(BaseModel):
     connection_id: uuid.UUID
     # "available" (a draft can be created), "draft" / "live" (it already has one
@@ -676,6 +755,11 @@ class MatrixCellOut(BaseModel):
     # Unavailable only because the profile is not set up in this shop yet: the
     # review page offers "Set up <profile> in <shop>…" (v8 §C).
     setup: bool = False
+    # Ticked for this listing (kept on the listing): a draft is created here once
+    # the listing is approved and the shop has what it needs.
+    wanted: bool = False
+    # What stops it is this shop's setup (the profile there), not the listing's text.
+    by_shop: bool = False
 
 
 class MatrixRowOut(BaseModel):
@@ -687,6 +771,10 @@ class MatrixRowOut(BaseModel):
     # The shop the listing was written for.
     own_connection_id: uuid.UUID | None = None
     cells: list[MatrixCellOut] = Field(default_factory=list)
+    # The listing's profile: the one chosen at upload or on its group. It builds
+    # the draft in every shop; it is changed on the group, not here.
+    profile_id: uuid.UUID | None = None
+    profile_name: str | None = None
 
 
 class MatrixColumnOut(BaseModel):
@@ -695,6 +783,9 @@ class MatrixColumnOut(BaseModel):
     profiles: list["ProfileChoiceOut"] = Field(default_factory=list)
     drafts: int = 0  # drafts this request would create in this shop
     estimated_calls: int = 0
+    ticked: int = 0  # listings ticked for this shop (drafted ones included)
+    # What this shop still needs for the listings ticked for it, before approving.
+    needs: list[ShopNeedOut] = Field(default_factory=list)
 
 
 class PublishPreviewOut(BaseModel):

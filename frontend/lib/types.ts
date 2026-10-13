@@ -99,6 +99,50 @@ export interface Group {
   chart_listing_id?: number | null;
   /** Its photos and size charts are more than Etsy keeps: what will be left out. */
   image_limit?: ImageLimit | null;
+  /** Its written listing: who wrote it (null = not written) and the profile it is built with. */
+  source?: "ai" | "manual" | null;
+  listing_profile_id?: string | null;
+  listing_profile_name?: string | null;
+  /** The group's profile cannot build a draft in the group's shop yet, and why. */
+  profile_setup?: ProfileSetupNote | null;
+}
+
+export interface ProfileSetupNote {
+  profile_id: string;
+  profile_name: string;
+  connection_id: string;
+  shop_name: string | null;
+  reason: string;
+  /** One click sets it up there; otherwise it is finished on the Profiles page. */
+  setup: boolean;
+  checking: boolean;
+}
+
+/** The title and tags of a profile's reference listing, to start a manual listing from. */
+export interface ReferenceText {
+  title: string;
+  tags: string[];
+  listing_id: number;
+  profile_name: string;
+}
+
+/** Something a ticked shop still needs before its listings can become drafts there. */
+export interface ShopNeed {
+  kind: string;
+  message: string;
+  listings: number;
+  /** False: the draft is still created, without it (a section the shop does not have). */
+  blocking: boolean;
+  profile_id: string | null;
+  profile_name: string | null;
+  setup: boolean;
+  checking: boolean;
+}
+
+export interface ShopTickResult {
+  changed: number;
+  /** Profiles now being set up in that shop because a ticked listing needs them there. */
+  setting_up: { id: string; name: string }[];
 }
 
 export interface BatchDetail extends BatchSummary {
@@ -133,8 +177,15 @@ export interface Content {
   tags: string[];
   description: string | null;
   approved: boolean;
-  /** The shop this listing was written for (its profile's shop). */
+  /** The shop this listing was written for (its group's, else its batch's, else its profile's main shop). */
   connection_id: string | null;
+  /** Its listing group in the batch. */
+  group_key?: string;
+  /** Who wrote the title and tags: the app, or the seller (no AI call). */
+  source?: "ai" | "manual";
+  /** The listing's profile, read-only on the review page: chosen at upload or on its group. */
+  profile_id?: string | null;
+  profile_name?: string | null;
   /** Its drafts: one per shop it was sent to (v5 §E). */
   publications: Publication[];
   original_filename: string;
@@ -235,6 +286,10 @@ export interface MatrixCell {
   chosen: boolean;
   /** Unavailable only because the profile is not set up in this shop yet (one click fixes it). */
   setup?: boolean;
+  /** Ticked for this listing (kept on it): a draft is created here once it can be. */
+  wanted: boolean;
+  /** What stops it is this shop's setup, not the listing's own text. */
+  by_shop?: boolean;
 }
 
 export interface MatrixRow {
@@ -245,6 +300,9 @@ export interface MatrixRow {
   approved: boolean;
   own_connection_id: string | null;
   cells: MatrixCell[];
+  /** The listing's profile: it builds the draft in every shop and is changed on the group. */
+  profile_id: string | null;
+  profile_name: string | null;
 }
 
 export interface MatrixColumn {
@@ -253,6 +311,10 @@ export interface MatrixColumn {
   profiles: { id: string; name: string; content_template: string; is_fresh: boolean }[];
   drafts: number;
   estimated_calls: number;
+  /** Listings ticked for this shop (drafted ones included). */
+  ticked: number;
+  /** What this shop still needs for the listings ticked for it. */
+  needs: ShopNeed[];
 }
 
 export interface PublishPreview {

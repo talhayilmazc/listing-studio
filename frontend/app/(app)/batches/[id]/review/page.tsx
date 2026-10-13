@@ -10,12 +10,13 @@ import type {
   MatrixColumn,
   MatrixRow,
   Pause,
+  Personalization,
   PublishJob,
   PublishPreview,
-  PublishRequest,
   PublishSkipped,
 } from "@/lib/types";
-import { PublishMatrix, cellKey } from "@/components/PublishMatrix";
+import { PublishMatrix } from "@/components/PublishMatrix";
+import { anyChecking } from "@/lib/shopNeeds";
 import { Distribution } from "@/components/Distribution";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
 import { ListingPersonalization } from "@/components/ListingPersonalization";
@@ -65,50 +66,22 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [busy, setBusy] = useState(false);
   const [skipped, setSkipped] = useState<PublishSkipped[]>([]);
 
-  // Where drafts go (Priority 2): each listing to the shop it was written for,
-  // plus any other shop the seller ticks for it in the matrix, minus any they
-  // untick. Nothing is sent to a shop that is not ticked.
+  // Where drafts go: the shops ticked for each listing. The ticks are kept on the
+  // listing (they are there after a reload, and before and after approval); by
+  // default a listing goes to the shop it was written for. The profile is not
+  // chosen here: it is the listing's own in every shop (customer feedback, item 3).
   const { shops } = useShops();
-  const [profileFor, setProfileFor] = useState<Record<string, string | null>>({});
-  const [on, setOn] = useState<string[]>([]); // ticked cells in another shop
-  const [off, setOff] = useState<string[]>([]); // the own-shop cell, unticked
   const [preview, setPreview] = useState<PublishPreview | null>(null);
   const [previewTick, setPreviewTick] = useState(0);
-  const custom = on.length > 0 || off.length > 0 || Object.values(profileFor).some(Boolean);
-  const choiceKey = JSON.stringify([on, off, profileFor]);
+  const [tickingShop, setTickingShop] = useState<string | null>(null);
   const shopNames = Object.fromEntries((shops ?? []).map((sh) => [sh.id, sh.name]));
 
-  // The request for the ticked cells, from the matrix as last shown.
-  const requestFor = useCallback(
-    (rows: MatrixRow[]): PublishRequest | undefined => {
-      if (!custom) return undefined; // the default: each listing's own shop
-      const pairs = [];
-      for (const row of rows) {
-        for (const cell of row.cells) {
-          if (cell.state === "draft" || cell.state === "live") continue;
-          const key = cellKey(row.content_id, cell.connection_id);
-          const own = cell.connection_id === row.own_connection_id;
-          if (own ? !off.includes(key) : on.includes(key)) {
-            pairs.push({ content_id: row.content_id, connection_id: cell.connection_id });
-          }
-        }
-      }
-      const targets = Object.entries(profileFor)
-        .filter(([, profile]) => profile)
-        .map(([connection_id, profile_id]) => ({ connection_id, profile_id }));
-      return { pairs, targets };
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [choiceKey],
-  );
   // Per listing: the shops ticked for it (what its own "Create draft" sends).
   const chosenShops: Record<string, string[]> | undefined = preview
     ? Object.fromEntries(
         preview.rows.map((r) => [
           r.content_id,
-          r.cells
-            .filter((c) => c.chosen || c.state === "draft" || c.state === "live" || (c.state === "unavailable" && c.connection_id === r.own_connection_id))
-            .map((c) => c.connection_id),
+          r.cells.filter((c) => c.wanted || c.state === "draft" || c.state === "live").map((c) => c.connection_id),
         ]),
       )
     : undefined;
@@ -151,10 +124,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     let cancelled = false;
     (async () => {
       try {
-        // The ticked cells are worked out against the matrix; the first look is the default.
-        const base = preview ?? (await api.publishPreview(id));
-        const body = requestFor(base.rows);
-        const next = body ? await api.publishPreview(id, body) : preview ? await api.publishPreview(id) : base;
+        const next = await api.publishPreview(id); // each listing's ticked shops, as kept on it
         if (!cancelled) setPreview(next);
       } catch {
         if (!cancelled) setPreview(null);
@@ -164,7 +134,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, approvedKey, draftedKey, choiceKey, previewTick]);
+  }, [id, approvedKey, draftedKey, previewTick]);
+
+  // A profile being set up in a ticked shop: look again until it is done.
+  const settingUp = preview !== null && anyChecking(preview.columns);
+  useEffect(() => {
+    if (!settingUp) return;
+    const t = setTimeout(() => setPreviewTick((n) => n + 1), 4000);
+    return () => clearTimeout(t);
+  }, [settingUp, preview]);
 
   // "Set up NORMAL in TEETIME…" from a cell (v8 §C): exact matches link at once;
   // anything that needs the seller is finished on the Profiles page.
@@ -180,20 +158,35 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
 
-  const toggleCell = (row: MatrixRow, cell: MatrixCell, ticked: boolean) => {
-    const key = cellKey(row.content_id, cell.connection_id);
-    if (cell.connection_id === row.own_connection_id) {
-      setOff((cur) => (ticked ? cur.filter((k) => k !== key) : [...new Set([...cur, key])]));
-    } else {
-      setOn((cur) => (ticked ? [...new Set([...cur, key])] : cur.filter((k) => k !== key)));
+  // Tick or untick a shop, for one listing or for all of them. Saved at once; a
+  // shop the listing's profile is not set up in is set up as "Use in" does, and
+  // the matrix then says what that shop still needs.
+  async function tick(shopId: string, ticked: boolean, contentIds?: string[]) {
+    setTickingShop(shopId);
+    setError(null);
+    try {
+      const res = await api.tickShop(id, { connection_id: shopId, on: ticked, ...(contentIds ? { content_ids: contentIds } : {}) });
+      if (res.setting_up.length) {
+        const where = shopNames[shopId] ?? "that shop";
+        setSetupNote(
+          `Setting up ${res.setting_up.map((p) => p.name).join(", ")} in ${where}. Settings with the same name link at once; anything that shop is missing is listed under it.`,
+        );
+      }
+      setPreviewTick((n) => n + 1);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setTickingShop(null);
     }
-  };
-  const toggleColumn = (column: MatrixColumn, ticked: boolean) => {
-    for (const row of preview?.rows ?? []) {
-      const cell = row.cells.find((c) => c.connection_id === column.connection_id);
-      if (cell?.state === "available") toggleCell(row, cell, ticked);
-    }
-  };
+  }
+  const toggleCell = (row: MatrixRow, cell: MatrixCell, ticked: boolean) => tick(cell.connection_id, ticked, [row.content_id]);
+  const toggleColumn = (column: MatrixColumn, ticked: boolean) => tick(column.connection_id, ticked);
+
+  // One listing's personalization for every listing of the batch (its card's "Use this for all listings").
+  async function personalizationForAll(setting: Personalization) {
+    await api.setPersonalizationForAll(id, setting);
+    load();
+  }
 
   // Watch a set of queued jobs until each settles. Every job that lands refreshes
   // the list at once, so its card and the bulk buttons change without a reload.
@@ -251,8 +244,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
 
-  const createDraftsAll = () =>
-    runBulk("Creating drafts", () => api.publishBatch(id, preview ? requestFor(preview.rows) : undefined));
+  // Each approved listing to its ticked shops (kept on the listing).
+  const createDraftsAll = () => runBulk("Creating drafts", () => api.publishBatch(id));
   const publishAll = () => runBulk("Publishing", () => api.publishBatchLive(id));
 
   // One click for the whole batch (v6 §D). The server approves only what passes
@@ -273,7 +266,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
 
-  // What the bulk button will really create: the ticked cells (and drafts already there).
+  // What the bulk button will really create: the ticked cells that can be made (and drafts already there).
   const tickedShops: Record<string, string[]> | undefined = preview
     ? Object.fromEntries(
         preview.rows.map((r) => [r.content_id, r.cells.filter((c) => c.chosen || c.state === "draft" || c.state === "live").map((c) => c.connection_id)]),
@@ -354,12 +347,12 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       {items && items.length > 0 && shops && shops.length > 1 && preview && (
         <PublishMatrix key="matrix"
           preview={preview}
-          profileFor={profileFor}
-          onProfile={(shop, profile) => setProfileFor((cur) => ({ ...cur, [shop]: profile }))}
+          batchId={id}
           onToggle={toggleCell}
           onColumn={toggleColumn}
           onSetup={setUpProfile}
           disabled={busy}
+          busyShop={tickingShop}
         />
       )}
       {items && items.length > 1 && (
@@ -367,7 +360,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <summary className="tap cursor-pointer font-medium text-slate-800">Personalization: set for all listings</summary>
           <p className="mb-2 mt-1 text-xs text-slate-500">
             One setting for every listing of this batch, in every shop it goes to. Each card can still be changed on its
-            own; &ldquo;Use the profile&apos;s&rdquo; there goes back to its profile.
+            own; &ldquo;Use the profile&apos;s&rdquo; there goes back to its profile. To give every listing the setting
+            one listing already has, use &ldquo;Use this for all listings&rdquo; on that listing&apos;s card.
           </p>
           <ListingPersonalization
             value={null}
@@ -556,7 +550,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               initial={c}
               onChange={onCardChange}
               targets={chosenShops?.[c.id]}
-              profileFor={profileFor}
+              batchId={id}
+              onPersonalizationForAll={items.length > 1 ? personalizationForAll : undefined}
               shopNames={shopNames}
               bulkRunning={busy}
               selected={selectedIds.includes(c.id)}

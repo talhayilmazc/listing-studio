@@ -1,8 +1,14 @@
 """Publish approved content to Etsy as draft listings, in one or more shops (via the queue).
 
-Each (listing, shop) pair becomes its own job and its own draft, built from that
-shop's own profile (docs/duzeltmeler-v5.md §E). One shop failing does not stop
-the others, and every pair that cannot go is reported with its reason.
+Each (listing, shop) pair becomes its own job and its own draft. The shops are
+the ones ticked for the listing on the review page (pipeline/shop_targets.py;
+by default the shop it was written for). **The profile is never chosen here**: a
+listing is built with its own profile, the one chosen at upload or on its group,
+in every shop, with that shop's own shipping, return and processing settings
+(pipeline/targets.py). Ticking a shop the profile is not set up in starts
+setting it up there, as "Use in" does, and what that shop still lacks is listed
+per shop before anything is created. One shop failing does not stop the others,
+and every pair that cannot go is reported with its reason.
 
 Before anything is queued, the Etsy requests it will take are estimated and
 compared with what may still be spent today. A publish that would not fit is
@@ -22,6 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
+from app.api.item_options import _shop_out as section_in_shop
+from app.api.item_options import fresh_sections
 from app.api.pauses import pause_out
 from app.api.content import manual_steps
 from app.api.shops import shop_label
@@ -33,7 +41,6 @@ from app.db.models import (
     Job,
     JobStatus,
     JobType,
-    ListingGroupSetting,
     ListingProfile,
     ListingPublication,
     Tenant,
@@ -44,6 +51,8 @@ from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, owned_shop
 from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
+from app.pipeline import links as L
+from app.pipeline import profile_shops, shop_targets
 from app.pipeline.targets import is_fresh, resolve_target, shop_profiles
 
 from app.pipeline.batch_names import names_by_id
@@ -70,28 +79,8 @@ async def _files_removed(session: AsyncSession, content: GeneratedContent) -> bo
 
 
 async def _own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConnection | None:
-    """The shop the listing was written for: its group's shop, else its batch's,
-    else its profile's main shop (a profile is the account's since v8 §C)."""
-    asset = await session.get(Asset, content.asset_id)
-    shop_id = None
-    if asset is not None:
-        setting = (await session.execute(select(ListingGroupSetting).where(
-            ListingGroupSetting.batch_id == content.batch_id,
-            ListingGroupSetting.group_key == (asset.group_key or ""),
-        ))).scalar_one_or_none()
-        shop_id = setting.connection_id if setting is not None else None
-    if shop_id is None:
-        batch = await session.get(UploadBatch, content.batch_id)
-        shop_id = batch.connection_id if batch is not None else None
-    if shop_id is None and content.listing_profile_id is not None:
-        profile = await session.get(ListingProfile, content.listing_profile_id)
-        shop_id = profile.connection_id if profile is not None else None
-    if shop_id is None:
-        return None
-    connection = await session.get(EtsyConnection, shop_id)
-    if connection is None or connection.tenant_id != content.tenant_id:
-        return None
-    return connection if connection.status.value == "active" else None
+    """The shop the listing was written for (pipeline/shop_targets.py)."""
+    return await shop_targets.own_shop(session, content)
 
 
 @dataclass
@@ -117,7 +106,9 @@ class _Plan:
 async def _targets(
     session: AsyncSession, tenant: Tenant, request: schemas.PublishRequest
 ) -> list[tuple[EtsyConnection, uuid.UUID | None]] | None:
-    """The chosen shops (each must be one of the caller's own), or None = each listing's own."""
+    """The chosen shops (each must be one of the caller's own), or None = each
+    listing's ticked shops. A profile sent with a shop is not used: every listing
+    is built with its own profile."""
     if request.targets is None:
         return None
     chosen: list[tuple[EtsyConnection, uuid.UUID | None]] = []
@@ -126,7 +117,7 @@ async def _targets(
         if connection is None:
             raise HTTPException(status_code=404, detail="shop not found")
         if all(c.id != connection.id for c, _ in chosen):
-            chosen.append((connection, target.profile_id))
+            chosen.append((connection, None))
     if not chosen:
         raise HTTPException(status_code=422, detail="choose at least one shop")
     return chosen
@@ -144,7 +135,6 @@ async def _plan_drafts(
     # The matrix's ticked cells: exactly those combinations, nothing else.
     pairs: dict[uuid.UUID, list[tuple[EtsyConnection, uuid.UUID | None]]] | None = None
     if request.pairs is not None:
-        overrides = {t.connection_id: t.profile_id for t in request.targets or []}
         pairs = {}
         for pair in request.pairs:
             connection = await owned_shop(session, tenant.id, pair.connection_id)
@@ -153,12 +143,13 @@ async def _plan_drafts(
             plan.shops[connection.id] = connection
             chosen = pairs.setdefault(pair.content_id, [])
             if all(c.id != connection.id for c, _ in chosen):
-                chosen.append((connection, pair.profile_id or overrides.get(connection.id)))
+                chosen.append((connection, None))
         targets = None
     else:
         targets = await _targets(session, tenant, request)
     for connection, _ in targets or []:
         plan.shops[connection.id] = connection
+    connected = await active_shops(session, tenant.id)
     for content in contents:
         if pairs is not None and content.id not in pairs:
             continue  # not asked for
@@ -177,12 +168,19 @@ async def _plan_drafts(
         elif targets is not None:
             shops = targets
         else:
-            own = await _own_shop(session, content)
-            if own is None:
-                plan.skip(content, "its profile's shop is not connected; choose a shop")
+            # The shops ticked for it on the review page; by default its own.
+            mine = await shop_targets.wanted(session, content, connected)
+            if not mine:
+                plan.skip(
+                    content,
+                    "its profile's shop is not connected; choose a shop"
+                    if shop_targets.stored(content) is None
+                    else "no shop is ticked for it",
+                )
                 continue
-            plan.shops[own.id] = own
-            shops = [(own, None)]
+            for shop in mine:
+                plan.shops[shop.id] = shop
+            shops = [(shop, None) for shop in mine]
         for connection, profile_id in shops:
             if await publication_for(session, content.id, connection.id) is not None:
                 plan.skip(content, "already has a draft in this shop", connection)
@@ -388,11 +386,43 @@ async def _matrix(
     request: schemas.PublishRequest,
     plan: _Plan,
 ) -> tuple[list[schemas.MatrixColumnOut], list[schemas.MatrixRowOut]]:
-    """Every listing of the batch against every connected shop."""
+    """Every listing of the batch against every connected shop: which shops are
+    ticked for it, what would be created, and what each ticked shop still needs."""
     per_draft = (await request_cost.draft_estimate(session)).per_draft
     shops = await active_shops(session, tenant.id)
-    overrides = {t.connection_id: t.profile_id for t in request.targets or []}
     planned = {(content.id, connection.id) for content, connection, _ in plan.jobs}
+    asked: dict[uuid.UUID, set[uuid.UUID]] | None = None
+    if request.pairs is not None:
+        asked = {}
+        for pair in request.pairs:
+            asked.setdefault(pair.content_id, set()).add(pair.connection_id)
+    everywhere = {t.connection_id for t in request.targets} if request.pairs is None and request.targets else None
+    names = {str(s.id): shop_label(s) for s in shops}
+    own_profiles = {
+        p.id: p
+        for p in (
+            await session.execute(
+                select(ListingProfile).where(
+                    ListingProfile.id.in_({c.listing_profile_id for c in contents if c.listing_profile_id}),
+                    ListingProfile.tenant_id == tenant.id,
+                )
+            )
+        ).scalars()
+    } if contents else {}
+    #: (shop, kind, message, profile) -> the need and the listings it concerns.
+    needs: dict[tuple[uuid.UUID, str, str, uuid.UUID | None], schemas.ShopNeedOut] = {}
+
+    def need(shop: EtsyConnection, kind: str, message: str, *, blocking: bool, profile: ListingProfile | None = None,
+             setup: bool = False, checking: bool = False) -> None:
+        key = (shop.id, kind, message, profile.id if profile is not None else None)
+        row = needs.get(key)
+        if row is None:
+            row = needs[key] = schemas.ShopNeedOut(
+                kind=kind, message=message, blocking=blocking, setup=setup, checking=checking,
+                profile_id=profile.id if profile is not None else None,
+                profile_name=profile.name if profile is not None else None,
+            )
+        row.listings += 1
     assets = {
         a.id: a
         for a in (
@@ -416,27 +446,76 @@ async def _matrix(
         problem = "not approved yet" if not content.approved else await _content_problem(session, content)
         if not problem and await _files_removed(session, content):
             problem = FILES_REMOVED
+        if asked is not None:
+            ticked = asked.get(content.id, set())
+        elif everywhere is not None:
+            ticked = everywhere
+        else:
+            ticked = {s.id for s in await shop_targets.wanted(session, content, shops)}
+        own_profile = own_profiles.get(content.listing_profile_id) if content.listing_profile_id else None
         cells = []
         for shop in shops:
+            wanted = shop.id in ticked
             state = states.get((content.id, shop.id))
             if state is not None:
-                cells.append(schemas.MatrixCellOut(connection_id=shop.id, state="live" if state == "active" else "draft"))
-                continue
-            if problem:
-                cells.append(schemas.MatrixCellOut(connection_id=shop.id, state="unavailable", reason=problem))
-                continue
-            target = await resolve_target(session, content, shop, profile_id=overrides.get(shop.id))
-            if not target.ok or target.profile is None:
                 cells.append(schemas.MatrixCellOut(
-                    connection_id=shop.id, state="unavailable", reason=target.reason or "no profile for this shop",
+                    connection_id=shop.id, state="live" if state == "active" else "draft", wanted=wanted))
+                continue
+            # Every listing with its own profile: a profile is never chosen per shop.
+            target = await resolve_target(session, content, shop)
+            if not target.ok or target.profile is None:
+                if wanted and not target.by_text:
+                    # What this shop still needs before the listing can go there:
+                    # said per shop, before anything is approved or created.
+                    link_state = profile_shops.state_of(target.profile, target.link) if target.profile and target.link else None
+                    if link_state is not None and link_state.missing:
+                        for resource, why in link_state.missing.items():
+                            need(shop, resource, f"{L.LABEL[resource]}: {why}", blocking=True, profile=target.profile, setup=True)
+                    else:
+                        said = target.reason or "no profile for this shop"
+                        if target.profile is not None:
+                            # The need names the profile itself: say only what is wrong.
+                            for lead in (f'profile "{target.profile.name}" in this shop: ', f'profile "{target.profile.name}" '):
+                                if said.startswith(lead):
+                                    said = said[len(lead):]
+                                    break
+                        need(
+                            shop, "profile" if target.setup else "checking" if link_state is not None and link_state.status == "checking" else "other",
+                            said, blocking=True, profile=target.profile,
+                            setup=target.setup, checking=link_state is not None and link_state.status == "checking",
+                        )
+                cells.append(schemas.MatrixCellOut(
+                    connection_id=shop.id, state="unavailable",
+                    # Its own text first (not approved, a rule it breaks): that is the seller's next step.
+                    reason=problem or target.reason or "no profile for this shop",
                     profile_id=target.profile.id if target.profile else None,
                     profile_name=target.profile.name if target.profile else None,
-                    setup=target.setup,
+                    setup=target.setup, wanted=wanted, by_shop=not target.by_text,
+                ))
+                continue
+            if wanted and shop.id != (own.id if own else None):
+                # A section chosen in another shop that this one does not have. The
+                # shop's sections are read when the listing's card asks for them
+                # (api/item_options.py); a preview reads nothing from Etsy.
+                if fresh_sections(shop) is not None:
+                    section = section_in_shop(content, shop, own_profile, names)
+                    if section.missing_title:
+                        instead = f'"{section.selected_title}"' if section.selected_title else "no section"
+                        need(
+                            shop, "section",
+                            f'Section "{section.missing_title}" is not in this shop: the draft gets {instead} there. '
+                            "Create it or pick another under Section on the listing's card.",
+                            blocking=False,
+                        )
+            if problem:
+                cells.append(schemas.MatrixCellOut(
+                    connection_id=shop.id, state="unavailable", reason=problem, wanted=wanted,
+                    profile_id=target.profile.id, profile_name=target.profile.name,
                 ))
                 continue
             cells.append(schemas.MatrixCellOut(
                 connection_id=shop.id, state="available", profile_id=target.profile.id,
-                profile_name=target.profile.name, chosen=(content.id, shop.id) in planned,
+                profile_name=target.profile.name, chosen=(content.id, shop.id) in planned, wanted=wanted,
             ))
         asset = assets.get(content.asset_id)
         rows.append(schemas.MatrixRowOut(
@@ -444,6 +523,8 @@ async def _matrix(
             original_filename=asset.original_filename if asset else "",
             group_key=asset.group_key if asset else None,
             own_connection_id=own.id if own else None, cells=cells,
+            profile_id=own_profile.id if own_profile else None,
+            profile_name=own_profile.name if own_profile else None,
         ))
     rows.sort(key=lambda r: (r.group_key or "", r.original_filename))
     columns = [
@@ -456,6 +537,9 @@ async def _matrix(
             ],
             drafts=plan.ready.get(shop.id, 0),
             estimated_calls=plan.ready.get(shop.id, 0) * per_draft,
+            ticked=sum(1 for r in rows for c in r.cells if c.connection_id == shop.id and c.wanted),
+            # What stops a draft first, then what it will be made without.
+            needs=sorted((n for k, n in needs.items() if k[0] == shop.id), key=lambda n: (not n.blocking, n.kind, n.message)),
         )
         for shop in shops
     ]
@@ -507,6 +591,46 @@ async def publish_preview(
         listings_that_fit=budget.listings_that_fit,
         message=budget.message,
     )
+
+
+@router.put("/batches/{batch_id}/targets", response_model=schemas.ShopTickOut)
+async def tick_shop(
+    batch_id: uuid.UUID,
+    body: schemas.ShopTick,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> schemas.ShopTickOut:
+    """Tick or untick one shop for listings of the batch (all of them, or the ones
+    named). The choice is kept on each listing. Ticking a shop a listing's profile
+    is not set up in starts setting it up there, exactly as "Use in" does: exact
+    matches link at once, and what is left is shown per shop on the review page.
+    Nothing is created on Etsy by this."""
+    contents = await _batch_contents(session, tenant, batch_id, body.content_ids)
+    shop = await owned_shop(session, tenant.id, body.connection_id)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="shop not found")
+    connected = await active_shops(session, tenant.id)
+    changed = 0
+    to_set_up: dict[uuid.UUID, ListingProfile] = {}
+    for content in contents:
+        if await shop_targets.set_shop(session, content, connected, shop.id, body.on):
+            changed += 1
+        if not body.on or content.listing_profile_id is None or content.listing_profile_id in to_set_up:
+            continue
+        target = await resolve_target(session, content, shop)
+        retry = target.link is not None and target.link.status == "error"  # a failed setup is tried again
+        if target.profile is not None and target.setup and (target.link is None or retry) and target.profile.confirmed:
+            to_set_up[target.profile.id] = target.profile
+    started: list[schemas.ProfileChoiceOut] = []
+    for profile in to_set_up.values():
+        if await profile_shops.start_links(session, profile, [shop.id]):
+            started.append(schemas.ProfileChoiceOut(
+                id=profile.id, name=profile.name, content_template=profile.content_template, is_fresh=is_fresh(profile)))
+    await session.commit()
+    for profile in started:
+        await enqueuer.enqueue("link_profile", str(profile.id))
+    return schemas.ShopTickOut(changed=changed, setting_up=started)
 
 
 # --- Publish now (draft -> active) ------------------------------------------

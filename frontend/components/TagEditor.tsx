@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { MAX_TAG_LENGTH as MAX_TAG, TAG_COUNT as REQUIRED, addTags, editTag, tagProblems } from "@/lib/tags";
+import { useEffect, useState } from "react";
+import { MAX_TAG_LENGTH as MAX_TAG, TAG_COUNT as REQUIRED, UNDO_SECONDS, addTags, editTag, restoreTags, tagProblems } from "@/lib/tags";
 
 import { Txt } from "@/components/Txt";
 export function TagEditor({
@@ -12,6 +12,26 @@ export function TagEditor({
   onChange: (tags: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
+  // "Delete all" clears at once, with no dialog; the tags can be taken back for ten seconds.
+  const [deleted, setDeleted] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!deleted) return;
+    const t = setTimeout(() => setDeleted(null), UNDO_SECONDS * 1000);
+    return () => clearTimeout(t);
+  }, [deleted]);
+
+  function deleteAll() {
+    if (tags.length === 0) return;
+    setDeleted(tags);
+    setDraft("");
+    onChange([]);
+  }
+
+  function undo() {
+    if (!deleted) return;
+    onChange(restoreTags(deleted, tags));
+    setDeleted(null);
+  }
 
   // "nurse, winter, sweatshirt" is three tags, typed or pasted (v7 §E4).
   function add(text = draft) {
@@ -34,10 +54,24 @@ export function TagEditor({
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3">
         <span className="label mb-0">Tags</span>
-        <span className={`text-xs font-medium ${countTone}`}>
-          <span><span>{tags.length}</span> / <span>{REQUIRED}</span></span>
+        <span className="flex items-center gap-3">
+          {deleted ? (
+            <span key="undo" role="status" className="flex items-center gap-2 text-xs text-slate-600">
+              <span translate="no">{`${deleted.length} tag${deleted.length === 1 ? "" : "s"} deleted`}</span>
+              <button type="button" className="tap font-medium text-brand-700 underline" onClick={undo} data-testid="tags-undo">
+                Undo
+              </button>
+            </span>
+          ) : tags.length > 0 ? (
+            <button key="delete-all" type="button" className="tap text-xs text-slate-500 underline hover:text-rose-700" onClick={deleteAll} data-testid="tags-delete-all">
+              Delete all
+            </button>
+          ) : null}
+          <span className={`text-xs font-medium ${countTone}`} data-testid="tag-count" translate="no">
+            <span><span>{tags.length}</span> / <span>{REQUIRED}</span></span>
+          </span>
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5">

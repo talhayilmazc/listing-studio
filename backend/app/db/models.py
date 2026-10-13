@@ -687,6 +687,9 @@ class GeneratedContent(Base):
     #: that read the design (the vision step). Ours to know: never sent to a seller.
     model_used: Mapped[str | None] = mapped_column(Text)
     vision_model: Mapped[str | None] = mapped_column(Text)
+    #: Who wrote the title and tags: "ai" (the app) or "manual" (the seller, with
+    #: no vision or content call: pipeline/manual.py).
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="ai", server_default="ai")
     # Required for per-listing cost measurement.
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
@@ -705,6 +708,9 @@ class GeneratedContent(Base):
     #: shop ({"sections": {connection id: {"id", "title"}}}), set on the review card;
     #: what is not here follows the writer and the profile (pipeline/item_options.py).
     item_options: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: The shops ticked for this listing on the review page (connection ids as
+    #: text). None: the shop it was written for (pipeline/shop_targets.py).
+    target_shops: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1147,9 +1153,10 @@ class ContentVersion(Base):
     Written when the draft is made (``active_from`` None while it is a draft),
     opened when it goes live, closed (``active_to``) when the app replaces the
     text. ``reason``: "generated" (as the app wrote it), "edited" (the seller
-    changed it in the app first) or "replaced" (Replace images, full mode).
-    Edits made directly on Etsy are not seen. ``title_style`` is "short" or
-    "long". Survives batch deletion (it hangs off the publication); kept 13
+    changed it in the app first), "manual" (the seller wrote the title and tags
+    themselves; ``source`` "manual", no models) or "replaced" (Replace images, full mode).
+    Edits made directly on Etsy are not seen. ``title_style`` is "short", "long"
+    or "manual" (the seller's own title: in neither style, so not compared). Survives batch deletion (it hangs off the publication); kept 13
     months after it was closed and deleted with the shop.
     """
 
@@ -1183,6 +1190,8 @@ class ContentVersion(Base):
     #: is not known (written before this was kept). Never sent to a seller.
     vision_model: Mapped[str | None] = mapped_column(Text)
     content_model: Mapped[str | None] = mapped_column(Text)
+    #: "ai" or "manual": a manual version has no models because none was called.
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="ai", server_default="ai")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
