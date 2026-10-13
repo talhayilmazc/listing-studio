@@ -21,9 +21,11 @@ Listyro also gives the seller a profit, cost and ads report for their own shop, 
 
 ## Who uses it
 
-Individual Etsy sellers, each using only their own shops. The app is in invite-only early access with a handful of sellers. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The number of shops an account may connect is set per account: there is a default, and we raise it for a seller who runs more shops of their own. We also cap the total connected across all accounts, below the 80 Etsy approved, because every shop shares the one daily request budget.
+Individual Etsy sellers, each using only their own shops. The app is in invite-only early access with a handful of sellers. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The number of shops an account may connect is set per account: there is a default, and we raise it for a seller who runs more shops of their own. We also cap the total number of shops connected across all accounts, because every shop shares the one daily request budget.
 
 Our largest seller runs 16 shops today, each its own Etsy account and brand. Listyro lets them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
+
+Listyro has reached the user limit of personal access (5 users): sellers who have asked to join, including a seller with 16 shops, cannot connect until Commercial Access is approved.
 
 ## How Etsy data is used
 
@@ -80,7 +82,7 @@ One API key. We send at most 3 requests per second, below Etsy's 5 per second, a
 
 ## Fees and payments
 
-No payment of any kind is taken today, and the app contains no payment or checkout code. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
+No payment of any kind is taken today, and the app contains no payment or checkout code. The planned model is a monthly subscription in tiers by the number of new listings prepared per month, with every feature in every tier. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
 
 ## Branding
 
@@ -90,8 +92,4 @@ The product is named Listyro, on listyro.com. "Etsy" does not appear in the prod
 
 It does not manage Etsy Ads, handle checkout or payments, direct buyers away from Etsy, read other sellers' data, publish anything without the seller's approval, or resell or sublicense API access.
 
-## Before sending
-
-- Read the current API Terms at etsy.com/legal/api against `docs/etsy-compliance.md` (the tool that prepared these answers could not open that page).
-- Make sure support@listyro.com is a working, read mailbox.
-- Record the demo in `docs/reviewer-demo.md` and attach it if the form allows.
+Checked before sending: the trademark notice matches Etsy's API Terms word for word; support@listyro.com is a working, read mailbox.
