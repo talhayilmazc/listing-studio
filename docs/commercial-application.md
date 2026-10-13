@@ -60,6 +60,18 @@ AI suggests a title, 13 tags and a description from the seller's own images and 
 
 The AI provider is Anthropic (Claude API). It receives the seller's own images and listing text only: the design image the seller asks a listing for; its SKU, the kind of product and the profile's title prefix; the title and tags of one of the seller's own listings, if they chose it as an example to follow; and occasionally an image from the seller's own reference listing, to tell a size chart from artwork. It never receives buyer data, sales or orders, and under its commercial terms it does not train on API data. We do not train or fine-tune any model ourselves. A trademark filter, on by default (the seller can turn it off after an explicit warning), keeps brand and character names out of the listing's text and flags artwork that appears to contain a recognisable character. A seller can also write the title and tags themselves, in which case no AI is used for that listing.
 
+## Quality safeguards
+
+Listyro is built for sellers' own original designs. These safeguards apply to every listing:
+
+- every listing waits on a review page for the seller's approval before it is created in their shop, and it is created as a draft; nothing is published without the seller;
+- a trademark filter, on by default, keeps brand and character names out of titles, tags and descriptions, and holds a listing back when the AI's analysis of its artwork finds what may be a recognisable character (a seller who turns the filter off, after an explicit warning, sees a warning instead; a listing written without AI is checked for names, but its artwork is not analysed);
+- drafts copy who made the item, when it was made, whether it is a supply and the production partners from the seller's own listing, and read them back from Etsy after the draft is made; the review card warns when a print-on-demand profile has no production partner (Creativity Standards);
+- a seller can write titles and tags themselves with no AI;
+- a design is not created twice in the same shop: a shop that already has its draft or listing is skipped, and a retry never creates a second draft;
+- each connected shop has its own drafts and its own shipping, return, processing and section settings. The seller chooses the shop or shops each design is listed in, and is warned when a design already sent to one group of their shops is sent to another;
+- our Terms require sellers to follow Etsy's Seller Policy, including the rules against duplicate shops and search manipulation.
+
 ## Security
 
 - OAuth access and refresh tokens are encrypted at rest and decrypted only to send a request. They are never logged, never shown in the app, never sent to the browser, and deleted the moment a shop is disconnected.
@@ -90,7 +102,7 @@ No payment of any kind is taken today, and the app contains no payment or checko
 - Catalog: 5,000 listings a month, 8 shops, scheduling, $399/month
 - Custom: more listings or shops, quoted on request
 
-A listing is one design, counted once, whichever of the seller's shops it is listed in. Every plan includes everything else: profiles, AI-suggested or write-it-yourself text, trademark checks, review and approve, size charts and the profit report. The plans are not enforced or sold today: there is no sign-up for one. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. These plans need more than the default 5,000 requests a day: we ask Etsy for a higher daily limit together with Commercial Access, and will not sell a plan we cannot serve within our limits. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
+A listing is one design, counted once, whichever of the seller's shops it is listed in. Every plan includes everything else: profiles, AI-suggested or write-it-yourself text, trademark checks, review and approve, size charts and the profit report. The plans are not enforced or sold today: there is no sign-up for one. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. These plans need more than the default 5,000 requests a day: we ask Etsy for a higher daily limit together with Commercial Access, and will not sell a plan we cannot serve within our limits. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Plans differ by how much work Listyro does each month: the listings it prepares and the number of shops it prepares them for, which drives our AI and processing costs and our share of the API budget. Connecting a shop, creating listings on Etsy and Etsy's own statistics are free on Etsy and are not what a seller pays for. The profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
 
 ## Branding
 
