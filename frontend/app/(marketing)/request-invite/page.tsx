@@ -3,7 +3,7 @@ import { InviteForm } from "@/components/marketing/InviteForm";
 
 export const metadata: Metadata = {
   title: "Request an invite",
-  description: "Listyro is in a limited beta while we complete Etsy's commercial access review. Tell us about your shop and we'll email you when a spot opens.",
+  description: "Listyro is invite-only while we onboard sellers in small groups. Tell us about your shop and we'll email you when a spot opens.",
   alternates: { canonical: "/request-invite" },
 };
 
@@ -11,13 +11,13 @@ export default function RequestInvite() {
   return (
     <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-12 px-4 pb-24 pt-12 sm:px-6 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-20">
       <div className="min-w-0">
-        <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Beta</p>
+        <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Invite-only</p>
         <h1 className="mt-3 font-display text-[clamp(2.6rem,6vw,4.25rem)] leading-[1.02] text-slate-900">
           Request an invite.
         </h1>
         <p className="mt-5 max-w-[32rem] text-[1.0625rem] leading-relaxed text-slate-600">
-          Listyro is in a limited beta while we complete Etsy&apos;s commercial access review. Tell us a little
-          about your shop and we&apos;ll email you when a spot opens. You can leave whenever you like.
+          Listyro is invite-only while we onboard sellers in small groups. Tell us a little about your shop and
+          we&apos;ll email you when a spot opens. You can leave whenever you like.
         </p>
         <ul className="mt-8 max-w-[32rem] space-y-3 text-[0.9375rem] text-slate-600">
           {[

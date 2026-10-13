@@ -727,10 +727,10 @@ def invite_message(link: str, expires_at: datetime | None) -> str:
     until = f" The link works until {expires_at:%d %B %Y}." if expires_at else ""
     return (
         "Hi,\n\n"
-        "A spot has opened in the Listyro beta, and your invite is ready.\n\n"
+        "A spot has opened in Listyro's early access, and your invite is ready.\n\n"
         f"Create your account here: {link}\n\n"
         f"The invite is single use and tied to this e-mail address.{until}\n\n"
-        "Listyro is in a limited beta and free while we complete Etsy's commercial access review. "
+        "Listyro is invite-only and free while we onboard sellers in small groups. "
         "If you have any questions, just reply to this e-mail.\n\n"
         "Listyro"
     )

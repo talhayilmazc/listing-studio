@@ -99,7 +99,7 @@ export default function LoginPage() {
         </button>
 
         <p className="text-xs text-slate-400">
-          Forgotten your password? There is no email service during the beta — ask for a
+          Forgotten your password? There is no email service during early access — ask for a
           temporary one and you will be prompted to change it when you sign in.
         </p>
       </form>

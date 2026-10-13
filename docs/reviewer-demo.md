@@ -45,7 +45,7 @@ Take each at 1366 px wide, and the first three also at 375 px (phone).
 | 8 | Terms: who provides the service | `/terms#provider` | The provider line in capitals and the trademark notice in section 3. |
 | 9 | Disconnect | `/connect`, after disconnecting | The message that the tokens and Etsy data were deleted and what was cancelled. |
 | 10 | Delete account | `/settings` | The Delete account section with what is deleted at once and within 30 days. |
-| 11 | Pricing | `/pricing` | "Free during beta", no payment taken, pricing applies only after launch. |
+| 11 | Pricing | `/pricing` | "Free during early access", no payment taken, pricing applies only after launch. |
 
 ## After recording
 

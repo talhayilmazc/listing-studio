@@ -53,9 +53,9 @@ export default function RegisterPage() {
 
   return (
     <AuthShell
-      betaNotice
+      earlyAccessNotice
       title="Create your account"
-      subtitle="Registration is by invitation during the beta."
+      subtitle="Registration is by invitation during early access."
       footer={
         <>
           Already have an account?{" "}

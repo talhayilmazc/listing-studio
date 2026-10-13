@@ -66,9 +66,8 @@ export function InviteForm() {
 
   return (
     <form onSubmit={submit} className="card space-y-5 p-6 sm:p-8" noValidate={false}>
-      <p className="rounded-lg border border-slate-200 bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700" data-testid="beta-copy">
-        Listyro is in a limited beta while we complete Etsy&apos;s commercial access review. We&apos;ll email you
-        when a spot opens.
+      <p className="rounded-lg border border-slate-200 bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700" data-testid="invite-copy">
+        Listyro is invite-only while we onboard sellers in small groups. We&apos;ll email you when a spot opens.
       </p>
       <div>
         <label htmlFor="ir-email" className="label">Email</label>

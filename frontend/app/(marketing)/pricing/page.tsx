@@ -3,12 +3,12 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Listyro is free during beta. Plans for after the beta will be announced before it ends.",
+  description: "Listyro is free during early access. Pricing applies only after launch and will be announced well before.",
   alternates: { canonical: "/pricing" },
 };
 
 // No prices are shown for the planned plans because none are set, and the
-// site has no sign-up flow for plans until the beta ends.
+// site has no sign-up flow for plans until launch.
 const PLANNED: { name: string; for: string; points: string[] }[] = [
   {
     name: "Solo",
@@ -33,19 +33,19 @@ export default function Pricing() {
       <div className="max-w-[46rem]">
         <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Pricing</p>
         <h1 className="mt-3 font-display text-[clamp(2.6rem,6vw,4.25rem)] leading-[1.02] text-slate-900">
-          Free during beta.
+          Free during early access.
         </h1>
         <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600">
-          Everything is included while Listyro is in beta, and no payment of any kind is taken: there is no
-          checkout on this site. Pricing applies only after launch; plans will be announced well before the beta
-          ends, and every beta seller will hear first.
+          Everything is included during early access and no payment of any kind is taken; there is no checkout
+          on this site. Pricing applies only after launch and will be announced well before, and early-access
+          sellers will hear first.
         </p>
       </div>
 
       <div className="mt-14 grid grid-cols-1 gap-5 lg:grid-cols-4">
         <div className="min-w-0 rounded-2xl border-2 border-brand-600 bg-white p-6">
           <p className="flex items-center justify-between gap-2">
-            <span className="font-display text-3xl text-slate-900">Beta</span>
+            <span className="font-display text-3xl text-slate-900">Early access</span>
             <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">Now</span>
           </p>
           <p className="mt-4 font-display text-5xl leading-none text-slate-900">Free</p>
@@ -64,7 +64,7 @@ export default function Pricing() {
           <div key={plan.name} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-6">
             <p className="flex items-center justify-between gap-2">
               <span className="font-display text-3xl text-slate-900">{plan.name}</span>
-              <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">After beta</span>
+              <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">After launch</span>
             </p>
             <p className="mt-4 text-sm font-medium text-slate-500">Price to be announced</p>
             <p className="mt-2 text-sm text-slate-600">{plan.for}</p>

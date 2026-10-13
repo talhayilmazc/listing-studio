@@ -23,7 +23,7 @@ const SECTIONS = [
   { id: "service", title: "What the Service does" },
   { id: "etsy", title: "Etsy and this Service" },
   { id: "accounts", title: "Accounts and eligibility" },
-  { id: "fees", title: "Fees: none during the beta" },
+  { id: "fees", title: "Fees: none during early access" },
   { id: "responsibilities", title: "Your responsibilities" },
   { id: "publishing", title: "Drafts and publishing" },
   { id: "content", title: "Your content" },
@@ -132,7 +132,7 @@ export default function TermsPage() {
       <Section id="accounts" n={4} title="Accounts and eligibility">
         <Items>
           <li>
-            During the beta, accounts are by invitation only. An invite is personal and can be used
+            During early access, accounts are by invitation only. An invite is personal and can be used
             once; an invite issued in answer to a request works only for the email address that asked.
           </li>
           <li>
@@ -148,15 +148,15 @@ export default function TermsPage() {
         </Items>
       </Section>
 
-      <Section id="fees" n={5} title="Fees: none during the beta">
+      <Section id="fees" n={5} title="Fees: none during early access">
         <p>
-          The Service is in a limited beta and is <strong>free of charge</strong>. We take no payment
-          of any kind during the beta, and there is no checkout or payment form in the Service. If we
+          The Service is in invite-only early access and is <strong>free of charge</strong>. We take no payment
+          of any kind during early access, and there is no checkout or payment form in the Service. If we
           later introduce paid plans, we will tell you the prices in advance, and you will not be
           charged without your separate, explicit agreement.
         </p>
         <p>
-          Being a beta means the Service may have errors, may be unavailable at times, and may change
+          Early access means the Service may have errors, may be unavailable at times, and may change
           as we improve it. Data loss is possible.{" "}
           <strong>Please keep your own copies of your design files</strong><span>: uploaded image files are
           working copies and are deleted <span>{RETENTION.uploadsAfterDraftsDays}</span> days after a listing&rsquo;s
@@ -341,8 +341,8 @@ export default function TermsPage() {
           or goodwill, or for any action Etsy takes regarding your account or listings, arising out of
           or related to the Service. Our total liability to you for all claims relating to the Service
           is limited to the greater of (a) the amount you have paid us for the Service in the twelve
-          months before the claim arose, and (b) fifty United States dollars (US$50). During the free
-          beta, the amount in (a) is zero. Etsy, Inc. has no liability to you in connection with the
+          months before the claim arose, and (b) fifty United States dollars (US$50). During free
+          early access, the amount in (a) is zero. Etsy, Inc. has no liability to you in connection with the
           Service.
         </Conspicuous>
         <p>

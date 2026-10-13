@@ -15,14 +15,14 @@ export function AuthShell({
   subtitle,
   children,
   footer,
-  betaNotice = false,
+  earlyAccessNotice = false,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
   /** Shown where someone decides to join (register), not on every sign-in. */
-  betaNotice?: boolean;
+  earlyAccessNotice?: boolean;
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-stone-50 px-6 py-10">
@@ -40,7 +40,7 @@ export function AuthShell({
           <div className="mt-6">{children}</div>
         </div>
 
-        {betaNotice && <BetaNotice key="betanotice-46-8" />}
+        {earlyAccessNotice && <EarlyAccessNotice key="early-access-notice" />}
         {footer && <div key="div-47-8" className="mt-5 text-center text-sm text-slate-500">{footer}</div>}
         <AuthFooter />
       </div>
@@ -49,16 +49,16 @@ export function AuthShell({
 }
 
 /**
- * Beta notice (production-spec E3). Shown on register, before someone commits:
+ * Early-access notice (production-spec E3). Shown on register, before someone commits:
  * these are real sellers with real shops, and they must know what they are
  * joining before they hand over an account. Returning users have seen it.
  */
-export function BetaNotice() {
+export function EarlyAccessNotice() {
   return (
     <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-800">Beta</p>
+      <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-800">Early access</p>
       <p className="mt-1.5 text-xs leading-relaxed text-amber-900">
-        This product is in beta and free to use. It may contain errors, and your listings are
+        This product is in early access and free to use. It may contain errors, and your listings are
         created as drafts you approve yourself — nothing is ever published to Etsy without your
         explicit action. Please keep your own copies of your design files; we cannot guarantee
         against data loss.

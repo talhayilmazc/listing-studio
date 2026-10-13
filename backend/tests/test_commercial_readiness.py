@@ -376,7 +376,7 @@ async def test_an_invite_request_needs_the_shop_and_the_count_and_the_operators_
     base = get_settings().frontend_url.rstrip("/")
     assert approved["link"].startswith(f"{base}/register?invite=") and "email=maker%40example.com" in approved["link"]
     assert approved["code"] in approved["link"] and approved["link"] in approved["message"]
-    assert "limited beta" in approved["message"] and "commercial access review" in approved["message"]
+    assert "early access" in approved["message"] and "invite-only" in approved["message"] and "beta" not in approved["message"].lower()
     assert (await world["a"].get("/api/admin/invite-requests/pending")).json() == {"pending": 0}
     # The link's code registers that address, with the tick.
     made = await world["anon"].post("/api/account/register", json={

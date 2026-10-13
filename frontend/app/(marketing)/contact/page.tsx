@@ -19,7 +19,7 @@ const WAYS: { title: string; body: React.ReactNode }[] = [
     ),
   },
   {
-    title: "Joining the beta",
+    title: "Joining early access",
     body: (
       <>
         <span>Use the </span>
