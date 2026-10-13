@@ -23,6 +23,8 @@ Listyro also gives the seller a profit, cost and ads report for their own shop, 
 
 Individual Etsy sellers, each using only their own shops. The app is in a closed, invitation-only beta with a handful of sellers. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The app is capped at 8 shops per account and 20 shops in total, which is below the 80 Etsy approved, because every shop shares the one daily request budget.
 
+Some sellers run more than one shop, each its own Etsy account and brand. Listyro lets them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
+
 ## How Etsy data is used
 
 Only the authenticated seller's own shop data is read, only through the Open API, and only to provide the service to that seller:
@@ -68,7 +70,13 @@ The AI provider is Anthropic (Claude API). It receives the seller's own design i
 
 ## Rate limits
 
-One API key. Every request passes through one global limiter at 3 requests per second with no burst, below the 5 allowed. A global counter holds the app to 5,000 requests a day; when 90% is used, new work waits for the daily reset instead of starting, and the seller is told why. Each account also has its own daily ceiling for its own work, shown to the seller as "Etsy requests today". A 429 from Etsy makes every worker wait for the Retry-After period. Background reads (sales, ledger, statistics) are paced so that keeping shops current uses a small, bounded share of the budget.
+One API key. We send at most 3 requests per second, below Etsy's 5 per second, and pause at 90% of the daily limit.
+
+- **Per second:** every request to the API, from every job and every shop, passes through one global limiter that spaces requests at least a third of a second apart. There is no burst: no one-second window holds more than 3 requests.
+- **Per day:** one counter for the whole app against the daily limit of 5,000 requests. When 90% (4,500) is used, new jobs do not start: they wait for the reset at 00:00 UTC before making their first request, and the seller is told why. The remaining 10% is held back so that jobs already running can finish.
+- **Per account:** each account has its own daily ceiling for its own work (4,500 by default), shown to the seller as "Etsy requests today". A job whose estimated cost does not fit in what the account has left waits for the reset too.
+- **429:** if Etsy answers 429, every worker waits for the Retry-After period, and the retry passes through the same limiter and counters.
+- **Background reads** (sales, ledger, statistics) are paced so that keeping shops current uses a small, bounded share of the daily budget.
 
 ## Fees and payments
 
