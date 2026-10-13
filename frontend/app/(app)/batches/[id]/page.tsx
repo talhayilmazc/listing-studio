@@ -19,6 +19,7 @@ import { useSession } from "@/components/SessionProvider";
 import { GroupImages } from "@/components/GroupImages";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
+import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
 
 import { Txt } from "@/components/Txt";
 interface AssetGroup {
@@ -270,6 +271,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         pubs.map((p) => api.replaceImages(p.etsy_listing_id, id, mode, p.connection_id, g.key)),
       );
       const done = await Promise.all(jobs.map((j) => waitForJob(j.job_id)));
+      // More photos than Etsy keeps beside the size charts: say which were left out.
+      const over = done.find((d) => d?.left_out?.length)?.left_out;
       const failed = done.filter((d) => d && d.status === "failed");
       const waiting = done.find((d) => d?.pause);
       const pending = done.filter((d) => d === null).length;
@@ -280,7 +283,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             ? `Queued, not failed. ${waiting.pause.message}`
             : pending
               ? "Still replacing the photos on Etsy; this page updates when you come back."
-              : replacedNotice(mode, g.label),
+              : [replacedNotice(mode, g.label), leftOutNotice(over)].filter(Boolean).join(" "),
       );
       await load();
     } catch (e: any) {
@@ -667,6 +670,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                         : "This listing is already on Etsy. Choose what to replace there."
                     }
                     photos="this group's, in the order shown"
+                    notice={(() => {
+                      // The group's photos as they are now against its size charts.
+                      const over = imageLimit(g.assets, s?.size_charts?.length ?? 0);
+                      return over ? limitNotice(over) : null;
+                    })()}
                     confirmLabel={(m) => (m === "photos" ? "Replace the photos on Etsy" : "Replace photos, title and tags on Etsy")}
                     onConfirm={(m) => replaceOnEtsy(g, pubs, m)}
                     onCancel={() => setConfirming(null)}

@@ -295,6 +295,16 @@ async def contents_out(
     for out in outs:
         out.findings = findings.get(out.id, [])
         out.work = work.get(out.id, [])
+    # More images than Etsy keeps: the same notice as on the group's card.
+    from app.api.batches import _batch_groups  # late: batches imports this module's helpers
+
+    limits: dict[tuple[uuid.UUID, str], schemas.ImageLimitOut] = {}
+    for batch_id in {c.batch_id for c, _ in pairs}:
+        for group in await _batch_groups(session, batch_id):
+            if group.image_limit is not None:
+                limits[(batch_id, group.group_key)] = group.image_limit
+    for out, (c, a) in zip(outs, pairs):
+        out.image_limit = limits.get((c.batch_id, a.group_key or ""))
     return outs
 
 

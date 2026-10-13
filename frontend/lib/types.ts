@@ -65,6 +65,13 @@ export interface ReplaceImagesResult {
   job_id: string;
 }
 
+/** More images than Etsy keeps on a listing: the photos that are left out (the last ones). */
+export interface ImageLimit {
+  total: number;
+  limit: number;
+  left_out: string[];
+}
+
 export interface Group {
   group_key: string;
   sku: string | null;
@@ -90,6 +97,8 @@ export interface Group {
   chart_profile_name?: string | null;
   /** The listing on Etsy the charts are on (the back link). */
   chart_listing_id?: number | null;
+  /** Its photos and size charts are more than Etsy keeps: what will be left out. */
+  image_limit?: ImageLimit | null;
 }
 
 export interface BatchDetail extends BatchSummary {
@@ -141,6 +150,8 @@ export interface Content {
   findings?: Finding[];
   /** Draft or go-live jobs that failed or are still waiting, with the reason. */
   work?: Work[];
+  /** Its group's photos and size charts are more than Etsy keeps: what will be left out. */
+  image_limit?: ImageLimit | null;
   /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */
   personalization?: Personalization | null;
   personalization_source?: "listing" | "profile" | "unknown" | string;
@@ -441,6 +452,8 @@ export interface JobStatus {
   manual_steps: ManualStep[];
   /** Set while the job waits for the reset. It is still queued and will run then. */
   pause: Pause | null;
+  /** Photos it did not send: the listing would have had more images than Etsy keeps. */
+  left_out?: string[];
 }
 
 export interface Validation {

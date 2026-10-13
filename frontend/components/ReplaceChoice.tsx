@@ -16,6 +16,7 @@ export function ReplaceChoice({
   onConfirm,
   onCancel,
   pinActions = false,
+  notice,
 }: {
   /** Which listing, in a sentence. */
   intro: string;
@@ -26,6 +27,8 @@ export function ReplaceChoice({
   onCancel: () => void;
   /** In a scrolling sheet: keep the buttons in view under the options. */
   pinActions?: boolean;
+  /** Something the seller must know before confirming, e.g. photos that will not fit. */
+  notice?: string | null;
 }) {
   const [mode, setMode] = useState<ReplaceMode>(DEFAULT_REPLACE_MODE);
   const name = useId();
@@ -74,6 +77,11 @@ export function ReplaceChoice({
           );
         })}
       </div>
+      {notice && (
+        <p key="notice" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900" data-testid="replace-limit">
+          {notice}
+        </p>
+      )}
       <div className={"flex flex-wrap items-center gap-3 " + (pinActions ? "sticky bottom-0 -mx-4 border-t border-slate-100 bg-white px-4 py-3" : "")}>
         <button type="button" className="btn-primary px-3 py-1.5 text-xs" onClick={() => onConfirm(mode)}>
           <span>{confirmLabel(mode)}</span>

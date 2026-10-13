@@ -11,6 +11,7 @@ import { ShopGroupsEditor } from "@/components/ShopGroupsEditor";
 import { useShops } from "@/components/ShopProvider";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import type { ReplaceMode } from "@/lib/replaceModes";
+import { leftOutNotice } from "@/lib/chartOrder";
 
 import { Txt } from "@/components/Txt";
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
@@ -139,7 +140,9 @@ export default function ProfilesPage() {
       } else if (s.pause) {
         setReplace({ id: listingId, status: `Queued, not failed. ${s.pause.message}` });
       } else if (s.status === "succeeded") {
-        setReplace({ id: listingId, status: mode === "photos" ? "Photos replaced ✓ (title and tags unchanged)" : "Photos, title and tags replaced ✓" });
+        const replaced = mode === "photos" ? "Photos replaced ✓ (title and tags unchanged)" : "Photos, title and tags replaced ✓";
+        // More photos than Etsy keeps beside the size charts: say which were left out.
+        setReplace({ id: listingId, status: [replaced, leftOutNotice(s.left_out)].filter(Boolean).join(" ") });
         loadListings();
       } else {
         setReplace({ id: listingId, status: `Failed: ${s.error ?? ""}` });

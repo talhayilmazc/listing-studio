@@ -145,6 +145,8 @@ class PublishImage:
     filename: str
     mime_type: str = "image/jpeg"
     rank: int = 0
+    #: The seller's own name for the file: only used to say which photos were left out.
+    label: str = ""
 
 
 @dataclass
@@ -162,6 +164,9 @@ class PublishResult:
     section_id: int | None = None
     sizes_applied: bool = False
     image_count: int = 0
+    #: Photos left out because the listing would have had more images than Etsy
+    #: takes (their file names, in order; pipeline/chart_order.py::fit).
+    left_out: list[str] = field(default_factory=list)
     #: Every attribute written on the draft, ``{name: value}`` (Part C report).
     attributes: dict[str, str] = field(default_factory=dict)
 
@@ -172,6 +177,8 @@ class ReplaceResult:
     deleted: int
     added: int
     kept: int
+    #: New photos left out to stay within Etsy's image limit (file names, in order).
+    left_out: list[str] = field(default_factory=list)
 
 
 def listing_url(listing_id: int) -> str:
@@ -680,8 +687,14 @@ async def publish_content(
     # Images go up one at a time in order, so "how many the listing has" says
     # exactly which are done. A resumed draft starts from that count; an upload
     # whose answer never came is checked the same way before it is sent again.
-    photos = _rank([thumbnail, *extras])
-    slots = chart_order.clean_slots(chart_slots, len(fixed), None)
+    # Etsy keeps at most 20 images. The charts keep their places; photos past the
+    # limit, from the end of the photo order, are not sent (the seller was shown
+    # which before drafting), so the draft never stops halfway on a 21st image.
+    fixed, slots = chart_order.fit_charts(fixed, chart_order.clean_slots(chart_slots, len(fixed), None))
+    photos, over = chart_order.fit(_rank([thumbnail, *extras]), len(fixed))
+    left_out = [p.label or p.filename for p in over]
+    if left_out:
+        logger.info("draft %s: %d photo(s) left out to stay within %d images", listing_id, len(left_out), chart_order.MAX_IMAGES)
     sequence = chart_order.arrange(photos, fixed, slots)
 
     async def have() -> int:
@@ -764,6 +777,7 @@ async def publish_content(
         section_id=section_id,
         sizes_applied=has_variations,
         image_count=next_rank,
+        left_out=left_out,
         attributes=written,
     )
 
@@ -912,9 +926,13 @@ async def replace_listing_images(
     # 3) The new photos (thumbnail rank 1) and the retained size charts, in listing
     # order: the charts where the seller placed them, as on a new draft. Each goes
     # to its rank in turn, so what is already placed never moves.
-    ranked = _rank(list(new_images))
-    slots = chart_order.clean_slots(chart_slots, len(keep_image_ids), None)
-    for position, item in enumerate(chart_order.arrange(ranked, list(keep_image_ids), slots)):
+    # The same limit as a new draft: the charts keep their places, and new photos
+    # past Etsy's 20 images, from the end of their order, are not sent.
+    kept_charts, slots = chart_order.fit_charts(
+        list(keep_image_ids), chart_order.clean_slots(chart_slots, len(keep_image_ids), None)
+    )
+    ranked, over = chart_order.fit(_rank(list(new_images)), len(kept_charts))
+    for position, item in enumerate(chart_order.arrange(ranked, kept_charts, slots)):
         if isinstance(item, PublishImage):
             await client.upload_listing_image(
                 shop_id,
@@ -946,4 +964,5 @@ async def replace_listing_images(
         deleted=len(delete_image_ids),
         added=len(ranked),
         kept=len(keep_image_ids),
+        left_out=[p.label or p.filename for p in over],
     )

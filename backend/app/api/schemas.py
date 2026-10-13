@@ -145,6 +145,18 @@ class GroupOut(BaseModel):
     chart_profile_name: str | None = None
     # The listing on Etsy the charts are on (the profile's reference): the back link.
     chart_listing_id: int | None = None
+    # Set when its photos and charts are more than Etsy keeps: what will be left out.
+    image_limit: "ImageLimitOut | None" = None
+
+
+class ImageLimitOut(BaseModel):
+    """A listing group with more images than Etsy keeps: its photos and size
+    charts together, the limit, and the photos that will be left out (the last
+    ones in the photo order; the charts keep their places)."""
+
+    total: int
+    limit: int
+    left_out: list[str]
 
 
 class SizeChartOut(BaseModel):
@@ -246,6 +258,8 @@ class ContentOut(BaseModel):
     # Creating a draft or going live that did not finish: why, and whether it is
     # waiting to run again by itself. Shown on the card with "Try again".
     work: list["WorkOut"] = Field(default_factory=list)
+    # Set when its group's photos and size charts are more than Etsy keeps.
+    image_limit: "ImageLimitOut | None" = None
 
 
 class WorkOut(BaseModel):
@@ -719,6 +733,9 @@ class JobStatusOut(BaseModel):
     manual_steps: list[ManualStepOut] = Field(default_factory=list)
     # A queued job waiting for the daily reset says so, rather than timing out.
     pause: PauseOut | None = None
+    # Photos the job did not send because the listing would have had more images
+    # than Etsy keeps (the last ones in the photo order; the size charts stayed).
+    left_out: list[str] = Field(default_factory=list)
 
 
 class ProfileCreate(BaseModel):

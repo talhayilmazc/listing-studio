@@ -2,8 +2,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  END, FEWER_PHOTOS_RULE, MAX_IMAGES, NOT_ON_ETSY_NOTE, arrange, defaultSlots, editorStrip, moveChartTo, nudgeChart, ordinal,
-  placeLabel, placementFromOrder, placementFromStrip, presetPlacement, samePlacement, slotsFromOrder,
+  END, FEWER_PHOTOS_RULE, MAX_IMAGES, NOT_ON_ETSY_NOTE, arrange, chartsCrowdNotice, defaultSlots, editorStrip, fit, imageLimit,
+  leftOutNotice, limitNotice, moveChartTo, nudgeChart, ordinal, placeLabel, placementFromOrder, placementFromStrip, presetPlacement,
+  samePlacement, slotsFromOrder,
 } from "./chartOrder.ts";
 
 const photos = ["cover", "p2", "p3", "p4"];
@@ -87,4 +88,62 @@ test("a group's own strip saves the charts in the order they are dragged", () =>
     { listing_image_id: B, slot: 1 }, { listing_image_id: A, slot: END },
   ]);
   assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 20].map(ordinal), ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "20th"]);
+});
+
+// --- Etsy's 20-image limit (the same cases as backend/tests/test_image_limit.py) ---
+
+const names = (n: number) => ["cover.jpg", ...Array.from({ length: n - 1 }, (_, i) => `p${String(i + 2).padStart(2, "0")}.jpg`)];
+const three = ["c1", "c2", "c3"];
+
+test("exactly twenty images all fit", () => {
+  const [kept, over] = fit(names(17), 3);
+  assert.equal(kept.length, 17);
+  assert.deepEqual(over, []);
+  assert.equal(arrange(kept, three, [1, 3, END]).length, MAX_IMAGES);
+  assert.deepEqual(fit(names(20), 0)[1], []);
+  assert.equal(imageLimit(names(17).map((n) => ({ status: "processed", original_filename: n })), 3), null);
+});
+
+test("the twenty-first image is the last photo, and it is left out", () => {
+  assert.deepEqual(fit(names(18), 3)[1], ["p18.jpg"]);
+  assert.deepEqual(fit(names(21), 0)[1], ["p21.jpg"]);
+  const over = imageLimit(names(18).map((n) => ({ status: "processed", original_filename: n })), 3);
+  assert.deepEqual(over, { total: 21, limit: 20, left_out: ["p18.jpg"] });
+  assert.equal(
+    limitNotice(over!),
+    "21 images: Etsy allows 20. The last photo will be left out: p18.jpg. Reorder or remove photos to choose.",
+  );
+  assert.equal(
+    limitNotice({ total: 22, limit: 20, left_out: ["a.jpg", "b.jpg"] }),
+    "22 images: Etsy allows 20. The last 2 photos will be left out: a.jpg, b.jpg. Reorder or remove photos to choose.",
+  );
+  // A photo that failed to process is never sent, so it does not count.
+  const withFailed = [...names(17).map((n) => ({ status: "processed", original_filename: n })), { status: "failed", original_filename: "bad.jpg" }];
+  assert.equal(imageLimit(withFailed, 3), null);
+});
+
+test("three charts keep their places when photos are left out", () => {
+  for (const photos of [17, 18, 30]) {
+    const order = arrange(fit(names(photos), 3)[0], three, [1, 3, END]);
+    assert.equal(order.length, 20);
+    assert.deepEqual(three.map((c) => order.indexOf(c) + 1), [2, 5, 20]);
+    assert.equal(order[0], "cover.jpg");
+  }
+  assert.deepEqual(fit(names(4), 19), [["cover.jpg"], ["p02.jpg", "p03.jpg", "p04.jpg"]]);
+});
+
+test("what a job says it left out", () => {
+  assert.equal(leftOutNotice([]), "");
+  assert.equal(leftOutNotice(undefined), "");
+  assert.equal(leftOutNotice(["z.jpg"]), "Etsy allows 20 images, so the last photo was left out: z.jpg.");
+  assert.equal(leftOutNotice(["y.jpg", "z.jpg"]), "Etsy allows 20 images, so the last 2 photos were left out: y.jpg, z.jpg.");
+});
+
+test("the profile is told when its charts alone leave fewer than two places for photos", () => {
+  assert.equal(chartsCrowdNotice(3), null);
+  assert.equal(chartsCrowdNotice(18), null); // the cover and one more photo still fit
+  assert.match(chartsCrowdNotice(19) ?? "", /^19 size charts: Etsy allows 20 images, so only the cover fits/);
+  // The row of places never shows more than Etsy keeps.
+  assert.equal(editorStrip(presetPlacement("last", Array.from({ length: 19 }, (_, i) => 900 + i))).length, 20);
+  assert.equal(editorStrip(presetPlacement("last", [A, B])).length, 20);
 });

@@ -7,6 +7,7 @@ import {
   NOT_ON_ETSY_NOTE,
   POSITION_LABELS,
   chartKey,
+  chartsCrowdNotice,
   editorStrip,
   isChart,
   moveChartTo,
@@ -76,6 +77,8 @@ export function ChartPlacementEditor({
   }
 
   const pickedAt = picked ? strip.indexOf(picked) : -1;
+  // Charts that alone leave fewer than two places for photos.
+  const crowded = chartsCrowdNotice(chartIds.length, total);
 
   return (
     <div className="space-y-2" data-testid="chart-placement">
@@ -109,6 +112,11 @@ export function ChartPlacementEditor({
         )}
       </div>
 
+      {crowded && (
+        <p key="crowded" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="chart-crowded">
+          {crowded}
+        </p>
+      )}
       <ol className="flex flex-wrap gap-1.5" aria-label="The listing's images, in order">
         {strip.map((tile, i) => {
           const place = i + 1;

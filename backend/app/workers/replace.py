@@ -185,13 +185,17 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 size=settings.thumbnail_size,
                 mode=settings.thumbnail_mode,
             )
-            new_images = [PublishImage(data=thumb.data, filename=f"{primary.id}-thumb.jpg")]
-            for extra in assets[1:]:
+            new_images = [PublishImage(data=thumb.data, filename=f"{primary.id}-thumb.jpg", label=primary.original_filename)]
+            # A listing has at most 20 images: more photos than that are never sent,
+            # so their files are not read. With size charts kept on the listing the
+            # last photos are left out when the images go up (publisher.fit).
+            for extra in assets[1 : chart_order.MAX_IMAGES]:
                 new_images.append(
                     PublishImage(
                         data=storage.get(extra.processed_key),
                         filename=f"{extra.id}.jpg",
                         mime_type=extra.mime_type or "image/jpeg",
+                        label=extra.original_filename,
                     )
                 )
 
@@ -310,7 +314,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                         )
 
                 kept_charts, kept_slots = await _chart_placement(session, job, batch_id, list(keep_ids))
-                await replace_listing_images(
+                replaced = await replace_listing_images(
                     session,
                     job_id=job.id,
                     listing_id=listing_id,
@@ -343,6 +347,10 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
             logger.exception("replace-images failed for job %s", job_id)
             return "failed"
 
+        # Never silently: the job says which photos it left out (file names only).
+        left_out = [*replaced.left_out, *(a.original_filename for a in assets[chart_order.MAX_IMAGES :])]
+        if left_out:
+            job.payload = {**job.payload, "left_out": left_out}
         if full:
             # The listing's text changed on Etsy: a new version from now (Part D).
             publication = (await session.execute(

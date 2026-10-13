@@ -19,6 +19,60 @@ export interface Placement {
   slot: number;
 }
 
+/** A listing group with more images than Etsy keeps, and the photos that are left out. */
+export interface ImageLimit {
+  total: number;
+  limit: number;
+  left_out: string[];
+}
+
+/**
+ * The photos a listing keeps and the ones left out, so that photos and
+ * ``charts`` size charts together are at most ``limit`` images. The charts keep
+ * their places; the photos left out are the last in the photo order, and the
+ * cover always stays (the server's rule: chart_order.fit).
+ */
+export function fit<T>(photos: T[], charts: number, limit: number = MAX_IMAGES): [T[], T[]] {
+  const room = Math.max(1, limit - Math.max(0, charts));
+  return [photos.slice(0, room), photos.slice(room)];
+}
+
+/** What the group card, the review card and Replace images say before anything is sent. */
+export function limitNotice(over: ImageLimit): string {
+  const n = over.left_out.length;
+  const which = n === 1 ? "The last photo" : `The last ${n} photos`;
+  return `${over.total} images: Etsy allows ${over.limit}. ${which} will be left out: ${over.left_out.join(", ")}. Reorder or remove photos to choose.`;
+}
+
+/** The same, said once the photos are on Etsy: what a job reports it left out ("" when nothing). */
+export function leftOutNotice(names: string[] | null | undefined, limit: number = MAX_IMAGES): string {
+  const n = names?.length ?? 0;
+  if (!names || !n) return "";
+  return `Etsy allows ${limit} images, so ${n === 1 ? "the last photo was" : `the last ${n} photos were`} left out: ${names.join(", ")}.`;
+}
+
+/**
+ * A group's photos in listing order against its size charts: null when they
+ * fit. Only processed photos are sent, so only they count.
+ */
+export function imageLimit(photos: { status: string; original_filename: string }[], charts: number): ImageLimit | null {
+  const sent = photos.filter((p) => p.status === "processed");
+  const [, over] = fit(sent, charts);
+  return over.length ? { total: sent.length + charts, limit: MAX_IMAGES, left_out: over.map((p) => p.original_filename) } : null;
+}
+
+/** The fewest photo places a profile's charts should leave: the cover and one more. */
+export const MIN_PHOTO_PLACES = 2;
+
+/** Said on the profile when its size charts alone leave fewer than two places for photos. */
+export function chartsCrowdNotice(charts: number, limit: number = MAX_IMAGES): string | null {
+  if (limit - charts >= MIN_PHOTO_PLACES) return null;
+  return (
+    `${charts} size charts: Etsy allows ${limit} images, so only the cover fits beside them. ` +
+    "Every other photo will be left out of listings made with this profile. Unmark some size charts to make room."
+  );
+}
+
 export const chartKey = (id: number) => `chart:${id}`;
 export const isChart = (tile: string) => tile.startsWith("chart:");
 const chartId = (tile: string) => Number(tile.slice("chart:".length));
@@ -87,7 +141,7 @@ export function presetPlacement(position: ChartPosition | null | undefined, char
  */
 export function editorStrip(placement: Placement[], total: number = MAX_IMAGES): string[] {
   const charts = placement.map((p) => chartKey(p.listing_image_id));
-  const photos = Array.from({ length: Math.max(2, total - charts.length) }, (_, i) => (i === 0 ? "cover" : `photo:${i + 1}`));
+  const photos = Array.from({ length: Math.max(1, total - charts.length) }, (_, i) => (i === 0 ? "cover" : `photo:${i + 1}`));
   return arrange(photos, charts, placement.map((p) => p.slot));
 }
 

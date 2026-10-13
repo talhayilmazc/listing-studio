@@ -591,6 +591,21 @@ async def _batch_groups(
         )
         by_id = {c.listing_image_id: c for c in charts}
         charts = [by_id[i] for i in chart_ids]
+        # More images than Etsy keeps: the charts stay, the last photos are left
+        # out (pipeline/chart_order.py::fit), and the seller is told which before
+        # any draft. The photos in the order a draft sends them: cover first.
+        photos = sorted(
+            (m for m in members if m.status == AssetStatus.processed and m.processed_key is not None),
+            key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()),
+        )
+        _, over = chart_order.fit(photos, len(charts))
+        image_limit = (
+            schemas.ImageLimitOut(
+                total=len(photos) + len(charts), limit=chart_order.MAX_IMAGES, left_out=[a.original_filename for a in over]
+            )
+            if over
+            else None
+        )
         # A group with nothing set is in the batch's shop.
         shop_id = (s.connection_id if s and s.connection_id else None) or (batch.connection_id if batch else None)
         shop = shops.get(shop_id) if shop_id else None
@@ -613,6 +628,7 @@ async def _batch_groups(
                 chart_position=(cp.size_chart_position or chart_order.DEFAULT_POSITION) if cp else None,
                 chart_profile_name=cp.name if cp else None,
                 chart_listing_id=cp.reference_listing_id if cp else None,
+                image_limit=image_limit,
             )
         )
     return out

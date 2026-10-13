@@ -21,8 +21,15 @@ Precedence, in one place (:func:`resolve`): the group's placement, else the
 profile's, else the profile's preset. **A listing with fewer photos than a
 chart's slot gets that chart last** (:func:`arrange`).
 
+Etsy keeps at most :data:`MAX_IMAGES` images on a listing. **Size charts always
+keep their places**: when the photos and the charts together are more than
+that, the photos at the end of the photo order are left out (:func:`fit`). The
+seller is shown which before a draft is made; a draft is never started with
+more images than Etsy takes, so it cannot fail halfway on the 21st.
+
 Drafts in every shop, "Replace images" and the review strip all use
-:func:`resolve` and :func:`arrange`, so the order is the same everywhere.
+:func:`resolve`, :func:`fit` and :func:`arrange`, so the order is the same
+everywhere.
 """
 
 from __future__ import annotations
@@ -90,6 +97,24 @@ def slots_from_order(order: Sequence[str], chart_ids: Sequence[str]) -> list[int
         else:
             seen += 1
     return [before.get(c, END) for c in chart_ids]
+
+
+def fit(photos: Sequence[T], charts: int, limit: int = MAX_IMAGES) -> tuple[list[T], list[T]]:
+    """The photos a listing keeps, and the ones left out, so that photos and
+    ``charts`` size charts together are at most ``limit`` images.
+
+    The charts keep their places; the photos left out are the last ones in the
+    photo order (the seller reorders or removes photos to choose which). The
+    cover is always kept.
+    """
+    room = max(1, limit - max(0, charts))
+    return list(photos[:room]), list(photos[room:])
+
+
+def fit_charts(charts: Sequence[U], slots: Sequence[int], limit: int = MAX_IMAGES) -> tuple[list[U], list[int]]:
+    """At most ``limit - 1`` charts (a listing has a cover), each still with its slot."""
+    keep = max(0, limit - 1)
+    return list(charts[:keep]), list(slots[:keep])
 
 
 def _keyed(saved: Any) -> list[tuple[int, int]] | None:

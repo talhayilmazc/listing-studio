@@ -191,6 +191,13 @@ async def group_siblings(session: AsyncSession, cover: Asset) -> list[Asset]:
     )
     return list(rows.scalars())
 
+async def draft_photos(session: AsyncSession, cover: Asset, charts: int) -> tuple[list[Asset], list[Asset]]:
+    """The photos a draft of ``cover``'s group sends, cover first, and the ones it
+    leaves out because the listing would pass Etsy's image limit beside its
+    ``charts`` size charts (the last in the seller's order; chart_order.fit)."""
+    return chart_order.fit([cover, *await group_siblings(session, cover)], charts)
+
+
 # One refresh at a time per profile in this worker: fifty drafts from one stale
 # profile wait for a single refresh instead of each asking Etsy for the same data.
 _refreshing: dict[uuid.UUID, asyncio.Lock] = {}
@@ -311,18 +318,23 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                 size=settings.thumbnail_size,
                 mode=settings.thumbnail_mode,
             )
-            thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg")
+            thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg", label=asset.original_filename)
 
             # Same-folder-group siblings -> extra images (original ratio), in the
             # order the seller set (v6 §E). One folder = one listing (D1), and the
             # files at the root of an upload are one group too.
+            # Etsy keeps 20 images: the charts stay and the last photos are left out
+            # (the seller saw which on the group and review cards), so their files
+            # are not even read.
+            siblings, over = await draft_photos(session, asset, len(fixed))
             extras: list[PublishImage] = []
-            for sibling in await group_siblings(session, asset):
+            for sibling in siblings[1:]:
                 extras.append(
                     PublishImage(
                         data=storage.get(sibling.processed_key),
                         filename=f"{sibling.id}.jpg",
                         mime_type=sibling.mime_type or "image/jpeg",
+                        label=sibling.original_filename,
                     )
                 )
 
@@ -373,6 +385,9 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
         except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
             return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_job")
 
+        if over:
+            # Never silently: the job says which photos it left out (file names only).
+            job.payload = {**(job.payload or {}), "left_out": [a.original_filename for a in over]}
         job.status = JobStatus.succeeded
         job.finished_at = datetime.now(timezone.utc)
         await session.commit()

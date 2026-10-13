@@ -13,6 +13,7 @@ import type {
   Work,
 } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
+import { limitNotice } from "@/lib/chartOrder";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
 import { ShopBadge } from "./ShopPicker";
@@ -367,6 +368,11 @@ export function ReviewCard({
                 <p className="mt-0.5">{f.detail}</p>
               </div>
             ))}
+            {initial.image_limit && (
+              <p key="image-limit" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="image-limit" translate="no">
+                {limitNotice(initial.image_limit)}
+              </p>
+            )}
             <div>
               <span className="label">Title</span>
               <div className="relative">

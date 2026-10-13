@@ -770,4 +770,5 @@ async def job_status(
             tenant=tenant,
             resumes_at=job.scheduled_at,
         ),
+        left_out=[str(name) for name in (job.payload or {}).get("left_out") or []],
     )

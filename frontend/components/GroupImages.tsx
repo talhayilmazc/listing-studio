@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { makeCover, moveBefore, nudge, sameOrder } from "@/lib/order";
-import { arrange, placementFromOrder, samePlacement, type Placement } from "@/lib/chartOrder";
+import { arrange, fit, imageLimit, limitNotice, placementFromOrder, samePlacement, type Placement } from "@/lib/chartOrder";
 import { cropStyle } from "@/lib/crop";
 import { CoverCropper } from "./CoverCropper";
 import type { Asset, BatchDetail, ImageDeleteResult } from "@/lib/types";
@@ -128,9 +128,17 @@ export function GroupImages({
         : [],
     );
   }, [incomingPlaced]);
-  const strip: string[] = arrange(order, placed.map((p) => `chart:${p.listing_image_id}`), placed.map((p) => p.slot));
-
   const byId = new Map(assets.map((a) => [a.id, a]));
+  // Etsy keeps 20 images. The charts keep their places and the last photos are
+  // left out: shown after everything else, marked, before any draft is made.
+  const overOf = (photos: string[]) => fit(photos.filter((id) => byId.get(id)?.status === "processed"), placed.length)[1];
+  const leftOut = overOf(order);
+  const strip: string[] = [
+    ...arrange(order.filter((id) => !leftOut.includes(id)), placed.map((p) => `chart:${p.listing_image_id}`), placed.map((p) => p.slot)),
+    ...leftOut,
+  ];
+  const limit = imageLimit(order.flatMap((id) => byId.get(id) ?? []), placed.length);
+
   const coverAsset = byId.get(order[0]);
   if (assets.some((a) => a.files_removed)) return <RemovedImages assets={assets} listingsOnEtsy={listingsOnEtsy} />;
   const usable = (id: string) => byId.get(id)?.status === "processed";
@@ -138,7 +146,9 @@ export function GroupImages({
   /** A change to the whole strip: the photos' order and the charts' places are saved apart. */
   async function apply(next: string[]) {
     const photos = next.filter((x) => !chartByKey.has(x));
-    const nextPlaced = placementFromOrder(next, chartKeys);
+    // The charts' places are counted among the photos the listing keeps.
+    const over = overOf(photos);
+    const nextPlaced = placementFromOrder(next.filter((x) => !over.includes(x)), chartKeys);
     if (!sameOrder(photos, order)) await save(photos);
     if (chartKeys.length && !samePlacement(nextPlaced, placed)) await saveSlots(nextPlaced);
   }
@@ -270,7 +280,7 @@ export function GroupImages({
               aria-current={picked === id ? "true" : undefined}
               className={
                 "group relative h-24 w-24 shrink-0 cursor-grab overflow-hidden rounded border-2 bg-slate-100 active:cursor-grabbing " +
-                (picked === id ? "border-slate-900 ring-2 ring-slate-900/30 " : cover ? "border-brand-500 " : "border-transparent ") +
+                (picked === id ? "border-slate-900 ring-2 ring-slate-900/30 " : cover ? "border-brand-500 " : leftOut.includes(id) ? "border-amber-400 " : "border-transparent ") +
                 (over === id && dragging && dragging !== id ? "ring-2 ring-brand-500/40 " : "") +
                 (dragging === id ? "opacity-40" : "")
               }
@@ -311,6 +321,11 @@ export function GroupImages({
               {cover && (
                 <span key="span-132-14" className="absolute left-1 top-1 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
                   Cover
+                </span>
+              )}
+              {leftOut.includes(id) && (
+                <span key="left-out" className="absolute inset-0 flex items-end bg-white/60" data-testid="left-out-tile">
+                  <span className="w-full bg-amber-500 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">Left out: over 20</span>
                 </span>
               )}
               <button
@@ -366,6 +381,11 @@ export function GroupImages({
           );
         })}
       </ul>
+      {limit && (
+        <p key="image-limit" role="alert" className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="image-limit" translate="no">
+          {limitNotice(limit)}
+        </p>
+      )}
       {/* The same three actions as buttons, for the image that was tapped. */}
       {strip.length === 1 && byId.get(order[0]) && !deleting && (
         <div key="only" className="mt-1 text-xs">
