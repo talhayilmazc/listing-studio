@@ -77,7 +77,7 @@ export const HOME = {
       },
       {
         title: "Search-ready text",
-        body: "A title, all 13 tags and a description written to Etsy's own published search guidance: a short, clear title, every tag used, keywords early in the description. No promise of ranking.",
+        body: "A title, all 13 tags and a description written to Etsy's own published search guidance: by default a short, clear title, every tag used, keywords early in the description. No promise of ranking.",
         visual: { kind: "screen", src: "/screens/feature-text-2.webp", alt: "A listing's title with its length, its 13 tags with their lengths, and an attribute chosen from Etsy's list" },
       },
       {
@@ -157,8 +157,8 @@ export const HOME = {
     points: [
       { title: "Etsy's own API only", body: "Listyro works through Etsy's public API, with the permissions you grant on Etsy's sign-in page. No scraping and no browser bots." },
       { title: "You approve every listing", body: "Every listing is created as a draft. It goes live only when you publish it, or at a time you scheduled for it." },
-      { title: "Your data is not sold or used to train AI", body: "We do not sell or share your data, and nothing goes to advertising platforms. A design image is sent to our AI provider, Anthropic, only to suggest your listing's text; under its commercial terms it is not used to train models. Nothing about your buyers is stored." },
-      { title: "Disconnect any time", body: "Disconnecting a shop deletes its access tokens and the data read from it at once. You can delete your whole account in Settings." },
+      { title: "Your data is not sold or used to train AI", body: "We do not sell or share your data, and nothing goes to advertising platforms. To suggest a listing's text, the design image is sent to our AI provider, Anthropic, with the title and tags of one of your own listings if you chose it as an example to follow. Under its commercial terms they are not used to train models. Nothing about your buyers is stored." },
+      { title: "Disconnect any time", body: "Disconnecting a shop deletes its access tokens and the Etsy data we hold for it at once: its listing cache, statistics, sales, fees and statements. You can delete your whole account in Settings." },
     ],
     links: [
       { label: "Privacy Policy", href: "/privacy" },
@@ -178,10 +178,10 @@ export const HOME = {
       { q: "Is Listyro made by Etsy?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or sponsored by Etsy." },
       { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken, and there is no checkout on this site. Pricing applies only after launch and will be announced well before.", link: { label: "See pricing", href: "/pricing" } },
       { q: "What do I need to start?", a: "An Etsy shop you own, with at least one listing set up the way you like it. That listing becomes the template for new ones." },
-      { q: "What happens to my designs?", a: "Uploads are working copies. Their files are deleted 3 days after a listing has a draft in every shop it is meant for, and after 30 days otherwise. To suggest a listing's text, the design image is sent to Anthropic; under its commercial terms it is not used to train its models." },
+      { q: "What happens to my designs?", a: "Uploads are working copies. Their files are deleted 3 days after a listing has a draft in every shop it is meant for, and after 30 days otherwise. To suggest a listing's text, the design image is sent to Anthropic, with the title and tags of one of your own listings if you chose it as an example to follow. Under its commercial terms they are not used to train its models." },
       { q: "Do you keep anything about my buyers?", a: "No. Buyer names, addresses, emails and messages are never stored. For your own profit report we keep order numbers, listing ids, amounts and dates." },
       { q: "Will my listings rank higher?", a: "Nobody outside Etsy can promise that, and we do not. The text is written to match what shoppers search for, following Etsy's own published guidance." },
-      { q: "How do I stop using it?", a: "Disconnect a shop and its tokens and data are deleted at once. Delete your account in Settings and everything in it is removed, within 30 days at the latest." },
+      { q: "How do I stop using it?", a: "Disconnect a shop and its tokens and the Etsy data we hold for it are deleted at once. Delete your account in Settings and everything in it is removed, within 30 days at the latest." },
     ] as { q: string; a: string; link?: { label: string; href: string } }[],
   },
 

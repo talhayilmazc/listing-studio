@@ -21,9 +21,9 @@ Listyro also gives the seller a profit, cost and ads report for their own shop, 
 
 ## Who uses it
 
-Individual Etsy sellers, each using only their own shops. The app is in a closed, invitation-only beta with a handful of sellers. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The app is capped at 8 shops per account and 20 shops in total, which is below the 80 Etsy approved, because every shop shares the one daily request budget.
+Individual Etsy sellers, each using only their own shops. The app is in invite-only early access with a handful of sellers. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The number of shops an account may connect is set per account: there is a default, and we raise it for a seller who runs more shops of their own. We also cap the total connected across all accounts, below the 80 Etsy approved, because every shop shares the one daily request budget.
 
-Some sellers run more than one shop, each its own Etsy account and brand. Listyro lets them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
+Our largest seller runs 16 shops today, each its own Etsy account and brand. Listyro lets them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
 
 ## How Etsy data is used
 

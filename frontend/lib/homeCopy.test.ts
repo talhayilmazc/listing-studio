@@ -113,6 +113,22 @@ test("figures quoted on the home page are the ones the Privacy Policy prints", (
   assert.ok(leave.includes(`within ${RETENTION.accountDeletionDays} days at the latest`));
 });
 
+test("no public page states a maximum or a large number of shops", () => {
+  // The number of shops is set per account (a default that an admin changes for one account).
+  const counted = /\b(up to|as many as|maximum of|max\.?|at most)\s+(\d+|two|three|four|five|six|seven|eight|nine|ten|twelve|sixteen|twenty)\s+(etsy\s+)?shops\b|\b(\d{1,3}|eight|ten|twelve|sixteen|twenty)\+?\s+(etsy\s+)?shops\b/i;
+  for (const text of allCopy()) assert.doesNotMatch(text, counted, text);
+  for (const file of ["app/(marketing)/pricing/page.tsx", "app/(marketing)/terms/page.tsx", "app/(marketing)/privacy/page.tsx", "app/(marketing)/request-invite/page.tsx", "app/(marketing)/contact/page.tsx", "components/marketing/Sections.tsx", "components/marketing/InviteForm.tsx"]) {
+    const text = read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[\s;{}(),])\/\/[^\n]*/g, "$1").replace(/\s+/g, " ");
+    assert.doesNotMatch(text, counted, file);
+  }
+  const pricing = read("app/(marketing)/pricing/page.tsx");
+  assert.equal((pricing.match(/Several shops; the number is set per account/g) ?? []).length, 2);
+  // The check itself works.
+  assert.match("Up to eight shops", counted);
+  assert.match("Connect 16 shops", counted);
+  assert.doesNotMatch("Several shops; the number is set per account", counted);
+});
+
 test('no user-facing text says "beta"', () => {
   // Every page, component and text module of the site and the app. Comments are
   // not copy and may keep the word; identifiers no longer use it either, so the

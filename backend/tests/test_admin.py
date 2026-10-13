@@ -244,6 +244,35 @@ async def test_quota_ceiling_can_be_changed_within_the_app_budget(world) -> None
     assert (await world["b"].get("/api/quota")).json()["ceiling"]["limit"] == 4500
 
 
+async def test_an_accounts_shop_limit_has_a_default_and_no_upper_cap(world, test_settings: Settings) -> None:
+    a, bob = world["a"], world["bob"]
+    default = test_settings.max_shops_per_tenant
+
+    def limit(resp) -> tuple[int, bool]:
+        return resp.json()["shops_limit"], resp.json()["shops_limit_custom"]
+
+    users = (await a.get("/api/admin/users")).json()
+    assert {(u["shops_limit"], u["shops_limit_custom"]) for u in users} == {(default, False)}
+    # Any positive whole number, also far above the default and above the app-wide ceiling.
+    for n in (1, 16, test_settings.max_shops_app_wide + 30, 500):
+        resp = await a.put(f"/api/admin/users/{bob.tenant_id}/shops", json={"max_shops": n})
+        assert resp.status_code == 200 and limit(resp) == (n, True), resp.text
+    # The seller's own page shows it.
+    assert (await world["b"].get("/api/shops")).json()["slots"]["limit"] == 500
+    # Not zero, not negative, not a fraction, not text.
+    for bad in (0, -3, 2.5, "many"):
+        assert (await a.put(f"/api/admin/users/{bob.tenant_id}/shops", json={"max_shops": bad})).status_code == 422, bad
+    assert (await world["b"].get("/api/shops")).json()["slots"]["limit"] == 500
+    # Empty = back to the default.
+    back = await a.put(f"/api/admin/users/{bob.tenant_id}/shops", json={"max_shops": None})
+    assert back.status_code == 200 and limit(back) == (default, False)
+    async with world["sm"]() as s:
+        changes = (await s.execute(select(AuditLog).where(AuditLog.action == "user.shop_limit_changed"))).scalars().all()
+        assert [c.details["new"] for c in changes] == [1, 16, test_settings.max_shops_app_wide + 30, 500, None]
+    # Only an admin.
+    assert (await world["b"].put(f"/api/admin/users/{bob.tenant_id}/shops", json={"max_shops": 9})).status_code == 404
+
+
 # --- Invites --------------------------------------------------------------------
 async def _register(world, code: str, email: str):
     return await world["anon"].post(

@@ -172,7 +172,8 @@ class TrademarkFilterUpdate(BaseModel):
 
 
 class ShopLimitUpdate(BaseModel):
-    # None = back to the default (MAX_SHOPS_PER_TENANT).
+    # None = back to the default (MAX_SHOPS_PER_TENANT). Any positive whole number:
+    # there is no upper cap on one account's limit.
     max_shops: int | None = Field(default=None, ge=1)
 
 
@@ -452,16 +453,17 @@ async def set_user_shop_limit(
     session: AsyncSession = Depends(get_session),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
-    """How many shops this account may connect (v5 §E). Never above the app-wide ceiling.
+    """How many shops this account may connect (v5 §E).
+
+    The default is MAX_SHOPS_PER_TENANT; an admin gives one account any positive
+    whole number, with no upper cap (a seller with many shops of their own is
+    given the number they run). The app-wide ceiling (MAX_SHOPS_APP_WIDE) is a
+    separate check made when a shop is connected: it counts every account's
+    shops and is not a limit on this number.
 
     Lowering it below the shops already connected disconnects nothing; it only
     stops new ones.
     """
-    app_limit = get_settings().max_shops_app_wide
-    if body.max_shops is not None and body.max_shops > app_limit:
-        raise HTTPException(
-            status_code=422, detail=f"cannot exceed the app-wide limit of {app_limit} shops"
-        )
     target = await _target(session, tenant_id)
     previous = target.max_shops
     if previous != body.max_shops:

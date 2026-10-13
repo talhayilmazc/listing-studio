@@ -23,7 +23,7 @@ const PLANNED: { name: string; for: string; points: string[] }[] = [
   {
     name: "Catalog",
     for: "A large catalog of your own designs, across the shops you run.",
-    points: ["Up to eight shops", "The largest monthly allowance", "Priority support", "Everything in Studio"],
+    points: ["Several shops; the number is set per account", "The largest monthly allowance", "Priority support", "Everything in Studio"],
   },
 ];
 
@@ -51,7 +51,7 @@ export default function Pricing() {
           <p className="mt-4 font-display text-5xl leading-none text-slate-900">Free</p>
           <p className="mt-2 text-sm text-slate-500">Invite-only.</p>
           <ul className="mt-6 space-y-2 text-sm text-slate-600">
-            {["Every feature", "Up to eight shops", "A monthly allowance of listings, set per seller", "Help from the people who build it"].map((p) => (
+            {["Every feature", "Several shops; the number is set per account", "A monthly allowance of listings, set per seller", "Help from the people who build it"].map((p) => (
               <li key={p} className="flex gap-2.5">
                 <span aria-hidden className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-brand-600" />
                 <span>{p}</span>

@@ -7,16 +7,20 @@ Both only count unless told to apply.
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app import cli
 from app.core.config import Settings, set_settings_override
+from app.core.crypto import TokenCipher
 from app.db.base import Base
 from app.db.models import (
+    AdsDaily,
     Asset,
     AuditLog,
     ConnectionStatus,
@@ -26,16 +30,21 @@ from app.db.models import (
     JobStatus,
     JobType,
     LedgerDaily,
+    LedgerSync,
     ListingProfile,
     ListingPublication,
     ListingStatDaily,
     SaleLine,
     SalesDaily,
+    SalesSync,
     ShopListingCache,
     StatementImport,
     Tenant,
 )
+from app.etsy.connection import ConnectionService
 from app.ops import etsy_data
+from app.pipeline import profile_shops
+from app.workers import retention
 from tests.test_publisher import _seed
 
 NOW = datetime.now(timezone.utc)
@@ -78,6 +87,72 @@ async def _etsy_data(sm: async_sessionmaker) -> tuple:
         ])
         await s.commit()
     return ids
+
+
+# --- one shop: disconnecting deletes its stored Etsy data at once -----------------------------
+
+
+def test_the_disconnect_purge_names_every_table_that_holds_a_shops_etsy_data() -> None:
+    """The home page, the Privacy Policy and the Terms say a disconnected shop's data is
+    deleted at once. A new table of Etsy data must be added to the purge to keep that true."""
+    purge = inspect.getsource(retention.purge_shop_etsy_content) + inspect.getsource(profile_shops.detach_shop)
+    missing = [table.__name__ for table in etsy_data.ETSY_TABLES if table.__name__ not in purge]
+    assert missing == []
+    # And the purge is part of disconnecting itself, in the same transaction as the tokens.
+    disconnect = inspect.getsource(ConnectionService.disconnect)
+    call = "purge_shop_etsy_content(session, connection.id)"
+    assert disconnect.count(call) == 1 and disconnect.count("session.commit()") == 1
+    assert disconnect.index("access_token_enc = None") < disconnect.index(call) < disconnect.index("session.commit()")
+
+
+async def test_disconnecting_a_shop_deletes_all_its_stored_etsy_data_at_once(async_sm: async_sessionmaker) -> None:
+    async def with_statements(ids: tuple) -> tuple:
+        tenant_id, shop_id = ids[0], ids[1]
+        async with async_sm() as s:
+            month = NOW.date().replace(day=1)
+            s.add_all([
+                StatementImport(connection_id=shop_id, month=month, tenant_id=tenant_id, rows=3, first_day=month, last_day=month, net_minor=1200),
+                AdsDaily(connection_id=shop_id, day=NOW.date(), tenant_id=tenant_id, spend_minor=300),
+                SalesSync(connection_id=shop_id, tenant_id=tenant_id),
+                LedgerSync(connection_id=shop_id, tenant_id=tenant_id),
+            ])
+            await s.commit()
+        return ids
+
+    first = await with_statements(await _etsy_data(async_sm))
+    async with async_sm() as s:  # the seed gives every shop the same Etsy ids: make room for a second one
+        shop = await s.get(EtsyConnection, first[1])
+        shop.etsy_user_id, shop.shop_id = 901, 4343
+        await s.commit()
+    other = await with_statements(await _etsy_data(async_sm))
+    by_shop = [t for t in Base.metadata.sorted_tables if "connection_id" in t.c and t.name not in KEPT]
+    assert len(by_shop) >= 15
+
+    async def rows(shop_id) -> dict[str, int]:
+        async with async_sm() as s:
+            return {t.name: int(await s.scalar(select(func.count()).select_from(t).where(t.c.connection_id == shop_id)) or 0) for t in by_shop}
+
+    before = await rows(first[1])
+    held = {name for name, n in before.items() if n}
+    # Listing cache, statistics, sales, ledger, statements, ads, the links to its drafts, its profile.
+    assert held >= {"shop_listing_cache", "listing_stat_daily", "sales_daily", "sale_line", "sales_sync", "ledger_daily",
+                    "ledger_sync", "statement_import", "ads_daily", "listing_publication", "listing_profile"}
+
+    service = ConnectionService(TokenCipher(Fernet.generate_key()), client_id="k", token_url="https://t")
+    async with async_sm() as s:
+        cancelled = await service.disconnect(s, await s.get(EtsyConnection, first[1]))
+    assert cancelled["queued_jobs"] == 1
+
+    # One call, one transaction: nothing of the shop's Etsy data is left to age out.
+    assert await rows(first[1]) == {t.name: 0 for t in by_shop}
+    async with async_sm() as s:
+        shop = await s.get(EtsyConnection, first[1])
+        assert (shop.access_token_enc, shop.refresh_token_enc, shop.status, shop.sections) == (None, None, ConnectionStatus.revoked, None)
+        # The seller's own work stays: the upload and the text written in the app.
+        content = await s.get(GeneratedContent, first[2])
+        assert content is not None and content.title and await s.get(Asset, content.asset_id) is not None
+    # Another account's shop is untouched.
+    assert await rows(other[1]) == before
 
 
 async def test_a_dry_run_counts_and_changes_nothing(async_sm: async_sessionmaker) -> None:

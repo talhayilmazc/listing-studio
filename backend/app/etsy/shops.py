@@ -4,7 +4,8 @@ One Etsy account owns exactly one shop, so each connection is one shop, and a
 seller with several shops connects once per shop, signed in to Etsy as that
 shop's owner. Two ceilings apply:
 
-* per account: ``tenant.max_shops`` if an admin set one, else MAX_SHOPS_PER_TENANT;
+* per account: ``tenant.max_shops`` if an admin set one (any positive number, no
+  upper cap), else the default MAX_SHOPS_PER_TENANT;
 * app-wide: MAX_SHOPS_APP_WIDE, because every connected shop spends part of the
   one shared 5,000-request daily budget just to stay in sync.
 """
