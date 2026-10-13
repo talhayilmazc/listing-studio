@@ -25,6 +25,7 @@ from app.core import allowance
 from app.db.models import (
     Asset,
     EtsyConnection,
+    GeneratedContent,
     Job,
     JobStatus,
     JobType,
@@ -430,14 +431,6 @@ async def replace_listing_images_endpoint(
     if (await session.execute(photos.limit(1))).first() is not None:
         # Upload retention deleted them: there is nothing to send to Etsy.
         raise HTTPException(status_code=409, detail=upload_retention.REMOVED)
-    if body.mode == "full":
-        # A new title and tags are written: one listing generated (core/allowance.py).
-        # Photos only writes nothing and calls no AI, so the allowance is not asked.
-        try:
-            await allowance.check(session, tenant, 1)
-        except allowance.AllowanceExceeded as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from None
-
     payload: dict[str, object] = {"listing_id": listing_id, "batch_id": str(body.batch_id), "mode": body.mode}
     if body.group_key is not None:
         payload["group_key"] = body.group_key
@@ -464,6 +457,29 @@ async def replace_listing_images_endpoint(
         if profile is not None and profile.fixed_image_ids:
             # The size charts this app put on the draft: known without looking at them.
             payload["chart_ids"] = [int(i) for i in profile.fixed_image_ids]
+    if body.mode == "full":
+        # A new title and tags are written (core/allowance.py). For a listing this app
+        # wrote, that is a rewrite of the same design: free for its first rewrites in
+        # the period, counted after that. For a listing it never wrote, the first one
+        # is a listing generated. Photos only writes nothing and calls no AI, so the
+        # allowance is not asked.
+        design = allowance.listing_key(listing_id)
+        written = made is not None
+        if made is not None and made.content_id is not None:
+            content = await session.get(GeneratedContent, made.content_id)
+            cover = await session.get(Asset, content.asset_id) if content is not None else None
+            if cover is not None:
+                design = allowance.design_key(cover.batch_id, cover.group_key)
+        written = written or await allowance.written_before(session, tenant, design)
+        kind = await allowance.rewrite_kind(session, tenant, design) if written else allowance.GENERATION
+        if kind == allowance.GENERATION:
+            try:
+                await allowance.check(session, tenant, 1)
+            except allowance.AllowanceExceeded as exc:
+                raise HTTPException(status_code=429, detail=str(exc)) from None
+        # Decided now and kept with the job: what is queued is what will be recorded.
+        payload["design"] = design
+        payload["counts"] = kind == allowance.GENERATION
     job = Job(
         tenant_id=tenant.id,
         connection_id=connection.id,

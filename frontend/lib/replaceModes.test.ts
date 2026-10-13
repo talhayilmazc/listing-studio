@@ -14,10 +14,11 @@ test("Replace images opens on photos only, which keeps the text and is not a lis
   assert.match(photos.counts, /Does not count as a listing generated/);
 });
 
-test("the full option says it rewrites the title and tags and counts one", () => {
+test("the full option says it rewrites the title and tags, and that a rewrite is free three times", () => {
   assert.equal(full.mode, "full");
   assert.match(full.changes.join(" "), /Title and all 13 tags/);
-  assert.match(full.counts, /Counts as 1 listing generated/);
+  assert.match(full.counts, /A rewrite of the design: free up to 3 times, then it counts as 1 listing generated/);
+  assert.match(photos.counts, /^Does not count as a listing generated\.$/);
 });
 
 test("both options name where the photos come from, and the notice says what was done", () => {

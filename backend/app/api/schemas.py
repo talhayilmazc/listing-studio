@@ -365,6 +365,11 @@ class AllowanceOut(BaseModel):
     used: int
     generations: int
     pending: int  # Replace images queued, their listing not yet written: counted as used
+    #: Free rewrites made in the period (not in ``used``), and how many each design gets.
+    rewrites: int = 0
+    free_rewrites: int = 3
+    #: Listings that went live through the app in the same period, in all the account's shops.
+    published: int = 0
     remaining: int
     period_start: datetime
     resets_at: datetime

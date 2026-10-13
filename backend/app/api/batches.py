@@ -1395,7 +1395,7 @@ async def write_manually(
             continue
         await manual.write(session, tenant_id=tenant.id, batch_id=batch_id, asset=cover, profile=profile)
         # A listing of the plan, like any other; no AI call, so nothing is metered.
-        allowance.record(session, tenant.id, allowance.GENERATION)
+        allowance.record(session, tenant.id, allowance.GENERATION, design=allowance.design_key(batch_id, key))
         left -= 1
         written += 1
         await session.commit()
@@ -1586,7 +1586,11 @@ async def generate_content(
             _fail(why)
             continue
 
-        if allowance_left <= 0:
+        # A group that already has a listing is being rewritten: free for a
+        # design's first rewrites in the period, counted after that.
+        design = allowance.design_key(batch_id, key)
+        kind = await allowance.rewrite_kind(session, tenant, design, allowance_now) if old else allowance.GENERATION
+        if kind == allowance.GENERATION and allowance_left <= 0:
             if body.group_key is not None:  # one group asked for: refuse it outright
                 raise HTTPException(status_code=429, detail=allowance_now.message())
             _fail(allowance_now.message())
@@ -1624,8 +1628,9 @@ async def generate_content(
         if outcome.status == "generated":
             await llm_status.cleared(redis)
             generated += 1
-            allowance.record(session, tenant.id, allowance.GENERATION)
-            allowance_left -= 1
+            allowance.record(session, tenant.id, kind, design=design)
+            if kind == allowance.GENERATION:
+                allowance_left -= 1
             await session.commit()
             if old:
                 await _retire(session, old, outcome.generated_content_id)

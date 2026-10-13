@@ -92,9 +92,16 @@ JOB_COST: dict[str, int] = {
 # Keeping shops and profiles current is the app's upkeep, not the seller's work:
 # it counts against Etsy's app-wide budget (and waits at the 90% pause) but not
 # against the seller's own daily limit (v7 §D3).
+#
+# Setting a profile up in the seller's other shops (link_profile,
+# create_link_resources) is here too. It reads every shop's lists once so that
+# drafts can be made there, and cost one seller 557 requests of their own ceiling
+# before a single listing was drafted: it is preparation the app needs, not
+# listing work. Creating a shop section and updating a draft's SKU are the
+# seller's own changes on Etsy and still count toward their ceiling.
 UPKEEP = frozenset(
     {"refresh_profile", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
-     "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats"}
+     "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "link_profile", "create_link_resources"}
 )
 
 # Resume a little after midnight, so the new day's counters are in place.

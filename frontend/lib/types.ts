@@ -1381,6 +1381,11 @@ export interface Allowance {
   generations: number;
   /** Replace images queued, their listing not yet written: counted as used. */
   pending: number;
+  /** Free rewrites made this period (not part of `used`), and how many each design gets. */
+  rewrites?: number;
+  free_rewrites?: number;
+  /** Listings that went live through the app in the same period, in all the account's shops. */
+  published?: number;
   remaining: number;
   period_start: string;
   resets_at: string;

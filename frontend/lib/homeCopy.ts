@@ -32,7 +32,7 @@ export const HOME = {
       "Upload your mockups and pick one of your existing listings as the template. Listyro prepares each new listing as a draft: the template's prices, variations, shipping and size charts, with a suggested title, 13 tags and description. Nothing goes live until you approve it or schedule it.",
     primary: { label: "Request an invite", href: "/request-invite" },
     secondary: { label: "See how it works", href: "#how-it-works" },
-    note: "Invite-only early access. Free while we onboard sellers in small groups.",
+    note: "Invite-only early access. No payment is taken today.",
   },
 
   /** The hero's small walkthrough (components/marketing/HeroDemo.tsx). Sample designs drawn by us. */

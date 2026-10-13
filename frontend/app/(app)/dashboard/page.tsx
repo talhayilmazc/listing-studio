@@ -282,7 +282,7 @@ function QuotaCard({ quota }: { quota: Quota | null }) {
       </div>
 
       <p translate="no" className="mt-4 text-xs text-slate-400">
-        {`Drafts, publishing and Replace images count. Resets at ${c.resets_label} (00:00 UTC).`}
+        {`Drafts, publishing, Replace images, new shop sections and SKU updates count. Setting a profile up in your shops and keeping them current do not. Resets at ${c.resets_label} (00:00 UTC).`}
       </p>
     </section>
   );

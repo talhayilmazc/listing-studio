@@ -2,10 +2,18 @@
 
 This is the plan's limit, set per seller in the admin panel (with a system
 default): an amount and a period, daily, weekly or monthly. It counts designs
-written: a listing's text generated, regenerated, or rewritten by Replace
-images. A design counts once however many shops it is sent to: **creating
-drafts and publishing never count**. Etsy requests are a different number with
-a different reset (``core/limits.py``).
+written, by AI or by the seller. A design counts once however many shops it is
+sent to and however many photos it has: **creating drafts and publishing never
+count**. Etsy requests are a different number with a different reset
+(``core/limits.py``).
+
+**Rewriting the same design is free up to three times in the period**
+(:data:`FREE_REWRITES`): regenerating its text, switching a hand-written listing
+to AI, or Replace images with a new title and tags. A free rewrite is recorded
+as ``kind = "rewrite"`` with the design it was for, and is not counted; the
+fourth and later rewrites in the period are ``"generation"``, like a first
+write. A design is its batch and group (:func:`design_key`), or the Etsy listing
+when the batch is gone (:func:`listing_key`).
 
 Periods follow the seller's own time zone: a day starts at their midnight, a
 week on Monday 00:00 and a month on the 1st. Usage is recorded as timestamped
@@ -35,10 +43,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.timezones import valid_zone, zone_abbreviation
-from app.db.models import AllowanceUse, AppSetting, Job, JobStatus, JobType, Tenant
+from app.db.models import AllowanceUse, AppSetting, Job, JobStatus, JobType, ListingPublication, Tenant
 
 PERIODS = ("daily", "weekly", "monthly")
 GENERATION = "generation"
+#: One of a design's free rewrites: recorded, not counted.
+REWRITE = "rewrite"
+#: Rewrites of one design that cost nothing in a period.
+FREE_REWRITES = 3
 #: What every screen calls this number.
 LABEL = "Listings generated"
 DEFAULT_KEY = "allowance_default"
@@ -48,6 +60,16 @@ _PERIOD_WORD = {"daily": "today", "weekly": "this week", "monthly": "this month"
 
 class AllowanceExceeded(Exception):
     """The work would go past the seller's allowance (message is for the seller)."""
+
+
+def design_key(batch_id: Any, group_key: str | None) -> str:
+    """The design a batch's group is: what its rewrites are counted against."""
+    return f"{batch_id}:{group_key or ''}"
+
+
+def listing_key(listing_id: int) -> str:
+    """A listing on Etsy whose batch is gone (Replace images on it)."""
+    return f"listing:{listing_id}"
 
 
 def _now() -> datetime:
@@ -100,6 +122,10 @@ class AllowanceStatus:
     custom: bool  # the seller has their own; else the system default
     generations: int
     pending: int  # Replace images queued, their listing not yet written: counted as used
+    #: Free rewrites made in the period (not part of ``used``).
+    rewrites: int
+    #: Listings that went live through the app in the same period, in all the account's shops.
+    published: int
     period_start: datetime
     resets_at: datetime
     time_zone: str
@@ -143,26 +169,82 @@ async def status(session: AsyncSession, tenant: Tenant, now: datetime | None = N
     # Only listings written count. Rows of the old "draft" kind are still in the
     # table from when drafts counted; they are not read.
     # A queued Replace images counts only when it will write a new title and
-    # tags ("full"; a job from before the choice existed is one). Photos only
-    # calls no AI and generates nothing.
-    waiting = await session.execute(
-        select(Job.payload).where(
-            Job.tenant_id == tenant.id,
-            Job.type == JobType.replace_images,
-            Job.status.in_((JobStatus.queued, JobStatus.running)),
+    # tags ("full"; a job from before the choice existed is one) and that
+    # rewrite is not one of the design's free ones (decided when it was queued).
+    # Photos only calls no AI and generates nothing.
+    pending = sum(1 for payload in await _waiting_rewrites(session, tenant.id) if payload.get("counts", True))
+    published = await session.scalar(
+        select(func.count()).select_from(ListingPublication).where(
+            ListingPublication.tenant_id == tenant.id,
+            ListingPublication.published_at >= start,
+            ListingPublication.published_at < reset,
         )
     )
-    pending = sum(1 for (payload,) in waiting.all() if (payload or {}).get("mode", "full") != "photos")
     return AllowanceStatus(
         amount=amount,
         period=period,
         custom=custom,
         generations=int(counts.get(GENERATION, 0)),
         pending=int(pending or 0),
+        rewrites=int(counts.get(REWRITE, 0)),
+        published=int(published or 0),
         period_start=start,
         resets_at=reset,
         time_zone=zone,
     )
+
+
+async def _waiting_rewrites(session: AsyncSession, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
+    """Replace images jobs, queued or running, that will write a new title and tags."""
+    rows = await session.execute(
+        select(Job.payload).where(
+            Job.tenant_id == tenant_id,
+            Job.type == JobType.replace_images,
+            Job.status.in_((JobStatus.queued, JobStatus.running)),
+        )
+    )
+    return [payload or {} for (payload,) in rows.all() if (payload or {}).get("mode", "full") != "photos"]
+
+
+async def free_rewrites_left(
+    session: AsyncSession, tenant: Tenant, design: str, current: AllowanceStatus | None = None
+) -> int:
+    """How many more rewrites of ``design`` cost nothing in the current period.
+
+    Counts the free ones already made in the period and the ones waiting in the
+    queue, so three Replace images queued at once cannot become six free rewrites.
+    """
+    current = current or await status(session, tenant)
+    made = await session.scalar(
+        select(func.count()).select_from(AllowanceUse).where(
+            AllowanceUse.tenant_id == tenant.id,
+            AllowanceUse.kind == REWRITE,
+            AllowanceUse.design == design,
+            AllowanceUse.at >= current.period_start,
+            AllowanceUse.at < current.resets_at,
+        )
+    )
+    waiting = sum(
+        1 for payload in await _waiting_rewrites(session, tenant.id)
+        if payload.get("design") == design and not payload.get("counts", True)
+    )
+    return max(0, FREE_REWRITES - int(made or 0) - waiting)
+
+
+async def written_before(session: AsyncSession, tenant: Tenant, design: str) -> bool:
+    """Whether a listing's text was ever recorded for ``design`` (at any time)."""
+    found = await session.execute(
+        select(AllowanceUse.id).where(AllowanceUse.tenant_id == tenant.id, AllowanceUse.design == design).limit(1)
+    )
+    return found.first() is not None
+
+
+async def rewrite_kind(
+    session: AsyncSession, tenant: Tenant, design: str, current: AllowanceStatus | None = None
+) -> str:
+    """What a rewrite of ``design`` is recorded as now: :data:`REWRITE` while a
+    free one is left in the period, else :data:`GENERATION` (it counts)."""
+    return REWRITE if await free_rewrites_left(session, tenant, design, current) > 0 else GENERATION
 
 
 async def check(session: AsyncSession, tenant: Tenant, wanted: int = 1) -> AllowanceStatus:
@@ -173,10 +255,12 @@ async def check(session: AsyncSession, tenant: Tenant, wanted: int = 1) -> Allow
     return current
 
 
-def record(session: AsyncSession, tenant_id: uuid.UUID, kind: str, count: int = 1) -> None:
-    """Add used units (the caller commits with the work they stand for)."""
+def record(session: AsyncSession, tenant_id: uuid.UUID, kind: str, count: int = 1, *, design: str | None = None) -> None:
+    """Add units (the caller commits with the work they stand for). ``kind`` is
+    :data:`GENERATION` (counted) or :data:`REWRITE` (a free rewrite, kept so the
+    next one knows how many were made)."""
     for _ in range(count):
-        session.add(AllowanceUse(id=uuid.uuid4(), tenant_id=tenant_id, kind=kind))
+        session.add(AllowanceUse(id=uuid.uuid4(), tenant_id=tenant_id, kind=kind, design=design))
 
 
 def status_out(s: AllowanceStatus) -> dict[str, Any]:
@@ -188,6 +272,9 @@ def status_out(s: AllowanceStatus) -> dict[str, Any]:
         "used": s.used,
         "generations": s.generations,
         "pending": s.pending,
+        "rewrites": s.rewrites,
+        "free_rewrites": FREE_REWRITES,
+        "published": s.published,
         "remaining": s.remaining,
         "period_start": s.period_start,
         "resets_at": s.resets_at,

@@ -701,7 +701,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     {pubs.length > 0 ? (
                       <span key="etsy"> “Replace images on Etsy” with new title and tags rewrites them from the new cover.</span>
                     ) : (
-                      <span key="regen"> Regenerate to write them from the new cover (counts as one generated listing).</span>
+                      <span key="regen"> Regenerate to write them from the new cover (a rewrite: free up to 3 times for a design).</span>
                     )}
                   </span>
                   {pubs.length === 0 && (

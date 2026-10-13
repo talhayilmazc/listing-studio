@@ -194,8 +194,8 @@ async def test_replace_images_for_a_group_on_etsy_keeps_to_that_group(ctx) -> No
 
 
 async def test_a_listing_the_seller_wrote_can_be_generated_with_ai_later(ctx, llm) -> None:  # noqa: F811
-    """"Generate with AI" on a manual group: the app writes it now, it is no longer
-    manual, and it counts as a listing generated (as any regenerate does)."""
+    """"Generate with AI" on a manual group: the app writes it now and it is no longer
+    manual. It is a rewrite of the same design: one of its free ones, not a new listing."""
     from app.db.models import AiCall
 
     batch, old, profile = await _group(ctx, tokens=(None, None))
@@ -213,4 +213,5 @@ async def test_a_listing_the_seller_wrote_can_be_generated_with_ai_later(ctx, ll
     assert (new.source, new.title) == ("ai", NEW_TITLE) and new.model_used and new.vision_model
     async with ctx["sm"]() as s:
         assert len((await s.execute(select(AiCall))).scalars().all()) == 2  # the vision call and the content call
-    assert (await ctx["client"].get("/api/account/allowance")).json()["used"] == 1
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["used"], mine["rewrites"]) == (0, 1)

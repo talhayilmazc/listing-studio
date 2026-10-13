@@ -50,6 +50,55 @@ async def test_a_seller_at_their_limit_still_gets_upkeep_but_the_app_pause_holds
     assert (await gate.check(ctx, T, "sync_shop_listings")).action == "paused"
 
 
+async def test_setting_a_profile_up_in_other_shops_is_not_charged_to_the_sellers_ceiling() -> None:
+    """A seller's 557 set-up requests came out of their own daily ceiling before a
+    single listing was drafted. They count app-wide, as every request does, and not
+    against the seller; creating a section and updating a SKU are still the seller's."""
+    import inspect
+
+    from app.etsy.categories import LABELS, category_of
+    from app.workers import links
+
+    assert {"link_profile", "create_link_resources"} <= gate.UPKEEP
+    assert not {"create_shop_section", "update_sku_on_etsy", "run_publish_job", "run_publish_live_job", "run_replace_images_job"} & gate.UPKEEP
+    # The jobs build their Etsy client as upkeep: no client of theirs draws on the ceiling.
+    source = inspect.getsource(links)
+    assert "upkeep=False" not in source and source.count("upkeep=True)") >= 5
+
+    redis = FakeAsyncRedis()
+    quota, tenant = _quota(redis), uuid.uuid4()
+
+    class T:
+        id, etsy_ceiling_override, time_zone = tenant, 0, "UTC"  # nothing left of their own
+
+    from app.db.models import TenantStatus
+
+    T.status = TenantStatus.active
+    ctx = {"quota": quota}
+    assert (await gate.check(ctx, T, "link_profile")).action == "run"
+    assert (await gate.check(ctx, T, "create_link_resources")).action == "run"
+    assert (await gate.check(ctx, T, "create_shop_section")).action == "paused"  # the seller's own change: their ceiling
+
+    from app.etsy.calllog import current_job
+
+    token = current_job.set("link_profile:profile-id")
+    try:
+        for n in range(4):
+            await _client(quota, upkeep=True).get_listing(n, access_token="t", tenant_id=tenant, tenant_limit=0)
+    finally:
+        current_job.reset(token)
+    tenant_used, global_used = await quota.usage(tenant)
+    assert (tenant_used, global_used) == (0, 4)  # the app's budget, not the seller's
+    assert await quota.upkeep_usage(tenant) == 4
+    spent = await quota.spending(tenant)
+    assert category_of("link_profile:x") == "profile_setup" and LABELS["profile_setup"] == "Setting profiles up in shops"
+    assert spent["profile_setup"] == {"own": 0, "upkeep": 4}
+    # And the app-wide pause still holds them back.
+    for _ in range(5):
+        await quota.reserve_upkeep(uuid.uuid4())
+    assert (await gate.check(ctx, T, "link_profile")).action == "paused"
+
+
 # --- what an account's requests were spent on ----------------------------------------------------
 
 

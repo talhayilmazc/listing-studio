@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.core import allowance
-from app.db.models import AllowanceUse, AuditLog, Job, JobStatus, JobType, Tenant
+from app.db.models import AllowanceUse, AuditLog, GeneratedContent, Job, JobStatus, JobType, ListingPublication, Tenant
 from tests.test_publish_api import _add_content, _shop, ctx  # noqa: F401  (fixture)
 from tests.test_regenerate import _contents, _content_reply, _generate, _group, llm, VISION  # noqa: F401
 from tests.support import fake_response
@@ -66,15 +66,33 @@ async def test_usage_is_a_window_so_changing_the_period_keeps_it(ctx) -> None:  
         assert (await allowance.status(s, t, NOW)).used == 1
 
 
+async def _unwritten_group(ctx):  # noqa: F811
+    """A design with photos and no listing yet (the shared helper makes one that has one)."""
+    batch, old, profile = await _group(ctx)
+    async with ctx["sm"]() as s:
+        await s.delete(await s.get(GeneratedContent, old))
+        await s.commit()
+    return batch, profile
+
+
+async def _uses(ctx) -> list[tuple[str, str | None]]:  # noqa: F811
+    async with ctx["sm"]() as s:
+        return [(u.kind, u.design) for u in (await s.execute(select(AllowanceUse).order_by(AllowanceUse.at, AllowanceUse.id))).scalars()]
+
+
 async def test_generation_stops_at_the_allowance_and_says_when_it_resets(ctx, llm) -> None:  # noqa: F811
-    batch, _, profile = await _group(ctx)
+    batch, profile = await _unwritten_group(ctx)
     await _tenant(ctx, time_zone="America/Chicago", allowance_amount=1, allowance_period="monthly")
     llm._responses.extend([fake_response(VISION), fake_response(_content_reply())])
-    body = await _generate(ctx, batch, profile, replace=True, replace_approved=True)
+    body = await _generate(ctx, batch, profile)
     assert body["generated"] == 1
-    async with ctx["sm"]() as s:
-        assert [u.kind for u in (await s.execute(select(AllowanceUse))).scalars()] == ["generation"]
+    assert await _uses(ctx) == [("generation", f"{batch}:G1")]  # a first write counts, and says which design
 
+    # Nothing is left for another design; the one already written can still be rewritten (below).
+    async with ctx["sm"]() as s:
+        for _ in range(allowance.FREE_REWRITES):
+            allowance.record(s, ctx["tenant_id"], allowance.REWRITE, design=f"{batch}:G1")
+        await s.commit()
     resp = await ctx["client"].post(f"/api/batches/{batch}/generate", json={"profile_id": str(profile), "group_key": "G1", "replace": True})
     assert resp.status_code == 429
     assert resp.json()["detail"].startswith("You've generated your 1 listings this month. More can be generated from ")
@@ -82,6 +100,77 @@ async def test_generation_stops_at_the_allowance_and_says_when_it_resets(ctx, ll
     assert "12:00 AM" in resp.json()["detail"]
     mine = (await ctx["client"].get("/api/account/allowance")).json()
     assert (mine["used"], mine["remaining"], mine["period"], mine["custom"]) == (1, 0, "monthly", True)
+
+
+async def test_the_first_three_rewrites_of_a_design_are_free_and_the_fourth_counts(ctx, llm) -> None:  # noqa: F811
+    """"Rewriting the same design is free up to 3 times" (the pricing page's line)."""
+    batch, profile = await _unwritten_group(ctx)
+    await _tenant(ctx, time_zone="America/Chicago", allowance_amount=2, allowance_period="monthly")
+
+    async def write(**flags) -> dict:
+        llm._responses.extend([fake_response(VISION), fake_response(_content_reply())])
+        return await _generate(ctx, batch, profile, **flags)
+
+    async def mine() -> tuple[int, int, int]:
+        body = (await ctx["client"].get("/api/account/allowance")).json()
+        assert body["free_rewrites"] == 3
+        return body["used"], body["rewrites"], body["remaining"]
+
+    assert (await write())["generated"] == 1
+    assert await mine() == (1, 0, 1)
+    for n in (1, 2, 3):  # regenerate, three times: nothing is counted
+        assert (await write(replace=True, replace_approved=True))["generated"] == 1
+        assert await mine() == (1, n, 1)
+    assert (await write(replace=True, replace_approved=True))["generated"] == 1  # the fourth counts
+    assert await mine() == (2, 3, 0)
+    design = f"{batch}:G1"
+    # One first write, three free rewrites, and a fourth that counted (rows written in the same second have no order).
+    assert sorted(await _uses(ctx)) == sorted([("generation", design)] * 2 + [("rewrite", design)] * 3)
+    # The fifth would count too, and nothing is left: refused, with the reset date.
+    resp = await ctx["client"].post(f"/api/batches/{batch}/generate", json={"profile_id": str(profile), "group_key": "G1", "replace": True, "replace_approved": True})
+    assert resp.status_code == 429 and resp.json()["detail"].startswith("You've generated your 2 listings this month.")
+    assert len(await _contents(ctx, batch)) == 1  # the design still has its one listing
+
+
+async def test_free_rewrites_are_per_design_and_start_again_each_period(ctx) -> None:  # noqa: F811
+    tenant = await _tenant(ctx, time_zone="UTC", allowance_amount=10, allowance_period="monthly")
+    now = datetime.now(UTC)
+    async with ctx["sm"]() as s:
+        for at in (now - timedelta(days=40), now - timedelta(days=41), now - timedelta(days=42)):  # last period
+            s.add(AllowanceUse(tenant_id=tenant.id, kind=allowance.REWRITE, design="b:G1", at=at))
+        s.add(AllowanceUse(tenant_id=tenant.id, kind=allowance.REWRITE, design="b:G1", at=now))
+        s.add(AllowanceUse(tenant_id=tenant.id, kind=allowance.REWRITE, design="b:G2", at=now))
+        await s.commit()
+        tenant = await s.get(Tenant, tenant.id)
+        assert await allowance.free_rewrites_left(s, tenant, "b:G1") == 2  # one used this period; last period's do not carry
+        assert await allowance.free_rewrites_left(s, tenant, "b:G2") == 2
+        assert await allowance.free_rewrites_left(s, tenant, "b:G3") == 3
+        assert await allowance.rewrite_kind(s, tenant, "b:G1") == allowance.REWRITE
+        for _ in range(2):
+            allowance.record(s, tenant.id, allowance.REWRITE, design="b:G1")
+        await s.commit()
+        assert await allowance.rewrite_kind(s, tenant, "b:G1") == allowance.GENERATION
+        assert await allowance.rewrite_kind(s, tenant, "b:G2") == allowance.REWRITE  # another design's are its own
+        status = await allowance.status(s, tenant)
+        assert (status.used, status.rewrites) == (0, 4)  # free rewrites are recorded, never counted
+        assert await allowance.written_before(s, tenant, "b:G1") and not await allowance.written_before(s, tenant, "b:G9")
+
+
+async def test_the_allowance_says_how_many_were_published_in_the_same_period(ctx) -> None:  # noqa: F811
+    """"N written · M published this month": the two numbers a seller compares."""
+    content_id = await _add_content(ctx["sm"], ctx["tenant_id"])
+    tenant = await _tenant(ctx, time_zone="UTC", allowance_amount=50, allowance_period="monthly")
+    now = datetime.now(UTC)
+    async with ctx["sm"]() as s:
+        shop = await _shop(s, ctx["tenant_id"])
+        for n, published_at in enumerate((now, now, now - timedelta(days=45), None)):  # two this month, one earlier, one still a draft
+            s.add(ListingPublication(tenant_id=tenant.id, content_id=content_id if n == 0 else None, connection_id=shop,
+                                     etsy_listing_id=9000 + n, state="active" if published_at else "draft", published_at=published_at))
+        for _ in range(5):
+            allowance.record(s, tenant.id, allowance.GENERATION, design="b:G1")
+        await s.commit()
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["used"], mine["published"], mine["period"]) == (5, 2, "monthly")
 
 
 async def test_drafts_are_not_limited_by_the_listing_allowance(ctx) -> None:  # noqa: F811

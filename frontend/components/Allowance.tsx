@@ -12,6 +12,18 @@ export function periodWord(period: string): string {
   return PERIOD_WORD[period] ?? "this period";
 }
 
+/**
+ * "73 written · 12 published this month": the two numbers a seller compares.
+ * Written is what the plan counts; published is what reached their shops in the
+ * same period. They differ whenever a listing is written and not (yet) published.
+ */
+export function writtenAndPublished(a: Allowance): string {
+  return `${a.used.toLocaleString()} written · ${(a.published ?? 0).toLocaleString()} published ${periodWord(a.period)}`;
+}
+
+const WHAT_COUNTS =
+  "A listing is one design written by AI or by you. Rewriting the same design is free up to 3 times; photos, drafts and publishing do not count.";
+
 /** The seller's own product allowance, fresh on every page and every minute. */
 export function useAllowance(): Allowance | null {
   const pathname = usePathname();
@@ -34,9 +46,9 @@ export function useAllowance(): Allowance | null {
 }
 
 /**
- * "Listings generated" in the rail: designs written this period. Drafts and
- * publishing do not count. A different number from "Etsy requests today"
- * beneath it, with a different reset: this one at the seller's own midnight.
+ * "Listings generated" in the rail: designs written this period, beside how many
+ * were published in it. Drafts, publishing and photos do not count; a design's
+ * first three rewrites are free.
  */
 export function RailAllowance() {
   const a = useAllowance();
@@ -44,7 +56,7 @@ export function RailAllowance() {
   const share = a.amount ? Math.min(1, a.used / a.amount) : 1;
   const low = a.remaining <= Math.max(1, a.amount * 0.1);
   return (
-    <div className="px-2 pb-2" title={`Listings generated ${periodWord(a.period)}: each design counts once, whichever of your shops it is listed in. Drafts and publishing do not count. Resets ${a.resets_label}.`}>
+    <div className="px-2 pb-2" title={`Listings generated ${periodWord(a.period)}. ${WHAT_COUNTS} Resets ${a.resets_label}.`} data-testid="rail-allowance">
       <div className="flex items-baseline justify-between text-[11px]">
         <span className="text-[var(--rail-text)]">Listings generated</span>
         <span translate="no" className="tabular-nums text-[var(--rail-text)]">
@@ -60,8 +72,11 @@ export function RailAllowance() {
           style={{ width: share * 100 + "%" }}
         />
       </div>
-      <p translate="no" className="mt-1 text-[11px] text-[var(--rail-text)]">
-        {`${a.used.toLocaleString()} used ${periodWord(a.period)} · resets ${a.resets_label.replace(/^\w+, /, "")}`}
+      <p translate="no" className="mt-1 text-[11px] text-[var(--rail-text)]" data-testid="written-published">
+        {writtenAndPublished(a)}
+      </p>
+      <p translate="no" className="text-[11px] text-[var(--rail-text)]">
+        {`resets ${a.resets_label.replace(/^\w+, /, "")}`}
       </p>
     </div>
   );
@@ -75,10 +90,10 @@ export function AllowanceSection() {
       <div>
         <h2 className="text-sm font-semibold text-slate-800">Listings generated</h2>
         <p className="mt-1 text-sm text-slate-500">
-          <span>How many listings you can generate <span>{a ? periodWord(a.period) : "each period"}</span>. Each design written counts once,
-          whichever of your shops it is listed in (regenerating one, or replacing a listing&apos;s photos and text, counts again).
-          Creating drafts and publishing do not count. This is a different number from &quot;Etsy requests today&quot; in the
-          menu, which counts the requests your drafts and publishing make to Etsy and resets at 00:00 UTC.</span>
+          <span>How many listings can be written <span>{a ? periodWord(a.period) : "each period"}</span>. A listing is one design written by AI
+          or by you: it counts once, whichever of your shops it is listed in and however many photos it has. Rewriting the same
+          design (regenerating it, switching a listing you wrote to AI, or Replace images with a new title and tags) is free up
+          to 3 times; a fourth rewrite counts. Creating drafts and publishing do not count.</span>
         </p>
       </div>
       {!a ? (
@@ -95,8 +110,9 @@ export function AllowanceSection() {
           <div className="progress">
             <div className="progress-fill" style={{ width: (a.amount ? Math.min(100, (a.used / a.amount) * 100) : 100) + "%" }} />
           </div>
-          <p className="text-xs text-slate-500">
-            <span><span>{`${a.generations} listings generated`}</span>
+          <p className="text-xs text-slate-500" data-testid="written-published">
+            <span><span>{writtenAndPublished(a)}</span>
+            <Txt>{a.rewrites ? ` · ${a.rewrites} free rewrite${a.rewrites === 1 ? "" : "s"}` : ""}</Txt>
             <Txt>{a.pending ? ` · ${a.pending} being rewritten` : ""}</Txt>
             <Txt>{a.custom ? "" : " · the standard allowance"}</Txt></span>
           </p>

@@ -29,7 +29,7 @@ export function replaceModes(photos: string): ReplaceModeText[] {
         "Category, price, variations, shipping and whether the listing is live.",
         "Size charts already on the listing, and any image that might be one: they stay, after the new photos.",
       ],
-      counts: "Does not count as a listing generated. Uses Etsy requests only.",
+      counts: "Does not count as a listing generated.",
     },
     {
       mode: "full",
@@ -44,7 +44,7 @@ export function replaceModes(photos: string): ReplaceModeText[] {
         "Category, price, variations, shipping and whether the listing is live.",
         "Size charts already on the listing: they stay, after the new photos.",
       ],
-      counts: "Counts as 1 listing generated, and uses Etsy requests.",
+      counts: "A rewrite of the design: free up to 3 times, then it counts as 1 listing generated.",
     },
   ];
 }

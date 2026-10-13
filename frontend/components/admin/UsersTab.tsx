@@ -62,7 +62,7 @@ export function UsersTab({
       ),
       meta: (
         <p translate="no" className="mt-0.5 text-xs text-slate-500">
-          {`Registered ${date(u.created_at)} · ${u.listings_published.toLocaleString()} published`}
+          {`Registered ${date(u.created_at)} · ${u.listings_published.toLocaleString()} active on Etsy now (all time)`}
         </p>
       ),
       shops: (

@@ -4,7 +4,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { relativeTime } from "@/lib/format";
 import { api } from "@/lib/api";
-import type { BatchSummary, Profile, Quota, ShopSummary } from "@/lib/types";
+import type { BatchSummary, Profile, ShopSummary } from "@/lib/types";
+import { periodWord, useAllowance, writtenAndPublished } from "./Allowance";
 import { useSession } from "./SessionProvider";
 import { useShops } from "./ShopProvider";
 
@@ -23,7 +24,6 @@ const HIDDEN = [/^\/terms$/, /^\/privacy$/, /^\/connect$/];
 
 export function MetricStrip() {
   const pathname = usePathname() ?? "/";
-  const [quota, setQuota] = useState<Quota | null>(null);
   const [shop, setShop] = useState<ShopSummary | null>(null);
   const [batches, setBatches] = useState<BatchSummary[] | null>(null);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -40,7 +40,6 @@ export function MetricStrip() {
   useEffect(() => {
     if (hidden) return;
     let cancelled = false;
-    api.quota(shopId).then((q) => !cancelled && setQuota(q)).catch(() => {});
     // While the shop is syncing, look again a few times so "syncing" turns into
     // numbers without a reload. Bounded: a sync that cannot finish is not polled forever.
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -104,7 +103,7 @@ export function MetricStrip() {
             shop && !shop.shop_counts_known ? (shop.syncing ? "syncing from Etsy…" : "not read from Etsy yet") : undefined
           }
         />
-        <QuotaCell quota={quota} />
+        <AllowanceCell />
         <Cell
           label="Active profiles"
           period={selected ? `in ${selected.name}` : "in your library"}
@@ -118,17 +117,6 @@ export function MetricStrip() {
       </dl>
     </div>
   );
-}
-
-/**
- * Mean calls per day across the completed days of the window. Today is excluded
- * on purpose: a morning's two requests against yesterday's full day reads as a
- * collapse when nothing has happened yet.
- */
-function dailyAverage(history: Quota["history"]): number | null {
-  const complete = (history ?? []).slice(0, -1);
-  if (complete.length === 0) return null;
-  return Math.round(complete.reduce((n, d) => n + d.count, 0) / complete.length);
 }
 
 /** Percent change, or null when there is no meaningful base to compare against. */
@@ -215,82 +203,34 @@ function Cell({
 }
 
 /**
- * Quota is the anchor of the strip: it is the scarce resource, so it carries the
- * sunken surface and the full-height 7-day chart.
+ * The plan's number: listings written this period, and how many went live in it.
+ * (This cell used to show "Etsy requests today". That is a technical limit which
+ * grows with photos, attributes and shops; a seller is told about it only when it
+ * makes their work wait: components/PauseNotice.tsx.)
  */
-function QuotaCell({ quota }: { quota: Quota | null }) {
-  const ceiling = quota?.ceiling ?? null;
-  const low = ceiling ? ceiling.remaining < ceiling.limit * 0.1 : false;
-  const average = quota ? dailyAverage(quota.history) : null;
-
+function AllowanceCell() {
+  const a = useAllowance();
+  const low = a ? a.remaining <= Math.max(1, a.amount * 0.1) : false;
   return (
-    <div className={CELL + " bg-slate-50"}>
-      <Label label="Etsy requests today" period="left, of your account's limit" />
-      <dd className="mt-1.5 flex items-end justify-between gap-4">
-        <div>
-          {ceiling === null ? (
-            <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />
-          ) : (
-            <span translate="no"
-              className={
-                "font-display text-3xl leading-none tabular-nums " +
-                (low ? "text-amber-700" : "text-slate-900")
-              }
-            >
-              <span>{ceiling.remaining.toLocaleString()}</span>
-              <span className="text-lg text-slate-400">
-                <span>{" / "}
-                <span>{ceiling.limit.toLocaleString()}</span></span>
-              </span>
+    <div className={CELL + " bg-slate-50"} data-testid="strip-allowance">
+      <Label label="Listings generated" period={a ? `left ${periodWord(a.period)}` : "left"} />
+      <dd className="mt-1.5">
+        {a === null ? (
+          <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />
+        ) : (
+          <span translate="no" className={"font-display text-3xl leading-none tabular-nums " + (low ? "text-amber-700" : "text-slate-900")}>
+            <span>{a.remaining.toLocaleString()}</span>
+            <span className="text-lg text-slate-400">
+              <span>{" / "}
+              <span>{a.amount.toLocaleString()}</span></span>
             </span>
-          )}
-          <p
-            translate="no"
-            className="mt-1.5 min-h-4 text-xs text-slate-400"
-            title={
-              ceiling?.upkeep
-                ? `Requests your drafts, publishing and Replace images made today, in all your shops. Plus ${ceiling.upkeep.toLocaleString()} keeping your shops and profiles current, which don't count toward your limit. Resets at 00:00 UTC.`
-                : "Requests your drafts, publishing and Replace images made today, in all your shops. Keeping your shops and profiles current doesn't count. Resets at 00:00 UTC."
-            }
-          >
-            {ceiling === null
-              ? ""
-              : `${ceiling.used.toLocaleString()} used · resets ${ceiling.resets_label}` +
-                (average != null ? ` · avg ${average.toLocaleString()}/day over 7 days` : "")}
-          </p>
-        </div>
-        {quota && <UsageChart key="usagechart-229-8" history={quota.history} />}
+          </span>
+        )}
+        <p translate="no" className="mt-1.5 min-h-4 text-xs text-slate-400"
+          title="A listing is one design written by AI or by you. Rewriting the same design is free up to 3 times; photos and the number of drafts in your shops do not count.">
+          {a === null ? "" : writtenAndPublished(a)}
+        </p>
       </dd>
     </div>
-  );
-}
-
-/** Seven days of calls, oldest to newest, today picked out in the accent. */
-function UsageChart({ history }: { history: Quota["history"] }) {
-  if (!history?.length) return null;
-  const max = Math.max(1, ...history.map((d) => d.count));
-  const H = 64; // tall enough to read a shape, not a hairline
-
-  return (
-    <span
-      className="flex shrink-0 items-end gap-1"
-      style={{ height: H }}
-      aria-label={`API calls over the last ${history.length} days`}
-    >
-      {history.map((d, i) => {
-        const last = i === history.length - 1;
-        return (
-          <span
-            key={d.date}
-            title={`${d.date}: ${d.count.toLocaleString()} calls`}
-            className={
-              "w-2 rounded-sm " +
-              (last ? "bg-brand-600" : d.count ? "bg-slate-300" : "bg-slate-200")
-            }
-            style={{ height: Math.max(2, Math.round((d.count / max) * H)) + "px" }}
-          />
-        );
-      })}
-    </span>
   );
 }

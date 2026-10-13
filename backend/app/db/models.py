@@ -199,7 +199,10 @@ class AllowanceUse(Base):
     """
 
     __tablename__ = "allowance_use"
-    __table_args__ = (Index("ix_allowance_use_tenant_at", "tenant_id", "at"),)
+    __table_args__ = (
+        Index("ix_allowance_use_tenant_at", "tenant_id", "at"),
+        Index("ix_allowance_use_design", "tenant_id", "design"),
+    )
 
     RETENTION_DAYS: ClassVar[int] = 400
 
@@ -207,8 +210,11 @@ class AllowanceUse(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
     )
-    #: "generation" (a listing's text written) or "draft" (a draft made on Etsy).
+    #: "generation" (a listing's text written: counted), "rewrite" (one of a design's
+    #: free rewrites: not counted) or "draft" (from when drafts counted; not read).
     kind: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The design it was written for (core/allowance.py::design_key); NULL on old rows.
+    design: Mapped[str | None] = mapped_column(Text)
     at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

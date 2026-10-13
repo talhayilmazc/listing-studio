@@ -80,6 +80,32 @@ async def test_photos_only_is_the_default_and_is_not_limited_by_the_listing_allo
     assert (await ctx["client"].post("/api/shop/listings/12345/replace-images", json={"batch_id": str(batch), "mode": "titles"})).status_code == 422
 
 
+async def test_a_full_replace_of_a_listing_the_app_wrote_is_a_rewrite_free_three_times(ctx, monkeypatch) -> None:  # noqa: F811
+    """A new title and tags for a design the app already wrote: one of its free
+    rewrites. What was decided when the job was queued is what the job records."""
+    await _run_full(ctx, monkeypatch, listing_style="search", template="apparel")
+    async with ctx["sm"]() as s:
+        [use] = (await s.execute(select(AllowanceUse))).scalars().all()
+        job = (await s.execute(select(Job).where(Job.type == JobType.replace_images))).scalars().one()
+        assert job.payload["counts"] is False and use.kind == allowance.REWRITE and use.design == job.payload["design"]
+        assert not use.design.startswith("listing:")  # the design is its batch and group
+        shop = await _shop(s, ctx["tenant_id"])
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["used"], mine["pending"], mine["rewrites"]) == (0, 0, 1)
+
+    # Nothing left to generate: the second and third rewrites are still free; the fourth would count.
+    await _allow(ctx, 0)
+    batch = (await ctx["client"].get("/api/batches")).json()
+    batch_id = next(b["id"] for b in batch if b["file_count"] == 2)
+    for n in (2, 3):
+        res = await ctx["client"].post(f"/api/shop/listings/777/replace-images?shop={shop}", json={"batch_id": batch_id, "group_key": "G1", "mode": "full"})
+        assert res.status_code == 200, (n, res.text)
+    mine = (await ctx["client"].get("/api/account/allowance")).json()
+    assert (mine["used"], mine["pending"]) == (0, 0)  # queued free rewrites hold nothing of the allowance
+    fourth = await ctx["client"].post(f"/api/shop/listings/777/replace-images?shop={shop}", json={"batch_id": batch_id, "group_key": "G1", "mode": "full"})
+    assert fourth.status_code == 429 and "generated your 0 listings" in fourth.json()["detail"]
+
+
 class _Etsy:
     """The listing on Etsy: an artwork photo, a second one, and a size chart the app put there."""
 

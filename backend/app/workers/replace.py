@@ -300,7 +300,12 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                         vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
                         result = await generator.generate(vision.analysis, primary.parsed_sku)
                         meter.listing_written()
-                    allowance.record(session, tenant.id, allowance.GENERATION)
+                    # Counted, or one of the design's free rewrites: as decided when it was queued.
+                    allowance.record(
+                        session, tenant.id,
+                        allowance.GENERATION if job.payload.get("counts", True) else allowance.REWRITE,
+                        design=job.payload.get("design"),
+                    )
                     wrote = (vision.usage.model, result.usages[-1].model)
                     new_title = result.listing.title
                     new_tags = result.listing.tags

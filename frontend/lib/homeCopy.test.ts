@@ -87,7 +87,7 @@ test("every call to action leads to the invite form", () => {
     assert.ok(fs.existsSync(path.join(FRONTEND, "app/(marketing)", route, "page.tsx")), route);
   }
   assert.match(read("components/marketing/Site.tsx"), /<Link href="\/request-invite" className="btn-primary[^"]*">Request an invite<\/Link>/);
-  assert.equal(HOME.hero.note, "Invite-only early access. Free while we onboard sellers in small groups.");
+  assert.equal(HOME.hero.note, "Invite-only early access. No payment is taken today.");
 });
 
 test("the page has the sections it was asked for, in size", () => {
@@ -124,8 +124,8 @@ test("no public page states a maximum or a large number of shops", () => {
   // The one exception is the planned plans on the pricing page (1, 2, 4 and 8 shops). Those
   // numbers come from lib/plans.ts: the page itself, checked above, types none.
   const pricing = read("app/(marketing)/pricing/page.tsx");
-  assert.equal((pricing.match(/Several shops; the number is set per account/g) ?? []).length, 1);
-  assert.match(pricing, /shopsFact\(plan\)/);
+  assert.doesNotMatch(pricing, /\d+\s+shops?/);
+  assert.match(read("components/marketing/PlanCards.tsx"), /shopsFact\(plan\)/);
   // The check itself works.
   assert.match("Up to eight shops", counted);
   assert.match("Connect 16 shops", counted);
@@ -154,7 +154,7 @@ test('no user-facing text says "beta"', () => {
   assert.deepEqual(found, []);
   // What replaced it, where the wording was given.
   assert.match(read("components/marketing/InviteForm.tsx").replace(/\s+/g, " "), /Listyro is invite-only while we onboard sellers in small groups\. We&apos;ll email you when a spot opens\./);
-  assert.match(read("app/(marketing)/pricing/page.tsx").replace(/\s+/g, " "), /Everything is included during early access and no payment of any kind is taken; there is no checkout on this site\. Pricing applies only after launch and will be announced well before, and early-access sellers will hear first\./);
+  assert.ok(read("app/(marketing)/pricing/page.tsx").includes("{PRICING_LINE}"));
   assert.match(read("app/(marketing)/terms/page.tsx"), /title="Fees: none during early access"/);
   // Meta tags: the document's own description and every page's.
   assert.doesNotMatch(read("app/layout.tsx"), /beta/i);

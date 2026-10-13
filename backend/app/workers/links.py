@@ -3,15 +3,19 @@
 ``link_profile``      reads the main shop's settings and each new shop's, links
                       every exact match at once (no question), and keeps what is
                       left for the seller: what could be created (with its
-                      request cost) and what to choose from. The seller's work.
+                      request cost) and what to choose from.
 ``create_link_resources``  creates, in each shop, only what the seller confirmed
                       (shipping profile with its destinations and upgrades,
                       return policy, processing profile), then links it. Lists are
                       read again first, so a setting that appeared meanwhile is
-                      linked, not created twice. The seller's work.
+                      linked, not created twice.
 ``refresh_shop_links``  checks, in the background, that the ids a shop's links
                       hold are still in that shop (upkeep, one shop's lists for
                       every profile linked to it).
+
+Both are started by the seller, but their requests are the app's preparation for
+drafting in those shops: they count toward the app-wide daily budget and not
+toward the seller's own ceiling (``gate.UPKEEP``).
 
 Every request goes through the queue, the gate and the client (CLAUDE.md).
 Etsy's own text never reaches the seller; the dropdown choices are kept in
@@ -202,7 +206,7 @@ async def _link_profile_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
         plan = await _plan_store(ctx, pid)
 
         async with httpx.AsyncClient(timeout=30.0) as http:
-            source_client = _client(ctx, http, main.id, upkeep=False)
+            source_client = _client(ctx, http, main.id, upkeep=True)
             kw = {"access_token": await _token(session, main), "tenant_id": profile.tenant_id,
                   "tenant_limit": limits.ceiling_limit(tenant) if tenant else None}
             source = await _settings(source_client, await _shop_id(session, source_client, main, kw), kw, currency=False)
@@ -211,7 +215,7 @@ async def _link_profile_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                 if shop is None or shop.status is not ConnectionStatus.active or shop.tenant_id != profile.tenant_id:
                     link.status, link.notes = "error", {"error": "this shop is not connected"}
                     continue
-                client = _client(ctx, http, shop.id, upkeep=False)
+                client = _client(ctx, http, shop.id, upkeep=True)
                 tkw = {**kw, "access_token": await _token(session, shop)}
                 target = await _settings(client, await _shop_id(session, client, shop, tkw), tkw, currency=True)
                 outcomes = L.plan_shop(payload, source, target, set(shop.scopes) if shop.scopes is not None else None)
@@ -287,7 +291,7 @@ async def _create_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
         payload = dict(profile.cached_payload)
         plan = await _plan_store(ctx, pid)
         async with httpx.AsyncClient(timeout=30.0) as http:
-            source_client = _client(ctx, http, main.id, upkeep=False)
+            source_client = _client(ctx, http, main.id, upkeep=True)
             kw = {"access_token": await _token(session, main), "tenant_id": profile.tenant_id,
                   "tenant_limit": limits.ceiling_limit(tenant) if tenant else None}
             source = await _settings(source_client, await _shop_id(session, source_client, main, kw), kw, currency=False)
@@ -296,7 +300,7 @@ async def _create_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                 if shop is None or shop.status is not ConnectionStatus.active or shop.tenant_id != profile.tenant_id:
                     link.pending_create = None
                     continue
-                client = _client(ctx, http, shop.id, upkeep=False)
+                client = _client(ctx, http, shop.id, upkeep=True)
                 tkw = {**kw, "access_token": await _token(session, shop)}
                 shop_id = await _shop_id(session, client, shop, tkw)
                 # Read again: what appeared since the plan is linked, not made twice.
