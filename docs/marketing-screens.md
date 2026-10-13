@@ -39,9 +39,15 @@ drawings, not captures, are labelled "Illustration".
    crop may show a real e-mail address: the app's footer (which prints the
    support address of the machine it runs on) is outside every region above.
 
-3. Delete the demo account afterwards: its tenant (`demo-shots@example.test`),
-   its uploads (`demo-shots/` in storage) and its Redis session. Nothing about
-   it may be left in a database that holds real sellers.
+3. Delete the demo account afterwards:
+
+   ```bash
+   docker compose exec -T api python -m app.cli seed-demo --remove
+   ```
+
+   It removes the demo account with everything of its own, its sample image
+   files (`demo-shots/` in storage) and the sample invite requests. Nothing
+   about it may be left in a database that holds real sellers.
 
 ## The Open Graph image
 

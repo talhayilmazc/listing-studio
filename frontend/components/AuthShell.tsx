@@ -25,7 +25,11 @@ export function AuthShell({
   earlyAccessNotice?: boolean;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-stone-50 px-6 py-10">
+    // The card is centred in the height the footer leaves; the footer is the frame's
+    // last child and carries the bottom padding itself, so the page ends where the
+    // footer ends. (It used to sit inside the centred column: whatever height the
+    // window had to spare, and the frame's own padding, was left below it.)
+    <div className="flex min-h-screen flex-col bg-stone-50 px-6 pt-10">
       <div className="mx-auto flex w-full max-w-[26rem] flex-1 flex-col justify-center">
         <div className="mb-7 flex items-center justify-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
@@ -42,8 +46,8 @@ export function AuthShell({
 
         {earlyAccessNotice && <EarlyAccessNotice key="early-access-notice" />}
         {footer && <div key="div-47-8" className="mt-5 text-center text-sm text-slate-500">{footer}</div>}
-        <AuthFooter />
       </div>
+      <AuthFooter />
     </div>
   );
 }
@@ -79,7 +83,7 @@ function AuthFooter() {
   }, []);
 
   return (
-    <div className="mt-8 space-y-3 text-center text-xs text-slate-400">
+    <footer className="mx-auto w-full max-w-[26rem] space-y-3 pb-10 pt-8 text-center text-xs text-slate-400">
       <p className="leading-relaxed" data-testid="trademark-notice">{TRADEMARK_NOTICE}</p>
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
         <Link href="/terms" className="hover:text-slate-600">
@@ -92,7 +96,7 @@ function AuthFooter() {
           {email}
         </a>
       </div>
-    </div>
+    </footer>
   );
 }
 

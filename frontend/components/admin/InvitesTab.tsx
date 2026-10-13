@@ -147,12 +147,12 @@ export function InvitesTab({
                   {inv.state}
                 </span>
               </div>
-              <p translate="no" className="text-xs text-slate-500">
+              <p translate="no" className="break-words text-xs text-slate-500">
                 <span><span>{`Created ${date(inv.created_at)}${inv.created_by_email ? ` by ${inv.created_by_email}` : ""} · `}</span>
                 <span>{inv.expires_at ? `expires ${date(inv.expires_at)}` : "never expires"}</span></span>
               </p>
               {inv.used_by_email && (
-                <p key="used" translate="no" className="text-xs text-slate-500">
+                <p key="used" translate="no" className="break-words text-xs text-slate-500">
                   {`Used by ${inv.used_by_email}${inv.used_at ? ` on ${date(inv.used_at)}` : ""}`}
                 </p>
               )}
@@ -175,7 +175,7 @@ export function InvitesTab({
             </li>
           ))}
         </ul>
-        <div className="card hidden lg:block">
+        <div className="card hidden overflow-x-auto lg:block">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-400">

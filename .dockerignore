@@ -24,6 +24,8 @@ backups/
 **/.mypy_cache/
 **/.venv*/
 **/tsconfig.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
 
 # Repository and editor noise.
 .git/

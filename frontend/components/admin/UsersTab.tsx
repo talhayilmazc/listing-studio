@@ -210,7 +210,7 @@ export function UsersTab({
       {/* Wide screens: one row per seller. Narrower (phones, tablets, small
           laptops): one card per seller, every control reachable without
           scrolling sideways; the admin panel is often used from a phone. */}
-      <div className="card hidden min-[1400px]:block">
+      <div className="card hidden overflow-x-auto min-[1400px]:block">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-xs text-slate-400">
@@ -524,7 +524,7 @@ function QuotaCell({
         <span><span>{etsy.used.toLocaleString()}</span> / <span>{etsy.limit.toLocaleString()}</span></span>
       </button>
     </div>
-    <p translate="no" className="whitespace-nowrap text-[11px] text-slate-400" title="Etsy's day: both Etsy counters reset at 00:00 UTC">
+    <p translate="no" className="break-words text-[11px] text-slate-400" title="Etsy's day: both Etsy counters reset at 00:00 UTC">
       {`${etsy.follows_default ? "default" : "own limit"} · ${etsy.remaining.toLocaleString()} left · resets 00:00 UTC (${etsy.resets_label} for the seller)`}
     </p>
     <Spend today={user.spent_today ?? []} yesterday={user.spent_yesterday ?? []} />

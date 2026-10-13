@@ -22,7 +22,7 @@ Developer: Talha Yılmaz and Ahmet Düzgün, operating as Listyro. Etsy app ID 1
 
 | Requirement | How Listyro meets it | Evidence |
 |---|---|---|
-| Official API only; no scraping, no browser automation, no internal endpoints | Every request goes through one client to Open API v3. There is no headless browser or HTML parser in the code or its dependencies. | `backend/app/etsy/api.py` (the only caller of Etsy's API host), `backend/pyproject.toml`. |
+| Official API only; no scraping, no browser automation, no internal endpoints | Every request goes through one client to Open API v3. There is no headless browser or HTML parser in the application or anything it runs with. (The frontend's development tools include a browser test runner, Playwright, used only to check the layout of our own pages on our own hosts; its configuration refuses any other address, and it is not part of the production image.) | `backend/app/etsy/api.py` (the only caller of Etsy's API host), `backend/pyproject.toml`. |
 | Only the authenticated seller's own shops | Every endpoint that takes a shop checks that it is the caller's own connected shop, else 404. A shop can be connected to one account at a time. Nothing reads another seller's listings, tags, images or prices. | `etsy/shops.py::owned_shop`, `tests/test_tenant_isolation.py`, `tests/test_multi_shop.py`. |
 | Scopes limited to what is used | Five scopes, each with a stated reason and a feature that uses it (below). A test fails if the app asks for a scope with no reason, or keeps a reason for a scope it no longer asks for. | `etsy/oauth.py::SCOPE_REASONS`, `ETSY_SCOPES`, the Shops page ("What Listyro asks Etsy for, and why"). |
 | One API key; rate limits respected | See section 5. | |

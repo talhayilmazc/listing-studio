@@ -637,10 +637,20 @@ async def scrub_etsy_data(sm: async_sessionmaker, *, apply: bool) -> str:
     return etsy_data.report(result, what="Etsy-derived data in this non-production database (shop names made anonymous)")
 
 
-async def seed_demo(sm: async_sessionmaker) -> str:
+#: The demo data's own addresses: everything ``seed-demo --remove`` deletes is found by them.
+DEMO_ACCOUNTS = "demo-%@example.test"
+DEMO_REQUESTS = "%@example.test"
+
+
+async def seed_demo(sm: async_sessionmaker, *, admin: bool = False) -> str:
     """Fill a non-production database with one synthetic demo account: two shops,
     profiles, a batch of drawn sample designs, listings, drafts and sales figures.
-    Nothing in it is a real seller's. Refuses to run when APP_ENV=production."""
+    Nothing in it is a real seller's. Refuses to run when APP_ENV=production.
+
+    ``admin`` makes the demo account an admin and adds what the Admin screens need
+    to be laid out against: invite requests whose e-mail address, shop link and
+    note are long and unbroken (the layout test, frontend/e2e/layout.spec.ts).
+    """
     from pathlib import Path
 
     from app.core import terms
@@ -672,14 +682,56 @@ async def seed_demo(sm: async_sessionmaker) -> str:
         tenant = (await session.execute(select(Tenant).where(Tenant.email == email))).scalar_one()
         tenant.password_hash = hash_password(password)
         terms.accept(tenant)
+        if admin:
+            from app.db.models import InviteRequest
+
+            tenant.is_admin = True
+            long_address = "a-very-long-address-that-keeps-going-" + "and-going-" * 6 + "to-the-end@example.test"
+            session.add_all([
+                InviteRequest(email="maker@example.test", shop="Northwind Tees", shop_count=1, note="Print-on-demand tees, about ten new designs a week."),
+                InviteRequest(
+                    email=long_address,
+                    shop="https://www.example.test/shop/" + "AnUnbrokenShopNameThatIsFarTooLongForOneLine" * 3,
+                    shop_count=16,
+                    note="unbroken" * 40,
+                ),
+            ])
         await session.commit()
     lines = [
-        "Synthetic demo account ready.",
+        "Synthetic demo account ready" + (" (an admin, with sample invite requests)." if admin else "."),
         f"  e-mail:   {email}",
         f"  password: {password}  (shown once; made up for this database)",
         "Everything in it is sample data drawn by the app's own scripts.",
+        "Remove it again with: python -m app.cli seed-demo --remove",
     ]
     return chr(10).join(lines)
+
+
+async def remove_demo(sm: async_sessionmaker, storage: Any = None) -> str:
+    """Take the synthetic demo data out again: the demo accounts with everything of
+    theirs, their sample image files, and the sample invite requests. Found by the
+    demo data's own addresses (@example.test), so nothing else can match. Refuses to
+    run when APP_ENV=production."""
+    from sqlalchemy import delete
+
+    from app.db.models import InviteCode, InviteRequest
+    from app.ops import etsy_data
+
+    etsy_data.refuse_in_production()
+    async with sm() as session:
+        accounts = (await session.execute(select(Tenant).where(Tenant.email.like(DEMO_ACCOUNTS)))).scalars().all()
+        emails = [t.email for t in accounts]
+        for tenant in accounts:
+            await session.delete(tenant)  # everything of the account goes with it
+        requests = await session.execute(delete(InviteRequest).where(InviteRequest.email.like(DEMO_REQUESTS)))
+        codes = await session.execute(delete(InviteCode).where(InviteCode.bound_email.like(DEMO_REQUESTS)))
+        await session.commit()
+    if storage is not None and accounts:
+        storage.delete_prefix("demo-shots")  # the sample images the seed drew
+    return (
+        f"Removed {len(emails)} demo account(s) ({', '.join(emails) or 'none'}), "
+        f"{requests.rowcount or 0} sample invite request(s) and {codes.rowcount or 0} invite code(s) made for them."
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -738,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
         help="NON-PRODUCTION only: wipe Etsy-derived data and make shop names anonymous; a dry run unless --apply",
     )
     scrub_cmd.add_argument("--apply", action="store_true", help="wipe (default: only count what would go)")
-    sub.add_parser("seed-demo", help="NON-PRODUCTION only: add one synthetic demo account with sample data")
+    demo = sub.add_parser("seed-demo", help="NON-PRODUCTION only: add one synthetic demo account with sample data")
+    demo.add_argument("--admin", action="store_true", help="make it an admin and add sample invite requests (for the layout test)")
+    demo.add_argument("--remove", action="store_true", help="delete the demo accounts, their sample files and the sample invite requests")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
         print(oauth_check())
@@ -782,8 +836,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(asyncio.run(purge_etsy_data(sm, apply=args.apply)))
             elif args.command == "scrub-etsy-data":
                 print(asyncio.run(scrub_etsy_data(sm, apply=args.apply)))
+            elif args.remove:
+                from app.api.deps import get_storage
+
+                print(asyncio.run(remove_demo(sm, get_storage())))
             else:
-                print(asyncio.run(seed_demo(sm)))
+                print(asyncio.run(seed_demo(sm, admin=args.admin)))
         except Refused as exc:
             print(str(exc), file=sys.stderr)
             return 2

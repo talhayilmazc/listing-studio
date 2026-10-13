@@ -195,6 +195,10 @@ async def test_the_scrub_refuses_production_and_makes_shop_names_anonymous_elsew
         await cli.scrub_etsy_data(async_sm, apply=False)  # not even a count: the command is not for that server
     with pytest.raises(etsy_data.Refused):
         await cli.seed_demo(async_sm)
+    with pytest.raises(etsy_data.Refused):
+        await cli.seed_demo(async_sm, admin=True)
+    with pytest.raises(etsy_data.Refused):
+        await cli.remove_demo(async_sm)
     async with async_sm() as s:
         assert (await s.get(EtsyConnection, shop_id)).shop_name == "Real Shop Name"  # untouched
 
@@ -207,6 +211,41 @@ async def test_the_scrub_refuses_production_and_makes_shop_names_anonymous_elsew
         assert shop.shop_name == "Demo shop 1" and shop.access_token_enc is None and shop.etsy_user_id is None
         assert int(await s.scalar(select(func.count()).select_from(ShopListingCache))) == 0
         assert (await s.execute(select(AuditLog))).scalars().one().action == "etsy_data.scrubbed"
+
+
+async def test_removing_the_demo_takes_only_the_demo(async_sm: async_sessionmaker) -> None:
+    """``seed-demo --remove`` finds its data by the demo's own addresses and touches nothing else."""
+    from app.db.models import InviteRequest
+
+    real = await _etsy_data(async_sm)
+
+    class Files:
+        deleted: list[str] = []
+
+        def delete_prefix(self, prefix: str) -> None:
+            self.deleted.append(prefix)
+
+    async with async_sm() as s:
+        s.add_all([
+            Tenant(email="demo-shots@example.test", password_hash="x", is_admin=True),
+            Tenant(email="demo-two@example.test", password_hash="x"),
+            Tenant(email="demonstration@example.com", password_hash="x"),  # a real-looking account: stays
+            InviteRequest(email="maker@example.test", shop="Northwind Tees", shop_count=1),
+            InviteRequest(email="someone@example.com", shop="A real shop", shop_count=2),
+        ])
+        await s.commit()
+    said = await cli.remove_demo(async_sm, Files())
+    assert said.startswith("Removed 2 demo account(s)") and "1 sample invite request(s)" in said
+    assert Files.deleted == ["demo-shots"]
+    async with async_sm() as s:
+        left = set((await s.execute(select(Tenant.email))).scalars())
+        assert "demonstration@example.com" in left and not {e for e in left if e.endswith("@example.test")}
+        assert [r.email for r in (await s.execute(select(InviteRequest))).scalars()] == ["someone@example.com"]
+        # The account that was already there keeps everything.
+        assert await s.get(Tenant, real[0]) is not None and int(await s.scalar(select(func.count()).select_from(SalesDaily))) == 1
+    # Nothing to remove: says so, deletes no files.
+    Files.deleted.clear()
+    assert (await cli.remove_demo(async_sm, Files())).startswith("Removed 0 demo account(s) (none)") and Files.deleted == []
 
 
 def test_the_commands_exist_and_default_to_a_dry_run(monkeypatch, capsys) -> None:

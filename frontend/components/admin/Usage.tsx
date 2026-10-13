@@ -82,80 +82,92 @@ export function Meter({
   );
 }
 
-/** Always visible at the top of /admin: today's app-wide budget, at a glance. */
+/**
+ * Always visible at the top of /admin: today's app-wide budget, at a glance.
+ *
+ * While the figures load, the same block is laid out with stand-in numbers and kept
+ * invisible under a skeleton, so it is as tall as it is going to be and the tabs
+ * below it do not move when the figures arrive. (The skeleton used to be three bars,
+ * 40 to 130 px shorter than the real block, depending on the width of the screen.)
+ * The accounts that used the most are on a line of their own that is always there
+ * and never wraps: how many there are cannot change the block's height either.
+ */
 export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
-  if (!usage) {
-    return (
-      <div className="card space-y-3 p-6">
-        <div className="h-3 w-40 animate-pulse rounded bg-slate-100" />
-        <div className="h-12 w-56 animate-pulse rounded bg-slate-100" />
-        <div className="h-3 w-full animate-pulse rounded-full bg-slate-100" />
-      </div>
-    );
-  }
-  const sev = severity(usage.global_used, usage.global_limit, usage.pause_at);
-  const busiest = usage.tenants.filter((t) => t.used_today > 0).slice(0, 3);
+  const loading = !usage;
+  const u = {
+    used: usage?.global_used ?? 0,
+    limit: usage?.global_limit ?? 5000,
+    pauseAt: usage?.pause_at ?? 4500,
+    remaining: usage?.global_remaining ?? 5000,
+    ceiling: usage?.ceiling_default ?? 4500,
+    shopsUsed: usage?.shops_used ?? 0,
+    shopsLimit: usage?.shops_limit ?? 20,
+    date: usage?.usage_date ?? "0000-00-00",
+  };
+  const sev = severity(u.used, u.limit, u.pauseAt);
+  const busiest = usage ? usage.tenants.filter((t) => t.used_today > 0).slice(0, 3) : [];
+  const most = busiest.map((t) => `${t.email} (${t.used_today.toLocaleString()})`).join(", ");
   return (
-    <section className="card p-6" aria-labelledby="usage-summary">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-        <h2 id="usage-summary" className="text-sm font-medium text-slate-600">
-          Etsy API requests today, all tenants
-        </h2>
-        <span className="text-xs text-slate-400"><span>resets 00:00 UTC · <span>{usage.usage_date}</span></span></span>
-      </div>
-      <p className="mt-2 flex flex-wrap items-baseline gap-x-3">
-        <span className="font-display text-5xl leading-none text-slate-900">
-          {usage.global_used.toLocaleString()}
-        </span>
-        <span className="text-lg text-slate-400"><span>of <span>{usage.global_limit.toLocaleString()}</span></span></span>
-        {STATE_LABEL[sev] && (
-          <span key="span-110-8"
-            className={
-              "rounded-md border px-1.5 py-0.5 text-xs font-medium " +
-              (sev === "danger"
-                ? "border-rose-200 bg-rose-50 text-rose-700"
-                : "border-amber-200 bg-amber-50 text-amber-700")
-            }
-          >
-            {STATE_LABEL[sev]}
+    <section className="card relative p-6" aria-labelledby="usage-summary" aria-busy={loading} data-testid="usage-summary">
+      <div className={loading ? "invisible" : undefined}>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <h2 id="usage-summary" className="text-sm font-medium text-slate-600">
+            Etsy API requests today, all tenants
+          </h2>
+          <span className="text-xs text-slate-400"><span>resets 00:00 UTC · <span>{u.date}</span></span></span>
+        </div>
+        <p className="mt-2 flex flex-wrap items-baseline gap-x-3">
+          <span className="font-display text-5xl leading-none text-slate-900">
+            {u.used.toLocaleString()}
           </span>
-        )}
-      </p>
-      <div className="mt-4">
-        <Meter
-          used={usage.global_used}
-          limit={usage.global_limit}
-          pauseAt={usage.pause_at}
-          height="h-3"
-          label="App-wide Etsy requests used today"
-        />
+          <span className="text-lg text-slate-400"><span>of <span>{u.limit.toLocaleString()}</span></span></span>
+          {STATE_LABEL[sev] && (
+            <span key="span-110-8"
+              className={
+                "rounded-md border px-1.5 py-0.5 text-xs font-medium " +
+                (sev === "danger"
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : "border-amber-200 bg-amber-50 text-amber-700")
+              }
+            >
+              {STATE_LABEL[sev]}
+            </span>
+          )}
+        </p>
+        <div className="mt-4">
+          <Meter
+            used={u.used}
+            limit={u.limit}
+            pauseAt={u.pauseAt}
+            height="h-3"
+            label="App-wide Etsy requests used today"
+          />
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          <span><span>{u.used >= u.pauseAt
+            ? `New jobs wait for the reset; the last ${(u.limit - u.pauseAt).toLocaleString()} are held for work already running`
+            : `${Math.max(0, u.pauseAt - u.used).toLocaleString()} until new work pauses at ${u.pauseAt.toLocaleString()}`}</span>
+          {" · "}
+          <span>{u.remaining.toLocaleString()}</span> left today
+          {" · resets 00:00 UTC · accounts follow "}<span>{u.ceiling.toLocaleString()}</span>{" a day unless given their own number · "}</span>
+          <span className="text-slate-700">
+            <span><span>{u.shopsUsed}</span> of <span>{u.shopsLimit}</span> shops connected</span>
+          </span>
+          <span>{u.shopsUsed < u.shopsLimit
+            ? ` (${u.shopsLimit - u.shopsUsed} slots left)`
+            : " (no slots left)"}</span>
+        </p>
+        <p className="mt-1 min-h-[1.3rem] truncate text-xs text-slate-500" translate="no" title={most ? `Most used by ${most}` : undefined} data-testid="usage-most">
+          <Txt>{most ? `Most used by ${most}` : ""}</Txt>
+        </p>
       </div>
-      <p className="mt-2 text-xs text-slate-500">
-        <span><span>{usage.global_used >= usage.pause_at
-          ? `New jobs wait for the reset; the last ${(usage.global_limit - usage.pause_at).toLocaleString()} are held for work already running`
-          : `${Math.max(0, usage.pause_at - usage.global_used).toLocaleString()} until new work pauses at ${usage.pause_at.toLocaleString()}`}</span>
-        {" · "}
-        <span>{usage.global_remaining.toLocaleString()}</span> left today
-        {" · resets 00:00 UTC · accounts follow "}<span>{usage.ceiling_default.toLocaleString()}</span>{" a day unless given their own number · "}</span>
-        <span className="text-slate-700">
-          <span><span>{usage.shops_used}</span> of <span>{usage.shops_limit}</span> shops connected</span>
-        </span>
-        <span>{usage.shops_used < usage.shops_limit
-          ? ` (${usage.shops_limit - usage.shops_used} slots left)`
-          : " (no slots left)"}</span>
-        {busiest.length > 0 && (
-          <>
-            <span>{" · most used by "}</span>
-            {busiest.map((t, i) => (
-              <span key={t.id}>
-                <Txt>{i > 0 && ", "}</Txt>
-                <span className="text-slate-700">{t.email}</span>{" "}
-                <span translate="no" className="tabular-nums"><span>(<span>{t.used_today.toLocaleString()}</span>)</span></span>
-              </span>
-            ))}
-          </>
-        )}
-      </p>
+      {loading && (
+        <div key="skeleton" aria-hidden className="absolute inset-0 space-y-3 p-6">
+          <div className="h-3 w-40 animate-pulse rounded bg-slate-100" />
+          <div className="h-12 w-56 animate-pulse rounded bg-slate-100" />
+          <div className="h-3 w-full animate-pulse rounded-full bg-slate-100" />
+        </div>
+      )}
     </section>
   );
 }
@@ -306,7 +318,7 @@ export function UsageTab({ usage }: { usage: AdminUsage | null }) {
             );
           })}
         </ul>
-        <div className="mt-4 hidden md:block">
+        <div className="mt-4 hidden overflow-x-auto md:block">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="text-xs text-slate-400">

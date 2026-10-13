@@ -29,6 +29,15 @@
   --danger: #991b1b;
 }
 
+/* The space for the page's scrollbar is always kept. Without it a page that
+   becomes shorter than the window loses its scrollbar and everything shifts
+   sideways by its width: switching from a long Admin tab to a short one, a list
+   that empties, a dialog that closes. (Browsers with overlay scrollbars keep no
+   space and are unaffected.) */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   @apply bg-stone-50 text-slate-800 antialiased;
   font-feature-settings: "cv11";

@@ -95,7 +95,11 @@ export default function AdminPage() {
       )}
 
       <div>
-        <div role="tablist" aria-label="Admin sections" className="flex gap-6 border-b border-slate-200">
+        {/* Each count sits in a slot of fixed width that is there from the first paint, and the
+            pending-requests badge has its own slot whether or not there is anything waiting:
+            a number arriving, or changing from 9 to 10, moves no tab. If the bar is ever wider
+            than a narrow screen it scrolls inside itself, not the page. */}
+        <div role="tablist" aria-label="Admin sections" className="flex gap-4 overflow-x-auto border-b border-slate-200 sm:gap-6" data-testid="admin-tabs">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -106,35 +110,46 @@ export default function AdminPage() {
               aria-controls={`panel-${t.id}`}
               onClick={() => setTab(t.id)}
               className={
-                "-mb-px border-b-2 pb-2.5 text-sm font-medium transition-colors max-sm:min-h-[2.75rem] max-sm:px-2 max-sm:pt-2 " +
+                "-mb-px flex shrink-0 items-center whitespace-nowrap border-b-2 pb-2.5 text-sm font-medium transition-colors max-sm:min-h-[2.75rem] max-sm:px-1 max-sm:pt-2 " +
                 (tab === t.id
                   ? "border-brand-600 text-slate-900"
                   : "border-transparent text-slate-500 hover:text-slate-800")
               }
             >
               <span>{t.label}</span>
-              {t.id === "users" && users && (
-                <span translate="no" key="span-100-14" className="ml-1.5 text-xs tabular-nums text-slate-400">{users.length}</span>
-              )}
-              {t.id === "invites" && invites && (
-                <span translate="no" key="span-103-14" className="ml-1.5 text-xs tabular-nums text-slate-400">
-                  <span><span>{invites.filter((i) => i.state === "unused").length}</span> open</span>
+              {t.id === "users" && (
+                <span translate="no" key="users-count" className="ml-1.5 inline-block w-[2.5ch] text-left text-xs tabular-nums text-slate-400">
+                  <Txt>{users ? String(users.length) : ""}</Txt>
                 </span>
               )}
-              {t.id === "invites" && pendingRequests ? (
+              {t.id === "invites" && (
+                <span translate="no" key="invites-open" className="ml-1.5 inline-block w-[7.5ch] text-left text-xs tabular-nums text-slate-400">
+                  <Txt>{invites ? `${invites.filter((i) => i.state === "unused").length} open` : ""}</Txt>
+                </span>
+              )}
+              {t.id === "invites" && (
                 // Requests waiting for a decision: a badge that is there before the tab is opened.
-                <span translate="no" key="pending-badge" data-testid="pending-requests-badge"
-                  className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-brand-600 px-1.5 text-[11px] font-semibold leading-5 text-white"
-                  aria-label={`${pendingRequests} invite request${pendingRequests === 1 ? "" : "s"} waiting`}>
-                  {pendingRequests}
+                // Its slot is always there; only what is in it changes.
+                <span key="pending-slot" className="ml-1 inline-flex w-8 justify-center" data-testid="pending-requests-slot">
+                  {pendingRequests ? (
+                    <span translate="no" key="pending-badge" data-testid="pending-requests-badge"
+                      className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-brand-600 px-1.5 text-[11px] font-semibold leading-5 text-white"
+                      aria-label={`${pendingRequests} invite request${pendingRequests === 1 ? "" : "s"} waiting`}>
+                      {pendingRequests > 99 ? "99+" : pendingRequests}
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
+              )}
             </button>
           ))}
         </div>
 
-        <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="pt-5">
-          {tab === "users" && (
+        {/* All three panels are mounted from the start and only hidden: each loads its own
+            data once, while the page loads, so opening a tab shows what is already there
+            instead of a placeholder that then jumps to its real height. The panel area keeps
+            a minimum height, so the footer does not leap up under a short tab. */}
+        <div className="min-h-[70vh] pt-5" data-testid="admin-panels">
+          <div role="tabpanel" id="panel-users" aria-labelledby="tab-users" hidden={tab !== "users"}>
             <UsersTab key="userstab-113-10"
               users={users}
               selfId={account!.id}
@@ -146,8 +161,8 @@ export default function AdminPage() {
               }}
               onReload={() => api.admin.users().then(setUsers).catch(guard)}
             />
-          )}
-          {tab === "invites" && (
+          </div>
+          <div role="tabpanel" id="panel-invites" aria-labelledby="tab-invites" hidden={tab !== "invites"}>
             <div key="requests" className="mb-5">
               <InviteRequests
                 onError={setError}
@@ -155,8 +170,6 @@ export default function AdminPage() {
                 onInvite={(inv) => setInvites((prev) => [inv, ...(prev ?? [])])}
               />
             </div>
-          )}
-          {tab === "invites" && (
             <InvitesTab key="invitestab-125-10"
               invites={invites}
               onError={setError}
@@ -165,28 +178,22 @@ export default function AdminPage() {
                 setInvites((prev) => prev?.map((x) => (x.id === inv.id ? inv : x)) ?? prev)
               }
             />
-          )}
-          {tab === "usage" && (
+          </div>
+          <div role="tabpanel" id="panel-usage" aria-labelledby="tab-usage" hidden={tab !== "usage"}>
             <div key="operator" className="mb-5">
               <OperatorSettings onError={setError} />
             </div>
-          )}
-          {tab === "usage" && (
             <div key="disk" className="mb-5">
               <DiskPanel disk={disk} onChanged={loadUsage} onError={setError} />
             </div>
-          )}
-          {tab === "usage" && (
             <div key="reread" className="mb-5 empty:hidden">
               <SalesRereadAdminPanel />
             </div>
-          )}
-          {tab === "usage" && (
             <div key="aicost" className="mb-5">
               <AiCostPanel cost={aiCost} onChanged={loadUsage} onError={setError} />
             </div>
-          )}
-          {tab === "usage" && <UsageTab key="usagetab-135-10" usage={usage} />}
+            <UsageTab key="usagetab-135-10" usage={usage} />
+          </div>
         </div>
       </div>
     </div>

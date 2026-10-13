@@ -103,7 +103,7 @@ export function AllowanceCell({
           {`${a.used.toLocaleString()} / ${a.amount.toLocaleString()}`}
         </button>
       </div>
-      <p translate="no" className="mt-0.5 whitespace-nowrap text-[11px] text-slate-400" title={`Resets ${a.resets_label}`}>
+      <p translate="no" className="mt-0.5 break-words text-[11px] text-slate-400" title={`Resets ${a.resets_label}`}>
         {`generated · ${a.period}${a.custom ? "" : " (default)"} · resets ${a.resets_label.replace(/^\w+, /, "")} (seller's time)`}
       </p>
     </div>
