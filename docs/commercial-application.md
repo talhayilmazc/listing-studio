@@ -82,7 +82,15 @@ One API key. We send at most 3 requests per second, below Etsy's 5 per second, a
 
 ## Fees and payments
 
-No payment of any kind is taken today, and the app contains no payment or checkout code. The planned model is a monthly subscription in three plans, shown on listyro.com/pricing with no prices set yet: Solo (one shop; profiles from the seller's own listings; review, approve and schedule; compliance checks), Studio (everything in Solo, with several shops, shop groups, the profit, cost and ads report and a larger monthly allowance of new listings) and Catalog (everything in Studio, with the largest monthly allowance and priority support). What differs between the plans is the number of new listings prepared per month, the number of shops, shop groups, reporting and support. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
+No payment of any kind is taken today, and the app contains no payment or checkout code. The planned model is a monthly subscription. These are the planned plans, shown on listyro.com/pricing as planned prices that may change before launch:
+
+- Starter: 1,000 listings a month, 1 shop, publish now (no scheduling), $69/month
+- Growth: 2,000 listings a month, 2 shops, publish now (no scheduling), $149/month
+- Studio: 3,500 listings a month, 4 shops, scheduling, $299/month
+- Catalog: 5,000 listings a month, 8 shops, scheduling, $399/month
+- Custom: more listings or shops, quoted on request
+
+A listing is one design, counted once, whichever of the seller's shops it is listed in. Every plan includes everything else: profiles, AI-suggested or write-it-yourself text, trademark checks, review and approve, size charts and the profit report. The plans are not enforced or sold today: there is no sign-up for one. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. These plans need more than the default 5,000 requests a day: we ask Etsy for a higher daily limit together with Commercial Access, and will not sell a plan we cannot serve within our limits. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
 
 ## Branding
 

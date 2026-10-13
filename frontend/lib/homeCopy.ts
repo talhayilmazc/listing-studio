@@ -176,7 +176,7 @@ export const HOME = {
     items: [
       { q: "Will anything go live without me?", a: "No. Every listing is created as a draft. A draft is published only when you press Publish, or at the time you set for it." },
       { q: "Is Listyro made by Etsy?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or sponsored by Etsy." },
-      { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken, and there is no checkout on this site. Pricing applies only after launch and will be announced well before.", link: { label: "See pricing", href: "/pricing" } },
+      { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken, and there is no checkout on this site. The plans we intend to offer after launch are shown on the pricing page; they may change before launch.", link: { label: "See pricing", href: "/pricing" } },
       { q: "What do I need to start?", a: "An Etsy shop you own, with at least one listing set up the way you like it. That listing becomes the template for new ones." },
       { q: "What happens to my designs?", a: "Uploads are working copies. Their files are deleted 3 days after a listing has a draft in every shop it is meant for, and after 30 days otherwise. To suggest a listing's text, the design image is sent to Anthropic, with the title and tags of one of your own listings if you chose it as an example to follow. Under its commercial terms they are not used to train its models." },
       { q: "Do you keep anything about my buyers?", a: "No. Buyer names, addresses, emails and messages are never stored. For your own profit report we keep order numbers, listing ids, amounts and dates." },

@@ -1,31 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * The request goes to the admin's pending list; an approved one becomes an
  * invite code for that address. The "website" field is hidden from people and
  * left empty by them; anything typed into it marks the submission as a bot's.
+ *
+ * Reached from the pricing page's "Custom" card (?plan=custom), it also asks how
+ * many new listings a month the seller needs, and puts the answer at the start of
+ * the note: a quote is worked out from the listings a month and the number of shops.
  */
 export function InviteForm() {
   const [email, setEmail] = useState("");
   const [shop, setShop] = useState("");
   const [shopCount, setShopCount] = useState("1");
   const [note, setNote] = useState("");
+  const [custom, setCustom] = useState(false);
+  const [listings, setListings] = useState("");
   const [website, setWebsite] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCustom(new URLSearchParams(window.location.search).get("plan") === "custom");
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setState("sending");
     setError(null);
+    // A quote request: what it is for goes first in the note, where the person who reads it looks.
+    const sent = custom ? quoteNote(listings, note) : note;
     try {
       const res = await fetch("/api/invite-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, shop, shop_count: Number(shopCount), note, website }),
+        body: JSON.stringify({ email, shop, shop_count: Number(shopCount), note: sent, website }),
       });
       if (res.status === 202) {
         setState("sent");
@@ -69,6 +81,12 @@ export function InviteForm() {
       <p className="rounded-lg border border-slate-200 bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700" data-testid="invite-copy">
         Listyro is invite-only while we onboard sellers in small groups. We&apos;ll email you when a spot opens.
       </p>
+      {custom && (
+        <p key="quote" className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2.5 text-sm leading-relaxed text-brand-700" data-testid="quote-copy">
+          Asking about a custom plan: tell us how many new listings a month you need and how many shops you run, and
+          we&apos;ll send you a quote. No payment is taken today.
+        </p>
+      )}
       <div>
         <label htmlFor="ir-email" className="label">Email</label>
         <input
@@ -111,12 +129,29 @@ export function InviteForm() {
         />
         <p className="mt-1 text-xs text-slate-500">How many Etsy shops you run yourself.</p>
       </div>
+      {custom && (
+        <div key="listings">
+          <label htmlFor="ir-listings" className="label">New listings a month</label>
+          <input
+            id="ir-listings"
+            type="number"
+            inputMode="numeric"
+            required
+            min={1}
+            max={1000000}
+            value={listings}
+            onChange={(e) => setListings(e.target.value)}
+            className="field w-40"
+          />
+          <p className="mt-1 text-xs text-slate-500">About how many new designs you list in a month. One design counts once.</p>
+        </div>
+      )}
       <div>
         <label htmlFor="ir-note" className="label">A short note <span className="normal-case tracking-normal text-slate-500">(optional)</span></label>
         <textarea
           id="ir-note"
           rows={4}
-          maxLength={1000}
+          maxLength={custom ? 900 : 1000}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="What you sell, and how many new designs you add in a month"
@@ -135,8 +170,8 @@ export function InviteForm() {
       )}
       <div className="flex flex-wrap items-center gap-4">
         <button type="submit" className="btn-primary px-5 py-3 text-[0.9375rem]"
-          disabled={state === "sending" || !email.trim() || !shop.trim() || !(Number(shopCount) >= 1)}>
-          {state === "sending" ? "Sending…" : "Request an invite"}
+          disabled={state === "sending" || !email.trim() || !shop.trim() || !(Number(shopCount) >= 1) || (custom && !(Number(listings) >= 1))}>
+          {state === "sending" ? "Sending…" : custom ? "Ask for a quote" : "Request an invite"}
         </button>
         <p className="text-xs text-slate-500">
           <span>We use this only to decide on your request, and delete it after 90 days. </span>
@@ -147,4 +182,10 @@ export function InviteForm() {
       </div>
     </form>
   );
+}
+
+/** The note of a quote request: the listings a month first, then what the seller wrote. */
+export function quoteNote(listings: string, note: string): string {
+  const lead = `Custom plan: about ${Number(listings).toLocaleString("en-US")} new listings a month.`;
+  return (note.trim() ? `${lead} ${note.trim()}` : lead).slice(0, 1000);
 }

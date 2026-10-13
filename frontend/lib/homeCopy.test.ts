@@ -121,8 +121,11 @@ test("no public page states a maximum or a large number of shops", () => {
     const text = read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[\s;{}(),])\/\/[^\n]*/g, "$1").replace(/\s+/g, " ");
     assert.doesNotMatch(text, counted, file);
   }
+  // The one exception is the planned plans on the pricing page (1, 2, 4 and 8 shops). Those
+  // numbers come from lib/plans.ts: the page itself, checked above, types none.
   const pricing = read("app/(marketing)/pricing/page.tsx");
-  assert.equal((pricing.match(/Several shops; the number is set per account/g) ?? []).length, 2);
+  assert.equal((pricing.match(/Several shops; the number is set per account/g) ?? []).length, 1);
+  assert.match(pricing, /shopsFact\(plan\)/);
   // The check itself works.
   assert.match("Up to eight shops", counted);
   assert.match("Connect 16 shops", counted);

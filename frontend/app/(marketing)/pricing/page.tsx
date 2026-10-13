@@ -1,31 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CUSTOM, INCLUDED, LISTING_LINE, PLANNED_NOTICE, PLANS, listingsFact, priceFact, schedulingFact, shopsFact } from "@/lib/plans";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Listyro is free during early access. Pricing applies only after launch and will be announced well before.",
+  description: "Listyro is free during early access. The plans planned for after launch are shown; no payment is taken today, and prices may change before launch.",
   alternates: { canonical: "/pricing" },
 };
 
-// No prices are shown for the planned plans because none are set, and the
-// site has no sign-up flow for plans until launch.
-const PLANNED: { name: string; for: string; points: string[] }[] = [
-  {
-    name: "Solo",
-    for: "One shop, a steady stream of new designs.",
-    points: ["One shop", "Profiles from your own listings", "Review, approve and schedule", "Compliance checks"],
-  },
-  {
-    name: "Studio",
-    for: "A few shops and a larger monthly catalog.",
-    points: ["Several shops, each with its own listings", "Shop groups", "Profit, cost and ads reporting", "Everything in Solo"],
-  },
-  {
-    name: "Catalog",
-    for: "A large catalog of your own designs, across the shops you run.",
-    points: ["Several shops; the number is set per account", "The largest monthly allowance", "Priority support", "Everything in Studio"],
-  },
-];
+// The planned plans are laid out from lib/plans.ts and nowhere typed here. They
+// are plans, not an offer: there is no sign-up for one, no payment and no
+// checkout anywhere on the site (lib/plans.test.ts).
+
+const DOT = "mt-[0.55rem] h-1 w-1 shrink-0 rounded-full";
 
 export default function Pricing() {
   return (
@@ -42,8 +29,12 @@ export default function Pricing() {
         </p>
       </div>
 
-      <div className="mt-14 grid grid-cols-1 gap-5 lg:grid-cols-4">
-        <div className="min-w-0 rounded-2xl border-2 border-brand-600 bg-white p-6">
+      <p role="note" className="mt-10 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[0.9375rem] font-medium leading-relaxed text-amber-700" data-testid="planned-notice">
+        {PLANNED_NOTICE}
+      </p>
+
+      <ul className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3" data-testid="plans">
+        <li className="flex min-w-0 flex-col rounded-2xl border-2 border-brand-600 bg-white p-6" data-testid="plan-early-access">
           <p className="flex items-center justify-between gap-2">
             <span className="font-display text-3xl text-slate-900">Early access</span>
             <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-medium text-white">Now</span>
@@ -53,31 +44,65 @@ export default function Pricing() {
           <ul className="mt-6 space-y-2 text-sm text-slate-600">
             {["Every feature", "Several shops; the number is set per account", "A monthly allowance of listings, set per seller", "Help from the people who build it"].map((p) => (
               <li key={p} className="flex gap-2.5">
-                <span aria-hidden className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-brand-600" />
+                <span aria-hidden className={DOT + " bg-brand-600"} />
                 <span>{p}</span>
               </li>
             ))}
           </ul>
-          <Link href="/request-invite" className="btn-primary mt-8 w-full px-5 py-3">Request an invite</Link>
-        </div>
-        {PLANNED.map((plan) => (
-          <div key={plan.name} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-6">
+          <div className="mt-auto pt-8">
+            <Link href="/request-invite" className="btn-primary w-full px-5 py-3">Request an invite</Link>
+          </div>
+        </li>
+        {PLANS.map((plan) => (
+          <li key={plan.name} className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-6" data-testid="plan">
             <p className="flex items-center justify-between gap-2">
               <span className="font-display text-3xl text-slate-900">{plan.name}</span>
-              <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">After launch</span>
+              <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">Planned</span>
             </p>
-            <p className="mt-4 text-sm font-medium text-slate-500">Price to be announced</p>
-            <p className="mt-2 text-sm text-slate-600">{plan.for}</p>
-            <ul className="mt-6 space-y-2 text-sm text-slate-600">
-              {plan.points.map((p) => (
-                <li key={p} className="flex gap-2.5">
-                  <span aria-hidden className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-slate-300" />
-                  <span>{p}</span>
+            <p className="mt-4 flex items-baseline gap-1.5">
+              <span className="font-display text-5xl leading-none text-slate-900" translate="no">{priceFact(plan)}</span>
+              <span className="text-sm text-slate-500">a month, planned</span>
+            </p>
+            <ul className="mt-6 space-y-2 text-sm text-slate-700">
+              {[listingsFact(plan), shopsFact(plan), schedulingFact(plan)].map((fact) => (
+                <li key={fact} className="flex gap-2.5">
+                  <span aria-hidden className={DOT + " bg-slate-400"} />
+                  <span>{fact}</span>
                 </li>
               ))}
+              <li className="flex gap-2.5 text-slate-500">
+                <span aria-hidden className={DOT + " bg-slate-300"} />
+                <span>Everything else included</span>
+              </li>
             </ul>
-          </div>
+          </li>
         ))}
+        <li className="flex min-w-0 flex-col rounded-2xl border border-dashed border-slate-300 bg-stone-50 p-6" data-testid="plan-custom">
+          <p className="font-display text-3xl text-slate-900">{CUSTOM.name}</p>
+          <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">{CUSTOM.body}</p>
+          <div className="mt-auto pt-8">
+            <Link href={CUSTOM.cta.href} className="btn-secondary w-full px-5 py-3" data-testid="custom-cta">{CUSTOM.cta.label}</Link>
+          </div>
+        </li>
+      </ul>
+
+      <div className="mt-12 grid grid-cols-1 gap-10 rounded-3xl bg-white p-6 sm:p-10 md:grid-cols-2 md:gap-16" data-testid="included">
+        <div className="min-w-0">
+          <h2 className="font-display text-3xl text-slate-900">In every plan</h2>
+          <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">
+            The plans differ in how many new listings are prepared a month, in how many shops, and in whether a draft
+            can be scheduled. Everything else is the same in all of them.
+          </p>
+          <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">{LISTING_LINE}</p>
+        </div>
+        <ul className="min-w-0 space-y-2.5 text-[0.9375rem] text-slate-700">
+          {INCLUDED.map((item) => (
+            <li key={item} className="flex gap-2.5">
+              <span aria-hidden className={DOT + " bg-brand-600"} />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div className="mt-16 grid grid-cols-1 gap-10 border-t border-slate-200 pt-12 md:grid-cols-2 md:gap-16">
@@ -85,10 +110,9 @@ export default function Pricing() {
           <h2 className="font-display text-3xl text-slate-900">What the plans will cover</h2>
           <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">
             The work Listyro does for you: suggesting each listing&apos;s text from its design, preparing the photos,
-            checking for trademark problems, and the review, scheduling and reporting tools. Nothing Etsy gives its
-            sellers for free is part of a plan: connecting your shop, creating listings on Etsy and Etsy&apos;s own
-            statistics are not what you would pay for. The reporting is your own profit, cost and ads report, not a
-            copy of Etsy Stats.
+            checking for trademark problems, and the review, scheduling and reporting tools. Creating listings on
+            Etsy and Etsy&apos;s own statistics stay free, as Etsy offers them: they are not what you would pay for.
+            The reporting is your own profit, cost and ads report, not a copy of Etsy Stats.
           </p>
         </div>
         <div className="min-w-0">

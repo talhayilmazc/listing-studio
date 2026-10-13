@@ -153,7 +153,12 @@ export default function TermsPage() {
           The Service is in invite-only early access and is <strong>free of charge</strong>. We take no payment
           of any kind during early access, and there is no checkout or payment form in the Service. If we
           later introduce paid plans, we will tell you the prices in advance, and you will not be
-          charged without your separate, explicit agreement.
+          charged without your separate, explicit agreement. The plans we intend to offer after launch
+          are shown on the{" "}
+          <Link href="/pricing" className={link}>
+            pricing page
+          </Link>
+          <span>; they are plans, not an offer, and may change before launch.</span>
         </p>
         <p>
           Early access means the Service may have errors, may be unavailable at times, and may change
