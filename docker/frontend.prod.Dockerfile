@@ -18,7 +18,11 @@ ARG API_PROXY_TARGET=http://api:8000
 ENV API_PROXY_TARGET=$API_PROXY_TARGET \
     NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
-RUN npm run build
+# "prebuild" (scripts/public-assets.cjs) fails the build if a page points at an
+# image that is not in public/. The list it reads from the source is then written
+# out, so the final image can be checked against the same list.
+RUN npm run build \
+ && node scripts/public-assets.cjs --write /app/public-assets.txt
 
 # --- runtime: the standalone server and nothing else -------------------------
 FROM node:20-alpine AS runtime
@@ -31,13 +35,16 @@ RUN addgroup -S -g 1001 app && adduser -S -u 1001 -G app app
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
 # The standalone output leaves public/ out on purpose; it must be copied beside
-# server.js. Without it every file there (the site's screenshots, og.png)
-# answered 404 and the image optimizer 400.
+# server.js. Without it every file there (the site's screenshots, the share
+# image) answered 404 and the image optimizer 400.
 COPY --from=build --chown=app:app /app/public ./public
-# Fail the build, not the live site, if the screenshots or the image library
-# did not make it into the image.
-RUN test -s public/og-v2.png \
- && test -n "$(ls public/screens/*.webp 2>/dev/null)" \
+# Fail the build, not the live site, if an image the pages point at or the image
+# library did not make it into this image. The list comes from the source (the
+# build stage wrote it): no file is named here, so replacing a picture cannot
+# leave this check asking for the old one.
+COPY --from=build /app/public-assets.txt /tmp/public-assets.txt
+RUN test -s /tmp/public-assets.txt \
+ && while read -r asset; do test -s "public$asset" || { echo "frontend image is missing public$asset" >&2; exit 1; }; done < /tmp/public-assets.txt \
  && node -e "require('sharp')" \
  || (echo "frontend image is missing public/ assets or sharp" >&2; exit 1)
 USER app

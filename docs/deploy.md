@@ -338,7 +338,8 @@ A failure is posted to `ALERT_WEBHOOK_URL`.
 Then check the public site from any machine with Node: `node deploy/check-site.mjs https://listyro.com`.
 It loads every public page and checks each link and every image URL the site serves (all
 widths the image optimizer offers). The production image also refuses to build if
-`public/` or `sharp` is missing (`docker/frontend.prod.Dockerfile`): both were missing once,
+an image a page points at or `sharp` is missing (`docker/frontend.prod.Dockerfile`; the list of images is read from the
+source by `frontend/scripts/public-assets.cjs`, never typed into the Dockerfile): both were missing once,
 and every screenshot on the site was broken. Do not update by hand with
 `up --build`: that is how a full disk took the site down.
 
