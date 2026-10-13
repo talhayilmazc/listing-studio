@@ -25,7 +25,7 @@ export function SiteHeader() {
         <nav aria-label="Site" className="hidden items-center gap-7 text-sm text-slate-600 md:flex">
           <Link href="/#how-it-works" className="hover:text-slate-900">How it works</Link>
           <Link href="/#features" className="hover:text-slate-900">Features</Link>
-          <Link href="/#your-data" className="hover:text-slate-900">Your data</Link>
+          <Link href="/#safe" className="hover:text-slate-900">Safe for your shop</Link>
           <Link href="/pricing" className="hover:text-slate-900">Pricing</Link>
         </nav>
         <div className="flex items-center gap-1.5 sm:gap-2">

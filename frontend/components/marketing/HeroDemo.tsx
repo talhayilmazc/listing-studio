@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { HOME } from "@/lib/homeCopy";
 import { Mockup, type Art } from "./Mockup";
 
 /**
  * The hero shows the product doing its job: a folder of mockups becomes a grid
- * of draft cards, the seller approves some, schedules one. It is built from the
+ * of draft cards, the seller reviews some, schedules one. It is built from the
  * app's own surfaces (cards, pills, tag chips), not a video, so it is sharp at
  * any size and costs no download.
  *
@@ -25,21 +26,15 @@ const DESIGNS: { sku: string; art: Art; title: string; tags: string[]; files: nu
 ];
 
 // What each card ends up as: the seller's decision, never the app's.
-const OUTCOME = ["approved", "approved", "scheduled", "draft", "draft", "draft"] as const;
+const OUTCOME = ["reviewed", "reviewed", "scheduled", "draft", "draft", "draft"] as const;
 
-// 0 folder · 1 files read · 2 cards appear · 3 listings written · 4 drafts · 5 approved · 6 scheduled
+// 0 folder · 1 files read · 2 cards appear · 3 listings written · 4 drafts · 5 reviewed · 6 scheduled
 const STEPS = [700, 1300, 1500, 1500, 1400, 1300];
 const DONE = STEPS.length;
 
-const CAPTION = [
-  "summer-drop/ · 6 designs, 15 mockups",
-  "Sorting the mockups into listings",
-  "Looking at each design",
-  "Writing titles, tags and descriptions",
-  "Category, prices and size charts filled in",
-  "Reviewed and approved by you",
-  "Ready to go live, now or on schedule",
-];
+// The words are the page's copy (lib/homeCopy.ts), like every other word on it.
+const COPY = HOME.demo;
+const CAPTION = COPY.captions;
 
 export function HeroDemo() {
   const [step, setStep] = useState(0);
@@ -98,8 +93,8 @@ export function HeroDemo() {
           <p className="min-w-0 flex-1 truncate text-xs text-slate-500" aria-live="off" translate="no">
             <span key={step} className="mk-caption block truncate">{CAPTION[step]}</span>
           </p>
-          <span className="hidden rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 sm:inline">
-            Sample data
+          <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500">
+            {COPY.label}
           </span>
         </div>
 
@@ -110,7 +105,7 @@ export function HeroDemo() {
               <svg aria-hidden viewBox="0 0 20 20" className="h-4 w-4 text-brand-600" fill="currentColor">
                 <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h4l2 2h7A1.5 1.5 0 0 1 18 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z" />
               </svg>
-              <span>summer-drop</span>
+              <span>{COPY.folder}</span>
             </p>
             <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-1 sm:gap-1">
               {DESIGNS.map((d, i) => (
@@ -145,7 +140,7 @@ export function HeroDemo() {
             {DESIGNS.map((d, i) => {
               const shown = step >= 2;
               const written = step >= 3;
-              const outcome = step >= 6 ? OUTCOME[i] : step >= 5 && OUTCOME[i] === "approved" ? "approved" : "draft";
+              const outcome = step >= 6 ? OUTCOME[i] : step >= 5 && OUTCOME[i] === "reviewed" ? "reviewed" : "draft";
               return (
                 <li
                   key={d.sku}
@@ -184,7 +179,7 @@ export function HeroDemo() {
                           {t}
                         </span>
                       ))}
-                      <span className="rounded-full px-1 py-px text-[10px] text-slate-500">+11</span>
+                      <span className="rounded-full px-1 py-px text-[10px] text-slate-500">{COPY.more}</span>
                     </div>
                     <div
                       className="flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 transition-opacity duration-500"
@@ -209,19 +204,19 @@ export function HeroDemo() {
           (step >= DONE ? "opacity-100" : "pointer-events-none opacity-0")
         }
       >
-        Replay
+        {COPY.replay}
       </button>
     </div>
   );
 }
 
-function Pill({ outcome }: { outcome: "draft" | "approved" | "scheduled" }) {
+function Pill({ outcome }: { outcome: "draft" | "reviewed" | "scheduled" }) {
   const look = {
     draft: "border-amber-200 bg-amber-50 text-amber-700",
-    approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    reviewed: "border-emerald-200 bg-emerald-50 text-emerald-700",
     scheduled: "border-brand-100 bg-brand-50 text-brand-700",
   }[outcome];
-  const text = { draft: "Draft · review", approved: "Approved", scheduled: "Fri 5:00 PM" }[outcome];
+  const text = COPY.pills[outcome];
   return (
     <span
       translate="no"
