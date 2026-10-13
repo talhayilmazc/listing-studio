@@ -21,11 +21,11 @@ Listyro also gives the seller a profit, cost and ads report for their own shop, 
 
 ## Who uses it
 
-Individual Etsy sellers, each using only their own shops. The app is in invite-only early access with a handful of sellers. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The number of shops an account may connect is set per account: there is a default, and we raise it for a seller who runs more shops of their own. We also cap the total number of shops connected across all accounts, because every shop shares the one daily request budget.
+Individual Etsy sellers, each using only their own shops. The app is in invite-only early access. Each seller signs up with their own account, agrees to the Terms of Service and Privacy Policy by an explicit tick, and connects their own shop through Etsy's OAuth page. A seller who runs several shops connects each one by signing in to Etsy as that shop's owner; a shop can be connected to one Listyro account at a time. The number of shops an account may connect is set per account: there is a default, and it can be raised for a seller who runs more shops of their own. We also cap the total number of shops connected across all accounts, because every shop shares the one daily request budget.
 
-Our largest seller runs 16 shops today, each its own Etsy account and brand. Listyro lets them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
+Listyro has reached the user limit of personal access (5 users): sellers who have asked to join, including a seller with 16 shops, cannot connect until Commercial Access is approved. Five Etsy users are connected today, and the next connection fails.
 
-Listyro has reached the user limit of personal access (5 users): sellers who have asked to join, including a seller with 16 shops, cannot connect until Commercial Access is approved.
+A seller who runs 16 shops, each its own Etsy account and brand, has asked to use Listyro. With the personal-access limit reached, they cannot connect yet. Listyro would let them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
 
 ## How Etsy data is used
 
@@ -58,7 +58,7 @@ Every scope requested is used; none is requested for future use.
 
 AI suggests a title, 13 tags and a description from the seller's own images and the reference listing they chose. The seller reviews and edits every listing; nothing is generated or published without the seller.
 
-The AI provider is Anthropic (Claude API). It receives the seller's own design images and listing text only, never buyer data, sales or orders, and under its commercial terms it does not train on API data. We do not train or fine-tune any model ourselves. An optional filter keeps trademarked names out of the suggested text and flags artwork that appears to contain a recognisable character.
+The AI provider is Anthropic (Claude API). It receives the seller's own images and listing text only: the design image the seller asks a listing for; its SKU, the kind of product and the profile's title prefix; the title and tags of one of the seller's own listings, if they chose it as an example to follow; and occasionally an image from the seller's own reference listing, to tell a size chart from artwork. It never receives buyer data, sales or orders, and under its commercial terms it does not train on API data. We do not train or fine-tune any model ourselves. A trademark filter, on by default (the seller can turn it off after an explicit warning), keeps brand and character names out of the listing's text and flags artwork that appears to contain a recognisable character. A seller can also write the title and tags themselves, in which case no AI is used for that listing.
 
 ## Security
 
@@ -82,7 +82,7 @@ One API key. We send at most 3 requests per second, below Etsy's 5 per second, a
 
 ## Fees and payments
 
-No payment of any kind is taken today, and the app contains no payment or checkout code. The planned model is a monthly subscription in tiers by the number of new listings prepared per month, with every feature in every tier. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
+No payment of any kind is taken today, and the app contains no payment or checkout code. The planned model is a monthly subscription in three plans, shown on listyro.com/pricing with no prices set yet: Solo (one shop; profiles from the seller's own listings; review, approve and schedule; compliance checks), Studio (everything in Solo, with several shops, shop groups, the profit, cost and ads report and a larger monthly allowance of new listings) and Catalog (everything in Studio, with the largest monthly allowance and priority support). What differs between the plans is the number of new listings prepared per month, the number of shops, shop groups, reporting and support. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Nothing Etsy offers its sellers for free is charged for, and the profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
 
 ## Branding
 
