@@ -177,6 +177,8 @@ async def callback(
     except ShopTaken:
         return _redirect(f"{back}?status=taken")
     except ShopLimitReached as exc:
+        # "account" / "app" (a ceiling), or "paused": new connections are paused
+        # by the operator and this was not one of the account's connected shops.
         return _redirect(f"{back}?status=limit_{exc.scope}")
 
     # Fetch the shop's name and listings straight away, through the queue.

@@ -247,7 +247,7 @@ async def test_quota_ceiling_can_be_changed_within_the_app_budget(world) -> None
 # --- Invites --------------------------------------------------------------------
 async def _register(world, code: str, email: str):
     return await world["anon"].post(
-        "/api/account/register", json={"email": email, "password": PASSWORD, "invite_code": code}
+        "/api/account/register", json={"email": email, "password": PASSWORD, "invite_code": code, "accept_terms": True}
     )
 
 

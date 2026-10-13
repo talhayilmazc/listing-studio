@@ -11,7 +11,7 @@ from app.db.models import AuditLog, InviteCode, InviteRequest
 from app.workers.retention import purge_expired_rows
 from tests.test_admin import world  # noqa: F401  (fixture)
 
-FORM = {"email": "Maker@Example.com", "shop": "Maker Tees  (etsy.com/shop/makertees)", "note": "300 designs a month"}
+FORM = {"email": "Maker@Example.com", "shop": "Maker Tees  (etsy.com/shop/makertees)", "shop_count": 2, "note": "300 designs a month"}
 
 
 async def _rows(world):  # noqa: F811

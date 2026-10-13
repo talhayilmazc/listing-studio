@@ -37,7 +37,7 @@ const CAPTION = [
   "Looking at each design",
   "Writing titles, tags and descriptions",
   "Category, prices and size charts filled in",
-  "Approved with one click",
+  "Reviewed and approved by you",
   "Ready to go live, now or on schedule",
 ];
 

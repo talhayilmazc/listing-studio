@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import active_tenant, get_quota, get_session
+from app.core import app_settings, terms
 from app.core.config import get_settings
 from app.core.errortracking import is_enabled
 from app.db.models import ApiUsage, Tenant
@@ -108,7 +109,7 @@ async def _pause_reason(quota: DailyQuota, tenant: Tenant, ceiling: limits.EtsyC
 
 
 @router.get("/meta", response_model=schemas.MetaOut)
-async def get_meta() -> schemas.MetaOut:
+async def get_meta(session: AsyncSession = Depends(get_session)) -> schemas.MetaOut:
     settings = get_settings()
     return schemas.MetaOut(
         support_email=settings.support_email,
@@ -117,4 +118,6 @@ async def get_meta() -> schemas.MetaOut:
         governing_law=settings.governing_law,
         dispute_venue=settings.dispute_venue,
         error_tracking=is_enabled(),
+        terms_version=terms.TERMS_VERSION,
+        analytics_retention_months=await app_settings.analytics_months(session),
     )

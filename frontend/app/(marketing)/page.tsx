@@ -66,8 +66,8 @@ export default function Landing() {
               From folder to live listings in four steps.
             </h2>
             <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600">
-              You make the designs. Listyro does the listing work: every field, for every design, in every shop you
-              sell from.
+              You make the designs. Listyro prepares the listing: every field, for each design, in the shop you
+              choose for it. You review, approve and publish.
             </p>
           </div>
           <div className="mt-14 lg:mt-6">

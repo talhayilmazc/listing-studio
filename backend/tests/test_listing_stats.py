@@ -153,7 +153,10 @@ async def test_the_shop_takes_its_stats_and_versions_with_it_and_old_days_go(asy
     await _publish(async_sm, FakeEtsy())
     async with async_sm() as s:
         publication = (await s.execute(select(ListingPublication))).scalar_one()
-        old = NOW.date() - timedelta(days=ListingStatDaily.RETENTION_DAYS + 1)
+        from app.core import app_settings
+
+        # Analytics history is kept for the months the operator set (24 by default).
+        old = NOW.date() - timedelta(days=app_settings.analytics_days(app_settings.ANALYTICS_MONTHS) + 1)
         for day in (old, NOW.date()):
             s.add(ListingStatDaily(connection_id=publication.connection_id, listing_id=publication.etsy_listing_id, day=day,
                                    tenant_id=publication.tenant_id, views_total=1, views=1))

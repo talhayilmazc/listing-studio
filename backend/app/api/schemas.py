@@ -289,6 +289,9 @@ class ContentOut(BaseModel):
     work: list["WorkOut"] = Field(default_factory=list)
     # Set when its group's photos and size charts are more than Etsy keeps.
     image_limit: "ImageLimitOut | None" = None
+    # Set when its profile looks print-on-demand and names no production partner
+    # (pipeline/creativity.py): a warning on the card, before any draft.
+    production_note: str | None = None
 
 
 class ReferenceText(BaseModel):
@@ -1054,6 +1057,17 @@ class ShopOut(BaseModel):
     group_id: uuid.UUID | None = None
 
 
+#: The notice Etsy's API terms ask every application to show. One copy for the
+#: API; the pages use the same text (frontend/lib/legal.ts, checked by a test).
+TRADEMARK_NOTICE = (
+    "The term 'Etsy' is a trademark of Etsy, Inc. This application uses Etsy's API, "
+    "but is not endorsed or certified by Etsy."
+)
+PROVIDER_DISCLAIMER = (
+    "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."
+)
+
+
 class ShopSlotsOut(BaseModel):
     used: int
     limit: int
@@ -1062,9 +1076,23 @@ class ShopSlotsOut(BaseModel):
     can_add: bool
 
 
+class DisconnectedOut(BaseModel):
+    """What disconnecting a shop cancelled, so the seller is told."""
+
+    shop_name: str | None = None
+    queued_jobs: int = 0
+    scheduled_publishes: int = 0
+    planned_drafts: int = 0
+
+
 class ShopsOut(BaseModel):
     shops: list[ShopOut]
     slots: ShopSlotsOut
+    # New shop connections are paused by the operator; the notice is shown on the Shops page.
+    connections_paused: bool = False
+    pause_notice: str | None = None
+    # Only in the answer to a disconnect: what was cancelled with the shop.
+    disconnected: DisconnectedOut | None = None
 
 
 class ShopUpdate(BaseModel):
@@ -1084,12 +1112,13 @@ class MetaOut(BaseModel):
     dispute_venue: str = ""
     # Whether error reports go to Sentry; the Privacy Policy names it only if so.
     error_tracking: bool = False
-    trademark_notice: str = Field(
-        default=(
-            "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the "
-            "Etsy API but is not endorsed or certified by Etsy, Inc."
-        )
-    )
+    trademark_notice: str = TRADEMARK_NOTICE
+    # Who provides the application, as Etsy's API terms ask it to be stated.
+    provider_disclaimer: str = PROVIDER_DISCLAIMER
+    # The version of the Terms and Privacy Policy accounts agree to (core/terms.py).
+    terms_version: str = ""
+    # Months of analytics history kept (an operator setting): the Privacy Policy shows it.
+    analytics_retention_months: int = 24
 
 
 # --- Occasion, Holiday and Section on the review card (pipeline/item_options.py) ---------------

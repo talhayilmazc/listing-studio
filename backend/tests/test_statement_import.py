@@ -252,7 +252,7 @@ async def test_another_account_cannot_read_or_write_a_shops_imports(ctx) -> None
     assert await _count(ctx, StatementImport) == 1
 
 
-async def test_imports_are_kept_13_months_and_go_with_the_shop(ctx) -> None:  # noqa: F811
+async def test_imports_are_kept_for_the_retention_period_and_go_with_the_shop(ctx) -> None:  # noqa: F811
     await _upload(ctx, "statement", STATEMENT)
     await _upload(ctx, "ads", ADS)
     await _lines(ctx, [(1, 9000000001, 501, 4000, 900)])
@@ -262,7 +262,11 @@ async def test_imports_are_kept_13_months_and_go_with_the_shop(ctx) -> None:  # 
         await s.commit()
     assert [await c for c in counts()] == [1, 5, 2, 30, 30, 1]
     async with ctx["sm"]() as s:
-        await purge_expired_rows(s, now=datetime(2032, 12, 1, tzinfo=timezone.utc))  # past 13 months
+        await purge_expired_rows(s, now=datetime(2032, 12, 1, tzinfo=timezone.utc))  # 15 months on: still there (24 months)
+        await s.commit()
+    assert [await c for c in counts()] == [1, 5, 2, 30, 30, 1]
+    async with ctx["sm"]() as s:
+        await purge_expired_rows(s, now=datetime(2033, 12, 1, tzinfo=timezone.utc))  # past the 24 months kept
         await s.commit()
     assert [await c for c in counts()] == [0, 0, 0, 0, 0, 0]
 

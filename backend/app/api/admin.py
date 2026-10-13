@@ -29,7 +29,7 @@ from app.api import schemas
 from app.api.accounts import EMAIL_RE
 from app.api.deps import get_quota, get_redis, get_session, get_session_store, get_storage
 from app.compliance.trademarks import filter_on
-from app.core import allowance, audit
+from app.core import allowance, app_settings, audit
 from app.core.config import get_settings
 from app.core.invites import InviteState, hash_code, invite_state
 from app.core.passwords import generate_temp_password, hash_password
@@ -677,6 +677,8 @@ class InviteRequestOut(BaseModel):
     id: uuid.UUID
     email: str
     shop: str | None
+    #: How many shops they said they have; None on requests from before it was asked.
+    shop_count: int | None = None
     note: str | None
     status: str
     created_at: datetime
@@ -691,6 +693,47 @@ class InviteRequestApproved(BaseModel):
     code: str
     invite: InviteOut
     request: InviteRequestOut
+    #: The sign-up page with the code and the address filled in, to send to them.
+    #: There is no e-mail service: the operator copies this (or the message) into
+    #: an e-mail of their own.
+    link: str = ""
+    #: A ready message to paste into that e-mail.
+    message: str = ""
+
+
+class PendingCount(BaseModel):
+    pending: int
+
+
+class AnalyticsRetention(BaseModel):
+    months: int = Field(ge=app_settings.ANALYTICS_MIN_MONTHS, le=app_settings.ANALYTICS_MAX_MONTHS)
+    default_months: int = app_settings.ANALYTICS_MONTHS
+
+
+class ConnectionsPaused(BaseModel):
+    on: bool
+    #: What the Shops page shows while it is on.
+    notice: str = app_settings.PAUSE_NOTICE
+
+
+def invite_link(code: str, email: str | None) -> str:
+    from urllib.parse import quote
+
+    base = get_settings().frontend_url.rstrip("/")
+    return f"{base}/register?invite={quote(code)}" + (f"&email={quote(email)}" if email else "")
+
+
+def invite_message(link: str, expires_at: datetime | None) -> str:
+    until = f" The link works until {expires_at:%d %B %Y}." if expires_at else ""
+    return (
+        "Hi,\n\n"
+        "A spot has opened in the Listyro beta, and your invite is ready.\n\n"
+        f"Create your account here: {link}\n\n"
+        f"The invite is single use and tied to this e-mail address.{until}\n\n"
+        "Listyro is in a limited beta and free while we complete Etsy's commercial access review. "
+        "If you have any questions, just reply to this e-mail.\n\n"
+        "Listyro"
+    )
 
 
 async def _request_out(session: AsyncSession, row: InviteRequest) -> InviteRequestOut:
@@ -698,7 +741,7 @@ async def _request_out(session: AsyncSession, row: InviteRequest) -> InviteReque
         select(func.count()).select_from(Tenant).where(func.lower(Tenant.email) == row.email)
     )
     return InviteRequestOut(
-        id=row.id, email=row.email, shop=row.shop, note=row.note, status=row.status,
+        id=row.id, email=row.email, shop=row.shop, shop_count=row.shop_count, note=row.note, status=row.status,
         created_at=row.created_at, decided_at=row.decided_at, has_account=bool(taken),
     )
 
@@ -758,9 +801,71 @@ async def approve_invite_request(
     await session.commit()
     await session.refresh(invite)
     await session.refresh(row)
+    link = invite_link(code, row.email)
     return InviteRequestApproved(
-        code=code, invite=await _invite_out(session, invite), request=await _request_out(session, row)
+        code=code, invite=await _invite_out(session, invite), request=await _request_out(session, row),
+        link=link, message=invite_message(link, invite.expires_at),
     )
+
+
+@router.get("/invite-requests/pending", response_model=PendingCount)
+async def pending_invite_requests(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> PendingCount:
+    """How many requests wait for a decision: the badge on Admin → Invites."""
+    count = await session.scalar(select(func.count()).select_from(InviteRequest).where(InviteRequest.status == "pending"))
+    return PendingCount(pending=int(count or 0))
+
+
+# --- Operator settings: analytics history, new connections ------------------------------
+@router.get("/analytics-retention", response_model=AnalyticsRetention)
+async def get_analytics_retention(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AnalyticsRetention:
+    return AnalyticsRetention(months=await app_settings.analytics_months(session))
+
+
+@router.put("/analytics-retention", response_model=AnalyticsRetention)
+async def set_analytics_retention(
+    body: AnalyticsRetention,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AnalyticsRetention:
+    """How many months of analytics history are kept. Applies at the next
+    retention run (every 15 minutes); shortening it deletes what is older, and
+    that does not come back. The Privacy Policy shows the figure in force."""
+    previous = await app_settings.analytics_months(session)
+    if body.months != previous:
+        await app_settings.set_analytics_months(session, body.months)
+        audit.record(session, "app.analytics_retention_changed", actor=admin, previous=previous, new=body.months)
+        await session.commit()
+    return AnalyticsRetention(months=body.months)
+
+
+@router.get("/connections-paused", response_model=ConnectionsPaused)
+async def get_connections_paused(
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ConnectionsPaused:
+    return ConnectionsPaused(on=await app_settings.connections_paused(session))
+
+
+@router.put("/connections-paused", response_model=ConnectionsPaused)
+async def set_connections_paused(
+    body: ConnectionsPaused,
+    admin: Tenant = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ConnectionsPaused:
+    """Pause (or allow again) connecting new shops. Shops already connected keep
+    working and can be reconnected; the Shops page shows the notice while it is on."""
+    previous = await app_settings.connections_paused(session)
+    if bool(body.on) != previous:
+        await app_settings.set_connections_paused(session, body.on)
+        audit.record(session, "app.connections_paused_changed", actor=admin, previous=previous, new=bool(body.on))
+        await session.commit()
+    return ConnectionsPaused(on=bool(body.on))
 
 
 @router.post("/invite-requests/{request_id}/decline", response_model=InviteRequestOut)

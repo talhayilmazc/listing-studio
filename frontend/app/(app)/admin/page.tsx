@@ -7,6 +7,7 @@ import type { AdminDisk, AdminInvite, AdminUsage, AdminUser, AiCost } from "@/li
 import { useSession } from "@/components/SessionProvider";
 import { UsersTab } from "@/components/admin/UsersTab";
 import { InvitesTab } from "@/components/admin/InvitesTab";
+import { OperatorSettings } from "@/components/admin/OperatorSettings";
 import { InviteRequests } from "@/components/admin/InviteRequests";
 import { AiCostPanel } from "@/components/admin/AiCost";
 import { DiskPanel } from "@/components/admin/Disk";
@@ -63,8 +64,14 @@ export default function AdminPage() {
     if (!isAdmin) return;
     api.admin.users().then(setUsers).catch(guard);
     api.admin.invites().then(setInvites).catch(guard);
+    // The badge on the Invites tab: requests waiting, known before the tab is opened.
+    const loadPending = () => api.admin.pendingInviteRequests().then((r) => setPendingRequests(r.pending)).catch(guard);
+    loadPending();
     loadUsage();
-    const timer = setInterval(loadUsage, USAGE_REFRESH_MS);
+    const timer = setInterval(() => {
+      loadUsage();
+      loadPending();
+    }, USAGE_REFRESH_MS);
     return () => clearInterval(timer);
   }, [isAdmin, guard, loadUsage]);
 
@@ -112,9 +119,16 @@ export default function AdminPage() {
               {t.id === "invites" && invites && (
                 <span translate="no" key="span-103-14" className="ml-1.5 text-xs tabular-nums text-slate-400">
                   <span><span>{invites.filter((i) => i.state === "unused").length}</span> open</span>
-                  <Txt>{pendingRequests ? ` · ${pendingRequests} requested` : ""}</Txt>
                 </span>
               )}
+              {t.id === "invites" && pendingRequests ? (
+                // Requests waiting for a decision: a badge that is there before the tab is opened.
+                <span translate="no" key="pending-badge" data-testid="pending-requests-badge"
+                  className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-brand-600 px-1.5 text-[11px] font-semibold leading-5 text-white"
+                  aria-label={`${pendingRequests} invite request${pendingRequests === 1 ? "" : "s"} waiting`}>
+                  {pendingRequests}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -151,6 +165,11 @@ export default function AdminPage() {
                 setInvites((prev) => prev?.map((x) => (x.id === inv.id ? inv : x)) ?? prev)
               }
             />
+          )}
+          {tab === "usage" && (
+            <div key="operator" className="mb-5">
+              <OperatorSettings onError={setError} />
+            </div>
           )}
           {tab === "usage" && (
             <div key="disk" className="mb-5">

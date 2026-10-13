@@ -260,10 +260,11 @@ async def test_a_shop_without_the_sales_permission_is_not_read(async_sm: async_s
     assert fake.calls == []
 
 
-async def test_totals_are_kept_13_months_and_deleted_with_the_shop(async_sm: async_sessionmaker) -> None:
+async def test_totals_are_kept_for_the_retention_period_and_deleted_with_the_shop(async_sm: async_sessionmaker) -> None:
+    # 24 months by default (core/app_settings.py); 13 months was the fixed figure before.
     tid, shop = await _shop(async_sm)
     async with async_sm() as s:
-        for days in (10, 390, 400):
+        for days in (10, 400, 740):
             s.add(SalesDaily(connection_id=shop, listing_id=1, day=TODAY - timedelta(days=days), tenant_id=tid, units=1))
         await s.commit()
     async with async_sm() as s:

@@ -7,6 +7,7 @@ import { browserZone, formatWhen, isValidZone } from "@/lib/schedule";
 import { useSession } from "@/components/SessionProvider";
 import { TrademarkFilterSetting } from "@/components/TrademarkFilterSetting";
 import { AllowanceSection } from "@/components/Allowance";
+import { DeleteAccount } from "@/components/DeleteAccount";
 
 /** Every IANA zone this browser knows, falling back to a few if it can't list them. */
 function allZones(): string[] {
@@ -107,6 +108,24 @@ export default function SettingsPage() {
           </Link>
         </p>
       </section>
+
+      <section className="card p-5">
+        <h2 className="text-sm font-semibold text-slate-800">Terms and privacy</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          <span>You agreed to the </span>
+          <Link href="/terms" className="tap text-brand-700 underline">Terms of Service</Link>
+          <span> and </span>
+          <Link href="/privacy" className="tap text-brand-700 underline">Privacy Policy</Link>
+          {account?.terms_accepted_at && (
+            <span key="when" translate="no">{` on ${new Date(account.terms_accepted_at).toLocaleDateString()} (version ${account.terms_accepted_version ?? ""})`}</span>
+          )}
+          <span>. To stop using a shop with Listyro, disconnect it on the </span>
+          <Link href="/connect" className="tap text-brand-700 underline">Shops</Link>
+          <span> page.</span>
+        </p>
+      </section>
+
+      <DeleteAccount />
     </div>
   );
 }

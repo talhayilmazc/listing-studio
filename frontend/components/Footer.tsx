@@ -3,10 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-
-// Exact ToU notice — must not be altered or abbreviated.
-const TRADEMARK_NOTICE =
-  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
+import { TRADEMARK_NOTICE } from "@/lib/legal";
 
 export function Footer() {
   const [email, setEmail] = useState("support@example.com");
@@ -21,7 +18,7 @@ export function Footer() {
   return (
     <footer className="mt-16 border-t border-slate-200 bg-white">
       <div className="mx-auto w-full max-w-[1800px] space-y-3 px-6 py-8 text-sm text-slate-500 lg:px-8">
-        <p className="max-w-3xl leading-relaxed">{TRADEMARK_NOTICE}</p>
+        <p className="max-w-3xl leading-relaxed" data-testid="trademark-notice">{TRADEMARK_NOTICE}</p>
         <div className="tap-row flex flex-wrap items-center gap-x-5 gap-y-2">
           <Link href="/terms" className="tap hover:text-slate-800">
             Terms of Service

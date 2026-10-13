@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
@@ -24,6 +24,9 @@ from app.core.crypto import TokenCipher
 from app.db.models import ConnectionStatus, EtsyConnection, Tenant
 from app.etsy.oauth import TokenResponse, refresh_tokens
 from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops, shop_slots
+
+#: Why a job, a go-live or a planned draft of a disconnected shop did not happen.
+DISCONNECTED = "cancelled: its shop was disconnected"
 
 __all__ = ["ConnectionService", "ShopLimitReached", "ShopTaken"]
 
@@ -95,6 +98,10 @@ class ConnectionService:
 
         if connection is None or connection.status is not ConnectionStatus.active:
             slots = await shop_slots(session, tenant)
+            if slots.paused:
+                # New connections are paused; a shop that is connected now can
+                # still reconnect (to grant a permission), since that adds no shop.
+                raise ShopLimitReached("paused")
             if slots.used >= slots.limit:
                 raise ShopLimitReached("account")
             if slots.app_used >= slots.app_limit:
@@ -156,23 +163,57 @@ class ConnectionService:
 
     async def disconnect(
         self, session: AsyncSession, connection: EtsyConnection, *, actor: Tenant | None = None
-    ) -> None:
-        """Disconnect one shop: drop its tokens and delete its Etsy-sourced content.
+    ) -> dict[str, int]:
+        """Disconnect one shop: drop its tokens, cancel what was waiting for it and
+        delete its Etsy-sourced content.
 
         CLAUDE.md: when a seller disconnects, everything that came from Etsy for
-        that shop is deleted, not left to age out. The account's other shops, its
-        uploads and its generated content are untouched (v5 §E). One transaction,
-        so a failure cannot leave the tokens gone but the content behind.
+        that shop is deleted, not left to age out. Its tokens go at once, so no
+        further call can be made for it; its queued jobs, scheduled go-lives and
+        planned drafts are cancelled, and the counts are returned so the seller is
+        told what was cancelled. The account's other shops, its uploads and its
+        generated content are untouched (v5 §E). One transaction, so a failure
+        cannot leave the tokens gone but the content behind.
         """
+        from app.db.models import Job, JobStatus, ListingPublication, PlannedSlot
         from app.workers.retention import purge_shop_etsy_content
 
+        now = datetime.now(timezone.utc)
         connection.status = ConnectionStatus.revoked
         connection.access_token_enc = None
         connection.refresh_token_enc = None
+        connection.token_expires_at = None
+        # What was waiting for this shop. Counted before the purge removes the
+        # publication rows the schedules hang on.
+        scheduled = int(await session.scalar(
+            select(func.count()).select_from(ListingPublication).where(
+                ListingPublication.connection_id == connection.id,
+                ListingPublication.scheduled_for.is_not(None),
+                ListingPublication.state != "active",
+            )
+        ) or 0)
+        jobs = await session.execute(
+            update(Job)
+            .where(Job.connection_id == connection.id, Job.status == JobStatus.queued)
+            .values(status=JobStatus.cancelled, last_error=DISCONNECTED, paused_reason=None, finished_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        slots = await session.execute(
+            update(PlannedSlot)
+            .where(PlannedSlot.connection_id == connection.id, PlannedSlot.state.in_(("waiting", "drafting")))
+            .values(state="cancelled", note=DISCONNECTED)
+            .execution_options(synchronize_session=False)
+        )
+        cancelled = {
+            "queued_jobs": jobs.rowcount or 0,
+            "scheduled_publishes": scheduled,
+            "planned_drafts": slots.rowcount or 0,
+        }
         purged = await purge_shop_etsy_content(session, connection.id)
         # Counts only: what went, not what it was.
         audit.destructive(
             session, "shop.disconnected", actor=actor, tenant_id=connection.tenant_id,
-            shop_id=connection.id, object_id=connection.id, **purged,
+            shop_id=connection.id, object_id=connection.id, **purged, **cancelled,
         )
         await session.commit()
+        return cancelled

@@ -7,6 +7,7 @@ what runs against Postgres in real environments.
 """
 
 from collections.abc import AsyncIterator, Callable, Iterator
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -16,9 +17,23 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core import terms
 from app.core.config import Settings, set_settings_override
 from app.db import models  # noqa: F401  (registers models on Base.metadata)
+from app.db.models import Tenant
 from app.db.base import Base
+
+
+@event.listens_for(Tenant, "init", propagate=True)
+def _accounts_in_tests_have_agreed(target: Tenant, args: tuple, kwargs: dict) -> None:
+    """An account a test builds has agreed to the current Terms and Privacy Policy,
+    as every real account has after signing up or passing the one-time screen.
+    Without this every test that makes a ``Tenant`` would stop at the acceptance
+    gate (api/deps.py::active_tenant). A test about the gate itself passes
+    ``terms_version=None`` and is left exactly as it asked."""
+    if "terms_version" not in kwargs and "terms_accepted_at" not in kwargs:
+        kwargs["terms_version"] = terms.TERMS_VERSION
+        kwargs["terms_accepted_at"] = datetime.now(timezone.utc)
 
 
 @pytest.fixture()

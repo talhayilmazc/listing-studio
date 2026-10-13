@@ -44,7 +44,7 @@ export function RailAllowance() {
   const share = a.amount ? Math.min(1, a.used / a.amount) : 1;
   const low = a.remaining <= Math.max(1, a.amount * 0.1);
   return (
-    <div className="px-2 pb-2" title={`Listings generated ${periodWord(a.period)}: each design counts once, however many shops it goes to. Drafts and publishing do not count. Resets ${a.resets_label}.`}>
+    <div className="px-2 pb-2" title={`Listings generated ${periodWord(a.period)}: each design counts once, whichever of your shops it is listed in. Drafts and publishing do not count. Resets ${a.resets_label}.`}>
       <div className="flex items-baseline justify-between text-[11px]">
         <span className="text-[var(--rail-text)]">Listings generated</span>
         <span translate="no" className="tabular-nums text-[var(--rail-text)]">
@@ -76,7 +76,7 @@ export function AllowanceSection() {
         <h2 className="text-sm font-semibold text-slate-800">Listings generated</h2>
         <p className="mt-1 text-sm text-slate-500">
           <span>How many listings you can generate <span>{a ? periodWord(a.period) : "each period"}</span>. Each design written counts once,
-          however many shops it is sent to (regenerating one, or replacing a listing&apos;s photos and text, counts again).
+          whichever of your shops it is listed in (regenerating one, or replacing a listing&apos;s photos and text, counts again).
           Creating drafts and publishing do not count. This is a different number from &quot;Etsy requests today&quot; in the
           menu, which counts the requests your drafts and publishing make to Etsy and resets at 00:00 UTC.</span>
         </p>

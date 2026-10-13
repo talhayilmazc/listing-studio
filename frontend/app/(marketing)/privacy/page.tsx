@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  AnalyticsMonths,
   Fact,
   Items,
   LegalShell,
@@ -7,6 +8,7 @@ import {
   SupportEmail,
   WhenErrorTracking,
 } from "@/components/LegalShell";
+import { LAST_UPDATED, PROVIDER_DISCLAIMER, RETENTION as R } from "@/lib/legal";
 
 export const metadata = {
   title: "Privacy Policy",
@@ -14,431 +16,532 @@ export const metadata = {
   alternates: { canonical: "/privacy" },
 };
 
+// Written from the code. Every period below is printed from lib/legal.ts
+// (RETENTION), and backend/tests/test_legal_texts.py fails if one of those
+// figures differs from the setting the code actually uses, or if a period is
+// typed into this text instead of taken from there.
 const SECTIONS = [
   { id: "who", title: "Who we are" },
   { id: "collect", title: "What we collect" },
-  { id: "not-collect", title: "What we do not collect" },
+  { id: "etsy", title: "The Etsy data we read, why, and for how long" },
+  { id: "never", title: "What is never stored" },
   { id: "use", title: "How we use it" },
   { id: "ai", title: "AI processing by Anthropic" },
-  { id: "etsy", title: "Your Etsy data" },
-  { id: "sharing", title: "Who we share it with" },
-  { id: "storage", title: "Where it is stored and how it is protected" },
-  { id: "retention", title: "How long we keep it" },
-  { id: "disconnect", title: "Disconnecting your shop" },
-  { id: "deletion", title: "Deleting your account and your rights" },
-  { id: "cookies", title: "Cookies" },
+  { id: "sharing", title: "Who processes it; no selling, no advertising" },
+  { id: "security", title: "Where it is stored and how it is protected" },
+  { id: "retention", title: "How long we keep everything" },
+  { id: "disconnect", title: "Disconnecting a shop" },
+  { id: "deletion", title: "Deleting your account" },
+  { id: "rights", title: "Your rights and your data" },
+  { id: "cookies", title: "Cookies and browser storage" },
   { id: "changes", title: "Changes to this policy" },
 ];
 
-/** One row of the retention table. */
-function Row({ data, period }: { data: React.ReactNode; period: React.ReactNode }) {
+const link = "font-medium text-brand-700 hover:underline";
+
+/** One row of a table: what, why (optional), how long. */
+function Row({ data, why, period }: { data: React.ReactNode; why?: React.ReactNode; period: React.ReactNode }) {
+  // On a phone each row is a block: the columns stack under their own small
+  // captions, so nothing has to be scrolled sideways to be read.
+  const caption = "mb-0.5 block text-[11px] font-medium uppercase tracking-wide text-slate-500 sm:hidden";
   return (
-    <tr className="border-t border-slate-200 align-top">
-      <td className="py-2.5 pr-4 text-slate-700">{data}</td>
-      <td className="py-2.5 text-slate-700">{period}</td>
+    <tr className="block border-t border-slate-200 py-3 align-top sm:table-row sm:border-0 sm:py-0">
+      <td className="block text-slate-800 sm:table-cell sm:border-t sm:border-slate-200 sm:py-3 sm:pr-4">{data}</td>
+      {why !== undefined && (
+        <td key="why" className="mt-2 block text-slate-600 sm:mt-0 sm:table-cell sm:border-t sm:border-slate-200 sm:py-3 sm:pr-4">
+          <span className={caption}>Why</span>
+          <span>{why}</span>
+        </td>
+      )}
+      <td className="mt-2 block text-slate-600 sm:mt-0 sm:table-cell sm:border-t sm:border-slate-200 sm:py-3">
+        <span className={caption}>Kept for</span>
+        <span>{period}</span>
+      </td>
     </tr>
+  );
+}
+
+function Table({ head, children }: { head: string[]; children: React.ReactNode }) {
+  return (
+    <table className="block w-full text-left text-sm sm:table">
+      <thead className="hidden sm:table-header-group">
+        <tr className="text-xs uppercase tracking-wide text-slate-500">
+          {head.map((h) => (
+            <th key={h} className="pb-2 pr-4 font-medium">{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="block sm:table-row-group">{children}</tbody>
+    </table>
   );
 }
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="6 October 2026" sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated={LAST_UPDATED} sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
-          Listyro (&ldquo;the Service&rdquo;) is operated by{" "}
-          <Fact field="operator_name" />, <Fact field="operator_location" />, who is responsible
-          for the personal data described here. For anything in this policy, write to{" "}
-          <SupportEmail />.
+          Listyro (&ldquo;the Service&rdquo;) is provided by <Fact field="operator_name" />,{" "}
+          <Fact field="operator_location" />, who is responsible for the personal data described here.
+          {" "}
+          <span className="text-sm uppercase tracking-wide text-slate-600">{PROVIDER_DISCLAIMER}</span>{" "}
+          For anything in this policy, including privacy requests, write to <SupportEmail />.
         </p>
         <p>
-          This policy explains what we collect, why, where it goes, how long we keep it, and how
-          to have it deleted. It is written to be read, not skimmed past; the short version is
-          that we collect what the Service needs to work, we keep Etsy&rsquo;s data only as long
-          as Etsy allows, and we never sell anything.
+          This policy says what we collect, why, where it goes, how long we keep it, and how to have it
+          deleted. The short version: we collect what the Service needs to work, we read only your own
+          shops&rsquo; data from Etsy and keep it only as long as stated here, we store nothing about
+          your buyers, and we never sell or share anything.
         </p>
       </Section>
 
       <Section id="collect" n={2} title="What we collect">
         <p>
-          <strong>Your account.</strong> Your email address, and your password stored only as a
-          one-way argon2id hash — we never see or keep the password itself. We also record when
-          the account was created and which invite code was used (the code is stored hashed).
+          <strong>Your account.</strong> Your email address, and your password stored only as a one-way
+          argon2id hash: we never see or keep the password itself. We record when the account was
+          created, which invite was used (the code is stored hashed), the time zone you choose, and
+          which version of the Terms of Service and this policy you agreed to and when.
         </p>
         <p>
-          <strong>Your Etsy connections.</strong> You can connect more than one of your own
-          shops; each is connected separately, by signing in to Etsy as that shop&rsquo;s owner.
-          For each shop, Etsy gives us access and refresh tokens that let the Service act on that
-          shop with the permissions you granted. We store them encrypted, and they are never shown
-          in the app, never sent to your browser, and never written to logs. We also keep each
-          shop&rsquo;s Etsy user ID, shop ID, shop name, the name you give it in the app, and the
-          permissions granted.
+          <strong>Your Etsy connections.</strong> You can connect more than one of your own shops; each
+          is connected separately, by signing in to Etsy as that shop&rsquo;s owner. For each shop, Etsy
+          gives us access and refresh tokens that let the Service act on that shop with the permissions
+          you granted. We store them encrypted; they are never shown in the app, never sent to your
+          browser, and never written to logs. We also keep each shop&rsquo;s Etsy user ID, shop ID, shop
+          name, the name you give it in the app, and the permissions granted.
         </p>
         <p>
-          <strong>Data from your own Etsy shop.</strong> Your listings as Etsy returns them
-          (titles, states, SKUs, sections, prices, descriptions and links to their images);
-          for each profile, the reference listing&rsquo;s category, attributes, price,
-          variations, shipping and production settings, description and image list; and, before
-          we change an existing listing, a copy of how it looked, so the change can be undone.
+          <strong>Your uploads.</strong> The design images you upload are resized and stored in that
+          resized form only (the file as you sent it is not kept), with their file and folder names,
+          the SKU read from them, and their dimensions.
         </p>
         <p>
-          <strong>Your uploads.</strong> The design images you upload, the resized versions we
-          make from them, their file and folder names, the SKU read from them, and their size
-          and dimensions.
+          <strong>The listings you prepare.</strong> The titles, tags and descriptions suggested for
+          your designs and every edit you make, whether you approved them, the options you chose
+          (profile, shops, SKU, personalization, section, schedule), and the Etsy ID and status of the
+          drafts we create for you.
         </p>
         <p>
-          <strong>Generated content.</strong> The titles, tags and descriptions created for your
-          designs and any edits you make, whether you approved them, which AI model produced
-          them and how many tokens it used, and the Etsy ID and status of drafts we create.
+          <strong>What you tell us about your costs.</strong> The product costs and fee settings you
+          enter for your profit reporting, and the figures from the monthly statements and Etsy Ads
+          reports you choose to upload (the files themselves are read and not kept).
         </p>
         <p>
-          <strong>If you ask for an invite.</strong> What you type into the request form on our
-          site: your email address, your shop&rsquo;s name or address if you give it, and your
-          note. We use it only to decide on your request and to send you an invite code. The
-          form also counts requests per connection for an hour to stop abuse; your IP address is
-          used for that count and is not stored with your request.
+          <strong>If you ask for an invite.</strong> What you type into the request form on our site:
+          your email address, your shop&rsquo;s name or link, how many shops you run, and your note. We
+          use it only to decide on your request and to send you an invite. When a request arrives, a
+          short notification (the email address, the shop and the number of shops; not your note)
+          is sent to the private messaging channel where we receive our own operational alerts, so
+          that we answer it. The form also counts requests per connection for an hour to stop abuse;
+          your IP address is used for that count and is not stored with your request.
         </p>
         <p>
-          <strong>Usage and security records.</strong> A daily count of Etsy API requests made
-          for your account (Etsy caps these, so we must track them); records of the tasks we ran
-          for you and whether they succeeded; your sign-in session; counters of failed sign-in
-          attempts and request rates, keyed by email and IP address; and server logs, which
-          contain IP addresses, the pages and actions requested, and response codes. Before a
-          log line is written we remove passwords, tokens, session identifiers, OAuth codes and
-          email addresses from it.
+          <strong>Usage and security records.</strong> A daily count of the Etsy API requests made for
+          your account (Etsy caps these, so we must track them); records of the tasks we ran for you
+          and whether they succeeded; a log of administrative and destructive actions on your account
+          (what was done and when, with counts and internal ids, never content); counts of the AI
+          calls made for you and their cost to us; your sign-in session; counters of failed sign-in
+          attempts and request rates, keyed by email and IP address; and server logs, which contain IP
+          addresses, the pages and actions requested, and response codes. Before a log line is written
+          we remove passwords, tokens, session identifiers, OAuth codes and email addresses from it.
         </p>
       </Section>
 
-      <Section id="not-collect" n={3} title="What we do not collect">
+      <Section id="etsy" n={3} title="The Etsy data we read, why, and for how long">
+        <p>
+          We get Etsy data only from <strong>your own shops</strong>, only through{" "}
+          <strong>Etsy&rsquo;s official Open API</strong>, and only with the permissions you grant when
+          you connect a shop. We never scrape Etsy&rsquo;s website, and we never read another
+          seller&rsquo;s shop. This is every kind of Etsy data we read:
+        </p>
+        <Table head={["What we read from your shop", "Why", "Kept for"]}>
+          <Row
+            data="Your shop's listings as Etsy returns them: titles, states, SKUs, sections, prices, tags, descriptions, and links to their images"
+            why="To show your shop's listings, to let you pick a reference listing for a profile, and to name the listings in your reports"
+            period={<span>{`${R.listingCacheHours} hours at most, then deleted and read again when you next need them. Nothing older than that is ever shown`}</span>}
+          />
+          <Row
+            data="A reference listing's images, as shown on its profile"
+            why="So you can see the profile's images and mark which are size charts"
+            period={<span>{`${R.referenceImagesHours} hours at most; then the links are deleted and the images are no longer shown until the profile is refreshed. The image files themselves are never stored: they are fetched, checked in memory to tell size charts from artwork, and discarded`}</span>}
+          />
+          <Row
+            data="A reference listing's settings: category, attributes, price, variations, shipping profile, return policy, processing profile, production partners, who made it, when it was made, description, and which of its images are size charts"
+            why="To build your new drafts so they match the listing you chose. These are used, not displayed"
+            period={<span>{`${R.otherEtsyContentHours} hours at most, then cleared and read again when the profile is next used`}</span>}
+          />
+          <Row
+            data="Your shop's own lists: its sections, shipping profiles, return policies, processing profiles and production partners (names and ids)"
+            why="To put a draft in one of your sections, and to use a profile in another of your shops with that shop's own settings"
+            period={<span>{`${R.otherEtsyContentHours} hours at most for the lists. The ids a profile uses in a shop are kept until you stop using the profile there or disconnect that shop`}</span>}
+          />
+          <Row
+            data="A copy of a listing as it was, taken just before the Service changes it"
+            why="So a change the Service made to your listing can be checked and undone"
+            period={<span>{`${R.listingSnapshotDays} days, then deleted automatically`}</span>}
+          />
+          <Row
+            data="Views and favourites of the listings you published with the Service (two totals per listing, read once a day)"
+            why="To show how each listing is doing over time"
+            period={<span><span>Daily figures, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months</span></span>}
+          />
+          <Row
+            data="Your shop's sales, line by line: the order number, which listing sold, the quantity, the price, the shipping paid and the date"
+            why="For your profit, cost and ads reporting: which of your listings sell and what they earn"
+            period={<span><span>Daily totals per listing and the order lines, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months. Everything else in Etsy&rsquo;s answer, including anything about the buyer, is discarded as soon as those fields are read, and is written nowhere</span></span>}
+          />
+          <Row
+            data="Your shop's payment account ledger: for each entry its type (for example a transaction fee, a listing fee or an Etsy Ads charge), its amount and its date"
+            why="So your profit is worked out from what Etsy actually charged, not from an estimate"
+            period={<span><span>One total per type per day, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months. The entries themselves, their descriptions and their references are not stored</span></span>}
+          />
+          <Row
+            data="How many listings your shop has in each state (five counts)"
+            why="For the summary line at the top of the app"
+            period={<span>{`${R.otherEtsyContentHours} hours at most`}</span>}
+          />
+        </Table>
+        <p>
+          We write to your shop only to do what you asked: create drafts, upload their images, set
+          their variations, attributes, personalization and SKUs, publish a draft when you press{" "}
+          <em>Publish now</em> or at a time you scheduled for a listing you approved, replace a
+          listing&rsquo;s images when you ask for that, and create a section, shipping profile or
+          return policy only when you confirm it.
+        </p>
+        <p>
+          Reading sales is a permission added on 26 September 2026. A shop connected before then is
+          asked to reconnect once to grant it; until it does, everything else keeps working and sales
+          figures are simply not shown.
+        </p>
+      </Section>
+
+      <Section id="never" n={4} title="What is never stored">
         <Items>
-          <li>Anything about your buyers, your orders, or your Etsy messages.</li>
           <li>
-            Any data about other Etsy sellers — their listings, tags, images or prices — in any
-            form.
+            <strong>Nothing about your buyers.</strong> No buyer names, postal addresses, email
+            addresses, usernames or messages are stored, in any table or file. Etsy&rsquo;s sales
+            answers contain some buyer fields; the Service reads only the fields listed above from
+            each line and drops the rest in memory. We do not use Etsy&rsquo;s receipts endpoint, which
+            returns buyer names and addresses, at all.
           </li>
           <li>
-            Advertising or analytics tracking. There are no third-party trackers, pixels or
-            analytics scripts in the Service.
+            <strong>Nothing about other sellers.</strong> No other shop&rsquo;s listings, tags, images,
+            prices or sales, in any form.
+          </li>
+          <li>
+            <strong>No statement or report files.</strong> A monthly statement or Etsy Ads report you
+            upload is read in memory and discarded; only totals, order numbers and amounts are kept.
+          </li>
+          <li>
+            <strong>No tracking.</strong> There are no third-party trackers, pixels, analytics or
+            advertising scripts in the Service or on this site.
           </li>
         </Items>
       </Section>
 
-      <Section id="use" n={4} title="How we use it">
+      <Section id="use" n={5} title="How we use it">
         <Items>
           <li>
-            <strong>To provide the Service</strong>: to analyse your designs, prepare listings,
-            and create and publish drafts in your shop when you ask. This is necessary to perform
-            our agreement with you.
+            <strong>To provide the Service</strong>: to analyse your designs, prepare listings, create
+            and publish drafts in your shops when you ask, and report your own shops&rsquo; figures to
+            you. This is necessary to perform our agreement with you.
           </li>
           <li>
-            <strong>To keep it secure</strong>: rate limits, sign-in lockouts and logs protect
-            your account and the Service. This is our legitimate interest in running a secure
-            service.
+            <strong>To keep it secure</strong>: rate limits, sign-in lockouts and logs protect your
+            account and the Service. This is our legitimate interest in running a secure service.
           </li>
           <li>
             <strong>To support you</strong>: when you write to us about a problem.
           </li>
           <li>
-            <strong>To meet our obligations</strong>: under the law and under Etsy&rsquo;s API
-            terms, which govern how we may handle Etsy&rsquo;s data.
+            <strong>To meet our obligations</strong>: under the law and under Etsy&rsquo;s API terms,
+            which govern how we may handle Etsy&rsquo;s data.
           </li>
         </Items>
-        <p>We do not use your data for advertising, profiling, or selling to anyone.</p>
+        <p>
+          Each seller&rsquo;s data is used only for that seller. We do not combine one seller&rsquo;s
+          Etsy data or sales with another&rsquo;s, in any report, comparison or model. We do not use
+          your data, or any Etsy data, for advertising or profiling, and we do not use it to train or
+          fine-tune any AI model.
+        </p>
       </Section>
 
-      <Section id="ai" n={5} title="AI processing by Anthropic">
+      <Section id="ai" n={6} title="AI processing by Anthropic">
         <p>
-          <strong>Your design images are sent to Anthropic for analysis.</strong> To describe a
-          design and write its listing text, the Service sends the following to the API of
+          <strong>Your design images and listing text are sent to Anthropic for analysis.</strong> To
+          describe a design and suggest its listing text, the Service sends the following to the API of
           Anthropic, PBC, the company behind the Claude models:
         </p>
         <Items>
-          <li>each design image you ask us to generate a listing for, in resized form;</li>
-          <li>its SKU and the kind of product it is (for example, apparel);</li>
+          <li>each design image you ask us to write a listing for, in resized form;</li>
           <li>
-            occasionally, an image from one of your own Etsy reference listings, when our local
-            check cannot tell whether that image is a size chart or artwork.
+            its SKU, the kind of product it is (for example, apparel), and the title prefix of the
+            profile you chose;
+          </li>
+          <li>
+            if you chose one of your own listings as an example to follow, that listing&rsquo;s title
+            and tags;
+          </li>
+          <li>
+            occasionally, an image from one of your own Etsy reference listings, when our local check
+            cannot tell whether that image is a size chart or artwork.
           </li>
         </Items>
         <p>
-          Anthropic processes this to return the analysis and nothing else. Under
-          Anthropic&rsquo;s{" "}
-          <a
-            href="https://www.anthropic.com/legal/commercial-terms"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-brand-700 hover:underline"
-          >
+          <strong>Never anything about buyers, sales or orders.</strong> Anthropic processes what it
+          receives to return the analysis and nothing else. Under Anthropic&rsquo;s{" "}
+          <a href="https://www.anthropic.com/legal/commercial-terms" target="_blank" rel="noopener noreferrer" className={link}>
             commercial terms
           </a>
-          , content sent through its API is <strong>not used to train its models</strong>.
-          Anthropic may retain API inputs and outputs for a limited period for safety and abuse
-          monitoring, as described in its{" "}
-          <a
-            href="https://www.anthropic.com/legal/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-brand-700 hover:underline"
-          >
+          , content sent through its API is <strong>not used to train its models</strong>. Anthropic may
+          retain API inputs and outputs for a limited period for safety and abuse monitoring, as
+          described in its{" "}
+          <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer" className={link}>
             privacy policy
           </a>
           .
         </p>
         <p>
-          We ourselves never use your designs to train any model. If you do not want a design
-          sent to Anthropic, do not generate a listing for it; uploading alone does not send it.
+          We ourselves never use your designs or any Etsy data to train any model. If you do not want a
+          design sent to Anthropic, do not ask for a listing to be written for it; uploading alone does
+          not send it.
         </p>
       </Section>
 
-      <Section id="etsy" n={6} title="Your Etsy data">
+      <Section id="sharing" n={7} title="Who processes it; no selling, no advertising">
         <p>
-          We get Etsy data only from <strong>your own shop</strong>, only through{" "}
-          <strong>Etsy&rsquo;s official Open API</strong>, and only with the permissions you
-          grant when you connect: reading and writing your listings and your shop, and reading
-          your shop&rsquo;s sales. We never scrape Etsy&rsquo;s website, and we never access
-          another seller&rsquo;s shop.
+          <strong>We do not sell, rent or share your data, and we send nothing to advertising or
+          analytics platforms.</strong> It is processed only by:
         </p>
-        <p>
-          <strong>Your sales.</strong> From each sale we read only four things: which listing
-          sold, how many, the price and the date. We use them to show which of your listings
-          sell and what they earn. We never store anything about your buyers: no names,
-          addresses, email addresses or messages. Etsy&rsquo;s answer includes some of these, and
-          it is discarded as soon as those four things have been read from it; nothing from it is
-          written anywhere.
-        </p>
-        <p>
-          <strong>Your shop&rsquo;s fees and ad spend.</strong> With the same permission we read
-          your shop&rsquo;s payment account ledger from Etsy: for each entry only its type (for
-          example a transaction fee, a listing fee or an Etsy Ads charge), its amount and its
-          date. We add these up into one total per type per day, so your profit is worked out
-          from what Etsy actually charged instead of an estimate. The entries themselves are not
-          stored, and nothing in them about an order or a buyer is kept.
-        </p>
-        <p>
-          Reading sales is a permission added on 26 September 2026. If you connected your shop
-          before then, the Service asks you to reconnect it once to grant it; until you do,
-          everything else keeps working and sales figures are simply not shown.
-        </p>
-        <p>
-          We write to your shop only to do what you asked: create drafts, upload their images,
-          set their variations and SKUs, publish a draft when you press <em>Publish now</em> or at a
-          time you scheduled for a draft you approved, and replace a listing&rsquo;s images when you
-          ask for that. We never publish anything you did not approve and schedule or publish
-          yourself.
-        </p>
-        <p>
-          Etsy limits how long an application may keep its data, and we follow those limits; see{" "}
-          <a href="#retention" className="font-medium text-brand-700 hover:underline">
-            How long we keep it
-          </a>
-          .
-        </p>
-      </Section>
-
-      <Section id="sharing" n={7} title="Who we share it with">
-        <p>We do not sell or rent your data. It is shared only with:</p>
         <Items>
           <li>
-            <strong>Anthropic</strong> — the images and details listed above, for AI analysis.
+            <strong>Anthropic</strong> (United States): the images and listing text listed above, for
+            AI analysis.
           </li>
           <li>
-            <strong>Etsy</strong> — only what you instruct us to send to your own shop.
+            <strong>Cloudflare</strong>: all traffic to the Service passes through Cloudflare&rsquo;s
+            network, which carries it encrypted to our server.
           </li>
           <li>
-            <strong>Cloudflare</strong> — traffic to the Service passes through Cloudflare&rsquo;s
-            network, which carries it securely to our server.
+            <strong>Our own server in Türkiye</strong>: the Service&rsquo;s database and files live on
+            one server that we rent and administer ourselves.
           </li>
           <li>
-            <strong>Our server hosting provider</strong> — the Service&rsquo;s database and files
-            live on a server in Türkiye that we rent and administer.
+            <strong>Etsy</strong>: only what you instruct us to send to your own shop.
           </li>
           <WhenErrorTracking>
             <li>
-              <strong>Sentry</strong> — when something in the Service fails, a technical report
-              of the error goes to Sentry so we can fix it. Before it leaves our server we remove
-              your email address, your IP address, cookies, passwords, tokens and anything you
-              submitted; what remains is which part of the code failed and why.
+              <strong>Sentry</strong>: when something in the Service fails, a technical report of the
+              error goes to Sentry so we can fix it. Before it leaves our server we remove your email
+              address, your IP address, cookies, passwords, tokens and anything you submitted; what
+              remains is which part of the code failed and why.
             </li>
           </WhenErrorTracking>
           <li>
-            <strong>Authorities</strong> — only where the law requires us to disclose information.
+            <strong>Our alert channel</strong>: short operational messages (a deploy failed, the disk is
+            filling) reach us through a private messaging channel. They carry no seller data and no
+            Etsy data; the one exception is the invite-request notification described above.
+          </li>
+          <li>
+            <strong>Authorities</strong>: only where the law requires us to disclose information.
           </li>
         </Items>
         <p>
-          Because the Service is hosted in Türkiye, using it transfers your data to Türkiye if you
-          live elsewhere. Anthropic is based in the United States and may process the images it
-          receives there, and Cloudflare carries traffic through its global network. Where data crosses borders, we
+          Because the Service is hosted in Türkiye, using it transfers your data to Türkiye if you live
+          elsewhere. Anthropic is based in the United States and may process what it receives there,
+          and Cloudflare carries traffic through its global network. Where data crosses borders, we
           rely on the safeguards these providers offer for international transfers.
         </p>
       </Section>
 
-      <Section id="storage" n={8} title="Where it is stored and how it is protected">
+      <Section id="security" n={8} title="Where it is stored and how it is protected">
+        <Items>
+          <li>
+            <strong>Encrypted tokens.</strong> Etsy access and refresh tokens are encrypted at rest and
+            decrypted only at the moment a request is sent to Etsy for you. They never appear in the
+            app, in your browser, in an error message or in a log.
+          </li>
+          <li>
+            <strong>HTTPS everywhere.</strong> Connections to the Service are encrypted in transit; the
+            server is reachable only through Cloudflare&rsquo;s encrypted tunnel.
+          </li>
+          <li>
+            <strong>Access control.</strong> Every account&rsquo;s data is kept separate, and the
+            Service checks on every request that you can reach only your own. Administrators of the
+            Service see account-level facts and counts (your email address, your shops&rsquo; names,
+            how many listings and requests) and not your designs, listings, or sales figures.
+          </li>
+          <li>
+            <strong>Passwords</strong> are stored only as argon2id hashes, and repeated failed sign-ins
+            are locked out.
+          </li>
+        </Items>
         <p>
-          The Service is hosted on servers located in <strong>Türkiye</strong>. Your data is
-          stored there, in a database and file store administered by the operator. Connections to the Service are encrypted in transit. Etsy tokens are
-          encrypted at rest, and passwords are stored only as hashes. Every account&rsquo;s data
-          is kept separate, and the Service checks on every request that you can reach only your
-          own. No method of storage is perfectly secure, but we work to protect your data and
-          will tell you promptly if a breach affects it.
+          No method of storage is perfectly secure. If a security incident affects your data, we will
+          tell you without delay and within 24 hours of discovering it, and we will notify Etsy as its
+          API terms require.
         </p>
       </Section>
 
-      <Section id="retention" n={9} title="How long we keep it">
+      <Section id="retention" n={9} title="How long we keep everything">
         <p>
-          Data from Etsy is kept only as long as Etsy&rsquo;s API terms allow, and is deleted
-          automatically when that time runs out. The Service checks for expired data every 15
-          minutes.
+          <span>Expired data is deleted automatically; the Service looks for it every <span>{R.cleanupMinutes}</span>{" "}
+          minutes. The periods for Etsy data are in the table above; these are the rest.</span>
         </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                <th className="pb-2 pr-4 font-medium">Data</th>
-                <th className="pb-2 font-medium">Kept for</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Row
-                data="Your shop's listings, including image links"
-                period="6 hours at most, then deleted and fetched again when you next need them"
-              />
-              <Row
-                data="Your reference listing's images, as shown on the profile card"
-                period="6 hours at most. After that the images are no longer shown and their links are deleted; refreshing the profile shows them again"
-              />
-              <Row
-                data="Your reference listing's details used to build drafts — category, attributes, price, shipping profile, variations, readiness state, description, and which of its images are size charts"
-                period="24 hours at most, then cleared. These are never displayed; they are held only to create listings that match your reference. Your profile's own settings — its name, template, title prefix and chosen size charts — stay until you delete the profile or disconnect the last shop it is used in"
-              />
-              <Row
-                data="For each other shop a profile is used in: the ids of that shop's shipping profile, return policy, processing profile and production partners that the profile uses there"
-                period="Until you stop using the profile in that shop or disconnect that shop. When a profile's size charts are used in another of your shops, they are copied from your reference listing at the moment the draft is made and are not stored"
-              />
-              <Row
-                data="Daily sales totals per listing (units sold, orders and revenue) worked out from your shop's sales"
-                period="13 months, so last year's season can be compared, then deleted automatically; deleted at once when you disconnect the shop. For each sale only the order number, the listing, the quantity, the price, the shipping paid and the date are stored; nothing about the buyer is read or stored"
-              />
-              <Row
-                data="Daily totals of your shop's Etsy fees and ad spend, per fee type, worked out from your payment account ledger"
-                period="13 months, then deleted automatically; deleted at once when you disconnect the shop. The ledger entries themselves are never stored"
-              />
-              <Row
-                data="Figures from the monthly statement and Etsy Ads report you upload"
-                period="The files are read and not kept. The totals taken from them, and each order's number and amounts, are kept 13 months, then deleted automatically; deleted at once when you disconnect the shop. They contain no buyer names or addresses"
-              />
-              <Row
-                data="Copies of listings taken before we change them"
-                period="90 days, then deleted automatically"
-              />
-              <Row
-                data="An invite request from the form on our site"
-                period="90 days after we approve or decline it; 180 days if it is never decided"
-              />
-              <Row
-                data="Etsy access tokens"
-                period="Until you disconnect your shop or your account is deleted"
-              />
-              <Row
-                data="The image files you upload, and the resized versions made from them (we keep only the resized, Etsy-ready version, not the file as you sent it)"
-                period="3 days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise 30 days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch"
-              />
-              <Row
-                data="Generated content, profiles, task records, usage counts, and the names and order of your uploads"
-                period="While your account exists, or until you ask us to delete them"
-              />
-              <Row
-                data="Your sign-in session"
-                period="30 days after you last used it; ended at once when you sign out or change your password"
-              />
-              <Row
-                data="Failed sign-in and request-rate counters"
-                period="15 minutes at most"
-              />
-              <Row
-                data="Server logs"
-                period="Rotated automatically, and kept only as long as needed for security and troubleshooting"
-              />
-              <Row
-                data="Backups of our database (the image files you upload are not backed up)"
-                period="14 days; data you delete may remain in a backup until that backup expires"
-              />
-            </tbody>
-          </table>
-        </div>
-        <p>
-          Two limits apply to your Etsy data because it is used in two ways. Anything we{" "}
-          <strong>show</strong> you from Etsy — your shop&rsquo;s listings, and your reference
-          listing&rsquo;s images on the profile card — is kept for at most 6 hours. Details we
-          only <strong>use</strong> to build your drafts, and never display, are kept for at most
-          24 hours.
-        </p>
-        <p>
-          We never store the image files from your Etsy reference listings: they are fetched,
-          checked in memory to tell size charts from artwork, and discarded. We keep only their
-          links (6 hours) and the result of that check (24 hours).
-        </p>
+        <Table head={["Data", "Kept for"]}>
+          <Row
+            data="The image files you upload (the resized version)"
+            period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch`}</span>}
+          />
+          <Row
+            data="Analytics history: daily sales totals and order lines, daily fee and ad totals, the figures from statements and Etsy Ads reports you uploaded, daily views and favourites, and the versions of a listing's text that have ended"
+            period={<span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months, then deleted automatically; deleted at once when you disconnect the shop</span></span>}
+          />
+          <Row
+            data="The listings you prepare, your profiles' own settings, your costs, task records, usage counts, and the names and order of your uploads"
+            period="While your account exists, or until you delete them"
+          />
+          <Row
+            data="Etsy access tokens"
+            period="Until you disconnect the shop or delete your account; deleted at once at that moment"
+          />
+          <Row
+            data="An invite request from the form on our site"
+            period={<span>{`${R.inviteRequestDays} days from the request if it is still waiting, or ${R.inviteRequestDays} days after we approve or decline it; then deleted automatically`}</span>}
+          />
+          <Row
+            data="Your sign-in session"
+            period={<span>{`${R.sessionDays} days after you last used it; ended at once when you sign out or change your password`}</span>}
+          />
+          <Row
+            data="Failed sign-in and request-rate counters"
+            period={<span>{`${R.counterMinutes} minutes at most`}</span>}
+          />
+          <Row
+            data="Our records of AI calls made for your account (model, token counts, cost; no content)"
+            period={<span>{`${R.aiCallMonths} months`}</span>}
+          />
+          <Row
+            data="The log of administrative and destructive actions (what and when, with counts and internal ids; no content, no email addresses)"
+            period="For the life of the Service; after an account is deleted its entries no longer point to anyone"
+          />
+          <Row
+            data="Server logs"
+            period="Rotated automatically by size, and kept only as long as needed for security and troubleshooting"
+          />
+          <Row
+            data="Backups of our database (the image files you upload are not backed up)"
+            period={<span>{`${R.backupDays} days; data you delete may remain in a backup until that backup expires`}</span>}
+          />
+        </Table>
       </Section>
 
-      <Section id="disconnect" n={10} title="Disconnecting your shop">
+      <Section id="disconnect" n={10} title="Disconnecting a shop">
         <p>
-          You can disconnect any of your Etsy shops at any time from the{" "}
-          <Link href="/connect" className="font-medium text-brand-700 hover:underline">
+          You can disconnect any of your shops at any time on the{" "}
+          <Link href="/connect" className={link}>
             Shops
           </Link>{" "}
-          page. When you do, we <strong>immediately delete</strong> that shop&rsquo;s Etsy tokens
-          and every piece of Etsy data we hold from it: the copy of its listings, the details read
-          from its reference listings, all saved copies of its listings, the links from your
-          generated listings to its drafts, and the settings that connect your profiles to it. A
-          profile you also use in another shop stays, without the details read from the
-          disconnected shop, until you choose a reference listing in a remaining shop; a profile
-          used only in the disconnected shop is deleted. Your other shops are not affected, and
-          your uploads and generated listings stay, so you can reconnect later and carry on.
+          page. When you do, at once:
+        </p>
+        <Items>
+          <li>that shop&rsquo;s Etsy tokens are deleted, so no further request can be made for it;</li>
+          <li>
+            everything queued or scheduled for it is cancelled (jobs waiting to run, scheduled
+            go-lives, planned drafts), and the page tells you what was cancelled;
+          </li>
+          <li>
+            every piece of Etsy data we hold from it is deleted: the copy of its listings, the settings
+            read from its reference listings, the saved copies of its listings, its sales, fee and
+            statement figures, its views and favourites, the records of its drafts, and the settings
+            that connect your profiles to it.
+          </li>
+        </Items>
+        <p>
+          A profile you also use in another shop stays, without the details read from the disconnected
+          shop, until you choose a reference listing in a remaining shop; a profile used only in the
+          disconnected shop is deleted. Your other shops are not affected, and your uploads and the
+          listings you prepared stay, so you can reconnect later and carry on. Listings and drafts
+          already in your Etsy shop are not affected: they live in your shop, and you manage them on
+          Etsy.
         </p>
         <p>
-          Listings and drafts already created in your Etsy shop are not affected: they live in
-          your shop, and you manage them on Etsy.
-        </p>
-        <p>
-          You can also withdraw the Service&rsquo;s access from your Etsy account settings. That
-          stops us using the connection, but to have us delete the Etsy data we hold, also press
-          Disconnect here or write to us.
+          You can also withdraw the Service&rsquo;s access in your Etsy account settings. That stops us
+          using the connection, but to have us delete the Etsy data we hold, also press Disconnect
+          here or write to us.
         </p>
       </Section>
 
-      <Section id="deletion" n={11} title="Deleting your account and your rights">
+      <Section id="deletion" n={11} title="Deleting your account">
         <p>
-          To delete your account, write to <SupportEmail /> from the email address you signed up
-          with. We will delete your account and everything associated with it — your tokens,
-          Etsy data, uploads, generated content, profiles and records — within 30 days and
-          confirm when it is done. Copies may remain in backups for up to 14 more days until
-          those backups expire.
+          You can delete your account yourself in{" "}
+          <Link href="/settings" className={link}>
+            Settings
+          </Link>
+          , under <em>Delete account</em>. When you confirm with your password:
+        </p>
+        <Items>
+          <li>
+            <strong>At once</strong>: every shop is disconnected as described above (tokens and Etsy
+            data deleted, queued and scheduled work cancelled), every sign-in session ends, and the
+            account can no longer be used.
+          </li>
+          <li>
+            <strong><span>Then, by an automatic job, within <span>{R.accountDeletionDays}</span> days at the latest</span></strong>{" "}
+            (normally within minutes): your uploaded image files, your batches, the listings you
+            prepared, your profiles, your costs and reports, your task and usage records, and the
+            account itself are deleted.
+          </li>
+        </Items>
+        <p>
+          <strong>What is kept, and why.</strong><span> The log of administrative and destructive actions
+          keeps its entries about the account (for example &ldquo;a shop was disconnected&rdquo;, with
+          counts), because it is our record that deletions happened; they contain no content and no
+          email address, and no longer point to an account. Our records of AI calls keep their numbers
+          (model, tokens, cost), unlinked from the account, because they are our own accounts. Copies
+          in database backups expire within <span>{R.backupDays}</span> days. Nothing on Etsy is touched: your
+          drafts and listings are yours and stay in your shop.</span>
         </p>
         <p>
-          Depending on where you live, you may have the right to ask for a copy of your data, to
-          have it corrected or deleted, to restrict or object to how we use it, and to receive it
-          in a portable format. To use any of these rights, write to <SupportEmail />; we reply
-          within 30 days. You also have the right to complain to the data protection authority
-          in your country.
+          If you cannot sign in, write to <SupportEmail /><span> from the email address of the account and we
+          will delete it for you within the same <span>{R.accountDeletionDays}</span> days.</span>
+        </p>
+      </Section>
+
+      <Section id="rights" n={12} title="Your rights and your data">
+        <p>
+          <strong>Getting your data out.</strong> The tables on the Analytics page can be downloaded as
+          CSV files, and the listings you prepare are in your own Etsy shop as drafts. There is no
+          one-click export of a whole account; if you want a copy of the data we hold about you, write
+          to <SupportEmail /> and we will send it.
+        </p>
+        <p>
+          Depending on where you live, you may have the right to ask for a copy of your data, to have
+          it corrected or deleted, to restrict or object to how we use it, and to receive it in a
+          portable format. To use any of these rights, write to <SupportEmail />; we reply within 30
+          days. You also have the right to complain to the data protection authority in your country.
         </p>
         <p>The Service is not intended for anyone under 18.</p>
       </Section>
 
-      <Section id="cookies" n={12} title="Cookies">
+      <Section id="cookies" n={13} title="Cookies and browser storage">
         <p>
-          The Service sets a single cookie, named <code className="text-sm">session</code>, which
-          keeps you signed in. It is strictly necessary, cannot be read by scripts on the page,
-          and lasts 30 days from your last visit. There are no advertising, analytics or
-          third-party cookies.
+          The Service sets a single cookie, named <code className="rounded bg-slate-100 px-1 text-sm">session</code><span>,
+          which keeps you signed in. It is strictly necessary, cannot be read by scripts on the page,
+          and lasts <span>{R.sessionDays}</span> days from your last visit. Your browser also remembers two
+          conveniences on your own device: which of your shops you last had selected, and how you last
+          chose to group an upload. There are no advertising, analytics or third-party cookies.</span>
         </p>
       </Section>
 
-      <Section id="changes" n={13} title="Changes to this policy">
+      <Section id="changes" n={14} title="Changes to this policy">
         <p>
-          If we change this policy in a way that matters, we will tell you in the app or by email
-          at least 14 days before the change takes effect. The date at the top shows when it was
+          When we change this policy or the Terms of Service in a way that matters, the app asks you to
+          read and agree to the new version before you go on. The date at the top shows when it was
           last updated.
         </p>
         <p>
-          Questions: <SupportEmail />. Operator: <Fact field="operator_name" />,{" "}
+          Questions and privacy requests: <SupportEmail />. Provided by <Fact field="operator_name" />,{" "}
           <Fact field="operator_location" />.
         </p>
       </Section>

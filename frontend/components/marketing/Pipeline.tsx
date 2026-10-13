@@ -19,21 +19,21 @@ const STAGES = [
   },
   {
     key: "generate",
-    title: "Listyro fills in everything",
-    body: "Choose one of your existing listings as the model. Every new listing copies its category, prices, variations, size charts, shipping and section, and gets its own title, 13 tags and description written from the design.",
+    title: "Listyro prepares the listing",
+    body: "Choose one of your existing listings as the model. Every new listing copies its category, prices, variations, size charts, shipping and section, and AI suggests a title, 13 tags and a description from your design for you to review and edit.",
     points: ["Each shop uses its own model listings", "Written to match what shoppers search for; no ranking promises", "Optional filter for brand and character names"],
   },
   {
     key: "review",
     title: "Take a quick look",
-    body: "Every listing arrives complete and easy to read. Change anything you want, or approve it as it is with one click. Anything that might be a problem is flagged, with the reason.",
+    body: "Every listing arrives complete and easy to read. Change anything you want, then approve it yourself. Anything that might be a problem is flagged, with the reason.",
     points: ["Edit any title, tag or photo", "Flags tell you exactly what to check", "Approve one listing or a whole set you have read"],
   },
   {
     key: "publish",
     title: "Go live now or on a schedule",
-    body: "Approved listings go to your shop. Publish with one click, or pick a time and they go live then, in your own time zone. Send the same design to several of your shops at once.",
-    points: ["Line up a whole drop for the week", "Each shop gets its own settings", "If Etsy turns something down, you see why and retry in one click"],
+    body: "Approved listings go to your shop as drafts. Publish one when you are ready, or pick a time and it goes live then, in your own time zone. If you run several shops, you choose the shop each listing goes to.",
+    points: ["Plan your week's new designs", "Each shop has its own listings and settings", "If Etsy turns something down, you see why and can try again"],
   },
 ] as const;
 

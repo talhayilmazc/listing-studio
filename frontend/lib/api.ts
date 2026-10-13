@@ -64,6 +64,7 @@ import type {
   ReplaceImagesResult,
   ReferenceText,
   ShopTickResult,
+  AccountDeleted,
   ShopListings,
   ShopSummary,
   ItemOptions,
@@ -152,11 +153,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
-  register: (email: string, password: string, inviteCode: string) =>
+  /** `acceptTerms`: the tick beside "I agree to the Terms of Service and Privacy Policy". */
+  register: (email: string, password: string, inviteCode: string, acceptTerms: boolean) =>
     req<Account>("/account/register", {
       method: "POST",
-      body: JSON.stringify({ email, password, invite_code: inviteCode }),
+      body: JSON.stringify({ email, password, invite_code: inviteCode, accept_terms: acceptTerms }),
     }),
+  /** The one-time acceptance screen: agree to the version it showed. */
+  acceptTerms: (version: string) =>
+    req<Account>("/account/terms", { method: "POST", body: JSON.stringify({ accept: true, version }) }),
+  /** Settings → Delete account (the account's own password confirms it). */
+  deleteAccount: (password: string) =>
+    req<AccountDeleted>("/account/delete", { method: "POST", body: JSON.stringify({ password, confirm: true }) }),
   logout: () => req<void>("/account/logout", { method: "POST" }),
   changePassword: (currentPassword: string, newPassword: string) =>
     req<Account>("/account/password", {
@@ -204,6 +212,14 @@ export const api = {
     createInvite: (body: { email?: string; note?: string; expires_in_days: number | null }) =>
       req<InviteIssued>("/admin/invites", { method: "POST", body: JSON.stringify(body) }),
     inviteRequests: () => req<InviteRequest[]>("/admin/invite-requests"),
+    /** How many requests wait for a decision (the badge on the Invites tab). */
+    pendingInviteRequests: () => req<{ pending: number }>("/admin/invite-requests/pending"),
+    analyticsRetention: () => req<{ months: number; default_months: number }>("/admin/analytics-retention"),
+    setAnalyticsRetention: (months: number) =>
+      req<{ months: number; default_months: number }>("/admin/analytics-retention", { method: "PUT", body: JSON.stringify({ months }) }),
+    connectionsPaused: () => req<{ on: boolean; notice: string }>("/admin/connections-paused"),
+    setConnectionsPaused: (on: boolean) =>
+      req<{ on: boolean; notice: string }>("/admin/connections-paused", { method: "PUT", body: JSON.stringify({ on }) }),
     approveInviteRequest: (id: string) =>
       req<InviteRequestApproved>(`/admin/invite-requests/${id}/approve`, { method: "POST" }),
     declineInviteRequest: (id: string) =>

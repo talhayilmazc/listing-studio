@@ -175,6 +175,13 @@ class Tenant(Base):
     allowance_amount: Mapped[int | None] = mapped_column(Integer)
     #: "daily" | "weekly" | "monthly"; None = the system default.
     allowance_period: Mapped[str | None] = mapped_column(Text)
+    #: The version of the Terms of Service and Privacy Policy this account agreed
+    #: to by an explicit click, and when (core/terms.py). None: not yet; the
+    #: account is asked before it can use the app.
+    terms_version: Mapped[str | None] = mapped_column(Text)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The seller asked for the account to be deleted (workers/accounts.py).
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -259,11 +266,13 @@ class InviteRequest(Base):
 
     __tablename__ = "invite_request"
     DECIDED_RETENTION_DAYS: ClassVar[int] = 90
-    PENDING_RETENTION_DAYS: ClassVar[int] = 180
+    PENDING_RETENTION_DAYS: ClassVar[int] = 90
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     email: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # lower-cased
     shop: Mapped[str | None] = mapped_column(Text)  # shop name or URL, as typed
+    #: How many shops the person says they have (asked since migration 0062).
+    shop_count: Mapped[int | None] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
     #: "pending" | "approved" | "declined"
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")

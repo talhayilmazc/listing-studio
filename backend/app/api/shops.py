@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
+from app.core import app_settings
 from app.core.config import get_settings
 from app.api.deps import active_tenant, get_connection_service, get_session
 from app.db.models import EtsyConnection, Tenant
@@ -66,7 +67,9 @@ async def selected_shop(
     return shops[0] if shops else None
 
 
-async def _shops_out(session: AsyncSession, tenant: Tenant) -> schemas.ShopsOut:
+async def _shops_out(
+    session: AsyncSession, tenant: Tenant, disconnected: schemas.DisconnectedOut | None = None
+) -> schemas.ShopsOut:
     slots = await shop_slots(session, tenant)
     return schemas.ShopsOut(
         shops=[shop_out(c) for c in await active_shops(session, tenant.id)],
@@ -77,6 +80,9 @@ async def _shops_out(session: AsyncSession, tenant: Tenant) -> schemas.ShopsOut:
             app_limit=slots.app_limit,
             can_add=slots.can_add,
         ),
+        connections_paused=slots.paused,
+        pause_notice=app_settings.PAUSE_NOTICE if slots.paused else None,
+        disconnected=disconnected,
     )
 
 
@@ -130,5 +136,7 @@ async def disconnect_shop(
     connection = await owned_shop(session, tenant.id, shop_id)
     if connection is None:
         raise _NOT_FOUND
-    await service.disconnect(session, connection, actor=tenant)
-    return await _shops_out(session, tenant)
+    name = shop_label(connection)
+    cancelled = await service.disconnect(session, connection, actor=tenant)
+    # What was waiting for the shop and will now not happen: said, not left to be found out.
+    return await _shops_out(session, tenant, schemas.DisconnectedOut(shop_name=name, **cancelled))

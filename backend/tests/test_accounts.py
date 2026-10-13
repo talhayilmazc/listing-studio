@@ -104,7 +104,7 @@ async def test_register_consumes_the_invite_once(app_ctx) -> None:
 
     res = await client.post(
         "/api/account/register",
-        json={"email": "Beta@Example.com", "password": GOOD_PASSWORD, "invite_code": code},
+        json={"email": "Beta@Example.com", "password": GOOD_PASSWORD, "invite_code": code, "accept_terms": True},
     )
     assert res.status_code == 201
     body = res.json()
@@ -116,7 +116,7 @@ async def test_register_consumes_the_invite_once(app_ctx) -> None:
     # The same code cannot be spent twice.
     again = await client.post(
         "/api/account/register",
-        json={"email": "second@example.com", "password": GOOD_PASSWORD, "invite_code": code},
+        json={"email": "second@example.com", "password": GOOD_PASSWORD, "invite_code": code, "accept_terms": True},
     )
     assert again.status_code == 400
 
@@ -130,7 +130,7 @@ async def test_register_consumes_the_invite_once(app_ctx) -> None:
 async def test_register_requires_a_valid_invite(app_ctx) -> None:
     res = await app_ctx["client"].post(
         "/api/account/register",
-        json={"email": "nope@example.com", "password": GOOD_PASSWORD, "invite_code": "made-up"},
+        json={"email": "nope@example.com", "password": GOOD_PASSWORD, "invite_code": "made-up", "accept_terms": True},
     )
     assert res.status_code == 400
     async with app_ctx["sm"]() as s:
@@ -141,7 +141,7 @@ async def test_register_rejects_a_weak_password(app_ctx) -> None:
     code = await _invite(app_ctx)
     res = await app_ctx["client"].post(
         "/api/account/register",
-        json={"email": "weak@example.com", "password": "short", "invite_code": code},
+        json={"email": "weak@example.com", "password": "short", "invite_code": code, "accept_terms": True},
     )
     assert res.status_code == 422
     # A rejected registration must not burn the invite.
@@ -155,11 +155,11 @@ async def test_duplicate_email_is_rejected(app_ctx) -> None:
     first, second = await _invite(app_ctx), await _invite(app_ctx)
     await client.post(
         "/api/account/register",
-        json={"email": "dup@example.com", "password": GOOD_PASSWORD, "invite_code": first},
+        json={"email": "dup@example.com", "password": GOOD_PASSWORD, "invite_code": first, "accept_terms": True},
     )
     res = await client.post(
         "/api/account/register",
-        json={"email": "dup@example.com", "password": GOOD_PASSWORD, "invite_code": second},
+        json={"email": "dup@example.com", "password": GOOD_PASSWORD, "invite_code": second, "accept_terms": True},
     )
     assert res.status_code == 409
 
@@ -180,7 +180,7 @@ async def _register(ctx, email: str = "user@example.com") -> None:
     code = await _invite(ctx)
     res = await ctx["client"].post(
         "/api/account/register",
-        json={"email": email, "password": GOOD_PASSWORD, "invite_code": code},
+        json={"email": email, "password": GOOD_PASSWORD, "invite_code": code, "accept_terms": True},
     )
     assert res.status_code == 201
     ctx["client"].cookies.clear()

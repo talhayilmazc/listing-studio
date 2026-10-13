@@ -78,7 +78,9 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
       <div>
         <h2 id="distribution-heading" className="text-sm font-medium text-slate-800">Send to shop groups</h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          Every shop in a group gets the group&apos;s listings, and no other group&apos;s. Only approved listings are sent.
+          A listing goes to the shops of one group, with each shop&apos;s own settings, and to no other group. Only
+          approved listings are sent. Each of your shops should have its own listings: Etsy does not allow duplicate
+          shops.
         </p>
       </div>
 

@@ -19,10 +19,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import current_tenant, get_session, get_session_store
+from app.api.deps import Enqueuer, current_tenant, get_connection_service, get_enqueuer, get_session, get_session_store
 from app.compliance.scanner import rescan_account
 from app.compliance.trademarks import filter_on
-from app.core import allowance, audit, limits
+from app.core import allowance, audit, limits, terms
+from app.etsy.connection import ConnectionService
+from app.workers import accounts as account_deletion
 from app.core.config import get_settings
 from app.core.invites import hash_code, redeemable_by
 from app.core.ratelimit import client_ip
@@ -63,6 +65,32 @@ class _EmailIn(BaseModel):
 class RegisterRequest(_EmailIn):
     password: str
     invite_code: str
+    #: The tick beside "I agree to the Terms of Service and Privacy Policy". It
+    #: starts unticked, and an account cannot be created without it.
+    accept_terms: bool = False
+
+
+class TermsAcceptRequest(BaseModel):
+    accept: bool
+    #: The version the screen showed: an old tab cannot accept a newer text unseen.
+    version: str = Field(max_length=32)
+
+
+class DeleteAccountRequest(BaseModel):
+    #: The account's own password, so a borrowed session cannot delete it.
+    password: str
+    #: The seller typed the confirmation: the app cannot bring an account back.
+    confirm: bool = False
+
+
+class DeleteAccountOut(BaseModel):
+    """What was done at once; the uploads and the account itself follow by a job."""
+
+    shops_disconnected: int
+    queued_jobs: int
+    scheduled_publishes: int
+    planned_drafts: int
+    within_days: int
 
 
 class LoginRequest(_EmailIn):
@@ -95,6 +123,13 @@ class AccountOut(BaseModel):
     trademark_filter_by_admin: bool = False
     trademark_filter_effective: bool = True
     trademark_filter_changed_at: datetime | None = None
+    # Click-through acceptance (core/terms.py): the version in force, whether this
+    # account still has to agree to it (the app then shows only that screen), and
+    # what it agreed to and when.
+    terms_version: str = terms.TERMS_VERSION
+    terms_due: bool = False
+    terms_accepted_version: str | None = None
+    terms_accepted_at: datetime | None = None
 
 
 #: What a seller accepts when turning the trademark filter off. Its version is
@@ -172,6 +207,9 @@ def _out(tenant: Tenant) -> AccountOut:
         trademark_filter_by_admin=tenant.trademark_filter is not None,
         trademark_filter_effective=filter_on(tenant),
         trademark_filter_changed_at=tenant.trademark_filter_changed_at,
+        terms_due=not terms.accepted(tenant),
+        terms_accepted_version=tenant.terms_version,
+        terms_accepted_at=tenant.terms_accepted_at,
     )
 
 
@@ -200,6 +238,12 @@ async def register(
 ) -> AccountOut:
     """Create an account against a single-use invite code (A1)."""
     email = _normalise_email(body.email)
+    if not body.accept_terms:
+        # Click-through acceptance: checked here, not only by the form's tick.
+        raise HTTPException(
+            status_code=422,
+            detail="You need to agree to the Terms of Service and Privacy Policy to create an account.",
+        )
 
     try:
         validate_strength(body.password, email=email)
@@ -221,6 +265,9 @@ async def register(
         email=email,
         password_hash=hash_password(body.password),
         status=TenantStatus.active,
+        # What they ticked, and when (core/terms.py).
+        terms_version=terms.TERMS_VERSION,
+        terms_accepted_at=now,
     )
     session.add(tenant)
     try:
@@ -276,7 +323,10 @@ async def login(
 
     assert tenant is not None  # narrowed by `ok`
     if tenant.status is not TenantStatus.active:
-        raise HTTPException(status_code=403, detail="account suspended")
+        raise HTTPException(
+            status_code=403,
+            detail=account_deletion.BEING_DELETED if tenant.deletion_requested_at else "account suspended",
+        )
 
     for scope in scopes:
         await sessions.clear_failures(scope)
@@ -329,6 +379,65 @@ async def session_check(
 async def me(tenant: Tenant = Depends(current_tenant)) -> AccountOut:
     """Who this session belongs to. 401 without one."""
     return _out(tenant)
+
+
+@router.post("/terms", response_model=AccountOut)
+async def accept_terms(
+    body: TermsAcceptRequest,
+    tenant: Tenant = Depends(current_tenant),
+    session: AsyncSession = Depends(get_session),
+) -> AccountOut:
+    """The one-time screen: an existing account agrees to the current Terms of
+    Service and Privacy Policy before it goes on. Recorded with the version."""
+    if not body.accept:
+        raise HTTPException(status_code=422, detail="You need to agree to go on using Listyro.")
+    if body.version != terms.TERMS_VERSION:
+        # The text changed since that page was loaded: show the current one first.
+        raise HTTPException(status_code=409, detail="The terms were updated. Reload the page to read the current version.")
+    if not terms.accepted(tenant):
+        terms.accept(tenant)
+        audit.record(session, "account.terms_accepted", actor=tenant, target_tenant_id=tenant.id,
+                     version=terms.TERMS_VERSION)
+        await session.commit()
+        await session.refresh(tenant)
+    return _out(tenant)
+
+
+@router.post("/delete", response_model=DeleteAccountOut)
+async def delete_account(
+    body: DeleteAccountRequest,
+    request: Request,
+    response: Response,
+    tenant: Tenant = Depends(current_tenant),
+    session: AsyncSession = Depends(get_session),
+    sessions: SessionStore = Depends(get_session_store),
+    service: ConnectionService = Depends(get_connection_service),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> DeleteAccountOut:
+    """Settings → Delete account. At once: every shop is disconnected (tokens and
+    Etsy data deleted, queued and scheduled work cancelled) and the account can
+    no longer sign in. A job then deletes the uploads and the account itself
+    (workers/accounts.py), within 30 days at the latest. Nothing on Etsy changes."""
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirm that you want the account deleted.")
+    if not verify_password(tenant.password_hash, body.password):
+        raise HTTPException(status_code=403, detail="That is not this account's password.")
+    if tenant.is_admin:
+        admins = await session.scalar(
+            select(func.count()).select_from(Tenant).where(Tenant.is_admin, Tenant.deletion_requested_at.is_(None))
+        )
+        if (admins or 0) <= 1:
+            raise HTTPException(status_code=409, detail="This is the only admin account; make another admin first.")
+    tenant_id = tenant.id
+    summary = await account_deletion.request_deletion(session, tenant, service)
+    await sessions.destroy_all(tenant_id)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    await enqueuer.enqueue("delete_account", str(tenant_id))
+    return DeleteAccountOut(
+        shops_disconnected=summary["shops"], queued_jobs=summary["queued_jobs"],
+        scheduled_publishes=summary["scheduled_publishes"], planned_drafts=summary["planned_drafts"],
+        within_days=account_deletion.DEADLINE_DAYS,
+    )
 
 
 @router.put("/time-zone", response_model=AccountOut)

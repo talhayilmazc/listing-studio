@@ -3,10 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-
-// Exact ToU notice — must not be altered or abbreviated.
-const TRADEMARK_NOTICE =
-  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
+import { TRADEMARK_NOTICE } from "@/lib/legal";
 
 /**
  * Frame for the signed-out screens. No rail: there is nothing to navigate to
@@ -83,7 +80,7 @@ function AuthFooter() {
 
   return (
     <div className="mt-8 space-y-3 text-center text-xs text-slate-400">
-      <p className="leading-relaxed">{TRADEMARK_NOTICE}</p>
+      <p className="leading-relaxed" data-testid="trademark-notice">{TRADEMARK_NOTICE}</p>
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
         <Link href="/terms" className="hover:text-slate-600">
           Terms of Service

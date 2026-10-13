@@ -19,6 +19,8 @@ interface ShopValue {
   /** null until the first answer. */
   shops: Shop[] | null;
   slots: ShopsOut["slots"] | null;
+  /** The operator's notice while new shop connections are paused, else null. */
+  paused: string | null;
   selected: Shop | null;
   select: (id: string) => void;
   refresh: () => Promise<void>;
@@ -27,6 +29,7 @@ interface ShopValue {
 const ShopContext = createContext<ShopValue>({
   shops: null,
   slots: null,
+  paused: null,
   selected: null,
   select: () => {},
   refresh: async () => {},
@@ -71,7 +74,8 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<ShopValue>(() => {
     const shops = data?.shops ?? null;
     const selected = shops ? shops.find((s) => s.id === selectedId) ?? shops[0] ?? null : null;
-    return { shops, slots: data?.slots ?? null, selected, select, refresh };
+    const paused = data?.connections_paused ? data.pause_notice ?? "New shop connections are paused." : null;
+    return { shops, slots: data?.slots ?? null, paused, selected, select, refresh };
   }, [data, selectedId, select, refresh]);
 
   return <ShopContext.Provider value={value}>{children}</ShopContext.Provider>;

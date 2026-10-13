@@ -19,6 +19,7 @@ from collections.abc import Callable
 
 import httpx
 
+from app.core import terms
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.core.sessions import SESSION_COOKIE, SessionStore
@@ -77,6 +78,11 @@ async def active_tenant(tenant: Tenant = Depends(current_tenant)) -> Tenant:
     """
     if tenant.must_change_password:
         raise HTTPException(status_code=403, detail="password change required")
+    if not terms.accepted(tenant):
+        # Click-through acceptance (core/terms.py): nothing but the account
+        # endpoints works until this account has agreed to the current Terms of
+        # Service and Privacy Policy. The app shows the one-time screen.
+        raise HTTPException(status_code=403, detail=terms.REQUIRED)
     return tenant
 
 

@@ -39,10 +39,12 @@ class ShopSlots:
     limit: int
     app_used: int
     app_limit: int
+    #: New connections are paused by the operator (core/app_settings.py).
+    paused: bool = False
 
     @property
     def can_add(self) -> bool:
-        return self.used < self.limit and self.app_used < self.app_limit
+        return not self.paused and self.used < self.limit and self.app_used < self.app_limit
 
 
 def tenant_shop_limit(tenant: Tenant) -> int:
@@ -74,11 +76,14 @@ async def app_shop_count(session: AsyncSession) -> int:
 
 
 async def shop_slots(session: AsyncSession, tenant: Tenant) -> ShopSlots:
+    from app.core import app_settings
+
     return ShopSlots(
         used=len(await active_shops(session, tenant.id)),
         limit=tenant_shop_limit(tenant),
         app_used=await app_shop_count(session),
         app_limit=get_settings().max_shops_app_wide,
+        paused=await app_settings.connections_paused(session),
     )
 
 

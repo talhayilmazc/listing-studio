@@ -24,6 +24,7 @@ type Operator = Pick<
   | "governing_law"
   | "dispute_venue"
   | "error_tracking"
+  | "analytics_retention_months"
 >;
 
 const OperatorContext = createContext<Operator | null>(null);
@@ -128,6 +129,15 @@ export function SupportEmail() {
       {email}
     </a>
   );
+}
+
+/**
+ * How many months of analytics history are kept: the figure in force (an
+ * operator setting, from /api/meta), or the default until it has loaded.
+ */
+export function AnalyticsMonths({ fallback }: { fallback: number }) {
+  const meta = useContext(OperatorContext);
+  return <span translate="no">{meta?.analytics_retention_months ?? fallback}</span>;
 }
 
 /** A plain definition-style list for "what we collect"-type passages. */

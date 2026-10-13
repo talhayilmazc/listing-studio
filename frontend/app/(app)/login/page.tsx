@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { AuthShell, Field, FormError } from "@/components/AuthShell";
 import { useSession } from "@/components/SessionProvider";
@@ -14,6 +14,20 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Arriving from Settings → Delete account: what was done, said once.
+  const [deleted, setDeleted] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("deleted") !== "1") return;
+    const shops = Number(params.get("shops") ?? 0);
+    const cancelled = Number(params.get("cancelled") ?? 0);
+    setDeleted(
+      "Your account is being deleted. " +
+        (shops ? `${shops} shop${shops === 1 ? " was" : "s were"} disconnected and the Etsy data we held deleted. ` : "") +
+        (cancelled ? `${cancelled} queued or scheduled item${cancelled === 1 ? " was" : "s were"} cancelled. ` : "") +
+        "Your uploads, listings and the account itself follow within 30 days at the latest. Nothing on Etsy was changed.",
+    );
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,7 +37,7 @@ export default function LoginPage() {
       const account = await api.login(email, password);
       setAccount(account);
       // A temporary password may only be used to replace itself (A4).
-      router.replace(account.must_change_password ? "/password" : "/dashboard");
+      router.replace(account.must_change_password ? "/password" : account.terms_due ? "/accept-terms" : "/dashboard");
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -48,6 +62,11 @@ export default function LoginPage() {
       }
     >
       <form onSubmit={onSubmit} className="space-y-4">
+        {deleted && (
+          <p key="deleted" role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800" data-testid="account-deleted" translate="no">
+            {deleted}
+          </p>
+        )}
         <Field id="email" label="Email">
           <input
             id="email"

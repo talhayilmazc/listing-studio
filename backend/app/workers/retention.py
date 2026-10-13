@@ -61,6 +61,8 @@ from app.db.models import (
     StatementOrder,
 )
 
+from app.core import app_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,17 +88,19 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
             < now - timedelta(seconds=ShopListingCache.STALE_SECONDS)
         )
     )
-    # Sales totals: 13 months (v7 §C1), long enough for
-    # last year's season.
-    oldest = (now - timedelta(days=SalesDaily.RETENTION_DAYS)).date()
+    # Analytics history: kept for the months the operator set (24 by default,
+    # Admin; core/app_settings.py), then deleted here. The same figure for every
+    # table below, so no part of a month's figures outlives another.
+    months = await app_settings.analytics_months(session)
+    oldest = app_settings.analytics_cutoff(months, now)
     sales = await _bulk(session, delete(SalesDaily).where(SalesDaily.day < oldest))
     await _bulk(session, delete(LedgerDaily).where(LedgerDaily.day < oldest))
     # Views and favourites per listing per day, and the text versions that ended
-    # more than 13 months ago (Part D).
+    # before then (Part D).
     await _bulk(session, delete(ListingStatDaily).where(ListingStatDaily.day < oldest))
     await _bulk(session, delete(ContentVersion).where(
-        ContentVersion.active_to < now - timedelta(days=ContentVersion.RETENTION_DAYS)))
-    # What "Import from Etsy" stored, and the order lines it is joined to: the same 13 months.
+        ContentVersion.active_to < now - timedelta(days=app_settings.analytics_days(months))))
+    # What "Import from Etsy" stored, and the order lines it is joined to: the same period.
     await _bulk(session, delete(SaleLine).where(SaleLine.day < oldest))
     await _bulk(session, delete(AdsDaily).where(AdsDaily.day < oldest))
     await _bulk(session, delete(AdCharge).where(AdCharge.click_day < oldest))

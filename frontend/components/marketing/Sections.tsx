@@ -34,8 +34,8 @@ const FEATURES: { title: string; body: string }[] = [
     body: "Each listing is put into a matching section of your shop, so new designs land where they belong.",
   },
   {
-    title: "All your shops",
-    body: "Connect up to eight shops and send the same design to several at once, each with that shop's own settings.",
+    title: "Several shops, one account",
+    body: "If you run several shops, connect each one and manage them from one account. Every shop keeps its own listings, groups, shipping and return settings.",
   },
   {
     title: "Scheduling",
@@ -46,8 +46,8 @@ const FEATURES: { title: string; body: string }[] = [
     body: "Optional trademark filter that keeps brand and character names out of your listings, and flags designs that may show one.",
   },
   {
-    title: "Profit per listing",
-    body: "See what each listing really earns after Etsy's fees, your ad spend and your own costs.",
+    title: "Profit, cost and ads reporting",
+    body: "See what each listing earns after Etsy's fees, your ad spend and your own costs. It is your own profit report, not a copy of Etsy's statistics.",
   },
 ];
 
@@ -200,7 +200,7 @@ export const QUESTIONS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Is Listyro made by Etsy?",
-    a: "No. Listyro is an independent product that uses the Etsy API. It is not endorsed or certified by Etsy, Inc.",
+    a: "No. Listyro is an independent product that uses Etsy's API. It is not endorsed or certified by Etsy.",
   },
   {
     q: "Will my listings rank higher?",
@@ -216,7 +216,7 @@ export const QUESTIONS: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "What if Etsy turns a listing down?",
-    a: "You see Etsy's reason on the listing, fix it if needed, and try again with one click. A retry never creates a duplicate.",
+    a: "You see Etsy's reason on the listing, fix it if needed, and try again. A retry never creates a second listing.",
   },
   {
     q: "Is it free?",

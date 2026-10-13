@@ -18,11 +18,11 @@ const PLANNED: { name: string; for: string; points: string[] }[] = [
   {
     name: "Studio",
     for: "A few shops and a larger monthly catalog.",
-    points: ["Several shops", "Send one listing to several shops", "Profit analytics", "Everything in Solo"],
+    points: ["Several shops, each with its own listings", "Shop groups", "Profit, cost and ads reporting", "Everything in Solo"],
   },
   {
     name: "Catalog",
-    for: "High volume across many shops.",
+    for: "A large catalog of your own designs, across the shops you run.",
     points: ["Up to eight shops", "The largest monthly allowance", "Priority support", "Everything in Studio"],
   },
 ];
@@ -36,8 +36,9 @@ export default function Pricing() {
           Free during beta.
         </h1>
         <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600">
-          Everything is included while Listyro is in beta. Plans for after the beta will be announced well before
-          it ends, and every beta seller will hear first.
+          Everything is included while Listyro is in beta, and no payment of any kind is taken: there is no
+          checkout on this site. Pricing applies only after launch; plans will be announced well before the beta
+          ends, and every beta seller will hear first.
         </p>
       </div>
 
@@ -83,9 +84,11 @@ export default function Pricing() {
         <div className="min-w-0">
           <h2 className="font-display text-3xl text-slate-900">What the plans will cover</h2>
           <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">
-            The work Listyro does for you: writing each listing from its design, preparing the photos, checking for
-            trademark problems, and the approval, scheduling and profit tools. Connecting your shop is not part of any
-            plan.
+            The work Listyro does for you: suggesting each listing&apos;s text from its design, preparing the photos,
+            checking for trademark problems, and the review, scheduling and reporting tools. Nothing Etsy gives its
+            sellers for free is part of a plan: connecting your shop, creating listings on Etsy and Etsy&apos;s own
+            statistics are not what you would pay for. The reporting is your own profit, cost and ads report, not a
+            copy of Etsy Stats.
           </p>
         </div>
         <div className="min-w-0">

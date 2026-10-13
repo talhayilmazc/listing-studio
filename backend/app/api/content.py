@@ -30,7 +30,7 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline import manual, versions
+from app.pipeline import creativity, manual, versions
 from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
 from app.pipeline.personalization import DEFAULT_QUESTION
 from app.pipeline.reference import decode_etsy_text
@@ -300,6 +300,8 @@ async def contents_out(
         out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
         # The listing's profile: chosen at upload or on its group, changed there.
         out.profile_id, out.profile_name = (profile.id, profile.name) if profile else (None, None)
+        # Etsy's Creativity Standards: a print-on-demand profile with no production partner.
+        out.production_note = creativity.production_note(profile) if profile is not None else None
         out.attributes = dict((c.attributes or {}).get("listing") or {})
     for out in outs:
         out.findings = findings.get(out.id, [])

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { AuthShell, Field, FormError } from "@/components/AuthShell";
 import { useSession } from "@/components/SessionProvider";
+import { PROVIDER_DISCLAIMER } from "@/lib/legal";
 
 const MIN_PASSWORD = 12;
 
@@ -19,6 +20,15 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // An invite link ("…/register?invite=CODE&email=you@…") fills the code and the address.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("invite");
+    const address = params.get("email");
+    if (code) setInviteCode(code);
+    if (address) setEmail(address);
+  }, []);
+
   const tooShort = password.length > 0 && password.length < MIN_PASSWORD;
   const canSubmit =
     accepted && !busy && email.trim() !== "" && inviteCode.trim() !== "" && !tooShort;
@@ -28,7 +38,7 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      const account = await api.register(email, password, inviteCode);
+      const account = await api.register(email, password, inviteCode, accepted);
       setAccount(account);
       router.replace("/dashboard");
     } catch (err) {
@@ -108,26 +118,32 @@ export default function RegisterPage() {
           </div>
         </Field>
 
-        {/* ToU: terms and privacy must be accepted by an explicit click. */}
-        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-600">
+        {/* Click-through acceptance: unticked to begin with, required by the form and by the server. */}
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-600 max-sm:min-h-[2.75rem]">
           <input
             type="checkbox"
             checked={accepted}
             onChange={(e) => setAccepted(e.target.checked)}
+            required
             className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            data-testid="consent-checkbox"
           />
           <span>
             I agree to the{" "}
-            <Link href="/terms" className="font-medium text-brand-700 hover:underline">
+            <Link href="/terms" target="_blank" className="font-medium text-brand-700 underline">
               Terms of Service
             </Link>{" "}
             and{" "}
-            <Link href="/privacy" className="font-medium text-brand-700 hover:underline">
+            <Link href="/privacy" target="_blank" className="font-medium text-brand-700 underline">
               Privacy Policy
             </Link>
-            , including that my design images are sent to Anthropic for analysis.
           </span>
         </label>
+        <p className="text-xs leading-relaxed text-slate-500">
+          The Privacy Policy explains that the design images you ask us to write listings for are sent to
+          Anthropic for analysis, and that nothing about your buyers is stored.
+        </p>
+        <p className="text-[11px] leading-relaxed text-slate-500">{PROVIDER_DISCLAIMER}</p>
 
         <FormError message={error} />
 

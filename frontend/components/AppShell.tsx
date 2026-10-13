@@ -8,7 +8,7 @@ import { MetricStrip } from "./MetricStrip";
 import { PauseNotice } from "./PauseNotice";
 import { ShopProvider } from "./ShopProvider";
 import { Footer } from "./Footer";
-import { isPublicRoute, useSession } from "./SessionProvider";
+import { isBareRoute, useSession } from "./SessionProvider";
 
 /**
  * Layout frame (docs/ui-direction-v2.md §1): fixed 240px dark rail, content area
@@ -23,9 +23,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { account, loading } = useSession();
   const pathname = usePathname() ?? "/";
 
-  // Auth screens and the forced password change render bare.
-  if (isPublicRoute(pathname) || pathname === "/password") {
+  // Auth screens, the forced password change and the acceptance screen render bare.
+  if (isBareRoute(pathname)) {
     return <>{children}</>;
+  }
+  // Not agreed yet: nothing of the app is painted (its requests would be refused).
+  if (account?.terms_due) {
+    return <ShellSkeleton />;
   }
 
   // Never paint a protected screen before the session is known: the rail and

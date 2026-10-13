@@ -4,7 +4,9 @@ import { ShopGroupsEditor } from "@/components/ShopGroupsEditor";
 
 import { useEffect, useState } from "react";
 import { AUTH_START_URL, api } from "@/lib/api";
-import type { Shop } from "@/lib/types";
+import type { Shop, ShopsOut } from "@/lib/types";
+import { SCOPE_REASONS, TRADEMARK_NOTICE } from "@/lib/legal";
+import { disconnectedNotice } from "@/lib/shops";
 import { useShops } from "@/components/ShopProvider";
 
 import { Txt } from "@/components/Txt";
@@ -31,11 +33,17 @@ const BANNERS: Record<string, { cls: string; text: string }> = {
     cls: WARN,
     text: "The service has reached the number of shops it can serve right now, because every shop shares one daily Etsy request budget. Please ask us.",
   },
+  limit_paused: {
+    cls: WARN,
+    text: "New shop connections are paused until Etsy approves our commercial access. Your existing shops keep working.",
+  },
 };
 
 export default function ConnectPage() {
-  const { shops, slots, refresh, select } = useShops();
+  const { shops, slots, paused, refresh, select } = useShops();
   const [banner, setBanner] = useState<string | null>(null);
+  // What disconnecting a shop cancelled: said, not left to be found out.
+  const [disconnected, setDisconnected] = useState<string | null>(null);
   // Etsy's own reason when it refused the authorization (shown as Etsy wrote it).
   const [etsyReason, setEtsyReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +98,17 @@ export default function ConnectPage() {
         </div>
       )}
       {error && <div key="div-78-6" className={`card p-3 text-sm ${BAD}`}>{error}</div>}
+      {disconnected && (
+        <div key="disconnected" role="status" className={`card p-3 text-sm ${OK}`} data-testid="disconnected-note" translate="no">
+          {disconnected}
+        </div>
+      )}
+      {paused && (
+        // Set by the operator in Admin; shops already connected are unaffected.
+        <div key="paused" role="status" className={`card p-3 text-sm ${WARN}`} data-testid="connections-paused">
+          {paused}
+        </div>
+      )}
 
       {shops === null ? (
         <div className="card h-40 animate-pulse bg-slate-50" />
@@ -110,7 +129,12 @@ export default function ConnectPage() {
               onUp={() => move(i, -1)}
               onDown={() => move(i, 1)}
               onRename={(name) => run(() => api.renameShop(shop.id, name))}
-              onDisconnect={() => run(() => api.disconnectShop(shop.id))}
+              onDisconnect={() =>
+                run(async () => {
+                  const res: ShopsOut = await api.disconnectShop(shop.id);
+                  setDisconnected(res.disconnected ? disconnectedNotice(res.disconnected) : null);
+                })
+              }
             />
           ))}
           <div className="space-y-2 p-6">
@@ -127,9 +151,11 @@ export default function ConnectPage() {
               <p key="p-112-12" className="text-xs text-slate-500">
                 <span><span>{slots.used}</span><span> of </span><span>{slots.limit}</span><span> shops connected</span>
                 <Txt>{!slots.can_add &&
-                  (slots.used >= slots.limit
-                    ? ". Your account is at its limit."
-                    : ". The service is at its limit for now.")}</Txt></span>
+                  (paused
+                    ? ". New connections are paused for now; a connected shop can still be reconnected."
+                    : slots.used >= slots.limit
+                      ? ". Your account is at its limit."
+                      : ". The service is at its limit for now.")}</Txt></span>
               </p>
             )}
             {shops.length > 0 && (
@@ -138,10 +164,23 @@ export default function ConnectPage() {
                 that shop&apos;s owner when you are sent there.
               </p>
             )}
-            <p className="text-xs text-slate-400">
-              Requested permissions: read and write listings and shop data. Access and refresh
-              tokens are encrypted on the server and never shown here.
-            </p>
+            <details className="text-xs text-slate-500">
+              <summary className="tap cursor-pointer text-slate-600">What Listyro asks Etsy for, and why</summary>
+              <ul className="mt-1.5 space-y-1.5">
+                {SCOPE_REASONS.map((s) => (
+                  <li key={s.scope}>
+                    <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-700" translate="no">{s.scope}</code>
+                    <span>{` ${s.reason}`}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5">
+                Access and refresh tokens are encrypted on the server and never shown here. Disconnecting a shop
+                deletes them at once.
+              </p>
+            </details>
+            {/* Beside "Connect a shop", as Etsy's API terms ask. */}
+            <p className="text-xs leading-relaxed text-slate-500" data-testid="connect-trademark-notice">{TRADEMARK_NOTICE}</p>
           </div>
         </div>
       )}
@@ -151,8 +190,9 @@ export default function ConnectPage() {
           <div>
             <h2 id="groups-heading" className="text-lg font-semibold text-slate-900">Shop groups</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Every shop in a group gets the same listings. On the review page you send listings to a group, or split
-              them evenly across groups, and schedule them per shop. A shop is in at most one group.
+              A group is a set of your shops that you manage together. On the review page you choose the group a
+              listing goes to, or divide your approved listings between groups so that each group gets different
+              ones, and you schedule them per shop. A shop is in at most one group.
             </p>
           </div>
           <ShopGroupsEditor />
@@ -262,8 +302,9 @@ function ShopRow({
       </div>
       {confirming && (
         <p key="p-236-6" className="text-xs text-slate-500">
-          Disconnecting deletes this shop&apos;s tokens and everything we hold from it: its cached
-          listings, its profiles and the links to its drafts. Your other shops, your uploads and
+          Disconnecting deletes this shop&apos;s tokens at once and everything we hold from it: its cached
+          listings, its sales and fee figures, its profiles and the links to its drafts. Anything queued or
+          scheduled for this shop is cancelled, and you are told what was. Your other shops, your uploads and
           your generated listings stay. Listings on Etsy are not touched.
         </p>
       )}

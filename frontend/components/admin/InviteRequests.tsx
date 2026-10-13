@@ -9,10 +9,34 @@ function date(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Copy text to the clipboard and say so on the button for a moment. */
+function CopyButton({ label, text, testid }: { label: string; text: string; testid?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn-secondary px-3 py-1.5 text-xs"
+      data-testid={testid}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          setCopied(false);
+        }
+      }}
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
 /**
  * Requests from the public "Request an invite" form. Approving one makes an
- * invite code only that address can redeem (30 days); there is no email
- * service, so the code is shown once here for the admin to send.
+ * invite code only that address can redeem (30 days). The app sends no e-mail:
+ * the admin copies the invite link, or a ready message with it, into an e-mail
+ * of their own. The code and link are shown once, here.
  */
 export function InviteRequests({
   onInvite,
@@ -74,13 +98,25 @@ export function InviteRequests({
       </div>
 
       {approved && (
-        <div key="approved" className="mt-4">
+        <div key="approved" className="mt-4 space-y-3" data-testid="invite-approved">
           <Reveal
             title={`Invite code for ${approved.request.email}`}
-            detail="Only this address can register with it, for 30 days. There is no email service yet: send it yourself."
+            detail="Only this address can register with it, for 30 days. Listyro sends no e-mail: copy the link or the message below into an e-mail of your own. They are shown only now."
             value={approved.code}
             onDismiss={() => setApproved(null)}
           />
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="break-all font-mono text-xs text-slate-700" translate="no">{approved.link}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <CopyButton label="Copy invite link" text={approved.link} testid="copy-invite-link" />
+              <CopyButton label="Copy e-mail message" text={approved.message} testid="copy-invite-message" />
+              <a className="btn-secondary px-3 py-1.5 text-xs"
+                href={`mailto:${approved.request.email}?subject=${encodeURIComponent("Your Listyro invite")}&body=${encodeURIComponent(approved.message)}`}>
+                Open in your e-mail app
+              </a>
+            </div>
+            <pre className="mt-3 whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-600" translate="no">{approved.message}</pre>
+          </div>
         </div>
       )}
 
@@ -95,6 +131,9 @@ export function InviteRequests({
               <p className="text-xs text-slate-500">
                 <span>{date(r.created_at)}</span>
                 {r.shop && <span key="shop"><span> · </span><span className="break-words">{r.shop}</span></span>}
+                {r.shop_count != null && (
+                  <span key="count" translate="no">{` · ${r.shop_count} shop${r.shop_count === 1 ? "" : "s"}`}</span>
+                )}
               </p>
               {r.note && <p key="note" className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-600">{r.note}</p>}
               {r.has_account && (
@@ -130,7 +169,7 @@ export function InviteRequests({
               ))}
             </ul>
           )}
-          <p className="mt-2 text-xs text-slate-400">Decided requests are deleted after 90 days, undecided ones after 180.</p>
+          <p className="mt-2 text-xs text-slate-400">Requests are deleted after 90 days, decided or not.</p>
         </div>
       )}
     </section>

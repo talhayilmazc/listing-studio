@@ -203,6 +203,8 @@ export interface Content {
   work?: Work[];
   /** Its group's photos and size charts are more than Etsy keeps: what will be left out. */
   image_limit?: ImageLimit | null;
+  /** Its profile looks print-on-demand and names no production partner (Etsy's Creativity Standards). */
+  production_note?: string | null;
   /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */
   personalization?: Personalization | null;
   personalization_source?: "listing" | "profile" | "unknown" | string;
@@ -353,6 +355,18 @@ export interface Shop {
 export interface ShopsOut {
   shops: Shop[];
   slots: { used: number; limit: number; app_used: number; app_limit: number; can_add: boolean };
+  /** New shop connections are paused by the operator, and the notice to show. */
+  connections_paused?: boolean;
+  pause_notice?: string | null;
+  /** Only in the answer to a disconnect: what was cancelled with the shop. */
+  disconnected?: Disconnected | null;
+}
+
+export interface Disconnected {
+  shop_name: string | null;
+  queued_jobs: number;
+  scheduled_publishes: number;
+  planned_drafts: number;
 }
 
 export interface ReferenceImage {
@@ -714,6 +728,21 @@ export interface Meta {
   dispute_venue: string;
   /** Error reports go to Sentry; the Privacy Policy names it only when true. */
   error_tracking: boolean;
+  /** Who provides the application, as Etsy's API terms ask it to be stated. */
+  provider_disclaimer?: string;
+  /** The version of the Terms and Privacy Policy accounts agree to. */
+  terms_version?: string;
+  /** Months of analytics history kept (an operator setting). */
+  analytics_retention_months?: number;
+}
+
+/** What deleting the account did at once; the rest follows by a job. */
+export interface AccountDeleted {
+  shops_disconnected: number;
+  queued_jobs: number;
+  scheduled_publishes: number;
+  planned_drafts: number;
+  within_days: number;
 }
 
 export interface AssetFailure {
@@ -737,6 +766,8 @@ export interface InviteRequest {
   id: string;
   email: string;
   shop: string | null;
+  /** How many shops they said they run; null on requests from before it was asked. */
+  shop_count?: number | null;
   note: string | null;
   status: "pending" | "approved" | "declined";
   created_at: string;
@@ -748,6 +779,10 @@ export interface InviteRequestApproved {
   code: string;
   invite: AdminInvite;
   request: InviteRequest;
+  /** The sign-up page with the code and address filled in: what is sent to the person. */
+  link: string;
+  /** A ready message to paste into an e-mail. */
+  message: string;
 }
 
 export interface Connection {
@@ -768,6 +803,11 @@ export interface Account {
   must_change_password: boolean;
   /** Shows the Admin entry. Never trusted: the server re-checks every admin request. */
   is_admin: boolean;
+  /** The Terms / Privacy version in force, and whether this account still has to agree to it. */
+  terms_version?: string;
+  terms_due?: boolean;
+  terms_accepted_version?: string | null;
+  terms_accepted_at?: string | null;
   /** Features an admin turned on for this account (v7 §B). */
   features?: Record<string, boolean>;
   /** IANA zone schedules are entered and shown in; null until detected. */

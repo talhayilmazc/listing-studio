@@ -1,10 +1,10 @@
 import Link from "next/link";
+import { TRADEMARK_NOTICE } from "@/lib/legal";
 
 /** The public site's frame: static, no session, no app code. */
 
-// Exact Etsy API Terms of Use notice — must not be altered or abbreviated.
-export const TRADEMARK_NOTICE =
-  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
+// The notice itself lives in lib/legal.ts (one copy for every page).
+export { TRADEMARK_NOTICE };
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
@@ -52,7 +52,7 @@ export function SiteFooter() {
             <Link href="/contact" className="tap hover:text-slate-800">Contact</Link>
           </nav>
         </div>
-        <p className="max-w-3xl leading-relaxed">{TRADEMARK_NOTICE}</p>
+        <p className="max-w-3xl leading-relaxed" data-testid="trademark-notice">{TRADEMARK_NOTICE}</p>
       </div>
     </footer>
   );

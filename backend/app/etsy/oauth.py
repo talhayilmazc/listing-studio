@@ -47,6 +47,19 @@ KNOWN_SCOPES = frozenset({
 })
 
 
+#: Why each scope the app asks for is asked for: the feature that uses it. The
+#: connect page shows these (frontend/lib/legal.ts has the seller's wording) and
+#: ``tests/test_commercial_readiness.py`` fails if the app asks for a scope with
+#: no reason here, or keeps a reason for a scope it no longer asks for.
+SCOPE_REASONS: dict[str, str] = {
+    "listings_r": "Read the seller's own listings: the reference listing of a profile, the shop's listing cache, and views and favourites of listings made with the app.",
+    "listings_w": "Create draft listings, upload their images, set inventory, attributes and personalization, publish a draft on the seller's instruction, replace a listing's images.",
+    "shops_r": "Read the shop's name, sections, shipping profiles, return policies, processing profiles and production partners, so a draft uses the shop's own settings.",
+    "shops_w": "Create a shop section, shipping profile, return policy or processing profile in the seller's shop, only when the seller confirms it.",
+    "transactions_r": "Read the seller's own sales lines and payment account ledger for profit, cost and ads reporting. No buyer field is stored.",
+}
+
+
 def clean_scopes(scopes: str) -> list[str]:
     """The scopes as Etsy must receive them: known, each once, in order.
     ValueError (naming them) for an unknown one: a typo in ETSY_SCOPES would

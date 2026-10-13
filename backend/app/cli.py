@@ -616,6 +616,72 @@ async def llm_check(models: list[str] | None = None) -> tuple[str, bool]:
     return "\n".join(lines), fine
 
 
+async def purge_etsy_data(sm: async_sessionmaker, *, apply: bool) -> str:
+    """Delete all stored Etsy data, for every account (docs/etsy-access-ended.md).
+    A dry run unless ``apply``."""
+    from app.ops import etsy_data
+
+    async with sm() as session:
+        result = await etsy_data.wipe(session, apply=apply)
+    return etsy_data.report(result, what="All stored Etsy data, every account")
+
+
+async def scrub_etsy_data(sm: async_sessionmaker, *, apply: bool) -> str:
+    """The same wipe on a non-production database, with shop names made anonymous.
+    Refuses to run when APP_ENV=production."""
+    from app.ops import etsy_data
+
+    etsy_data.refuse_in_production()
+    async with sm() as session:
+        result = await etsy_data.wipe(session, apply=apply, anonymise_shops=True, action="etsy_data.scrubbed")
+    return etsy_data.report(result, what="Etsy-derived data in this non-production database (shop names made anonymous)")
+
+
+async def seed_demo(sm: async_sessionmaker) -> str:
+    """Fill a non-production database with one synthetic demo account: two shops,
+    profiles, a batch of drawn sample designs, listings, drafts and sales figures.
+    Nothing in it is a real seller's. Refuses to run when APP_ENV=production."""
+    from pathlib import Path
+
+    from app.core import terms
+    from app.core.passwords import generate_temp_password, hash_password
+    from app.ops import etsy_data
+
+    etsy_data.refuse_in_production()
+    script = Path(__file__).resolve().parent.parent / "scripts" / "demo_screens_seed.py"
+    if not script.is_file():
+        return f"the seed script is not in this image ({script}); run it from a development checkout"
+    email = "demo-shots@example.test"
+    async with sm() as session:
+        if await session.scalar(select(func.count()).select_from(Tenant).where(Tenant.email == email)):
+            return f"{email} already exists; delete it first (docs/marketing-screens.md) or sign in to it"
+    # The script makes the account and its sample data. In a process of its own:
+    # it runs its own event loop, and a database connection belongs to one loop.
+    import os
+    import subprocess
+
+    root = str(script.parent.parent)  # so the script can import ``app``
+    done = await asyncio.to_thread(
+        subprocess.run, [sys.executable, str(script)], capture_output=True, text=True, cwd=root,
+        env={**os.environ, "PYTHONPATH": root},
+    )
+    if done.returncode != 0:
+        return "the seed script failed:\n" + (done.stderr or done.stdout)[-2000:]
+    password = generate_temp_password()
+    async with sm() as session:
+        tenant = (await session.execute(select(Tenant).where(Tenant.email == email))).scalar_one()
+        tenant.password_hash = hash_password(password)
+        terms.accept(tenant)
+        await session.commit()
+    lines = [
+        "Synthetic demo account ready.",
+        f"  e-mail:   {email}",
+        f"  password: {password}  (shown once; made up for this database)",
+        "Everything in it is sample data drawn by the app's own scripts.",
+    ]
+    return chr(10).join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -662,6 +728,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     llm_cmd.add_argument("models", nargs="*", help="model ids (default: the configured VISION_MODEL and CONTENT_MODEL)")
     llm_cmd.add_argument("--supported", action="store_true", help="check every supported model")
+    purge_cmd = sub.add_parser(
+        "purge-etsy-data",
+        help="delete ALL stored Etsy data for every account (the 'Etsy access ended' runbook); a dry run unless --apply",
+    )
+    purge_cmd.add_argument("--apply", action="store_true", help="delete (default: only count what would go)")
+    scrub_cmd = sub.add_parser(
+        "scrub-etsy-data",
+        help="NON-PRODUCTION only: wipe Etsy-derived data and make shop names anonymous; a dry run unless --apply",
+    )
+    scrub_cmd.add_argument("--apply", action="store_true", help="wipe (default: only count what would go)")
+    sub.add_parser("seed-demo", help="NON-PRODUCTION only: add one synthetic demo account with sample data")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
         print(oauth_check())
@@ -697,6 +774,19 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(upload_retention_report(sm, apply=args.apply)))
     elif args.command == "rebuild-publications":
         print(asyncio.run(rebuild_publications(sm, apply=args.apply)))
+    elif args.command in ("purge-etsy-data", "scrub-etsy-data", "seed-demo"):
+        from app.ops.etsy_data import Refused
+
+        try:
+            if args.command == "purge-etsy-data":
+                print(asyncio.run(purge_etsy_data(sm, apply=args.apply)))
+            elif args.command == "scrub-etsy-data":
+                print(asyncio.run(scrub_etsy_data(sm, apply=args.apply)))
+            else:
+                print(asyncio.run(seed_demo(sm)))
+        except Refused as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     else:
         admins = asyncio.run(list_admins(sm))
         print("\n".join(admins) if admins else "no admins yet")

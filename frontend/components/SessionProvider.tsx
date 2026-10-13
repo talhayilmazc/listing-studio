@@ -21,6 +21,14 @@ const PUBLIC_ROUTES = ["/login", "/register", "/terms", "/privacy"];
 /** Reachable while the account still carries an admin-issued temporary password. */
 const TEMP_PASSWORD_ROUTES = [...PUBLIC_ROUTES, "/password"];
 
+/** Reachable before the account has agreed to the current Terms and Privacy Policy. */
+const TERMS_ROUTES = [...TEMP_PASSWORD_ROUTES, "/accept-terms"];
+
+/** Screens that bring their own frame (no rail): sign-in, the legal pages, and the two forced steps. */
+export function isBareRoute(pathname: string): boolean {
+  return TERMS_ROUTES.includes(pathname);
+}
+
 export function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.includes(pathname);
 }
@@ -72,7 +80,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // First sign-in: take the account's time zone from this computer. Only fills
   // an empty value; a zone chosen in Settings is never overridden.
   useEffect(() => {
-    if (!account || account.time_zone || account.must_change_password) return;
+    if (!account || account.time_zone || account.must_change_password || account.terms_due) return;
     api
       .setTimeZone(browserZone(), true)
       .then(setAccount)
@@ -106,6 +114,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // mirroring the server's own rule (production-spec A4).
     if (account?.must_change_password && !TEMP_PASSWORD_ROUTES.includes(pathname)) {
       router.replace("/password");
+      return;
+    }
+    // Click-through acceptance: an account that has not agreed to the current
+    // Terms and Privacy Policy sees only that screen, as the server enforces.
+    if (account && !account.must_change_password && account.terms_due && !TERMS_ROUTES.includes(pathname)) {
+      router.replace("/accept-terms");
     }
   }, [account, loading, pathname, router]);
 
