@@ -22,6 +22,13 @@ COPY backend/pyproject.toml ./pyproject.toml
 RUN pip install --upgrade pip \
     && if [ -n "$EXTRAS" ]; then pip install ".[$EXTRAS]"; else pip install .; fi
 
+# The image-analysis models for mockup templates (pipeline/mockup_vision.py),
+# fetched now, at build time, and checked against their SHA-256: nothing is
+# downloaded at runtime and no photo leaves the server. Apache-2.0 (MediaPipe).
+COPY backend/app/pipeline/fetch_models.py /tmp/fetch_models.py
+RUN python /tmp/fetch_models.py /opt/listyro/models && rm /tmp/fetch_models.py
+ENV MOCKUP_MODELS_DIR=/opt/listyro/models
+
 # Application code is bind-mounted in docker-compose for local dev, and baked in
 # for production (docker-compose.prod.yml mounts nothing over it).
 COPY backend/ ./

@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import type { MockupSet, MockupTemplate } from "@/lib/types";
 import {
   ACCURACY_NOTE,
+  CHECK_NOTE,
+  OCCLUSION_LABEL,
   FOLD_RANGE,
   LIMIT_NOTE,
   MAX_NAME,
@@ -326,6 +328,9 @@ function TemplateCard({
   const [preview, setPreview] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [applying, setApplying] = useState(false);
+  // The found print area is used as it is; the corner editor opens when the
+  // analysis was not sure, or when the seller chooses to adjust it.
+  const [adjusting, setAdjusting] = useState(false);
   const [setPreviews, setSetPreviews] = useState<{ id: string; name: string; url: string | null; error?: string }[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const saved = useRef(template);
@@ -418,7 +423,7 @@ function TemplateCard({
     <article className="card overflow-hidden" data-testid="template-card" data-status={template.status}>
       <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="border-b border-slate-200 bg-slate-50 p-4 md:border-b-0 md:border-r">
-          {ready ? (
+          {ready && (template.needs_check || adjusting) ? (
             <PrintAreaEditor
               key="editor"
               src={api.mockupTemplateImageUrl(template.id, 896)}
@@ -427,6 +432,8 @@ function TemplateCard({
               onMove={setCorners}
               onDone={(next) => save({ print_area: next })}
             />
+          ) : ready ? (
+            <PrintAreaView key="view" src={api.mockupTemplateImageUrl(template.id, 896)} aspect={aspect} corners={corners} />
           ) : (
             <div key="waiting" className="flex w-full items-center justify-center rounded-md bg-white p-6 text-center text-sm"
               style={{ aspectRatio: aspect }} role="status" data-testid="template-preparing">
@@ -438,10 +445,31 @@ function TemplateCard({
             </div>
           )}
           {ready && (
-            <p key="hint" className="mt-2 text-xs text-slate-500">
-              <span>Drag the four corners onto the print area, or tap a corner and use the arrow keys. </span>
-              <span translate="no">{template.print_area_source === "seller" ? "Set by you." : "Found from the garment's outline."}</span>
-            </p>
+            <div key="analysis" className="mt-2 space-y-2 text-xs text-slate-600" data-testid="template-analysis">
+              {template.needs_check && (
+                <p key="check" role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900" data-testid="template-check">
+                  <span className="font-medium"><span><span>{CHECK_NOTE}</span> </span></span>
+                  <span>{template.analysis_note ?? ""}</span>
+                </p>
+              )}
+              {!template.needs_check && (
+                <p key="found" translate="no">
+                  {template.print_area_source === "seller" ? "Print area set by you." : template.analysis_note ?? "Print area found automatically."}
+                </p>
+              )}
+              {template.needs_check || adjusting ? (
+                <p key="hint" className="text-slate-500">
+                  <span>Drag the four corners onto the print area, or tap a corner and use the arrow keys. </span>
+                  {adjusting && !template.needs_check && (
+                    <button key="done" type="button" className="tap text-brand-700 underline" onClick={() => setAdjusting(false)}>Done</button>
+                  )}
+                </p>
+              ) : (
+                <button key="adjust" type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setAdjusting(true)} data-testid="template-adjust">
+                  Adjust the print area
+                </button>
+              )}
+            </div>
           )}
         </div>
         <div className="min-w-0 space-y-4 p-4">
@@ -467,8 +495,15 @@ function TemplateCard({
             <div key="settings" className="space-y-4">
               <Slider label="Design size" hint="Share of the print area the design fills; its proportions are kept, top-aligned."
                 value={size} range={SIZE_RANGE} onChange={setSize} onDone={(v) => save({ size: v })} />
-              <Slider label="Fold strength" hint="How much the fabric's folds bend the print."
+              <Slider label="Fold strength" hint="How much the fabric's folds and creases bend the print."
                 value={fold} range={FOLD_RANGE} onChange={setFold} onDone={(v) => save({ fold_strength: v })} />
+              {template.has_occluder && (
+                <label key="occlusion" className="flex items-start gap-2.5 text-sm text-slate-700 max-sm:min-h-[2.75rem]">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300" checked={template.occlusion !== false}
+                    onChange={(e) => save({ occlusion: e.target.checked })} data-testid="template-occlusion" />
+                  <span>{OCCLUSION_LABEL}</span>
+                </label>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn-primary" onClick={() => showPreview()} disabled={previewing} data-testid="template-preview">
                   {previewing ? "Drawing…" : preview ? "Preview again" : "Preview with a sample design"}
@@ -478,7 +513,7 @@ function TemplateCard({
                 </button>
                 {template.set_id && (
                   <button key="apply" type="button" className="btn-secondary h-auto max-w-full whitespace-normal text-left" onClick={applyToSet} disabled={applying} data-testid="apply-to-set">
-                    {applying ? "Applying…" : "Apply these settings to the whole set"}
+                    {applying ? "Applying…" : "Use this print area for the whole set"}
                   </button>
                 )}
               </div>
@@ -560,6 +595,20 @@ function Slider({
       />
       <span className="block text-xs text-slate-500">{hint}</span>
     </label>
+  );
+}
+
+/** The photo with its print area, read only (the found area, used as it is). */
+function PrintAreaView({ src, aspect, corners }: { src: string; aspect: string; corners: Corner[] }) {
+  const points = corners.map(([x, y]) => `${x},${y}`).join(" ");
+  return (
+    <div className="relative w-full overflow-hidden rounded-md bg-white" style={{ aspectRatio: aspect }} data-testid="print-area-view">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" className="h-full w-full object-fill" />
+      <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+        <polygon points={points} className="fill-brand-500/15 stroke-brand-600" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
+      </svg>
+    </div>
   );
 }
 

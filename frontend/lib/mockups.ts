@@ -23,6 +23,10 @@ export const TEMPLATES_INTRO =
 export const ACCURACY_NOTE =
   "Etsy asks for photos that show the item accurately: use a blank of the garment you actually sell, in its real colour.";
 
+/** Said on a template whose print area the analysis was not sure of. */
+export const CHECK_NOTE = "Check the print area: drag the corners onto the chest if it is not right.";
+export const OCCLUSION_LABEL = "Put the design behind hair, skin and accessories";
+
 export const LIMIT_NOTE = `JPEG, PNG or WebP, up to ${MAX_UPLOAD_MB} MB each. A plain background, or a PNG with a transparent background, works best.`;
 
 export type Corner = [number, number];

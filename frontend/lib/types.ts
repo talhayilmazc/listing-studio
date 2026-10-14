@@ -232,6 +232,15 @@ export interface MockupTemplate {
   fold_strength: number;
   version: number;
   notice?: string | null;
+  /** How the print area was found: "pose" (the person), "outline" (the garment), "default". */
+  method?: string | null;
+  /** How sure (0..1); below the server's threshold the seller is asked to check. */
+  confidence?: number | null;
+  analysis_note?: string | null;
+  needs_check?: boolean;
+  /** Print behind hair, skin and accessories, and whether the photo has any. */
+  occlusion?: boolean;
+  has_occluder?: boolean;
 }
 
 /** A design uploaded to be printed on templates: its own listing group. */

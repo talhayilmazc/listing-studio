@@ -738,9 +738,18 @@ class MockupTemplate(Base):
     mask_key: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
-    #: "alpha" (the photo's transparency), "background" (removed) or "none".
+    #: "alpha" (the photo's transparency), "background" (removed), "segmentation"
+    #: (the garment on a person, pipeline/mockup_vision.py) or "none".
     mask_source: Mapped[str | None] = mapped_column(Text)
     print_area: Mapped[list[list[float]] | None] = mapped_column(JSONB_TYPE)
+    #: Hair, skin and accessories in front of the garment, when the photo shows a person.
+    occluder_key: Mapped[str | None] = mapped_column(Text)
+    #: Print behind them (the seller can switch it off).
+    occlusion: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
+    #: How sure the found print area is (0..1); None for templates made before it was measured.
+    print_area_confidence: Mapped[float | None] = mapped_column(Float)
+    #: How the print area was found: {"method", "note", "detected_area", ...}.
+    analysis: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: "default" (from the garment's bounds) or "seller" (moved by hand).
     print_area_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="default")
     #: Share of the print area the design fills (aspect kept), and how much the

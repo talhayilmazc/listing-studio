@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # A blank garment photo or a design for mockups (api/mockups.py): one file per
     # request, downscaled on the server to the engine's 2000 px.
     max_mockup_upload_bytes: int = 30 * 1024 * 1024
+    # Where the bundled image-analysis models are (docker/Dockerfile puts them
+    # there at build time). Empty or missing files: templates use the outline only.
+    mockup_models_dir: str = "/opt/listyro/models"
     max_batch_bytes: int = 1024 * 1024 * 1024  # per batch, all files
     # Per account: stored image files (core/storage_cap.py). An admin can give an
     # account its own cap (tenant.storage_cap_bytes).

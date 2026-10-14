@@ -92,7 +92,7 @@ test("colour sets: uploaded together, one template's settings applied to the set
   const page = read(PAGE);
   assert.match(page, /api\.createMockupSet\(setName\.trim\(\) \|\| "Colours"\)/);
   assert.match(page, /api\.applyToMockupSet\(template\.set_id, template\.id\)/);
-  assert.match(page, />\s*\{applying \? "Applying…" : "Apply these settings to the whole set"\}/);
+  assert.match(page, />\s*\{applying \? "Applying…" : "Use this print area for the whole set"\}/);
   assert.match(page, /The whole set with these settings:/);
   // On a phone the long label wraps instead of running past the card.
   assert.match(page, /className="btn-secondary h-auto max-w-full whitespace-normal text-left" onClick=\{applyToSet\}/);
@@ -147,4 +147,23 @@ test("templates are in the menu, the page title, the layout test, robots and the
   const privacy = read("app/(marketing)/privacy/page.tsx");
   assert.match(privacy, /blank garment photos you save as mockup templates/);
   assert.match(privacy, /R\.mockupZipHours/);
+});
+
+test("the print area is found automatically: checked only when the server is unsure, adjustable on request", () => {
+  const page = read(PAGE);
+  // The editor opens by itself only for a low-confidence area; otherwise the found area is shown read only.
+  assert.match(page, /\{ready && \(template\.needs_check \|\| adjusting\) \? \(\n\s*<PrintAreaEditor/);
+  assert.match(page, /<PrintAreaView key="view"/);
+  assert.match(page, /data-testid="template-check"/);
+  assert.match(page, /\{template\.needs_check && \(/);
+  assert.match(page, /onClick=\{\(\) => setAdjusting\(true\)\} data-testid="template-adjust"/);
+  // The read-only view has no handles to drag.
+  const view = page.slice(page.indexOf("function PrintAreaView"), page.indexOf("const CORNER_NAMES"));
+  assert.doesNotMatch(view, /print-corner|onPointerDown/);
+  // Occlusion: a switch only where the photo has hair, skin or accessories in front of the garment.
+  assert.match(page, /\{template\.has_occluder && \(/);
+  assert.match(page, /onChange=\{\(e\) => save\(\{ occlusion: e\.target\.checked \}\)\} data-testid="template-occlusion"/);
+  // The threshold is the server's (mockup_vision.CHECK_BELOW), not repeated here.
+  assert.doesNotMatch(page, /confidence\s*[<>]=?\s*0\.\d/);
+  assert.match(backend("pipeline/mockup_vision.py"), /^CHECK_BELOW = 0\.6$/m);
 });

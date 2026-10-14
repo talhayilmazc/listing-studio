@@ -34,13 +34,14 @@ from __future__ import annotations
 import array
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.pipeline.images import ImageProcessingError, ProcessingSpec
 
 #: Raised whenever the rendering changes, so old previews are not mistaken for new.
-ENGINE_VERSION = 1
+#: 2: the surface and creases bend the print; the occluder puts it behind hair and skin.
+ENGINE_VERSION = 2
 
 #: The image pipeline's own output (pipeline/images.py, ProcessingSpec).
 OUTPUT = ProcessingSpec()
@@ -51,6 +52,12 @@ SIZE_RANGE = (0.2, 1.0)
 FOLD_RANGE = (0.0, 1.0)
 #: How far the folds move the print at full strength, as a share of the photo's width.
 FOLD_SHIFT = 0.012
+#: How far the fabric's surface (its slopes, from the shading at three scales) moves
+#: the print at full strength, and the most any point moves, as shares of the width.
+SURFACE_SHIFT = 0.02
+MAX_SHIFT = 0.02
+#: How strongly a crease pulls the print into its line.
+CREASE_PULL = 0.012
 #: How much fabric texture shows through the ink (as a share of its brightness).
 TEXTURE_AMOUNT = 0.035
 #: The brightness white ink reaches under even light (an underbase is not paper white).
@@ -166,12 +173,60 @@ class PreparedBlank:
     height: int
     #: "alpha" (the photo's own transparency), "background" (removed) or "none".
     mask_source: str
-    #: A chest print area from the mask's bounds, as normalised corners TL, TR, BR, BL.
+    #: The print area found for it, as normalised corners TL, TR, BR, BL.
     print_area: list[list[float]]
+    #: Hair, skin and accessories in front of the garment (one-band PNG), or None.
+    occluder: bytes | None = None
+    #: How sure the print area is (0..1), how it was found and what the seller is told.
+    confidence: float = 0.0
+    method: str = "default"
+    note: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
 
 
-def prepare_blank(data: bytes) -> PreparedBlank:
-    """The template for a blank garment photo (once, when it is uploaded)."""
+def _to_numpy(image):  # noqa: ANN001, ANN202 - pyvips uchar -> numpy (h, w[, bands])
+    import numpy as np
+
+    arr = np.frombuffer(image.write_to_memory(), dtype=np.uint8)
+    return arr.reshape(image.height, image.width, image.bands) if image.bands > 1 else arr.reshape(image.height, image.width)
+
+
+def _from_numpy(arr):  # noqa: ANN001, ANN202 - numpy uint8 (h, w) -> pyvips one band
+    import numpy as np
+
+    arr = np.ascontiguousarray(arr, dtype=np.uint8)
+    return _vips().Image.new_from_memory(arr.tobytes(), arr.shape[1], arr.shape[0], 1, "uchar")
+
+
+def _analyse(rgb, mask, runner: Any):  # noqa: ANN001, ANN202
+    """The template's analysis (pipeline/mockup_vision.py) at its working size; never raises."""
+    from app.pipeline import mockup_vision as vision
+
+    try:
+        if runner == "default":
+            runner = vision.default_runner()
+        scale = min(1.0, vision.ANALYSIS_SIZE / max(rgb.width, rgb.height))
+        small = rgb.resize(scale) if scale < 1.0 else rgb
+        small_mask = mask.resize(small.width / mask.width, vscale=small.height / mask.height)
+        h, w = min(small.height, small_mask.height), min(small.width, small_mask.width)
+        return vision.analyse(_to_numpy(small.crop(0, 0, w, h)), _to_numpy(small_mask.crop(0, 0, w, h)), runner)
+    except Exception:  # never stop a template being made
+        import logging
+
+        logging.getLogger(__name__).exception("mockup template analysis could not run")
+        return vision.Analysis("default", 0.0, None, note=vision.NOTES["fallback"], details={"failed": True})
+
+
+def _full_size(small, width: int, height: int):  # noqa: ANN001, ANN202
+    """A small uint8 numpy mask, scaled up smoothly to the template's size."""
+    image = _from_numpy(small)
+    return image.resize(width / image.width, vscale=height / image.height, kernel="linear").cast("uchar")
+
+
+def prepare_blank(data: bytes, runner: Any = "default") -> PreparedBlank:
+    """The template for a blank garment photo (once, in the worker): its outline,
+    print area, and what is in front of the garment. ``runner``: the analysis
+    models (pipeline/mockup_vision.py); "default" the bundled ones, None none."""
     pyvips = _vips()
     image = _fit_within(_load(data), max(OUTPUT.max_width, OUTPUT.max_height))
     rgb = image[0:3]
@@ -190,11 +245,22 @@ def prepare_blank(data: bytes) -> PreparedBlank:
             source = "background"
     if mask is None:
         mask = (pyvips.Image.black(rgb.width, rgb.height) + 255).cast("uchar")
+    analysis = _analyse(rgb, mask, runner)
+    occluder = None
+    if analysis.garment is not None:  # a person photo: the segmented garment, soft-edged
+        mask, source = _full_size(analysis.garment, rgb.width, rgb.height), "segmentation"
+    if analysis.occluder is not None:
+        occ = _full_size(analysis.occluder, rgb.width, rgb.height).gaussblur(1.0).cast("uchar")
+        occluder = occ.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
     # A soft edge, so the print does not stop on a jagged line.
     mask = mask.gaussblur(0.8).cast("uchar")
     jpeg = rgb.copy(interpretation="srgb").write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True)
     png = mask.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
-    return PreparedBlank(jpeg, png, rgb.width, rgb.height, source, default_print_area(mask))
+    area = analysis.print_area or default_print_area(mask)
+    return PreparedBlank(
+        jpeg, png, rgb.width, rgb.height, source, area, occluder=occluder, confidence=analysis.confidence,
+        method=analysis.method, note=analysis.note, details=dict(analysis.details),
+    )
 
 
 @dataclass(frozen=True)
@@ -386,7 +452,12 @@ def place(corners_px: list[Point], design_size: tuple[int, int], size: float) ->
 
 @dataclass
 class Maps:
-    """What every mockup on one template reads; built once per template per run."""
+    """What every mockup on one template reads; built once per template per run.
+
+    ``blank`` is the whole photo; the other maps cover only the window the print can
+    reach (``left``, ``top``, and their own size), so a run of 20 templates does not
+    hold 20 photos' worth of float maps.
+    """
 
     blank: Any  # sRGB uchar
     mask: Any  # float 0..1
@@ -397,6 +468,31 @@ class Maps:
     underbase: float  # 0 (light garment) .. 1 (dark garment)
     width: int
     height: int
+    #: Where a deep crease folds the fabric over the print (float 0..1 at full strength).
+    hide: Any = None
+    #: Hair, skin and accessories in front of the garment (float 0..1), or None.
+    occluder: Any = None
+    #: Where the maps' window starts in the photo.
+    left: int = 0
+    top: int = 0
+
+
+def window(area: Any, width: int, height: int) -> tuple[int, int, int, int]:
+    """The part of the photo a print in ``area`` can reach (left, top, width, height).
+
+    The design always lies inside the print area's quad; the folds move it by at
+    most ``MAX_SHIFT`` of the width. No area: the whole photo.
+    """
+    if not area:
+        return 0, 0, width, height
+    xs = [x * width for x, _ in clean_print_area(area)]
+    ys = [y * height for _, y in clean_print_area(area)]
+    margin = math.ceil(MAX_SHIFT * width) + 4
+    left, top = max(0, math.floor(min(xs)) - margin), max(0, math.floor(min(ys)) - margin)
+    right, bottom = min(width, math.ceil(max(xs)) + margin), min(height, math.ceil(max(ys)) + margin)
+    if right - left < 2 or bottom - top < 2:
+        return 0, 0, width, height
+    return left, top, right - left, bottom - top
 
 
 def _masked_mean(values, mask_bool) -> float:  # noqa: ANN001 - uchar values 0..255
@@ -406,7 +502,12 @@ def _masked_mean(values, mask_bool) -> float:  # noqa: ANN001 - uchar values 0..
     return sum(i * n for i, n in enumerate(counts)) / total if total else 128.0
 
 
-def build_maps(blank_jpeg: bytes, mask_png: bytes) -> Maps:
+def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = None, area: Any = None) -> Maps:
+    """The maps for one template, kept only for the window a print in ``area`` can reach.
+
+    libvips computes lazily, so only that window (and what its blurs read around it)
+    is ever worked out; the pixels are the same as for the whole photo.
+    """
     pyvips = _vips()
     blank = _load(blank_jpeg)[0:3]
     mask_u8 = pyvips.Image.new_from_buffer(mask_png, "", access="random")[0]
@@ -419,6 +520,12 @@ def build_maps(blank_jpeg: bytes, mask_png: bytes) -> Maps:
     w = blank.width
 
     def normalised_blur(image, sigma: float):  # noqa: ANN001, ANN202 - only the garment's own pixels
+        if sigma >= 8:  # a wide blur is smooth: work at a quarter of the size, then scale back
+            k = 4
+            small_mask = mask.resize(1 / k, kernel="linear")
+            small = (image * mask).resize(1 / k, kernel="linear")
+            out = small.gaussblur(sigma / k, precision="float") / (small_mask.gaussblur(sigma / k, precision="float") + 1e-4)
+            return out.resize(image.width / out.width, vscale=image.height / out.height, kernel="linear")
         weight = mask.gaussblur(sigma, precision="float") + 1e-4
         return (image * mask).gaussblur(sigma, precision="float") / weight
 
@@ -441,12 +548,50 @@ def build_maps(blank_jpeg: bytes, mask_png: bytes) -> Maps:
     # The folds: the garment's broad light and shade; the print moves with them.
     folds = normalised_blur(luma, max(3.0, w / 120))
     d = ((folds - mean) / (mean + SHADE_FLOOR)).maxpair(-0.5).minpair(0.5) * (FOLD_SHIFT * w)
-    shift = d.bandjoin(d)
+    # The surface: the shading at three scales read as a height field. The print
+    # is pulled down its slopes into the folds (a dense, per-pixel warp).
+    dx = pyvips.Image.new_from_array([[-0.5, 0.0, 0.5]])
+    dy = pyvips.Image.new_from_array([[-0.5], [0.0], [0.5]])
+    height = (normalised_blur(luma, max(1.5, w / 250)) * 0.25 + normalised_blur(luma, max(3.0, w / 100)) * 0.45
+              + normalised_blur(luma, max(6.0, w / 40)) * 0.30)
+    relief = ((height - mean) / (mean + SHADE_FLOOR)).maxpair(-0.6).minpair(0.6)
+    reach = max(3.0, w / 100) * SURFACE_SHIFT * w
+    slope_x = relief.conv(dx, precision="float") * reach
+    slope_y = relief.conv(dy, precision="float") * reach
+    # Creases: narrow lines darker than the fabric around them, measured against the
+    # fabric's own texture (a heathered fabric's speckle is not a crease). The print
+    # is drawn into each line, and where the line is deepest the fabric folds over it.
+    smooth = normalised_blur(luma, max(1.5, w / 600))
+    around = normalised_blur(luma, max(4.0, w / 90))
+    valley = (around - smooth) / (mean + SHADE_FLOOR)
+    threshold = 0.06 + 2.5 * spread / (mean + SHADE_FLOOR)
+    crease = ((valley - threshold) * 5).maxpair(0).minpair(1).gaussblur(max(1.0, w / 1000), precision="float")
+    drawn = crease.gaussblur(max(2.0, w / 300), precision="float")
+    pull = CREASE_PULL * w * max(2.0, w / 300)
+    pull_x = drawn.conv(dx, precision="float") * (-pull)
+    pull_y = drawn.conv(dy, precision="float") * (-pull)
+    limit = MAX_SHIFT * w
+    shift_x = (d * 0.4 + slope_x + pull_x).maxpair(-limit).minpair(limit) * mask
+    shift_y = (d * 0.4 + slope_y + pull_y).maxpair(-limit).minpair(limit) * mask
+    shift = shift_x.bandjoin(shift_y)
+    hide = ((crease - 0.55) / 0.35).maxpair(0).minpair(1)
+    occluder = None
+    if occluder_png:
+        occ = pyvips.Image.new_from_buffer(occluder_png, "", access="random")[0]
+        if (occ.width, occ.height) != (blank.width, blank.height):
+            occ = occ.resize(blank.width / occ.width, vscale=blank.height / occ.height)
+        occluder = (occ.cast("float") / 255).copy_memory()
     underbase = min(1.0, max(0.0, (UNDERBASE_FROM + UNDERBASE_RAMP - mean / 255) / UNDERBASE_RAMP))
+    left, top, ww, wh = window(area, blank.width, blank.height)
+
+    def kept(image):  # noqa: ANN001, ANN202
+        return None if image is None else image.crop(left, top, ww, wh).copy_memory()
+
     return Maps(
-        blank=blank.copy_memory(), mask=mask.copy_memory(), colour_low=colour_low.copy_memory(),
-        shade_low=shade_low.copy_memory(), texture=texture.copy_memory(), shift=shift.copy_memory(),
-        underbase=underbase, width=blank.width, height=blank.height,
+        blank=blank.copy_memory(), mask=kept(mask), colour_low=kept(colour_low),
+        shade_low=kept(shade_low), texture=kept(texture), shift=kept(shift),
+        underbase=underbase, width=blank.width, height=blank.height, hide=kept(hide), occluder=kept(occluder),
+        left=left, top=top,
     )
 
 
@@ -491,6 +636,8 @@ class Settings:
     corners: list[list[float]]  # normalised TL, TR, BR, BL
     size: float = DEFAULT_SIZE
     fold: float = DEFAULT_FOLD
+    #: Print behind the hair, skin and accessories the template found (when it found any).
+    occlusion: bool = True
 
 
 def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.quality) -> bytes:  # noqa: ANN001
@@ -511,19 +658,23 @@ def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.qual
     # The part of the photo the print can reach: the design's warped box, plus the fold shift.
     sw_, sh_ = resized.width, resized.height
     pts = [apply(placed.matrix, x, y) for x, y in ((0, 0), (sw_, 0), (sw_, sh_), (0, sh_))]
-    margin = math.ceil(FOLD_SHIFT * W * 0.5 * fold) + 3
-    left = max(0, math.floor(min(p[0] for p in pts)) - margin)
-    top = max(0, math.floor(min(p[1] for p in pts)) - margin)
-    right = min(W, math.ceil(max(p[0] for p in pts)) + margin)
-    bottom = min(H, math.ceil(max(p[1] for p in pts)) + margin)
+    margin = math.ceil(MAX_SHIFT * W * fold) + 3
+    # Never past the maps' window (it already holds everything a print can reach).
+    x0, y0 = maps.left, maps.top
+    x1, y1 = x0 + maps.mask.width, y0 + maps.mask.height
+    left = max(x0, math.floor(min(p[0] for p in pts)) - margin)
+    top = max(y0, math.floor(min(p[1] for p in pts)) - margin)
+    right = min(x1, math.ceil(max(p[0] for p in pts)) + margin)
+    bottom = min(y1, math.ceil(max(p[1] for p in pts)) + margin)
     if right - left < 2 or bottom - top < 2:
         raise MockupError("The print area is outside the photo.")
     rw, rh = right - left, bottom - top
+    mx, my = left - x0, top - y0  # the same region in the maps' window
 
     # Photo pixel (moved by the folds) -> design pixel, through the inverse homography.
     inverse = _inverse(placed.matrix)
     grid = pyvips.Image.xyz(rw, rh).cast("float")
-    shift = maps.shift.crop(left, top, rw, rh) * fold
+    shift = maps.shift.crop(mx, my, rw, rh) * fold
     x = grid[0] + left + shift[0]
     y = grid[1] + top + shift[1]
     den = x * inverse[2][0] + y * inverse[2][1] + inverse[2][2]
@@ -535,13 +686,17 @@ def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.qual
     ink = warped[0:3] / (ink_alpha * 255 + 1e-6)  # unpremultiplied, 0..1
     ink = ink.maxpair(0).minpair(1)
 
-    mask = maps.mask.crop(left, top, rw, rh)
+    mask = maps.mask.crop(mx, my, rw, rh)
     a = ink_alpha * mask
-    texture = maps.texture.crop(left, top, rw, rh) + 1
-    shade = maps.shade_low.crop(left, top, rw, rh)
+    if maps.hide is not None and fold > 0:  # fabric folded over the print hides it
+        a = a * (1 - maps.hide.crop(mx, my, rw, rh) * min(1.0, fold * 1.6))
+    if settings.occlusion and maps.occluder is not None:  # behind hair, skin, straps
+        a = a * (1 - maps.occluder.crop(mx, my, rw, rh))
+    texture = maps.texture.crop(mx, my, rw, rh) + 1
+    shade = maps.shade_low.crop(mx, my, rw, rh)
     # What the ink sits on: the fabric itself (light garments: the ink is tinted by
     # it, as DTG ink is), or a white underbase under the same light (dark garments).
-    fabric = maps.colour_low.crop(left, top, rw, rh) * texture
+    fabric = maps.colour_low.crop(mx, my, rw, rh) * texture
     lit_white = shade * texture * WHITE_INK
     u = maps.underbase
     base = fabric * (1 - u) + lit_white.bandjoin([lit_white, lit_white]) * u
@@ -556,15 +711,17 @@ def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.qual
     return result.write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
 
 
-def preview_scale(maps_source: tuple[bytes, bytes], width: int) -> tuple[bytes, bytes]:
-    """The blank and its mask at ``width`` (a fast preview); same aspect."""
+def preview_scale(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None, width: int) -> tuple[bytes, bytes, bytes | None]:
+    """The blank, its mask and its occluder at ``width`` (a fast preview); same aspect."""
     pyvips = _vips()
-    blank_jpeg, mask_png = maps_source
     blank = _load(blank_jpeg)[0:3]
     scale = min(1.0, width / blank.width)
     if scale >= 1.0:
-        return maps_source
-    small = blank.resize(scale)
-    mask = pyvips.Image.new_from_buffer(mask_png, "", access="random")[0].resize(scale)
-    return (small.write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True),
-            mask.copy(interpretation="b-w").write_to_buffer(".png", compression=1, strip=True))
+        return blank_jpeg, mask_png, occluder_png
+
+    def small(png: bytes) -> bytes:
+        image = pyvips.Image.new_from_buffer(png, "", access="random")[0].resize(scale)
+        return image.copy(interpretation="b-w").write_to_buffer(".png", compression=1, strip=True)
+
+    return (blank.resize(scale).write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True), small(mask_png),
+            small(occluder_png) if occluder_png else None)

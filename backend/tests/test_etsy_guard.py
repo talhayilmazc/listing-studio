@@ -143,6 +143,7 @@ HTTP_CLIENTS = {
     "cli.py": "hands the client to EtsyApiClient (guarded)",
     "core/alerts.py": "the operator's own alert webhook, not Etsy",
     "etsy/connection.py": "the default factory for oauth.refresh_tokens (guarded)",
+    "pipeline/fetch_models.py": "build time only (docker/Dockerfile): the bundled mockup analysis models, not Etsy; nothing at runtime imports it",
     "workers/ledger.py": "EtsyApiClient (guarded)",
     "workers/links.py": "EtsyApiClient (guarded)",
     "workers/listing_stats.py": "EtsyApiClient (guarded)",
@@ -164,6 +165,12 @@ def test_no_other_code_opens_an_http_client() -> None:
         if re.search(f"{clients}|{other_libraries}", text, flags=re.M):
             found.add(path.relative_to(APP).as_posix())
     assert found == set(HTTP_CLIENTS), f"new or removed HTTP client: {sorted(found ^ set(HTTP_CLIENTS))}"
+    # The model download runs only when the image is built: no app module imports it.
+    for path in APP.rglob("*.py"):
+        if path.name != "fetch_models.py":
+            assert not re.search(r"^\s*(from|import) .*fetch_models", path.read_text(encoding="utf-8"), re.M), path
+    from app.pipeline import fetch_models, mockup_vision
+    assert (mockup_vision.SEGMENTER, mockup_vision.LANDMARKER) == (fetch_models.SEGMENTER, fetch_models.LANDMARKER)
     # The image fetches (not API calls, but Etsy's image host) are refused as well.
     for name in ("workers/profiles.py", "workers/publish.py", "workers/replace.py"):
         text = (APP / name).read_text(encoding="utf-8")

@@ -42,6 +42,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.pipeline import grouping, mockup_sample, mockups, skus, upload_retention
+from app.pipeline import mockup_vision as vision
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
@@ -85,6 +86,15 @@ class TemplateOut(BaseModel):
     fold_strength: float
     version: int
     notice: str | None = None
+    #: How the print area was found ("pose", "outline", "default"), how sure (0..1),
+    #: what the seller is told, and whether they are asked to check it.
+    method: str | None = None
+    confidence: float | None = None
+    analysis_note: str | None = None
+    needs_check: bool = False
+    #: Print behind hair, skin and accessories; whether any were found.
+    occlusion: bool = True
+    has_occluder: bool = False
 
 
 class TemplateUpdate(BaseModel):
@@ -96,6 +106,7 @@ class TemplateUpdate(BaseModel):
     fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
     #: Sent: the set it moves to; null takes it out of its set.
     set_id: uuid.UUID | None = None
+    occlusion: bool | None = None
 
 
 class TemplateOrder(BaseModel):
@@ -108,6 +119,7 @@ class PreviewRequest(BaseModel):
     print_area: list[list[float]] | None = None
     size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
     fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
+    occlusion: bool | None = None
 
 
 class SetIn(BaseModel):
@@ -209,11 +221,20 @@ class ZipRequest(BaseModel):
 
 
 def _template_out(t: MockupTemplate) -> TemplateOut:
+    analysis = t.analysis or {}
+    confidence = t.print_area_confidence
+    # Asked to check only when the area is still the found one and it was not sure.
+    needs_check = (
+        t.status == "ready" and confidence is not None and confidence < vision.CHECK_BELOW
+        and t.print_area_source != "seller"
+    )
     return TemplateOut(
         id=t.id, name=t.name, position=t.position, set_id=t.set_id, status=t.status, error=t.error,
         width=t.width, height=t.height, mask_source=t.mask_source, print_area=t.print_area,
         print_area_source=t.print_area_source, size=t.size, fold_strength=t.fold_strength, version=t.version,
-        notice=NO_MASK if t.mask_source == "none" else None,
+        notice=NO_MASK if t.mask_source == "none" else None, method=analysis.get("method"), confidence=confidence,
+        analysis_note=analysis.get("note"), needs_check=needs_check, occlusion=t.occlusion,
+        has_occluder=t.occluder_key is not None,
     )
 
 
@@ -364,10 +385,17 @@ async def update_template(
         if body.set_id is not None:
             await _own_set(session, tenant, body.set_id)
         template.set_id = body.set_id
+    if body.occlusion is not None:
+        template.occlusion = body.occlusion
     if body.reset_print_area:
         _ready(template)
-        mask = await asyncio.to_thread(_mask_image, storage.get(template.mask_key or ""))
-        template.print_area, template.print_area_source = mockups.default_print_area(mask), "default"
+        found = (template.analysis or {}).get("detected_area")
+        if found:  # back to what the analysis found
+            template.print_area = [list(c) for c in found]
+        else:
+            mask = await asyncio.to_thread(_mask_image, storage.get(template.mask_key or ""))
+            template.print_area = mockups.default_print_area(mask)
+        template.print_area_source = "default"
     elif body.print_area is not None:
         try:
             template.print_area = mockups.clean_print_area(body.print_area)
@@ -458,16 +486,19 @@ async def preview_template(
         corners = mockups.clean_print_area(body.print_area if body.print_area is not None else template.print_area)
     except mockups.MockupError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    occlusion = body.occlusion if body.occlusion is not None else template.occlusion
     settings = mockups.Settings(
         corners,
         body.size if body.size is not None else template.size,
         body.fold_strength if body.fold_strength is not None else template.fold_strength,
+        occlusion,
     )
     blank, mask = storage.get(template.image_key or ""), storage.get(template.mask_key or "")
+    occluder = storage.get(template.occluder_key) if template.occluder_key and occlusion else None
 
     def draw() -> bytes:
-        small = mockups.preview_scale((blank, mask), PREVIEW_WIDTH)
-        maps = mockups.build_maps(*small)
+        small = mockups.preview_scale(blank, mask, occluder, PREVIEW_WIDTH)
+        maps = mockups.build_maps(*small, corners)
         design = mockups.load_design(mockup_sample.sample(light_ink=maps.underbase >= 0.5))
         return mockups.render(maps, design, settings, quality=80)
 

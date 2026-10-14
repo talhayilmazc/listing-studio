@@ -115,7 +115,10 @@ export default function PrivacyPage() {
           resized form only (the file as you sent it is not kept), with their file and folder names,
           the SKU read from them, and their dimensions. If you make mockups, the blank garment photos you
           save as templates are kept too, with the garment&rsquo;s outline, the print area and the settings
-          you chose, the colour sets you put them in, and when you confirmed you may use each photo. The
+          you chose, the colour sets you put them in, and when you confirmed you may use each photo. On a
+          photo with a person, a mask of the hair, skin and accessories in front of the garment is kept with
+          it, so designs can be placed behind them. Photos are analysed on our own server by bundled
+          open-source image-analysis models; no photo is sent to any outside service for this. The
           mockups made from your designs are kept like your other images; a ZIP of them you ask to
           download is kept for a short time, as below. Mockups are made on our own server; nothing about
           them is sent to our AI provider.
@@ -399,7 +402,7 @@ export default function PrivacyPage() {
             period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch`}</span>}
           />
           <Row
-            data="The blank garment photos you save as mockup templates, with each one's outline, print area and colour set"
+            data="The blank garment photos you save as mockup templates, with each one's outline, print area, colour set and (on a photo with a person) the mask of what is in front of the garment"
             period="Until you delete the template or your account. The designs you upload to make mockups, and the mockups made from them, are image files like the rest and are kept as above"
           />
           <Row

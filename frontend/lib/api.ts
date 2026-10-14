@@ -423,6 +423,7 @@ export const api = {
       size?: number;
       fold_strength?: number;
       set_id?: string | null;
+      occlusion?: boolean;
     },
   ) => req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   mockupSets: () => req<MockupSet[]>("/mockup-sets"),
@@ -439,7 +440,10 @@ export const api = {
   mockupTemplateImageUrl: (id: string, w?: number) =>
     `${BASE}/mockup-templates/${id}/image${w ? `?w=${w}` : ""}`,
   /** The template with a sample design, with unsaved settings: a JPEG. */
-  previewMockupTemplate: async (id: string, body: { print_area?: [number, number][]; size?: number; fold_strength?: number }) => {
+  previewMockupTemplate: async (
+    id: string,
+    body: { print_area?: [number, number][]; size?: number; fold_strength?: number; occlusion?: boolean },
+  ) => {
     const res = await fetch(`${BASE}/mockup-templates/${id}/preview`, {
       method: "POST",
       cache: "no-store",

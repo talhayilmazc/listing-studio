@@ -83,10 +83,18 @@ async def prepare(session: AsyncSession, storage: Storage, template_id: uuid.UUI
     base = f"{template.tenant_id}/templates/{template.id}"
     storage.put(f"{base}/blank.jpg", prepared.image, "image/jpeg")
     storage.put(f"{base}/mask.png", prepared.mask, "image/png")
+    if prepared.occluder is not None:
+        storage.put(f"{base}/occluder.png", prepared.occluder, "image/png")
     storage.delete_with_derivatives(template.source_key)
     storage_cap.forget(template.tenant_id)
     template.image_key, template.mask_key = f"{base}/blank.jpg", f"{base}/mask.png"
+    template.occluder_key = f"{base}/occluder.png" if prepared.occluder is not None else None
     template.width, template.height, template.mask_source = prepared.width, prepared.height, prepared.mask_source
+    template.print_area_confidence = prepared.confidence
+    template.analysis = {
+        "method": prepared.method, "note": prepared.note, "detected_area": prepared.print_area,
+        "details": prepared.details,
+    }
     if template.print_area is None:  # a set's area applied while it was preparing is kept
         template.print_area, template.print_area_source = prepared.print_area, "default"
     template.status, template.error, template.source_key = "ready", None, None
@@ -166,7 +174,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
         maps: dict[uuid.UUID, mockups.Maps] = {}
         for template in templates:
             blank, mask = storage.get(template.image_key or ""), storage.get(template.mask_key or "")
-            maps[template.id] = await asyncio.to_thread(mockups.build_maps, blank, mask)
+            occluder = storage.get(template.occluder_key) if template.occluder_key and template.occlusion else None
+            maps[template.id] = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, template.print_area)
         made = 0
         for design in designs:
             try:
@@ -179,7 +188,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 continue
             base = design_base(design)
             for position, template in enumerate(templates):
-                settings = mockups.Settings(template.print_area or [], template.size, template.fold_strength)
+                settings = mockups.Settings(template.print_area or [], template.size, template.fold_strength, template.occlusion)
                 try:
                     jpeg = await asyncio.to_thread(mockups.render, maps[template.id], image, settings)
                 except mockups.MockupError as exc:
