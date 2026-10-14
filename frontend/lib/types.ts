@@ -205,9 +205,32 @@ export interface Content {
   image_limit?: ImageLimit | null;
   /** Its profile looks print-on-demand and names no production partner (Etsy's Creativity Standards). */
   production_note?: string | null;
+  /** The search-readiness checklist, worked out by the server (pipeline/checklist.py). */
+  checklist?: Checklist | null;
   /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */
   personalization?: Personalization | null;
   personalization_source?: "listing" | "profile" | "unknown" | string;
+}
+
+/** One check of the search-readiness checklist: what the server found, and why. */
+export interface Check {
+  key: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  reason: string;
+  /** Where the rule comes from (a rule in the code, or Etsy's published guidance). */
+  source: string;
+}
+
+/** The search-readiness checklist of one listing (backend pipeline/checklist.py). */
+export interface Checklist {
+  version: number;
+  heading: string;
+  note: string;
+  summary: string;
+  passed: number;
+  total: number;
+  checks: Check[];
 }
 
 /** A setting the seller must make on the draft in Shop Manager; Etsy's API cannot. */

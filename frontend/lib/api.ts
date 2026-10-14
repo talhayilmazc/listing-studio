@@ -1,6 +1,7 @@
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import type {
+  Checklist,
   DistributionPreview,
   GroupPlanPreview,
   GroupPlanSummary,
@@ -391,6 +392,9 @@ export const api = {
     }),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">> & { personalization?: Personalization | null }) =>
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */
+  previewChecklist: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
+    req<Checklist>(`/content/${id}/checklist`, { method: "POST", body: JSON.stringify(body) }),
   approve: (id: string, approved: boolean) =>
     req<ContentUpdateResult>(`/content/${id}/approve`, {
       method: "POST",

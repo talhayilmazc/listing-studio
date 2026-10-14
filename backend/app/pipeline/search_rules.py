@@ -155,6 +155,30 @@ def gift_in(title: str) -> list[str]:
     return [term for term in GIFT if _has(title, term)]
 
 
+def repeated_words(title: str, prefix: str | None = None) -> list[str]:
+    """The words ``title`` uses more than once (root words; the prefix left out).
+    Etsy's title guidance asks for each word once (S2)."""
+    seen: dict[str, int] = {}
+    for w in keywords(without_prefix(title, prefix)):
+        seen[w] = seen.get(w, 0) + 1
+    return sorted(w for w, n in seen.items() if n > 1)
+
+
+def same_search_tags(tags: list[str]) -> list[tuple[str, str]]:
+    """Pairs of differently written tags made of the same root words ("nurse
+    shirts" / "shirt nurse"): to Etsy they are one search (S3)."""
+    pairs: list[tuple[str, str]] = []
+    by_words: dict[frozenset[str], str] = {}
+    for tag in tags:
+        key = frozenset(keywords(tag))
+        if not key:
+            continue
+        if key in by_words and by_words[key].strip().lower() != tag.strip().lower():
+            pairs.append((by_words[key], tag))
+        by_words.setdefault(key, tag)
+    return pairs
+
+
 def title_errors(
     title: str, rules: TitleRules, *, names_type: bool = True, prefix: str | None = None
 ) -> list[str]:
@@ -181,10 +205,7 @@ def title_errors(
     if not rules.readable:
         return errors
 
-    seen: dict[str, int] = {}
-    for w in keywords(without_prefix(title, prefix)):
-        seen[w] = seen.get(w, 0) + 1
-    repeated = sorted(w for w, n in seen.items() if n > 1)
+    repeated = repeated_words(title, prefix)
     if repeated:
         errors.append(
             "the title repeats " + ", ".join(f"'{w}'" for w in repeated)
@@ -258,14 +279,8 @@ def tag_errors(
             )
     # A tag that only repeats the title is not an error by itself: ``select_tags``
     # takes one only when no distinct phrase is left to fill the 13.
-    by_words: dict[frozenset[str], str] = {}
-    for tag in tags:
-        key = frozenset(keywords(tag))
-        if not key:
-            continue
-        if key in by_words and by_words[key].strip().lower() != tag.strip().lower():
-            errors.append(f"the tags {by_words[key]!r} and {tag!r} are the same search; keep one")
-        by_words.setdefault(key, tag)
+    for first, again in same_search_tags(tags):
+        errors.append(f"the tags {first!r} and {again!r} are the same search; keep one")
     multi = sum(1 for t in tags if len(t.split()) >= 2)
     if len(tags) >= MIN_MULTI_WORD_TAGS and multi < MIN_MULTI_WORD_TAGS:
         errors.append(

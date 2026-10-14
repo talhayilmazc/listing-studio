@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -292,6 +292,35 @@ class ContentOut(BaseModel):
     # Set when its profile looks print-on-demand and names no production partner
     # (pipeline/creativity.py): a warning on the card, before any draft.
     production_note: str | None = None
+    # The search-readiness checklist (pipeline/checklist.py): computed from the
+    # listing's own text and settings, never blocking anything.
+    checklist: "ChecklistOut | None" = None
+
+
+class CheckOut(BaseModel):
+    key: str
+    label: str
+    status: str  # "pass" | "warn" | "fail"
+    reason: str
+    source: str
+
+
+class ChecklistOut(BaseModel):
+    version: int
+    heading: str
+    note: str
+    summary: str
+    passed: int
+    total: int
+    checks: list[CheckOut] = Field(default_factory=list)
+
+
+class ChecklistPreview(BaseModel):
+    """The card's unsaved text, checked without saving; a field left out is the saved one."""
+
+    title: str | None = Field(default=None, max_length=1000)
+    tags: list[Annotated[str, Field(max_length=200)]] | None = Field(default=None, max_length=50)
+    description: str | None = Field(default=None, max_length=100_000)
 
 
 class ReferenceText(BaseModel):

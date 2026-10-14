@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type {
   BatchPublishResult,
+  Checklist,
   Content,
   ManualStep,
   Pause,
@@ -24,6 +25,7 @@ import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
 import { ListingPersonalization } from "./ListingPersonalization";
+import { SearchChecklist } from "./SearchChecklist";
 import { useSession } from "./SessionProvider";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
 const DEFAULT_MIN_TITLE = 110;
@@ -157,6 +159,42 @@ export function ReviewCard({
   );
   const valid = errors.length === 0;
 
+  // The search-readiness checklist. The server works it out with the app's own
+  // rules (pipeline/checklist.py); while the seller edits, the unsaved text is
+  // sent to be checked again (nothing is saved, nothing read from Etsy), so no
+  // rule is copied here. It never blocks approval.
+  const [checklist, setChecklist] = useState<Checklist | null>(initial.checklist ?? null);
+  const [checking, setChecking] = useState(false);
+  const checkedText = useRef(JSON.stringify([initial.title ?? "", initial.tags ?? [], initial.description ?? ""]));
+  const checkRun = useRef(0);
+  async function recheck() {
+    const run = ++checkRun.current;
+    const text = JSON.stringify([title, tags, description]);
+    setChecking(true);
+    try {
+      const next = await api.previewChecklist(initial.id, { title, tags, description });
+      if (run !== checkRun.current) return; // a newer edit is being checked
+      checkedText.current = text;
+      setChecklist(next);
+    } catch {
+      // The last checklist stays; the next edit tries again.
+    } finally {
+      if (run === checkRun.current) setChecking(false);
+    }
+  }
+  useEffect(() => {
+    if (JSON.stringify([title, tags, description]) === checkedText.current) return;
+    const t = setTimeout(recheck, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, tags, description]);
+  // A change from the page (a bulk action) brings a new checklist with the card.
+  const incomingChecklist = JSON.stringify(initial.checklist ?? null);
+  useEffect(() => {
+    if (!dirty) setChecklist(JSON.parse(incomingChecklist));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingChecklist]);
+
   async function save() {
     setSaving(true);
     setMessage(null);
@@ -164,6 +202,12 @@ export function ReviewCard({
       const res = await api.updateContent(initial.id, { title, tags, description });
       // A listing the seller writes: its description's title line follows the title.
       if (manual && res.content.description != null) setDescription(res.content.description);
+      if (res.content.checklist) {
+        checkRun.current += 1; // the saved text's checklist wins over one still on its way
+        checkedText.current = JSON.stringify([title, tags, res.content.description ?? description]);
+        setChecklist(res.content.checklist);
+        setChecking(false);
+      }
       setDirty(false);
       setMessage("Saved");
     } catch (e: any) {
@@ -490,7 +534,7 @@ export function ReviewCard({
                 </p>
               </div>
             )}
-            <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} />
+            <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} onChanged={recheck} />
             {initial.listing_style === "search" && !manual && (
               <p key="search-note" className="text-xs text-slate-500">
                 Written to be optimised for search matching: a short title, with the other keywords in the tags,
@@ -499,6 +543,8 @@ export function ReviewCard({
             )}
 
             <Description value={description} onChange={change(setDescription)} />
+
+            <SearchChecklist checklist={checklist} updating={checking} />
 
             <ListingPersonalization
               value={personalization}

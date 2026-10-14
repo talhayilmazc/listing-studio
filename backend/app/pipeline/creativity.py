@@ -23,6 +23,16 @@ POD_TEMPLATES = frozenset({"apparel"})
 MADE_BY_OTHERS = frozenset({"someone_else", "collective"})
 
 
+def partner_expected(profile: Any) -> bool:
+    """Whether ``profile``'s items look made by a partner: a print-on-demand
+    template, or a reference listing that says someone else made it. False while
+    its reference has not been read (nothing is known)."""
+    payload = getattr(profile, "cached_payload", None) or {}
+    if not payload:
+        return False
+    return payload.get("who_made") in MADE_BY_OTHERS or getattr(profile, "content_template", "") in POD_TEMPLATES
+
+
 def production_note(profile: Any) -> str | None:
     """The warning for a listing built with ``profile``, or None.
 
@@ -30,13 +40,9 @@ def production_note(profile: Any) -> str | None:
     it names a production partner, or when nothing suggests a partner is involved.
     """
     payload = getattr(profile, "cached_payload", None) or {}
-    if not payload:
-        return None
-    if payload.get("production_partner_ids"):
+    if not partner_expected(profile) or payload.get("production_partner_ids"):
         return None
     by_others = payload.get("who_made") in MADE_BY_OTHERS
-    if not by_others and getattr(profile, "content_template", "") not in POD_TEMPLATES:
-        return None
     name = getattr(profile, "name", "") or "this profile"
     said = (
         f"Its reference listing says the item is made by {'another company or person' if payload.get('who_made') == 'someone_else' else 'others'}, "

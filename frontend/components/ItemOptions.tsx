@@ -12,7 +12,7 @@ import { Txt } from "./Txt";
  * for the listing's category; Section is per shop, from that shop's own
  * sections. They go with the listing to every shop and are written on its drafts.
  */
-export function ItemOptions({ contentId }: { contentId: string }) {
+export function ItemOptions({ contentId, onChanged }: { contentId: string; onChanged?: () => void }) {
   const [options, setOptions] = useState<Options | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,6 +32,13 @@ export function ItemOptions({ contentId }: { contentId: string }) {
 
   // A shop's sections are read through the queue: look again until they are here.
   const waiting = options?.shops.some((s) => s.sections === null) ?? false;
+  // A shop's sections arriving can change what the card's checklist says.
+  const wasWaiting = useRef(false);
+  useEffect(() => {
+    if (wasWaiting.current && !waiting) onChanged?.();
+    wasWaiting.current = waiting;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
   useEffect(() => {
     if (!waiting || polls.current > 20) return;
     const t = setTimeout(() => {
@@ -46,6 +53,7 @@ export function ItemOptions({ contentId }: { contentId: string }) {
     setError(null);
     try {
       setOptions(await api.setItemOptions(contentId, body));
+      onChanged?.();
     } catch (e: any) {
       setError(e.message ?? String(e));
     } finally {

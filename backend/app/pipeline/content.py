@@ -373,42 +373,13 @@ def validate_listing(
     The trademark blocklist applies to every product type; ``trademarks=None``
     means the configured one (empty while TRADEMARK_FILTER is off).
     """
-    errors: list[str] = []
+    errors: list[str] = title_length_errors(listing.title, title_rules)
 
     title = listing.title.strip()
-    n = len(listing.title)
-    if not title:
-        errors.append("title is empty")
-    elif n < title_rules.min_length:
-        errors.append(
-            f"{TITLE_TOO_SHORT} {title_rules.min_length} characters "
-            f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
-        )
-    if n > title_rules.max_length:
-        errors.append(
-            f"title exceeds {title_rules.max_length} characters "
-            f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
-        )
     if title:
         errors.extend(search_rules.title_errors(title, title_rules, prefix=title_prefix))
 
-    if len(listing.tags) != REQUIRED_TAG_COUNT:
-        errors.append(f"expected exactly {REQUIRED_TAG_COUNT} tags, got {len(listing.tags)}")
-
-    seen: set[str] = set()
-    for tag in listing.tags:
-        stripped = tag.strip()
-        if not stripped:
-            errors.append("a tag is empty")
-            continue
-        if len(tag) > MAX_TAG_LENGTH:
-            errors.append(f"tag exceeds {MAX_TAG_LENGTH} characters: {tag!r}")
-        if "," in tag:
-            errors.append(f"tag contains a comma: {tag!r}")
-        key = stripped.lower()
-        if key in seen:
-            errors.append(f"duplicate tag: {tag!r}")
-        seen.add(key)
+    errors.extend(message for _, _, message in tag_problems(listing.tags))
 
     if title_rules.readable:
         errors.extend(
@@ -437,6 +408,52 @@ def validate_listing(
         errors.extend(trademark_errors(listing.title, list(listing.tags), searchable, blocklist))
 
     return list(dict.fromkeys(errors))
+
+
+def title_length_errors(title: str, title_rules: TitleRules) -> list[str]:
+    """The title is not empty and within ``title_rules``' length (Etsy: 140 at most)."""
+    errors: list[str] = []
+    n = len(title)
+    if not title.strip():
+        errors.append("title is empty")
+    elif n < title_rules.min_length:
+        errors.append(
+            f"{TITLE_TOO_SHORT} {title_rules.min_length} characters "
+            f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
+        )
+    if n > title_rules.max_length:
+        errors.append(
+            f"title exceeds {title_rules.max_length} characters "
+            f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
+        )
+    return errors
+
+
+#: The kinds :func:`tag_problems` reports: the count, each tag's format, a repeat.
+TAG_COUNT, TAG_EMPTY, TAG_TOO_LONG, TAG_COMMA, TAG_DUPLICATE = "count", "empty", "length", "comma", "duplicate"
+
+
+def tag_problems(tags: list[str]) -> list[tuple[str, str, str]]:
+    """Etsy's structural limits on tags, as (kind, tag, message): exactly 13, none
+    empty, at most 20 characters, no comma, no tag twice."""
+    problems: list[tuple[str, str, str]] = []
+    if len(tags) != REQUIRED_TAG_COUNT:
+        problems.append((TAG_COUNT, "", f"expected exactly {REQUIRED_TAG_COUNT} tags, got {len(tags)}"))
+    seen: set[str] = set()
+    for tag in tags:
+        stripped = tag.strip()
+        if not stripped:
+            problems.append((TAG_EMPTY, tag, "a tag is empty"))
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            problems.append((TAG_TOO_LONG, tag, f"tag exceeds {MAX_TAG_LENGTH} characters: {tag!r}"))
+        if "," in tag:
+            problems.append((TAG_COMMA, tag, f"tag contains a comma: {tag!r}"))
+        key = stripped.lower()
+        if key in seen:
+            problems.append((TAG_DUPLICATE, tag, f"duplicate tag: {tag!r}"))
+        seen.add(key)
+    return problems
 
 
 def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str]:

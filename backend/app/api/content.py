@@ -306,6 +306,13 @@ async def contents_out(
     for out in outs:
         out.findings = findings.get(out.id, [])
         out.work = work.get(out.id, [])
+    # The search-readiness checklist: from what is stored here; nothing read from Etsy.
+    from app.api.checklist import checklists_for
+
+    if pairs:
+        lists = await checklists_for(session, pairs[0][0].tenant_id, [c for c, _ in pairs], profiles)
+        for out in outs:
+            out.checklist = lists.get(out.id)
     # More images than Etsy keeps: the same notice as on the group's card.
     from app.api.batches import _batch_groups  # late: batches imports this module's helpers
 
@@ -482,6 +489,25 @@ async def update_content(
     return schemas.ContentUpdateResult(
         content=(await contents_out(session, [(content, asset)]))[0], validation=await _validation(session, content)
     )
+
+
+@router.post("/content/{content_id}/checklist", response_model=schemas.ChecklistOut)
+async def preview_checklist(
+    content_id: uuid.UUID,
+    body: schemas.ChecklistPreview,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.ChecklistOut:
+    """The checklist for the text on the card as the seller edits it, before it is
+    saved. Nothing is saved, nothing is read from Etsy and no model is called."""
+    from app.api.checklist import checklists_for
+
+    content = await _get(session, tenant, content_id)
+    profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+    profiles = {profile.id: profile} if profile is not None and profile.tenant_id == tenant.id else {}
+    edits = body.model_dump(exclude_unset=True, exclude_none=True)
+    lists = await checklists_for(session, tenant.id, [content], profiles, edits={content.id: edits})
+    return lists[content.id]
 
 
 @router.get("/content/{content_id}/reference-text", response_model=schemas.ReferenceText)
