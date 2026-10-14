@@ -75,37 +75,20 @@ async def _profile(session: AsyncSession, tenant: Tenant, content: GeneratedCont
 async def target_shops(session: AsyncSession, tenant: Tenant, content: GeneratedContent) -> list[EtsyConnection]:
     """The shops the listing goes to: the one it was written for, those it is
     planned or distributed to, and those it has a draft in (pipeline/group_state.py)."""
-    return (await target_shops_for(session, tenant.id, [content]))[content.id]
-
-
-async def target_shops_for(
-    session: AsyncSession, tenant_id: uuid.UUID, contents: list[GeneratedContent]
-) -> dict[uuid.UUID, list[EtsyConnection]]:
-    """:func:`target_shops` for several listings at once (a batch's review page),
-    reading the groups of their batches once."""
-    if not contents:
-        return {}
-    shops = {c.id: c for c in await active_shops(session, tenant_id)}
-    batch_ids = {c.batch_id for c in contents}
-    states = await group_states(session, batch_ids=batch_ids, with_removed=True)
-    assets = {a.id: a for state in states.values() for a in state.assets}
-    batch_shops: dict[uuid.UUID, uuid.UUID | None] = {}
-    out: dict[uuid.UUID, list[EtsyConnection]] = {}
-    for content in contents:
-        asset = assets.get(content.asset_id) or await session.get(Asset, content.asset_id)
-        targets: set[uuid.UUID] = set()
-        if asset is not None:
-            state = states.get((content.batch_id, asset.group_key or ""))
-            if state is not None:
-                targets = set(state.targets)
-        if not targets:
-            if content.batch_id not in batch_shops:
-                batch = await session.get(UploadBatch, content.batch_id)
-                batch_shops[content.batch_id] = batch.connection_id if batch is not None else None
-            if batch_shops[content.batch_id] is not None:
-                targets.add(batch_shops[content.batch_id])
-        out[content.id] = [shops[c] for c in shops if c in targets]
-    return out
+    asset = await session.get(Asset, content.asset_id)
+    shops = {c.id: c for c in await active_shops(session, tenant.id)}
+    targets: set[uuid.UUID] = set()
+    if asset is not None:
+        state = (await group_states(session, batch_ids={content.batch_id}, with_removed=True)).get(
+            (content.batch_id, asset.group_key or "")
+        )
+        if state is not None:
+            targets = set(state.targets)
+    if not targets:
+        batch = await session.get(UploadBatch, content.batch_id)
+        if batch is not None and batch.connection_id is not None:
+            targets.add(batch.connection_id)
+    return [shops[c] for c in shops if c in targets]
 
 
 def _property(payload: dict[str, Any], content: GeneratedContent, name: str, default: str | None) -> schemas.PropertyOptionsOut | None:

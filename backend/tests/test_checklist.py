@@ -1,6 +1,8 @@
 """The search-readiness checklist on the review card (pipeline/checklist.py).
 
 * Each check passes, warns or fails from the listing's own text and settings.
+* No check contradicts the profile's style: a listing the app writes correctly
+  for a classic or a search profile gets no warning for following that style.
 * It reuses the existing rules: the checklist and validate_listing agree.
 * It makes no Etsy call and no model call, queues nothing and stores nothing.
 * It is on the content endpoints for AI-written and write-it-yourself listings,
@@ -22,10 +24,11 @@ from app.db.models import AiCall, ComplianceFinding, GeneratedContent, ListingPr
 from app.etsy.api import EtsyApiClient
 from app.pipeline import checklist
 from app.pipeline.checklist import FAIL, PASS, WARN, OptionState, build
-from app.pipeline.content import GeneratedListing, validate_listing
+from app.pipeline.content import GeneratedListing, policy_for, validate_listing
 from app.pipeline.llm import AnthropicLLMClient
-from app.pipeline.search_rules import LEGACY_TITLE, SEARCH_TITLE, TitleRules
-from tests.test_multi_shop import world  # noqa: F401  (fixture)
+from app.pipeline.reference import replace_title_block, with_opening
+from app.pipeline.search_rules import LEGACY_TITLE, SEARCH_TITLE, TitleRules, title_rules
+from tests.test_multi_shop import BODY, PREFIX_A, world  # noqa: F401  (fixture)
 
 SHORT = TitleRules(40, 140)
 TITLE = "Frog Reading Club Shirt, Cottagecore Book Lover Top, Pond Life Crewneck"
@@ -41,7 +44,8 @@ def _check(result: checklist.Checklist, key: str) -> checklist.Check:
 
 
 def _build(title: str = TITLE, tags: list[str] = TAGS, description: str = DESCRIPTION, **kwargs) -> checklist.Checklist:
-    args = {"title_rules": SHORT, "blocklist": compile_blocklist(["Disney"]), "filter_on": True, **kwargs}
+    """A listing of a short-style ("search") profile unless ``search_style=False``."""
+    args = {"title_rules": SHORT, "blocklist": compile_blocklist(["Disney"]), "filter_on": True, "search_style": True, **kwargs}
     return build(title, tags, description, **args)
 
 
@@ -52,7 +56,7 @@ def test_a_listing_that_follows_everything_passes_every_check() -> None:
         "title_length", "title_repeats", "tag_count", "tag_format", "tag_duplicates", "description_opening", "trademarks",
     ]
     assert result.summary == "7 of 7 checks pass"
-    assert result.version == checklist.CHECKLIST_VERSION == 1
+    assert result.version == checklist.CHECKLIST_VERSION == 2
     assert all(c.source and c.reason.endswith(".") for c in result.checks)
 
 
@@ -84,6 +88,13 @@ def test_repeated_title_words_warn_and_the_prefix_is_left_aside() -> None:
     assert _check(_build(title=""), "title_repeats").status == WARN
 
 
+def test_repeated_title_words_are_not_checked_for_the_long_keyword_style() -> None:
+    """The classic style repeats words by design: the check is left out, not replaced."""
+    classic = _build(title="Frog Shirt, Retro Frog Tee, Pond Life Crewneck Shirts For Readers", search_style=False)
+    assert "title_repeats" not in [c.key for c in classic.checks]
+    assert len(classic.checks) == len(_build().checks) - 1
+
+
 def test_tag_count_fails_below_and_above_thirteen() -> None:
     assert (_check(_build(tags=TAGS[:9]), "tag_count").status, _check(_build(tags=TAGS[:9]), "tag_count").reason) == (FAIL, "9 of 13 tags.")
     assert _check(_build(tags=[*TAGS, "extra one"]), "tag_count").reason == "14 tags; Etsy takes 13."
@@ -103,6 +114,10 @@ def test_duplicate_tags_fail_and_the_same_search_warns() -> None:
     same = _check(_build(tags=[*TAGS[:12], "frog shirts"]), "tag_duplicates")
     assert same.status == WARN
     assert same.reason == "“frog shirt” and “frog shirts” are the same search to Etsy; one could be a different phrase."
+    # The classic style's writer does not apply the root-word rule: only a real repeat counts.
+    classic = _check(_build(tags=[*TAGS[:12], "frog shirts"], search_style=False), "tag_duplicates")
+    assert (classic.status, classic.reason) == (PASS, "No tag is used twice.")
+    assert _check(_build(tags=[*TAGS[:12], "Frog Shirt"], search_style=False), "tag_duplicates").status == FAIL
 
 
 def test_the_descriptions_first_sentences_should_name_the_item() -> None:
@@ -116,17 +131,18 @@ def test_the_descriptions_first_sentences_should_name_the_item() -> None:
     assert branded.status == WARN
 
 
-def test_item_options_warn_when_one_offered_is_not_set() -> None:
-    options = [
-        OptionState("Occasion", ["Birthday"]),
-        OptionState("Holiday", [], decided=True),
-        OptionState("Section in Frost Tees", []),
-    ]
-    check = _check(_build(options=options), "item_options")
-    assert (check.status, check.reason) == (WARN, "Not set: Section in Frost Tees. Leave any that does not apply to this design empty.")
-    options[2] = OptionState("Section in Frost Tees", ["Nurse"])
-    check = _check(_build(options=options), "item_options")
-    assert (check.status, check.reason) == (PASS, "Occasion: Birthday; Holiday: none, as you chose; Section in Frost Tees: Nurse.")
+def test_occasion_and_holiday_warn_only_when_nobody_decided() -> None:
+    undecided = [OptionState("Occasion", ["Birthday"]), OptionState("Holiday", [])]
+    check = _check(_build(options=undecided), "item_options")
+    assert (check.status, check.reason) == (WARN, "Not set: Holiday. Leave any that does not apply to this design empty.")
+    for chosen_by, said in (
+        ("you", "none, as you chose"),
+        ("writer", "none, as written for this design"),
+        ("profile", "none, the profile's default"),
+    ):
+        check = _check(_build(options=[OptionState("Occasion", ["Birthday"]), OptionState("Holiday", [], chosen_by=chosen_by)]), "item_options")
+        assert (check.status, check.reason) == (PASS, f"Occasion: Birthday; Holiday: {said}.")
+    assert check.label == "Occasion and Holiday"
     assert "item_options" not in [c.key for c in _build().checks]  # nothing offered: no check
 
 
@@ -135,9 +151,9 @@ def test_trademarks_fail_with_the_filter_on_and_say_so_when_it_is_off() -> None:
     assert (check.status, check.reason) == (FAIL, "Remove: Disney (title)")
     characters = _check(_build(characters=["Mickey Mouse"]), "trademarks")
     assert characters.status == FAIL and "Mickey Mouse" in characters.reason
+    # Filter off (the seller accepted the risk): no check, unless the scanner still warns.
     off = _build(title="Disney Frog Reading Club Shirt, Pond Life Top", blocklist=Blocklist(), filter_on=False)
-    assert _check(off, "trademarks").status == WARN
-    assert _check(off, "trademarks").reason == "Your trademark filter is off, so brand and character names are not checked."
+    assert "trademarks" not in [c.key for c in off.checks]
     off_characters = _check(_build(blocklist=Blocklist(), filter_on=False, characters=["Mickey Mouse"]), "trademarks")
     assert off_characters.status == WARN and "Mickey Mouse" in off_characters.reason
 
@@ -211,12 +227,13 @@ async def test_the_review_page_gets_a_checklist_without_any_etsy_or_model_call(w
         found = card["checklist"]
         assert found["heading"] == "Search-readiness checklist"
         assert found["note"] == "A check against Etsy's published guidance. It does not predict how Etsy ranks your listing."
-        assert found["version"] == 1
         assert found["summary"] == f"{found['passed']} of {found['total']} checks pass"
         statuses = {c["key"]: c["status"] for c in found["checks"]}
-        # The fixture's title repeats "frog" and "tee", its description names none of
-        # its words, and its apparel profile names no production partner.
-        assert statuses["title_repeats"] == "warn"
+        # The fixture's classic profile repeats words by design (not checked); its
+        # description names none of the title's words, and its apparel profile names
+        # no production partner.
+        assert "title_repeats" not in statuses
+        assert found["version"] == 2
         assert statuses["description_opening"] == "warn"
         assert statuses["production_partner"] == "warn"
         assert statuses["tag_count"] == "pass"
@@ -241,7 +258,8 @@ async def test_the_preview_follows_unsaved_text_and_saves_nothing(world, monkeyp
     statuses = {c["key"]: c for c in res.json()["checks"]}
     assert (statuses["tag_count"]["status"], statuses["tag_count"]["reason"]) == ("fail", "5 of 13 tags.")
     assert statuses["description_opening"]["status"] == "pass"
-    assert statuses["title_repeats"]["status"] == "warn"  # the saved title, as it was not sent
+    assert "title_repeats" not in statuses  # a classic profile
+    assert statuses["title_length"]["reason"].startswith(f"{len(BODY) + len(PREFIX_A) + 2} characters")  # the saved title
     async with world["sm"]() as s:
         after = await s.get(GeneratedContent, content_id)
         assert (after.title, list(after.tags), after.description) == saved
@@ -275,6 +293,89 @@ async def test_warnings_do_not_block_approval(world) -> None:  # noqa: F811
     res = await world["a"].post(f"/api/content/{content_id}/approve", json={"approved": True})
     assert res.status_code == 200, res.text
     assert res.json()["content"]["approved"] is True
+
+
+# --- a listing written correctly for its style -----------------------------------------------------
+
+REFERENCE_DESCRIPTION = "Reference title\n\nSizes S to 3XL. Wash cold."
+CATEGORY = {"Occasion": ["Birthday", "Graduation"], "Holiday": ["Christmas", "Halloween"]}
+
+CLASSIC_TITLE = "Vintage Frog Reading Club Shirt, Cottagecore Book Lover Tee, Frog Mom Gift, Pond Life Reader Crewneck Tee, Bookish Frog Present"
+# Plural and singular, which the classic writer does not avoid.
+CLASSIC_TAGS = ["frog shirt", "frog shirts", "book lover tee", "cottagecore tee", "pond life", "reading club", "librarian top",
+                "bookish crewneck", "nature lover", "frog mom", "toad shirt", "green frog", "lily pad"]
+
+SEARCH_TITLE_TEXT = "Frog Reading Club Shirt, Cottagecore Book Lover Top"
+SEARCH_TAGS = ["frog shirt", "librarian gift", "bookworm present", "back to school", "funny frog tee", "cottagecore style",
+               "reading lover", "toad lover top", "pond life", "book nerd", "birthday idea", "nature tee", "teacher appreciation"]
+SEARCH_INTENTS = ["product", "profession", "recipient", "season", "humor", "style", "subject", "subject", "subject", "humor",
+                  "occasion", "style", "occasion"]
+SEARCH_OPENING = "A frog reading club shirt for anyone who loves books and quiet ponds."
+
+
+async def test_a_listing_written_correctly_for_its_style_gets_no_warning(world) -> None:  # noqa: F811
+    """The app's own output for a classic and for a search profile, each valid under
+    validate_listing, gets no warning from a check that contradicts its style."""
+    from app.api.checklist import checklists_for
+
+    classic = GeneratedListing(CLASSIC_TITLE, CLASSIC_TAGS, replace_title_block(REFERENCE_DESCRIPTION, CLASSIC_TITLE))
+    assert 110 <= len(CLASSIC_TITLE) <= 140
+    assert validate_listing(classic, policy_for("apparel"), trademarks=compile_blocklist(["Disney"]), title_rules=LEGACY_TITLE) == []
+
+    search = GeneratedListing(
+        SEARCH_TITLE_TEXT, SEARCH_TAGS, with_opening(REFERENCE_DESCRIPTION, SEARCH_OPENING),
+        opening=SEARCH_OPENING, tag_intents=SEARCH_INTENTS,
+    )
+    rules = title_rules(40, 140)
+    assert validate_listing(search, policy_for("apparel"), trademarks=compile_blocklist(["Disney"]), title_rules=rules) == []
+
+    async with world["sm"]() as s:
+        pa1, pa2 = await s.get(ListingProfile, world["pa1"]), await s.get(ListingProfile, world["pa2"])
+        for profile, style in ((pa1, "classic"), (pa2, "search")):
+            profile.listing_style = style
+            profile.title_prefix = None
+            # A partner named and the category's Occasion / Holiday read, so only style matters here.
+            profile.cached_payload = {**(profile.cached_payload or {}), "description": REFERENCE_DESCRIPTION,
+                                      "production_partner_ids": [7], "category_attributes": CATEGORY}
+        written = []
+        for profile, listing in ((pa1, classic), (pa2, search)):
+            content = await s.get(GeneratedContent, world["contents"][len(written)])
+            content.listing_profile_id = profile.id
+            content.title, content.tags, content.description = listing.title, listing.tags, listing.description
+            content.attributes = {"listing": {}, **({"search": True} if profile is pa2 else {})}  # no Occasion / Holiday: the design shows none
+            written.append(content)
+        await s.commit()
+        lists = await checklists_for(s, world["alice"], written, {pa1.id: pa1, pa2.id: pa2})
+
+    for content, style in zip(written, ("classic", "search")):
+        found = lists[content.id]
+        statuses = {c.key: (c.status, c.reason) for c in found.checks}
+        assert all(status == "pass" for status, _ in statuses.values()), (style, statuses)
+        assert statuses["item_options"] == ("pass", "Occasion: none, as written for this design; Holiday: none, as written for this design.")
+        assert found.version == 2
+    classic_keys = [c.key for c in lists[written[0].id].checks]
+    search_keys = [c.key for c in lists[written[1].id].checks]
+    assert "title_repeats" not in classic_keys and "title_repeats" in search_keys
+    # The same classic listing judged by the short style's rules would be told to change.
+    as_search = build(CLASSIC_TITLE, CLASSIC_TAGS, classic.description, title_rules=LEGACY_TITLE, blocklist=Blocklist(),
+                      filter_on=True, search_style=True)
+    assert {c.key for c in as_search.checks if c.status == WARN} == {"title_repeats", "tag_duplicates"}
+
+
+async def test_a_listing_the_seller_writes_is_undecided_without_a_profile_default(world) -> None:  # noqa: F811
+    from app.api.checklist import checklists_for
+
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, world["pa1"])
+        profile.cached_payload = {**(profile.cached_payload or {}), "category_attributes": CATEGORY}
+        profile.default_holiday = ""  # "none" by default
+        content = await s.get(GeneratedContent, world["contents"][0])
+        content.source = "manual"
+        content.attributes = {}
+        await s.commit()
+        found = (await checklists_for(s, world["alice"], [content], {profile.id: profile}))[content.id]
+    check = next(c for c in found.checks if c.key == "item_options")
+    assert (check.status, check.reason) == ("warn", "Not set: Occasion. Leave any that does not apply to this design empty.")
 
 
 # --- the words ------------------------------------------------------------------------------------

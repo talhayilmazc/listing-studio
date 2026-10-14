@@ -16,6 +16,17 @@ guidance is not added.
 approval or the draft is already stopped by that rule); ``warn`` means Etsy's
 guidance suggests otherwise, and the seller decides.
 
+**No check contradicts the profile's own style.** A listing the app writes
+correctly for its profile gets no warning for doing what that style asks: the
+long keyword ("classic") style repeats words in its title and may use plural
+and singular tags, so the repeated-word check and the root-word half of the
+duplicate-tag check run only for the short ("search") style
+(``content.uses_search_style``, as the writer decides). Occasion and Holiday left
+empty by the writer, the profile's default or the seller are a decision, not a
+gap; a shop Section is left out (the app leaves it empty whenever no existing
+section fits, by design); with the trademark filter off the check appears only
+when the scanner still warns (character artwork).
+
 Wording: a "search-readiness checklist", never a score, a rank or a promise.
 """
 
@@ -43,7 +54,8 @@ from app.pipeline.content import (
 from app.pipeline.search_rules import TitleRules
 
 #: Raised whenever a check is added, removed or judged differently.
-CHECKLIST_VERSION = 1
+#: 2: no check contradicts the profile's style; Section and the filter-off note left out.
+CHECKLIST_VERSION = 2
 
 HEADING = "Search-readiness checklist"
 NOTE = "A check against Etsy's published guidance. It does not predict how Etsy ranks your listing."
@@ -78,13 +90,17 @@ class Checklist:
 
 @dataclass(frozen=True)
 class OptionState:
-    """One Occasion, Holiday or shop Section the listing can set (pipeline/item_options.py)."""
+    """Occasion or Holiday, when the listing's category offers it (pipeline/item_options.py)."""
 
-    #: "Occasion", "Holiday", "Section in Frost Tees".
+    #: "Occasion", "Holiday".
     name: str
     values: list[str] = field(default_factory=list)
-    #: The seller chose on the card, possibly "none".
-    decided: bool = False
+    #: Who decided it, possibly "none": "you" (on the card), "writer" (the app wrote
+    #: the listing and chose from the design), "profile" (its default); "" = nobody.
+    chosen_by: str = ""
+
+
+_NONE_BY = {"you": "none, as you chose", "writer": "none, as written for this design", "profile": "none, the profile's default"}
 
 
 def _quote(items: Sequence[str]) -> str:
@@ -110,7 +126,9 @@ def _title_length(title: str, rules: TitleRules) -> Check:
 
 def _title_repeats(title: str, prefix: str | None) -> Check:
     # Source: search_rules.repeated_words (the check title_errors makes when the
-    # app writes); Etsy, "New Guidance for Listing Titles" (S2): don't repeat words.
+    # app writes in the short style); Etsy, "New Guidance for Listing Titles" (S2):
+    # don't repeat words. Short style only: the long keyword style repeats words
+    # by design.
     source = "pipeline/search_rules.py::repeated_words; Etsy Seller Handbook S2"
     label = "No repeated words in the title"
     if not title.strip():
@@ -154,16 +172,19 @@ def _tag_format(problems: list[tuple[str, str, str]]) -> Check:
     return Check("tag_format", label, PASS, f"Every tag is {MAX_TAG_LENGTH} characters or fewer, with no commas.", source)
 
 
-def _tag_duplicates(tags: list[str], problems: list[tuple[str, str, str]]) -> Check:
-    # Source: content.tag_problems (the same tag twice, which validate_listing refuses)
-    # and search_rules.same_search_tags (the root-word check select_tags applies);
-    # Etsy (S3): don't repeat tags, and Etsy matches root words, so plural and
-    # singular are one search.
+def _tag_duplicates(tags: list[str], problems: list[tuple[str, str, str]], search_style: bool) -> Check:
+    # Source: content.tag_problems (the same tag twice, which validate_listing refuses,
+    # in both styles) and, for the short style only, search_rules.same_search_tags
+    # (the root-word check its writer applies: select_tags, tag_errors); Etsy (S3):
+    # don't repeat tags, and Etsy matches root words, so plural and singular are one
+    # search. The long keyword style's writer does not apply the root-word rule.
     source = "pipeline/content.py::tag_problems, search_rules.py::same_search_tags; Etsy Seller Handbook S3"
     label = "No duplicate tags"
     twice = list(dict.fromkeys(tag.strip() for kind, tag, _ in problems if kind == TAG_DUPLICATE))
     if twice:
         return Check("tag_duplicates", label, FAIL, f"Used twice: {_quote(twice)}.", source)
+    if not search_style:
+        return Check("tag_duplicates", label, PASS, "No tag is used twice.", source)
     same = search_rules.same_search_tags([t for t in tags if t.strip()])
     if same:
         first, again = same[0]
@@ -200,25 +221,29 @@ def _description_opening(title: str, description: str, prefix: str | None) -> Ch
 
 def _item_options(options: Sequence[OptionState]) -> Check | None:
     # Source: pipeline/item_options.py (Occasion and Holiday from Etsy's own list
-    # for the category; the section chosen per shop, else the suggested existing
-    # one); Etsy, "How Etsy Search Works" and S4: add every attribute that applies.
-    source = "pipeline/item_options.py::chosen, suggest_section; Etsy Seller Handbook S1, S4"
+    # for the category: the seller's choice, else the writer's, with the profile's
+    # default; item_options.chosen, apply_profile_default); Etsy, "How Etsy Search
+    # Works" and S4: add every attribute that applies. Only an option nobody has
+    # decided warns: the writer leaves one empty when the design shows none.
+    source = "pipeline/item_options.py::chosen, apply_profile_default; Etsy Seller Handbook S1, S4"
     if not options:
         return None
-    label = "Occasion, Holiday and Section"
-    unset = [o.name for o in options if not o.values and not o.decided]
+    label = "Occasion and Holiday"
+    unset = [o.name for o in options if not o.values and not o.chosen_by]
     if unset:
         reason = f"Not set: {', '.join(unset)}. Leave any that does not apply to this design empty."
         return Check("item_options", label, WARN, reason, source)
-    said = [f"{o.name}: {', '.join(o.values)}" if o.values else f"{o.name}: none, as you chose" for o in options]
+    said = [f"{o.name}: {', '.join(o.values) if o.values else _NONE_BY[o.chosen_by]}" for o in options]
     return Check("item_options", label, PASS, "; ".join(said) + ".", source)
 
 
 def _trademarks(
     title: str, tags: list[str], description: str, blocklist: Blocklist, characters: list[str], filter_on: bool
-) -> Check:
+) -> Check | None:
     # Source: compliance/scanner.py::scan with the account's own list
-    # (trademarks.tenant_blocklist): the same scan that stops a draft.
+    # (trademarks.tenant_blocklist): the same scan that stops a draft. With the
+    # filter off (the seller accepted the risk) nothing is said unless the scanner
+    # still warns, as it does for character artwork.
     source = "compliance/scanner.py::scan, trademarks.py::tenant_blocklist"
     label = "No trademark findings"
     findings = scan(title, tags, description, blocklist, characters=characters)
@@ -228,8 +253,7 @@ def _trademarks(
     if findings:
         return Check("trademarks", label, WARN, " ".join(f.detail for f in findings), source)
     if not filter_on:
-        reason = "Your trademark filter is off, so brand and character names are not checked."
-        return Check("trademarks", label, WARN, reason, source)
+        return None
     return Check("trademarks", label, PASS, "No brand or character names in the title, tags or description.", source)
 
 
@@ -262,17 +286,21 @@ def build(
     characters: Sequence[str] = (),
     options: Sequence[OptionState] = (),
     profile: Any = None,
+    search_style: bool = False,
 ) -> Checklist:
-    """The checklist for one listing. Pure: nothing is read or written, nothing called."""
+    """The checklist for one listing. Pure: nothing is read or written, nothing called.
+
+    ``search_style``: the profile's listings are written in the short style
+    (``content.uses_search_style``); only then do its title and root-word rules apply."""
     tags = list(tags)
     problems = tag_problems(tags)
     kinds = {kind for kind, _, _ in problems}
     checks = [
         _title_length(title, title_rules),
-        _title_repeats(title, prefix),
+        _title_repeats(title, prefix) if search_style else None,
         _tag_count(tags, kinds),
         _tag_format(problems),
-        _tag_duplicates(tags, problems),
+        _tag_duplicates(tags, problems, search_style),
         _description_opening(title, description, prefix),
         _item_options(options),
         _trademarks(title, tags, description, blocklist, list(characters), filter_on),

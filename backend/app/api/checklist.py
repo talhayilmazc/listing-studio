@@ -1,11 +1,10 @@
 """What the search-readiness checklist (pipeline/checklist.py) is computed from,
 read from what this app already stores.
 
-The listing's text, its profile, the account's trademark list, the listing's
-Occasion / Holiday / Section and its target shops' sections as the review card
-shows them (api/item_options.py). Nothing is read from Etsy here and nothing is
-queued: a shop whose sections are not stored (or older than 24 hours) is left
-out of the Section part rather than read again.
+The listing's text, its profile (its style, bounds, prefix, Occasion / Holiday
+defaults and category lists), the listing's Occasion / Holiday as the review
+card shows them (api/item_options.py) and the account's trademark list. Nothing
+is read from Etsy here and nothing is queued.
 """
 
 from __future__ import annotations
@@ -16,12 +15,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.item_options import _property, _shop_out, target_shops_for
-from app.api.shops import shop_label
+from app.api.item_options import _property
 from app.compliance.trademarks import blocklist_for_tenant, filter_on
 from app.db.models import GeneratedContent, ListingProfile, Tenant
-from app.pipeline import checklist, item_options as opts
-from app.pipeline.content import bounds_for
+from app.pipeline import checklist, manual
+from app.pipeline import item_options as opts
+from app.pipeline.content import bounds_for, uses_search_style
 
 
 def checklist_out(result: checklist.Checklist) -> schemas.ChecklistOut:
@@ -39,31 +38,23 @@ def checklist_out(result: checklist.Checklist) -> schemas.ChecklistOut:
     )
 
 
-def _options(
-    content: GeneratedContent, profile: ListingProfile | None, shops: list[Any], names: dict[str, str]
-) -> list[checklist.OptionState]:
-    """Occasion, Holiday and each target shop's Section, as the card's Item Options shows them."""
+def _options(content: GeneratedContent, profile: ListingProfile | None) -> list[checklist.OptionState]:
+    """Occasion and Holiday, when the category offers them, and who decided each:
+    the seller on the card, else the app's writer (it chose from the design, so an
+    empty one is its decision), else the profile's default; a listing the seller
+    writes with no default for it is undecided."""
     payload = (profile.cached_payload or {}) if profile is not None else {}
+    written = not manual.is_manual(content)
     out: list[checklist.OptionState] = []
     for name, default in (
         (opts.OCCASION, profile.default_occasion if profile else None),
         (opts.HOLIDAY, profile.default_holiday if profile else None),
     ):
         prop = _property(payload, content, name, default)
-        if prop is not None:  # the category offers it
-            out.append(checklist.OptionState(prop.name, list(prop.selected), decided=prop.source == "seller"))
-    for shop in shops:
-        section = _shop_out(content, shop, profile, names)
-        if section.sections is None:
-            continue  # not stored (or stale): not read from Etsy for this
-        chose_none = section.source == "seller" and section.selected_id is None and section.missing_title is None
-        out.append(
-            checklist.OptionState(
-                f"Section in {section.shop_name or 'your shop'}",
-                [section.selected_title] if section.selected_title else [],
-                decided=chose_none,
-            )
-        )
+        if prop is None:  # the category does not offer it
+            continue
+        chosen_by = "you" if prop.source == "seller" else "writer" if written else "profile" if default is not None else ""
+        out.append(checklist.OptionState(prop.name, list(prop.selected), chosen_by=chosen_by))
     return out
 
 
@@ -81,12 +72,9 @@ async def checklists_for(
     tenant = await session.get(Tenant, tenant_id)
     blocklist = blocklist_for_tenant(tenant)
     on = filter_on(tenant)
-    targets = await target_shops_for(session, tenant_id, contents)
     out: dict[uuid.UUID, schemas.ChecklistOut] = {}
     for content in contents:
         profile = profiles.get(content.listing_profile_id) if content.listing_profile_id else None
-        shops = targets.get(content.id, [])
-        names = {str(s.id): shop_label(s) for s in shops}
         unsaved = (edits or {}).get(content.id, {})
         vision = (content.attributes or {}).get("vision") or {}
         result = checklist.build(
@@ -98,8 +86,10 @@ async def checklists_for(
             blocklist=blocklist,
             filter_on=on,
             characters=[str(c) for c in vision.get("characters") or []],
-            options=_options(content, profile, shops, names),
+            options=_options(content, profile),
             profile=profile,
+            # The style the writer uses for this profile (content.uses_search_style).
+            search_style=profile is not None and uses_search_style(profile),
         )
         out[content.id] = checklist_out(result)
     return out
