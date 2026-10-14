@@ -87,6 +87,11 @@ export default function TermsPage() {
             <strong>as a draft</strong>, through Etsy&rsquo;s official API.
           </li>
           <li>
+            If you choose, mockups: you save a photo of a blank garment you sell, and your designs are
+            placed on it as if printed on the fabric, by image processing on our own server. Your design
+            is fitted, warped and shaded, never redrawn, and no AI is used for it.
+          </li>
+          <li>
             If you run several shops, you manage each from one account: each shop has its own listings,
             its own shipping and return settings, and its own drafts.
           </li>
@@ -166,7 +171,8 @@ export default function TermsPage() {
           <strong>Please keep your own copies of your design files</strong><span>: uploaded image files are
           working copies and are deleted <span>{RETENTION.uploadsAfterDraftsDays}</span> days after a listing&rsquo;s
           drafts exist in every shop it is meant for, and <span>{RETENTION.uploadsOtherwiseDays}</span> days after you
-          last worked on them otherwise.</span>
+          last worked on them otherwise. The blank garment photos you save as mockup templates are kept until you
+          delete them.</span>
         </p>
       </Section>
 
@@ -178,6 +184,11 @@ export default function TermsPage() {
           trademark filter, and the warning shown when a design appears to contain a recognisable
           character, are aids, not clearance: if you turn the filter off in Settings, you do so having
           accepted that risk.
+        </p>
+        <p>
+          <strong>Your photos and mockups.</strong> You confirm that every blank garment photo you save as
+          a mockup template is your own or that you have the right to use it, and that your listing
+          photos, mockups included, show the item you sell accurately, as Etsy requires.
         </p>
         <p>
           <strong>Etsy&rsquo;s rules for sellers.</strong> You remain responsible for your Etsy account

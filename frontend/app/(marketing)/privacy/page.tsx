@@ -113,7 +113,10 @@ export default function PrivacyPage() {
         <p>
           <strong>Your uploads.</strong> The design images you upload are resized and stored in that
           resized form only (the file as you sent it is not kept), with their file and folder names,
-          the SKU read from them, and their dimensions.
+          the SKU read from them, and their dimensions. If you make mockups, the blank garment photos you
+          save as templates are kept too, with the garment&rsquo;s outline, the print area and the settings
+          you chose, and when you confirmed you may use each photo. Mockups are made on our own server;
+          nothing about them is sent to our AI provider.
         </p>
         <p>
           <strong>The listings you prepare.</strong> The titles, tags and descriptions suggested for

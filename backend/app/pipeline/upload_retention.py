@@ -283,7 +283,32 @@ async def run(
         result.images += len(group.images)
         result.files += files
         result.freed_bytes += size
+    await _unprinted_designs(session, storage, now, days, result, apply)
     return result
+
+
+async def _unprinted_designs(
+    session: AsyncSession, storage: Storage, now: datetime, days: Policy, result: Result, apply: bool
+) -> None:
+    """Designs uploaded for mockups that were never made (a run that failed or was
+    never started) have no photos in any group, so no group above takes them: they
+    go like any upload nobody worked on, ``unpublished_days`` after they came."""
+    printed = select(Asset.id).where(Asset.batch_id == MockupDesign.batch_id, Asset.group_key == MockupDesign.group_key)
+    rows = list((await session.execute(
+        select(MockupDesign).where(
+            MockupDesign.design_key.is_not(None),
+            MockupDesign.created_at < now - timedelta(days=days.unpublished_days),
+            ~printed.exists(),
+        )
+    )).scalars())
+    for design in rows:
+        files, size = await asyncio.to_thread(storage.measure_with_derivatives, design.design_key or "")
+        if apply:
+            await asyncio.to_thread(storage.delete_with_derivatives, design.design_key or "")
+            design.files_removed_at, design.design_key = now, None
+            await session.commit()
+        result.files += files
+        result.freed_bytes += size
 
 
 async def remember(session: AsyncSession, result: Result) -> None:

@@ -7,11 +7,12 @@ A 2–3 minute screen recording of the single-shop flow for Etsy's Commercial Ac
 - Record on **production** (https://listyro.com) with the **test shop**. Local development sends nothing to Etsy (`ETSY_CALLS_BLOCKED`), so the connect and draft steps cannot be recorded there.
 - Use a fresh invite for a new e-mail address, so the signup and consent step is real. Approve the request in Admin → Invites and use "Copy invite link".
 - Have a folder of 3 to 5 of your **own** designs ready (two or three mockups each). No licensed characters, logos or brand names anywhere in them.
+- Have one photo of a blank garment you sell (your own photo), and one of your designs as a transparent PNG, for the mockup step.
 - The test shop needs one listing set up the way you like (the reference listing), with its production partner stated on Etsy.
 - Browser at 1366 × 768 or wider, zoom 100%, no other tabs, no bookmarks bar, notifications off.
 - Do not show anything from another seller's account, the Admin panel, or any token, key or `.env` file.
 
-## The recording (about 2:40)
+## The recording (about 2:55)
 
 | # | Time | Screen | What to do | What it shows the reviewer |
 |---|---|---|---|---|
@@ -23,7 +24,8 @@ A 2–3 minute screen recording of the single-shop flow for Etsy's Commercial Ac
 | 6 | 1:40–2:05 | Review page | Open one card. Edit the title, remove and add a tag, show the 13-tag counter and any flag. Tick **Approve for draft** on that listing. | The seller reviews and edits every listing; approval is per listing and explicit. |
 | 7 | 2:05–2:20 | Review page | Press **Create draft**. When it finishes, the card shows "Draft" and **Edit draft ↗**. Point at the line "it is never published automatically". | A draft is created, nothing is published. |
 | 8 | 2:20–2:30 | Etsy Shop Manager | Follow **Edit draft ↗**. Show the draft in Shop Manager → Listings → Drafts: title, images, variations, production partner. | It is a real draft in the seller's own shop, made through the API. |
-| 9 | 2:30–2:40 | `/connect` | Press **Disconnect**, read the confirmation, confirm. Show the message saying the tokens and Etsy data are deleted and what was cancelled. | The seller can revoke at any time; data is deleted at once. |
+| 9 | 2:30–2:45 | `/templates`, then `/upload` | Add the blank photo: show that **Add template** stays disabled until "This photo is my own, or I have the right to use it to show my products." is ticked; add it and press **Preview with a sample design**. On Uploads, under "Make mockups from designs", choose the PNG and press **Make mockups**. | Mockups are the seller's own design on the seller's own photo, made on our server without AI and without the Etsy API. |
+| 10 | 2:45–2:55 | `/connect` | Press **Disconnect**, read the confirmation, confirm. Show the message saying the tokens and Etsy data are deleted and what was cancelled. | The seller can revoke at any time; data is deleted at once. |
 
 Optional, if there is time: Settings → **Delete account** (open the form, do not confirm), to show the seller can delete everything themselves.
 
@@ -46,6 +48,7 @@ Take each at 1366 px wide, and the first three also at 375 px (phone).
 | 9 | Disconnect | `/connect`, after disconnecting | The message that the tokens and Etsy data were deleted and what was cancelled. |
 | 10 | Delete account | `/settings` | The Delete account section with what is deleted at once and within 30 days. |
 | 11 | Pricing | `/pricing` | The heading "Request an invite to try Listyro", the line "No payment is taken today; the plans below apply after launch", and the notice "Planned prices after launch" above the planned plans. |
+| 12 | Mockup template | `/templates` | The rights sentence beside its tick box, the print area's four corners, and a preview with the sample design. |
 
 ## After recording
 

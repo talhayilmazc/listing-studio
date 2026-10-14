@@ -412,6 +412,28 @@ async def test_upload_retention_removes_a_design_with_its_groups_photos(mw) -> N
     assert not mw["storage"].exists(key)
 
 
+async def test_a_design_whose_mockups_were_never_made_goes_like_any_untouched_upload(mw) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.pipeline import upload_retention
+
+    batch = await _new_batch(mw)
+    res = await mw["a"].post(f"/api/batches/{batch}/designs", files={"file": ("BR7001.png", samples.design(), "image/png")})
+    assert res.status_code == 201
+    async with mw["sm"]() as s:
+        design = await s.get(MockupDesign, uuid.UUID(res.json()["id"]))
+        key = design.design_key
+        # Not yet past the period: kept.
+        await upload_retention.run(s, mw["storage"], now=datetime.now(timezone.utc))
+        await s.refresh(design)
+        assert design.design_key == key and mw["storage"].exists(key)
+        # Past it, with no mockup made from it: removed.
+        await upload_retention.run(s, mw["storage"], now=datetime.now(timezone.utc) + timedelta(days=31))
+        await s.refresh(design)
+        assert design.files_removed_at is not None and design.design_key is None
+    assert not mw["storage"].exists(key)
+
+
 # --- performance ------------------------------------------------------------------------------
 
 

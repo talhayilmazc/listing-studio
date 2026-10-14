@@ -17,6 +17,8 @@ Final answers for Etsy's Commercial Access form. Each answer is a statement abou
 
 Listyro is a listing workflow tool for Etsy sellers who design their own products, mainly apparel and print-on-demand sellers who add new designs often. A seller uploads their own design images and chooses one of their own existing listings as a reference. Listyro prepares a complete draft listing from them: it copies the reference listing's category, attributes, price, variations, shipping, return and production-partner settings, resizes and orders the images, and suggests a title, tags and a description. The seller reviews and edits every listing and approves it; Listyro then creates it in the seller's shop as a draft through the Open API. A draft is published only when the seller presses Publish, or at a time the seller scheduled for a listing they approved.
 
+Listyro can also make product mockups from the seller's own files: the seller uploads a photo of a blank garment they sell, confirming that the photo is their own or that they have the right to use it, and Listyro places each of the seller's designs on it as if printed on the fabric. This is deterministic image processing on our own server: the design is fitted into a print area the seller sets, warped to the fabric's perspective and folds, and shaded by the fabric; it is never redrawn, and no AI image generation is used. No Etsy API call is made and no Etsy data is used to make a mockup; the mockups become the photos of that design's draft listing, which the seller reviews like any other.
+
 Listyro also gives the seller a profit, cost and ads report for their own shop, worked out from their own shop's sales and fees.
 
 ## Who uses it
@@ -58,7 +60,7 @@ Every scope requested is used; none is requested for future use.
 
 AI suggests a title, 13 tags and a description from the seller's own images and the reference listing they chose. The seller reviews and edits every listing; nothing is generated or published without the seller.
 
-The AI provider is Anthropic (Claude API). It receives the seller's own images and listing text only: the design image the seller asks a listing for; its SKU, the kind of product and the profile's title prefix; the title and tags of one of the seller's own listings, if they chose it as an example to follow; and occasionally an image from the seller's own reference listing, to tell a size chart from artwork. It never receives buyer data, sales or orders, and under its commercial terms it does not train on API data. We do not train or fine-tune any model ourselves. A trademark filter, on by default (the seller can turn it off after an explicit warning), keeps brand and character names out of the listing's text and flags artwork that appears to contain a recognisable character. A seller can also write the title and tags themselves, in which case no AI is used for that listing.
+The AI provider is Anthropic (Claude API). It receives the seller's own images and listing text only: the design image the seller asks a listing for; its SKU, the kind of product and the profile's title prefix; the title and tags of one of the seller's own listings, if they chose it as an example to follow; and occasionally an image from the seller's own reference listing, to tell a size chart from artwork. It never receives buyer data, sales or orders, and under its commercial terms it does not train on API data. The mockup generator and the search-readiness checklist use no AI: nothing from them is sent to the AI provider. We do not train or fine-tune any model ourselves. A trademark filter, on by default (the seller can turn it off after an explicit warning), keeps brand and character names out of the listing's text and flags artwork that appears to contain a recognisable character. A seller can also write the title and tags themselves, in which case no AI is used for that listing.
 
 ## Quality safeguards
 
@@ -68,6 +70,8 @@ Listyro is built for sellers' own original designs. These safeguards apply to ev
 - a trademark filter, on by default, keeps brand and character names out of titles, tags and descriptions, and holds a listing back when the AI's analysis of its artwork finds what may be a recognisable character (a seller who turns the filter off, after an explicit warning, sees a warning instead; a listing written without AI is checked for names, but its artwork is not analysed);
 - drafts copy who made the item, when it was made, whether it is a supply and the production partners from the seller's own listing, and read them back from Etsy after the draft is made; the review card warns when a print-on-demand profile has no production partner (Creativity Standards);
 - a seller can write titles and tags themselves with no AI;
+- each review card shows a search-readiness checklist (title length, repeated title words for the short title style, all 13 tags used and valid, no duplicate tags, the title's words early in the description, Occasion and Holiday, trademark findings, a production partner for print-on-demand profiles). It is computed only from that listing's own text and attributes and its profile's settings against Etsy's published Seller Handbook guidance; it makes no API calls, uses no other shops' or marketplace data, says on screen that it does not predict how Etsy ranks a listing, and never blocks a draft;
+- mockups show only the seller's own design on the seller's own blank garment photo, placed and shaded by deterministic image processing, never redrawn; the seller confirms they have the right to use each blank photo, and is reminded that photos must show the item they sell accurately;
 - a design is not created twice in the same shop: a shop that already has its draft or listing is skipped, and a retry never creates a second draft;
 - each connected shop has its own drafts and its own shipping, return, processing and section settings. The seller chooses the shop or shops each design is listed in, and is warned when a design already sent to one group of their shops is sent to another;
 - our Terms require sellers to follow Etsy's Seller Policy, including the rules against duplicate shops and search manipulation.
@@ -112,6 +116,6 @@ The product is named Listyro, on listyro.com. "Etsy" does not appear in the prod
 
 ## What Listyro does not do
 
-It does not manage Etsy Ads, handle checkout or payments, direct buyers away from Etsy, read other sellers' data, publish anything without the seller's approval, or resell or sublicense API access.
+It does not manage Etsy Ads, handle checkout or payments, direct buyers away from Etsy, read other sellers' data, publish anything without the seller's approval, generate images with AI, promise search ranking, or resell or sublicense API access.
 
 Checked before sending: the trademark notice matches Etsy's API Terms word for word; support@listyro.com is a working, read mailbox.
