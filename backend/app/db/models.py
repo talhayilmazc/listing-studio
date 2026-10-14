@@ -28,6 +28,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -674,6 +675,108 @@ class Asset(Base):
     #: A small JPEG of the listing's cover, kept after the files are deleted so
     #: the app still shows what the listing is. Only the group's cover has one.
     thumbnail_key: Mapped[str | None] = mapped_column(Text)
+    #: Set when this photo is a mockup the app made: the design and the template
+    #: it was made from (pipeline/mockups.py). Otherwise an uploaded photo.
+    mockup_design_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_design.id", ondelete="SET NULL")
+    )
+    mockup_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_template.id", ondelete="SET NULL")
+    )
+
+
+class MockupTemplate(Base):
+    """A seller's blank garment photo, ready to print designs on (pipeline/mockups.py).
+
+    The seller's own upload, kept until they delete it or their account: it is not
+    Etsy content and is not shared with any other account. ``print_area`` is four
+    corners TL, TR, BR, BL as shares (0..1) of the photo's width and height.
+    """
+
+    __tablename__ = "mockup_template"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The seller's order: a design's mockups follow it, the first is the cover.
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    image_key: Mapped[str] = mapped_column(Text, nullable=False)
+    mask_key: Mapped[str] = mapped_column(Text, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: "alpha" (the photo's transparency), "background" (removed) or "none".
+    mask_source: Mapped[str] = mapped_column(Text, nullable=False)
+    print_area: Mapped[list[list[float]]] = mapped_column(JSONB_TYPE, nullable=False)
+    #: "default" (from the garment's bounds) or "seller" (moved by hand).
+    print_area_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="default")
+    #: Share of the print area the design fills (aspect kept), and how much the
+    #: folds move the print (0..1).
+    size: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.9")
+    fold_strength: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.5")
+    #: When the seller confirmed the photo is theirs or that they may use it.
+    rights_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Raised on every change, so previews are not mistaken for an older version.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MockupDesign(Base):
+    """A design uploaded to be printed on templates: its own listing group.
+
+    Kept with alpha (PNG) at the image pipeline's size, under the batch, and
+    removed with the group's photos by upload retention and with the batch.
+    """
+
+    __tablename__ = "mockup_design"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    group_key: Mapped[str] = mapped_column(Text, nullable=False)
+    original_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    parsed_sku: Mapped[str | None] = mapped_column(Text)
+    design_key: Mapped[str | None] = mapped_column(Text)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    has_alpha: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MockupRun(Base):
+    """One "make the mockups" for a batch: which templates, in order, and progress."""
+
+    __tablename__ = "mockup_run"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    template_ids: Mapped[list[str]] = mapped_column(JSONB_TYPE, nullable=False)
+    #: "queued" | "running" | "succeeded" | "failed"
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    done: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class GeneratedContent(Base):

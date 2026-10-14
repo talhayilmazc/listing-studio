@@ -1,6 +1,9 @@
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import type {
+  MockupDesign,
+  MockupRun,
+  MockupTemplate,
   Checklist,
   DistributionPreview,
   GroupPlanPreview,
@@ -392,6 +395,43 @@ export const api = {
     }),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">> & { personalization?: Personalization | null }) =>
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  // Mockup templates (backend api/mockups.py): no Etsy call, no AI call.
+  mockupTemplates: () => req<MockupTemplate[]>("/mockup-templates"),
+  createMockupTemplate: (file: File, name: string, rightsConfirmed: boolean) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("name", name);
+    form.append("rights_confirmed", rightsConfirmed ? "true" : "false");
+    return reqForm<MockupTemplate>("/mockup-templates", form);
+  },
+  updateMockupTemplate: (
+    id: string,
+    body: { name?: string; print_area?: [number, number][]; reset_print_area?: boolean; size?: number; fold_strength?: number },
+  ) => req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  orderMockupTemplates: (ids: string[]) =>
+    req<MockupTemplate[]>("/mockup-templates/order", { method: "PUT", body: JSON.stringify({ ids }) }),
+  deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
+  mockupTemplateImageUrl: (id: string, w?: number) =>
+    `${BASE}/mockup-templates/${id}/image${w ? `?w=${w}` : ""}`,
+  /** The template with a sample design, with unsaved settings: a JPEG. */
+  previewMockupTemplate: async (id: string, body: { print_area?: [number, number][]; size?: number; fold_strength?: number }) => {
+    const res = await fetch(`${BASE}/mockup-templates/${id}/preview`, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? "The preview could not be drawn.");
+    return res.blob();
+  },
+  addMockupDesign: (batchId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return reqForm<MockupDesign>(`/batches/${batchId}/designs`, form);
+  },
+  startMockups: (batchId: string, templateIds: string[]) =>
+    req<MockupRun>(`/batches/${batchId}/mockups`, { method: "POST", body: JSON.stringify({ template_ids: templateIds }) }),
+  mockupRun: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}`),
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */
   previewChecklist: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
     req<Checklist>(`/content/${id}/checklist`, { method: "POST", body: JSON.stringify(body) }),

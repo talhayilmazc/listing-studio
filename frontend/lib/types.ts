@@ -212,6 +212,47 @@ export interface Content {
   personalization_source?: "listing" | "profile" | "unknown" | string;
 }
 
+/** A seller's blank garment photo, ready to print designs on (backend pipeline/mockups.py). */
+export interface MockupTemplate {
+  id: string;
+  name: string;
+  position: number;
+  width: number;
+  height: number;
+  /** "alpha" (the photo's transparency), "background" (removed) or "none". */
+  mask_source: string;
+  /** Four corners TL, TR, BR, BL as shares (0..1) of the photo's width and height. */
+  print_area: [number, number][];
+  print_area_source: "default" | "seller" | string;
+  size: number;
+  fold_strength: number;
+  version: number;
+  notice?: string | null;
+}
+
+/** A design uploaded to be printed on templates: its own listing group. */
+export interface MockupDesign {
+  id: string;
+  original_filename: string;
+  group_key: string;
+  parsed_sku: string | null;
+  width: number;
+  height: number;
+  has_alpha: boolean;
+}
+
+/** One "make the mockups" for a batch, with its progress. */
+export interface MockupRun {
+  id: string;
+  batch_id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | string;
+  total: number;
+  done: number;
+  failed: number;
+  error?: string | null;
+  templates: string[];
+}
+
 /** One check of the search-readiness checklist: what the server found, and why. */
 export interface Check {
   key: string;

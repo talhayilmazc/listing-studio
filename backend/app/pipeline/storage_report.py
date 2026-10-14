@@ -33,7 +33,7 @@ from app.db.models import Asset
 from app.pipeline import group_state as gs
 from app.pipeline.storage import LocalStorage
 
-KINDS = ("original", "processed", "kept cover", "preview")
+KINDS = ("original", "processed", "kept cover", "preview", "design", "template")
 STATES = (gs.DRAFTED, gs.PENDING, gs.IN_REVIEW, gs.REMOVED, "no row")
 STATE_LABELS = {
     gs.DRAFTED: "drafted in every target shop", gs.PENDING: "scheduled / pending",
@@ -42,13 +42,15 @@ STATE_LABELS = {
 #: Age buckets, by the file's modification time: (upper bound in days, label).
 AGES = ((1, "<1d"), (3, "1-3d"), (7, "3-7d"), (14, "7-14d"), (30, "14-30d"), (None, "30d+"))
 _PREVIEW = re.compile(r"\.v\d+\.w\d+")
-_FOLDERS = {"original": "original", "processed": "processed", "kept": "kept cover"}
+_FOLDERS = {"original": "original", "processed": "processed", "kept": "kept cover", "designs": "design"}
 
 
 def kind_of(key: str) -> str | None:
     parts = key.split("/")
     if len(parts) != 4:
         return None
+    if parts[1] == "templates":  # a mockup template's blank, mask and previews
+        return "template"
     if _PREVIEW.search(parts[3]):
         return "preview"
     return _FOLDERS.get(parts[2])

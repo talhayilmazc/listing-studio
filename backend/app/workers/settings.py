@@ -29,6 +29,7 @@ from app.workers.accounts import delete_account, finish_account_deletions
 from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
 from app.workers.links import create_link_resources, link_profile, refresh_shop_links
 from app.workers.listing_stats import read_all_listing_stats, read_listing_stats
+from app.workers.mockups import generate_mockups
 from app.workers.plans import release_planned_drafts
 from app.workers.processor import JobProcessor, ProcessResult
 from app.workers.profiles import (
@@ -130,6 +131,7 @@ class WorkerSettings:
         sync_shop_sections,
         create_shop_section,
         update_sku_on_etsy,
+        generate_mockups,
         delete_account,
     ]
     cron_jobs = [

@@ -44,7 +44,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import AppSetting, Asset, UploadBatch
+from app.db.models import AppSetting, Asset, MockupDesign, UploadBatch
 from app.pipeline import group_state as gs
 from app.pipeline.images import ImageProcessingError, resize_preview
 from app.pipeline.storage import Storage
@@ -122,6 +122,9 @@ class Due:
     since: datetime
     images: list[_Image] = field(default_factory=list)
     cover: _Image | None = None
+    group_key: str = ""
+    #: The design files mockups were printed from (pipeline/mockups.py): they go with the photos.
+    designs: list[tuple[uuid.UUID, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -191,7 +194,19 @@ async def due_groups(session: AsyncSession, now: datetime, days: Policy) -> tupl
         if cover is None:
             usable = [i for i in images if i.usable]
             cover = min(usable, key=lambda i: (i.rank if i.rank is not None else 1_000_000, i.name), default=None)
-        due.append(Due(tenant_id=group.tenant_id, batch_id=group.batch_id, reason=reason, since=since, images=images, cover=cover))
+        due.append(Due(tenant_id=group.tenant_id, batch_id=group.batch_id, reason=reason, since=since, images=images,
+                       cover=cover, group_key=group.group_key))
+    if due:
+        rows = await session.execute(
+            select(MockupDesign.id, MockupDesign.batch_id, MockupDesign.group_key, MockupDesign.design_key).where(
+                MockupDesign.batch_id.in_({d.batch_id for d in due}), MockupDesign.design_key.is_not(None)
+            )
+        )
+        by_group = {(d.batch_id, d.group_key): d for d in due}
+        for design_id, batch_id, group_key, key in rows.all():
+            found = by_group.get((batch_id, group_key))
+            if found is not None:
+                found.designs.append((design_id, key))
     return due, waiting
 
 
@@ -217,6 +232,9 @@ def _measure(storage: Storage, group: Due) -> tuple[int, int]:
         for key in image.keys:
             n, b = storage.measure_with_derivatives(key)
             files, size = files + n, size + b
+    for _, key in group.designs:
+        n, b = storage.measure_with_derivatives(key)
+        files, size = files + n, size + b
     return files, size
 
 
@@ -224,6 +242,8 @@ def _delete(storage: Storage, group: Due) -> None:
     for image in group.images:
         for key in image.keys:
             storage.delete_with_derivatives(key)
+    for _, key in group.designs:
+        storage.delete_with_derivatives(key)
 
 
 async def run(
@@ -245,6 +265,12 @@ async def run(
                 .where(Asset.id.in_([i.id for i in group.images]))
                 .values(files_removed_at=now, processed_key=None)
             )
+            if group.designs:
+                await session.execute(
+                    update(MockupDesign)
+                    .where(MockupDesign.id.in_([i for i, _ in group.designs]))
+                    .values(files_removed_at=now, design_key=None)
+                )
             if kept is not None and group.cover is not None:
                 await session.execute(update(Asset).where(Asset.id == group.cover.id).values(thumbnail_key=kept[0]))
                 result.thumbnails += 1

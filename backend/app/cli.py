@@ -721,6 +721,7 @@ async def remove_demo(sm: async_sessionmaker, storage: Any = None) -> str:
     async with sm() as session:
         accounts = (await session.execute(select(Tenant).where(Tenant.email.like(DEMO_ACCOUNTS)))).scalars().all()
         emails = [t.email for t in accounts]
+        ids = [t.id for t in accounts]
         for tenant in accounts:
             await session.delete(tenant)  # everything of the account goes with it
         requests = await session.execute(delete(InviteRequest).where(InviteRequest.email.like(DEMO_REQUESTS)))
@@ -728,6 +729,8 @@ async def remove_demo(sm: async_sessionmaker, storage: Any = None) -> str:
         await session.commit()
     if storage is not None and accounts:
         storage.delete_prefix("demo-shots")  # the sample images the seed drew
+        for tenant_id in ids:  # what was uploaded to the demo accounts (batches, mockup templates)
+            storage.delete_prefix(str(tenant_id))
     return (
         f"Removed {len(emails)} demo account(s) ({', '.join(emails) or 'none'}), "
         f"{requests.rowcount or 0} sample invite request(s) and {codes.rowcount or 0} invite code(s) made for them."

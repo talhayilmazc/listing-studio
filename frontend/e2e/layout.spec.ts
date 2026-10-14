@@ -17,7 +17,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const PUBLIC = ["/", "/pricing", "/terms", "/privacy", "/request-invite", "/contact"];
 const SIGN_IN = ["/login", "/register"];
-const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/scheduled", "/analytics", "/connect", "/settings"];
+const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/scheduled", "/analytics", "/connect", "/settings"];
 const ADMIN_TABS = ["Users", "Invites", "Usage"];
 
 const EMAIL = process.env.LAYOUT_EMAIL;

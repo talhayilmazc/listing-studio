@@ -394,6 +394,10 @@ export default function PrivacyPage() {
             period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch`}</span>}
           />
           <Row
+            data="The blank garment photos you save as mockup templates, with each one's outline and print area"
+            period="Until you delete the template or your account. The designs you upload to make mockups are image files like the rest and are kept as above"
+          />
+          <Row
             data="Analytics history: daily sales totals and order lines, daily fee and ad totals, the figures from statements and Etsy Ads reports you uploaded, daily views and favourites, and the versions of a listing's text that have ended"
             period={<span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months, then deleted automatically; deleted at once when you disconnect the shop</span></span>}
           />

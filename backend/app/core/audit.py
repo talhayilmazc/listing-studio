@@ -56,6 +56,7 @@ DESTRUCTIVE = frozenset({
     "profile.merged",
     "shop_group.deleted",
     "plan.cancelled",
+    "mockup_template.deleted",
 })
 
 

@@ -30,6 +30,7 @@ import {
   type PreviewFile,
 } from "@/lib/grouping";
 import { GroupingChoice } from "@/components/GroupingChoice";
+import { MockupUpload } from "@/components/MockupUpload";
 
 import { Txt } from "@/components/Txt";
 interface Row {
@@ -549,6 +550,8 @@ export default function UploadPage() {
           {zipInput}
           {photosInput}
         </div>
+
+        <MockupUpload shop={uploadShop} />
 
         <RecentUploads batches={recent} />
       </div>

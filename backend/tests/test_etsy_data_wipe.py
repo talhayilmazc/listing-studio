@@ -234,9 +234,11 @@ async def test_removing_the_demo_takes_only_the_demo(async_sm: async_sessionmake
             InviteRequest(email="someone@example.com", shop="A real shop", shop_count=2),
         ])
         await s.commit()
+        demo_ids = {str(t.id) for t in (await s.execute(select(Tenant).where(Tenant.email.like("%@example.test")))).scalars()}
     said = await cli.remove_demo(async_sm, Files())
     assert said.startswith("Removed 2 demo account(s)") and "1 sample invite request(s)" in said
-    assert Files.deleted == ["demo-shots"]
+    # The seed's sample images, and what was uploaded to each demo account (batches, mockup templates).
+    assert Files.deleted[0] == "demo-shots" and set(Files.deleted[1:]) == demo_ids and len(Files.deleted) == 3
     async with async_sm() as s:
         left = set((await s.execute(select(Tenant.email))).scalars())
         assert "demonstration@example.com" in left and not {e for e in left if e.endswith("@example.test")}

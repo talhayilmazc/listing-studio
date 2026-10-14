@@ -36,7 +36,10 @@ const SECTIONS: { title: string; items: Item[] }[] = [
   },
   {
     title: "Library",
-    items: [{ href: "/profiles", label: "Profiles", icon: IconTag }],
+    items: [
+      { href: "/profiles", label: "Profiles", icon: IconTag },
+      { href: "/templates", label: "Mockup templates", icon: IconShirt },
+    ],
   },
 ];
 
@@ -536,6 +539,15 @@ function IconTag({ active }: { active: boolean }) {
     <>
       <path d="M20.6 13.4L12 4.8H4.8V12l8.6 8.6a2 2 0 0 0 2.8 0l4.4-4.4a2 2 0 0 0 0-2.8z" />
       <circle cx="8.4" cy="8.4" r="1.2" />
+    </>,
+    active,
+  );
+}
+
+function IconShirt({ active }: { active: boolean }) {
+  return svg(
+    <>
+      <path d="M8 3l-5 3 2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.7-2 3-4 3s-3.5-1.3-4-3z" />
     </>,
     active,
   );
