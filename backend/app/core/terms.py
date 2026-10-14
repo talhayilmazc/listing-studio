@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 #: The version of the Terms of Service and Privacy Policy now in force.
-TERMS_VERSION = "2026-10-13"
+TERMS_VERSION = "2026-10-14"
 
 #: What an account that has not agreed is told (403 on every seller endpoint).
 REQUIRED = "terms acceptance required"

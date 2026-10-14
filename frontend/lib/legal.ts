@@ -19,9 +19,9 @@ export const PROVIDER_DISCLAIMER =
  * changing this and TERMS_VERSION in backend/app/core/terms.py together; every
  * account is then asked again.
  */
-export const TERMS_VERSION = "2026-10-13";
+export const TERMS_VERSION = "2026-10-14";
 /** The same date as the pages show it. */
-export const LAST_UPDATED = "13 October 2026";
+export const LAST_UPDATED = "14 October 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
