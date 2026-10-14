@@ -45,6 +45,13 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 DEFAULT_BODY_LIMIT = 1024 * 1024
 _UPLOAD_PATH = re.compile(r"^/api/batches/[^/]+/assets$")
 _ARCHIVE_PATH = re.compile(r"^/api/batches/[^/]+/archive$")
+# A blank garment photo (a template) or a design for mockups: one file per request.
+# Without this they fell to DEFAULT_BODY_LIMIT (1 MB) and every real photo got a 413.
+_MOCKUP_PATH = re.compile(r"^/api/(mockup-templates|batches/[^/]+/designs)$")
+#: After refusing an upload, the rest of its body is read and discarded, up to this
+#: much (Cloudflare's own request cap), so the proxy in front can finish sending
+#: and pass the 413 on, instead of failing with a broken pipe the browser never hears about.
+_DRAIN_LIMIT = 100 * 1024 * 1024
 _MULTIPART_ENVELOPE = 1024 * 1024  # boundaries, part headers, the group_key field
 
 # Always set, overriding anything a handler chose.
@@ -120,12 +127,40 @@ def _has_session_cookie(cookie_header: str) -> bool:
     return False
 
 
-def body_limit(path: str) -> int:
+def _file_limit(path: str) -> int | None:
+    """The per-file limit of an upload path, or None for any other path."""
     if _UPLOAD_PATH.match(path):
-        return get_settings().max_upload_bytes + _MULTIPART_ENVELOPE
+        return get_settings().max_upload_bytes
     if _ARCHIVE_PATH.match(path):
-        return get_settings().max_archive_bytes + _MULTIPART_ENVELOPE
-    return DEFAULT_BODY_LIMIT
+        return get_settings().max_archive_bytes
+    if _MOCKUP_PATH.match(path):
+        return get_settings().max_mockup_upload_bytes
+    return None
+
+
+def body_limit(path: str) -> int:
+    file_limit = _file_limit(path)
+    return DEFAULT_BODY_LIMIT if file_limit is None else file_limit + _MULTIPART_ENVELOPE
+
+
+def too_large(path: str) -> str:
+    """What a refused body is told: an upload names its limit."""
+    file_limit = _file_limit(path)
+    if file_limit is None:
+        return "request body too large"
+    return f"This file is too large: the limit is {file_limit // (1024 * 1024)} MB per file."
+
+
+async def _drain(receive: Receive, already: int) -> None:
+    """Read and discard the rest of a refused upload's body (bounded)."""
+    seen = already
+    while seen <= _DRAIN_LIMIT:
+        message = await receive()
+        if message["type"] != "http.request":
+            return
+        seen += len(message.get("body", b""))
+        if not message.get("more_body", False):
+            return
 
 
 class SecurityMiddleware:
@@ -175,7 +210,9 @@ class SecurityMiddleware:
             except ValueError:
                 too_big = True  # a malformed length is not something to parse around
             if too_big:
-                await _json(send_with_headers, 413, {"detail": "request body too large"})
+                if _file_limit(path) is not None:
+                    await _drain(receive, 0)
+                await _json(send_with_headers, 413, {"detail": too_large(path)})
                 return
 
         received = 0
@@ -193,7 +230,9 @@ class SecurityMiddleware:
             await self.app(scope, counted_receive, send_with_headers)
         except BodyTooLarge:
             if not started:
-                await _json(send_with_headers, 413, {"detail": "request body too large"})
+                if _file_limit(path) is not None:
+                    await _drain(receive, received)
+                await _json(send_with_headers, 413, {"detail": too_large(path)})
         except Exception:
             # Full trace to the log (scrubbed by logsafety); nothing internal
             # to the caller beyond an id they can quote to support.

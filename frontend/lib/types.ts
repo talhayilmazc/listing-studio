@@ -217,12 +217,16 @@ export interface MockupTemplate {
   id: string;
   name: string;
   position: number;
-  width: number;
-  height: number;
+  set_id?: string | null;
+  /** "preparing" while the server finds the outline, then "ready" or "failed". */
+  status: "preparing" | "ready" | "failed" | string;
+  error?: string | null;
+  width: number | null;
+  height: number | null;
   /** "alpha" (the photo's transparency), "background" (removed) or "none". */
-  mask_source: string;
+  mask_source: string | null;
   /** Four corners TL, TR, BR, BL as shares (0..1) of the photo's width and height. */
-  print_area: [number, number][];
+  print_area: [number, number][] | null;
   print_area_source: "default" | "seller" | string;
   size: number;
   fold_strength: number;
@@ -241,7 +245,46 @@ export interface MockupDesign {
   has_alpha: boolean;
 }
 
-/** One "make the mockups" for a batch, with its progress. */
+/** Templates that belong together (one garment in several colours). */
+export interface MockupSet {
+  id: string;
+  name: string;
+  position: number;
+  template_ids: string[];
+}
+
+export interface MockupOutput {
+  id: string;
+  template_id: string | null;
+  template_name: string;
+  /** "<SKU>_<template name>.jpg" */
+  filename: string;
+  available: boolean;
+}
+
+export interface MockupRunDesign {
+  design_id: string;
+  original_filename: string;
+  sku: string | null;
+  group_key: string;
+  done: number;
+  total: number;
+  in_listings: boolean;
+  outputs: MockupOutput[];
+}
+
+export interface MockupZip {
+  id: string;
+  run_id: string;
+  status: "queued" | "building" | "ready" | "failed" | "expired" | string;
+  layout: "folders" | "flat" | string;
+  files?: number | null;
+  byte_size?: number | null;
+  error?: string | null;
+  expires_at?: string | null;
+}
+
+/** One "make the mockups" for a batch, with its progress per design. */
 export interface MockupRun {
   id: string;
   batch_id: string;
@@ -251,6 +294,8 @@ export interface MockupRun {
   failed: number;
   error?: string | null;
   templates: string[];
+  designs: MockupRunDesign[];
+  zips: MockupZip[];
 }
 
 /** One check of the search-readiness checklist: what the server found, and why. */

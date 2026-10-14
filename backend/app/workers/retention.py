@@ -234,5 +234,11 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
 
 async def purge_expired(ctx: dict[str, Any]) -> dict[str, int]:
     """arq cron entry point."""
+    from app.api.deps import get_storage
+    from app.workers.mockups import expire_zips
+
     async with ctx["sessionmaker"]() as session:
-        return await purge_expired_rows(session)
+        result = await purge_expired_rows(session)
+        # Mockup ZIPs to download: deleted MockupZip.RETENTION_HOURS after they were ready.
+        result["mockup_zips"] = await expire_zips(session, get_storage())
+        return result

@@ -58,6 +58,8 @@ export const RETENTION = {
   accountDeletionDays: 30,
   /** Our own records of AI calls (model, tokens, cost): AiCall.RETENTION_DAYS */
   aiCallMonths: 25,
+  /** A ZIP of mockups to download, after it is ready: MockupZip.RETENTION_HOURS */
+  mockupZipHours: 24,
   /** How often expired data is looked for: the purge_expired cron */
   cleanupMinutes: 15,
 } as const;

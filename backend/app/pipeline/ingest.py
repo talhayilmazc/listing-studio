@@ -288,10 +288,18 @@ class BatchIngestor:
 
 
 def _rerank(assets: list[Asset]) -> None:
-    """Each group in alphabetical order by file name; the first is the cover (D1)."""
+    """Each group in alphabetical order by file name; the first is the cover (D1).
+    Mockups the app made keep the order the seller chose for them (the cover they
+    picked first), ahead of any uploaded photos in the same group."""
     groups: dict[str, list[Asset]] = {}
     for asset in assets:
         groups.setdefault(asset.group_key or "", []).append(asset)
+
+    def order(a: Asset) -> tuple[int, int, str]:
+        if a.mockup_design_id is not None:
+            return 0, a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()
+        return 1, 0, a.original_filename.lower()
+
     for members in groups.values():
-        for rank, asset in enumerate(sorted(members, key=lambda a: a.original_filename.lower()), start=1):
+        for rank, asset in enumerate(sorted(members, key=order), start=1):
             asset.rank = rank

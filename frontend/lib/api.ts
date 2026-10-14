@@ -3,7 +3,9 @@ import type { GroupingMode } from "./grouping";
 import type {
   MockupDesign,
   MockupRun,
+  MockupSet,
   MockupTemplate,
+  MockupZip,
   Checklist,
   DistributionPreview,
   GroupPlanPreview,
@@ -397,17 +399,40 @@ export const api = {
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   // Mockup templates (backend api/mockups.py): no Etsy call, no AI call.
   mockupTemplates: () => req<MockupTemplate[]>("/mockup-templates"),
-  createMockupTemplate: (file: File, name: string, rightsConfirmed: boolean) => {
+  /** One blank photo (up to 30 MB), with upload progress, a timeout and the server's own error. */
+  createMockupTemplate: (
+    file: File,
+    name: string,
+    rightsConfirmed: boolean,
+    onProgress: (pct: number) => void,
+    setId?: string | null,
+  ) => {
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", file, file.name);
     form.append("name", name);
     form.append("rights_confirmed", rightsConfirmed ? "true" : "false");
-    return reqForm<MockupTemplate>("/mockup-templates", form);
+    if (setId) form.append("set_id", setId);
+    return postForm<MockupTemplate>(`${BASE}/mockup-templates`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
   updateMockupTemplate: (
     id: string,
-    body: { name?: string; print_area?: [number, number][]; reset_print_area?: boolean; size?: number; fold_strength?: number },
+    body: {
+      name?: string;
+      print_area?: [number, number][];
+      reset_print_area?: boolean;
+      size?: number;
+      fold_strength?: number;
+      set_id?: string | null;
+    },
   ) => req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  mockupSets: () => req<MockupSet[]>("/mockup-sets"),
+  createMockupSet: (name: string) => req<MockupSet>("/mockup-sets", { method: "POST", body: JSON.stringify({ name }) }),
+  renameMockupSet: (id: string, name: string) =>
+    req<MockupSet>(`/mockup-sets/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteMockupSet: (id: string) => req<void>(`/mockup-sets/${id}`, { method: "DELETE" }),
+  /** One template's print area, size and fold strength, given to every template of its set. */
+  applyToMockupSet: (setId: string, templateId: string) =>
+    req<MockupTemplate[]>(`/mockup-sets/${setId}/apply`, { method: "POST", body: JSON.stringify({ template_id: templateId }) }),
   orderMockupTemplates: (ids: string[]) =>
     req<MockupTemplate[]>("/mockup-templates/order", { method: "PUT", body: JSON.stringify({ ids }) }),
   deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
@@ -424,11 +449,25 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? "The preview could not be drawn.");
     return res.blob();
   },
-  addMockupDesign: (batchId: string, file: File) => {
+  addMockupDesign: (batchId: string, file: File, onProgress: (pct: number) => void) => {
     const form = new FormData();
     form.append("file", file, file.name);
-    return reqForm<MockupDesign>(`/batches/${batchId}/designs`, form);
+    return postForm<MockupDesign>(`${BASE}/batches/${batchId}/designs`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
+  updateMockupDesign: (id: string, sku: string | null) =>
+    req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ sku }) }),
+  mockupOutputImageUrl: (runId: string, outputId: string, w?: number) =>
+    `${BASE}/mockup-runs/${runId}/outputs/${outputId}/image${w ? `?w=${w}` : ""}`,
+  /** "Use for listings": a listing group per design, the chosen cover first. */
+  useMockupsForListings: (runId: string, designIds: string[] | null, covers: Record<string, string>) =>
+    req<{ groups: number; photos: number }>(`/mockup-runs/${runId}/listings`, {
+      method: "POST",
+      body: JSON.stringify({ design_ids: designIds, covers }),
+    }),
+  requestMockupZip: (runId: string, designIds: string[] | null, layout: "folders" | "flat") =>
+    req<MockupZip>(`/mockup-runs/${runId}/zip`, { method: "POST", body: JSON.stringify({ design_ids: designIds, layout }) }),
+  mockupZip: (id: string) => req<MockupZip>(`/mockup-zips/${id}`),
+  mockupZipUrl: (id: string) => `${BASE}/mockup-zips/${id}/download`,
   startMockups: (batchId: string, templateIds: string[]) =>
     req<MockupRun>(`/batches/${batchId}/mockups`, { method: "POST", body: JSON.stringify({ template_ids: templateIds }) }),
   mockupRun: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}`),
@@ -709,10 +748,17 @@ export function uploadArchive(
   return postForm<ArchiveResult>(`${BASE}/batches/${batchId}/archive`, form, onProgress);
 }
 
-function postForm<T>(url: string, form: FormData, onProgress: (pct: number) => void): Promise<T> {
+/** How long an upload may take before the page stops waiting and says so. */
+export const UPLOAD_TIMEOUT_MS = 180_000;
+
+function postForm<T>(url: string, form: FormData, onProgress: (pct: number) => void, timeoutMs = 0): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
+    // Never wait silently: a request that takes too long ends with a message.
+    xhr.timeout = timeoutMs;
+    xhr.ontimeout = () =>
+      reject(new ApiError("The upload took too long and was stopped. Check your connection and try again.", 0));
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
@@ -732,7 +778,7 @@ function postForm<T>(url: string, form: FormData, onProgress: (pct: number) => v
         reject(new ApiError(message, xhr.status));
       }
     };
-    xhr.onerror = () => reject(new ApiError("network error", 0));
+    xhr.onerror = () => reject(new ApiError("The upload could not reach the server. Check your connection and try again.", 0));
     xhr.send(form);
   });
 }

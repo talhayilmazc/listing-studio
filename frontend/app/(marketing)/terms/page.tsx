@@ -87,9 +87,10 @@ export default function TermsPage() {
             <strong>as a draft</strong>, through Etsy&rsquo;s official API.
           </li>
           <li>
-            If you choose, mockups: you save a photo of a blank garment you sell, and your designs are
-            placed on it as if printed on the fabric, by image processing on our own server. Your design
-            is fitted, warped and shaded, never redrawn, and no AI is used for it.
+            If you choose, mockups: you save photos of a blank garment you sell (in several colours if you
+            like), and your designs are placed on them as if printed on the fabric, by image processing
+            on our own server. Your design is fitted, warped and shaded, never redrawn, and no AI is used
+            for it. You can use the mockups as your listings&rsquo; photos, download them, or both.
           </li>
           <li>
             If you run several shops, you manage each from one account: each shop has its own listings,

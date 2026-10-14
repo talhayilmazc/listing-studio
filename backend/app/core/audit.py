@@ -57,6 +57,7 @@ DESTRUCTIVE = frozenset({
     "shop_group.deleted",
     "plan.cancelled",
     "mockup_template.deleted",
+    "mockup_set.deleted",
 })
 
 

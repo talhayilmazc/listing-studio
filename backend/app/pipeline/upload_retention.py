@@ -44,7 +44,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import AppSetting, Asset, MockupDesign, UploadBatch
+from app.db.models import AppSetting, Asset, MockupDesign, MockupOutput, UploadBatch
 from app.pipeline import group_state as gs
 from app.pipeline.images import ImageProcessingError, resize_preview
 from app.pipeline.storage import Storage
@@ -265,6 +265,12 @@ async def run(
                 .where(Asset.id.in_([i.id for i in group.images]))
                 .values(files_removed_at=now, processed_key=None)
             )
+            # Mockup outputs read the same files as these photos: they are gone too.
+            gone = [k for i in group.images for k in i.keys]
+            if gone:
+                await session.execute(
+                    update(MockupOutput).where(MockupOutput.key.in_(gone)).values(files_removed_at=now, key=None)
+                )
             if group.designs:
                 await session.execute(
                     update(MockupDesign)
@@ -306,6 +312,24 @@ async def _unprinted_designs(
         if apply:
             await asyncio.to_thread(storage.delete_with_derivatives, design.design_key or "")
             design.files_removed_at, design.design_key = now, None
+            await session.commit()
+        result.files += files
+        result.freed_bytes += size
+    # Mockups made but not used as listing photos (downloaded, or not wanted): no
+    # group holds them, so they go like any upload nobody worked on.
+    in_use = select(Asset.id).where(Asset.processed_key == MockupOutput.key, Asset.files_removed_at.is_(None))
+    outputs = list((await session.execute(
+        select(MockupOutput).where(
+            MockupOutput.key.is_not(None),
+            MockupOutput.created_at < now - timedelta(days=days.unpublished_days),
+            ~in_use.exists(),
+        )
+    )).scalars())
+    for output in outputs:
+        files, size = await asyncio.to_thread(storage.measure_with_derivatives, output.key or "")
+        if apply:
+            await asyncio.to_thread(storage.delete_with_derivatives, output.key or "")
+            output.files_removed_at, output.key = now, None
             await session.commit()
         result.files += files
         result.freed_bytes += size

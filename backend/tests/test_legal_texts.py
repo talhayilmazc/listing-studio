@@ -21,7 +21,7 @@ from app.api import schemas
 from app.api.item_options import SECTIONS_MAX_AGE
 from app.core import app_settings, terms
 from app.core.config import Settings
-from app.db.models import AiCall, InviteRequest, ListingProfile, ListingSnapshot, ShopListingCache
+from app.db.models import AiCall, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, ShopListingCache
 from app.etsy import oauth
 from app.workers import accounts as account_jobs
 
@@ -120,6 +120,7 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "counterMinutes": settings.auth_rate_limit_window_seconds // 60,
         "accountDeletionDays": account_jobs.DEADLINE_DAYS,
         "aiCallMonths": round(AiCall.RETENTION_DAYS / 30.4375),
+        "mockupZipHours": MockupZip.RETENTION_HOURS,
         "cleanupMinutes": _cleanup_minutes(),
     }
     assert _retention() == expected

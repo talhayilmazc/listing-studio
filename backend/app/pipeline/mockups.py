@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import array
 import math
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -194,6 +195,51 @@ def prepare_blank(data: bytes) -> PreparedBlank:
     jpeg = rgb.copy(interpretation="srgb").write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True)
     png = mask.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
     return PreparedBlank(jpeg, png, rgb.width, rgb.height, source, default_print_area(mask))
+
+
+@dataclass(frozen=True)
+class Source:
+    """An uploaded photo resized to the engine's size, transparency kept: what the
+    worker prepares a template from, and what a design is printed from."""
+
+    image: bytes
+    width: int
+    height: int
+    has_alpha: bool
+
+
+def resize_upload(data: bytes) -> Source:
+    """Quick enough for the request: decode, resize to at most 2000 px, re-encode
+    (PNG with transparency, else a high-quality JPEG). Nothing else."""
+    image = _fit_within(_load(data), max(OUTPUT.max_width, OUTPUT.max_height))
+    has_alpha = image.bands == 4
+    image = image.copy(interpretation="srgb")
+    if has_alpha:
+        out = image.write_to_buffer(".png", compression=3, strip=True)
+    else:
+        out = image.write_to_buffer(".jpg", Q=95, strip=True)
+    return Source(out, image.width, image.height, has_alpha)
+
+
+#: Characters no file system (or ZIP reader) accepts in a name.
+_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+
+
+def safe_name(text: str, limit: int = 120) -> str:
+    """``text`` as a file name part: any language, minus what file systems refuse."""
+    cleaned = _UNSAFE.sub(" ", text).strip().strip(".")
+    return re.sub(r"\s+", " ", cleaned)[:limit].strip() or "mockup"
+
+
+def output_name(base: str, template_name: str, taken: set[str]) -> str:
+    """"<SKU>_<template name>.jpg", made unique among ``taken`` (which it joins)."""
+    stem = f"{safe_name(base, 60)}_{safe_name(template_name)}"
+    name, n = f"{stem}.jpg", 1
+    while name.lower() in taken:
+        n += 1
+        name = f"{stem} ({n}).jpg"
+    taken.add(name.lower())
+    return name
 
 
 def _background_mask(rgb):  # noqa: ANN001, ANN202

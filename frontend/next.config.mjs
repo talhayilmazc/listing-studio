@@ -45,6 +45,12 @@ const nextConfig = {
   // A self-contained server for the production image (docker/frontend.prod.Dockerfile):
   // only the files the app needs, no dev dependencies. No effect on `next dev`.
   output: "standalone",
+  experimental: {
+    // How long the /api proxy waits on the backend (Next's default is 30 s): a
+    // 30 MB photo on a slow connection must not be cut off mid-upload. The page
+    // itself stops waiting after lib/api.ts UPLOAD_TIMEOUT_MS and says so.
+    proxyTimeout: 300_000,
+  },
   // Proxy API calls to the FastAPI backend so the browser stays same-origin
   // (no CORS) and image <img src="/api/..."> works directly.
   async rewrites() {

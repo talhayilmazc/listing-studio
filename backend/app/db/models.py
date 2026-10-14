@@ -685,12 +685,36 @@ class Asset(Base):
     )
 
 
+class MockupTemplateSet(Base):
+    """Templates that belong together, such as one T-shirt photographed in ten colours.
+
+    A set has its own name; a template is in at most one set. The print area, size
+    and fold strength of one template can be applied to every template of its set.
+    """
+
+    __tablename__ = "mockup_template_set"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class MockupTemplate(Base):
     """A seller's blank garment photo, ready to print designs on (pipeline/mockups.py).
 
     The seller's own upload, kept until they delete it or their account: it is not
     Etsy content and is not shared with any other account. ``print_area`` is four
     corners TL, TR, BR, BL as shares (0..1) of the photo's width and height.
+
+    A template is saved at once (``status`` "preparing", the photo resized and kept
+    as ``source_key``); the worker finds its outline and print area and makes it
+    "ready", or "failed" with ``error``. The photo's own fields are empty until then.
     """
 
     __tablename__ = "mockup_template"
@@ -700,15 +724,23 @@ class MockupTemplate(Base):
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    set_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_template_set.id", ondelete="SET NULL"), index=True
+    )
+    #: "preparing" | "ready" | "failed"
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="ready")
+    error: Mapped[str | None] = mapped_column(Text)
+    #: The uploaded photo, resized, until the worker has prepared it.
+    source_key: Mapped[str | None] = mapped_column(Text)
     #: The seller's order: a design's mockups follow it, the first is the cover.
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    image_key: Mapped[str] = mapped_column(Text, nullable=False)
-    mask_key: Mapped[str] = mapped_column(Text, nullable=False)
-    width: Mapped[int] = mapped_column(Integer, nullable=False)
-    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    image_key: Mapped[str | None] = mapped_column(Text)
+    mask_key: Mapped[str | None] = mapped_column(Text)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
     #: "alpha" (the photo's transparency), "background" (removed) or "none".
-    mask_source: Mapped[str] = mapped_column(Text, nullable=False)
-    print_area: Mapped[list[list[float]]] = mapped_column(JSONB_TYPE, nullable=False)
+    mask_source: Mapped[str | None] = mapped_column(Text)
+    print_area: Mapped[list[list[float]] | None] = mapped_column(JSONB_TYPE)
     #: "default" (from the garment's bounds) or "seller" (moved by hand).
     print_area_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="default")
     #: Share of the print area the design fills (aspect kept), and how much the
@@ -777,6 +809,76 @@ class MockupRun(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MockupOutput(Base):
+    """One mockup a run made: a design on a template, as a JPEG named
+    "<SKU>_<template name>.jpg". It becomes a listing photo only when the seller
+    chooses "Use for listings" (then an ``asset`` reads the same file), and goes
+    into a ZIP when they choose "Download"."""
+
+    __tablename__ = "mockup_output"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False
+    )
+    design_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_template.id", ondelete="SET NULL")
+    )
+    #: The template's name when it was made (the template may be renamed or deleted).
+    template_name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Its place in the seller's template order (0 = first).
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    key: Mapped[str | None] = mapped_column(Text)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MockupZip(Base):
+    """A ZIP of a run's mockups to download: private to the account, deleted
+    ``RETENTION_HOURS`` after it is ready."""
+
+    __tablename__ = "mockup_zip"
+    RETENTION_HOURS: ClassVar[int] = 24
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: "queued" | "building" | "ready" | "failed" | "expired"
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
+    #: "folders" (one folder per design) or "flat".
+    layout: Mapped[str] = mapped_column(Text, nullable=False, server_default="folders")
+    #: The designs it holds; null = all of the run's.
+    design_ids: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
+    key: Mapped[str | None] = mapped_column(Text)
+    byte_size: Mapped[int | None] = mapped_column(BigInteger)
+    files: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class GeneratedContent(Base):
