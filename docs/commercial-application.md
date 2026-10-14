@@ -97,11 +97,12 @@ One API key. We send at most 3 requests per second, below Etsy's 5 per second, a
 
 No payment of any kind is taken today, and the app contains no payment or checkout code. The planned model is a subscription, paid monthly or yearly; paid yearly, a plan costs ten months. These are the planned plans, shown on listyro.com/pricing as planned prices that may change before launch:
 
-- Starter: 100 listings a month, 1 shop, publish now (no scheduling), $69/month, $690/year
-- Growth: 200 listings a month, 2 shops, publish now (no scheduling), $149/month, $1,490/year
-- Studio: 350 listings a month, 4 shops, scheduling, $299/month, $2,990/year
-- Catalog: 500 listings a month, 8 shops, scheduling, $399/month, $3,990/year
+- Starter: 100 listings a month, 1 shop, scheduling not included (available as an add-on), $69/month, $690/year
+- Growth: 200 listings a month, 2 shops, scheduling not included (available as an add-on), $129/month, $1,290/year
+- Studio: 350 listings a month, 4 shops, scheduling included, $239/month, $2,390/year
+- Catalog: 500 listings a month, 8 shops, scheduling included, $329/month, $3,290/year
 - Custom: more listings or shops, quoted on request
+- Scheduling add-on for Starter and Growth: +$19/month, or +$190/year on the yearly plan
 
 A listing is one design written by AI or by the seller, with all its photos. Rewriting the same design is free up to 3 times; photos per listing and the number of drafts in the seller's shops do not count. It is the number the seller sees in the app as "Listings generated". Every plan includes everything else: profiles, AI-suggested or write-it-yourself text, trademark checks, review and approve, size charts and the profit report. The plans are not enforced or sold today: there is no sign-up for one. Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance. At about 35 API calls per listing, our largest planned plan (500 listings a month) needs about 600 calls a day per seller, so today's 5,000-a-day limit serves several sellers on every plan. We ask for a higher limit to grow, not to run a single seller. That is for one draft of each listing; a listing drafted in more than one of the seller's shops costs about 35 calls in each. Paid plans will be introduced only after Commercial Access is approved. What a plan will pay for is the work Listyro does itself: preparing images, suggesting listing text, compliance checks, the review and scheduling workflow, and the profit report. Plans differ by how much work Listyro does each month: the listings it prepares and the number of shops it prepares them for, which drives our AI and processing costs and our share of the API budget. Connecting a shop, creating listings on Etsy and Etsy's own statistics are free on Etsy and are not what a seller pays for. The profit report is the seller's own profit, cost and ads reporting, not a copy of Etsy Stats.
 

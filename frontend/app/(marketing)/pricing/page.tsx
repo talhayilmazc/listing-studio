@@ -37,8 +37,8 @@ export default function Pricing() {
         <div className="min-w-0">
           <h2 className="font-display text-3xl text-slate-900">In every plan</h2>
           <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600">
-            The plans differ in how many listings are written a month, in how many shops, and in whether a draft
-            can be scheduled. Everything else is the same in all of them.
+            The plans differ in how many listings are written a month, in how many shops, and in whether
+            scheduling is included or an add-on. Everything else is the same in all of them.
           </p>
           <p className="mt-4 text-[0.9375rem] leading-relaxed text-slate-600" data-testid="listing-line">{LISTING_LINE}</p>
         </div>

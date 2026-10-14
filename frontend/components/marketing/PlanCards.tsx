@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CUSTOM, PLANS, YEARLY_NOTE, listingsFact, priceFact, schedulingFact, shopsFact, yearlyPerMonthFact, yearlyPriceFact } from "@/lib/plans";
+import {
+  CUSTOM, PLANS, YEARLY_NOTE, addonFact, hasSchedulingAddon, listingsFact, priceFact, schedulingFact, shopsFact, yearlyPerMonthFact, yearlyPriceFact,
+} from "@/lib/plans";
 
 /**
  * The planned plans, with a switch between what one would cost paid monthly and
  * paid yearly. The switch only changes what is shown: it is two plain buttons
  * and a piece of state, not a form, and nothing on these cards can be bought.
- * Every figure comes from lib/plans.ts.
+ * The scheduling add-on is a line of text on the plans without scheduling, not
+ * something to tick. Every figure comes from lib/plans.ts.
  */
 
 const DOT = "mt-[0.55rem] h-1 w-1 shrink-0 rounded-full";
@@ -60,6 +63,10 @@ export function PlanCards() {
                 <span>Everything else included</span>
               </li>
             </ul>
+            {/* One line on every card, empty where scheduling is included, so all the cards keep one height in both views. */}
+            <p className="mt-4 min-h-[1.25rem] text-sm leading-5 text-slate-600" translate="no" data-testid="plan-addon">
+              <span className="block">{hasSchedulingAddon(plan) ? addonFact(yearly) : ""}</span>
+            </p>
           </li>
         ))}
         <li className="flex min-w-0 flex-col rounded-2xl border border-dashed border-slate-300 bg-stone-50 p-6 sm:col-span-2" data-testid="plan-custom">

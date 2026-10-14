@@ -9,8 +9,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-  CUSTOM, FREE_REWRITES, INCLUDED, LISTING_LINE, PLANNED_NOTICE, PLANS, PRICING_HEADING, PRICING_LINE, YEARLY_MONTHS, YEARLY_NOTE,
-  listingsFact, planLine, priceFact, schedulingFact, shopsFact, yearlyPerMonthFact, yearlyPrice, yearlyPriceFact,
+  CUSTOM, FREE_REWRITES, INCLUDED, LISTING_LINE, PLANNED_NOTICE, PLANS, PRICING_HEADING, PRICING_LINE, SCHEDULING_ADDON, YEARLY_MONTHS, YEARLY_NOTE,
+  addonFact, addonLine, addonYearlyPrice, hasSchedulingAddon, listingsFact, planLine, priceFact, schedulingFact, shopsFact, yearlyPerMonthFact,
+  yearlyPrice, yearlyPriceFact,
 } from "./plans.ts";
 import { HOME, allCopy, headings } from "./homeCopy.ts";
 
@@ -22,11 +23,13 @@ const CARDS = "components/marketing/PlanCards.tsx";
 
 test("the planned plans are the ones agreed", () => {
   assert.deepEqual(PLANS.map(planLine), [
-    "Starter: 100 listings a month, 1 shop, publish now (no scheduling), $69/month, $690/year",
-    "Growth: 200 listings a month, 2 shops, publish now (no scheduling), $149/month, $1,490/year",
-    "Studio: 350 listings a month, 4 shops, scheduling, $299/month, $2,990/year",
-    "Catalog: 500 listings a month, 8 shops, scheduling, $399/month, $3,990/year",
+    "Starter: 100 listings a month, 1 shop, scheduling not included (available as an add-on), $69/month, $690/year",
+    "Growth: 200 listings a month, 2 shops, scheduling not included (available as an add-on), $129/month, $1,290/year",
+    "Studio: 350 listings a month, 4 shops, scheduling included, $239/month, $2,390/year",
+    "Catalog: 500 listings a month, 8 shops, scheduling included, $329/month, $3,290/year",
   ]);
+  assert.deepEqual(SCHEDULING_ADDON, { name: "Scheduling add-on", price: 19 });
+  assert.equal(addonLine(), "Scheduling add-on for Starter and Growth: +$19/month, or +$190/year on the yearly plan");
   assert.equal(PLANNED_NOTICE, "Planned prices after launch. No payment is taken today. Prices may change before launch.");
   assert.equal(CUSTOM.body, "More listings or shops? Tell us what you need and we'll send you a quote.");
   // Each plan is larger than the one before it in everything that is counted.
@@ -48,8 +51,28 @@ test("a year costs ten months: yearly = 10 x monthly, and the monthly equivalent
     assert.equal(yearlyPerMonthFact(plan), `$${Number.isInteger(perMonth) ? perMonth : perMonth.toFixed(2)} a month`, plan.name);
     assert.ok(perMonth < plan.price);
   }
-  assert.deepEqual(PLANS.map(yearlyPriceFact), ["$690", "$1,490", "$2,990", "$3,990"]);
-  assert.deepEqual(PLANS.map(yearlyPerMonthFact), ["$57.50 a month", "$124.17 a month", "$249.17 a month", "$332.50 a month"]);
+  assert.deepEqual(PLANS.map(priceFact), ["$69", "$129", "$239", "$329"]);
+  assert.deepEqual(PLANS.map(yearlyPriceFact), ["$690", "$1,290", "$2,390", "$3,290"]);
+  assert.deepEqual(PLANS.map(yearlyPerMonthFact), ["$57.50 a month", "$107.50 a month", "$199.17 a month", "$274.17 a month"]);
+  // The add-on is paid the same way: ten months for a year.
+  assert.equal(addonYearlyPrice(), SCHEDULING_ADDON.price * 10);
+  assert.equal(addonFact(false), "Scheduling add-on: +$19/month");
+  assert.equal(addonFact(true), "Scheduling add-on: +$190/year");
+});
+
+test("the scheduling add-on is offered only on the plans without scheduling, and the cards take it from the constants", () => {
+  assert.deepEqual(PLANS.filter(hasSchedulingAddon).map((plan) => plan.name), ["Starter", "Growth"]);
+  for (const plan of PLANS) assert.equal(hasSchedulingAddon(plan), !plan.scheduling, plan.name);
+  const cards = code(read(CARDS));
+  // One line per card, chosen by the plan and the switch; never typed into the component.
+  assert.ok(cards.includes('{hasSchedulingAddon(plan) ? addonFact(yearly) : ""}'));
+  assert.equal((cards.match(/addonFact\(/g) ?? []).length, 1);
+  assert.doesNotMatch(cards, /add-on|\+\$|\b19\b|\b190\b/i, "no add-on text or price of its own");
+  // The line sits under the features and has the same slot on every card, so no card changes height with the switch.
+  const features = cards.indexOf("Everything else included");
+  const addon = cards.indexOf('data-testid="plan-addon"');
+  assert.ok(features !== -1 && addon > features);
+  assert.match(cards, /className="mt-4 min-h-\[1\.25rem\][^"]*" translate="no" data-testid="plan-addon"/);
 });
 
 test("a listing is defined once, as the allowance counts it", () => {
@@ -83,7 +106,9 @@ test("the pricing page lays the plans out from the constants and types none of t
     assert.doesNotMatch(source, /\$\s?\d/);
   }
   assert.doesNotMatch(page + cards, /\bSolo\b|Priority support|Everything in (Solo|Studio)/, "the old feature lists are gone");
-  assert.deepEqual(PLANS.map(schedulingFact), ["Publish now (no scheduling)", "Publish now (no scheduling)", "Scheduling", "Scheduling"]);
+  assert.deepEqual(PLANS.map(schedulingFact), [
+    "Publish now (scheduling not included)", "Publish now (scheduling not included)", "Scheduling included", "Scheduling included",
+  ]);
   assert.deepEqual(PLANS.map(shopsFact), ["1 shop", "2 shops", "4 shops", "8 shops"]);
 });
 
@@ -158,6 +183,7 @@ test("the application to Etsy lists the same plans, and the home page and the Te
   const application = fs.readFileSync(path.join(FRONTEND, "..", "docs", "commercial-application.md"), "utf8").replace(/\r\n/g, "\n");
   for (const plan of PLANS) assert.ok(application.includes(`- ${planLine(plan)}\n`), planLine(plan));
   assert.ok(application.includes("- Custom: more listings or shops, quoted on request\n"));
+  assert.ok(application.includes(`- ${addonLine()}\n`), addonLine());
   assert.equal((application.match(/^- [A-Z][a-z]+: [\d,]+ listings a month/gm) ?? []).length, PLANS.length, "no plan in the document that is not in lib/plans.ts");
   assert.ok(application.includes("Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance."));
   // The capacity the largest plan needs, worked out from the plan itself.
@@ -169,6 +195,14 @@ test("the application to Etsy lists the same plans, and the home page and the Te
   ));
   assert.doesNotMatch(application, /need more than the default 5,000|well above 5,000/);
   const compliance = fs.readFileSync(path.join(FRONTEND, "..", "docs", "etsy-compliance.md"), "utf8");
+  for (const plan of PLANS) assert.ok(compliance.includes(planLine(plan)), planLine(plan));
+  assert.ok(compliance.includes(addonLine()), addonLine());
+  // Neither document names a price that is not a plan's or the add-on's, monthly or yearly.
+  const prices = new Set([...PLANS.flatMap((plan) => [priceFact(plan), yearlyPriceFact(plan)]), "$19", "$190"]);
+  for (const doc of [application, compliance]) {
+    for (const [, price] of doc.matchAll(/(\$[\d,]+)\/(?:month|year)/g)) assert.ok(prices.has(price), price);
+    assert.doesNotMatch(doc, /\$(?:149|299|399|1,490|2,990|3,990)\b|\$69 to \$399/, "no old price");
+  }
   assert.ok(compliance.includes("our largest planned plan (500 listings a month) needs about 600 calls a day per seller"));
   assert.ok(compliance.includes("about 33 to 40 requests for a listing with 13 photos"));
   // No prices on the home page or in the Terms: both point to the pricing page.
