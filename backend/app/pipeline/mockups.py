@@ -674,9 +674,24 @@ class PreparedDesign:
     has_alpha: bool
 
 
+#: A design smaller than this on its longest side is refused: printed across a chest it
+#: would be visibly soft. Said to the seller with the design's own size.
+MIN_DESIGN_SIDE = 500
+
+
+class DesignTooSmall(MockupError):
+    """The design is too small to print clearly (its size is in the message)."""
+
+
 def prepare_design(data: bytes) -> PreparedDesign:
     """A design as it is stored for printing: resized only, its pixels and transparency kept."""
-    image = _fit_within(_load(data), max(OUTPUT.max_width, OUTPUT.max_height))
+    loaded = _load(data)
+    if max(loaded.width, loaded.height) < MIN_DESIGN_SIDE:
+        raise DesignTooSmall(
+            f"This design is {loaded.width} x {loaded.height} px: at least {MIN_DESIGN_SIDE} px on its longest side "
+            "is needed to print it clearly."
+        )
+    image = _fit_within(loaded, max(OUTPUT.max_width, OUTPUT.max_height))
     has_alpha = image.bands == 4
     png = image.copy(interpretation="srgb").write_to_buffer(".png", compression=6, strip=True)
     load_design(png)  # refuses a design with no visible pixels
@@ -800,6 +815,74 @@ def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, AN
     out = photo * (1 - a) + printed * a
     region = (out * 255).rint().maxpair(0).minpair(255).cast("uchar")
     return base.insert(region, left, top).copy_memory()
+
+
+# --- what is in front of the garment: the analysis's map and the seller's brush -------------
+
+#: The seller's "Keep in front" brush, one gray PNG at the photo's size: painted in front,
+#: erased (not in front), or untouched (the analysis decides).
+BRUSH_FRONT, BRUSH_BEHIND, BRUSH_UNTOUCHED = 255, 0, 128
+
+
+def _gray(png: bytes, width: int, height: int, kernel: str = "linear"):  # noqa: ANN202 - pyvips one band
+    image = _vips().Image.new_from_buffer(png, "", access="random")
+    image = (image.colourspace("b-w") if image.bands >= 3 else image)[0]
+    if (image.width, image.height) != (width, height):
+        image = image.resize(width / image.width, vscale=height / image.height, kernel=kernel)
+    return image.cast("uchar")
+
+
+def brush_png(painted: bytes, width: int, height: int) -> bytes:
+    """The seller's brush as it is stored: at the photo's size, each pixel one of the three
+    values (the editor paints at its own screen size; scaling must not invent new ones)."""
+    image = _gray(painted, width, height, kernel="nearest")
+    front = (image > 192).ifthenelse(BRUSH_FRONT, (image < 64).ifthenelse(BRUSH_BEHIND, BRUSH_UNTOUCHED))
+    return front.cast("uchar").copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
+
+
+def compose_occluder(auto_png: bytes | None, brush: bytes | None, width: int, height: int) -> bytes | None:
+    """What every mockup and preview puts in front of the design: the analysis's map
+    (``auto_png``, soft-edged), with the seller's brush over it: painted pixels in front,
+    erased ones not, the rest as found. None when nothing is in front anywhere."""
+    pyvips = _vips()
+    base = _gray(auto_png, width, height) if auto_png else (pyvips.Image.black(width, height) + 0).cast("uchar")
+    if brush:
+        b = _gray(brush, width, height, kernel="nearest")
+        base = (b > 192).ifthenelse(255, (b < 64).ifthenelse(0, base)).cast("uchar")
+    if base.max() <= 0:
+        return None
+    return base.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
+
+
+def front_layer(blank_jpeg: bytes, occluder_png: bytes, width: int | None = None) -> bytes:
+    """The photo's own pixels that are in front of the garment, as a transparent PNG
+    (alpha = the occluder): the editor draws it over its live design preview, so the
+    preview hides the design behind hair and hands exactly as the mockup does."""
+    blank = _load(blank_jpeg)[0:3]
+    alpha = _gray(occluder_png, blank.width, blank.height)
+    layer = blank.bandjoin(alpha)
+    if width and width < blank.width:
+        layer = layer.resize(width / blank.width, kernel="linear")
+    return layer.copy(interpretation="srgb").write_to_buffer(".png", compression=3, strip=True)
+
+
+def transfer_area(area: list[list[float]], source_found: list[list[float]], target_found: list[list[float]],
+                  source_size: tuple[int, int], target_size: tuple[int, int]) -> list[list[float]]:
+    """A print area set on one photo, placed on another by that photo's own garment: where
+    the area sits relative to the garment found in the source (its suggestion), it is put
+    relative to the garment found in the target. The seller's adjustment travels; the
+    target's own detection decides where its garment is. Shares of each photo."""
+    sw, sh = source_size
+    tw, th = target_size
+    to_px = lambda q, w, h: [(x * w, y * h) for x, y in clean_print_area(q)]  # noqa: E731
+    from_unit = _inverse(_square_to_quad(to_px(source_found, sw, sh)))
+    to_target = _square_to_quad(to_px(target_found, tw, th))
+    out = []
+    for x, y in to_px(area, sw, sh):
+        u, v = apply(from_unit, x, y)
+        px, py = apply(to_target, u, v)
+        out.append([round(min(1.0, max(0.0, px / tw)), 4), round(min(1.0, max(0.0, py / th)), 4)])
+    return clean_print_area(out)
 
 
 def preview_scale(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None, width: int) -> tuple[bytes, bytes, bytes | None]:

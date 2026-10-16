@@ -761,8 +761,16 @@ class MockupPhoto(Base):
     #: (the garment on a person, pipeline/mockup_vision.py) or "none".
     mask_source: Mapped[str | None] = mapped_column(Text)
     print_area: Mapped[list[list[float]] | None] = mapped_column(JSONB_TYPE)
-    #: Hair, skin, accessories and held things in front of the garment.
+    #: What is in front of the garment, as every mockup and preview uses it: the analysis's
+    #: own map (``occluder_auto_key``) with the seller's "Keep in front" brush over it
+    #: (``occluder_manual_key``). None: nothing in front.
     occluder_key: Mapped[str | None] = mapped_column(Text)
+    #: Hair, skin, accessories and held things the analysis found (None: none, or kept only
+    #: in ``occluder_key`` by photos prepared before migration 0069).
+    occluder_auto_key: Mapped[str | None] = mapped_column(Text)
+    #: The seller's brush, one gray PNG at the photo's size: 255 keep in front, 0 not in
+    #: front, 128 as the analysis found (pipeline/mockups.py ``compose_occluder``).
+    occluder_manual_key: Mapped[str | None] = mapped_column(Text)
     #: Print behind them (the seller can switch it off).
     occlusion: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
     #: How sure the suggested print area is (0..1); None for photos made before it was measured.

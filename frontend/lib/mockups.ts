@@ -36,6 +36,9 @@ export const SUGGESTION_NOTE =
 export const EDITOR_HINT =
   "Drag inside the area to move it, a corner to resize it, the round handle to turn it. Arrow keys nudge it (Shift for bigger steps). Lines appear when it lines up; hold Alt to place it freely.";
 export const OCCLUSION_LABEL = "Put the design behind hair, skin, hands and things held in front";
+/** The "Keep in front" brush, said in the editor. */
+export const BRUSH_HINT =
+  "Paint over hair, hands or anything that must stay in front of the design; erase what should not. Red shows what stays in front. Your brush is kept with this photo and used in every preview and mockup.";
 /** Said when a run leaves photos out because they are not confirmed. */
 export const skippedLine = (n: number) =>
   `${n} ${n === 1 ? "photo needs" : "photos need"} your check and will not be used until you confirm ${n === 1 ? "it" : "them"}.`;
@@ -88,18 +91,40 @@ export function templateNameFrom(names: string[]): string {
  * api/mockups.py ``start_run``), and how many of those templates' photos it leaves out
  * because they are not confirmed.
  */
-export function printable(templates: MockupTemplate[], chosen: string[], sides: "both" | "front" | "back"): { photos: MockupPhoto[]; skipped: number } {
+export function printable(
+  templates: MockupTemplate[], chosen: string[], sides: "both" | "front" | "back",
+): { photos: MockupPhoto[]; skipped: number; skippedNames: string[] } {
   const photos: MockupPhoto[] = [];
-  let skipped = 0;
+  const skippedNames: string[] = [];
   for (const t of templates) {
     if (!chosen.includes(t.id)) continue;
     for (const p of t.photos) {
       if (sides !== "both" && (p.view === "back" ? "back" : "front") !== sides) continue;
       if (p.status === "ready" && p.confirmed) photos.push(p);
-      else skipped += 1;
+      else skippedNames.push(p.name);
     }
   }
-  return { photos, skipped };
+  return { photos, skipped: skippedNames.length, skippedNames };
+}
+
+/** Where "Add designs" goes: the bulk step with these templates chosen. */
+export const addDesignsHref = (templateIds: string[]) =>
+  `/templates/designs${templateIds.length ? `?templates=${templateIds.join(",")}` : ""}`;
+
+/** A template's designs can be added once at least one photo is confirmed. */
+export const canAddDesigns = (template: MockupTemplate) => template.confirmed > 0;
+
+/** Said right after the last photo that needed a check is confirmed. */
+export const ALL_READY = "All photos are ready. Add designs";
+
+/** What the page says about an uploaded design that will print, but not as the seller may expect. */
+export function designNote(design: { has_alpha: boolean }): string | null {
+  return design.has_alpha ? null : "No transparent background: it is printed as a rectangle.";
+}
+
+/** "Apply this area to selected" and "Confirm selected", as one line about what happened. */
+export function appliedLine(n: number): string {
+  return `Placed on ${n} ${n === 1 ? "photo" : "photos"} by each one's own garment. Check them, then press Confirm selected.`;
 }
 
 /** The photos of a template still waiting for "Looks right", in order (the editor's queue). */

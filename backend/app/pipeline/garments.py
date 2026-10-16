@@ -1012,8 +1012,9 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "") -> Detec
                 if part.sum() >= 0.002 * h * w:  # an object, not a speck in the fabric
                     held |= part
     _ENCLOSED.clear()
-    occluder = np.clip(probs[..., HAIR] + probs[..., BODY] + probs[..., FACE] + probs[..., OTHERS], 0, 1)
-    occluder = np.maximum(occluder, held.astype(np.float32))
+    from app.pipeline.mockup_vision import front_of  # the classes decided against the fabric
+
+    occluder = np.maximum(front_of(probs), held.astype(np.float32))
     return Detection(garments, occluder, union.astype(np.float32), len(persons),
                      {"person_share": round(person_share, 4), "kind_hint": hint}, foreground=fg)
 

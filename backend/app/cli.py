@@ -770,6 +770,12 @@ def main(argv: list[str] | None = None) -> int:
         help="READ ONLY: an account's profiles against its shops (mapped ids or missing), token states, half-made drafts",
     )
     shop_check.add_argument("email")
+    occluders = sub.add_parser(
+        "mockup-occluders",
+        help="template photos prepared before the in-front fix: analyse again what is in front (areas, confirmations, brushes kept); --apply",
+    )
+    occluders.add_argument("--apply", action="store_true", help="analyse them (default: only count)")
+    occluders.add_argument("--email", default=None, help="only this account's photos")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -830,6 +836,11 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(storage_report(sm)))
     elif args.command == "draft-cost":
         print(asyncio.run(draft_cost(sm)))
+    elif args.command == "mockup-occluders":
+        from app.api.deps import get_storage
+        from app.ops.mockup_occluders import run as occluders_run
+
+        print(asyncio.run(occluders_run(sm, get_storage(), apply=args.apply, email=args.email)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 

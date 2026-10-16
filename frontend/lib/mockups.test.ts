@@ -68,8 +68,10 @@ test("the rights sentence and every limit are the backend's", () => {
 test("a file over 30 MB is refused before it is sent, saying so", () => {
   assert.equal(sizeProblem({ name: "tee.jpg", size: 25 * 1024 * 1024 }), null);
   assert.equal(sizeProblem({ name: "tee.jpg", size: 31 * 1024 * 1024 }), "tee.jpg is 31.0 MB: the limit is 30 MB per file.");
+  // Both pages pick files through lib/fileDrop.ts, which refuses one over 30 MB on its own row.
+  assert.match(read("lib/fileDrop.ts"), /file\.size > MAX_UPLOAD_MB \* 1024 \* 1024/);
   for (const file of [PAGE, UPLOAD]) {
-    assert.match(read(file), /const problem = sizeProblem\(file\);/, file);
+    assert.match(read(file), /pick(Files)?\(files/, file);
     assert.match(read(file), /\{LIMIT_NOTE\}/, file);
   }
 });
@@ -108,7 +110,7 @@ test("a photo appears at once, preparing, the page looks again until it is ready
 test("names up to 120 characters, shown in full on hover; from the file names by default", () => {
   const page = read(PAGE);
   assert.match(page, /maxLength=\{MAX_NAME\}/);
-  assert.match(page, /className="truncate text-xs font-medium text-slate-800" title=\{photo\.name\}/);
+  assert.match(page, /className="min-w-0 truncate text-xs font-medium text-slate-800" title=\{photo\.name\}/);
   assert.equal(nameFromFile("Comfort-Colors_1717 white.png"), "Comfort Colors 1717 white");
   assert.equal(nameFromFile("folder/Kırmızı tişört.jpg"), "Kırmızı tişört");
   assert.equal(nameFromFile("x".repeat(200) + ".png").length, 120);
@@ -148,8 +150,8 @@ test("a photo is not used until it is confirmed: marked on the card, left out of
   assert.equal(skippedLine(1), "1 photo needs your check and will not be used until you confirm it.");
   assert.equal(checkLine(3), "3 photos need your check");
   const upload = read(UPLOAD);
-  assert.match(upload, /const \{ photos: printed, skipped \} = printable\(templates \?\? \[\], chosen, sides\);/);
-  assert.match(upload, /data-testid="mockup-skipped">\{skippedLine\(skipped\)\}/);
+  assert.match(upload, /const \{ photos: printed, skipped, skippedNames \} = printable\(templates \?\? \[\], chosen, sides\);/);
+  assert.match(upload, /<p>\{skippedLine\(skipped\)\}<\/p>/);
   // The server agrees (api/mockups.py start_run).
   assert.match(backend("api/mockups.py"), /if photo\.status == "ready" and photo\.confirmed_at is not None:/);
 });

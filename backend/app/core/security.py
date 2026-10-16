@@ -44,7 +44,7 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 # JSON bodies here are small; only the upload endpoint takes files.
 DEFAULT_BODY_LIMIT = 1024 * 1024
 _UPLOAD_PATH = re.compile(r"^/api/batches/[^/]+/assets$")
-_ARCHIVE_PATH = re.compile(r"^/api/batches/[^/]+/archive$")
+_ARCHIVE_PATH = re.compile(r"^/api/batches/[^/]+/(archive|designs/archive)$")
 # A blank garment photo (into a template) or a design for mockups: one file per request.
 # Without this they fell to DEFAULT_BODY_LIMIT (1 MB) and every real photo got a 413.
 _MOCKUP_PATH = re.compile(r"^/api/(mockup-templates/[^/]+/photos|batches/[^/]+/designs)$")

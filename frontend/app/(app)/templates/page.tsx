@@ -1,19 +1,25 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FileDrop } from "@/components/FileDrop";
 import { PrintAreaEditor } from "@/components/PrintAreaEditor";
 import { api } from "@/lib/api";
+import { pick } from "@/lib/fileDrop";
 import type { MockupPhoto, MockupTemplate } from "@/lib/types";
 import {
   ACCURACY_NOTE,
+  ALL_READY,
   LIMIT_NOTE,
   MAX_NAME,
   NEEDS_CHECK,
   RIGHTS_STATEMENT,
   TEMPLATES_INTRO,
+  addDesignsHref,
+  appliedLine,
+  canAddDesigns,
   checkLine,
   nameFromFile,
-  sizeProblem,
   templateNameFrom,
   waitingForCheck,
 } from "@/lib/mockups";
@@ -24,8 +30,11 @@ import {
  * uploaded into a template and appear at once, "preparing", while the server suggests
  * their print areas. Each new photo then opens in the editor (components/PrintAreaEditor.tsx)
  * for one quick check: a photo is used for mockups only after "Looks right", and is marked
- * "Needs your check" until then. Photos are reordered, moved and removed here. Nothing
- * here calls Etsy or an AI model.
+ * "Needs your check" until then. Several photos can take one photo's area at once
+ * ("Apply this area to selected": each placed by its own garment) and be confirmed together
+ * ("Confirm selected"). Once a template has a confirmed photo, "Add designs" leads to the
+ * bulk step; the last check says "All photos are ready". Photos are reordered, moved and
+ * removed here. Nothing here calls Etsy or an AI model.
  */
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
@@ -33,6 +42,8 @@ export default function TemplatesPage() {
   const [editor, setEditor] = useState<{ queue: string[]; index: number } | null>(null);
   // Photos just uploaded: each opens in the editor once it is ready.
   const [pending, setPending] = useState<string[]>([]);
+  // The template whose last waiting photo was just confirmed: "All photos are ready".
+  const [readyTemplate, setReadyTemplate] = useState<string | null>(null);
   const polls = useRef(0);
 
   const load = useCallback(async () => {
@@ -94,17 +105,35 @@ export default function TemplatesPage() {
   const current = editor ? photos.find((p) => p.id === editor.queue[editor.index]) : undefined;
   const siblings = current ? (templates ?? []).find((t) => t.id === current.template_id)?.photos ?? [] : [];
 
-  function next() {
+  function next(saved: MockupPhoto) {
+    const finished = !editor || editor.index + 1 >= editor.queue.length;
     setEditor((e) => (e && e.index + 1 < e.queue.length ? { ...e, index: e.index + 1 } : null));
+    if (finished) {
+      // The last photo that needed a check: say what comes next, straight away.
+      const template = (templates ?? []).find((t) => t.id === saved.template_id);
+      const stillWaiting = template?.photos.filter((p) => p.id !== saved.id && p.needs_check).length ?? 0;
+      if (stillWaiting === 0) setReadyTemplate(saved.template_id);
+    }
     load();
   }
 
+  const anyConfirmed = (templates ?? []).filter(canAddDesigns);
+
   return (
     <div className="space-y-8">
-      <div className="max-w-2xl space-y-2 text-sm text-slate-500">
-        <p>{TEMPLATES_INTRO}</p>
-        <p>{ACCURACY_NOTE}</p>
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="max-w-2xl flex-1 space-y-2 text-sm text-slate-500">
+          <p>{TEMPLATES_INTRO}</p>
+          <p>{ACCURACY_NOTE}</p>
+        </div>
+        {anyConfirmed.length > 0 && (
+          <Link key="add-designs" href={addDesignsHref(anyConfirmed.map((t) => t.id))} className="btn-primary min-h-11"
+            data-testid="templates-add-designs">
+            Add designs
+          </Link>
+        )}
       </div>
+
       <AddPhotos templates={templates ?? []} onAdded={(ids) => { setPending((p) => [...p, ...ids]); load(); }} />
       {error && <p key="error" role="alert" className="card p-4 text-sm text-rose-700">{error}</p>}
       {preparing && polls.current > 90 && (
@@ -128,6 +157,8 @@ export default function TemplatesPage() {
                 onReload={load}
                 onChange={(u) => setTemplates((all) => (all ?? []).map((x) => (x.id === u.id ? u : x)))}
                 onOpen={(queue) => setEditor({ queue, index: 0 })}
+                allReady={readyTemplate === t.id && t.needs_check === 0 && canAddDesigns(t)}
+                onReadySeen={() => setReadyTemplate(null)}
               />
             </li>
           ))}
@@ -139,7 +170,7 @@ export default function TemplatesPage() {
           photo={current}
           siblings={siblings}
           step={editor ? { index: editor.index, total: editor.queue.length } : null}
-          onConfirmed={(saved) => { replace(saved); next(); }}
+          onConfirmed={(saved) => { replace(saved); next(saved); }}
           onCopied={(copied, saved) => {
             replace(saved);
             copied.forEach(replace);
@@ -163,17 +194,17 @@ function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; 
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const input = useRef<HTMLInputElement>(null);
 
   function choose(files: File[]) {
     setError(null);
-    const next = files.map((file, i) => {
-      const problem = sizeProblem(file);
-      return { key: `${i}-${file.name}-${file.size}`, file, name: nameFromFile(file.name), pct: 0,
-               state: problem ? "error" : "waiting", message: problem ?? undefined } as Row;
-    });
-    setRows(next);
-    if (!name) setName(templateNameFrom(next.map((r) => r.name)));
+    // Every file on its own row: one that cannot be sent (not a photo, over 30 MB) says
+    // why and the others go on. Chosen again: added to what is waiting.
+    const next = pick(files).map(({ file, problem }, i) => ({
+      key: `${Date.now()}-${i}-${file.name}-${file.size}`, file, name: nameFromFile(file.name), pct: 0,
+      state: problem ? "error" : "waiting", message: problem ?? undefined,
+    }) as Row);
+    setRows((now) => [...now.filter((r) => r.state !== "done"), ...next]);
+    if (!name) setName(templateNameFrom(next.filter((r) => r.state === "waiting").map((r) => r.name)));
   }
 
   const update = (key: string, patch: Partial<Row>) => setRows((all) => all.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -200,7 +231,6 @@ function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; 
       setError(String(e.message ?? e));
     } finally {
       setBusy(false);
-      if (input.current) input.current.value = "";
       if (added.length) onAdded(added); // they appear at once, "preparing"; each then opens for its check
     }
   }
@@ -216,16 +246,9 @@ function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; 
           </p>
         </div>
       )}
-      <input
-        ref={input}
-        type="file"
-        multiple
-        accept="image/png,image/jpeg,image/webp"
-        className="field block w-full min-w-0 text-sm"
-        onChange={(e) => choose(Array.from(e.target.files ?? []))}
-        disabled={busy}
-        data-testid="template-file"
-      />
+      <FileDrop onFiles={choose} disabled={busy} testId="template-file"
+        label="Drop photos or a folder here"
+        hint="Every photo goes into the same template; each is sent with its own progress." />
       {!into && rows.length > 0 && (
         <div key="target" className="grid gap-3 sm:grid-cols-2">
           <label className="block min-w-0">
@@ -286,6 +309,8 @@ function TemplateCard({
   onReload,
   onChange,
   onOpen,
+  allReady,
+  onReadySeen,
 }: {
   template: MockupTemplate;
   first: boolean;
@@ -294,11 +319,59 @@ function TemplateCard({
   onReload: () => void;
   onChange: (template: MockupTemplate) => void;
   onOpen: (queue: string[]) => void;
+  /** Its last waiting photo was just confirmed: say what comes next, here, in view. */
+  allReady: boolean;
+  onReadySeen: () => void;
 }) {
+  const readyBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (allReady) readyBox.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [allReady]);
   const [name, setName] = useState(template.name);
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
   const waiting = waitingForCheck(template);
+  const readyPhotos = template.photos.filter((p) => p.status === "ready");
+  const confirmedPhotos = readyPhotos.filter((p) => p.confirmed);
+  const [sourceId, setSourceId] = useState<string>("");
+  const source = confirmedPhotos.find((p) => p.id === sourceId) ?? confirmedPhotos[0];
+  const chosen = selected.filter((id) => readyPhotos.some((p) => p.id === id));
+  const toggle = (id: string, on: boolean) => setSelected((now) => (on ? [...now, id] : now.filter((x) => x !== id)));
+
+  async function applyToSelected() {
+    if (!source) return;
+    const targets = chosen.filter((id) => id !== source.id);
+    if (!targets.length) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const placed = await api.copyMockupAreas(source.id, targets, true);
+      setNote(appliedLine(placed.length));
+      onReload();
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmSelected() {
+    if (!chosen.length) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      onChange(await api.confirmMockupPhotos(template.id, chosen));
+      setNote(`${chosen.length} ${chosen.length === 1 ? "photo" : "photos"} confirmed.`);
+      setSelected([]);
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function rename() {
     if (!name.trim() || name === template.name) return;
@@ -354,7 +427,20 @@ function TemplateCard({
         <span className="pb-2 text-xs text-slate-500" translate="no">
           <span><span>{template.photos.length}</span> <span>{template.photos.length === 1 ? "photo" : "photos"}</span></span>
         </span>
+        {canAddDesigns(template) && (
+          <Link key="add-designs" href={addDesignsHref([template.id])} className="btn-primary min-h-11" data-testid="template-add-designs">
+            Add designs
+          </Link>
+        )}
       </div>
+      {allReady && (
+        <div key="all-ready" ref={readyBox} role="status"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2" data-testid="all-ready">
+          <p className="min-w-[11rem] flex-1 text-sm font-medium text-emerald-900">{`${ALL_READY.split(". ")[0]}.`}</p>
+          <Link href={addDesignsHref([template.id])} className="btn-primary min-h-11" data-testid="all-ready-add">Add designs</Link>
+          <button type="button" className="btn-secondary min-h-11" onClick={onReadySeen}>Later</button>
+        </div>
+      )}
       {waiting.length > 0 && (
         <div key="check" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
           data-testid="template-needs-check">
@@ -364,11 +450,41 @@ function TemplateCard({
           </button>
         </div>
       )}
+      {readyPhotos.length > 1 && (
+        <div key="select" className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2" data-testid="template-selection">
+          <label className="flex min-h-11 items-center gap-2 px-1 text-sm text-slate-700">
+            <input type="checkbox" className="h-5 w-5 rounded border-slate-300" data-testid="template-select-all"
+              checked={chosen.length === readyPhotos.length} onChange={(e) => setSelected(e.target.checked ? readyPhotos.map((p) => p.id) : [])} />
+            <span>Select all</span>
+          </label>
+          <span className="text-xs text-slate-500" translate="no">{`${chosen.length} selected`}</span>
+          {confirmedPhotos.length > 0 && (
+            <label key="source" className="flex min-h-11 min-w-0 items-center gap-1.5 text-xs text-slate-600">
+              <span className="shrink-0">Area from</span>
+              <select className="field min-w-0 max-w-[12rem] text-xs" value={source?.id ?? ""} onChange={(e) => setSourceId(e.target.value)}
+                data-testid="template-apply-source">
+                {confirmedPhotos.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
+          <button type="button" className="btn-secondary min-h-11" data-testid="template-apply-selected"
+            onClick={applyToSelected} disabled={busy || !source || !chosen.some((id) => id !== source?.id)}
+            title={source ? undefined : "Confirm one photo's area first"}>
+            Apply this area to selected
+          </button>
+          <button type="button" className="btn-primary min-h-11" onClick={confirmSelected} disabled={busy || !chosen.length}
+            data-testid="template-confirm-selected">
+            Confirm selected
+          </button>
+        </div>
+      )}
+      {note && <p key="note" role="status" className="text-sm text-slate-700">{note}</p>}
       {template.photos.length > 0 ? (
         <ul key="photos" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="template-photos">
           {template.photos.map((p, i) => (
             <li key={p.id} className="min-w-0">
               <PhotoTile photo={p} first={i === 0} last={i === template.photos.length - 1}
+                selected={selected.includes(p.id)} onSelect={(on) => toggle(p.id, on)}
                 onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)} />
             </li>
           ))}
@@ -399,6 +515,8 @@ function PhotoTile({
   photo,
   first,
   last,
+  selected,
+  onSelect,
   onOpen,
   onMove,
   onRemove,
@@ -406,6 +524,8 @@ function PhotoTile({
   photo: MockupPhoto;
   first: boolean;
   last: boolean;
+  selected: boolean;
+  onSelect: (on: boolean) => void;
   onOpen: () => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
@@ -443,7 +563,11 @@ function PhotoTile({
         </div>
       )}
       <div className="space-y-1 p-2">
-        <p className="truncate text-xs font-medium text-slate-800" title={photo.name} translate="no">{photo.name}</p>
+        <label className="flex min-h-11 min-w-0 items-center gap-2">
+          <input type="checkbox" className="h-5 w-5 shrink-0 rounded border-slate-300" checked={selected} disabled={!ready}
+            onChange={(e) => onSelect(e.target.checked)} aria-label={`Select ${photo.name}`} data-testid="template-photo-select" />
+          <span className="min-w-0 truncate text-xs font-medium text-slate-800" title={photo.name} translate="no">{photo.name}</span>
+        </label>
         <div className="flex flex-wrap gap-1">
           {ready && (
             <button key="edit" type="button" className={`${photo.needs_check ? "btn-primary" : "btn-secondary"} min-h-11 flex-1 px-2 text-xs`} onClick={onOpen}>

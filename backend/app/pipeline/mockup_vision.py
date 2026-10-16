@@ -56,6 +56,16 @@ POSE_MIN = 0.35
 SEGMENTER_INPUT = 256
 LANDMARKER_INPUT = 256
 BACKGROUND, HAIR, BODY, FACE, CLOTHES, OTHERS = range(6)
+#: An "accessory" counts as in front only where the model is this much surer of it than of
+#: the fabric: on the seller's photos the class fired at about 0.46 on plain cloth (clothes
+#: 0.52), which faded the design wherever it lay there.
+ACCESSORY_OVER_CLOTHES = 1.25
+#: The share of "in front" against "in front + fabric" that ramps from behind (0) to in
+#: front (1). Measured near hair on the seller's photos: hair about 0.5 against clothes
+#: about 0.4, which the old sum left at 0.5 occlusion: the design showed through the hair.
+FRONT_RAMP = (0.40, 0.60)
+#: Below this much "in front" at all (background, plain fabric) nothing is in front.
+FRONT_MIN = (0.10, 0.30)
 
 NOTES = {
     "pose": "Placed on the garment from the person's shoulders and the garment's own outline.",
@@ -365,6 +375,26 @@ class Analysis:
         return self.confidence < CHECK_BELOW
 
 
+def front_of(probs: np.ndarray) -> np.ndarray:
+    """What is in front of the garment (float 0..1, (h, w)): hair, skin, face, and an
+    accessory the model is surer of than of the fabric, each decided **against the
+    fabric** under it, then sharpened by a short ramp. The sum of their probabilities
+    (as before) was soft wherever the coarse model hesitated: a design enlarged into the
+    hair showed through it at half strength, and fabric read as half "accessory" faded
+    the design. Deterministic; no model beyond the segmenter's own output."""
+    clothes = probs[..., CLOTHES]
+    others = probs[..., OTHERS]
+    others = np.where(others > ACCESSORY_OVER_CLOTHES * clothes, others, 0.0)
+    front = probs[..., HAIR] + probs[..., BODY] + probs[..., FACE] + others
+    share = front / (front + clothes + 1e-6)
+    lo, hi = FRONT_RAMP
+    t = np.clip((share - lo) / (hi - lo), 0.0, 1.0)
+    t = t * t * (3 - 2 * t)
+    a, b = FRONT_MIN
+    present = np.clip((front - a) / (b - a), 0.0, 1.0)
+    return (t * present).astype(np.float32)
+
+
 def analyse(rgb: np.ndarray, base_mask: np.ndarray, runner: Runner | None) -> Analysis:
     """What the photo shows, at the analysis size: ``rgb`` (h, w, 3) and the
     outline-based mask (h, w) the template had before. Never raises."""
@@ -376,7 +406,7 @@ def analyse(rgb: np.ndarray, base_mask: np.ndarray, runner: Runner | None) -> An
             person = float(np.isin(classes, (HAIR, BODY, FACE)).mean())
             details["person_share"] = round(person, 4)
             if person >= PERSON_SHARE:
-                occluder = np.clip((probs[..., HAIR] + probs[..., BODY] + probs[..., FACE] + probs[..., OTHERS]) * 255.0, 0, 255).astype(np.uint8)
+                occluder = np.clip(front_of(probs) * 255.0, 0, 255).astype(np.uint8)
                 garment = _with_holes_filled(np.clip(probs[..., CLOTHES] * 255.0, 0, 255).astype(np.uint8), occluder)
                 ys, xs = np.where(classes != BACKGROUND)
                 box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)

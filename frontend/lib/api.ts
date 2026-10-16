@@ -434,8 +434,24 @@ export const api = {
   /** "Add area": the garment under the tap (shares of the photo), alone. Nothing is saved. */
   findMockupGarment: (id: string, x: number, y: number, areas: [number, number][][]) =>
     req<FoundArea>(`/mockup-photos/${id}/find`, { method: "POST", body: JSON.stringify({ x, y, areas }) }),
-  copyMockupAreas: (id: string, photoIds: string[]) =>
-    req<MockupPhoto[]>(`/mockup-photos/${id}/copy`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds }) }),
+  /** "Apply this area to selected": each target placed by its own garment (fit), or the same shares. */
+  copyMockupAreas: (id: string, photoIds: string[], fit = true) =>
+    req<MockupPhoto[]>(`/mockup-photos/${id}/copy`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds, fit }) }),
+  /** "Confirm selected": these photos' areas confirmed as they are. */
+  confirmMockupPhotos: (templateId: string, photoIds: string[]) =>
+    req<MockupTemplate>(`/mockup-templates/${templateId}/confirm`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds }) }),
+  /** The "Keep in front" brush: a gray PNG (white in front, black not, mid gray as found). */
+  saveFrontBrush: async (id: string, png: Blob) => {
+    const form = new FormData();
+    form.append("file", png, "brush.png");
+    const res = await fetch(`${BASE}/mockup-photos/${id}/front`, { method: "PUT", body: form, cache: "no-store" });
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? "The brush could not be saved.");
+    return (await res.json()) as MockupPhoto;
+  },
+  clearFrontBrush: (id: string) => req<MockupPhoto>(`/mockup-photos/${id}/front`, { method: "DELETE" }),
+  /** What is in front of the garment: "cutout" (the photo's pixels, transparent elsewhere), "combined" or "brush" (gray). */
+  mockupFrontUrl: (id: string, layer: "cutout" | "combined" | "brush", version: number, w?: number) =>
+    `${BASE}/mockup-photos/${id}/front?layer=${layer}&v=${version}${w ? `&w=${w}` : ""}`,
   deleteMockupPhoto: (id: string) => req<void>(`/mockup-photos/${id}`, { method: "DELETE" }),
   mockupPhotoImageUrl: (id: string, w?: number) => `${BASE}/mockup-photos/${id}/image${w ? `?w=${w}` : ""}`,
   /** The photo with a sample design printed (shaded and warped by the fabric), with unsaved areas: a JPEG. */
@@ -456,6 +472,13 @@ export const api = {
     const form = new FormData();
     form.append("file", file, file.name);
     return postForm<MockupDesign>(`${BASE}/batches/${batchId}/designs`, form, onProgress, UPLOAD_TIMEOUT_MS);
+  },
+  /** A ZIP of designs: each image added (its SKU read from its name); what fails, with why. */
+  addMockupDesignArchive: (batchId: string, file: File, onProgress: (pct: number) => void) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return postForm<{ added: MockupDesign[]; failed: { filename: string; reason: string }[] }>(
+      `${BASE}/batches/${batchId}/designs/archive`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
   updateMockupDesign: (id: string, sku: string | null) =>
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ sku }) }),

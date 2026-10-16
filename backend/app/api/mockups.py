@@ -64,6 +64,8 @@ MAX_PHOTOS_PER_TEMPLATE = MockupPhoto.MAX_PER_TEMPLATE
 MAX_GARMENTS = 24
 #: A template's or a photo's name, trimmed; any language.
 MAX_NAME = 120
+#: The "Keep in front" brush as sent by the editor (a gray PNG at screen size).
+MAX_BRUSH_BYTES = 900 * 1024
 #: The width the editor previews at (fast; the real mockups use the full photo).
 PREVIEW_WIDTH = 900
 #: Said when a photo's background could not be separated from the garment.
@@ -122,6 +124,8 @@ class PhotoOut(BaseModel):
     #: Print behind hair, skin, hands and held things; whether any were found.
     occlusion: bool = True
     has_occluder: bool = False
+    #: The seller painted "Keep in front" on this photo.
+    has_front_brush: bool = False
     #: "front" or "back" (found from the pose; the seller can change it).
     view: str = "front"
     #: Every print area, in the seller's order.
@@ -190,6 +194,25 @@ class FindOut(BaseModel):
 class CopyRequest(BaseModel):
     #: Other photos of the same template that take this photo's print areas, size and fold strength.
     photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_PHOTOS_PER_TEMPLATE)
+    #: Place each area by the target photo's own garment ("Apply this area to selected"):
+    #: where it sits on the source's garment, it is put on the target's. False: the same
+    #: shares of the photo.
+    fit: bool = True
+
+
+class ConfirmRequest(BaseModel):
+    #: Photos of this template to confirm as they are ("Confirm selected").
+    photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_PHOTOS_PER_TEMPLATE)
+
+
+class DesignFailed(BaseModel):
+    filename: str
+    reason: str
+
+
+class DesignArchiveOut(BaseModel):
+    added: list["DesignOut"] = Field(default_factory=list)
+    failed: list[DesignFailed] = Field(default_factory=list)
 
 
 class PreviewRequest(BaseModel):
@@ -209,6 +232,9 @@ class DesignOut(BaseModel):
     width: int
     height: int
     has_alpha: bool
+
+
+DesignArchiveOut.model_rebuild()
 
 
 class DesignUpdate(BaseModel):
@@ -266,8 +292,9 @@ class RunOut(BaseModel):
     error: str | None = None
     templates: list[str] = Field(default_factory=list)
     photos: int = 0
-    #: Photos of the chosen templates left out because they are not confirmed yet.
+    #: Photos of the chosen templates left out because they are not confirmed yet, and their names.
     skipped: int = 0
+    skipped_photos: list[str] = Field(default_factory=list)
     designs: list[RunDesignOut] = Field(default_factory=list)
     zips: list[ZipOut] = Field(default_factory=list)
 
@@ -313,7 +340,8 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
         version=p.version, notice=NO_MASK if p.mask_source == "none" else None, method=analysis.get("method"),
         confidence=p.print_area_confidence, analysis_note=analysis.get("note"),
         confirmed=p.confirmed_at is not None, needs_check=ready and p.confirmed_at is None,
-        occlusion=p.occlusion, has_occluder=p.occluder_key is not None, view=p.view or "front",
+        occlusion=p.occlusion, has_occluder=p.occluder_key is not None, has_front_brush=p.occluder_manual_key is not None,
+        view=p.view or "front",
         areas=[
             AreaOut(print_area=g["print_area"], detected_area=g.get("detected_area") or g["print_area"],
                     source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"))
@@ -669,8 +697,11 @@ async def copy_areas(
     photo_id: uuid.UUID, body: CopyRequest, session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[PhotoOut]:
-    """This photo's print areas (as shares of the photo), size and fold strength, given to
-    other photos of its template (colour variants shot the same way). Each one then waits
+    """This photo's print areas, size and fold strength, given to other photos of its
+    template ("Apply this area to selected"). With ``fit`` each area is placed by the
+    target's own garment: where it sits relative to the garment found on this photo, it is
+    put relative to the garment found on the target (pipeline/mockups.py ``transfer_area``);
+    without a found garment on either, the same shares of the photo. Each one then waits
     for the seller's "Looks right" on its own photo."""
     source = await _own_photo(session, tenant, photo_id)
     _ready(source)
@@ -688,8 +719,14 @@ async def copy_areas(
         rows = []
         for i, g in enumerate(areas):
             suggested = own[i].get("detected_area") if i < len(own) else None
-            rows.append({"print_area": [list(c) for c in g["print_area"]],
-                         "detected_area": suggested or [list(c) for c in g["print_area"]],
+            placed = [list(c) for c in g["print_area"]]
+            if body.fit and suggested and g.get("detected_area") and source.width and target.width:
+                try:
+                    placed = mockups.transfer_area(g["print_area"], g["detected_area"], suggested,
+                                                   (source.width, source.height or 1), (target.width, target.height or 1))
+                except mockups.MockupError:
+                    placed = [list(c) for c in g["print_area"]]  # a degenerate suggestion: the same shares
+            rows.append({"print_area": placed, "detected_area": suggested or placed,
                          "source": "copied", "confidence": None, "kind": g.get("kind")})
         target.garments = rows
         target.print_area, target.print_area_source = rows[0]["print_area"], "seller"
@@ -699,6 +736,103 @@ async def copy_areas(
         out.append(target)
     await session.commit()
     return [_photo_out(p) for p in out]
+
+
+@router.post("/mockup-templates/{template_id}/confirm", response_model=TemplateOut)
+async def confirm_photos(
+    template_id: uuid.UUID, body: ConfirmRequest, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> TemplateOut:
+    """"Confirm selected": these photos' print areas, as they are, are confirmed in one step
+    (the same as "Looks right" on each). A photo still preparing is left as it is."""
+    template = await _own_template(session, tenant, template_id)
+    now = datetime.now(timezone.utc)
+    for photo_id in dict.fromkeys(body.photo_ids):
+        photo = await _own_photo(session, tenant, photo_id)
+        if photo.template_id != template.id:
+            raise HTTPException(status_code=422, detail="Only photos of this template can be confirmed here.")
+        if photo.status == "ready" and photo_areas(photo):
+            photo.confirmed_at = now
+            photo.version += 1
+    await session.commit()
+    return _template_out(template, await _photos_of(session, template.id))
+
+
+@router.put("/mockup-photos/{photo_id}/front", response_model=PhotoOut)
+async def save_front_brush(
+    photo_id: uuid.UUID,
+    file: UploadFile,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> PhotoOut:
+    """The seller's "Keep in front" brush for this photo: a gray PNG (white = in front,
+    black = not in front, mid gray = as the analysis found), at any size; stored at the
+    photo's size and combined with the analysis's map into the occluder every preview and
+    mockup uses. On our server only; no model involved."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
+    data = await file.read()
+    if len(data) > MAX_BRUSH_BYTES:
+        raise HTTPException(status_code=413, detail="The brush is too large to save; paint at a smaller size.")
+    try:
+        brush = await asyncio.to_thread(mockups.brush_png, data, photo.width or 1, photo.height or 1)
+    except Exception as exc:  # noqa: BLE001 - one message for every unreadable mask
+        raise HTTPException(status_code=422, detail="The brush could not be read.") from exc
+    await asyncio.to_thread(work.save_front, storage, photo, brush=brush)
+    storage_cap.forget(tenant.id)
+    await session.commit()
+    return _photo_out(photo)
+
+
+@router.delete("/mockup-photos/{photo_id}/front", response_model=PhotoOut)
+async def clear_front_brush(
+    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> PhotoOut:
+    """The brush goes; what is in front is the analysis's map again."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
+    await asyncio.to_thread(work.save_front, storage, photo, brush=None)
+    await session.commit()
+    return _photo_out(photo)
+
+
+@router.get("/mockup-photos/{photo_id}/front")
+async def front_mask(
+    photo_id: uuid.UUID,
+    layer: Literal["combined", "brush", "cutout"] = Query("combined"),
+    w: int | None = Query(None),
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> Response:
+    """What is in front of the garment: ``combined`` (gray, as mockups use it), ``brush``
+    (the seller's own strokes; mid gray where none) or ``cutout`` (the photo's own pixels
+    that are in front, transparent elsewhere: the editor's live preview draws it over the
+    design, so the preview hides the design exactly where the mockup does)."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
+    width, height = photo.width or 1, photo.height or 1
+    scale_to = w if w and w < width else None
+
+    def build() -> bytes:
+        if layer == "brush":
+            if photo.occluder_manual_key:
+                return mockups.brush_png(storage.get(photo.occluder_manual_key), width, height)
+            import pyvips
+
+            return (pyvips.Image.black(width, height) + mockups.BRUSH_UNTOUCHED).cast("uchar").copy(
+                interpretation="b-w").write_to_buffer(".png", compression=6)
+        occluder = storage.get(photo.occluder_key) if photo.occluder_key else None
+        if occluder is None:
+            raise HTTPException(status_code=404, detail="Nothing is in front of the garment on this photo.")
+        if layer == "cutout":
+            return mockups.front_layer(storage.get(photo.image_key or ""), occluder, scale_to)
+        return occluder
+
+    data = await asyncio.to_thread(build)
+    return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
 
 @router.delete("/mockup-photos/{photo_id}", status_code=204)
@@ -830,10 +964,66 @@ async def add_design(
     if await _written(session, batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
     data = await file.read()
-    filename = file.filename or "design.png"
+    design = await _store_design(session, storage, tenant, batch, file.filename or "design.png", data)
+    await session.commit()
+    return _design_out(design)
+
+
+@router.post("/batches/{batch_id}/designs/archive", response_model=DesignArchiveOut, status_code=201)
+async def add_design_archive(
+    batch_id: uuid.UUID,
+    file: UploadFile,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> DesignArchiveOut:
+    """A ZIP of designs: each image in it becomes a design (named by its file name, its SKU
+    read from it), read in memory (pipeline/archive.py: zip slip, nesting and size caps).
+    A file that fails (too small, not an image, over 30 MB) is said with its reason; the
+    others are added."""
+    from app.pipeline.archive import read_archive
+
+    batch = await _own_batch(session, tenant, batch_id)
+    if await _written(session, batch_id):
+        raise HTTPException(status_code=409, detail=WRITTEN)
+    settings = get_settings()
+    data = await file.read()
+    if len(data) > settings.max_archive_bytes:
+        raise HTTPException(status_code=413, detail=f"a ZIP is limited to {settings.max_archive_bytes // (1024 * 1024)} MB")
+    try:
+        contents = read_archive(data, max_files=settings.max_archive_files,
+                                max_total_bytes=settings.max_archive_unpacked_bytes,
+                                max_file_bytes=settings.max_mockup_upload_bytes)
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    del data
+    out = DesignArchiveOut()
+    for name in contents.too_large:
+        out.failed.append(DesignFailed(filename=name, reason=f"over the {settings.max_mockup_upload_bytes // (1024 * 1024)} MB limit per file"))
+    if contents.unsupported:
+        out.failed.append(DesignFailed(filename=f"{contents.unsupported} file(s)", reason="not an image (PNG, JPEG or WebP)"))
+    for item in contents.files:
+        try:
+            design = await _store_design(session, storage, tenant, batch, item.filename, item.data)
+        except HTTPException as exc:
+            if exc.status_code == 413 and "storage" in str(exc.detail).lower():
+                raise  # the account's storage is full: nothing more fits
+            out.failed.append(DesignFailed(filename=item.filename, reason=str(exc.detail)))
+            continue
+        await session.commit()
+        out.added.append(_design_out(design))
+    return out
+
+
+async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant, batch: UploadBatch,
+                        filename: str, data: bytes) -> MockupDesign:
+    """Check, resize and store one design of the batch (the caller commits)."""
+    batch_id = batch.id
     _admitted(data)
     try:
         prepared = await asyncio.to_thread(mockups.prepare_design, data)
+    except mockups.DesignTooSmall as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (ImageProcessingError, mockups.MockupError) as exc:
         raise HTTPException(status_code=422, detail="This file could not be read as a design.") from exc
     await _room(session, storage, tenant, len(prepared.image))
@@ -850,8 +1040,8 @@ async def add_design(
     )
     session.add(design)
     batch.grouping_mode = batch.grouping_mode or "folder"
-    await session.commit()
-    return _design_out(design)
+    await session.flush()
+    return design
 
 
 @router.patch("/mockup-designs/{design_id}", response_model=DesignOut)
@@ -913,10 +1103,18 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
         select(Asset.mockup_design_id).where(Asset.batch_id == run.batch_id, Asset.mockup_design_id.is_not(None))
     )).scalars())
     per_design = len(run.photo_ids)
+    used_photos = {str(p) for p in run.photo_ids}
+    skipped_photos: list[str] = []
+    for raw in run.template_ids:
+        for photo in await _photos_of(session, uuid.UUID(str(raw))):
+            if str(photo.id) not in used_photos and photo.tenant_id == run.tenant_id and (
+                    run.sides == "both" or (photo.view or "front") == run.sides):
+                skipped_photos.append(photo.name)
     zips = (await session.execute(select(MockupZip).where(MockupZip.run_id == run.id).order_by(MockupZip.created_at))).scalars()
     return RunOut(
         id=run.id, batch_id=run.batch_id, status=run.status, total=run.total, done=run.done, failed=run.failed,
         error=run.error, templates=names, photos=len(run.photo_ids), skipped=run.skipped,
+        skipped_photos=skipped_photos[: max(run.skipped, 0)] if run.skipped else [],
         designs=[
             RunDesignOut(
                 design_id=d.id, original_filename=d.original_filename, sku=d.parsed_sku, group_key=d.group_key,

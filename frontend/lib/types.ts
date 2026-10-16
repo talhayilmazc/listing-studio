@@ -248,6 +248,8 @@ export interface MockupPhoto {
   needs_check: boolean;
   occlusion?: boolean;
   has_occluder?: boolean;
+  /** The seller painted "Keep in front" on this photo. */
+  has_front_brush?: boolean;
   view?: "front" | "back" | string;
   areas: MockupArea[];
 }
@@ -327,6 +329,7 @@ export interface MockupRun {
   /** Photos printed on, and photos of the chosen templates left out because they are not confirmed. */
   photos: number;
   skipped: number;
+  skipped_photos?: string[];
   designs: MockupRunDesign[];
   zips: MockupZip[];
 }

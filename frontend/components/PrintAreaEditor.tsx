@@ -36,7 +36,7 @@ import {
   type Pt,
   type Quad,
 } from "@/lib/areaEditor";
-import { EDITOR_HINT, FOLD_RANGE, LOOKS_RIGHT, OCCLUSION_LABEL, SAMPLE_DESIGN, SIZE_RANGE, SUGGESTION_NOTE, percent } from "@/lib/mockups";
+import { BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LOOKS_RIGHT, OCCLUSION_LABEL, SAMPLE_DESIGN, SIZE_RANGE, SUGGESTION_NOTE, percent } from "@/lib/mockups";
 
 /**
  * The print-area editor (backend api/mockups.py): one photo, large, with its suggested
@@ -98,6 +98,17 @@ export function PrintAreaEditor({
   const [copying, setCopying] = useState(false);
   const [copyIds, setCopyIds] = useState<string[]>([]);
   const [fabric, setFabric] = useState<string | null>(null);
+  // "Keep in front": the seller paints what must stay in front of the design (hair, a hand)
+  // where the analysis missed it, or erases what it wrongly put in front. Painted on an
+  // off-screen gray canvas (white in front, black not, mid gray as found) at screen size;
+  // saved to our server, which stores it at the photo's size (backend api/mockups.py).
+  const [brushing, setBrushing] = useState(false);
+  const [brushMode, setBrushMode] = useState<"front" | "behind">("front");
+  const [brushSize, setBrushSize] = useState(28);
+  const [brushDirty, setBrushDirty] = useState(false);
+  const tint = useRef<HTMLCanvasElement>(null);
+  const brushCanvas = useRef<HTMLCanvasElement | null>(null);
+  const painting = useRef(false);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const stage = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -204,6 +215,100 @@ export function PrintAreaEditor({
     drag.current = null;
     setActive([]);
     if (live) commit(live);
+  }
+
+  // The brush opens on what is in front now: the stored brush (gray) and, tinted, the
+  // occluder every mockup uses. Both at the photo's on-screen size.
+  useEffect(() => {
+    if (!brushing || !box.w || !box.h) return;
+    let cancelled = false;
+    const off = document.createElement("canvas");
+    off.width = box.w;
+    off.height = box.h;
+    const octx = off.getContext("2d")!;
+    octx.fillStyle = "rgb(128,128,128)";
+    octx.fillRect(0, 0, box.w, box.h);
+    brushCanvas.current = off;
+    const load = (src: string) => new Promise<HTMLImageElement | null>((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+    (async () => {
+      const [stored, combined] = await Promise.all([
+        load(api.mockupFrontUrl(photo.id, "brush", photo.version)),
+        photo.has_occluder ? load(api.mockupFrontUrl(photo.id, "combined", photo.version)) : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      if (stored) {
+        octx.imageSmoothingEnabled = false;
+        octx.drawImage(stored, 0, 0, box.w, box.h);
+      }
+      const view = tint.current?.getContext("2d");
+      if (!view) return;
+      view.clearRect(0, 0, box.w, box.h);
+      if (combined) {
+        view.drawImage(combined, 0, 0, box.w, box.h);
+        const data = view.getImageData(0, 0, box.w, box.h);
+        for (let i = 0; i < data.data.length; i += 4) {
+          const a = data.data[i];
+          data.data[i] = 220; data.data[i + 1] = 38; data.data[i + 2] = 38; data.data[i + 3] = a;
+        }
+        view.putImageData(data, 0, 0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [brushing, box.w, box.h, photo.id, photo.version, photo.has_occluder]);
+
+  function paintAt(e: React.PointerEvent) {
+    const r = frame.current!.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const off = brushCanvas.current?.getContext("2d");
+    const view = tint.current?.getContext("2d");
+    if (!off || !view) return;
+    off.globalCompositeOperation = "source-over";
+    off.fillStyle = brushMode === "front" ? "rgb(255,255,255)" : "rgb(0,0,0)";
+    off.beginPath();
+    off.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    off.fill();
+    view.globalCompositeOperation = brushMode === "front" ? "source-over" : "destination-out";
+    view.fillStyle = "rgb(220,38,38)";
+    view.beginPath();
+    view.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    view.fill();
+    view.globalCompositeOperation = "source-over";
+    setBrushDirty(true);
+  }
+
+  async function saveBrush() {
+    const off = brushCanvas.current;
+    if (!off) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => off.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("The brush could not be read.");
+      onChanged(await api.saveFrontBrush(photo.id, blob));
+      setBrushing(false);
+      setBrushDirty(false);
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearBrush() {
+    setError(null);
+    try {
+      onChanged(await api.clearFrontBrush(photo.id));
+      setBrushing(false);
+      setBrushDirty(false);
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    }
   }
 
   async function onStageDown(e: React.PointerEvent) {
@@ -377,6 +482,13 @@ export function PrintAreaEditor({
                     transform: matrix3d(design.width, design.height, designQuad(a.quad, design.width, design.height, size).map(([x, y]) => [x * scale, y * scale]) as Quad) }}
                   data-testid="editor-design" />
               ))}
+              {showDesign && !fabric && photo.has_occluder && photo.occlusion !== false && (
+                // What is in front of the garment (hair, hands), over the design: the live
+                // preview hides the design exactly where the mockup does.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key="front" src={api.mockupFrontUrl(photo.id, "cutout", photo.version)} alt="" aria-hidden draggable={false}
+                  className="pointer-events-none absolute inset-0 h-full w-full" data-testid="editor-front-layer" />
+              )}
               {fabric && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img key="fabric" src={fabric} alt="The photo with a sample design printed" className="pointer-events-none absolute inset-0 h-full w-full" />
@@ -409,7 +521,16 @@ export function PrintAreaEditor({
                   {`${i + 1}`}
                 </span>
               ))}
-              {sel && !tapping && sel.quad.map((p, c) => (
+              {brushing && (
+                <canvas key="brush" ref={tint} width={box.w} height={box.h} aria-label="Keep in front: paint on the photo"
+                  className="absolute inset-0 z-10 h-full w-full cursor-crosshair touch-none opacity-50"
+                  onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); painting.current = true; (e.target as HTMLElement).setPointerCapture(e.pointerId); paintAt(e); }}
+                  onPointerMove={(e) => painting.current && paintAt(e)}
+                  onPointerUp={() => { painting.current = false; }}
+                  onPointerCancel={() => { painting.current = false; }}
+                  data-testid="editor-brush-canvas" />
+              )}
+              {sel && !tapping && !brushing && sel.quad.map((p, c) => (
                 <button key={`c${c}`} type="button" aria-label={`${CORNERS[c]} corner`}
                   className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   style={px(p)} onPointerDown={(e) => begin(e, { kind: "corner", index: selected, corner: c, start: at(e), quad: sel.quad })}
@@ -417,7 +538,7 @@ export function PrintAreaEditor({
                   <span aria-hidden className={`h-4 w-4 border-2 border-white bg-brand-600 shadow ${free ? "rotate-45" : "rounded-full"}`} />
                 </button>
               ))}
-              {sel && !tapping && (
+              {sel && !tapping && !brushing && (
                 <button key="rotate" type="button" aria-label="Turn the print area"
                   className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   style={px(rotateHandle(sel.quad, handleGap))}
@@ -465,8 +586,48 @@ export function PrintAreaEditor({
                   data-testid="editor-fabric">
                   On fabric
                 </button>
+                <button type="button" className={`col-span-3 min-h-11 px-2 ${brushing ? "btn-primary" : "btn-secondary"}`} aria-pressed={brushing}
+                  onClick={() => { setBrushing(!brushing); setBrushDirty(false); setTapping(false); }} data-testid="editor-brush">
+                  Keep in front
+                </button>
               </div>
-              <p className="text-xs text-slate-500">{EDITOR_HINT}</p>
+              {brushing ? (
+                <div key="brush" className="space-y-3 rounded-md border border-slate-200 p-3" data-testid="editor-brush-panel">
+                  <p className="text-xs text-slate-600">{BRUSH_HINT}</p>
+                  <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Brush">
+                    <button type="button" role="radio" aria-checked={brushMode === "front"}
+                      className={`min-h-11 px-2 ${brushMode === "front" ? "btn-primary" : "btn-secondary"}`} onClick={() => setBrushMode("front")}
+                      data-testid="editor-brush-paint">
+                      Paint
+                    </button>
+                    <button type="button" role="radio" aria-checked={brushMode === "behind"}
+                      className={`min-h-11 px-2 ${brushMode === "behind" ? "btn-primary" : "btn-secondary"}`} onClick={() => setBrushMode("behind")}
+                      data-testid="editor-brush-erase">
+                      Erase
+                    </button>
+                  </div>
+                  <label className="block">
+                    <span className="label">Brush size</span>
+                    <input type="range" min={8} max={80} step={2} value={brushSize} className="block h-11 w-full accent-brand-600"
+                      onChange={(e) => setBrushSize(Number(e.target.value))} />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="btn-primary min-h-11" onClick={saveBrush} disabled={saving || !brushDirty} data-testid="editor-brush-save">
+                      Save brush
+                    </button>
+                    {photo.has_front_brush && (
+                      <button key="clear" type="button" className="btn-secondary min-h-11" onClick={clearBrush} data-testid="editor-brush-clear">
+                        Clear brush
+                      </button>
+                    )}
+                    <button type="button" className="btn-secondary min-h-11" onClick={() => { setBrushing(false); setBrushDirty(false); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p key="hint" className="text-xs text-slate-500">{EDITOR_HINT}</p>
+              )}
               {areas.length > 1 && (
                 <div key="areas" className="flex flex-wrap gap-2" aria-label="Print areas">
                   {areas.map((_, i) => (

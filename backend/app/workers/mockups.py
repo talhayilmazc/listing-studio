@@ -88,13 +88,15 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
     storage.put(f"{base}/blank.jpg", prepared.image, "image/jpeg")
     storage.put(f"{base}/mask.png", prepared.mask, "image/png")
     if prepared.occluder is not None:
-        storage.put(f"{base}/occluder.png", prepared.occluder, "image/png")
+        storage.put(f"{base}/occluder_auto.png", prepared.occluder, "image/png")
+        storage.put(f"{base}/occluder.png", prepared.occluder, "image/png")  # no brush yet: the same
     if prepared.foreground is not None:
         storage.put(f"{base}/foreground.png", prepared.foreground, "image/png")
     storage.delete_with_derivatives(photo.source_key)
     storage_cap.forget(photo.tenant_id)
     photo.image_key, photo.mask_key = f"{base}/blank.jpg", f"{base}/mask.png"
     photo.occluder_key = f"{base}/occluder.png" if prepared.occluder is not None else None
+    photo.occluder_auto_key = f"{base}/occluder_auto.png" if prepared.occluder is not None else None
     photo.foreground_key = f"{base}/foreground.png" if prepared.foreground is not None else None
     photo.width, photo.height, photo.mask_source = prepared.width, prepared.height, prepared.mask_source
     photo.print_area_confidence = prepared.confidence
@@ -129,6 +131,50 @@ async def prepare_mockup_template(ctx: dict[str, Any], photo_id: str) -> str:
     async with ctx["sessionmaker"]() as session:
         done = await prepare(session, get_storage(), uuid.UUID(photo_id))
         return done.status if done is not None else "missing"
+
+
+_KEEP = object()
+
+
+def save_front(storage: Storage, photo: MockupPhoto, *, auto: Any = _KEEP, brush: Any = _KEEP) -> None:
+    """Write what is in front of the garment for ``photo``: the analysis's own map
+    (``auto``: PNG bytes, None for none) and/or the seller's brush (``brush``), and the two
+    combined into the occluder every mockup and preview reads. An argument left out keeps
+    what the photo has. Photos prepared before migration 0069 kept the analysis's map only
+    as ``occluder_key``: it is taken as the analysis's own the first time. The caller commits."""
+    base = f"{photo.tenant_id}/templates/{photo.id}"
+    if auto is _KEEP:
+        if photo.occluder_auto_key:
+            auto = storage.get(photo.occluder_auto_key)
+        elif photo.occluder_key and not photo.occluder_manual_key:
+            auto = storage.get(photo.occluder_key)  # before 0069: the occluder was the analysis's map
+        else:
+            auto = None
+    if brush is _KEEP:
+        brush = storage.get(photo.occluder_manual_key) if photo.occluder_manual_key else None
+    if auto:
+        storage.put(f"{base}/occluder_auto.png", auto, "image/png")
+        photo.occluder_auto_key = f"{base}/occluder_auto.png"
+    else:
+        if photo.occluder_auto_key:
+            storage.delete_with_derivatives(photo.occluder_auto_key)
+        photo.occluder_auto_key = None
+    if brush:
+        storage.put(f"{base}/occluder_manual.png", brush, "image/png")
+        photo.occluder_manual_key = f"{base}/occluder_manual.png"
+    else:
+        if photo.occluder_manual_key:
+            storage.delete_with_derivatives(photo.occluder_manual_key)
+        photo.occluder_manual_key = None
+    combined = mockups.compose_occluder(auto, brush, photo.width or 1, photo.height or 1)
+    if combined:
+        storage.put(f"{base}/occluder.png", combined, "image/png")
+        photo.occluder_key = f"{base}/occluder.png"
+    else:
+        if photo.occluder_key:
+            storage.delete_with_derivatives(photo.occluder_key)
+        photo.occluder_key = None
+    photo.version += 1
 
 
 def photo_print_areas(photo: MockupPhoto) -> list[list[list[float]]]:

@@ -5,16 +5,18 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { MockupDesign, MockupRun, MockupTemplate, MockupZip } from "@/lib/types";
+import { FileDrop } from "@/components/FileDrop";
+import { kindOf, pick as pickFiles } from "@/lib/fileDrop";
 import {
   GARMENT_MODE_LABELS,
   LIMIT_NOTE,
   MAX_PHOTOS_PER_RUN,
   NEEDS_CHECK,
   SIDE_LABELS,
+  designNote,
   megabytes,
   printable,
   runLine,
-  sizeProblem,
   skippedLine,
 } from "@/lib/mockups";
 
@@ -37,10 +39,10 @@ type Upload = { key: string; file: File; pct: number; state: "waiting" | "sendin
 
 const STALL_MS = 5 * 60_000;
 
-export function MockupUpload({ shop }: { shop: string | null }) {
+export function MockupUpload({ shop, initialTemplates }: { shop: string | null; initialTemplates?: string[] }) {
   const router = useRouter();
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
-  const [chosen, setChosen] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<string[]>(initialTemplates ?? []);
   const [sides, setSides] = useState<"both" | "front" | "back">("both");
   const [garmentMode, setGarmentMode] = useState<"same" | "order">("same");
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -51,11 +53,15 @@ export function MockupUpload({ shop }: { shop: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const [stalled, setStalled] = useState(false);
   const lastProgress = useRef({ done: -1, at: 0 });
-  const input = useRef<HTMLInputElement>(null);
+  const batchRef = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     api.mockupTemplates()
-      .then(setTemplates)
+      // Templates named in the link ("Add designs") start chosen, if they have a confirmed photo.
+      .then((all) => {
+        setTemplates(all);
+        setChosen((now) => now.filter((id) => all.some((t) => t.id === id && t.confirmed > 0)));
+      })
       .catch((e) => {
         setTemplates([]);
         setError(String(e.message ?? e));
@@ -83,31 +89,41 @@ export function MockupUpload({ shop }: { shop: string | null }) {
   const toggle = (id: string, on: boolean) =>
     setChosen((now) => (templates ?? []).map((t) => t.id).filter((x) => (x === id ? on : now.includes(x))));
 
-  function pick(files: File[]) {
+  // Designs are sent as soon as they are chosen or dropped: each with its own progress,
+  // and one that fails (too small, not an image, over 30 MB) says why without stopping the rest.
+  function choose(files: File[]) {
     setError(null);
-    setUploads(files.map((file, i) => {
-      const problem = sizeProblem(file);
-      return { key: `${i}-${file.name}-${file.size}`, file, pct: 0, state: problem ? "error" : "waiting", message: problem ?? undefined };
-    }));
+    const picked = pickFiles(files, { zip: true }).map(({ file, problem }, i) => ({
+      key: `${Date.now()}-${i}-${file.name}-${file.size}`, file, pct: 0,
+      state: problem ? "error" : "waiting", message: problem ?? undefined,
+    }) as Upload);
+    setUploads((now) => [...now.filter((u) => u.state !== "done"), ...picked]);
+    send(picked.filter((u) => u.state === "waiting"));
   }
   const update = (key: string, patch: Partial<Upload>) => setUploads((all) => all.map((u) => (u.key === key ? { ...u, ...patch } : u)));
+  const [failed, setFailed] = useState<{ filename: string; reason: string }[]>([]);
 
-  async function send() {
-    const waiting = uploads.filter((u) => u.state === "waiting");
+  async function send(waiting: Upload[]) {
     if (!waiting.length) return;
     setError(null);
     setPhase("uploading");
     try {
-      let id = batchId;
-      if (!id) {
-        id = (await api.createBatch(shop)).id;
-        setBatchId(id);
-      }
+      // One batch for every drop: a second drop while the first is creating it waits for it.
+      batchRef.current ??= api.createBatch(shop).then((b) => b.id);
+      const id = await batchRef.current;
+      setBatchId(id);
       for (const u of waiting) {
         update(u.key, { state: "sending", pct: 0 });
         try {
-          const design = await api.addMockupDesign(id, u.file, (pct) => update(u.key, { pct }));
-          setDesigns((all) => [...all, design]);
+          if (kindOf(u.file) === "zip") {
+            // A ZIP: every image in it becomes a design; what fails comes back with why.
+            const res = await api.addMockupDesignArchive(id, u.file, (pct) => update(u.key, { pct }));
+            setDesigns((all) => [...all, ...res.added]);
+            if (res.failed.length) setFailed((all) => [...all, ...res.failed]);
+          } else {
+            const design = await api.addMockupDesign(id, u.file, (pct) => update(u.key, { pct }));
+            setDesigns((all) => [...all, design]);
+          }
           update(u.key, { state: "done", pct: 100 });
         } catch (e: any) {
           update(u.key, { state: "error", message: String(e.message ?? e) });
@@ -115,10 +131,9 @@ export function MockupUpload({ shop }: { shop: string | null }) {
       }
       setPhase("ready");
     } catch (e: any) {
+      batchRef.current = null; // the batch was not made: the next drop tries again
       setError(String(e.message ?? e));
       setPhase("idle");
-    } finally {
-      if (input.current) input.current.value = "";
     }
   }
 
@@ -138,7 +153,7 @@ export function MockupUpload({ shop }: { shop: string | null }) {
 
   // The photos the run prints on (confirmed, by the side each shows), those it leaves out,
   // and whether any photo has several garments (then the seller says how designs fill them).
-  const { photos: printed, skipped } = printable(templates ?? [], chosen, sides);
+  const { photos: printed, skipped, skippedNames } = printable(templates ?? [], chosen, sides);
   const tooMany = printed.length > MAX_PHOTOS_PER_RUN;
   const multiGarment = printed.some((p) => p.areas.length > 1);
 
@@ -194,18 +209,10 @@ export function MockupUpload({ shop }: { shop: string | null }) {
 
           <div className="space-y-2">
             <p className="label">2. Designs</p>
-            <p className="text-xs text-slate-500"><span><span>{LIMIT_NOTE}</span> The SKU is read from each file name; you can change it.</span></p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input ref={input} type="file" multiple accept="image/png,image/jpeg,image/webp" className="hidden"
-                data-testid="mockup-designs" onChange={(e) => pick(Array.from(e.target.files ?? []))} />
-              <button type="button" className="btn-secondary" onClick={() => input.current?.click()} disabled={busy || phase === "done"}>
-                Choose designs
-              </button>
-              <button type="button" className="btn-secondary" onClick={send} data-testid="mockup-send"
-                disabled={busy || !uploads.some((u) => u.state === "waiting")}>
-                {phase === "uploading" ? "Uploading…" : "Upload designs"}
-              </button>
-            </div>
+            <p className="text-xs text-slate-500"><span><span>{LIMIT_NOTE}</span> Each design is named by its file name and its SKU read from it; you can change it.</span></p>
+            <FileDrop onFiles={choose} disabled={busy || phase === "done"} zip testId="mockup-designs"
+              label="Drop designs, a folder or a ZIP here"
+              hint="Each design becomes its own listing; every one lands in the confirmed print areas." />
             {uploads.length > 0 && (
               <ul key="uploads" className="space-y-1.5">
                 {uploads.filter((u) => u.state !== "done").map((u) => (
@@ -219,6 +226,13 @@ export function MockupUpload({ shop }: { shop: string | null }) {
                     <div className="progress mt-1" aria-hidden><div className="progress-fill" style={{ width: `${u.pct}%` }} /></div>
                     {u.message && <p key="m" className="mt-0.5 text-rose-700">{u.message}</p>}
                   </li>
+                ))}
+              </ul>
+            )}
+            {failed.length > 0 && (
+              <ul key="failed" className="space-y-1 rounded-md border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-800" data-testid="mockup-design-failed">
+                {failed.map((f, i) => (
+                  <li key={`${f.filename}-${i}`}><span className="font-medium" translate="no">{f.filename}</span><span>{`: ${f.reason}`}</span></li>
                 ))}
               </ul>
             )}
@@ -261,11 +275,14 @@ export function MockupUpload({ shop }: { shop: string | null }) {
               </span>
               <button type="button" className="btn-primary sm:ml-auto" onClick={make} data-testid="mockup-make"
                 disabled={busy || phase === "done" || !designs.length || !printed.length || tooMany}>
-                {phase === "making" ? "Making…" : "3. Make mockups"}
+                {phase === "making" ? "Making…" : "3. Create mockups"}
               </button>
             </div>
             {chosen.length > 0 && skipped > 0 && (
-              <p key="skipped" role="status" className="text-sm text-amber-800" data-testid="mockup-skipped">{skippedLine(skipped)}</p>
+              <div key="skipped" role="status" className="text-sm text-amber-800" data-testid="mockup-skipped">
+                <p>{skippedLine(skipped)}</p>
+                <p className="mt-0.5 text-xs" translate="no">{`Not used: ${(run?.skipped_photos?.length ? run.skipped_photos : skippedNames).join(", ")}`}</p>
+              </div>
             )}
             {tooMany && (
               <p key="too-many" role="alert" className="text-sm text-rose-700">{`One run prints on up to ${MAX_PHOTOS_PER_RUN} photos; choose fewer templates.`}</p>
@@ -312,6 +329,7 @@ function DesignRow({ design, disabled, onChange }: { design: MockupDesign; disab
   return (
     <li className="flex flex-wrap items-center gap-2 p-2.5 text-sm">
       <span className="min-w-0 flex-1 truncate text-slate-700" title={design.original_filename}>{design.original_filename}</span>
+      {designNote(design) && <span key="note" className="w-full text-xs text-amber-800 sm:order-last">{designNote(design)}</span>}
       <label className="flex items-center gap-1.5 text-xs text-slate-500">
         <span>SKU</span>
         <input className="field w-36" value={sku} placeholder="none" maxLength={32} disabled={disabled}

@@ -120,7 +120,8 @@ export default function PrivacyPage() {
           shows the front or the back, the settings you chose, and when you confirmed you may use each
           photo. Where something is in front of the
           garment (hair, skin, accessories or a thing held in front of it), a mask of it is kept with the
-          photo, so designs can be placed behind it. Photos are analysed on our own server by bundled
+          photo, so designs can be placed behind it, together with anything you paint with the
+          &ldquo;Keep in front&rdquo; brush. Photos are analysed on our own server by bundled
           open-source image-analysis models; no photo is sent to any outside service for this. The
           mockups made from your designs are kept like your other images; a ZIP of them you ask to
           download is kept for a short time, as below. Mockups are made on our own server; nothing about
