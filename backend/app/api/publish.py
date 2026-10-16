@@ -470,7 +470,8 @@ async def _matrix(
                     link_state = profile_shops.state_of(target.profile, target.link) if target.profile and target.link else None
                     if link_state is not None and link_state.missing:
                         for resource, why in link_state.missing.items():
-                            need(shop, resource, f"{L.LABEL[resource]}: {why}", blocking=True, profile=target.profile, setup=True)
+                            need(shop, resource, f"{L.setup_message(resource, shop.shop_name)} ({why})", blocking=True,
+                                 profile=target.profile, setup=True)
                     else:
                         said = target.reason or "no profile for this shop"
                         if target.profile is not None:

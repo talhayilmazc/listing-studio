@@ -34,7 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import Job, JobStatus, JobType, Tenant
+from app.db.models import EtsyConnection, Job, JobStatus, JobType, Tenant
 from app.etsy.api import RateLimitExceeded
 from app.etsy.errors import EtsyRateLimited, EtsyServerError
 from app.etsy.publisher import NotYet
@@ -155,7 +155,8 @@ async def after_failure(
 
     job.status = JobStatus.failed
     job.paused_reason = None
-    job.last_error = public_error(exc)
+    shop = await session.get(EtsyConnection, job.connection_id) if job.connection_id else None
+    job.last_error = public_error(exc, shop.shop_name if shop is not None else None)
     job.finished_at = _now()
     await session.commit()
     logger.exception("%s failed for job %s", function, job.id, exc_info=exc)

@@ -279,8 +279,15 @@ def build_inventory_from_reference(
     quantity_on_property: list[int] | None = None,
     sku_on_property: list[int] | None = None,
     skus_by_product: dict[int, str] | None = None,
+    shop_readiness: int | None = None,
 ) -> dict[str, Any]:
     """Reshape a read-back inventory into a writable ``updateListingInventory`` body.
+
+    ``shop_readiness``: the target shop's own processing profile when the listing goes
+    to a shop other than the reference's. Every offering then carries it; the
+    reference's offerings carry the main shop's ids, which Etsy refuses anywhere else
+    ("Could not find readiness_state_id ... associated with shop"). None: the
+    reference's own shop, where each offering keeps its own.
 
     ``skus_by_product``: each reference product's own SKU (by position), when the
     profile gives variations per-size SKUs (pipeline/skus.py); else ``sku`` on all.
@@ -308,13 +315,14 @@ def build_inventory_from_reference(
             price = _offering_price(offering)
             if price is None:
                 continue  # priceless / disabled variation -> skip (§C)
-            # Each offering keeps its own readiness_state_id, else the listing-level one.
+            # In the reference's own shop each offering keeps its own readiness_state_id
+            # (else the listing-level one); in any other shop, that shop's own.
             offerings.append(
                 _offering(
                     price,
                     quantity,
                     bool(offering.get("is_enabled", True)),
-                    offering.get("readiness_state_id") or readiness_state_id,
+                    shop_readiness if shop_readiness is not None else (offering.get("readiness_state_id") or readiness_state_id),
                 )
             )
         if not offerings:
@@ -336,7 +344,8 @@ def build_inventory_from_reference(
         # No priced variations (or the reference had no inventory): a single product
         # priced from the reference listing price. Never a hardcoded price (§0).
         offerings = (
-            [_offering(round(float(fallback_price), 2), quantity, True, readiness_state_id)]
+            [_offering(round(float(fallback_price), 2), quantity, True,
+                       shop_readiness if shop_readiness is not None else readiness_state_id)]
             if fallback_price
             else []
         )

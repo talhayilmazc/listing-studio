@@ -47,8 +47,9 @@ def owned_optional(row: T | None, tenant_id: uuid.UUID) -> T | None:
 # Failures whose messages we wrote ourselves and are safe to show the tenant.
 # Anything else — a database error, a filesystem path, a library's internals —
 # is replaced by a generic line; the full trace is already in the worker log.
-def public_error(exc: BaseException) -> str:
-    """The text stored in ``job.last_error``, which the owning tenant can read."""
+def public_error(exc: BaseException, shop: str | None = None) -> str:
+    """The text stored in ``job.last_error``, which the owning tenant can read.
+    ``shop``: the job's shop name, for a refusal about one of that shop's settings."""
     import httpx
 
     from app.core.logsafety import redact
@@ -65,7 +66,7 @@ def public_error(exc: BaseException) -> str:
         )
     if isinstance(exc, EtsyError):
         # Which step, and Etsy's own reason: about the seller's own listing, shown to them only.
-        return redact(explain(exc))[:500]
+        return redact(explain(exc, shop))[:500]
     if isinstance(exc, httpx.TimeoutException):
         return "Etsy did not answer in time. Nothing is wrong with the listing: try again."
     if isinstance(exc, httpx.TransportError):

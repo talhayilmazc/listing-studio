@@ -29,6 +29,7 @@ from app.api import (
     shop_groups,
     shops,
     skus,
+    unfinished,
 )
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     application.include_router(shop.router)
     application.include_router(shops.router)
     application.include_router(publish.router)
+    application.include_router(unfinished.router)
     application.include_router(schedules.router)
     return application
 

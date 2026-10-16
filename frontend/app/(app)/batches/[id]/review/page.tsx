@@ -16,6 +16,7 @@ import type {
   PublishSkipped,
 } from "@/lib/types";
 import { PublishMatrix } from "@/components/PublishMatrix";
+import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { anyChecking } from "@/lib/shopNeeds";
 import { Distribution } from "@/components/Distribution";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
@@ -343,6 +344,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           </div>
         )}
       </div>
+
+      <UnfinishedDrafts batchId={id} />
 
       {items && items.length > 0 && shops && shops.length > 1 && preview && (
         <PublishMatrix key="matrix"

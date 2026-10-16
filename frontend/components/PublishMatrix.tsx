@@ -70,7 +70,7 @@ export function PublishMatrix({
         {action === "setup" && n.profile_id && onSetup && (
           <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={disabled}
             onClick={() => onSetup(n.profile_id!, col.connection_id)}>
-            <span>Set it up in </span><span translate="no">{col.shop_name ?? "this shop"}</span>
+            <span>Set up in </span><span translate="no">{col.shop_name ?? "this shop"}</span>
           </button>
         )}
         {action === "profiles" && (

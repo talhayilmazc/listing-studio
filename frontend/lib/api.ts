@@ -2,6 +2,7 @@ import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import type {
   FoundArea,
+  UnfinishedDraft,
   MockupDesign,
   MockupPhoto,
   MockupRun,
@@ -671,6 +672,14 @@ export const api = {
   refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),
   deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),
   // --- One profile across shops (v8 §C) ---
+  /** Listings created on Etsy whose draft did not finish, and "Finish these drafts" (backend api/unfinished.py). */
+  unfinishedDrafts: (batchId?: string) =>
+    req<UnfinishedDraft[]>(`/drafts/unfinished${batchId ? `?batch_id=${batchId}` : ""}`),
+  finishDrafts: (body: { attempt_ids?: string[] | null; batch_id?: string | null }) =>
+    req<{ started: number; skipped: { attempt_id: string; reason: string }[] }>("/drafts/unfinished/finish", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   useProfileIn: (id: string, scope: UseInScope) =>
     req<{ profile: Profile; started: string[] }>(`/profiles/${id}/use-in`, { method: "POST", body: JSON.stringify(scope) }),
   profileSetup: (id: string) => req<ProfileSetup>(`/profiles/${id}/setup`),

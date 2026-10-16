@@ -149,8 +149,29 @@ def raise_for_etsy_status(
         raise EtsyClientError(status_code=status_code, body=body, path=path, method=method)
 
 
-def explain(exc: EtsyError) -> str:
-    """What the seller is told when Etsy refused or failed a request."""
+#: Etsy's refusal of another shop's id ("Could not find readiness_state_id='1402915464979'
+#: associated with shop '54783739'"): the setting it names, as the seller knows it.
+_FOREIGN = re.compile(r"could not find (\w+?)(?:_id)?s?\s*=?\s*'?\d*'?\s+associated with shop", re.IGNORECASE)
+_SETTING = {
+    "readiness_state": "processing profile",
+    "shipping_profile": "shipping profile",
+    "return_policy": "return policy",
+    "production_partner": "production partner",
+    "shop_section": "shop section",
+}
+
+
+def foreign_setting(detail: str | None) -> str | None:
+    """The shop setting an Etsy refusal says this shop does not have, if it says that."""
+    match = _FOREIGN.search(detail or "")
+    if not match:
+        return None
+    return _SETTING.get(match.group(1).lower(), match.group(1).replace("_", " "))
+
+
+def explain(exc: EtsyError, shop: str | None = None) -> str:
+    """What the seller is told when Etsy refused or failed a request. ``shop``: the
+    shop's name, when the refusal is about one of that shop's own settings."""
     if isinstance(exc, EtsyRateLimited):
         return "Etsy said requests were coming too fast and kept saying so; nothing is wrong with the listing"
     step = getattr(exc, "step", None)
@@ -159,6 +180,15 @@ def explain(exc: EtsyError) -> str:
     detail = getattr(exc, "detail", None)
     if isinstance(exc, EtsyServerError):
         return f"Etsy had a problem of its own{where} (it answered {status}); nothing is wrong with the listing"
+    setting = foreign_setting(detail)
+    if setting:
+        name = shop or "This shop"
+        refused = f" (Etsy refused it{where})" if where else ""
+        return (f"{name} does not have the {setting} this listing used; set it up in {shop or 'that shop'}, "
+                f"then finish the draft{refused}")
+    if status == 404 and detail and ("_id" in detail or "associated with" in detail.lower()):
+        # Not the listing: one of the ids sent with it (Etsy answers 404 for those too).
+        return f"Etsy refused it{where}: {detail}"
     if status == 404:
         return f"Etsy could not find the listing{where}; it may have been deleted in Shop Manager"
     if status in (401, 403):

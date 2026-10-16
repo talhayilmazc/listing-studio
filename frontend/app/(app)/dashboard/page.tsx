@@ -16,6 +16,7 @@ import { showable } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
 import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
+import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
 type Thumbs = Record<string, Asset[]>;
@@ -99,6 +100,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <UnfinishedDrafts />
       <div className="grid gap-4 lg:grid-cols-3">
         <ShopCard connection={connection} listings={listings} />
         <QuotaCard quota={quota} />

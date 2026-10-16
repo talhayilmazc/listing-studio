@@ -259,7 +259,7 @@ def plan_shop(payload: dict[str, Any], source: ShopSettings, target: ShopSetting
     app's own). A create whose scope is not granted is not offered; the seller
     picks one of the shop's own instead.
     """
-    out = {r: plan_resource(r, payload.get(PAYLOAD_KEY[r]), source, target) for r in RESOURCES}
+    out = {r: plan_resource(r, wanted(payload, r), source, target) for r in RESOURCES}
     if granted is not None:
         for outcome in out.values():
             scope = CREATE_SCOPE.get(outcome.resource)
@@ -273,6 +273,35 @@ def currency_problem(source_currency: str | None, target_currency: str | None) -
     if source_currency and target_currency and source_currency != target_currency:
         return CURRENCY.format(source=source_currency, target=target_currency)
     return None
+
+
+def offering_readiness(payload: dict[str, Any] | None) -> list[int]:
+    """The processing profiles (readiness states) the reference's own offerings carry, in
+    order, each once. Etsy keeps one on every offering of a physical listing's inventory;
+    they are the main shop's ids, valid nowhere else."""
+    seen: list[int] = []
+    for product in (payload or {}).get("inventory_products") or []:
+        for offering in product.get("offerings") or []:
+            rid = offering.get("readiness_state_id")
+            if rid not in (None, "") and int(rid) not in seen:
+                seen.append(int(rid))
+    return seen
+
+
+def wanted(payload: dict[str, Any] | None, resource: str) -> Any:
+    """The main shop's id a resource needs in another shop: the reference's own field;
+    for the processing profile, the listing's, else the first one its offerings carry
+    (a listing can keep it only on its offerings)."""
+    value = (payload or {}).get(PAYLOAD_KEY[resource])
+    if resource == READINESS and value in (None, ""):
+        found = offering_readiness(payload)
+        value = found[0] if found else None
+    return value
+
+
+def setup_message(resource: str, shop_name: str | None) -> str:
+    """"Processing profile is not set up in BCT": what the seller is told, with the shop's name."""
+    return f"{LABEL[resource]} is not set up in {shop_name or 'this shop'}"
 
 
 def link_values(link: Any) -> dict[str, Any]:
@@ -292,25 +321,58 @@ def missing(payload: dict[str, Any] | None, link: Any) -> dict[str, str]:
     values = link_values(link)
     out: dict[str, str] = {}
     for resource in RESOURCES:
-        wanted = payload.get(PAYLOAD_KEY[resource])
-        if wanted in (None, "", []):
+        if wanted(payload, resource) in (None, "", []):
             continue
         if values[PAYLOAD_KEY[resource]] in (None, []):
             out[resource] = (link.notes or {}).get(resource) or NOT_FOUND
     return out
 
 
+#: Marks a reference built for a shop other than the profile's main shop.
+LINKED = "linked"
+
+
 def shop_reference(payload: dict[str, Any], link: Any | None) -> dict[str, Any]:
     """The reference a draft in this shop is built from: the profile's shared
     settings with this shop's own ids. ``link`` None = the main shop (its ids are
-    the reference's own)."""
+    the reference's own).
+
+    For any other shop, every shop-scoped id the main shop's reference carries is
+    replaced by this shop's own or dropped, never sent: the shipping profile, return
+    policy, processing profile and production partners (from the link); the
+    processing profile on **every offering** of the inventory (Etsy keeps one per
+    offering: the main shop's made a second shop's inventory update fail with
+    "Could not find readiness_state_id ... associated with shop"); the inventory's
+    own product and offering ids; and the main shop's image ids (size charts are
+    copied into the shop instead, workers/publish.py). ``shop_missing`` lists what
+    this shop still lacks: the draft is not started while anything is in it.
+    """
     if link is None:
         return dict(payload)
     out = dict(payload)
-    for key, value in link_values(link).items():
-        if payload.get(key) in (None, "", []):
+    values = link_values(link)
+    missing_here: list[str] = []
+    for resource in RESOURCES:
+        key = PAYLOAD_KEY[resource]
+        if wanted(payload, resource) in (None, "", []):
             continue  # not needed here either
-        out[key] = value
+        out[key] = values[key]
+        if values[key] in (None, "", []):
+            missing_here.append(resource)
+    readiness = values["readiness_state_id"]
+    products = []
+    for product in payload.get("inventory_products") or []:
+        offerings = []
+        for offering in product.get("offerings") or []:
+            row = {k: v for k, v in offering.items() if k not in ("offering_id", "readiness_state_id")}
+            if readiness is not None:
+                row["readiness_state_id"] = readiness
+            offerings.append(row)
+        products.append({**{k: v for k, v in product.items() if k != "product_id"}, "offerings": offerings})
+    out["inventory_products"] = products
+    out.pop("images", None)
+    out["shop_scope"] = LINKED
+    out["shop_missing"] = missing_here
     return out
 
 

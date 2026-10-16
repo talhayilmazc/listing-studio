@@ -11,8 +11,10 @@ const need = (over: Partial<ShopNeed>): ShopNeed => ({
 test("each need has one action", () => {
   assert.equal(needAction(need({ kind: "profile", setup: true })), "setup"); // not set up there: one click
   assert.equal(needAction(need({ kind: "checking", checking: true })), "wait"); // being set up now
-  assert.equal(needAction(need({ kind: "shipping_profile", setup: true })), "profiles"); // set up, a shipping profile missing
-  assert.equal(needAction(need({ kind: "return_policy" })), "profiles");
+  // Set up there but one of the shop's own settings missing: one click sets it up in that shop.
+  assert.equal(needAction(need({ kind: "readiness_state", setup: true })), "setup");
+  assert.equal(needAction(need({ kind: "shipping_profile", setup: true })), "setup");
+  assert.equal(needAction(need({ kind: "return_policy" })), "profiles"); // no setup offered: the Profiles page
   assert.equal(needAction(need({ kind: "section", blocking: false, profile_id: null })), "card");
   assert.equal(needAction(need({ kind: "other" })), null); // the message says what to do
   assert.equal(needAction(need({ kind: "profile", setup: true, profile_id: null })), null);

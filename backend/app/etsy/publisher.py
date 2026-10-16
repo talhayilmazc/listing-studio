@@ -62,6 +62,7 @@ from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
 from app.pipeline.personalization import questions_for
+from app.pipeline.links import LINKED, setup_message
 from app.pipeline.reference import (
     PAYLOAD_VERSION,
     build_inventory_from_reference,
@@ -73,6 +74,11 @@ logger = logging.getLogger(__name__)
 
 class PublishBlocked(Exception):
     """A blocking compliance finding prevents publishing this content."""
+
+
+class ShopNotSetUp(ValueError):
+    """The profile lacks one of this shop's own settings (its processing profile, say):
+    nothing is sent to Etsy until the seller sets it up there."""
 
 
 class NotYet(Exception):
@@ -350,6 +356,17 @@ async def publish_content(
     fixed = list(fixed_image_ids or [])
     tenant_id = connection.tenant_id
     ctx = {"access_token": access_token, "tenant_id": tenant_id, "tenant_limit": tenant_limit}
+    linked = reference.get("shop_scope") == LINKED
+
+    # 0) A shop other than the profile's own: every shop-scoped id must be this shop's
+    # own (pipeline/links.py shop_reference). One it lacks stops the draft before
+    # anything is sent to Etsy, saying what to set up where.
+    if linked and reference.get("shop_missing"):
+        first = reference["shop_missing"][0]
+        raise ShopNotSetUp(
+            f"{setup_message(first, connection.shop_name)}; press “Set up in {connection.shop_name or 'that shop'}” "
+            "on the review page (or set it up on Profiles), then try again"
+        )
 
     # 1) Compliance gate, and one draft per content per shop.
     if await _has_blocking_finding(session, content.id):
@@ -672,7 +689,13 @@ async def publish_content(
         price_on_property=reference.get("price_on_property"),
         quantity_on_property=reference.get("quantity_on_property"),
         sku_on_property=reference.get("sku_on_property"),
+        shop_readiness=reference.get("readiness_state_id") if linked else None,
     )
+    if linked:
+        foreign = {o.get("readiness_state_id") for p in inventory["products"] for o in p["offerings"]} - {
+            reference.get("readiness_state_id")}
+        if foreign:  # never another shop's id (pipeline/reference.py build_inventory_from_reference)
+            raise ShopNotSetUp(f"{setup_message('readiness_state', connection.shop_name)}; set it up there, then try again")
     await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
     has_variations = len(inventory["products"]) > 1
     if sku:

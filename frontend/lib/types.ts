@@ -1850,3 +1850,26 @@ export interface SkuResult {
   /** Drafts on Etsy with the old SKU; nothing is sent until "Update SKU on Etsy". */
   etsy: { connection_id: string; shop_name: string | null; etsy_listing_id: number; current_sku: string | null; requests: number }[];
 }
+
+/** A listing created on Etsy whose draft did not finish (backend api/unfinished.py). */
+export interface UnfinishedDraft {
+  attempt_id: string;
+  content_id: string;
+  batch_id: string | null;
+  connection_id: string;
+  shop_name: string;
+  etsy_listing_id: number;
+  /** The draft in Shop Manager. */
+  edit_url: string;
+  title: string;
+  /** The step that failed, and what Etsy said, in plain words. */
+  step: string | null;
+  error: string | null;
+  /** A job is finishing it now. */
+  finishing: boolean;
+  /** Why it cannot be finished yet ("Processing profile is not set up in BCT"), and whether one click sets it up. */
+  blocked: string | null;
+  profile_id: string | null;
+  profile_name: string | null;
+  setup: boolean;
+}

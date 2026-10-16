@@ -765,6 +765,11 @@ def main(argv: list[str] | None = None) -> int:
         help="an account's listing allowance, Etsy ceiling and the app's budget as every screen shows them, and their changes",
     )
     limits_cmd.add_argument("email")
+    shop_check = sub.add_parser(
+        "profile-shop-check",
+        help="READ ONLY: an account's profiles against its shops (mapped ids or missing), token states, half-made drafts",
+    )
+    shop_check.add_argument("email")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -825,6 +830,10 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(storage_report(sm)))
     elif args.command == "draft-cost":
         print(asyncio.run(draft_cost(sm)))
+    elif args.command == "profile-shop-check":
+        from app.ops.profile_shop_check import report as profile_shop_report
+
+        print(asyncio.run(profile_shop_report(sm, args.email)))
     elif args.command == "limits-report":
         print(asyncio.run(limits_report(sm, args.email)))
     elif args.command == "upload-retention":

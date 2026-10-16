@@ -96,8 +96,10 @@ async def start_links(
 ) -> list[uuid.UUID]:
     """Begin setting ``profile`` up in each of ``shop_ids`` ("Use in").
 
-    A shop it is already linked to, or being linked to, is left as it is; a link
-    that failed is tried again. Returns the shops started: the caller commits and
+    A shop it is fully linked to, or being linked to, is left as it is; a link that
+    failed, or that still lacks one of the shop's own settings (its processing profile,
+    say), is checked again: what was linked, chosen or created before is kept
+    (workers/links.py ``_apply``). Returns the shops started: the caller commits and
     queues one ``link_profile`` job, which reads the shops, links every exact
     match at once and keeps what is left for the seller (workers/links.py).
     """
@@ -107,7 +109,7 @@ async def start_links(
         if shop_id == profile.connection_id:
             continue
         link = links.get(shop_id)
-        if link is not None and link.status not in ("error",):
+        if link is not None and link.status not in ("error", "incomplete"):
             continue  # linked or being linked: left as it is
         if link is None:
             link = ProfileShopLink(tenant_id=profile.tenant_id, profile_id=profile.id, connection_id=shop_id)

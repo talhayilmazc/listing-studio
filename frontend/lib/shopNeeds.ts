@@ -6,10 +6,12 @@ import type { ShopNeed } from "./types";
 
 /**
  * The one thing to do about a need:
- *  - "setup": the profile is not set up in the shop; one click starts it.
+ *  - "setup": the profile is not set up in the shop, or that shop lacks one of its own
+ *    settings (a processing profile, a shipping profile, a return policy, ...): one
+ *    click sets it up there ("Use in"): what matches links at once, anything to
+ *    choose or create waits on the Profiles page.
  *  - "wait": it is being set up now; the page looks again by itself.
- *  - "profiles": set up, but something of that shop is missing (a shipping
- *    profile, a return policy, ...): chosen or created on the Profiles page.
+ *  - "profiles": the same, when the server offers no setup for it.
  *  - "card": a section the shop does not have; picked on the listing's card.
  *  - null: nothing to press (the message says what to do).
  */
@@ -17,7 +19,9 @@ export function needAction(need: ShopNeed): "setup" | "wait" | "profiles" | "car
   if (need.checking || need.kind === "checking") return "wait";
   if (need.kind === "profile") return need.setup && need.profile_id ? "setup" : null;
   if (need.kind === "section") return "card";
-  if (["shipping_profile", "return_policy", "readiness_state", "production_partners"].includes(need.kind)) return "profiles";
+  if (["shipping_profile", "return_policy", "readiness_state", "production_partners"].includes(need.kind)) {
+    return need.setup && need.profile_id ? "setup" : "profiles";
+  }
   return null;
 }
 
