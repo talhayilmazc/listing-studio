@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { MockupDesign, MockupRun, MockupSet, MockupTemplate, MockupZip } from "@/lib/types";
-import { LIMIT_NOTE, MAX_TEMPLATES_PER_RUN, megabytes, runLine, sizeProblem } from "@/lib/mockups";
+import { GARMENT_MODE_LABELS, LIMIT_NOTE, MAX_TEMPLATES_PER_RUN, SIDE_LABELS, megabytes, runLine, sizeProblem } from "@/lib/mockups";
 
 import { Txt } from "@/components/Txt";
 /**
@@ -29,6 +29,8 @@ export function MockupUpload({ shop }: { shop: string | null }) {
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
   const [sets, setSets] = useState<MockupSet[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
+  const [sides, setSides] = useState<"both" | "front" | "back">("both");
+  const [garmentMode, setGarmentMode] = useState<"same" | "order">("same");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [designs, setDesigns] = useState<MockupDesign[]>([]);
   const [batchId, setBatchId] = useState<string | null>(null);
@@ -120,12 +122,18 @@ export function MockupUpload({ shop }: { shop: string | null }) {
     lastProgress.current = { done: -1, at: Date.now() };
     try {
       setPhase("making");
-      setRun(await api.startMockups(batchId, chosen));
+      setRun(await api.startMockups(batchId, chosen, { sides, garment_mode: garmentMode }));
     } catch (e: any) {
       setError(String(e.message ?? e));
       setPhase("ready");
     }
   }
+
+  // The chosen templates the run prints on (by the side each shows), and whether any
+  // photo has several garments (then the seller says how designs fill them).
+  const chosenTemplates = (templates ?? []).filter((t) => chosen.includes(t.id));
+  const printed = chosenTemplates.filter((t) => sides === "both" || (t.view === "back" ? "back" : "front") === sides);
+  const multiGarment = printed.some((t) => (t.garments?.length ?? 0) > 1);
 
   if (templates === null) return <section className="card h-[11rem] animate-pulse" aria-hidden />;
   const busy = phase === "uploading" || phase === "making";
@@ -213,12 +221,34 @@ export function MockupUpload({ shop }: { shop: string | null }) {
           </div>
 
           <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block min-w-0">
+                <span className="label">Print on</span>
+                <select className="field w-full" value={sides} onChange={(e) => setSides(e.target.value as typeof sides)}
+                  disabled={busy || phase === "done"} data-testid="mockup-sides">
+                  {(Object.keys(SIDE_LABELS) as (keyof typeof SIDE_LABELS)[]).map((k) => (
+                    <option key={k} value={k}>{SIDE_LABELS[k]}</option>
+                  ))}
+                </select>
+              </label>
+              {multiGarment && (
+                <label key="garment-mode" className="block min-w-0">
+                  <span className="label">Photos with several garments</span>
+                  <select className="field w-full" value={garmentMode} onChange={(e) => setGarmentMode(e.target.value as typeof garmentMode)}
+                    disabled={busy || phase === "done"} data-testid="mockup-garment-mode">
+                    {(Object.keys(GARMENT_MODE_LABELS) as (keyof typeof GARMENT_MODE_LABELS)[]).map((k) => (
+                      <option key={k} value={k}>{GARMENT_MODE_LABELS[k]}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 text-sm text-slate-600" translate="no">
-                {`${designs.length} ${designs.length === 1 ? "design" : "designs"} × ${chosen.length} ${chosen.length === 1 ? "template" : "templates"} = ${designs.length * chosen.length} mockups`}
+                {`${designs.length} ${designs.length === 1 ? "design" : "designs"} × ${printed.length} ${printed.length === 1 ? "template" : "templates"} = ${designs.length * printed.length} mockups`}
               </span>
               <button type="button" className="btn-primary sm:ml-auto" onClick={make} data-testid="mockup-make"
-                disabled={busy || phase === "done" || !designs.length || !chosen.length}>
+                disabled={busy || phase === "done" || !designs.length || !printed.length}>
                 {phase === "making" ? "Making…" : "3. Make mockups"}
               </button>
             </div>
@@ -264,6 +294,7 @@ function TemplateChecks({
             <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={chosen.includes(t.id)}
               onChange={(e) => toggle([t.id], e.target.checked)} data-testid="mockup-template" />
             <span className="min-w-0 truncate" title={t.name}>{t.name}</span>
+            <span className="shrink-0 text-xs text-slate-500">{t.view === "back" ? "Back" : "Front"}</span>
           </label>
         </li>
       ))}

@@ -58,8 +58,9 @@ LANDMARKER_INPUT = 256
 BACKGROUND, HAIR, BODY, FACE, CLOTHES, OTHERS = range(6)
 
 NOTES = {
-    "pose": "Placed from the person's shoulders and hips.",
+    "pose": "Placed on the garment from the person's shoulders and the garment's own outline.",
     "outline": "Placed from the garment's collar, shoulders and sides.",
+    "garments": "Found {n} garments: each has its own print area.",
     "default": "The garment's shape could not be found, so the print area is a default. Check it.",
     "pose_unsure": "The person's pose was unclear, so the garment's outline was used. Check the print area.",
     "fallback": "The photo could not be analysed; the garment's outline was used instead. Check the print area.",
@@ -300,6 +301,45 @@ def _with_holes_filled(garment: np.ndarray, occluder: np.ndarray) -> np.ndarray:
 # --- the analysis -------------------------------------------------------------------------------
 
 
+def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name: str = "") -> "Analysis | None":
+    """Every garment in the photo (pipeline/garments.py): a print area, confidence, kind
+    and view per garment, in reading order (rows top to bottom, then left to right).
+    None when no garment was found (the caller falls back to the outline)."""
+    from app.pipeline import garments as garments_
+
+    found = garments_.detect(rgb, runner, saliency, name)
+    if not found.garments:
+        return None
+    h, w = rgb.shape[:2]
+    chests = sorted(math.dist(*g.armpits) for g in found.garments)
+    row = 0.6 * chests[len(chests) // 2]
+    # Reading order: rows (collars within ``row`` of the row's first), then left to right.
+    rows: list[list[Any]] = []
+    for g in sorted(found.garments, key=lambda g: g.neck[1]):
+        if rows and g.neck[1] - rows[-1][0].neck[1] <= row:
+            rows[-1].append(g)
+        else:
+            rows.append([g])
+    ordered = [g for r in rows for g in sorted(r, key=lambda g: g.neck[0])]
+    items = []
+    for g in ordered:
+        items.append({
+            "print_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.corners],
+            "confidence": round(float(g.confidence), 3), "kind": g.kind, "view": g.view, "layout": g.layout,
+            "notes": list(g.notes),
+        })
+    first = items[0]
+    confidence = min(i["confidence"] for i in items)
+    method = "pose" if found.persons else "outline"
+    n = len(items)
+    note = NOTES["pose" if found.persons else "outline"] if n == 1 else NOTES["garments"].format(n=n)
+    details = {**found.details, "garments": n, "persons": found.persons}
+    garment = np.clip(found.garment_mask * 255.0, 0, 255).astype(np.uint8)
+    occluder = np.clip(found.occluder * 255.0, 0, 255).astype(np.uint8) if found.persons or found.occluder.max() > 0.5 else None
+    return Analysis(method, confidence, first["print_area"], garment, occluder, note, details, garments=items,
+                    view=first["view"], kind=first["kind"])
+
+
 @dataclass
 class Analysis:
     #: "pose" (from the person), "outline" (from the garment's shape), "default" (neither).
@@ -312,6 +352,10 @@ class Analysis:
     occluder: np.ndarray | None = None
     note: str = ""
     details: dict[str, Any] = field(default_factory=dict)
+    #: Every garment found: print_area, confidence, kind, view, layout (reading order).
+    garments: list[dict[str, Any]] = field(default_factory=list)
+    view: str | None = None
+    kind: str | None = None
 
     @property
     def needs_check(self) -> bool:

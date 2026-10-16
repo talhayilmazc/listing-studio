@@ -25,7 +25,21 @@ export const ACCURACY_NOTE =
 
 /** Said on a template whose print area the analysis was not sure of. */
 export const CHECK_NOTE = "Check the print area: drag the corners onto the chest if it is not right.";
-export const OCCLUSION_LABEL = "Put the design behind hair, skin and accessories";
+export const OCCLUSION_LABEL = "Put the design behind hair, skin, hands and things held in front";
+
+/** "2 garments: each has its own print area." */
+export const garmentsLine = (n: number) => `${n} garments in this photo: each has its own print area.`;
+
+/** The run's choices: which templates (by the side they show) and how designs fill a photo of several garments. */
+export const SIDE_LABELS: Record<"both" | "front" | "back", string> = {
+  both: "Front and back templates",
+  front: "Front templates only",
+  back: "Back templates only",
+};
+export const GARMENT_MODE_LABELS: Record<"same" | "order", string> = {
+  same: "The same design on every garment of a photo",
+  order: "One design per garment, in order",
+};
 
 export const LIMIT_NOTE = `JPEG, PNG or WebP, up to ${MAX_UPLOAD_MB} MB each. A plain background, or a PNG with a transparent background, works best.`;
 

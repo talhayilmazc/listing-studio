@@ -750,6 +750,11 @@ class MockupTemplate(Base):
     print_area_confidence: Mapped[float | None] = mapped_column(Float)
     #: How the print area was found: {"method", "note", "detected_area", ...}.
     analysis: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: "front" or "back" (found from the pose; the seller can change it).
+    view: Mapped[str] = mapped_column(Text, nullable=False, server_default="front")
+    #: Every garment in the photo, reading order: [{"print_area", "confidence", "kind",
+    #: "view", "layout", "source"}]; the first is ``print_area``. None: one garment.
+    garments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
     #: "default" (from the garment's bounds) or "seller" (moved by hand).
     print_area_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="default")
     #: Share of the print area the design fills (aspect kept), and how much the
@@ -813,6 +818,10 @@ class MockupRun(Base):
     done: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
+    #: Which chosen templates it prints on: "front", "back" or "both".
+    sides: Mapped[str] = mapped_column(Text, nullable=False, server_default="both")
+    #: "same": the same design on every garment of a photo; "order": one design per garment.
+    garment_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="same")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

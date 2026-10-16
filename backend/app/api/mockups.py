@@ -55,6 +55,8 @@ router = APIRouter(prefix="/api", tags=["mockups"])
 RIGHTS_STATEMENT = "This photo is my own, or I have the right to use it to show my products."
 #: Templates per account: each keeps a photo and its mask on our disk.
 MAX_TEMPLATES_PER_ACCOUNT = 60
+#: The most garments one photo can hold (each its own print area).
+MAX_GARMENTS = 24
 #: A template's or a set's name, trimmed; any language.
 MAX_NAME = 120
 #: The width the Templates page previews at (fast; the real mockups use the full photo).
@@ -68,6 +70,15 @@ NO_MASK = (
 WRITTEN = "Mockups can be changed only before any listing of this batch is written."
 NOT_READY = "This template is still being prepared; try again in a moment."
 _CACHE = {"Cache-Control": "private, max-age=3600"}
+
+
+class GarmentOut(BaseModel):
+    print_area: list[list[float]]
+    confidence: float | None = None
+    kind: str | None = None
+    #: Found by the analysis ("default") or moved by the seller ("seller").
+    source: str = "default"
+    needs_check: bool = False
 
 
 class TemplateOut(BaseModel):
@@ -95,6 +106,10 @@ class TemplateOut(BaseModel):
     #: Print behind hair, skin and accessories; whether any were found.
     occlusion: bool = True
     has_occluder: bool = False
+    #: "front" or "back" (found from the pose; the seller can change it).
+    view: str = "front"
+    #: Every garment in the photo, reading order; the first is ``print_area``.
+    garments: list[GarmentOut] = Field(default_factory=list)
 
 
 class TemplateUpdate(BaseModel):
@@ -107,6 +122,9 @@ class TemplateUpdate(BaseModel):
     #: Sent: the set it moves to; null takes it out of its set.
     set_id: uuid.UUID | None = None
     occlusion: bool | None = None
+    view: Literal["front", "back"] | None = None
+    #: Which garment ``print_area`` / ``reset_print_area`` is for (reading order; 0 = first).
+    garment: int = Field(default=0, ge=0, le=MAX_GARMENTS - 1)
 
 
 class TemplateOrder(BaseModel):
@@ -120,6 +138,8 @@ class PreviewRequest(BaseModel):
     size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
     fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
     occlusion: bool | None = None
+    #: Which garment ``print_area`` is for (0 = first).
+    garment: int = Field(default=0, ge=0, le=MAX_GARMENTS - 1)
 
 
 class SetIn(BaseModel):
@@ -155,6 +175,11 @@ class DesignUpdate(BaseModel):
 
 class RunRequest(BaseModel):
     template_ids: list[uuid.UUID] = Field(min_length=1, max_length=work.MAX_TEMPLATES)
+    #: Print on the chosen front templates, back templates or both.
+    sides: Literal["front", "back", "both"] = "both"
+    #: A photo with several garments: the same design on each ("same"), or one design
+    #: per garment in order ("order").
+    garment_mode: Literal["same", "order"] = "same"
 
 
 class OutputOut(BaseModel):
@@ -220,21 +245,40 @@ class ZipRequest(BaseModel):
 # --- helpers --------------------------------------------------------------------------------
 
 
+def _garments_out(t: MockupTemplate) -> list[GarmentOut]:
+    """Every garment's area (the first is the template's own print area) and whether the
+    seller is asked to check it: only an area still as found, when the analysis was not sure."""
+    if t.status != "ready" or not t.print_area:
+        return []
+    rows = t.garments or [{"print_area": t.print_area, "confidence": t.print_area_confidence,
+                           "source": t.print_area_source}]
+    out = []
+    for i, g in enumerate(rows):
+        area = t.print_area if i == 0 else g.get("print_area")
+        source = t.print_area_source if i == 0 else g.get("source", "default")
+        confidence = t.print_area_confidence if i == 0 and not t.garments else g.get("confidence")
+        if not area:
+            continue
+        out.append(GarmentOut(
+            print_area=area, confidence=confidence, kind=g.get("kind"), source=source,
+            needs_check=confidence is not None and confidence < vision.CHECK_BELOW and source != "seller",
+        ))
+    return out
+
+
 def _template_out(t: MockupTemplate) -> TemplateOut:
     analysis = t.analysis or {}
     confidence = t.print_area_confidence
-    # Asked to check only when the area is still the found one and it was not sure.
-    needs_check = (
-        t.status == "ready" and confidence is not None and confidence < vision.CHECK_BELOW
-        and t.print_area_source != "seller"
-    )
+    garments = _garments_out(t)
+    # Asked to check only when an area is still the found one and it was not sure.
+    needs_check = any(g.needs_check for g in garments)
     return TemplateOut(
         id=t.id, name=t.name, position=t.position, set_id=t.set_id, status=t.status, error=t.error,
         width=t.width, height=t.height, mask_source=t.mask_source, print_area=t.print_area,
         print_area_source=t.print_area_source, size=t.size, fold_strength=t.fold_strength, version=t.version,
         notice=NO_MASK if t.mask_source == "none" else None, method=analysis.get("method"), confidence=confidence,
         analysis_note=analysis.get("note"), needs_check=needs_check, occlusion=t.occlusion,
-        has_occluder=t.occluder_key is not None,
+        has_occluder=t.occluder_key is not None, view=t.view or "front", garments=garments,
     )
 
 
@@ -387,7 +431,26 @@ async def update_template(
         template.set_id = body.set_id
     if body.occlusion is not None:
         template.occlusion = body.occlusion
-    if body.reset_print_area:
+    if body.view is not None:
+        template.view = body.view
+    if body.garment > 0 and (body.reset_print_area or body.print_area is not None):
+        _ready(template)
+        rows = [dict(g) for g in (template.garments or [])]
+        if body.garment >= len(rows):
+            raise HTTPException(status_code=404, detail="That garment is not in this photo.")
+        row = rows[body.garment]
+        if body.reset_print_area:
+            row["print_area"], row["source"] = row.get("detected_area") or row["print_area"], "default"
+        else:
+            try:
+                area = mockups.clean_print_area(body.print_area)
+            except mockups.MockupError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            row.setdefault("detected_area", row["print_area"])
+            row["print_area"], row["source"] = area, "seller"
+        rows[body.garment] = row
+        template.garments = rows
+    elif body.reset_print_area:
         _ready(template)
         found = (template.analysis or {}).get("detected_area")
         if found:  # back to what the analysis found
@@ -402,6 +465,10 @@ async def update_template(
         except mockups.MockupError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         template.print_area_source = "seller"
+    if template.garments and body.garment == 0 and (body.reset_print_area or body.print_area is not None):
+        rows = [dict(g) for g in template.garments]  # garment 0 mirrors the template's own area
+        rows[0] = {**rows[0], "print_area": template.print_area, "source": template.print_area_source}
+        template.garments = rows
     if body.size is not None:
         template.size = round(body.size, 3)
     if body.fold_strength is not None:
@@ -482,10 +549,16 @@ async def preview_template(
     """The template with a sample design, at preview size, with unsaved settings if sent."""
     template = await _own_template(session, tenant, template_id)
     _ready(template)
+    areas = work.template_areas(template)
+    if body.print_area is not None:
+        if body.garment >= len(areas):
+            raise HTTPException(status_code=404, detail="That garment is not in this photo.")
+        areas[body.garment] = body.print_area
     try:
-        corners = mockups.clean_print_area(body.print_area if body.print_area is not None else template.print_area)
+        areas = [mockups.clean_print_area(a) for a in areas]
     except mockups.MockupError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    corners = areas[0]
     occlusion = body.occlusion if body.occlusion is not None else template.occlusion
     settings = mockups.Settings(
         corners,
@@ -498,9 +571,9 @@ async def preview_template(
 
     def draw() -> bytes:
         small = mockups.preview_scale(blank, mask, occluder, PREVIEW_WIDTH)
-        maps = mockups.build_maps(*small, corners)
+        maps = mockups.build_maps(*small, areas)
         design = mockups.load_design(mockup_sample.sample(light_ink=maps.underbase >= 0.5))
-        return mockups.render(maps, design, settings, quality=80)
+        return mockups.render_many(maps, [(design, a) for a in areas], settings, quality=80)
 
     try:
         data = await asyncio.to_thread(draw)
@@ -766,6 +839,10 @@ async def start_run(
         if template.status != "ready":
             raise HTTPException(status_code=409, detail=f"“{template.name}” is not ready yet; wait until every chosen template is ready.")
     templates.sort(key=lambda t: (t.position, t.created_at or datetime.min.replace(tzinfo=timezone.utc)))
+    if body.sides != "both":
+        templates = [t for t in templates if (t.view or "front") == body.sides]
+        if not templates:
+            raise HTTPException(status_code=409, detail=f"None of the chosen templates shows the {body.sides}.")
     if await _written(session, batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
     designs = await session.scalar(select(func.count()).select_from(MockupDesign).where(
@@ -776,7 +853,7 @@ async def start_run(
     if any(_active(r) for r in runs):
         raise HTTPException(status_code=409, detail="Mockups for this batch are already being made.")
     run = MockupRun(tenant_id=tenant.id, batch_id=batch_id, template_ids=[str(t.id) for t in templates],
-                    total=int(designs) * len(templates))
+                    total=int(designs) * len(templates), sides=body.sides, garment_mode=body.garment_mode)
     session.add(run)
     await session.commit()
     await enqueuer.enqueue("generate_mockups", str(run.id), _job_id=f"mockups:{run.id}")

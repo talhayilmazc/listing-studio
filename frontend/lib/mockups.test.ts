@@ -106,7 +106,7 @@ test("the upload section: a whole set or any templates, editable SKUs, per-desig
   assert.match(read("app/(app)/upload/page.tsx"), /<MockupUpload shop=\{uploadShop\} \/>/);
   assert.match(upload, /data-testid="mockup-set-pick"/);
   assert.match(upload, /api\.updateMockupDesign\(design\.id, sku\.trim\(\) \|\| null\)/);
-  assert.match(upload, /api\.startMockups\(batchId, chosen\)/);
+  assert.match(upload, /api\.startMockups\(batchId, chosen, \{ sides, garment_mode: garmentMode \}\)/);
   assert.match(upload, /<span>\{d\.done\}<\/span><span> \/ <\/span><span>\{d\.total\}<\/span>/);
   assert.match(upload, /api\.useMockupsForListings\(run\.id, ids, covers\)/);
   assert.match(upload, /api\.requestMockupZip\(run\.id, ids, layout\)/);
@@ -147,6 +147,27 @@ test("templates are in the menu, the page title, the layout test, robots and the
   const privacy = read("app/(marketing)/privacy/page.tsx");
   assert.match(privacy, /blank garment photos you save as mockup templates/);
   assert.match(privacy, /R\.mockupZipHours/);
+});
+
+test("front or back per template, a run on front, back or both, and several garments per photo", () => {
+  const page = read(PAGE);
+  // The seller can change the side a template shows.
+  assert.match(page, /onChange=\{\(e\) => save\(\{ view: e\.target\.value as "front" \| "back" \}\)\}/);
+  assert.match(page, /data-testid="template-view"/);
+  // Each garment has its own area; the editor works on the chosen one and saves it by index.
+  assert.match(page, /onDone=\{\(next\) => save\(\{ print_area: next, garment \}\)\}/);
+  assert.match(page, /save\(\{ reset_print_area: true, garment \}\)/);
+  assert.match(page, /data-testid="template-garment"/);
+  assert.match(page, /areas=\{garments\.map\(\(g\) => g\.print_area as Corner\[\]\)\}/);
+  // The upload section: which sides, and how designs fill a photo of several garments.
+  const upload = read(UPLOAD);
+  assert.match(upload, /data-testid="mockup-sides"/);
+  assert.match(upload, /\{multiGarment && \(/);
+  assert.match(upload, /data-testid="mockup-garment-mode"/);
+  // The choices are the backend's (api/mockups.py RunRequest).
+  const api = backend("api/mockups.py");
+  assert.match(api, /sides: Literal\["front", "back", "both"\] = "both"/);
+  assert.match(api, /garment_mode: Literal\["same", "order"\] = "same"/);
 });
 
 test("the print area is found automatically: checked only when the server is unsure, adjustable on request", () => {

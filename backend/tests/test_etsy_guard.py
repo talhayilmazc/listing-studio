@@ -169,8 +169,9 @@ def test_no_other_code_opens_an_http_client() -> None:
     for path in APP.rglob("*.py"):
         if path.name != "fetch_models.py":
             assert not re.search(r"^\s*(from|import) .*fetch_models", path.read_text(encoding="utf-8"), re.M), path
-    from app.pipeline import fetch_models, mockup_vision
+    from app.pipeline import fetch_models, garments, mockup_vision
     assert (mockup_vision.SEGMENTER, mockup_vision.LANDMARKER) == (fetch_models.SEGMENTER, fetch_models.LANDMARKER)
+    assert garments.SALIENCY == fetch_models.SALIENCY
     # The image fetches (not API calls, but Etsy's image host) are refused as well.
     for name in ("workers/profiles.py", "workers/publish.py", "workers/replace.py"):
         text = (APP / name).read_text(encoding="utf-8")

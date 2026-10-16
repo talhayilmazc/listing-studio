@@ -4,8 +4,9 @@ mockups, turning them into listings, and building ZIPs to download.
 * **Preparing a template**: finding the garment's outline and a default print area
   takes seconds on a large photo, so it runs here; the template shows "preparing"
   on the page until it is "ready" (or "failed", with the reason).
-* **A run** prints every design of the batch on every template the seller chose,
-  in the seller's template order. Each mockup is an output named
+* **A run** prints every design of the batch on every template the seller chose
+  (front ones, back ones or both), in the seller's template order. A photo with
+  several garments gets the same design on each, or one design per garment in order. Each mockup is an output named
   "<SKU>_<template name>.jpg" (the design's file name when it has no SKU), unique
   in the run. Progress is saved after every mockup, per design.
 * **Use for listings**: the chosen designs become listing groups (one per design,
@@ -74,7 +75,7 @@ async def prepare(session: AsyncSession, storage: Storage, template_id: uuid.UUI
         return template
     try:
         source = storage.get(template.source_key)
-        prepared = await asyncio.to_thread(mockups.prepare_blank, source)
+        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", template.name)
     except (FileNotFoundError, ImageProcessingError, mockups.MockupError) as exc:
         logger.info("mockup template %s could not be prepared: %s", template.id, exc)
         template.status, template.error = "failed", PREPARE_FAILED
@@ -97,6 +98,14 @@ async def prepare(session: AsyncSession, storage: Storage, template_id: uuid.UUI
     }
     if template.print_area is None:  # a set's area applied while it was preparing is kept
         template.print_area, template.print_area_source = prepared.print_area, "default"
+    if prepared.garments and len(prepared.garments) > 1:
+        found = [{**g, "source": "default", "detected_area": g["print_area"]} for g in prepared.garments]
+        found[0] = {**found[0], "print_area": template.print_area, "source": template.print_area_source}
+        template.garments = found
+    else:
+        template.garments = None
+    if prepared.view in ("front", "back"):
+        template.view = prepared.view
     template.status, template.error, template.source_key = "ready", None, None
     template.version += 1
     await session.commit()
@@ -122,6 +131,13 @@ async def _templates(session: AsyncSession, run: MockupRun) -> list[MockupTempla
         if template is not None and template.tenant_id == run.tenant_id and template.status == "ready":
             found.append(template)
     return found
+
+
+def template_areas(template: MockupTemplate) -> list[list[list[float]]]:
+    """A template's print areas, one per garment (the first is ``print_area``)."""
+    first = template.print_area or []
+    extra = [g.get("print_area") or [] for g in (template.garments or [])[1:]]
+    return [first] + [a for a in extra if a]
 
 
 def design_base(design: MockupDesign) -> str:
@@ -171,28 +187,42 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
     taken: set[str] = set()
 
     try:
-        maps: dict[uuid.UUID, mockups.Maps] = {}
-        for template in templates:
-            blank, mask = storage.get(template.image_key or ""), storage.get(template.mask_key or "")
-            occluder = storage.get(template.occluder_key) if template.occluder_key and template.occlusion else None
-            maps[template.id] = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, template.print_area)
-        made = 0
+        areas = {t.id: template_areas(t) for t in templates}
+        images: dict[uuid.UUID, Any] = {}
+        usable: list[MockupDesign] = []
         for design in designs:
             try:
-                image = await asyncio.to_thread(mockups.load_design, storage.get(design.design_key or ""))
+                images[design.id] = await asyncio.to_thread(mockups.load_design, storage.get(design.design_key or ""))
+                usable.append(design)
             except (mockups.MockupError, ImageProcessingError, FileNotFoundError) as exc:
                 logger.info("mockup design %s could not be used: %s", design.id, exc)
                 job.failed += len(templates)
                 job.error = DESIGN_FAILED
                 await session.commit()
-                continue
-            base = design_base(design)
-            for position, template in enumerate(templates):
-                settings = mockups.Settings(template.print_area or [], template.size, template.fold_strength, template.occlusion)
+        made = 0
+        for position, template in enumerate(templates):
+            # One template's maps at a time (~60 MB each at 2000 px): a 20-template run
+            # holding them all peaked 0.6 GB higher.
+            blank, mask = storage.get(template.image_key or ""), storage.get(template.mask_key or "")
+            occluder = storage.get(template.occluder_key) if template.occluder_key and template.occlusion else None
+            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, areas[template.id])
+            garments = areas[template.id]
+            settings = mockups.Settings(garments[0], template.size, template.fold_strength, template.occlusion)
+            # Which designs go on one mockup: every design alone on all garments ("same"),
+            # or one design per garment in order ("order").
+            if job.garment_mode == "order" and len(garments) > 1:
+                groups = [usable[i:i + len(garments)] for i in range(0, len(usable), len(garments))]
+            else:
+                groups = [[d] for d in usable]
+            for group in groups:
+                if len(group) == 1 and job.garment_mode != "order":
+                    placements = [(images[group[0].id], a) for a in garments]
+                else:
+                    placements = [(images[d.id], a) for d, a in zip(group, garments)]
                 try:
-                    jpeg = await asyncio.to_thread(mockups.render, maps[template.id], image, settings)
+                    jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
-                    job.failed += 1
+                    job.failed += len(group)
                     job.error = f"{template.name}: {exc}"
                     await session.commit()
                     continue
@@ -205,13 +235,17 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 storage.put(key, jpeg, "image/jpeg")
                 storage_cap.added(job.tenant_id, len(jpeg))
                 in_use += len(jpeg)
-                session.add(MockupOutput(
-                    id=output_id, tenant_id=job.tenant_id, run_id=job.id, batch_id=job.batch_id,
-                    design_id=design.id, template_id=template.id, template_name=template.name, position=position,
-                    filename=mockups.output_name(base, template.name, taken), key=key,
-                    width=maps[template.id].width, height=maps[template.id].height, byte_size=len(jpeg),
-                ))
-                job.done += 1
+                # One output per design shown (they share the file): each design's
+                # listing and ZIP folder has the mockup it is printed on.
+                for k, design in enumerate(group):
+                    session.add(MockupOutput(
+                        id=output_id if k == 0 else uuid.uuid4(), tenant_id=job.tenant_id, run_id=job.id,
+                        batch_id=job.batch_id, design_id=design.id, template_id=template.id,
+                        template_name=template.name, position=position,
+                        filename=mockups.output_name(design_base(design), template.name, taken), key=key,
+                        width=maps.width, height=maps.height, byte_size=len(jpeg),
+                    ))
+                    job.done += 1
                 made += 1
                 await session.commit()
         job.status = "succeeded" if made or not job.total else "failed"

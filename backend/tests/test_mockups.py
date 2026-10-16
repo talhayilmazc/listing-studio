@@ -74,7 +74,7 @@ def dark() -> tuple[mockups.PreparedBlank, mockups.Maps]:
 
 def test_the_garment_is_separated_from_a_plain_background(light) -> None:
     prepared, maps = light
-    assert prepared.mask_source == "background"
+    assert prepared.mask_source in ("background", "segmentation")  # the garment found
     mask = Image.open(io.BytesIO(prepared.mask)).convert("L")
     assert mask.getpixel((5, 5)) == 0  # background corner
     assert mask.getpixel((prepared.width // 2, prepared.height // 2)) == 255  # chest
@@ -93,7 +93,7 @@ def test_a_transparent_blank_uses_its_own_transparency() -> None:
 def test_a_white_garment_on_a_white_background_is_all_fabric_rather_than_lost() -> None:
     """Only the folds' shadows would separate: not a garment. The whole photo counts
     as fabric (the seller is told), so the design is still printed."""
-    prepared = mockups.prepare_blank(samples.blank((246, 246, 246), background=(250, 250, 250)))
+    prepared = mockups.prepare_blank(samples.blank((246, 246, 246), background=(250, 250, 250)), runner=None)
     assert prepared.mask_source == "none"
     maps = mockups.build_maps(prepared.image, prepared.mask)
     out = _pixels(mockups.render(maps, mockups.load_design(samples.design()), mockups.Settings(AREA, 1.0, 0.0)))

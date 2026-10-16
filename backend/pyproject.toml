@@ -25,6 +25,11 @@ dependencies = [
     # LiteRT runs Google's MediaPipe models (Apache-2.0); numpy holds the tensors.
     "ai-edge-litert==2.3.0",
     "numpy==1.26.4",
+    # Garments in a template photo (pipeline/garments.py): onnxruntime (MIT) runs the
+    # IS-Net saliency model (Apache-2.0); scipy and scikit-image (BSD-3) the geometry.
+    "onnxruntime==1.20.1",
+    "scipy==1.13.1",
+    "scikit-image==0.24.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +40,11 @@ dev = [
     "aiosqlite>=0.20",
     "mypy>=1.11",
     "ruff>=0.6",
+]
+# Evaluating mockup detection on the seller's own photos (evals/mockup_eval.py): reads
+# PSD templates. Never in the production image.
+eval = [
+    "psd-tools[composite]==1.24.0",
 ]
 
 [build-system]

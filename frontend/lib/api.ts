@@ -423,6 +423,9 @@ export const api = {
       size?: number;
       fold_strength?: number;
       set_id?: string | null;
+      view?: "front" | "back";
+      /** Which garment print_area / reset_print_area is for (0 = first). */
+      garment?: number;
       occlusion?: boolean;
     },
   ) => req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -442,7 +445,7 @@ export const api = {
   /** The template with a sample design, with unsaved settings: a JPEG. */
   previewMockupTemplate: async (
     id: string,
-    body: { print_area?: [number, number][]; size?: number; fold_strength?: number; occlusion?: boolean },
+    body: { print_area?: [number, number][]; size?: number; fold_strength?: number; occlusion?: boolean; garment?: number },
   ) => {
     const res = await fetch(`${BASE}/mockup-templates/${id}/preview`, {
       method: "POST",
@@ -472,8 +475,15 @@ export const api = {
     req<MockupZip>(`/mockup-runs/${runId}/zip`, { method: "POST", body: JSON.stringify({ design_ids: designIds, layout }) }),
   mockupZip: (id: string) => req<MockupZip>(`/mockup-zips/${id}`),
   mockupZipUrl: (id: string) => `${BASE}/mockup-zips/${id}/download`,
-  startMockups: (batchId: string, templateIds: string[]) =>
-    req<MockupRun>(`/batches/${batchId}/mockups`, { method: "POST", body: JSON.stringify({ template_ids: templateIds }) }),
+  startMockups: (
+    batchId: string,
+    templateIds: string[],
+    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order" } = {},
+  ) =>
+    req<MockupRun>(`/batches/${batchId}/mockups`, {
+      method: "POST",
+      body: JSON.stringify({ template_ids: templateIds, ...options }),
+    }),
   mockupRun: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}`),
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */
   previewChecklist: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>

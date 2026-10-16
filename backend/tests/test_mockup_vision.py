@@ -53,31 +53,36 @@ class _Broken:
 def test_a_persons_print_area_is_on_the_chest_from_the_pose() -> None:
     png, truth = samples.person("hair")
     prepared = mockups.prepare_blank(png, runner=samples.TruthRunner(truth))
-    assert (prepared.method, prepared.mask_source) == ("pose", "segmentation")
+    assert (prepared.method, prepared.mask_source, prepared.view) == ("pose", "segmentation", "front")
     assert prepared.confidence >= vision.CHECK_BELOW
     w, h = truth["classes"].size
     shoulders_y, hips_y = truth["points"][11][1] / h, truth["points"][23][1] / h
-    left_x, right_x = truth["points"][12][0] / w, truth["points"][11][0] / w
-    for x, y in prepared.print_area:
-        assert left_x < x < right_x, prepared.print_area  # between the shoulders
-        assert shoulders_y < y < hips_y, prepared.print_area  # below them, above the hips
-    (tlx, tly), (trx, try_), _, (blx, bly) = prepared.print_area
+    axis = (truth["points"][12][0] + truth["points"][11][0]) / 2 / w
+    (tlx, tly), (trx, try_), (brx, bry), (blx, bly) = prepared.print_area
+    assert abs((tlx + trx) / 2 - axis) < 0.03, prepared.print_area  # centred on the garment's axis
+    assert shoulders_y < tly and bly < hips_y, prepared.print_area  # on the chest: below the collar, above the hips
     assert bly - tly > 0.15 and trx - tlx > 0.15  # a real chest print, not a sliver
+    # Inside the shirt (or under the hair over it), not on the arms or the background.
+    classes = np.asarray(truth["classes"].resize((w, h)))
+    xs, ys = np.meshgrid(np.linspace(tlx, trx, 20) * (w - 1), np.linspace(tly, bly, 20) * (h - 1))
+    on = np.isin(classes[ys.astype(int), xs.astype(int)], (1, 4))
+    assert on.mean() > 0.95, on.mean()
     assert prepared.occluder is not None
 
 
-def test_a_tilted_pose_tilts_the_print_area() -> None:
+def test_a_worn_garment_stays_upright_when_the_shoulders_tilt() -> None:
     png, truth = samples.person("hair")
     truth = {**truth, "points": {**truth["points"], 11: (truth["points"][11][0], truth["points"][11][1] + 80),
                                  23: (truth["points"][23][0], truth["points"][23][1] + 80)}}
     area = mockups.prepare_blank(png, runner=samples.TruthRunner(truth)).print_area
-    assert area[1][1] > area[0][1] + 0.02  # the right shoulder lower: the top edge slopes the same way
+    # Pose and camera tilt the shoulder line; a print on a worn garment is not rotated.
+    assert abs(area[1][1] - area[0][1]) < 0.005 and abs(area[3][0] - area[0][0]) < 0.005, area
 
 
 def test_a_flat_lays_print_area_is_below_the_collar_between_the_side_seams() -> None:
     prepared = mockups.prepare_blank(samples.blank(), runner="default")  # the real models: no person
     assert prepared.method == "outline" and prepared.confidence >= vision.CHECK_BELOW
-    w, h = 1200, 1400
+    assert len(prepared.garments) == 1 and prepared.view == "front"
     # The synthetic tee: collar at 15% of the height, side seams at 29% and 71% of the width.
     for x, y in prepared.print_area:
         assert 0.29 < x < 0.71 and 0.15 < y < 0.9, prepared.print_area
@@ -88,10 +93,9 @@ def test_a_flat_lays_print_area_is_below_the_collar_between_the_side_seams() -> 
 def test_low_confidence_still_makes_a_template_but_asks_for_a_check() -> None:
     png, truth = samples.person("hair")
     unsure = mockups.prepare_blank(png, runner=samples.TruthRunner(truth, presence=0.75, visibility=0.7))
-    assert unsure.method == "pose" and unsure.confidence < vision.CHECK_BELOW and unsure.print_area
-    # A pose too unclear to use: the outline, and the seller is still asked to check.
+    assert unsure.confidence < vision.CHECK_BELOW and unsure.print_area
     lost = mockups.prepare_blank(png, runner=samples.TruthRunner(truth, presence=0.3, visibility=0.4))
-    assert (lost.method, lost.note) == ("outline", vision.NOTES["pose_unsure"]) and lost.confidence < vision.CHECK_BELOW
+    assert lost.confidence < vision.CHECK_BELOW and lost.print_area
 
 
 # --- occlusion --------------------------------------------------------------------------------
@@ -265,4 +269,5 @@ async def test_the_card_asks_to_check_a_low_confidence_area_and_occlusion_can_be
 async def test_a_sure_flat_lay_asks_nothing(mw) -> None:
     template = await _template(mw, "White tee")
     assert template["method"] == "outline" and template["needs_check"] is False
-    assert template["has_occluder"] is False
+    assert template["has_occluder"] is False and template["view"] == "front"
+    assert len(template["garments"]) == 1 and template["garments"][0]["needs_check"] is False

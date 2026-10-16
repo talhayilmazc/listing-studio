@@ -7,6 +7,7 @@ import {
   ACCURACY_NOTE,
   CHECK_NOTE,
   OCCLUSION_LABEL,
+  garmentsLine,
   FOLD_RANGE,
   LIMIT_NOTE,
   MAX_NAME,
@@ -321,7 +322,12 @@ function TemplateCard({
   onMove: (by: -1 | 1) => void;
   onReload: () => void;
 }) {
-  const [corners, setCorners] = useState<Corner[]>(template.print_area ?? []);
+  // Several garments in one photo: each has its own print area; the editor works on one.
+  const garments = template.garments?.length ? template.garments : template.print_area ? [{ print_area: template.print_area }] : [];
+  const [garment, setGarment] = useState(0);
+  const areaOf = (t: MockupTemplate, i: number): Corner[] =>
+    ((t.garments?.length ? t.garments[i]?.print_area : i === 0 ? t.print_area : null) ?? t.print_area ?? []) as Corner[];
+  const [corners, setCorners] = useState<Corner[]>(areaOf(template, 0));
   const [size, setSize] = useState(template.size);
   const [fold, setFold] = useState(template.fold_strength);
   const [name, setName] = useState(template.name);
@@ -338,7 +344,7 @@ function TemplateCard({
   // The server's copy changed (prepared, or a set's settings applied): follow it.
   useEffect(() => {
     saved.current = template;
-    setCorners(template.print_area ?? []);
+    setCorners(areaOf(template, garment));
     setSize(template.size);
     setFold(template.fold_strength);
   }, [template.version, template.status]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -353,10 +359,10 @@ function TemplateCard({
       const next = await api.updateMockupTemplate(template.id, body);
       saved.current = next;
       onChange(next);
-      if (preview) showPreview(next.print_area ?? corners, next.size, next.fold_strength);
+      if (preview) showPreview(areaOf(next, garment), next.size, next.fold_strength);
       if ("set_id" in body) onReload();
     } catch (e: any) {
-      setCorners(saved.current.print_area ?? []);
+      setCorners(areaOf(saved.current, garment));
       setMessage(String(e.message ?? e));
     }
   }
@@ -365,7 +371,7 @@ function TemplateCard({
     setPreviewing(true);
     setMessage(null);
     try {
-      const blob = await api.previewMockupTemplate(template.id, { print_area: area, size: s, fold_strength: f });
+      const blob = await api.previewMockupTemplate(template.id, { print_area: area, size: s, fold_strength: f, garment });
       setPreview((old) => {
         if (old) URL.revokeObjectURL(old);
         return URL.createObjectURL(blob);
@@ -429,11 +435,13 @@ function TemplateCard({
               src={api.mockupTemplateImageUrl(template.id, 896)}
               aspect={aspect}
               corners={corners}
+              others={garments.filter((_, i) => i !== garment).map((g) => g.print_area as Corner[])}
               onMove={setCorners}
-              onDone={(next) => save({ print_area: next })}
+              onDone={(next) => save({ print_area: next, garment })}
             />
           ) : ready ? (
-            <PrintAreaView key="view" src={api.mockupTemplateImageUrl(template.id, 896)} aspect={aspect} corners={corners} />
+            <PrintAreaView key="view" src={api.mockupTemplateImageUrl(template.id, 896)} aspect={aspect}
+              areas={garments.map((g) => g.print_area as Corner[])} />
           ) : (
             <div key="waiting" className="flex w-full items-center justify-center rounded-md bg-white p-6 text-center text-sm"
               style={{ aspectRatio: aspect }} role="status" data-testid="template-preparing">
@@ -442,6 +450,18 @@ function TemplateCard({
               ) : (
                 <span className="animate-pulse text-slate-500">Preparing… finding the garment&apos;s outline</span>
               )}
+            </div>
+          )}
+          {ready && garments.length > 1 && (
+            <div key="garments" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" data-testid="template-garments">
+              <span className="text-slate-600">{garmentsLine(garments.length)}</span>
+              {garments.map((g, i) => (
+                <button key={i} type="button" aria-pressed={i === garment} data-testid="template-garment"
+                  className={`tap rounded-md border px-2 py-1 ${i === garment ? "border-brand-600 bg-brand-50 text-brand-800" : "border-slate-300 text-slate-700"} ${g.needs_check ? "ring-1 ring-amber-400" : ""}`}
+                  onClick={() => { setGarment(i); setCorners(g.print_area as Corner[]); }}>
+                  <span>{`Garment ${i + 1}`}</span>
+                </button>
+              ))}
             </div>
           )}
           {ready && (
@@ -479,6 +499,16 @@ function TemplateCard({
             <input className="field w-full" value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)}
               onBlur={() => name.trim() && name !== template.name && save({ name })} />
           </label>
+          {ready && (
+            <label key="view" className="block">
+              <span className="label">Shows the</span>
+              <select className="field w-full" value={template.view === "back" ? "back" : "front"} data-testid="template-view"
+                onChange={(e) => save({ view: e.target.value as "front" | "back" })}>
+                <option value="front">Front</option>
+                <option value="back">Back</option>
+              </select>
+            </label>
+          )}
           <label className="block">
             <span className="label">Colour set</span>
             <select className="field w-full" value={template.set_id ?? ""} onChange={(e) => save({ set_id: e.target.value || null })}>
@@ -508,7 +538,7 @@ function TemplateCard({
                 <button type="button" className="btn-primary" onClick={() => showPreview()} disabled={previewing} data-testid="template-preview">
                   {previewing ? "Drawing…" : preview ? "Preview again" : "Preview with a sample design"}
                 </button>
-                <button type="button" className="btn-secondary" onClick={() => save({ reset_print_area: true })}>
+                <button type="button" className="btn-secondary" onClick={() => save({ reset_print_area: true, garment })}>
                   Reset print area
                 </button>
                 {template.set_id && (
@@ -599,14 +629,16 @@ function Slider({
 }
 
 /** The photo with its print area, read only (the found area, used as it is). */
-function PrintAreaView({ src, aspect, corners }: { src: string; aspect: string; corners: Corner[] }) {
-  const points = corners.map(([x, y]) => `${x},${y}`).join(" ");
+function PrintAreaView({ src, aspect, areas }: { src: string; aspect: string; areas: Corner[][] }) {
   return (
     <div className="relative w-full overflow-hidden rounded-md bg-white" style={{ aspectRatio: aspect }} data-testid="print-area-view">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt="" className="h-full w-full object-fill" />
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
-        <polygon points={points} className="fill-brand-500/15 stroke-brand-600" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
+        {areas.map((corners, i) => (
+          <polygon key={i} points={corners.map(([x, y]) => `${x},${y}`).join(" ")}
+            className="fill-brand-500/15 stroke-brand-600" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
+        ))}
       </svg>
     </div>
   );
@@ -619,12 +651,15 @@ function PrintAreaEditor({
   src,
   aspect,
   corners,
+  others = [],
   onMove,
   onDone,
 }: {
   src: string;
   aspect: string;
   corners: Corner[];
+  /** The photo's other garments' areas, drawn faintly (not editable here). */
+  others?: Corner[][];
   onMove: (c: Corner[]) => void;
   onDone: (c: Corner[]) => void;
 }) {
@@ -656,6 +691,10 @@ function PrintAreaEditor({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt="" draggable={false} className="pointer-events-none h-full w-full object-fill" />
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+        {others.map((o, i) => (
+          <polygon key={i} points={o.map(([x, y]) => `${x},${y}`).join(" ")} className="fill-none stroke-slate-400"
+            strokeWidth={0.003} vectorEffect="non-scaling-stroke" strokeDasharray="4 3" />
+        ))}
         <polygon points={points} className="fill-brand-500/15 stroke-brand-600" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
       </svg>
       {corners.map(([x, y], i) => (

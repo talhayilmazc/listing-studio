@@ -241,6 +241,19 @@ export interface MockupTemplate {
   /** Print behind hair, skin and accessories, and whether the photo has any. */
   occlusion?: boolean;
   has_occluder?: boolean;
+  /** "front" or "back" (found from the pose; the seller can change it). */
+  view?: "front" | "back" | string;
+  /** Every garment in the photo, in reading order; the first is print_area. */
+  garments?: MockupGarment[];
+}
+
+/** One garment in a template photo: its own print area. */
+export interface MockupGarment {
+  print_area: [number, number][];
+  confidence?: number | null;
+  kind?: string | null;
+  source?: "default" | "seller" | string;
+  needs_check?: boolean;
 }
 
 /** A design uploaded to be printed on templates: its own listing group. */

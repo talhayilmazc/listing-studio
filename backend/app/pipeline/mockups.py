@@ -34,6 +34,7 @@ from __future__ import annotations
 import array
 import math
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,6 +57,10 @@ FOLD_SHIFT = 0.012
 #: the print at full strength, and the most any point moves, as shares of the width.
 SURFACE_SHIFT = 0.02
 MAX_SHIFT = 0.02
+#: How much of a crease line's shadow the ink lifts on a light print (0: none, 1: all).
+#: Tuned on the seller's wrinkled photos: at full shadow a crease read as a black line
+#: through a light design; the fabric still shows the line, softer.
+CREASE_LIFT = 0.45
 #: How strongly a crease pulls the print into its line.
 CREASE_PULL = 0.012
 #: How much fabric texture shows through the ink (as a share of its brightness).
@@ -182,6 +187,11 @@ class PreparedBlank:
     method: str = "default"
     note: str = ""
     details: dict[str, Any] = field(default_factory=dict)
+    #: Every garment found (reading order): print_area, confidence, kind, view, layout.
+    #: The first is ``print_area``. Empty when only the outline was used.
+    garments: list[dict[str, Any]] = field(default_factory=list)
+    #: "front" or "back" (the seller can change it); None when it is not known.
+    view: str | None = None
 
 
 def _to_numpy(image):  # noqa: ANN001, ANN202 - pyvips uchar -> numpy (h, w[, bands])
@@ -198,22 +208,56 @@ def _from_numpy(arr):  # noqa: ANN001, ANN202 - numpy uint8 (h, w) -> pyvips one
     return _vips().Image.new_from_memory(arr.tobytes(), arr.shape[1], arr.shape[0], 1, "uchar")
 
 
-def _analyse(rgb, mask, runner: Any):  # noqa: ANN001, ANN202
-    """The template's analysis (pipeline/mockup_vision.py) at its working size; never raises."""
+#: One template analysis at a time per process: it is CPU-bound (no faster side by side)
+#: and its peak memory (~0.7 GB above the loaded models) must not add up when the
+#: worker prepares several templates at once.
+_ANALYSIS = threading.Lock()
+
+
+def _analyse(rgb, mask, runner: Any, saliency: Any = "default", name: str = ""):  # noqa: ANN001, ANN202
+    """The template's analysis, one at a time per process (``_ANALYSIS``); never raises."""
+    with _ANALYSIS:
+        return _analyse_one(rgb, mask, runner, saliency, name)
+
+
+def _analyse_one(rgb, mask, runner: Any, saliency: Any = "default", name: str = ""):  # noqa: ANN001, ANN202
+    """The template's analysis at its working size; never raises. Every garment is found
+    by pipeline/garments.py (bundled models); when that finds none or cannot run, the
+    earlier analysis (pipeline/mockup_vision.py ``analyse``) is used."""
+    import logging
+
+    from app.pipeline import garments as garments_
     from app.pipeline import mockup_vision as vision
 
+    log = logging.getLogger(__name__)
+    earlier_only = saliency is False  # the earlier analysis alone (evaluation: "before")
     try:
+        if earlier_only:
+            saliency = None
         if runner == "default":
             runner = vision.default_runner()
+        if saliency == "default":
+            saliency = garments_.default_saliency() if runner is not None else None
+    except Exception:
+        log.exception("mockup analysis models could not be loaded")
+        runner, saliency = None, None
+    if not earlier_only and (runner is not None or saliency is not None):
+        try:
+            scale = min(1.0, garments_.WORK / max(rgb.width, rgb.height))
+            small = rgb.resize(scale) if scale < 1.0 else rgb
+            found = vision.analyse_garments(_to_numpy(small), runner, saliency, name)
+            if found is not None:
+                return found
+        except Exception:  # an unusual photo or a model fault: the earlier analysis still works
+            log.exception("garment detection failed; using the earlier analysis")
+    try:
         scale = min(1.0, vision.ANALYSIS_SIZE / max(rgb.width, rgb.height))
         small = rgb.resize(scale) if scale < 1.0 else rgb
         small_mask = mask.resize(small.width / mask.width, vscale=small.height / mask.height)
         h, w = min(small.height, small_mask.height), min(small.width, small_mask.width)
         return vision.analyse(_to_numpy(small.crop(0, 0, w, h)), _to_numpy(small_mask.crop(0, 0, w, h)), runner)
     except Exception:  # never stop a template being made
-        import logging
-
-        logging.getLogger(__name__).exception("mockup template analysis could not run")
+        log.exception("mockup template analysis could not run")
         return vision.Analysis("default", 0.0, None, note=vision.NOTES["fallback"], details={"failed": True})
 
 
@@ -223,7 +267,7 @@ def _full_size(small, width: int, height: int):  # noqa: ANN001, ANN202
     return image.resize(width / image.width, vscale=height / image.height, kernel="linear").cast("uchar")
 
 
-def prepare_blank(data: bytes, runner: Any = "default") -> PreparedBlank:
+def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default", name: str = "") -> PreparedBlank:
     """The template for a blank garment photo (once, in the worker): its outline,
     print area, and what is in front of the garment. ``runner``: the analysis
     models (pipeline/mockup_vision.py); "default" the bundled ones, None none."""
@@ -245,9 +289,9 @@ def prepare_blank(data: bytes, runner: Any = "default") -> PreparedBlank:
             source = "background"
     if mask is None:
         mask = (pyvips.Image.black(rgb.width, rgb.height) + 255).cast("uchar")
-    analysis = _analyse(rgb, mask, runner)
+    analysis = _analyse(rgb, mask, runner, saliency, name)
     occluder = None
-    if analysis.garment is not None:  # a person photo: the segmented garment, soft-edged
+    if analysis.garment is not None and source != "alpha":  # the photo's own transparency is exact
         mask, source = _full_size(analysis.garment, rgb.width, rgb.height), "segmentation"
     if analysis.occluder is not None:
         occ = _full_size(analysis.occluder, rgb.width, rgb.height).gaussblur(1.0).cast("uchar")
@@ -260,6 +304,7 @@ def prepare_blank(data: bytes, runner: Any = "default") -> PreparedBlank:
     return PreparedBlank(
         jpeg, png, rgb.width, rgb.height, source, area, occluder=occluder, confidence=analysis.confidence,
         method=analysis.method, note=analysis.note, details=dict(analysis.details),
+        garments=list(analysis.garments), view=analysis.view,
     )
 
 
@@ -470,6 +515,8 @@ class Maps:
     height: int
     #: Where a deep crease folds the fabric over the print (float 0..1 at full strength).
     hide: Any = None
+    #: Crease lines (float 0..1): ink partly lifts their shadow (CREASE_LIFT).
+    crease: Any = None
     #: Hair, skin and accessories in front of the garment (float 0..1), or None.
     occluder: Any = None
     #: Where the maps' window starts in the photo.
@@ -478,15 +525,24 @@ class Maps:
 
 
 def window(area: Any, width: int, height: int) -> tuple[int, int, int, int]:
-    """The part of the photo a print in ``area`` can reach (left, top, width, height).
+    """The part of the photo a print in ``area`` can reach (left, top, width, height);
+    ``area`` is one print area or a list of them (one per garment: their union).
 
     The design always lies inside the print area's quad; the folds move it by at
     most ``MAX_SHIFT`` of the width. No area: the whole photo.
     """
     if not area:
         return 0, 0, width, height
-    xs = [x * width for x, _ in clean_print_area(area)]
-    ys = [y * height for _, y in clean_print_area(area)]
+    areas = area if isinstance(area[0][0], (list, tuple)) else [area]
+    xs, ys = [], []
+    for quad in areas:
+        if not quad:
+            continue
+        for x, y in clean_print_area(quad):
+            xs.append(x * width)
+            ys.append(y * height)
+    if not xs:
+        return 0, 0, width, height
     margin = math.ceil(MAX_SHIFT * width) + 4
     left, top = max(0, math.floor(min(xs)) - margin), max(0, math.floor(min(ys)) - margin)
     right, bottom = min(width, math.ceil(max(xs)) + margin), min(height, math.ceil(max(ys)) + margin)
@@ -591,6 +647,7 @@ def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = 
         blank=blank.copy_memory(), mask=kept(mask), colour_low=kept(colour_low),
         shade_low=kept(shade_low), texture=kept(texture), shift=kept(shift),
         underbase=underbase, width=blank.width, height=blank.height, hide=kept(hide), occluder=kept(occluder),
+        crease=kept(crease),
         left=left, top=top,
     )
 
@@ -642,6 +699,25 @@ class Settings:
 
 def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.quality) -> bytes:  # noqa: ANN001
     """One mockup, as JPEG bytes. Same maps, design and settings: same bytes."""
+    result = _print_on(maps, maps.blank, design, settings)
+    return result.copy(interpretation="srgb").write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
+
+
+def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], settings: Settings, *,
+                quality: int = OUTPUT.quality) -> bytes:
+    """One mockup with a design on each of several garments: ``placements`` pairs a design
+    with a print area (the template's garments, in order). Same inputs: same bytes."""
+    result = maps.blank
+    for design, corners in placements:
+        if design is None or not corners:
+            continue
+        result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, settings.occlusion))
+    return result.copy(interpretation="srgb").write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
+
+
+def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, ANN202
+    """``base`` (the blank, or a mockup with other garments printed) with the design
+    printed in ``settings.corners``."""
     pyvips = _vips()
     W, H = maps.width, maps.height
     corners = [(x * W, y * H) for x, y in clean_print_area(settings.corners)]
@@ -699,16 +775,21 @@ def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.qual
     fabric = maps.colour_low.crop(mx, my, rw, rh) * texture
     lit_white = shade * texture * WHITE_INK
     u = maps.underbase
-    base = fabric * (1 - u) + lit_white.bandjoin([lit_white, lit_white]) * u
-    printed = (ink * base).maxpair(0).minpair(1)  # multiply: the shadows and the weave
+    ground = fabric * (1 - u) + lit_white.bandjoin([lit_white, lit_white]) * u
+    printed = (ink * ground).maxpair(0).minpair(1)  # multiply: the shadows and the weave
+    if maps.crease is not None:  # a crease line: ink lifts part of its shadow (light ink most)
+        lift = maps.crease.crop(mx, my, rw, rh) * CREASE_LIFT
+        light = (ink[0] + ink[1] + ink[2]) / 3
+        target = (ink * shade.maxpair(0.75).minpair(1.2).bandjoin([shade.maxpair(0.75).minpair(1.2)] * 2)).maxpair(0).minpair(1)
+        k = lift * light
+        printed = printed * (1 - k) + target * k
     sheen = ((shade - 1).maxpair(0).minpair(1) * 0.5)
     printed = 1 - (1 - printed) * (1 - sheen)  # screen: the highlights survive the ink
 
-    photo = maps.blank.crop(left, top, rw, rh).cast("float") / 255
+    photo = base.crop(left, top, rw, rh).cast("float") / 255
     out = photo * (1 - a) + printed * a
     region = (out * 255).rint().maxpair(0).minpair(255).cast("uchar")
-    result = maps.blank.insert(region, left, top).copy(interpretation="srgb")
-    return result.write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
+    return base.insert(region, left, top).copy_memory()
 
 
 def preview_scale(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None, width: int) -> tuple[bytes, bytes, bytes | None]:

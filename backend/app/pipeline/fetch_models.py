@@ -5,13 +5,17 @@ Each file is checked against its SHA-256; a different file stops the build. At
 runtime nothing is downloaded: the models are read from ``MOCKUP_MODELS_DIR`` and
 no photo leaves the server.
 
-Both models are Google's MediaPipe models, licensed under the Apache License 2.0
+Two are Google's MediaPipe models, licensed under the Apache License 2.0
 (their model cards say so; docs/etsy-compliance.md lists them):
 
 * ``selfie_multiclass_256x256.tflite``: per pixel background, hair, body-skin,
   face-skin, clothes, others (accessories).
 * ``pose_landmarks_detector.tflite``, from ``pose_landmarker_full.task``
   (BlazePose GHUM 3D, "full"): 33 body landmarks with visibility.
+
+and IS-Net "general use" (Qin et al., DIS; Apache License 2.0, github.com/xuebinqin/DIS),
+in the ONNX export published with rembg (MIT): what in the photo is an object (garments,
+props) and what is background (pipeline/garments.py).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from pathlib import Path
 
 SEGMENTER = "selfie_multiclass_256x256.tflite"
 LANDMARKER = "pose_landmarks_detector.tflite"
+SALIENCY = "isnet-general-use.onnx"
 
 #: (url, sha256 of the download, the file inside it if it is a bundle, sha256 of that file)
 MODELS: dict[str, tuple[str, str, str | None, str]] = {
@@ -40,6 +45,12 @@ MODELS: dict[str, tuple[str, str, str | None, str]] = {
         "pose_landmarks_detector.tflite",
         "82be6d591b9dad7d29fe21dc9fd892bf8b9602c458fb05209283de8282a0c488",
     ),
+    SALIENCY: (
+        "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+        "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+        None,
+        "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+    ),
 }
 
 
@@ -53,7 +64,7 @@ def fetch(directory: Path) -> None:
         target = directory / name
         if target.exists() and _sha(target.read_bytes()) == file_sha:
             continue
-        with urllib.request.urlopen(url, timeout=120) as response:  # build time only
+        with urllib.request.urlopen(url, timeout=600) as response:  # build time only
             data = response.read()
         if _sha(data) != download_sha:
             raise SystemExit(f"{name}: the download is not the expected file (sha256 differs)")
