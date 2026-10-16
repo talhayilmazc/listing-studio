@@ -1,45 +1,43 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PrintAreaEditor } from "@/components/PrintAreaEditor";
 import { api } from "@/lib/api";
-import type { MockupSet, MockupTemplate } from "@/lib/types";
+import type { MockupPhoto, MockupTemplate } from "@/lib/types";
 import {
   ACCURACY_NOTE,
-  CHECK_NOTE,
-  OCCLUSION_LABEL,
-  garmentsLine,
-  FOLD_RANGE,
   LIMIT_NOTE,
   MAX_NAME,
+  NEEDS_CHECK,
   RIGHTS_STATEMENT,
-  SIZE_RANGE,
   TEMPLATES_INTRO,
-  moveCorner,
+  checkLine,
   nameFromFile,
-  percent,
   sizeProblem,
-  type Corner,
+  templateNameFrom,
+  waitingForCheck,
 } from "@/lib/mockups";
 
 /**
- * Mockup templates (backend api/mockups.py): the seller's blank garment photos,
- * alone or in colour sets. A template is saved at once and shows "preparing"
- * while the server finds the garment's outline. Each has a print area (four
- * corners, dragged, tapped or moved with the arrow keys), a size and a fold
- * strength; one template's settings can be given to its whole set. Nothing here
- * calls Etsy or an AI model.
+ * Mockup templates (backend api/mockups.py): each a named group of the seller's blank
+ * photos (the same tee in ten colours, or several shots of one product). Photos are
+ * uploaded into a template and appear at once, "preparing", while the server suggests
+ * their print areas. Each new photo then opens in the editor (components/PrintAreaEditor.tsx)
+ * for one quick check: a photo is used for mockups only after "Looks right", and is marked
+ * "Needs your check" until then. Photos are reordered, moved and removed here. Nothing
+ * here calls Etsy or an AI model.
  */
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
-  const [sets, setSets] = useState<MockupSet[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ queue: string[]; index: number } | null>(null);
+  // Photos just uploaded: each opens in the editor once it is ready.
+  const [pending, setPending] = useState<string[]>([]);
   const polls = useRef(0);
 
   const load = useCallback(async () => {
     try {
-      const [t, s] = await Promise.all([api.mockupTemplates(), api.mockupSets()]);
-      setTemplates(t);
-      setSets(s);
+      setTemplates(await api.mockupTemplates());
       setError(null);
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -49,8 +47,9 @@ export default function TemplatesPage() {
     load();
   }, [load]);
 
-  // Templates being prepared: look again until they are ready (or say it is taking long).
-  const preparing = (templates ?? []).some((t) => t.status === "preparing");
+  const photos = (templates ?? []).flatMap((t) => t.photos);
+  // Photos being prepared: look again until they are ready (or say it is taking long).
+  const preparing = photos.some((p) => p.status === "preparing");
   useEffect(() => {
     if (!preparing) {
       polls.current = 0;
@@ -64,10 +63,21 @@ export default function TemplatesPage() {
     return () => clearTimeout(t);
   }, [preparing, templates, load]);
 
-  const replace = (next: MockupTemplate) =>
-    setTemplates((all) => (all ?? []).map((x) => (x.id === next.id ? next : x)));
+  // New photos that are ready open in the editor, in the order they were added.
+  useEffect(() => {
+    if (editor || !pending.length) return;
+    const ready = pending.filter((id) => photos.find((p) => p.id === id)?.status === "ready");
+    const waiting = pending.filter((id) => photos.find((p) => p.id === id)?.status === "preparing");
+    if (!ready.length || waiting.length) return; // all of one upload together
+    const queue = ready.filter((id) => photos.find((p) => p.id === id)?.needs_check);
+    setPending([]);
+    if (queue.length) setEditor({ queue, index: 0 });
+  }, [pending, photos, editor]);
 
-  async function move(id: string, by: -1 | 1) {
+  const replace = (next: MockupPhoto) =>
+    setTemplates((all) => (all ?? []).map((t) => ({ ...t, photos: t.photos.map((p) => (p.id === next.id ? next : p)) })));
+
+  async function moveTemplate(id: string, by: -1 | 1) {
     if (!templates) return;
     const ids = templates.map((t) => t.id);
     const i = ids.indexOf(id);
@@ -81,20 +91,13 @@ export default function TemplatesPage() {
     }
   }
 
-  const loose = (templates ?? []).filter((t) => !t.set_id || !sets.some((s) => s.id === t.set_id));
-  const card = (t: MockupTemplate, list: MockupTemplate[]) => (
-    <li key={t.id}>
-      <TemplateCard
-        template={t}
-        sets={sets}
-        first={list[0]?.id === t.id}
-        last={list[list.length - 1]?.id === t.id}
-        onChange={replace}
-        onMove={(by) => move(t.id, by)}
-        onReload={load}
-      />
-    </li>
-  );
+  const current = editor ? photos.find((p) => p.id === editor.queue[editor.index]) : undefined;
+  const siblings = current ? (templates ?? []).find((t) => t.id === current.template_id)?.photos ?? [] : [];
+
+  function next() {
+    setEditor((e) => (e && e.index + 1 < e.queue.length ? { ...e, index: e.index + 1 } : null));
+    load();
+  }
 
   return (
     <div className="space-y-8">
@@ -102,34 +105,49 @@ export default function TemplatesPage() {
         <p>{TEMPLATES_INTRO}</p>
         <p>{ACCURACY_NOTE}</p>
       </div>
-      <AddBlanks sets={sets} onAdded={load} />
+      <AddPhotos templates={templates ?? []} onAdded={(ids) => { setPending((p) => [...p, ...ids]); load(); }} />
       {error && <p key="error" role="alert" className="card p-4 text-sm text-rose-700">{error}</p>}
       {preparing && polls.current > 90 && (
         <p key="slow" role="status" className="card p-4 text-sm text-amber-800">
-          Some templates are taking longer than usual to prepare. Reload the page in a minute.
+          Some photos are taking longer than usual to prepare. Reload the page in a minute.
         </p>
       )}
       {templates === null ? (
         <div key="loading" className="card h-40 animate-pulse" />
       ) : templates.length === 0 ? (
-        <p key="empty" className="card p-6 text-sm text-slate-500">No templates yet. Add a blank garment photo above.</p>
+        <p key="empty" className="card p-6 text-sm text-slate-500">No templates yet. Add blank garment photos above.</p>
       ) : (
-        <div key="lists" className="space-y-8" data-testid="templates">
-          {sets.map((s) => {
-            const members = (templates ?? []).filter((t) => t.set_id === s.id);
-            return (
-              <SetSection key={s.id} set={s} members={members} onReload={load}>
-                <ol className="space-y-6">{members.map((t) => card(t, members))}</ol>
-              </SetSection>
-            );
-          })}
-          {loose.length > 0 && (
-            <section key="loose" className="space-y-3">
-              {sets.length > 0 && <h2 key="h" className="text-base font-semibold text-slate-900">Templates not in a set</h2>}
-              <ol className="space-y-6">{loose.map((t) => card(t, loose))}</ol>
-            </section>
-          )}
-        </div>
+        <ol key="list" className="space-y-6" data-testid="templates">
+          {templates.map((t, i) => (
+            <li key={t.id}>
+              <TemplateCard
+                template={t}
+                first={i === 0}
+                last={i === templates.length - 1}
+                onMove={(by) => moveTemplate(t.id, by)}
+                onReload={load}
+                onChange={(u) => setTemplates((all) => (all ?? []).map((x) => (x.id === u.id ? u : x)))}
+                onOpen={(queue) => setEditor({ queue, index: 0 })}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+      {current && current.status === "ready" && (
+        <PrintAreaEditor
+          key="editor"
+          photo={current}
+          siblings={siblings}
+          step={editor ? { index: editor.index, total: editor.queue.length } : null}
+          onConfirmed={(saved) => { replace(saved); next(); }}
+          onCopied={(copied, saved) => {
+            replace(saved);
+            copied.forEach(replace);
+            setEditor(copied.length ? { queue: copied.map((p) => p.id), index: 0 } : null);
+          }}
+          onChanged={replace}
+          onClose={() => { setEditor(null); load(); }}
+        />
       )}
     </div>
   );
@@ -137,23 +155,25 @@ export default function TemplatesPage() {
 
 type Row = { key: string; file: File; name: string; pct: number; state: "waiting" | "sending" | "done" | "error"; message?: string };
 
-function AddBlanks({ sets, onAdded }: { sets: MockupSet[]; onAdded: () => void }) {
+/** Upload one or many photos: into a new template (named from them) or an existing one. */
+function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; onAdded: (ids: string[]) => void; into?: MockupTemplate }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [confirmed, setConfirmed] = useState(false);
-  const [target, setTarget] = useState<string>("new");
-  const [setName, setSetName] = useState("");
+  const [target, setTarget] = useState<string>(into?.id ?? "new");
+  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   function choose(files: File[]) {
     setError(null);
-    setRows(files.map((file, i) => {
+    const next = files.map((file, i) => {
       const problem = sizeProblem(file);
       return { key: `${i}-${file.name}-${file.size}`, file, name: nameFromFile(file.name), pct: 0,
-               state: problem ? "error" : "waiting", message: problem ?? undefined };
-    }));
-    if (files.length > 1 && !setName) setSetName(nameFromFile(files[0].name).replace(/\s*\S+$/, "") || "Colours");
+               state: problem ? "error" : "waiting", message: problem ?? undefined } as Row;
+    });
+    setRows(next);
+    if (!name) setName(templateNameFrom(next.map((r) => r.name)));
   }
 
   const update = (key: string, patch: Partial<Row>) => setRows((all) => all.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -163,16 +183,15 @@ function AddBlanks({ sets, onAdded }: { sets: MockupSet[]; onAdded: () => void }
     if (!sendable.length || !confirmed) return;
     setBusy(true);
     setError(null);
+    const added: string[] = [];
     try {
-      let setId: string | null = null;
-      if (rows.length > 1 && target === "new") setId = (await api.createMockupSet(setName.trim() || "Colours")).id;
-      else if (target !== "new" && target !== "none") setId = target;
+      const templateId = target === "new" ? (await api.createMockupTemplate(name.trim() || "Template")).id : target;
       for (const row of sendable) {
         update(row.key, { state: "sending", pct: 0 });
         try {
-          await api.createMockupTemplate(row.file, row.name, confirmed, (pct) => update(row.key, { pct }), setId);
+          const photo = await api.addMockupPhoto(templateId, row.file, row.name, confirmed, (pct) => update(row.key, { pct }));
+          added.push(photo.id);
           update(row.key, { state: "done", pct: 100 });
-          onAdded(); // it appears at once, "preparing"
         } catch (e: any) {
           update(row.key, { state: "error", message: String(e.message ?? e) });
         }
@@ -182,19 +201,21 @@ function AddBlanks({ sets, onAdded }: { sets: MockupSet[]; onAdded: () => void }
     } finally {
       setBusy(false);
       if (input.current) input.current.value = "";
+      if (added.length) onAdded(added); // they appear at once, "preparing"; each then opens for its check
     }
   }
 
-  const several = rows.length > 1;
   return (
-    <section className="card space-y-4 p-5" data-testid="add-template">
-      <div>
-        <h2 className="text-base font-semibold text-slate-900">Add blank photos</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          <span><span><span>{LIMIT_NOTE}</span> </span></span>
-          <span>Choose several at once for a colour set (the same garment in each colour).</span>
-        </p>
-      </div>
+    <section className={into ? "space-y-3" : "card space-y-4 p-5"} data-testid={into ? "add-photos-here" : "add-template"}>
+      {!into && (
+        <div key="head">
+          <h2 className="text-base font-semibold text-slate-900">Add blank photos</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            <span><span><span>{LIMIT_NOTE}</span> </span></span>
+            <span>Choose several at once: the same garment in each colour, or several shots of one product.</span>
+          </p>
+        </div>
+      )}
       <input
         ref={input}
         type="file"
@@ -205,21 +226,20 @@ function AddBlanks({ sets, onAdded }: { sets: MockupSet[]; onAdded: () => void }
         disabled={busy}
         data-testid="template-file"
       />
-      {several && (
-        <div key="set" className="grid gap-3 sm:grid-cols-2">
+      {!into && rows.length > 0 && (
+        <div key="target" className="grid gap-3 sm:grid-cols-2">
           <label className="block min-w-0">
             <span className="label">Put them in</span>
-            <select className="field w-full" value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
-              <option value="new">A new colour set</option>
-              {sets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              <option value="none">No set</option>
+            <select className="field w-full" value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy} data-testid="template-target">
+              <option value="new">A new template</option>
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
           {target === "new" && (
-            <label key="set-name" className="block min-w-0">
-              <span className="label">Set name</span>
-              <input className="field w-full" value={setName} maxLength={MAX_NAME} onChange={(e) => setSetName(e.target.value)}
-                disabled={busy} data-testid="set-name" />
+            <label key="name" className="block min-w-0">
+              <span className="label">Template name</span>
+              <input className="field w-full" value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)}
+                disabled={busy} data-testid="template-name" />
             </label>
           )}
         </div>
@@ -252,169 +272,46 @@ function AddBlanks({ sets, onAdded }: { sets: MockupSet[]; onAdded: () => void }
       </label>
       {error && <p key="error" role="alert" className="text-sm text-rose-700">{error}</p>}
       <button type="button" className="btn-primary" onClick={add} disabled={!sendable.length || !confirmed || busy} data-testid="template-add">
-        {busy ? "Uploading…" : sendable.length > 1 ? `Add ${sendable.length} templates` : "Add template"}
+        <span translate="no">{busy ? "Uploading…" : sendable.length > 1 ? `Add ${sendable.length} photos` : "Add photo"}</span>
       </button>
-    </section>
-  );
-}
-
-function SetSection({
-  set,
-  members,
-  onReload,
-  children,
-}: {
-  set: MockupSet;
-  members: MockupTemplate[];
-  onReload: () => void;
-  children: React.ReactNode;
-}) {
-  const [name, setName] = useState(set.name);
-  const [message, setMessage] = useState<string | null>(null);
-  async function rename() {
-    if (!name.trim() || name === set.name) return;
-    try {
-      await api.renameMockupSet(set.id, name);
-      onReload();
-    } catch (e: any) {
-      setMessage(String(e.message ?? e));
-    }
-  }
-  async function remove() {
-    if (!window.confirm(`Delete the set “${set.name}”? Its templates stay, in no set.`)) return;
-    try {
-      await api.deleteMockupSet(set.id);
-      onReload();
-    } catch (e: any) {
-      setMessage(String(e.message ?? e));
-    }
-  }
-  return (
-    <section className="space-y-3 rounded-xl border border-slate-200 bg-white/60 p-4" data-testid="mockup-set">
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="block min-w-0 flex-1">
-          <span className="label">Colour set</span>
-          <input className="field w-full font-medium" value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)} onBlur={rename} />
-        </label>
-        <span className="pb-2 text-xs text-slate-500" translate="no"><span><span>{members.length}</span> <span>{members.length === 1 ? "template" : "templates"}</span></span></span>
-        <button type="button" className="btn-secondary px-3 py-1.5 text-xs text-rose-700" onClick={remove}>Delete set</button>
-      </div>
-      {message && <p key="m" role="alert" className="text-sm text-rose-700">{message}</p>}
-      {children}
     </section>
   );
 }
 
 function TemplateCard({
   template,
-  sets,
   first,
   last,
-  onChange,
   onMove,
   onReload,
+  onChange,
+  onOpen,
 }: {
   template: MockupTemplate;
-  sets: MockupSet[];
   first: boolean;
   last: boolean;
-  onChange: (t: MockupTemplate) => void;
   onMove: (by: -1 | 1) => void;
   onReload: () => void;
+  onChange: (template: MockupTemplate) => void;
+  onOpen: (queue: string[]) => void;
 }) {
-  // Several garments in one photo: each has its own print area; the editor works on one.
-  const garments = template.garments?.length ? template.garments : template.print_area ? [{ print_area: template.print_area }] : [];
-  const [garment, setGarment] = useState(0);
-  const areaOf = (t: MockupTemplate, i: number): Corner[] =>
-    ((t.garments?.length ? t.garments[i]?.print_area : i === 0 ? t.print_area : null) ?? t.print_area ?? []) as Corner[];
-  const [corners, setCorners] = useState<Corner[]>(areaOf(template, 0));
-  const [size, setSize] = useState(template.size);
-  const [fold, setFold] = useState(template.fold_strength);
   const [name, setName] = useState(template.name);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [applying, setApplying] = useState(false);
-  // The found print area is used as it is; the corner editor opens when the
-  // analysis was not sure, or when the seller chooses to adjust it.
-  const [adjusting, setAdjusting] = useState(false);
-  const [setPreviews, setSetPreviews] = useState<{ id: string; name: string; url: string | null; error?: string }[]>([]);
+  const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const saved = useRef(template);
+  const waiting = waitingForCheck(template);
 
-  // The server's copy changed (prepared, or a set's settings applied): follow it.
-  useEffect(() => {
-    saved.current = template;
-    setCorners(areaOf(template, garment));
-    setSize(template.size);
-    setFold(template.fold_strength);
-  }, [template.version, template.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => () => {
-    if (preview) URL.revokeObjectURL(preview);
-  }, [preview]);
-
-  async function save(body: Parameters<typeof api.updateMockupTemplate>[1]) {
-    setMessage(null);
+  async function rename() {
+    if (!name.trim() || name === template.name) return;
     try {
-      const next = await api.updateMockupTemplate(template.id, body);
-      saved.current = next;
-      onChange(next);
-      if (preview) showPreview(areaOf(next, garment), next.size, next.fold_strength);
-      if ("set_id" in body) onReload();
-    } catch (e: any) {
-      setCorners(areaOf(saved.current, garment));
-      setMessage(String(e.message ?? e));
-    }
-  }
-
-  async function showPreview(area = corners, s = size, f = fold) {
-    setPreviewing(true);
-    setMessage(null);
-    try {
-      const blob = await api.previewMockupTemplate(template.id, { print_area: area, size: s, fold_strength: f, garment });
-      setPreview((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return URL.createObjectURL(blob);
-      });
+      await api.renameMockupTemplate(template.id, name);
+      onReload();
     } catch (e: any) {
       setMessage(String(e.message ?? e));
-    } finally {
-      setPreviewing(false);
-    }
-  }
-
-  async function applyToSet() {
-    if (!template.set_id) return;
-    setApplying(true);
-    setMessage(null);
-    try {
-      const members = await api.applyToMockupSet(template.set_id, template.id);
-      members.forEach(onChange);
-      // A preview of each, so the seller sees every colour with these settings.
-      const shown: typeof setPreviews = members.map((m) => ({ id: m.id, name: m.name, url: null }));
-      setSetPreviews(shown);
-      for (const m of members) {
-        if (m.status !== "ready") {
-          setSetPreviews((all) => all.map((p) => (p.id === m.id ? { ...p, error: "Still preparing" } : p)));
-          continue;
-        }
-        try {
-          const blob = await api.previewMockupTemplate(m.id, {});
-          const url = URL.createObjectURL(blob);
-          setSetPreviews((all) => all.map((p) => (p.id === m.id ? { ...p, url } : p)));
-        } catch (e: any) {
-          setSetPreviews((all) => all.map((p) => (p.id === m.id ? { ...p, error: String(e.message ?? e) } : p)));
-        }
-      }
-    } catch (e: any) {
-      setMessage(String(e.message ?? e));
-    } finally {
-      setApplying(false);
     }
   }
 
   async function remove() {
-    if (!window.confirm(`Delete the template “${template.name}”? Mockups already made from it stay.`)) return;
+    if (!window.confirm(`Delete the template “${template.name}” and its ${template.photos.length} photos? Mockups already made from them stay.`)) return;
     try {
       await api.deleteMockupTemplate(template.id);
       onReload();
@@ -423,307 +320,150 @@ function TemplateCard({
     }
   }
 
-  const ready = template.status === "ready" && template.width && template.height;
-  const aspect = ready ? `${template.width} / ${template.height}` : "6 / 7";
+  async function order(id: string, by: -1 | 1) {
+    const ids = template.photos.map((p) => p.id);
+    const i = ids.indexOf(id);
+    const j = i + by;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    try {
+      onChange(await api.orderMockupPhotos(template.id, ids));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
+  async function removePhoto(photo: MockupPhoto) {
+    if (!window.confirm(`Remove “${photo.name}” from this template? Mockups already made from it stay.`)) return;
+    try {
+      await api.deleteMockupPhoto(photo.id);
+      onReload();
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
   return (
-    <article className="card overflow-hidden" data-testid="template-card" data-status={template.status}>
-      <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="border-b border-slate-200 bg-slate-50 p-4 md:border-b-0 md:border-r">
-          {ready && (template.needs_check || adjusting) ? (
-            <PrintAreaEditor
-              key="editor"
-              src={api.mockupTemplateImageUrl(template.id, 896)}
-              aspect={aspect}
-              corners={corners}
-              others={garments.filter((_, i) => i !== garment).map((g) => g.print_area as Corner[])}
-              onMove={setCorners}
-              onDone={(next) => save({ print_area: next, garment })}
-            />
-          ) : ready ? (
-            <PrintAreaView key="view" src={api.mockupTemplateImageUrl(template.id, 896)} aspect={aspect}
-              areas={garments.map((g) => g.print_area as Corner[])} />
-          ) : (
-            <div key="waiting" className="flex w-full items-center justify-center rounded-md bg-white p-6 text-center text-sm"
-              style={{ aspectRatio: aspect }} role="status" data-testid="template-preparing">
-              {template.status === "failed" ? (
-                <span className="text-rose-700">{template.error ?? "This photo could not be prepared."}</span>
-              ) : (
-                <span className="animate-pulse text-slate-500">Preparing… finding the garment&apos;s outline</span>
-              )}
-            </div>
-          )}
-          {ready && garments.length > 1 && (
-            <div key="garments" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" data-testid="template-garments">
-              <span className="text-slate-600">{garmentsLine(garments.length)}</span>
-              {garments.map((g, i) => (
-                <button key={i} type="button" aria-pressed={i === garment} data-testid="template-garment"
-                  className={`tap rounded-md border px-2 py-1 ${i === garment ? "border-brand-600 bg-brand-50 text-brand-800" : "border-slate-300 text-slate-700"} ${g.needs_check ? "ring-1 ring-amber-400" : ""}`}
-                  onClick={() => { setGarment(i); setCorners(g.print_area as Corner[]); }}>
-                  <span>{`Garment ${i + 1}`}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {ready && (
-            <div key="analysis" className="mt-2 space-y-2 text-xs text-slate-600" data-testid="template-analysis">
-              {template.needs_check && (
-                <p key="check" role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900" data-testid="template-check">
-                  <span className="font-medium"><span><span>{CHECK_NOTE}</span> </span></span>
-                  <span>{template.analysis_note ?? ""}</span>
-                </p>
-              )}
-              {!template.needs_check && (
-                <p key="found" translate="no">
-                  {template.print_area_source === "seller" ? "Print area set by you." : template.analysis_note ?? "Print area found automatically."}
-                </p>
-              )}
-              {template.needs_check || adjusting ? (
-                <p key="hint" className="text-slate-500">
-                  <span>Drag the four corners onto the print area, or tap a corner and use the arrow keys. </span>
-                  {adjusting && !template.needs_check && (
-                    <button key="done" type="button" className="tap text-brand-700 underline" onClick={() => setAdjusting(false)}>Done</button>
-                  )}
-                </p>
-              ) : (
-                <button key="adjust" type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setAdjusting(true)} data-testid="template-adjust">
-                  Adjust the print area
-                </button>
-              )}
-            </div>
-          )}
+    <article className="card space-y-4 p-4" data-testid="template-card">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block min-w-0 flex-1">
+          <span className="label">Template</span>
+          <input className="field w-full font-medium" value={name} maxLength={MAX_NAME} title={template.name}
+            onChange={(e) => setName(e.target.value)} onBlur={rename} data-testid="template-rename" />
+        </label>
+        <span className="pb-2 text-xs text-slate-500" translate="no">
+          <span><span>{template.photos.length}</span> <span>{template.photos.length === 1 ? "photo" : "photos"}</span></span>
+        </span>
+      </div>
+      {waiting.length > 0 && (
+        <div key="check" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          data-testid="template-needs-check">
+          <span className="min-w-0 flex-1" translate="no">{`${checkLine(waiting.length)}: they are not used for mockups until you confirm them.`}</span>
+          <button type="button" className="btn-primary min-h-11" onClick={() => onOpen(waiting)} data-testid="template-check-all">
+            <span translate="no">{waiting.length === 1 ? "Check it" : `Check ${waiting.length} photos`}</span>
+          </button>
         </div>
-        <div className="min-w-0 space-y-4 p-4">
-          <h3 className="truncate text-base font-semibold text-slate-900" title={template.name} translate="no">{template.name}</h3>
-          <label className="block">
-            <span className="label">Name</span>
-            <input className="field w-full" value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)}
-              onBlur={() => name.trim() && name !== template.name && save({ name })} />
-          </label>
-          {ready && (
-            <label key="view" className="block">
-              <span className="label">Shows the</span>
-              <select className="field w-full" value={template.view === "back" ? "back" : "front"} data-testid="template-view"
-                onChange={(e) => save({ view: e.target.value as "front" | "back" })}>
-                <option value="front">Front</option>
-                <option value="back">Back</option>
-              </select>
-            </label>
-          )}
-          <label className="block">
-            <span className="label">Colour set</span>
-            <select className="field w-full" value={template.set_id ?? ""} onChange={(e) => save({ set_id: e.target.value || null })}>
-              <option value="">No set</option>
-              {sets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          {template.notice && (
-            <p key="notice" role="note" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              {template.notice}
-            </p>
-          )}
-          {ready && (
-            <div key="settings" className="space-y-4">
-              <Slider label="Design size" hint="Share of the print area the design fills; its proportions are kept, top-aligned."
-                value={size} range={SIZE_RANGE} onChange={setSize} onDone={(v) => save({ size: v })} />
-              <Slider label="Fold strength" hint="How much the fabric's folds and creases bend the print."
-                value={fold} range={FOLD_RANGE} onChange={setFold} onDone={(v) => save({ fold_strength: v })} />
-              {template.has_occluder && (
-                <label key="occlusion" className="flex items-start gap-2.5 text-sm text-slate-700 max-sm:min-h-[2.75rem]">
-                  <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300" checked={template.occlusion !== false}
-                    onChange={(e) => save({ occlusion: e.target.checked })} data-testid="template-occlusion" />
-                  <span>{OCCLUSION_LABEL}</span>
-                </label>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn-primary" onClick={() => showPreview()} disabled={previewing} data-testid="template-preview">
-                  {previewing ? "Drawing…" : preview ? "Preview again" : "Preview with a sample design"}
-                </button>
-                <button type="button" className="btn-secondary" onClick={() => save({ reset_print_area: true, garment })}>
-                  Reset print area
-                </button>
-                {template.set_id && (
-                  <button key="apply" type="button" className="btn-secondary h-auto max-w-full whitespace-normal text-left" onClick={applyToSet} disabled={applying} data-testid="apply-to-set">
-                    {applying ? "Applying…" : "Use this print area for the whole set"}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          {message && <p key="message" role="alert" className="text-sm text-rose-700">{message}</p>}
-          {preview && (
-            <figure key="preview" className="space-y-1">
-              <div className="overflow-hidden rounded-md border border-slate-200 bg-white" style={{ aspectRatio: aspect }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={preview} alt={`${template.name} with a sample design`} className="h-full w-full object-contain" />
-              </div>
-              <figcaption className="text-xs text-slate-500">A sample design at preview size. Your mockups use the full photo.</figcaption>
-            </figure>
-          )}
-          {setPreviews.length > 0 && (
-            <div key="set-previews" className="space-y-1" data-testid="set-previews">
-              <p className="text-xs font-medium text-slate-700">The whole set with these settings:</p>
-              <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {setPreviews.map((p) => (
-                  <li key={p.id} className="min-w-0">
-                    <div className="flex aspect-[6/7] items-center justify-center overflow-hidden rounded border border-slate-200 bg-white">
-                      {p.url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img key="img" src={p.url} alt={p.name} className="h-full w-full object-contain" />
-                      ) : (
-                        <span key="state" className="px-1 text-center text-[11px] text-slate-500">{p.error ?? "Drawing…"}</span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 truncate text-[11px] text-slate-600" title={p.name}>{p.name}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
-            <span className="text-xs text-slate-500">Order (the first is a listing&apos;s cover):</span>
-            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => onMove(-1)} disabled={first}>Earlier</button>
-            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => onMove(1)} disabled={last}>Later</button>
-            <button type="button" className="btn-secondary ml-auto px-3 py-1.5 text-xs text-rose-700" onClick={remove}>Delete</button>
-          </div>
-        </div>
+      )}
+      {template.photos.length > 0 ? (
+        <ul key="photos" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="template-photos">
+          {template.photos.map((p, i) => (
+            <li key={p.id} className="min-w-0">
+              <PhotoTile photo={p} first={i === 0} last={i === template.photos.length - 1}
+                onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p key="empty" className="text-sm text-slate-500">No photos in this template yet.</p>
+      )}
+      {adding ? (
+        <AddPhotos key="add" templates={[]} into={template} onAdded={() => { setAdding(false); onReload(); }} />
+      ) : (
+        <button key="add-open" type="button" className="btn-secondary min-h-11" onClick={() => setAdding(true)} data-testid="template-add-photos">
+          Add photos
+        </button>
+      )}
+      {message && <p key="message" role="alert" className="text-sm text-rose-700">{message}</p>}
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
+        <span className="text-xs text-slate-500">Template order:</span>
+        <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => onMove(-1)} disabled={first}>Earlier</button>
+        <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => onMove(1)} disabled={last}>Later</button>
+        <button type="button" className="btn-secondary ml-auto min-h-11 px-3 text-xs text-rose-700" onClick={remove}>Delete template</button>
       </div>
     </article>
   );
 }
 
-function Slider({
-  label,
-  hint,
-  value,
-  range,
-  onChange,
-  onDone,
-}: {
-  label: string;
-  hint: string;
-  value: number;
-  range: [number, number];
-  onChange: (v: number) => void;
-  onDone: (v: number) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="label mb-0">{label}</span>
-        <span className="text-xs tabular-nums text-slate-600" translate="no">{percent(value)}</span>
-      </span>
-      <input
-        type="range"
-        min={range[0]}
-        max={range[1]}
-        step={0.01}
-        value={value}
-        className="mt-1 block h-11 w-full accent-brand-600"
-        onChange={(e) => onChange(Number(e.target.value))}
-        onPointerUp={(e) => onDone(Number((e.target as HTMLInputElement).value))}
-        onKeyUp={(e) => onDone(Number((e.target as HTMLInputElement).value))}
-      />
-      <span className="block text-xs text-slate-500">{hint}</span>
-    </label>
-  );
-}
-
-/** The photo with its print area, read only (the found area, used as it is). */
-function PrintAreaView({ src, aspect, areas }: { src: string; aspect: string; areas: Corner[][] }) {
-  return (
-    <div className="relative w-full overflow-hidden rounded-md bg-white" style={{ aspectRatio: aspect }} data-testid="print-area-view">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="" className="h-full w-full object-fill" />
-      <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
-        {areas.map((corners, i) => (
-          <polygon key={i} points={corners.map(([x, y]) => `${x},${y}`).join(" ")}
-            className="fill-brand-500/15 stroke-brand-600" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-const CORNER_NAMES = ["Top left", "Top right", "Bottom right", "Bottom left"];
-
-/** The blank with its print area: four handles, by pointer (mouse or finger) or keyboard. */
-function PrintAreaEditor({
-  src,
-  aspect,
-  corners,
-  others = [],
+/** One photo of a template: its print areas drawn, whether it is confirmed, and its actions. */
+function PhotoTile({
+  photo,
+  first,
+  last,
+  onOpen,
   onMove,
-  onDone,
+  onRemove,
 }: {
-  src: string;
-  aspect: string;
-  corners: Corner[];
-  /** The photo's other garments' areas, drawn faintly (not editable here). */
-  others?: Corner[][];
-  onMove: (c: Corner[]) => void;
-  onDone: (c: Corner[]) => void;
+  photo: MockupPhoto;
+  first: boolean;
+  last: boolean;
+  onOpen: () => void;
+  onMove: (by: -1 | 1) => void;
+  onRemove: () => void;
 }) {
-  const box = useRef<HTMLDivElement>(null);
-  const dragging = useRef<number | null>(null);
-  const latest = useRef(corners);
-  latest.current = corners;
-
-  function at(e: React.PointerEvent): [number, number] {
-    const r = box.current!.getBoundingClientRect();
-    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
-  }
-
-  function key(index: number, e: React.KeyboardEvent) {
-    const step = e.shiftKey ? 0.02 : 0.005;
-    const d: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-    const by = d[e.key];
-    if (!by) return;
-    e.preventDefault();
-    const [x, y] = corners[index];
-    const next = moveCorner(corners, index, x + by[0], y + by[1]);
-    onMove(next);
-    onDone(next);
-  }
-
-  const points = corners.map(([x, y]) => `${x},${y}`).join(" ");
+  const ready = photo.status === "ready" && photo.width && photo.height;
+  const aspect = ready ? `${photo.width} / ${photo.height}` : "6 / 7";
   return (
-    <div ref={box} className="relative w-full select-none overflow-hidden rounded-md bg-white" style={{ aspectRatio: aspect }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="" draggable={false} className="pointer-events-none h-full w-full object-fill" />
-      <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
-        {others.map((o, i) => (
-          <polygon key={i} points={o.map(([x, y]) => `${x},${y}`).join(" ")} className="fill-none stroke-slate-400"
-            strokeWidth={0.003} vectorEffect="non-scaling-stroke" strokeDasharray="4 3" />
-        ))}
-        <polygon points={points} className="fill-brand-500/15 stroke-brand-600" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
-      </svg>
-      {corners.map(([x, y], i) => (
-        <button
-          key={i}
-          type="button"
-          aria-label={`${CORNER_NAMES[i]} corner of the print area`}
-          className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
-          onPointerDown={(e) => {
-            dragging.current = i;
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={(e) => {
-            if (dragging.current !== i) return;
-            const [px, py] = at(e);
-            onMove(moveCorner(latest.current, i, px, py));
-          }}
-          onPointerUp={() => {
-            if (dragging.current !== i) return;
-            dragging.current = null;
-            onDone(latest.current);
-          }}
-          onKeyDown={(e) => key(i, e)}
-          data-testid="print-corner"
-        >
-          <span aria-hidden className="h-4 w-4 rounded-full border-2 border-white bg-brand-600 shadow" />
+    <div className={`overflow-hidden rounded-lg border ${photo.needs_check ? "border-amber-400 ring-1 ring-amber-300" : "border-slate-200"}`}
+      data-testid="template-photo" data-status={photo.status} data-confirmed={photo.confirmed ? "yes" : "no"}>
+      {ready ? (
+        <button key="open" type="button" className="relative block w-full bg-white" style={{ aspectRatio: aspect }} onClick={onOpen}
+          aria-label={`${photo.needs_check ? "Check" : "Edit"} the print area of ${photo.name}`} data-testid="template-photo-open">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={api.mockupPhotoImageUrl(photo.id, 448)} alt="" loading="lazy" className="h-full w-full object-fill" />
+          <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+            {photo.areas.map((a, i) => (
+              <polygon key={i} points={a.print_area.map(([x, y]) => `${x},${y}`).join(" ")}
+                className={photo.needs_check ? "fill-amber-400/20 stroke-amber-600" : "fill-brand-500/15 stroke-brand-600"}
+                strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            ))}
+          </svg>
+          <span className={`absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-xs font-medium ${photo.needs_check ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}
+            translate="no">
+            {photo.needs_check ? NEEDS_CHECK : "Confirmed"}
+          </span>
         </button>
-      ))}
+      ) : (
+        <div key="waiting" className="flex w-full items-center justify-center bg-white p-3 text-center text-xs" style={{ aspectRatio: aspect }}
+          role="status" data-testid="template-preparing">
+          {photo.status === "failed" ? (
+            <span key="failed" className="text-rose-700">{photo.error ?? "This photo could not be prepared."}</span>
+          ) : (
+            <span key="preparing" className="animate-pulse text-slate-500">Preparing… finding the garment&apos;s outline</span>
+          )}
+        </div>
+      )}
+      <div className="space-y-1 p-2">
+        <p className="truncate text-xs font-medium text-slate-800" title={photo.name} translate="no">{photo.name}</p>
+        <div className="flex flex-wrap gap-1">
+          {ready && (
+            <button key="edit" type="button" className={`${photo.needs_check ? "btn-primary" : "btn-secondary"} min-h-11 flex-1 px-2 text-xs`} onClick={onOpen}>
+              {photo.needs_check ? "Check" : "Edit"}
+            </button>
+          )}
+          <button type="button" className="btn-secondary min-h-11 min-w-11 px-2 text-xs" onClick={() => onMove(-1)} disabled={first}
+            aria-label={`Move ${photo.name} earlier`}>
+            Earlier
+          </button>
+          <button type="button" className="btn-secondary min-h-11 min-w-11 px-2 text-xs" onClick={() => onMove(1)} disabled={last}
+            aria-label={`Move ${photo.name} later`}>
+            Later
+          </button>
+          <button type="button" className="btn-secondary min-h-11 min-w-11 px-2 text-xs text-rose-700" onClick={onRemove}
+            aria-label={`Remove ${photo.name}`}>
+            Remove
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -86,6 +86,8 @@ class Detection:
     garment_mask: np.ndarray  # float 0..1 (h, w): all garments
     persons: int
     details: dict[str, Any] = field(default_factory=dict)
+    #: Where garments are (float 0..1, (h, w)): kept so a garment can be grown from a tap later.
+    foreground: np.ndarray | None = None
 
 
 # --- the saliency model ----------------------------------------------------------------------
@@ -217,6 +219,11 @@ def _regions(lab: np.ndarray, seeds: list[np.ndarray], other: np.ndarray, worn: 
         out.append(filled)
     return out
 
+
+#: A region counts as a neighbouring garment (for the chest cap) only if it is at least this
+#: share of the garment's own size: on the seller's photos the stray regions beside a single
+#: folded tee were 0.25-0.41 of it; garments side by side are of a size.
+NEIGHBOUR_SIZE = 0.5
 
 #: For each region (by id): what it encloses that is not garment (a mug held over the
 #: chest, a bag lying on a tee): printed under, then put in front by the occluder.
@@ -352,7 +359,8 @@ def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, r
 
     for region, f, m in zip(regions, frames_, meta):
         hull = _hull(region) if region.any() else region
-        hood = m["kind"] == "hoodie" or _has_hood(region, probs, m["shoulders"])
+        # A name that says tee or sweatshirt is the seller's own word: no hood is looked for.
+        hood = m["kind"] == "hoodie" or (hint not in ("t-shirt", "sweatshirt") and _has_hood(region, probs, m["shoulders"]))
         kind = "hoodie" if hood else m["kind"]
         hair = probs[..., HAIR] > 0.5  # the chest is measured across hair over it, not arms beside it
         neck, armpits, how = _worn_landmarks(region | (hair & hull), probs, m["shoulders"], m["neck"])
@@ -448,7 +456,8 @@ def _has_hood(region: np.ndarray, probs: np.ndarray, shoulders) -> bool:  # noqa
     y0, y1 = int(max(0, my - 0.55 * span)), int(max(0, my - 0.08 * span))
     if x1 - x0 < 4 or y1 - y0 < 4:
         return False
-    band = region[y0:y1, x0:x1] & ~((probs[y0:y1, x0:x1, FACE] + probs[y0:y1, x0:x1, BODY]) > 0.5)
+    # Fabric only: long hair falling beside the face is not a hood (it made worn tees "hoodies").
+    band = region[y0:y1, x0:x1] & ~((probs[y0:y1, x0:x1, FACE] + probs[y0:y1, x0:x1, BODY] + probs[y0:y1, x0:x1, HAIR]) > 0.5)
     left, right = band[:, : band.shape[1] // 2].mean(), band[:, band.shape[1] // 2:].mean()
     return bool(min(left, right) > 0.3)
 
@@ -878,7 +887,11 @@ def _cap_by_neighbours(found: list[Found], hair_acc: np.ndarray) -> list[Found]:
     out = []
     for g in found:
         chest = math.dist(*g.armpits)
-        row = [o for o in found if o is not g and abs(o.neck[1] - g.neck[1]) < 0.5 * chest]
+        # A neighbour is another garment beside it: garment-sized (a fold panel or a prop
+        # lying on a single folded tee is not) and not stacked on it.
+        size = g.region.sum()
+        row = [o for o in found if o is not g and abs(o.neck[1] - g.neck[1]) < 0.5 * chest
+               and o.region.sum() >= NEIGHBOUR_SIZE * size and abs(o.neck[0] - g.neck[0]) >= 0.4 * min(chest, math.dist(*o.armpits))]
         if row:
             gap = min(abs(o.neck[0] - g.neck[0]) for o in row)
             cap = FLAT["neighbour_cap"] * gap
@@ -1002,4 +1015,67 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "") -> Detec
     occluder = np.clip(probs[..., HAIR] + probs[..., BODY] + probs[..., FACE] + probs[..., OTHERS], 0, 1)
     occluder = np.maximum(occluder, held.astype(np.float32))
     return Detection(garments, occluder, union.astype(np.float32), len(persons),
-                     {"person_share": round(person_share, 4), "kind_hint": hint})
+                     {"person_share": round(person_share, 4), "kind_hint": hint}, foreground=fg)
+
+
+# --- one garment from the seller's tap ("Add area") ---------------------------------------------
+
+_FIND = threading.Lock()  # the module's region bookkeeping (_ENCLOSED) is shared
+
+
+def find_at(rgb: np.ndarray, fg: np.ndarray, occluder: np.ndarray | None, tap: tuple[float, float],
+            others: list[list[tuple[float, float]]], name: str = "") -> Found | None:
+    """The garment under the seller's tap, alone, and its print area: a seeded watershed
+    (the tap is this garment's seed; every other print area on the photo is a seed of its
+    own, so a neighbouring garment, even a touching one of the same colour, is not taken
+    in), then the same landmarks and print rule as the detector. ``rgb`` uint8 (at most
+    WORK px), ``fg`` where garments are (0..1, the analysis kept with the photo),
+    ``occluder`` 0..1 or None, ``tap`` and ``others`` in its pixels. No model runs: it
+    takes 1-2 s and about 300 MB on a 2000 px photo. None when nothing garment-shaped is there."""
+    from scipy import ndimage as ndi
+
+    h, w = fg.shape
+    x, y = int(round(min(max(tap[0], 0), w - 1))), int(round(min(max(tap[1], 0), h - 1)))
+    with _FIND:
+        try:
+            lab = _lab(rgb)
+            radius = max(4.0, 0.015 * max(h, w))
+            yy, xx = np.ogrid[:h, :w]
+            disc = (xx - x) ** 2 + (yy - y) ** 2 <= radius ** 2
+            # What looks like the tapped fabric, reached from the tap: a garment the
+            # saliency map missed (cream on white) is still found.
+            colour = lab[max(0, y - 2):y + 3, max(0, x - 2):x + 3].reshape(-1, 3).mean(0)
+            near = np.linalg.norm((lab - colour) * np.array([0.3, 1.0, 1.0]), axis=-1) < 12.0
+            cc, _ = ndi.label(near)
+            same = cc == cc[y, x] if cc[y, x] else disc
+            if fg[y, x] < 0.3:
+                # The backdrop, not a garment: what was tapped reaches two edges of the
+                # photo or covers half of it.
+                edges = sum(bool(e.any()) for e in (same[0], same[-1], same[:, 0], same[:, -1]))
+                if edges >= 2 or same.mean() > 0.5:
+                    return None
+            ground = np.maximum(fg, same.astype(np.float32) * 0.6)
+            seeds = [disc & (ground > 0.3) if (disc & (ground > 0.3)).any() else disc]
+            chests = [0.3 * max(h, w)]
+            for quad in others:
+                cx = sum(p[0] for p in quad) / 4
+                cy = sum(p[1] for p in quad) / 4
+                inner = _poly([(cx + 0.5 * (px - cx), cy + 0.5 * (py - cy)) for px, py in quad], h, w)
+                if inner.any() and not inner[y, x]:
+                    seeds.append(inner & ~disc)
+                    chests.append(0.3 * max(h, w))
+            region = _regions(lab, seeds, ground < 0.3, False, chests, ground)[0]
+            if region.sum() < 0.005 * h * w:
+                region = ndi.binary_fill_holes(same) if same.sum() >= 0.005 * h * w else region
+            if region.sum() < 0.005 * h * w:
+                return None
+            g = _flat_landmarks(region, _kind_from_name(name))
+            if g is None:
+                return None
+            hair_acc = (occluder > 0.5) if occluder is not None else np.zeros((h, w), bool)
+            found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"])
+            found.confidence = g["confidence"] * found.info.get("on_region", 1.0)
+            found.info["method"] = "tap"
+            return found
+        finally:
+            _ENCLOSED.clear()

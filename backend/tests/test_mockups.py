@@ -6,13 +6,14 @@
 * Dark garments: white ink stays light (an underbase), the garment around stays dark.
 * No Etsy call and no model call, per mockup or anywhere in the feature.
 * The allowance ("Listings generated") does not change.
-* Another account's template, batch or run is 404; the rights confirmation is required.
-* Uploads: up to 30 MB per photo, refused above with the limit; a template is
-  prepared in the worker ("preparing", then "ready" or "failed" with why).
-* Long names; colour sets and "apply to the set"; SKU naming, unique; per-design progress.
+* Another account's template, photo, batch or run is 404; the rights confirmation is required.
+* Uploads: up to 30 MB per photo, refused above with the limit; a photo is prepared
+  in the worker ("preparing", then "ready" or "failed" with why) and used only once
+  its print areas are confirmed (tests/test_mockup_editor.py).
+* Long names; "<SKU>_<template name>_<photo name>.jpg", unique; per-design progress.
 * "Use for listings" (a group per design, the chosen cover) and "Download" (a ZIP,
   private, gone after 24 hours), for the same run.
-* Performance: 50 designs x 3 templates (engine) and 10 designs x 10 colours (worker), timed.
+* Performance: 50 designs x 3 photos (engine) and 10 designs x a template of 10 colours (worker), timed.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from app.db.models import (
     AuditLog,
     MockupDesign,
     MockupOutput,
-    MockupTemplate,
+    MockupPhoto,
     MockupZip,
     Tenant,
     UploadBatch,
@@ -245,10 +246,17 @@ async def mw(world, tmp_path):  # noqa: F811
     get_storage.cache_clear()
 
 
-async def _template(mw, name: str, colour=(238, 238, 236), *, set_id: str | None = None, ready: bool = True) -> dict:
-    data = {"name": name, "rights_confirmed": "true", **({"set_id": set_id} if set_id else {})}
-    res = await mw["a"].post("/api/mockup-templates", data=data,
-                             files={"file": (f"{name}.png", samples.blank(colour, size=(600, 700)), "image/png")})
+async def _new_template(mw, name: str) -> dict:
+    res = await mw["a"].post("/api/mockup-templates", json={"name": name})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+async def _photo(mw, template_id: str, name: str, colour=(238, 238, 236), *, ready: bool = True,
+                 confirm: bool = True, size=(600, 700), blank: bytes | None = None) -> dict:
+    data = {"name": name, "rights_confirmed": "true"}
+    res = await mw["a"].post(f"/api/mockup-templates/{template_id}/photos", data=data,
+                             files={"file": (f"{name}.png", blank or samples.blank(colour, size=size), "image/png")})
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["status"] == "preparing"  # saved at once; the outline is found in the worker
@@ -257,8 +265,28 @@ async def _template(mw, name: str, colour=(238, 238, 236), *, set_id: str | None
         async with mw["sm"]() as s:
             prepared = await work.prepare(s, mw["storage"], uuid.UUID(body["id"]))
             assert prepared.status == "ready", prepared.error
-        body = next(t for t in (await mw["a"].get("/api/mockup-templates")).json() if t["id"] == body["id"])
+        body = (await mw["a"].get(f"/api/mockup-photos/{body['id']}")).json()
+        assert body["needs_check"] and not body["confirmed"]  # a suggestion until the seller looks at it
+        if confirm:
+            body = await _confirm(mw, body)
     return body
+
+
+async def _confirm(mw, photo: dict, areas: list | None = None) -> dict:
+    """"Looks right" on the photo's areas as they are (or as given)."""
+    sent = areas or [{"print_area": a["print_area"], "detected_area": a["detected_area"], "source": a["source"]}
+                     for a in photo["areas"]]
+    res = await mw["a"].put(f"/api/mockup-photos/{photo['id']}/areas", json={"areas": sent, "confirm": True})
+    assert res.status_code == 200, res.text
+    assert res.json()["confirmed"] and not res.json()["needs_check"]
+    return res.json()
+
+
+async def _template(mw, name: str, colour=(238, 238, 236), **kwargs) -> dict:
+    """A template of one photo of the same name (as the earlier templates were)."""
+    template = await _new_template(mw, name)
+    photo = await _photo(mw, template["id"], name, colour, **kwargs)
+    return {**template, "photo": photo}
 
 
 async def _new_batch(mw) -> uuid.UUID:
@@ -276,8 +304,8 @@ async def _designs(mw, batch: uuid.UUID, names: list[str], kind: str = "transpar
     return out
 
 
-async def _run(mw, batch: uuid.UUID, template_ids: list[str]) -> dict:
-    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": template_ids})
+async def _run(mw, batch: uuid.UUID, template_ids: list[str], **options) -> dict:
+    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": template_ids, **options})
     assert res.status_code == 202, res.text
     async with mw["sm"]() as s:
         done = await work.run(s, mw["storage"], uuid.UUID(res.json()["id"]))
@@ -297,14 +325,15 @@ def _noise_png(megabytes: float) -> bytes:
 
 
 async def test_a_25_mb_photo_is_accepted_and_a_31_mb_one_is_refused_with_the_limit(mw) -> None:
+    template = await _new_template(mw, "Big")
     big = _noise_png(25)
     assert 24 * 1024 * 1024 < len(big) < 26 * 1024 * 1024
-    res = await mw["a"].post("/api/mockup-templates", data={"name": "Big", "rights_confirmed": "true"},
+    res = await mw["a"].post(f"/api/mockup-templates/{template['id']}/photos", data={"name": "Big", "rights_confirmed": "true"},
                              files={"file": ("big.png", big, "image/png")})
     assert res.status_code == 201, res.text
     # Over 30 MB: refused before anything is read, saying the limit (the body is
     # drained first, so a proxy in front can pass the answer on).
-    res = await mw["a"].post("/api/mockup-templates", data={"name": "Huge", "rights_confirmed": "true"},
+    res = await mw["a"].post(f"/api/mockup-templates/{template['id']}/photos", data={"name": "Huge", "rights_confirmed": "true"},
                              files={"file": ("huge.png", b"\x89PNG" + b"0" * (31 * 1024 * 1024), "image/png")})
     assert res.status_code == 413
     assert res.json()["detail"] == "This file is too large: the limit is 30 MB per file."
@@ -316,73 +345,49 @@ async def test_a_25_mb_photo_is_accepted_and_a_31_mb_one_is_refused_with_the_lim
 
 
 async def test_a_blank_needs_the_rights_confirmation_and_long_names_are_kept(mw) -> None:
-    res = await mw["a"].post("/api/mockup-templates", data={"name": "Tee"},
+    template = await _new_template(mw, "Tee")
+    res = await mw["a"].post(f"/api/mockup-templates/{template['id']}/photos", data={"name": "Tee"},
                              files={"file": ("tee.png", samples.blank(size=(600, 700)), "image/png")})
     assert res.status_code == 422
     assert "This photo is my own, or I have the right to use it to show my products." in res.json()["detail"]
     long = "Comfort Colors 1717 Garment-Dyed Heavyweight T-Shirt, Front, Flat Lay on Linen — Kırmızı / Красный " + "x" * 40
-    created = await _template(mw, long)
+    created = await _photo(mw, template["id"], long)
     assert created["name"] == " ".join(long.split())[:120] and len(created["name"]) == 120
-    renamed = await mw["a"].patch(f"/api/mockup-templates/{created['id']}", json={"name": "  Tişört,   ön yüz  "})
+    renamed = await mw["a"].patch(f"/api/mockup-photos/{created['id']}", json={"name": "  Tişört,   ön yüz  "})
     assert renamed.json()["name"] == "Tişört, ön yüz"
-    assert (await mw["a"].patch(f"/api/mockup-templates/{created['id']}", json={"name": "y" * 121})).status_code == 422
+    assert (await mw["a"].patch(f"/api/mockup-photos/{created['id']}", json={"name": "y" * 121})).status_code == 422
+    template_renamed = await mw["a"].patch(f"/api/mockup-templates/{template['id']}", json={"name": " Comfort   Colors 1717 "})
+    assert template_renamed.json()["name"] == "Comfort Colors 1717"
     async with mw["sm"]() as s:
-        template = await s.get(MockupTemplate, uuid.UUID(created["id"]))
-        assert template.rights_confirmed_at is not None
-        assert (await s.execute(select(AuditLog).where(AuditLog.action == "mockup_template.created"))).scalars().first()
+        photo = await s.get(MockupPhoto, uuid.UUID(created["id"]))
+        assert photo.rights_confirmed_at is not None
+        assert (await s.execute(select(AuditLog).where(AuditLog.action == "mockup_photo.created"))).scalars().first()
 
 
-async def test_a_template_is_preparing_until_the_worker_is_done_and_says_why_it_failed(mw) -> None:
-    pending = await _template(mw, "Pending", ready=False)
-    assert pending["print_area"] is None
-    assert (await mw["a"].get(f"/api/mockup-templates/{pending['id']}/image")).status_code == 409
-    assert (await mw["a"].post(f"/api/mockup-templates/{pending['id']}/preview", json={})).status_code == 409
+async def test_a_photo_is_preparing_until_the_worker_is_done_and_says_why_it_failed(mw) -> None:
+    template = await _new_template(mw, "Pending")
+    pending = await _photo(mw, template["id"], "Pending", ready=False)
+    assert pending["areas"] == [] and not pending["needs_check"]
+    assert (await mw["a"].get(f"/api/mockup-photos/{pending['id']}/image")).status_code == 409
+    assert (await mw["a"].post(f"/api/mockup-photos/{pending['id']}/preview", json={})).status_code == 409
     batch = await _new_batch(mw)
     await _designs(mw, batch, ["BR1.png"])
-    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": [pending["id"]]})
-    assert res.status_code == 409 and "not ready" in res.json()["detail"]
+    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": [template["id"]]})
+    assert res.status_code == 409 and "confirmed photo" in res.json()["detail"]
     # A photo the worker cannot read: "failed", with a reason the seller can act on.
     async with mw["sm"]() as s:
-        template = await s.get(MockupTemplate, uuid.UUID(pending["id"]))
-        mw["storage"].put(template.source_key, b"not an image", "image/png")
-        done = await work.prepare(s, mw["storage"], template.id)
+        photo = await s.get(MockupPhoto, uuid.UUID(pending["id"]))
+        mw["storage"].put(photo.source_key, b"not an image", "image/png")
+        done = await work.prepare(s, mw["storage"], photo.id)
         assert (done.status, done.error) == ("failed", work.PREPARE_FAILED)
 
 
-async def test_a_colour_set_takes_one_templates_print_area_size_and_fold(mw) -> None:
-    res = await mw["a"].post("/api/mockup-sets", json={"name": "Comfort Colors 1717, front"})
-    assert res.status_code == 201
-    set_id = res.json()["id"]
-    colours = [("White", (238, 238, 236)), ("Black", (26, 26, 28)), ("Pepper", (90, 92, 94))]
-    templates = [await _template(mw, name, colour, set_id=set_id) for name, colour in colours]
-    pending = await _template(mw, "Ivory", (240, 234, 220), set_id=set_id, ready=False)
-    first = templates[0]["id"]
-    await mw["a"].patch(f"/api/mockup-templates/{first}", json={"print_area": AREA, "size": 0.75, "fold_strength": 0.3})
-    res = await mw["a"].post(f"/api/mockup-sets/{set_id}/apply", json={"template_id": first})
-    assert res.status_code == 200, res.text
-    for t in res.json():
-        assert (t["print_area"], t["size"], t["fold_strength"]) == (AREA, 0.75, 0.3), t["name"]
-    # The one still preparing keeps the set's area when it is ready.
-    async with mw["sm"]() as s:
-        done = await work.prepare(s, mw["storage"], uuid.UUID(pending["id"]))
-        assert (done.status, done.print_area) == ("ready", AREA)
-    sets = (await mw["a"].get("/api/mockup-sets")).json()
-    assert sets[0]["name"] == "Comfort Colors 1717, front" and len(sets[0]["template_ids"]) == 4
-    # A template outside the set cannot be the source; one is taken out; the set is deleted, its templates stay.
-    loose = await _template(mw, "Loose")
-    assert (await mw["a"].post(f"/api/mockup-sets/{set_id}/apply", json={"template_id": loose["id"]})).status_code == 422
-    out = await mw["a"].patch(f"/api/mockup-templates/{templates[2]['id']}", json={"set_id": None})
-    assert out.json()["set_id"] is None
-    assert (await mw["a"].delete(f"/api/mockup-sets/{set_id}")).status_code == 204
-    assert all(t["set_id"] is None for t in (await mw["a"].get("/api/mockup-templates")).json())
-    async with mw["sm"]() as s:
-        assert (await s.execute(select(AuditLog).where(AuditLog.action == "mockup_set.deleted"))).scalars().first()
-
-
-async def test_mockups_are_named_by_sku_and_template_uniquely(mw, monkeypatch) -> None:
+async def test_mockups_are_named_by_sku_template_and_photo_uniquely(mw, monkeypatch) -> None:
     guard = _NoCalls(monkeypatch)
-    white = await _template(mw, "White / Front")
-    black = await _template(mw, "Black", (26, 26, 28))
+    tee = await _new_template(mw, "CC1717 / Front")
+    await _photo(mw, tee["id"], "White")
+    await _photo(mw, tee["id"], "Black", (26, 26, 28))
+    single = await _template(mw, "Navy", (30, 40, 80))  # a template of one photo, named like it
     batch = await _new_batch(mw)
     designs = await _designs(mw, batch, ["BR5229.png", "BR5229 copy.png", "sunset.png"])
     assert [d["parsed_sku"] for d in designs] == ["BR5229", "BR5229", None]
@@ -391,42 +396,48 @@ async def test_mockups_are_named_by_sku_and_template_uniquely(mw, monkeypatch) -
     assert (await mw["a"].patch(f"/api/mockup-designs/{designs[2]['id']}", json={"sku": "bad^sku"})).status_code == 422
     edited = await mw["a"].patch(f"/api/mockup-designs/{designs[2]['id']}", json={"sku": "SUN-01"})
     assert (edited.json()["parsed_sku"], edited.json()["group_key"]) == ("SUN-01", "SUN-01")
-    run = await _run(mw, batch, [white["id"], black["id"]])
+    run = await _run(mw, batch, [tee["id"], single["id"]])
+    assert (run["photos"], run["skipped"], run["templates"]) == (3, 0, ["CC1717 / Front", "Navy"])
     names = sorted(o["filename"] for d in run["designs"] for o in d["outputs"])
     assert names == [
-        "BR5229_Black (2).jpg", "BR5229_Black.jpg", "BR5229_White Front (2).jpg", "BR5229_White Front.jpg",
-        "SUN-01_Black.jpg", "SUN-01_White Front.jpg",
+        "BR5229_CC1717 Front_Black (2).jpg", "BR5229_CC1717 Front_Black.jpg",
+        "BR5229_CC1717 Front_White (2).jpg", "BR5229_CC1717 Front_White.jpg",
+        "BR5229_Navy (2).jpg", "BR5229_Navy.jpg",
+        "SUN-01_CC1717 Front_Black.jpg", "SUN-01_CC1717 Front_White.jpg", "SUN-01_Navy.jpg",
     ]
     # Per-design progress, and nothing in the listings yet.
-    assert all((d["done"], d["total"], d["in_listings"]) == (2, 2, False) for d in run["designs"])
+    assert all((d["done"], d["total"], d["in_listings"]) == (3, 3, False) for d in run["designs"])
     async with mw["sm"]() as s:
         assert (await s.execute(select(Asset).where(Asset.batch_id == batch))).scalars().all() == []
     assert guard.calls == []
     # Without a SKU, the design's file name.
     await mw["a"].patch(f"/api/mockup-designs/{designs[2]['id']}", json={"sku": None})
-    run = await _run(mw, batch, [white["id"]])
-    assert "sunset_White Front.jpg" in [o["filename"] for d in run["designs"] for o in d["outputs"]]
+    run = await _run(mw, batch, [tee["id"]])
+    assert "sunset_CC1717 Front_White.jpg" in [o["filename"] for d in run["designs"] for o in d["outputs"]]
 
 
 async def test_use_for_listings_makes_a_group_per_design_with_the_chosen_cover(mw, monkeypatch) -> None:
     guard = _NoCalls(monkeypatch)
-    templates = [await _template(mw, n, c) for n, c in (("White", (238, 238, 236)), ("Black", (26, 26, 28)), ("Navy", (30, 40, 80)))]
+    tee = await _new_template(mw, "Tee")
+    photos = [await _photo(mw, tee["id"], n, c) for n, c in (("White", (238, 238, 236)), ("Black", (26, 26, 28)), ("Navy", (30, 40, 80)))]
     async with mw["sm"]() as s:
         before = (await allowance.status(s, await s.get(Tenant, mw["alice"]))).used
     batch = await _new_batch(mw)
     designs = await _designs(mw, batch, ["BR5200.png", "BR5201.png"])
-    run = await _run(mw, batch, [t["id"] for t in templates])
-    navy = templates[2]["id"]
+    run = await _run(mw, batch, [tee["id"]])
+    navy = photos[2]["id"]
     res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/listings",
                              json={"design_ids": [designs[0]["id"]], "covers": {designs[0]["id"]: navy}})
     assert res.json() == {"groups": 1, "photos": 3}
     async with mw["sm"]() as s:
         assets = list((await s.execute(select(Asset).where(Asset.batch_id == batch).order_by(Asset.rank))).scalars())
         assert [(a.group_key, a.rank, a.original_filename) for a in assets] == [
-            ("BR5200", 1, "BR5200/BR5200_Navy.jpg"), ("BR5200", 2, "BR5200/BR5200_White.jpg"), ("BR5200", 3, "BR5200/BR5200_Black.jpg"),
+            ("BR5200", 1, "BR5200/BR5200_Tee_Navy.jpg"), ("BR5200", 2, "BR5200/BR5200_Tee_White.jpg"),
+            ("BR5200", 3, "BR5200/BR5200_Tee_Black.jpg"),
         ]
+        assert assets[0].mockup_photo_id == uuid.UUID(navy)
         assert (await s.get(UploadBatch, batch)).status.value == "ready"
-    # All designs, the first template as cover where none is chosen; using one again changes it.
+    # All designs, the first photo as cover where none is chosen; using one again changes it.
     res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/listings", json={"design_ids": None, "covers": {}})
     assert res.json() == {"groups": 2, "photos": 6}
     groups = (await mw["a"].get(f"/api/batches/{batch}/groups")).json()
@@ -434,14 +445,14 @@ async def test_use_for_listings_makes_a_group_per_design_with_the_chosen_cover(m
     async with mw["sm"]() as s:
         covers = {a.group_key: a.original_filename for a in (await s.execute(
             select(Asset).where(Asset.batch_id == batch, Asset.rank == 1))).scalars()}
-        assert covers == {"BR5200": "BR5200/BR5200_White.jpg", "BR5201": "BR5201/BR5201_White.jpg"}
+        assert covers == {"BR5200": "BR5200/BR5200_Tee_White.jpg", "BR5201": "BR5201/BR5201_Tee_White.jpg"}
         assert (await allowance.status(s, await s.get(Tenant, mw["alice"]))).used == before  # not counted
         assert (await s.execute(select(AiCall))).scalars().all() == []
     assert all(d["in_listings"] for d in (await mw["a"].get(f"/api/mockup-runs/{run['id']}")).json()["designs"])
     assert guard.calls == []
-    # A cover that is not one of the run's templates is refused.
+    # A cover that is not one of the run's photos is refused.
     other = await _template(mw, "Other")
-    res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/listings", json={"covers": {designs[0]["id"]: other["id"]}})
+    res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/listings", json={"covers": {designs[0]["id"]: other["photo"]["id"]}})
     assert res.status_code == 422
 
 
@@ -449,11 +460,12 @@ async def test_a_zip_holds_the_chosen_mockups_and_expires_after_24_hours(mw) -> 
     import zipfile
     from datetime import datetime, timedelta, timezone
 
-    white = await _template(mw, "White")
-    black = await _template(mw, "Black", (26, 26, 28))
+    tee = await _new_template(mw, "Tee")
+    await _photo(mw, tee["id"], "White")
+    await _photo(mw, tee["id"], "Black", (26, 26, 28))
     batch = await _new_batch(mw)
     designs = await _designs(mw, batch, ["BR5300.png", "BR5301.png"])
-    run = await _run(mw, batch, [white["id"], black["id"]])
+    run = await _run(mw, batch, [tee["id"]])
     res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/zip", json={"layout": "folders"})
     assert res.status_code == 202
     zip_id = res.json()["id"]
@@ -465,14 +477,14 @@ async def test_a_zip_holds_the_chosen_mockups_and_expires_after_24_hours(mw) -> 
     got = await mw["a"].get(f"/api/mockup-zips/{zip_id}/download")
     assert got.status_code == 200 and got.headers["content-type"] == "application/zip"
     assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == [
-        "BR5300/BR5300_Black.jpg", "BR5300/BR5300_White.jpg", "BR5301/BR5301_Black.jpg", "BR5301/BR5301_White.jpg",
+        "BR5300/BR5300_Tee_Black.jpg", "BR5300/BR5300_Tee_White.jpg", "BR5301/BR5301_Tee_Black.jpg", "BR5301/BR5301_Tee_White.jpg",
     ]
     # Flat, one design.
     res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/zip", json={"layout": "flat", "design_ids": [designs[1]["id"]]})
     async with mw["sm"]() as s:
         flat = await work.build_zip(s, mw["storage"], uuid.UUID(res.json()["id"]))
     got = await mw["a"].get(f"/api/mockup-zips/{flat.id}/download")
-    assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == ["BR5301_Black.jpg", "BR5301_White.jpg"]
+    assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == ["BR5301_Tee_Black.jpg", "BR5301_Tee_White.jpg"]
     # The same run, used for listings too.
     assert (await mw["a"].post(f"/api/mockup-runs/{run['id']}/listings", json={})).json()["groups"] == 2
     # Another account cannot see or download it.
@@ -487,23 +499,30 @@ async def test_a_zip_holds_the_chosen_mockups_and_expires_after_24_hours(mw) -> 
     assert (await mw["a"].get(f"/api/mockup-zips/{zip_id}")).json()["status"] == "expired"
 
 
-async def test_another_accounts_templates_sets_runs_mockups_and_zips_are_not_found(mw) -> None:
+async def test_another_accounts_templates_photos_runs_mockups_and_zips_are_not_found(mw) -> None:
     template = await _template(mw, "White tee")
-    tid = template["id"]
-    set_id = (await mw["a"].post("/api/mockup-sets", json={"name": "Set"})).json()["id"]
+    tid, pid = template["id"], template["photo"]["id"]
     batch = await _new_batch(mw)
     designs = await _designs(mw, batch, ["BR9.png"])
     run = await _run(mw, batch, [tid])
     output = run["designs"][0]["outputs"][0]["id"]
+    area = template["photo"]["areas"][0]["print_area"]
     b = mw["b"]
     for res in (
-        await b.get(f"/api/mockup-templates/{tid}/image"),
-        await b.patch(f"/api/mockup-templates/{tid}", json={"size": 0.5}),
-        await b.post(f"/api/mockup-templates/{tid}/preview", json={}),
+        await b.get(f"/api/mockup-templates/{tid}"),
+        await b.patch(f"/api/mockup-templates/{tid}", json={"name": "x"}),
         await b.delete(f"/api/mockup-templates/{tid}"),
-        await b.patch(f"/api/mockup-sets/{set_id}", json={"name": "x"}),
-        await b.post(f"/api/mockup-sets/{set_id}/apply", json={"template_id": tid}),
-        await b.delete(f"/api/mockup-sets/{set_id}"),
+        await b.post(f"/api/mockup-templates/{tid}/photos", data={"name": "x", "rights_confirmed": "true"},
+                     files={"file": ("x.png", samples.blank(size=(600, 700)), "image/png")}),
+        await b.put(f"/api/mockup-templates/{tid}/photos/order", json={"ids": [pid]}),
+        await b.get(f"/api/mockup-photos/{pid}"),
+        await b.get(f"/api/mockup-photos/{pid}/image"),
+        await b.patch(f"/api/mockup-photos/{pid}", json={"size": 0.5}),
+        await b.put(f"/api/mockup-photos/{pid}/areas", json={"areas": [{"print_area": area}], "confirm": True}),
+        await b.post(f"/api/mockup-photos/{pid}/find", json={"x": 0.5, "y": 0.5}),
+        await b.post(f"/api/mockup-photos/{pid}/copy", json={"photo_ids": [pid]}),
+        await b.post(f"/api/mockup-photos/{pid}/preview", json={}),
+        await b.delete(f"/api/mockup-photos/{pid}"),
         await b.post(f"/api/batches/{batch}/designs", files={"file": ("d.png", samples.design(), "image/png")}),
         await b.patch(f"/api/mockup-designs/{designs[0]['id']}", json={"sku": "X1"}),
         await b.get(f"/api/mockup-runs/{run['id']}"),
@@ -512,35 +531,41 @@ async def test_another_accounts_templates_sets_runs_mockups_and_zips_are_not_fou
         await b.post(f"/api/mockup-runs/{run['id']}/zip", json={}),
     ):
         assert res.status_code == 404, res.text
-    assert (await b.get("/api/mockup-templates")).json() == [] and (await b.get("/api/mockup-sets")).json() == []
-    # Bob cannot print on Alice's template, even in his own batch.
+    assert (await b.get("/api/mockup-templates")).json() == []
+    # Bob cannot print on Alice's template, even in his own batch, nor move his photo into it.
     async with mw["sm"]() as s:
         bobs = UploadBatch(tenant_id=mw["bob"], status=UploadBatchStatus.uploading, file_count=0)
         s.add(bobs)
         await s.commit()
         bobs_id = bobs.id
     assert (await b.post(f"/api/batches/{bobs_id}/mockups", json={"template_ids": [tid]})).status_code == 404
-    # A template upload naming Alice's set from Bob's account.
-    res = await b.post("/api/mockup-templates", data={"name": "x", "rights_confirmed": "true", "set_id": set_id},
-                       files={"file": ("x.png", samples.blank(size=(600, 700)), "image/png")})
-    assert res.status_code == 404
+    bobs_template = (await b.post("/api/mockup-templates", json={"name": "Bob's"})).json()
+    bobs_photo = (await b.post(f"/api/mockup-templates/{bobs_template['id']}/photos", data={"name": "x", "rights_confirmed": "true"},
+                               files={"file": ("x.png", samples.blank(size=(600, 700)), "image/png")})).json()
+    assert (await b.patch(f"/api/mockup-photos/{bobs_photo['id']}", json={"template_id": tid})).status_code == 404
+    # Copying to a photo of another account.
+    assert (await mw["a"].post(f"/api/mockup-photos/{pid}/copy", json={"photo_ids": [bobs_photo["id"]]})).status_code == 404
 
 
 async def test_no_model_call_in_the_preview_and_settings_are_checked(mw, monkeypatch) -> None:
     guard = _NoCalls(monkeypatch)
-    template = await _template(mw, "White tee")
-    tid = template["id"]
-    res = await mw["a"].post(f"/api/mockup-templates/{tid}/preview", json={"print_area": AREA, "size": 0.8, "fold_strength": 0.2})
+    template = await _template(mw, "White tee", confirm=False)
+    pid = template["photo"]["id"]
+    res = await mw["a"].post(f"/api/mockup-photos/{pid}/preview", json={"areas": [AREA], "size": 0.8, "fold_strength": 0.2})
     assert res.status_code == 200 and res.headers["content-type"] == "image/jpeg"
-    again = await mw["a"].post(f"/api/mockup-templates/{tid}/preview", json={"print_area": AREA, "size": 0.8, "fold_strength": 0.2})
+    again = await mw["a"].post(f"/api/mockup-photos/{pid}/preview", json={"areas": [AREA], "size": 0.8, "fold_strength": 0.2})
     assert again.content == res.content
     assert guard.calls == []
-    body = (await mw["a"].patch(f"/api/mockup-templates/{tid}", json={"print_area": AREA, "size": 0.7, "fold_strength": 0.2})).json()
-    assert (body["print_area"], body["print_area_source"], body["size"], body["fold_strength"]) == (AREA, "seller", 0.7, 0.2)
+    body = (await mw["a"].patch(f"/api/mockup-photos/{pid}", json={"size": 0.7, "fold_strength": 0.2})).json()
+    assert (body["size"], body["fold_strength"]) == (0.7, 0.2)
+    saved = (await mw["a"].put(f"/api/mockup-photos/{pid}/areas", json={"areas": [{"print_area": AREA}]})).json()
+    assert saved["areas"][0]["print_area"] == AREA and saved["areas"][0]["source"] == "seller"
+    # The suggestion is kept for "Reset to suggestion"; saving without "Looks right" is not a confirmation.
+    assert saved["areas"][0]["detected_area"] == template["photo"]["areas"][0]["detected_area"]
+    assert saved["needs_check"] and not saved["confirmed"]
     crossed = [[0.1, 0.1], [0.9, 0.9], [0.9, 0.1], [0.1, 0.9]]
-    assert (await mw["a"].patch(f"/api/mockup-templates/{tid}", json={"print_area": crossed})).status_code == 422
-    reset = (await mw["a"].patch(f"/api/mockup-templates/{tid}", json={"reset_print_area": True})).json()
-    assert (reset["print_area"], reset["print_area_source"]) == (template["print_area"], "default")
+    assert (await mw["a"].put(f"/api/mockup-photos/{pid}/areas", json={"areas": [{"print_area": crossed}]})).status_code == 422
+    assert (await mw["a"].put(f"/api/mockup-photos/{pid}/areas", json={"areas": []})).status_code == 422
 
 
 async def test_deleting_a_template_is_recorded_and_keeps_mockups_already_made(mw) -> None:
@@ -552,8 +577,14 @@ async def test_deleting_a_template_is_recorded_and_keeps_mockups_already_made(mw
     assert (await mw["a"].delete(f"/api/mockup-templates/{template['id']}")).status_code == 204
     async with mw["sm"]() as s:
         assert (await s.execute(select(AuditLog).where(AuditLog.action == "mockup_template.deleted"))).scalars().first()
+        assert (await s.execute(select(MockupPhoto))).scalars().all() == []  # its photos went with it
         [asset] = (await s.execute(select(Asset).where(Asset.batch_id == batch))).scalars().all()
-        assert asset.mockup_template_id is None and asset.processed_key and mw["storage"].exists(asset.processed_key)
+        assert asset.mockup_photo_id is None and asset.processed_key and mw["storage"].exists(asset.processed_key)
+    # Deleting one photo is recorded too.
+    other = await _template(mw, "Black tee", (26, 26, 28))
+    assert (await mw["a"].delete(f"/api/mockup-photos/{other['photo']['id']}")).status_code == 204
+    async with mw["sm"]() as s:
+        assert (await s.execute(select(AuditLog).where(AuditLog.action == "mockup_photo.deleted"))).scalars().first()
 
 
 async def test_mockups_are_refused_once_listings_are_written_and_a_second_run_replaces_the_first(mw) -> None:
@@ -618,22 +649,16 @@ def test_fifty_designs_on_three_templates(capsys) -> None:
     assert count == 150 and per < 2.0
 
 
-async def test_ten_designs_in_ten_colours_through_the_worker(mw, capsys) -> None:
+async def test_ten_designs_on_a_template_of_ten_colours_through_the_worker(mw, capsys) -> None:
     """The whole run as the worker does it (storage, database, progress): 100 mockups."""
-    set_id = (await mw["a"].post("/api/mockup-sets", json={"name": "Ten colours"})).json()["id"]
+    template = await _new_template(mw, "Ten colours")
     colours = [(238, 238, 236), (26, 26, 28), (150, 152, 156), (30, 40, 80), (200, 60, 60),
                (60, 120, 70), (240, 210, 80), (120, 80, 160), (250, 190, 200), (90, 60, 40)]
-    ids = []
     for i, colour in enumerate(colours):
-        res = await mw["a"].post("/api/mockup-templates", data={"name": f"Colour {i + 1}", "rights_confirmed": "true", "set_id": set_id},
-                                 files={"file": (f"c{i}.png", samples.blank(colour, size=(1700, 2000)), "image/png")})
-        ids.append(res.json()["id"])
-    async with mw["sm"]() as s:
-        for tid in ids:
-            assert (await work.prepare(s, mw["storage"], uuid.UUID(tid))).status == "ready"
+        await _photo(mw, template["id"], f"Colour {i + 1}", colour, size=(1700, 2000))
     batch = await _new_batch(mw)
     await _designs(mw, batch, [f"BR{6000 + i}.png" for i in range(10)])
-    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": ids})
+    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": [template["id"]]})
     started = time.perf_counter()
     async with mw["sm"]() as s:
         done = await work.run(s, mw["storage"], uuid.UUID(res.json()["id"]))

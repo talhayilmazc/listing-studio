@@ -25,9 +25,9 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from app.pipeline import mockup_vision as vision
 from app.pipeline import mockups
-from app.workers import mockups as work
 from tests import mockup_samples as samples
-from tests.test_mockups import _NoCalls, _template, mw  # noqa: F401  (fixtures)
+from app.db.models import MockupPhoto
+from tests.test_mockups import _NoCalls, _confirm, _new_template, _photo, _template, mw  # noqa: F401  (fixtures)
 from tests.test_multi_shop import world  # noqa: F401  (fixture)
 
 
@@ -240,34 +240,34 @@ def test_maps_keep_only_the_print_window_and_give_the_same_mockup() -> None:
 # --- through the worker and the API -----------------------------------------------------------
 
 
-async def test_the_card_asks_to_check_a_low_confidence_area_and_occlusion_can_be_switched_off(mw, monkeypatch) -> None:
+async def test_a_person_photo_keeps_an_occluder_waits_for_the_check_and_occlusion_can_be_switched_off(mw, monkeypatch) -> None:  # noqa: F811
     guard = _NoCalls(monkeypatch)
     png, truth = samples.person("hair")
     monkeypatch.setattr(vision, "default_runner", lambda: samples.TruthRunner(truth, presence=0.75, visibility=0.7))
-    res = await mw["a"].post("/api/mockup-templates", data={"name": "Model, front", "rights_confirmed": "true"},
-                             files={"file": ("model.png", png, "image/png")})
-    assert res.status_code == 201, res.text
+    template = await _new_template(mw, "Model")
+    card = await _photo(mw, template["id"], "Model, front", blank=png, confirm=False)
     async with mw["sm"]() as s:
-        done = await work.prepare(s, mw["storage"], uuid.UUID(res.json()["id"]))
-        assert done.status == "ready" and done.occluder_key and mw["storage"].exists(done.occluder_key)
-    card = next(t for t in (await mw["a"].get("/api/mockup-templates")).json() if t["id"] == res.json()["id"])
+        done = await s.get(MockupPhoto, uuid.UUID(card["id"]))
+        assert done.occluder_key and mw["storage"].exists(done.occluder_key)
     assert (card["method"], card["needs_check"], card["has_occluder"], card["occlusion"]) == ("pose", True, True, True)
     assert card["analysis_note"] == vision.NOTES["pose"]
-    # The seller adjusts the area: not asked again. Occlusion off, then reset brings back the found area.
-    moved = await mw["a"].patch(f"/api/mockup-templates/{card['id']}",
-                                json={"print_area": [[0.3, 0.3], [0.7, 0.3], [0.7, 0.6], [0.3, 0.6]], "occlusion": False})
-    assert (moved.json()["needs_check"], moved.json()["occlusion"]) == (False, False)
-    reset = (await mw["a"].patch(f"/api/mockup-templates/{card['id']}", json={"reset_print_area": True})).json()
-    assert reset["print_area"] == card["print_area"]
+    # The seller moves the area and confirms: no longer asked. Occlusion off.
+    moved = [[0.3, 0.3], [0.7, 0.3], [0.7, 0.6], [0.3, 0.6]]
+    confirmed = await _confirm(mw, card, [{"print_area": moved, "detected_area": card["areas"][0]["detected_area"]}])
+    assert confirmed["areas"][0]["detected_area"] == card["areas"][0]["print_area"]  # the suggestion is kept
+    off = (await mw["a"].patch(f"/api/mockup-photos/{card['id']}", json={"occlusion": False})).json()
+    assert (off["needs_check"], off["occlusion"]) == (False, False)
     # The preview draws, without any network, model API or Etsy call.
-    assert (await mw["a"].post(f"/api/mockup-templates/{card['id']}/preview", json={})).status_code == 200
+    assert (await mw["a"].post(f"/api/mockup-photos/{card['id']}/preview", json={})).status_code == 200
     assert guard.calls == []
     # Another account cannot touch it.
-    assert (await mw["b"].patch(f"/api/mockup-templates/{card['id']}", json={"occlusion": True})).status_code == 404
+    assert (await mw["b"].patch(f"/api/mockup-photos/{card['id']}", json={"occlusion": True})).status_code == 404
 
 
-async def test_a_sure_flat_lay_asks_nothing(mw) -> None:
-    template = await _template(mw, "White tee")
-    assert template["method"] == "outline" and template["needs_check"] is False
-    assert template["has_occluder"] is False and template["view"] == "front"
-    assert len(template["garments"]) == 1 and template["garments"][0]["needs_check"] is False
+async def test_a_sure_flat_lay_is_still_only_a_suggestion(mw) -> None:  # noqa: F811
+    template = await _template(mw, "White tee", confirm=False)
+    photo = template["photo"]
+    assert photo["method"] == "outline" and photo["has_occluder"] is False and photo["view"] == "front"
+    assert len(photo["areas"]) == 1 and photo["areas"][0]["source"] == "default"
+    # However sure the analysis is, the seller confirms it once.
+    assert photo["needs_check"] is True and photo["confirmed"] is False

@@ -1,16 +1,21 @@
-"""Mockup templates, sets, the designs printed on them, runs, listings and ZIPs
-(pipeline/mockups.py, workers/mockups.py).
+"""Mockup templates and their photos, the designs printed on them, runs, listings and
+ZIPs (pipeline/mockups.py, workers/mockups.py).
 
-Everything is per account: another account's template, set, batch, run, mockup or
-ZIP is 404. No Etsy call and no model call is made anywhere here. A template is
-the seller's own blank photo, accepted only when they confirm they may use it; it
-is kept until they delete it or their account. Mockups do not count towards
-"Listings generated".
+A **template** is a named group of the seller's blank photos (the same tee in ten
+colours, or several shots of one product); every design of a run is placed on every
+confirmed photo of each chosen template. A **photo** is accepted only when the seller
+confirms they may use it; the worker suggests its print areas, and the photo is used
+for mockups only after the seller has looked at them and pressed "Looks right"
+(``confirmed_at``). Both are kept until the seller deletes them or their account.
 
-A blank photo or a design is up to ``max_mockup_upload_bytes`` (30 MB) per file,
-one file per request; the request only checks and resizes it. Finding a
-template's outline runs in the worker: the template is returned at once,
-"preparing".
+Everything is per account: another account's template, photo, batch, run, mockup or
+ZIP is 404. No Etsy call and no model call is made anywhere here ("Add area" grows a
+garment from the seller's tap in the foreground map kept with the photo, without a
+model). Mockups do not count towards "Listings generated".
+
+A blank photo or a design is up to ``max_mockup_upload_bytes`` (30 MB) per file, one
+file per request; the request only checks and resizes it. Finding a photo's outline
+runs in the worker: the photo is returned at once, "preparing".
 """
 
 from __future__ import annotations
@@ -19,7 +24,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -34,15 +39,14 @@ from app.db.models import (
     GeneratedContent,
     MockupDesign,
     MockupOutput,
+    MockupPhoto,
     MockupRun,
     MockupTemplate,
-    MockupTemplateSet,
     MockupZip,
     Tenant,
     UploadBatch,
 )
 from app.pipeline import grouping, mockup_sample, mockups, skus, upload_retention
-from app.pipeline import mockup_vision as vision
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
@@ -53,109 +57,148 @@ router = APIRouter(prefix="/api", tags=["mockups"])
 
 #: What the seller confirms when uploading a blank (frontend lib/mockups.ts has the same words).
 RIGHTS_STATEMENT = "This photo is my own, or I have the right to use it to show my products."
-#: Templates per account: each keeps a photo and its mask on our disk.
-MAX_TEMPLATES_PER_ACCOUNT = 60
-#: The most garments one photo can hold (each its own print area).
+MAX_TEMPLATES_PER_ACCOUNT = MockupTemplate.MAX_PER_ACCOUNT
+MAX_PHOTOS_PER_ACCOUNT = MockupPhoto.MAX_PER_ACCOUNT
+MAX_PHOTOS_PER_TEMPLATE = MockupPhoto.MAX_PER_TEMPLATE
+#: The most print areas one photo can hold (one per garment).
 MAX_GARMENTS = 24
-#: A template's or a set's name, trimmed; any language.
+#: A template's or a photo's name, trimmed; any language.
 MAX_NAME = 120
-#: The width the Templates page previews at (fast; the real mockups use the full photo).
+#: The width the editor previews at (fast; the real mockups use the full photo).
 PREVIEW_WIDTH = 900
-#: Said when a template's background could not be separated from the garment.
+#: Said when a photo's background could not be separated from the garment.
 NO_MASK = (
     "The background could not be told apart from the garment, so the whole photo counts as fabric. "
     "A photo on a plain background, or a PNG with a transparent background, works best."
 )
 #: Said when mockups are asked for after listings are written from the batch.
 WRITTEN = "Mockups can be changed only before any listing of this batch is written."
-NOT_READY = "This template is still being prepared; try again in a moment."
+NOT_READY = "This photo is still being prepared; try again in a moment."
+#: Said when no chosen template has a photo the seller has confirmed.
+NONE_CONFIRMED = (
+    "None of the chosen templates has a confirmed photo yet. Open the template and press "
+    "“Looks right” on each photo's print area first."
+)
+#: Said by "Add area" when nothing garment-shaped is under the tap: a box is placed there instead.
+TAP_MISSED = "No garment was found where you tapped, so a box was placed there: drag it onto the print area."
 _CACHE = {"Cache-Control": "private, max-age=3600"}
+Quad = list[list[float]]
+Source = Literal["default", "tap", "seller", "copied"]
 
 
-class GarmentOut(BaseModel):
-    print_area: list[list[float]]
+class AreaOut(BaseModel):
+    print_area: Quad
+    #: The suggestion for this area (found, or from the seller's tap): "Reset to
+    #: suggestion" and the editor's guides use it.
+    detected_area: Quad
+    #: "default" (suggested), "tap" (found from the seller's tap), "seller" (moved by
+    #: hand) or "copied" (from another photo of the template).
+    source: str = "default"
     confidence: float | None = None
     kind: str | None = None
-    #: Found by the analysis ("default") or moved by the seller ("seller").
-    source: str = "default"
+
+
+class PhotoOut(BaseModel):
+    id: uuid.UUID
+    template_id: uuid.UUID
+    name: str
+    position: int
+    status: str
+    error: str | None = None
+    width: int | None = None
+    height: int | None = None
+    mask_source: str | None = None
+    size: float
+    fold_strength: float
+    version: int
+    notice: str | None = None
+    #: How the suggestion was found ("pose", "outline", "default") and what the seller is told.
+    method: str | None = None
+    confidence: float | None = None
+    analysis_note: str | None = None
+    #: Pressed "Looks right"; until then the photo is not used for mockups ("Needs your check").
+    confirmed: bool = False
     needs_check: bool = False
+    #: Print behind hair, skin, hands and held things; whether any were found.
+    occlusion: bool = True
+    has_occluder: bool = False
+    #: "front" or "back" (found from the pose; the seller can change it).
+    view: str = "front"
+    #: Every print area, in the seller's order.
+    areas: list[AreaOut] = Field(default_factory=list)
 
 
 class TemplateOut(BaseModel):
     id: uuid.UUID
     name: str
     position: int
-    set_id: uuid.UUID | None = None
-    status: str
-    error: str | None = None
-    width: int | None = None
-    height: int | None = None
-    mask_source: str | None = None
-    print_area: list[list[float]] | None = None
-    print_area_source: str
-    size: float
-    fold_strength: float
-    version: int
-    notice: str | None = None
-    #: How the print area was found ("pose", "outline", "default"), how sure (0..1),
-    #: what the seller is told, and whether they are asked to check it.
-    method: str | None = None
-    confidence: float | None = None
-    analysis_note: str | None = None
-    needs_check: bool = False
-    #: Print behind hair, skin and accessories; whether any were found.
-    occlusion: bool = True
-    has_occluder: bool = False
-    #: "front" or "back" (found from the pose; the seller can change it).
-    view: str = "front"
-    #: Every garment in the photo, reading order; the first is ``print_area``.
-    garments: list[GarmentOut] = Field(default_factory=list)
+    photos: list[PhotoOut] = Field(default_factory=list)
+    #: Ready photos not confirmed yet (shown as "Needs your check").
+    needs_check: int = 0
+    confirmed: int = 0
 
 
-class TemplateUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
-    print_area: list[list[float]] | None = None
-    #: Back to the area found from the garment's outline.
-    reset_print_area: bool = False
-    size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
-    fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
-    #: Sent: the set it moves to; null takes it out of its set.
-    set_id: uuid.UUID | None = None
-    occlusion: bool | None = None
-    view: Literal["front", "back"] | None = None
-    #: Which garment ``print_area`` / ``reset_print_area`` is for (reading order; 0 = first).
-    garment: int = Field(default=0, ge=0, le=MAX_GARMENTS - 1)
-
-
-class TemplateOrder(BaseModel):
-    ids: list[uuid.UUID] = Field(max_length=MAX_TEMPLATES_PER_ACCOUNT)
-
-
-class PreviewRequest(BaseModel):
-    """Unsaved settings to preview; a field left out is the template's own."""
-
-    print_area: list[list[float]] | None = None
-    size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
-    fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
-    occlusion: bool | None = None
-    #: Which garment ``print_area`` is for (0 = first).
-    garment: int = Field(default=0, ge=0, le=MAX_GARMENTS - 1)
-
-
-class SetIn(BaseModel):
+class TemplateIn(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_NAME)
 
 
-class SetOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    position: int
-    template_ids: list[uuid.UUID] = Field(default_factory=list)
+class Order(BaseModel):
+    ids: list[uuid.UUID] = Field(max_length=MAX_PHOTOS_PER_ACCOUNT)
 
 
-class ApplyToSet(BaseModel):
-    #: The template whose print area, size and fold strength every other one takes.
-    template_id: uuid.UUID
+class PhotoUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
+    size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
+    fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
+    occlusion: bool | None = None
+    view: Literal["front", "back"] | None = None
+    #: Move the photo to another of the seller's templates (at its end).
+    template_id: uuid.UUID | None = None
+
+
+class AreaIn(BaseModel):
+    print_area: Quad
+    detected_area: Quad | None = None
+    source: Source = "seller"
+    kind: str | None = Field(default=None, max_length=40)
+
+
+class AreasUpdate(BaseModel):
+    """The photo's print areas from the editor, in the seller's order; ``confirm``: "Looks right"."""
+
+    areas: list[AreaIn] = Field(min_length=1, max_length=MAX_GARMENTS)
+    confirm: bool = False
+    size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
+
+
+class FindRequest(BaseModel):
+    """"Add area": where the seller tapped (shares of the photo) and the areas already there."""
+
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    areas: list[Quad] = Field(default_factory=list, max_length=MAX_GARMENTS)
+
+
+class FindOut(BaseModel):
+    found: bool
+    print_area: Quad
+    confidence: float | None = None
+    kind: str | None = None
+    note: str | None = None
+
+
+class CopyRequest(BaseModel):
+    #: Other photos of the same template that take this photo's print areas, size and fold strength.
+    photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_PHOTOS_PER_TEMPLATE)
+
+
+class PreviewRequest(BaseModel):
+    """Unsaved settings to preview; a field left out is the photo's own."""
+
+    areas: list[Quad] | None = Field(default=None, max_length=MAX_GARMENTS)
+    size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
+    fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
+    occlusion: bool | None = None
 
 
 class DesignOut(BaseModel):
@@ -174,8 +217,8 @@ class DesignUpdate(BaseModel):
 
 
 class RunRequest(BaseModel):
-    template_ids: list[uuid.UUID] = Field(min_length=1, max_length=work.MAX_TEMPLATES)
-    #: Print on the chosen front templates, back templates or both.
+    template_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TEMPLATES_PER_ACCOUNT)
+    #: Print on the chosen templates' front photos, back photos or both.
     sides: Literal["front", "back", "both"] = "both"
     #: A photo with several garments: the same design on each ("same"), or one design
     #: per garment in order ("order").
@@ -184,8 +227,9 @@ class RunRequest(BaseModel):
 
 class OutputOut(BaseModel):
     id: uuid.UUID
-    template_id: uuid.UUID | None
+    photo_id: uuid.UUID | None
     template_name: str
+    photo_name: str | None = None
     filename: str
     available: bool
 
@@ -221,6 +265,9 @@ class RunOut(BaseModel):
     failed: int
     error: str | None = None
     templates: list[str] = Field(default_factory=list)
+    photos: int = 0
+    #: Photos of the chosen templates left out because they are not confirmed yet.
+    skipped: int = 0
     designs: list[RunDesignOut] = Field(default_factory=list)
     zips: list[ZipOut] = Field(default_factory=list)
 
@@ -228,7 +275,7 @@ class RunOut(BaseModel):
 class ListingsRequest(BaseModel):
     #: The designs to use; null = every design of the run.
     design_ids: list[uuid.UUID] | None = None
-    #: The cover per design: a template id; a design left out keeps the first template.
+    #: The cover per design: a photo id of the run; a design left out keeps the first photo.
     covers: dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
 
 
@@ -245,47 +292,60 @@ class ZipRequest(BaseModel):
 # --- helpers --------------------------------------------------------------------------------
 
 
-def _garments_out(t: MockupTemplate) -> list[GarmentOut]:
-    """Every garment's area (the first is the template's own print area) and whether the
-    seller is asked to check it: only an area still as found, when the analysis was not sure."""
-    if t.status != "ready" or not t.print_area:
+def photo_areas(photo: MockupPhoto) -> list[dict[str, Any]]:
+    """The photo's print areas (rows of ``garments``), the first mirroring ``print_area``."""
+    if photo.status != "ready" or not photo.print_area:
         return []
-    rows = t.garments or [{"print_area": t.print_area, "confidence": t.print_area_confidence,
-                           "source": t.print_area_source}]
-    out = []
-    for i, g in enumerate(rows):
-        area = t.print_area if i == 0 else g.get("print_area")
-        source = t.print_area_source if i == 0 else g.get("source", "default")
-        confidence = t.print_area_confidence if i == 0 and not t.garments else g.get("confidence")
-        if not area:
-            continue
-        out.append(GarmentOut(
-            print_area=area, confidence=confidence, kind=g.get("kind"), source=source,
-            needs_check=confidence is not None and confidence < vision.CHECK_BELOW and source != "seller",
-        ))
-    return out
+    rows = [dict(g) for g in (photo.garments or []) if g.get("print_area")]
+    if not rows:
+        found = (photo.analysis or {}).get("detected_area") or photo.print_area
+        rows = [{"print_area": photo.print_area, "detected_area": found, "source": photo.print_area_source,
+                 "confidence": photo.print_area_confidence}]
+    return rows
 
 
-def _template_out(t: MockupTemplate) -> TemplateOut:
-    analysis = t.analysis or {}
-    confidence = t.print_area_confidence
-    garments = _garments_out(t)
-    # Asked to check only when an area is still the found one and it was not sure.
-    needs_check = any(g.needs_check for g in garments)
-    return TemplateOut(
-        id=t.id, name=t.name, position=t.position, set_id=t.set_id, status=t.status, error=t.error,
-        width=t.width, height=t.height, mask_source=t.mask_source, print_area=t.print_area,
-        print_area_source=t.print_area_source, size=t.size, fold_strength=t.fold_strength, version=t.version,
-        notice=NO_MASK if t.mask_source == "none" else None, method=analysis.get("method"), confidence=confidence,
-        analysis_note=analysis.get("note"), needs_check=needs_check, occlusion=t.occlusion,
-        has_occluder=t.occluder_key is not None, view=t.view or "front", garments=garments,
+def _photo_out(p: MockupPhoto) -> PhotoOut:
+    analysis = p.analysis or {}
+    ready = p.status == "ready"
+    return PhotoOut(
+        id=p.id, template_id=p.template_id, name=p.name, position=p.position, status=p.status, error=p.error,
+        width=p.width, height=p.height, mask_source=p.mask_source, size=p.size, fold_strength=p.fold_strength,
+        version=p.version, notice=NO_MASK if p.mask_source == "none" else None, method=analysis.get("method"),
+        confidence=p.print_area_confidence, analysis_note=analysis.get("note"),
+        confirmed=p.confirmed_at is not None, needs_check=ready and p.confirmed_at is None,
+        occlusion=p.occlusion, has_occluder=p.occluder_key is not None, view=p.view or "front",
+        areas=[
+            AreaOut(print_area=g["print_area"], detected_area=g.get("detected_area") or g["print_area"],
+                    source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"))
+            for g in photo_areas(p)
+        ],
     )
+
+
+def _template_out(t: MockupTemplate, photos: list[MockupPhoto]) -> TemplateOut:
+    out = [_photo_out(p) for p in photos]
+    return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out,
+                       needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out))
 
 
 def clean_name(value: str | None, fallback: str) -> str:
     """A name, trimmed and at most ``MAX_NAME`` characters; ``fallback`` when empty."""
     text = " ".join((value or "").split())[:MAX_NAME].strip()
     return text or fallback[:MAX_NAME] or "Blank"
+
+
+def _clean(area: Any) -> Quad:
+    try:
+        return mockups.clean_print_area(area)
+    except mockups.MockupError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def _photos_of(session: AsyncSession, template_id: uuid.UUID) -> list[MockupPhoto]:
+    return list((await session.execute(
+        select(MockupPhoto).where(MockupPhoto.template_id == template_id)
+        .order_by(MockupPhoto.position, MockupPhoto.created_at)
+    )).scalars())
 
 
 async def _own_template(session: AsyncSession, tenant: Tenant, template_id: uuid.UUID) -> MockupTemplate:
@@ -295,18 +355,18 @@ async def _own_template(session: AsyncSession, tenant: Tenant, template_id: uuid
     return template
 
 
-def _ready(template: MockupTemplate) -> None:
-    if template.status == "failed":
-        raise HTTPException(status_code=409, detail=template.error or work.PREPARE_FAILED)
-    if template.status != "ready":
+async def _own_photo(session: AsyncSession, tenant: Tenant, photo_id: uuid.UUID) -> MockupPhoto:
+    photo = await session.get(MockupPhoto, photo_id)
+    if photo is None or photo.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="photo not found")
+    return photo
+
+
+def _ready(photo: MockupPhoto) -> None:
+    if photo.status == "failed":
+        raise HTTPException(status_code=409, detail=photo.error or work.PREPARE_FAILED)
+    if photo.status != "ready":
         raise HTTPException(status_code=409, detail=NOT_READY)
-
-
-async def _own_set(session: AsyncSession, tenant: Tenant, set_id: uuid.UUID) -> MockupTemplateSet:
-    found = await session.get(MockupTemplateSet, set_id)
-    if found is None or found.tenant_id != tenant.id:
-        raise HTTPException(status_code=404, detail="set not found")
-    return found
 
 
 async def _own_batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID) -> UploadBatch:
@@ -360,135 +420,66 @@ async def _resized(data: bytes, what: str) -> mockups.Source:
 # --- templates ------------------------------------------------------------------------------
 
 
+async def _templates_out(session: AsyncSession, tenant: Tenant) -> list[TemplateOut]:
+    templates = list((await session.execute(
+        select(MockupTemplate).where(MockupTemplate.tenant_id == tenant.id)
+        .order_by(MockupTemplate.position, MockupTemplate.created_at)
+    )).scalars())
+    by_template: dict[uuid.UUID, list[MockupPhoto]] = {t.id: [] for t in templates}
+    for photo in (await session.execute(
+        select(MockupPhoto).where(MockupPhoto.tenant_id == tenant.id)
+        .order_by(MockupPhoto.position, MockupPhoto.created_at)
+    )).scalars():
+        by_template.setdefault(photo.template_id, []).append(photo)
+    return [_template_out(t, by_template.get(t.id, [])) for t in templates]
+
+
 @router.get("/mockup-templates", response_model=list[TemplateOut])
 async def list_templates(
     session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> list[TemplateOut]:
-    rows = await session.execute(
-        select(MockupTemplate).where(MockupTemplate.tenant_id == tenant.id)
-        .order_by(MockupTemplate.position, MockupTemplate.created_at)
-    )
-    return [_template_out(t) for t in rows.scalars()]
+    return await _templates_out(session, tenant)
 
 
 @router.post("/mockup-templates", response_model=TemplateOut, status_code=201)
 async def create_template(
-    file: UploadFile,
-    name: str = Form("", max_length=1000),
-    rights_confirmed: bool = Form(False),
-    set_id: uuid.UUID | None = Form(None),
-    session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(active_tenant),
-    storage: Storage = Depends(get_storage),
-    enqueuer: Enqueuer = Depends(get_enqueuer),
+    body: TemplateIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> TemplateOut:
-    """A blank garment photo becomes a template, at once, "preparing"; the worker
-    finds its outline and print area. The seller confirms they may use the photo."""
-    if not rights_confirmed:
-        raise HTTPException(status_code=422, detail=f"Please confirm: “{RIGHTS_STATEMENT}”")
-    if set_id is not None:
-        await _own_set(session, tenant, set_id)
+    """A new, empty template; photos are uploaded into it."""
     count = await session.scalar(select(func.count()).select_from(MockupTemplate).where(MockupTemplate.tenant_id == tenant.id))
     if int(count or 0) >= MAX_TEMPLATES_PER_ACCOUNT:
         raise HTTPException(status_code=409, detail=f"An account keeps up to {MAX_TEMPLATES_PER_ACCOUNT} templates; delete one first.")
-    data = await file.read()
-    _admitted(data)
-    source = await _resized(data, "a photo")
-    await _room(session, storage, tenant, len(source.image))
-    template_id = uuid.uuid4()
-    key = f"{tenant.id}/templates/{template_id}/source{'.png' if source.has_alpha else '.jpg'}"
-    storage.put(key, source.image, "image/png" if source.has_alpha else "image/jpeg")
-    storage_cap.added(tenant.id, len(source.image))
     last = await session.scalar(select(func.max(MockupTemplate.position)).where(MockupTemplate.tenant_id == tenant.id))
-    template = MockupTemplate(
-        id=template_id, tenant_id=tenant.id, set_id=set_id,
-        name=clean_name(name, PurePosixPath((file.filename or "").replace("\\", "/")).stem),
-        position=int(last or 0) + 1, status="preparing", source_key=key, print_area_source="default",
-        size=mockups.DEFAULT_SIZE, fold_strength=mockups.DEFAULT_FOLD, rights_confirmed_at=datetime.now(timezone.utc),
-    )
+    template = MockupTemplate(tenant_id=tenant.id, name=clean_name(body.name, "Template"), position=int(last or 0) + 1)
     session.add(template)
-    audit.record(session, "mockup_template.created", actor=tenant, target_tenant_id=tenant.id, by="seller",
-                 object_id=str(template_id), rights_confirmed=True)
     await session.commit()
-    await enqueuer.enqueue("prepare_mockup_template", str(template_id), _job_id=f"mockup-template:{template_id}")
-    return _template_out(template)
+    return _template_out(template, [])
+
+
+@router.get("/mockup-templates/{template_id}", response_model=TemplateOut)
+async def get_template(
+    template_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+) -> TemplateOut:
+    template = await _own_template(session, tenant, template_id)
+    return _template_out(template, await _photos_of(session, template.id))
 
 
 @router.patch("/mockup-templates/{template_id}", response_model=TemplateOut)
-async def update_template(
-    template_id: uuid.UUID,
-    body: TemplateUpdate,
-    session: AsyncSession = Depends(get_session),
+async def rename_template(
+    template_id: uuid.UUID, body: TemplateIn, session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
-    storage: Storage = Depends(get_storage),
 ) -> TemplateOut:
     template = await _own_template(session, tenant, template_id)
-    if body.name is not None:
-        template.name = clean_name(body.name, template.name)
-    if "set_id" in body.model_fields_set:
-        if body.set_id is not None:
-            await _own_set(session, tenant, body.set_id)
-        template.set_id = body.set_id
-    if body.occlusion is not None:
-        template.occlusion = body.occlusion
-    if body.view is not None:
-        template.view = body.view
-    if body.garment > 0 and (body.reset_print_area or body.print_area is not None):
-        _ready(template)
-        rows = [dict(g) for g in (template.garments or [])]
-        if body.garment >= len(rows):
-            raise HTTPException(status_code=404, detail="That garment is not in this photo.")
-        row = rows[body.garment]
-        if body.reset_print_area:
-            row["print_area"], row["source"] = row.get("detected_area") or row["print_area"], "default"
-        else:
-            try:
-                area = mockups.clean_print_area(body.print_area)
-            except mockups.MockupError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            row.setdefault("detected_area", row["print_area"])
-            row["print_area"], row["source"] = area, "seller"
-        rows[body.garment] = row
-        template.garments = rows
-    elif body.reset_print_area:
-        _ready(template)
-        found = (template.analysis or {}).get("detected_area")
-        if found:  # back to what the analysis found
-            template.print_area = [list(c) for c in found]
-        else:
-            mask = await asyncio.to_thread(_mask_image, storage.get(template.mask_key or ""))
-            template.print_area = mockups.default_print_area(mask)
-        template.print_area_source = "default"
-    elif body.print_area is not None:
-        try:
-            template.print_area = mockups.clean_print_area(body.print_area)
-        except mockups.MockupError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        template.print_area_source = "seller"
-    if template.garments and body.garment == 0 and (body.reset_print_area or body.print_area is not None):
-        rows = [dict(g) for g in template.garments]  # garment 0 mirrors the template's own area
-        rows[0] = {**rows[0], "print_area": template.print_area, "source": template.print_area_source}
-        template.garments = rows
-    if body.size is not None:
-        template.size = round(body.size, 3)
-    if body.fold_strength is not None:
-        template.fold_strength = round(body.fold_strength, 3)
-    template.version += 1
+    template.name = clean_name(body.name, template.name)
     await session.commit()
-    return _template_out(template)
-
-
-def _mask_image(mask_png: bytes):  # noqa: ANN202
-    import pyvips
-
-    return pyvips.Image.new_from_buffer(mask_png, "", access="random")[0]
+    return _template_out(template, await _photos_of(session, template.id))
 
 
 @router.put("/mockup-templates/order", response_model=list[TemplateOut])
 async def order_templates(
-    body: TemplateOrder, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    body: Order, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> list[TemplateOut]:
-    """The seller's template order: a design's mockups follow it; the first is the cover."""
+    """The seller's order of templates."""
     rows = {t.id: t for t in (await session.execute(
         select(MockupTemplate).where(MockupTemplate.tenant_id == tenant.id))).scalars()}
     if set(body.ids) - set(rows):
@@ -497,7 +488,7 @@ async def order_templates(
     for position, template in enumerate([*(rows[i] for i in body.ids), *rest], start=1):
         template.position = position
     await session.commit()
-    return await list_templates(session, tenant)
+    return await _templates_out(session, tenant)
 
 
 @router.delete("/mockup-templates/{template_id}", status_code=204)
@@ -507,67 +498,271 @@ async def delete_template(
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
-    """The template and its photo go. Mockups already made from it stay."""
+    """The template and all its photos go. Mockups already made from them stay."""
     template = await _own_template(session, tenant, template_id)
-    storage.delete_prefix(f"{tenant.id}/templates/{template.id}")
+    photos = await _photos_of(session, template.id)
+    for photo in photos:
+        storage.delete_prefix(f"{tenant.id}/templates/{photo.id}")
     storage_cap.forget(tenant.id)
     audit.destructive(session, "mockup_template.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None,
-                      object_id=template.id)
+                      object_id=template.id, photos=len(photos))
+    for photo in photos:
+        await session.delete(photo)
     await session.delete(template)
     await session.commit()
     return Response(status_code=204)
 
 
-@router.get("/mockup-templates/{template_id}/image")
-async def template_image(
+# --- photos ---------------------------------------------------------------------------------
+
+
+@router.post("/mockup-templates/{template_id}/photos", response_model=PhotoOut, status_code=201)
+async def add_photo(
     template_id: uuid.UUID,
+    file: UploadFile,
+    name: str = Form("", max_length=1000),
+    rights_confirmed: bool = Form(False),
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> PhotoOut:
+    """A blank photo joins the template, at once, "preparing"; the worker suggests its
+    print areas, which the seller then confirms. The seller confirms they may use it."""
+    if not rights_confirmed:
+        raise HTTPException(status_code=422, detail=f"Please confirm: “{RIGHTS_STATEMENT}”")
+    template = await _own_template(session, tenant, template_id)
+    count = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.tenant_id == tenant.id))
+    if int(count or 0) >= MAX_PHOTOS_PER_ACCOUNT:
+        raise HTTPException(status_code=409, detail=f"An account keeps up to {MAX_PHOTOS_PER_ACCOUNT} template photos; delete one first.")
+    in_template = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.template_id == template.id))
+    if int(in_template or 0) >= MAX_PHOTOS_PER_TEMPLATE:
+        raise HTTPException(status_code=409, detail=f"A template holds up to {MAX_PHOTOS_PER_TEMPLATE} photos; start another template.")
+    data = await file.read()
+    _admitted(data)
+    source = await _resized(data, "a photo")
+    await _room(session, storage, tenant, len(source.image))
+    photo_id = uuid.uuid4()
+    key = f"{tenant.id}/templates/{photo_id}/source{'.png' if source.has_alpha else '.jpg'}"
+    storage.put(key, source.image, "image/png" if source.has_alpha else "image/jpeg")
+    storage_cap.added(tenant.id, len(source.image))
+    last = await session.scalar(select(func.max(MockupPhoto.position)).where(MockupPhoto.template_id == template.id))
+    photo = MockupPhoto(
+        id=photo_id, tenant_id=tenant.id, template_id=template.id,
+        name=clean_name(name, PurePosixPath((file.filename or "").replace("\\", "/")).stem),
+        position=int(last or 0) + 1, status="preparing", source_key=key, print_area_source="default",
+        size=mockups.DEFAULT_SIZE, fold_strength=mockups.DEFAULT_FOLD, rights_confirmed_at=datetime.now(timezone.utc),
+    )
+    session.add(photo)
+    audit.record(session, "mockup_photo.created", actor=tenant, target_tenant_id=tenant.id, by="seller",
+                 object_id=str(photo_id), rights_confirmed=True)
+    await session.commit()
+    await enqueuer.enqueue("prepare_mockup_template", str(photo_id), _job_id=f"mockup-photo:{photo_id}")
+    return _photo_out(photo)
+
+
+@router.put("/mockup-templates/{template_id}/photos/order", response_model=TemplateOut)
+async def order_photos(
+    template_id: uuid.UUID, body: Order, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> TemplateOut:
+    """The order of a template's photos: a design's mockups follow it, the first is the cover."""
+    template = await _own_template(session, tenant, template_id)
+    photos = await _photos_of(session, template.id)
+    rows = {p.id: p for p in photos}
+    if set(body.ids) - set(rows):
+        raise HTTPException(status_code=404, detail="photo not found")
+    rest = [p for p in photos if p.id not in set(body.ids)]
+    for position, photo in enumerate([*(rows[i] for i in body.ids), *rest], start=1):
+        photo.position = position
+    await session.commit()
+    return _template_out(template, await _photos_of(session, template.id))
+
+
+@router.get("/mockup-photos/{photo_id}", response_model=PhotoOut)
+async def get_photo(
+    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+) -> PhotoOut:
+    return _photo_out(await _own_photo(session, tenant, photo_id))
+
+
+@router.patch("/mockup-photos/{photo_id}", response_model=PhotoOut)
+async def update_photo(
+    photo_id: uuid.UUID, body: PhotoUpdate, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> PhotoOut:
+    photo = await _own_photo(session, tenant, photo_id)
+    if body.name is not None:
+        photo.name = clean_name(body.name, photo.name)
+    if body.occlusion is not None:
+        photo.occlusion = body.occlusion
+    if body.view is not None:
+        photo.view = body.view
+    if body.size is not None:
+        photo.size = round(body.size, 3)
+    if body.fold_strength is not None:
+        photo.fold_strength = round(body.fold_strength, 3)
+    if body.template_id is not None and body.template_id != photo.template_id:
+        target = await _own_template(session, tenant, body.template_id)
+        last = await session.scalar(select(func.max(MockupPhoto.position)).where(MockupPhoto.template_id == target.id))
+        photo.template_id, photo.position = target.id, int(last or 0) + 1
+    photo.version += 1
+    await session.commit()
+    return _photo_out(photo)
+
+
+@router.put("/mockup-photos/{photo_id}/areas", response_model=PhotoOut)
+async def save_areas(
+    photo_id: uuid.UUID, body: AreasUpdate, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> PhotoOut:
+    """The editor's print areas, in the seller's order. ``confirm`` ("Looks right") marks
+    the photo confirmed; saving without it leaves the photo waiting for the seller's check."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
+    earlier = photo_areas(photo)
+    rows = []
+    for i, area in enumerate(body.areas):
+        corners = _clean(area.print_area)
+        before = earlier[i] if i < len(earlier) else {}
+        suggested = _clean(area.detected_area) if area.detected_area else (before.get("detected_area") or corners)
+        rows.append({
+            "print_area": corners, "detected_area": suggested, "source": area.source,
+            "confidence": before.get("confidence") if area.source in ("default", "seller") else None,
+            "kind": area.kind or before.get("kind"),
+        })
+    photo.garments = rows
+    photo.print_area = rows[0]["print_area"]
+    photo.print_area_source = "default" if all(r["source"] == "default" for r in rows) else "seller"
+    if body.size is not None:
+        photo.size = round(body.size, 3)
+    photo.confirmed_at = datetime.now(timezone.utc) if body.confirm else None
+    photo.version += 1
+    await session.commit()
+    return _photo_out(photo)
+
+
+@router.post("/mockup-photos/{photo_id}/find", response_model=FindOut)
+async def find_garment(
+    photo_id: uuid.UUID, body: FindRequest, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
+) -> FindOut:
+    """"Add area": the garment under the seller's tap, alone (the other areas keep their
+    garments), and its print area. Nothing is saved; nothing garment-shaped there gives a
+    box where they tapped. No model runs (pipeline/garments.py ``find_at``)."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
+    others = [_clean(a) for a in body.areas]
+    blank = storage.get(photo.image_key or "")
+    ground = storage.get(photo.foreground_key) if photo.foreground_key else storage.get(photo.mask_key or "")
+    occluder = storage.get(photo.occluder_key) if photo.occluder_key else None
+    found = await asyncio.to_thread(work.find_at, blank, ground, occluder, (body.x, body.y), others, photo.name)
+    if found is not None:
+        corners, confidence, kind = found
+        return FindOut(found=True, print_area=corners, confidence=confidence, kind=kind)
+    return FindOut(found=False, print_area=work.box_at(body.x, body.y, others, photo.width or 1, photo.height or 1),
+                   note=TAP_MISSED)
+
+
+@router.post("/mockup-photos/{photo_id}/copy", response_model=list[PhotoOut])
+async def copy_areas(
+    photo_id: uuid.UUID, body: CopyRequest, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> list[PhotoOut]:
+    """This photo's print areas (as shares of the photo), size and fold strength, given to
+    other photos of its template (colour variants shot the same way). Each one then waits
+    for the seller's "Looks right" on its own photo."""
+    source = await _own_photo(session, tenant, photo_id)
+    _ready(source)
+    areas = photo_areas(source)
+    out = []
+    for target_id in dict.fromkeys(body.photo_ids):
+        if target_id == source.id:
+            continue
+        target = await _own_photo(session, tenant, target_id)
+        if target.template_id != source.template_id:
+            raise HTTPException(status_code=422, detail="Areas can be copied only to photos of the same template.")
+        if target.status != "ready":
+            continue
+        own = photo_areas(target)
+        rows = []
+        for i, g in enumerate(areas):
+            suggested = own[i].get("detected_area") if i < len(own) else None
+            rows.append({"print_area": [list(c) for c in g["print_area"]],
+                         "detected_area": suggested or [list(c) for c in g["print_area"]],
+                         "source": "copied", "confidence": None, "kind": g.get("kind")})
+        target.garments = rows
+        target.print_area, target.print_area_source = rows[0]["print_area"], "seller"
+        target.size, target.fold_strength = source.size, source.fold_strength
+        target.confirmed_at = None
+        target.version += 1
+        out.append(target)
+    await session.commit()
+    return [_photo_out(p) for p in out]
+
+
+@router.delete("/mockup-photos/{photo_id}", status_code=204)
+async def delete_photo(
+    photo_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> Response:
+    """The photo goes from its template. Mockups already made from it stay."""
+    photo = await _own_photo(session, tenant, photo_id)
+    storage.delete_prefix(f"{tenant.id}/templates/{photo.id}")
+    storage_cap.forget(tenant.id)
+    audit.destructive(session, "mockup_photo.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None,
+                      object_id=photo.id)
+    await session.delete(photo)
+    await session.commit()
+    return Response(status_code=204)
+
+
+@router.get("/mockup-photos/{photo_id}/image")
+async def photo_image(
+    photo_id: uuid.UUID,
     w: int | None = Query(None, description=f"Optional preview width; one of {sorted(PREVIEW_WIDTHS)}."),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
-    template = await _own_template(session, tenant, template_id)
-    _ready(template)
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
     if w is None:
-        return Response(storage.get(template.image_key or ""), media_type="image/jpeg", headers=_CACHE)
+        return Response(storage.get(photo.image_key or ""), media_type="image/jpeg", headers=_CACHE)
     if w not in PREVIEW_WIDTHS:
         raise HTTPException(status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}")
-    key = f"{template.image_key}.w{w}.jpg"
+    key = f"{photo.image_key}.w{w}.jpg"
     if not storage.exists(key):
-        storage.put(key, await asyncio.to_thread(resize_preview, storage.get(template.image_key or ""), w), "image/jpeg")
+        storage.put(key, await asyncio.to_thread(resize_preview, storage.get(photo.image_key or ""), w), "image/jpeg")
     return Response(storage.get(key), media_type="image/jpeg", headers=_CACHE)
 
 
-@router.post("/mockup-templates/{template_id}/preview")
-async def preview_template(
-    template_id: uuid.UUID,
+@router.post("/mockup-photos/{photo_id}/preview")
+async def preview_photo(
+    photo_id: uuid.UUID,
     body: PreviewRequest,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
-    """The template with a sample design, at preview size, with unsaved settings if sent."""
-    template = await _own_template(session, tenant, template_id)
-    _ready(template)
-    areas = work.template_areas(template)
-    if body.print_area is not None:
-        if body.garment >= len(areas):
-            raise HTTPException(status_code=404, detail="That garment is not in this photo.")
-        areas[body.garment] = body.print_area
-    try:
-        areas = [mockups.clean_print_area(a) for a in areas]
-    except mockups.MockupError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    corners = areas[0]
-    occlusion = body.occlusion if body.occlusion is not None else template.occlusion
+    """The photo with a sample design printed (shaded, warped by its folds), at preview
+    size, with unsaved areas and settings if sent."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _ready(photo)
+    areas = [_clean(a) for a in (body.areas if body.areas is not None else work.photo_print_areas(photo))]
+    if not areas:
+        raise HTTPException(status_code=422, detail="Add a print area first.")
+    occlusion = body.occlusion if body.occlusion is not None else photo.occlusion
     settings = mockups.Settings(
-        corners,
-        body.size if body.size is not None else template.size,
-        body.fold_strength if body.fold_strength is not None else template.fold_strength,
+        areas[0],
+        body.size if body.size is not None else photo.size,
+        body.fold_strength if body.fold_strength is not None else photo.fold_strength,
         occlusion,
     )
-    blank, mask = storage.get(template.image_key or ""), storage.get(template.mask_key or "")
-    occluder = storage.get(template.occluder_key) if template.occluder_key and occlusion else None
+    blank, mask = storage.get(photo.image_key or ""), storage.get(photo.mask_key or "")
+    occluder = storage.get(photo.occluder_key) if photo.occluder_key and occlusion else None
 
     def draw() -> bytes:
         small = mockups.preview_scale(blank, mask, occluder, PREVIEW_WIDTH)
@@ -580,92 +775,6 @@ async def preview_template(
     except mockups.MockupError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
-
-
-# --- sets -----------------------------------------------------------------------------------
-
-
-async def _sets_out(session: AsyncSession, tenant: Tenant) -> list[SetOut]:
-    sets = list((await session.execute(
-        select(MockupTemplateSet).where(MockupTemplateSet.tenant_id == tenant.id)
-        .order_by(MockupTemplateSet.position, MockupTemplateSet.created_at)
-    )).scalars())
-    members: dict[uuid.UUID, list[uuid.UUID]] = {s.id: [] for s in sets}
-    for template in (await session.execute(
-        select(MockupTemplate).where(MockupTemplate.tenant_id == tenant.id, MockupTemplate.set_id.is_not(None))
-        .order_by(MockupTemplate.position, MockupTemplate.created_at)
-    )).scalars():
-        members.setdefault(template.set_id, []).append(template.id)
-    return [SetOut(id=s.id, name=s.name, position=s.position, template_ids=members.get(s.id, [])) for s in sets]
-
-
-@router.get("/mockup-sets", response_model=list[SetOut])
-async def list_sets(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> list[SetOut]:
-    return await _sets_out(session, tenant)
-
-
-@router.post("/mockup-sets", response_model=SetOut, status_code=201)
-async def create_set(
-    body: SetIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
-) -> SetOut:
-    """A set (one garment in several colours, say): its templates are uploaded into it."""
-    last = await session.scalar(select(func.max(MockupTemplateSet.position)).where(MockupTemplateSet.tenant_id == tenant.id))
-    found = MockupTemplateSet(tenant_id=tenant.id, name=clean_name(body.name, "Set"), position=int(last or 0) + 1)
-    session.add(found)
-    await session.commit()
-    return SetOut(id=found.id, name=found.name, position=found.position)
-
-
-@router.patch("/mockup-sets/{set_id}", response_model=SetOut)
-async def rename_set(
-    set_id: uuid.UUID, body: SetIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
-) -> SetOut:
-    found = await _own_set(session, tenant, set_id)
-    found.name = clean_name(body.name, found.name)
-    await session.commit()
-    return next(s for s in await _sets_out(session, tenant) if s.id == set_id)
-
-
-@router.delete("/mockup-sets/{set_id}", status_code=204)
-async def delete_set(
-    set_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
-) -> Response:
-    """The set goes; its templates stay, in no set."""
-    found = await _own_set(session, tenant, set_id)
-    audit.destructive(session, "mockup_set.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None, object_id=found.id)
-    for template in (await session.execute(select(MockupTemplate).where(MockupTemplate.set_id == set_id))).scalars():
-        template.set_id = None
-    await session.delete(found)
-    await session.commit()
-    return Response(status_code=204)
-
-
-@router.post("/mockup-sets/{set_id}/apply", response_model=list[TemplateOut])
-async def apply_to_set(
-    set_id: uuid.UUID, body: ApplyToSet, session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(active_tenant),
-) -> list[TemplateOut]:
-    """One template's print area (as shares of the photo), size and fold strength,
-    given to every template of its set: the same garment in other colours, shot
-    the same way. A template still preparing keeps it when it is ready."""
-    await _own_set(session, tenant, set_id)
-    source = await _own_template(session, tenant, body.template_id)
-    if source.set_id != set_id:
-        raise HTTPException(status_code=422, detail="That template is not in this set.")
-    _ready(source)
-    members = list((await session.execute(
-        select(MockupTemplate).where(MockupTemplate.set_id == set_id, MockupTemplate.tenant_id == tenant.id)
-        .order_by(MockupTemplate.position)
-    )).scalars())
-    for template in members:
-        if template.id == source.id:
-            continue
-        template.print_area = [list(c) for c in (source.print_area or [])]
-        template.print_area_source = "seller"
-        template.size, template.fold_strength = source.size, source.fold_strength
-        template.version += 1
-    await session.commit()
-    return [_template_out(t) for t in members]
 
 
 # --- designs --------------------------------------------------------------------------------
@@ -803,18 +912,18 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
     used = set((await session.execute(
         select(Asset.mockup_design_id).where(Asset.batch_id == run.batch_id, Asset.mockup_design_id.is_not(None))
     )).scalars())
-    per_design = len(run.template_ids)
+    per_design = len(run.photo_ids)
     zips = (await session.execute(select(MockupZip).where(MockupZip.run_id == run.id).order_by(MockupZip.created_at))).scalars()
     return RunOut(
         id=run.id, batch_id=run.batch_id, status=run.status, total=run.total, done=run.done, failed=run.failed,
-        error=run.error, templates=names,
+        error=run.error, templates=names, photos=len(run.photo_ids), skipped=run.skipped,
         designs=[
             RunDesignOut(
                 design_id=d.id, original_filename=d.original_filename, sku=d.parsed_sku, group_key=d.group_key,
                 done=len(outputs.get(d.id, [])), total=per_design, in_listings=d.id in used,
                 outputs=[
-                    OutputOut(id=o.id, template_id=o.template_id, template_name=o.template_name, filename=o.filename,
-                              available=bool(o.key) and o.files_removed_at is None)
+                    OutputOut(id=o.id, photo_id=o.photo_id, template_name=o.template_name, photo_name=o.photo_name,
+                              filename=o.filename, available=bool(o.key) and o.files_removed_at is None)
                     for o in outputs.get(d.id, [])
                 ],
             )
@@ -832,17 +941,30 @@ async def start_run(
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> RunOut:
-    """Print every design of the batch on the chosen templates, in the seller's template order."""
+    """Print every design of the batch on every confirmed photo of the chosen templates
+    (template order, then each template's photo order). Photos the seller has not
+    confirmed are left out, and the run says how many."""
     await _own_batch(session, tenant, batch_id)
     templates = [await _own_template(session, tenant, t) for t in dict.fromkeys(body.template_ids)]
-    for template in templates:
-        if template.status != "ready":
-            raise HTTPException(status_code=409, detail=f"“{template.name}” is not ready yet; wait until every chosen template is ready.")
     templates.sort(key=lambda t: (t.position, t.created_at or datetime.min.replace(tzinfo=timezone.utc)))
-    if body.sides != "both":
-        templates = [t for t in templates if (t.view or "front") == body.sides]
-        if not templates:
-            raise HTTPException(status_code=409, detail=f"None of the chosen templates shows the {body.sides}.")
+    photos: list[MockupPhoto] = []
+    skipped = 0
+    for template in templates:
+        for photo in await _photos_of(session, template.id):
+            if body.sides != "both" and (photo.view or "front") != body.sides:
+                continue
+            if photo.status == "ready" and photo.confirmed_at is not None:
+                photos.append(photo)
+            else:
+                skipped += 1
+    if not photos:
+        if skipped:
+            raise HTTPException(status_code=409, detail=NONE_CONFIRMED)
+        if body.sides != "both":
+            raise HTTPException(status_code=409, detail=f"None of the chosen templates has a photo of the {body.sides}.")
+        raise HTTPException(status_code=409, detail="The chosen templates have no photos yet.")
+    if len(photos) > work.MAX_PHOTOS:
+        raise HTTPException(status_code=422, detail=f"One run prints on up to {work.MAX_PHOTOS} photos; choose fewer templates.")
     if await _written(session, batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
     designs = await session.scalar(select(func.count()).select_from(MockupDesign).where(
@@ -853,7 +975,8 @@ async def start_run(
     if any(_active(r) for r in runs):
         raise HTTPException(status_code=409, detail="Mockups for this batch are already being made.")
     run = MockupRun(tenant_id=tenant.id, batch_id=batch_id, template_ids=[str(t.id) for t in templates],
-                    total=int(designs) * len(templates), sides=body.sides, garment_mode=body.garment_mode)
+                    photo_ids=[str(p.id) for p in photos], skipped=skipped,
+                    total=int(designs) * len(photos), sides=body.sides, garment_mode=body.garment_mode)
     session.add(run)
     await session.commit()
     await enqueuer.enqueue("generate_mockups", str(run.id), _job_id=f"mockups:{run.id}")
@@ -905,12 +1028,12 @@ async def use_for_listings(
         raise HTTPException(status_code=409, detail="The mockups are still being made.")
     if await _written(session, run.batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
-    templates = {uuid.UUID(str(t)) for t in run.template_ids}
-    if any(t not in templates for t in body.covers.values()):
-        raise HTTPException(status_code=422, detail="A cover must be one of this run's templates.")
-    groups, photos = await work.make_listings(session, run, body.design_ids, body.covers)
+    photos = {uuid.UUID(str(p)) for p in run.photo_ids}
+    if any(p not in photos for p in body.covers.values()):
+        raise HTTPException(status_code=422, detail="A cover must be one of this run's photos.")
+    groups, count = await work.make_listings(session, run, body.design_ids, body.covers)
     await session.commit()
-    return ListingsOut(groups=groups, photos=photos)
+    return ListingsOut(groups=groups, photos=count)
 
 
 @router.post("/mockup-runs/{run_id}/zip", response_model=ZipOut, status_code=202)
@@ -967,4 +1090,3 @@ async def download_zip(
     return Response(data, media_type="application/zip", headers={
         "Content-Disposition": f'attachment; filename="mockups-{stamp}.zip"', "Cache-Control": "private, no-store",
     })
-

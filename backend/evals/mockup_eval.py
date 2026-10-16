@@ -36,6 +36,7 @@ type and layout, upright on worn and hanging garments within 6 degrees, and kept
 above ``bottom`` by shrinking with the aspect kept. On a PSD the smart object's
 own quad is the mark. See ``print_quad``.
 
+``actions`` counts the editor actions each suggestion needs to match the mark.
 ``score --before`` scores the analysis as it was before the garment detector
 (``prepare_blank(saliency=False)``); ``report [before]`` rewrites a report from
 its saved scores.
@@ -1296,6 +1297,173 @@ def score(only: list[str] | None = None, before: bool = False) -> None:
     print("\n".join(lines))
 
 
+# --- editor actions to reach the mark -------------------------------------------------------------
+
+#: An area matches the mark when their IoU reaches this.
+ACTIONS_IOU = 0.9
+
+
+def _rect_of(q: list[tuple[float, float]]) -> tuple[float, float, float, float, float]:
+    """(cx, cy, w, h, angle) as the editor reads a quad (frontend lib/areaEditor.ts rectOf)."""
+    (ax, ay), (bx, by), (cx_, cy_), (dx, dy) = q
+    angle = math.atan2(by - ay, bx - ax)
+    w = (math.dist(q[0], q[1]) + math.dist(q[3], q[2])) / 2
+    h = (math.dist(q[0], q[3]) + math.dist(q[1], q[2])) / 2
+    return (sum(p[0] for p in q) / 4, sum(p[1] for p in q) / 4, w, h, angle)
+
+
+def _quad_of(cx: float, cy: float, w: float, h: float, angle: float) -> list[tuple[float, float]]:
+    ux, uy = math.cos(angle), math.sin(angle)
+    vx, vy = -uy, ux
+    return [(cx + su * ux * w / 2 + sv * vx * h / 2, cy + su * uy * w / 2 + sv * vy * h / 2)
+            for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+
+
+def _resize(q: list[tuple[float, float]], corner: int, p: tuple[float, float]) -> list[tuple[float, float]]:
+    """A corner dragged to ``p``, the area kept a rectangle, the opposite corner fixed (resizeRect)."""
+    cx, cy, w, h, a = _rect_of(q)
+    rect = _quad_of(cx, cy, w, h, a)
+    ox, oy = rect[(corner + 2) % 4]
+    ux, uy = math.cos(a), math.sin(a)
+    vx, vy = -uy, ux
+    su = 1 if corner in (1, 2) else -1
+    sv = 1 if corner in (2, 3) else -1
+    du, dv = (p[0] - ox) * ux + (p[1] - oy) * uy, (p[0] - ox) * vx + (p[1] - oy) * vy
+    nw, nh = max(12.0, su * du), max(12.0, sv * dv)
+    mx, my = ox + su * ux * nw + sv * vx * nh, oy + su * uy * nw + sv * vy * nh
+    return _quad_of((ox + mx) / 2, (oy + my) / 2, nw, nh, a)
+
+
+def editor_actions(start: list[tuple[float, float]], target: list[tuple[float, float]], width: int, height: int) -> int:
+    """The fewest editor actions that bring ``start`` to IoU >= ACTIONS_IOU with ``target``
+    (photo pixels), each done exactly where the seller wants it (the guides make that
+    easy; this is the count, not the time): move the area (centre onto the target's), turn
+    it (to the target's angle), drag a corner (as a rectangle, to the target's corner), or
+    switch on free corners (one action) and drag corners one by one. 0: "Looks right"."""
+    norm = lambda q: [(x / width, y / height) for x, y in q]  # noqa: E731
+    aspect = height / width
+    good = lambda q: iou(norm(q), norm(target), aspect) >= ACTIONS_IOU  # noqa: E731
+    if good(start):
+        return 0
+    tcx, tcy, _, _, ta = _rect_of(target)
+
+    def steps(q: list[tuple[float, float]]) -> list[list[tuple[float, float]]]:
+        cx, cy, w, h, a = _rect_of(q)
+        out = [_quad_of(tcx, tcy, w, h, a), _quad_of(cx, cy, w, h, ta)]
+        out += [_resize(q, k, target[k]) for k in range(4)]
+        return out
+
+    frontier = [quadOf_rect(start)]
+    for depth in range(1, 5):
+        nxt = []
+        for q in frontier:
+            for s in steps(q):
+                if good(s):
+                    return depth
+                nxt.append(s)
+        frontier = nxt[:400]
+    # Free corners: one switch, then each corner that is off dragged onto the target.
+    off = sum(math.dist(a, b) > 0.01 * max(width, height) for a, b in zip(start, target))
+    return 1 + off
+
+
+def quadOf_rect(q: list[tuple[float, float]]) -> list[tuple[float, float]]:  # noqa: N802
+    """The editor opens a near-rectangular suggestion as a rectangle."""
+    return _quad_of(*_rect_of(q))
+
+
+def actions(only: list[str] | None = None) -> None:
+    """For each photo, how many editor actions the suggestion needs before every area
+    matches the mark within IoU 0.9 (0 = "Looks right"): per area as above; a garment the
+    detector missed costs one tap ("Add area", found by ``garments.find_at`` from a tap at
+    the mark's centre) plus what that area needs; an area on nothing marked costs one
+    "Delete area". Unique photos, black-on-black and white-on-white apart. Writes
+    /out/actions.json and /out/actions.txt."""
+    import statistics
+
+    import numpy as np
+
+    from app.pipeline import garments as garments_
+    from app.pipeline import mockup_vision as vision
+
+    marks = load_marks()
+    raw = json.loads(MARKS.read_text(encoding="utf-8"))
+    raw = raw.get("photos", raw)
+    rows: list[dict[str, Any]] = []
+    for path in [p for p in photos() if p.name in marks]:
+        if only and path.name not in only:
+            continue
+        entry = marks[path.name]
+        if raw[path.name].get("same_as"):
+            continue  # unique photos only
+        photo = decode(path)
+        im = Image.open(io.BytesIO(photo.jpeg)).convert("RGB")
+        im.thumbnail((garments_.WORK, garments_.WORK))
+        rgb = np.asarray(im)
+        aw, ah = im.size
+        found = garments_.detect(rgb, vision.default_runner(), garments_.default_saliency(), photo.name)
+        sx, sy = photo.width / aw, photo.height / ah
+        detected = [[(x * sx, y * sy) for x, y in g.corners] for g in found.garments]
+        targets = [[(x * photo.width, y * photo.height) for x, y in m] for m in marked_areas(entry, photo)]
+        aspect = photo.height / photo.width
+        norm = lambda q: [(x / photo.width, y / photo.height) for x, y in q]  # noqa: E731
+        used: set[int] = set()
+        per_area = []
+        for t in targets:
+            best, best_iou = None, 0.0
+            for j, q in enumerate(detected):
+                if j in used:
+                    continue
+                v = iou(norm(q), norm(t), aspect)
+                if v > best_iou:
+                    best, best_iou = j, v
+            if best is not None and best_iou > 0.05:
+                used.add(best)
+                per_area.append(("matched", editor_actions(detected[best], t, photo.width, photo.height)))
+            else:
+                cx, cy = sum(p[0] for p in t) / 4 / sx, sum(p[1] for p in t) / 4 / sy
+                others = [[(x / sx, y / sy) for x, y in q] for q in detected]
+                fg = found.foreground if found.foreground is not None else found.garment_mask
+                got = garments_.find_at(rgb, fg, found.occluder, (cx, cy), others, photo.name)
+                if got is None:
+                    per_area.append(("tap, box", 1 + editor_actions(_quad_of(cx * sx, cy * sy, 0.25 * photo.width, 0.3 * photo.width, 0.0), t, photo.width, photo.height)))
+                else:
+                    q = [(x * sx, y * sy) for x, y in got.corners]
+                    per_area.append(("tap", 1 + editor_actions(q, t, photo.width, photo.height)))
+        extra = len(detected) - len(used)
+        total = sum(n for _, n in per_area) + extra
+        low = bool(entry.get("low_contrast_all"))
+        layout = entry.get("layout") or (entry.get("garments") or [{}])[0].get("layout", "?")
+        if len(targets) > 1:
+            layout = "several garments"
+        rows.append({"photo": path.name, "layout": layout, "low_contrast": low, "areas": len(targets),
+                     "per_area": per_area, "extra": extra, "actions": total})
+        print(f"{path.name}: {total} actions ({per_area}, {extra} to delete)", flush=True)
+    (OUT / "actions.json").write_text(json.dumps(rows, indent=1))
+
+    def table_(items: list[dict[str, Any]], title: str) -> list[str]:
+        lines = [title, f"   {'layout':18s} {'photos':>6s} {'0':>5s} {'1':>5s} {'2':>5s} {'3':>5s} {'4+':>5s} {'median':>7s} {'mean':>6s}"]
+        groups: dict[str, list[int]] = {}
+        for r in items:
+            groups.setdefault(r["layout"], []).append(r["actions"])
+        groups["all"] = [r["actions"] for r in items]
+        for name, values in groups.items():
+            if not values:
+                continue
+            c = [sum(v == k for v in values) for k in range(4)] + [sum(v >= 4 for v in values)]
+            lines.append(f"   {name:18s} {len(values):6d} " + " ".join(f"{n:5d}" for n in c)
+                         + f" {statistics.median(values):7.1f} {statistics.mean(values):6.2f}")
+        return lines
+
+    lines = ["Editor actions until every area is within IoU 0.9 of the mark (0 = Looks right); unique photos.",
+             "Counted: move, turn, corner drag (rectangle), free corners (1) + a drag per corner, a tap to add a missed",
+             "garment (then its own actions), a delete for an area on nothing. Each action placed exactly (a lower bound).", ""]
+    lines += table_([r for r in rows if not r["low_contrast"]], "== target set (black-on-black / white-on-white apart)")
+    lines += [""] + table_([r for r in rows if r["low_contrast"]], "== black-on-black / white-on-white")
+    (OUT / "actions.txt").write_text("\n".join(lines) + "\n")
+    print("\n".join(lines))
+
+
 def table(rows: list[dict[str, Any]]) -> list[str]:
     """The accuracy tables: unique photos first (each base photo once; areas weighed
     equally inside a photo), then all files; black-on-black / white-on-white apart."""
@@ -1545,6 +1713,8 @@ def main(argv: list[str]) -> None:
         before = "--before" in names
         names = [n for n in names if n != "--before"]
         score(names or None, before)
+    elif command == "actions":
+        actions(argv[1:] or None)
     elif command == "report":
         tag = "before" if "before" in argv[1:] else "after"
         lines = table(json.loads((OUT / f"scores-{tag}.json").read_text()))

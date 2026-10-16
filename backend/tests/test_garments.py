@@ -6,8 +6,8 @@ templates and runs do with them.
   (a knot, a fold, a pocket) and shrinking rather than crossing it.
 * Detection on synthetic photos: several garments, each its own area; front or back from
   the pose; the hoodie pocket; an object held over the garment goes in front of the print.
-* Templates and runs: the seller changes the view; a run prints front, back or both; the
-  same design on every garment, or one design per garment in order.
+* Templates and runs: the seller changes a photo's view; a run prints front, back or both;
+  the same design on every garment, or one design per garment in order.
 * No network at runtime, no Etsy or AI call, the same answer twice.
 
 The real models do not see a drawing as a person: person cases give the analysis the
@@ -29,7 +29,7 @@ from app.pipeline import garments, mockups, print_rule
 from app.pipeline import mockup_vision as vision
 from app.workers import mockups as work
 from tests import mockup_samples as samples
-from tests.test_mockups import _NoCalls, _designs, _new_batch, _template, mw  # noqa: F401  (fixtures)
+from tests.test_mockups import _NoCalls, _confirm, _designs, _new_batch, _new_template, _photo, _template, mw  # noqa: F401  (fixtures)
 from tests.test_multi_shop import world  # noqa: F401  (fixture)
 
 
@@ -200,47 +200,43 @@ def test_a_broken_saliency_model_falls_back_and_nothing_crashes() -> None:
 
 async def test_the_view_is_changed_by_the_seller_and_a_run_prints_front_back_or_both(mw, monkeypatch) -> None:  # noqa: F811
     guard = _NoCalls(monkeypatch)
-    front = await _template(mw, "Front tee")
-    back = await _template(mw, "Back tee")
+    tee = await _new_template(mw, "Tee")
+    front = await _photo(mw, tee["id"], "Front")
+    back = await _photo(mw, tee["id"], "Back")
     assert front["view"] == "front"
-    res = await mw["a"].patch(f"/api/mockup-templates/{back['id']}", json={"view": "back"})
+    res = await mw["a"].patch(f"/api/mockup-photos/{back['id']}", json={"view": "back"})
     assert res.status_code == 200 and res.json()["view"] == "back"
-    assert (await mw["a"].patch(f"/api/mockup-templates/{back['id']}", json={"view": "side"})).status_code == 422
+    assert (await mw["a"].patch(f"/api/mockup-photos/{back['id']}", json={"view": "side"})).status_code == 422
     batch = await _new_batch(mw)
     await _designs(mw, batch, ["A1.png"])
-    res = await mw["a"].post(f"/api/batches/{batch}/mockups",
-                             json={"template_ids": [front["id"], back["id"]], "sides": "back"})
+    res = await mw["a"].post(f"/api/batches/{batch}/mockups", json={"template_ids": [tee["id"]], "sides": "back"})
     assert res.status_code == 202, res.text
     run = res.json()
-    assert run["templates"] == ["Back tee"]
+    assert (run["templates"], run["photos"]) == (["Tee"], 1)
     async with mw["sm"]() as s:
         done = await work.run(s, mw["storage"], uuid.UUID(run["id"]))
-        assert done.status == "succeeded" and done.sides == "back"
-    # Only front templates chosen, back asked for: nothing to print, said so.
+        assert done.status == "succeeded" and done.sides == "back" and done.total == 1
+    # A template with only front photos, back asked for: nothing to print, said so.
+    fronts = await _template(mw, "Fronts")
     other = await _new_batch(mw)
     await _designs(mw, other, ["B1.png"])
-    res = await mw["a"].post(f"/api/batches/{other}/mockups", json={"template_ids": [front["id"]], "sides": "back"})
+    res = await mw["a"].post(f"/api/batches/{other}/mockups", json={"template_ids": [fronts["id"]], "sides": "back"})
     assert res.status_code == 409 and "back" in res.json()["detail"]
     assert guard.calls == []
 
 
 async def test_several_garments_get_the_same_design_or_one_each_in_order(mw, monkeypatch) -> None:  # noqa: F811
     guard = _NoCalls(monkeypatch)
-    res = await mw["a"].post("/api/mockup-templates", data={"name": "Two tees", "rights_confirmed": "true"},
-                             files={"file": ("two.png", _tees(), "image/png")})
-    assert res.status_code == 201
-    async with mw["sm"]() as s:
-        assert (await work.prepare(s, mw["storage"], uuid.UUID(res.json()["id"]))).status == "ready"
-    template = next(t for t in (await mw["a"].get("/api/mockup-templates")).json() if t["id"] == res.json()["id"])
-    assert len(template["garments"]) == 2
-    # The second garment's area is the seller's to move, alone.
+    template = await _new_template(mw, "Two tees")
+    photo = await _photo(mw, template["id"], "Two tees", blank=_tees(), confirm=False)
+    assert len(photo["areas"]) == 2
+    # The second garment's area is the seller's to move, alone; then "Looks right".
     moved = [[0.6, 0.3], [0.9, 0.3], [0.9, 0.7], [0.6, 0.7]]
-    res = await mw["a"].patch(f"/api/mockup-templates/{template['id']}", json={"print_area": moved, "garment": 1})
-    assert res.status_code == 200
-    assert res.json()["garments"][1]["print_area"] == moved and res.json()["garments"][1]["source"] == "seller"
-    assert res.json()["print_area"] == template["print_area"]
-    assert (await mw["a"].patch(f"/api/mockup-templates/{template['id']}",
-                                json={"print_area": moved, "garment": 5})).status_code == 404
+    areas = [{"print_area": a["print_area"], "detected_area": a["detected_area"], "source": a["source"]} for a in photo["areas"]]
+    areas[1] = {**areas[1], "print_area": moved, "source": "seller"}
+    saved = await _confirm(mw, photo, areas)
+    assert saved["areas"][1]["print_area"] == moved and saved["areas"][1]["source"] == "seller"
+    assert saved["areas"][0]["print_area"] == photo["areas"][0]["print_area"]
 
     async def run(mode: str) -> dict:
         batch = await _new_batch(mw)
@@ -264,9 +260,3 @@ async def test_several_garments_get_the_same_design_or_one_each_in_order(mw, mon
         rows = (await s.execute(select(MockupOutput).where(MockupOutput.run_id == uuid.UUID(order["id"])))).scalars().all()
         assert len({r.key for r in rows}) == 2 and len(rows) == 3
     assert guard.calls == []
-
-
-async def test_another_accounts_template_view_and_garments_are_not_found(mw) -> None:  # noqa: F811
-    mine = await _template(mw, "Mine")
-    res = await mw["b"].patch(f"/api/mockup-templates/{mine['id']}", json={"view": "back", "garment": 0})
-    assert res.status_code == 404

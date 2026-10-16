@@ -212,48 +212,63 @@ export interface Content {
   personalization_source?: "listing" | "profile" | "unknown" | string;
 }
 
-/** A seller's blank garment photo, ready to print designs on (backend pipeline/mockups.py). */
-export interface MockupTemplate {
+/** One print area on a template photo (backend api/mockups.py AreaOut). */
+export interface MockupArea {
+  /** Four corners TL, TR, BR, BL as shares (0..1) of the photo's width and height. */
+  print_area: [number, number][];
+  /** The suggestion for this area: "Reset to suggestion" and the editor's guides use it. */
+  detected_area: [number, number][];
+  /** "default" (suggested), "tap" (found from the seller's tap), "seller" (moved), "copied". */
+  source: "default" | "tap" | "seller" | "copied" | string;
+  confidence?: number | null;
+  kind?: string | null;
+}
+
+/** One blank photo of a template (backend api/mockups.py PhotoOut). */
+export interface MockupPhoto {
   id: string;
+  template_id: string;
   name: string;
   position: number;
-  set_id?: string | null;
   /** "preparing" while the server finds the outline, then "ready" or "failed". */
   status: "preparing" | "ready" | "failed" | string;
   error?: string | null;
   width: number | null;
   height: number | null;
-  /** "alpha" (the photo's transparency), "background" (removed) or "none". */
   mask_source: string | null;
-  /** Four corners TL, TR, BR, BL as shares (0..1) of the photo's width and height. */
-  print_area: [number, number][] | null;
-  print_area_source: "default" | "seller" | string;
   size: number;
   fold_strength: number;
   version: number;
   notice?: string | null;
-  /** How the print area was found: "pose" (the person), "outline" (the garment), "default". */
   method?: string | null;
-  /** How sure (0..1); below the server's threshold the seller is asked to check. */
   confidence?: number | null;
   analysis_note?: string | null;
-  needs_check?: boolean;
-  /** Print behind hair, skin and accessories, and whether the photo has any. */
+  /** The seller pressed "Looks right"; until then it is not used for mockups. */
+  confirmed: boolean;
+  needs_check: boolean;
   occlusion?: boolean;
   has_occluder?: boolean;
-  /** "front" or "back" (found from the pose; the seller can change it). */
   view?: "front" | "back" | string;
-  /** Every garment in the photo, in reading order; the first is print_area. */
-  garments?: MockupGarment[];
+  areas: MockupArea[];
 }
 
-/** One garment in a template photo: its own print area. */
-export interface MockupGarment {
+/** A named group of blank photos (the same tee in ten colours, or several shots of one product). */
+export interface MockupTemplate {
+  id: string;
+  name: string;
+  position: number;
+  photos: MockupPhoto[];
+  needs_check: number;
+  confirmed: number;
+}
+
+/** "Add area": the garment under the seller's tap, or a box there when none was found. */
+export interface FoundArea {
+  found: boolean;
   print_area: [number, number][];
   confidence?: number | null;
   kind?: string | null;
-  source?: "default" | "seller" | string;
-  needs_check?: boolean;
+  note?: string | null;
 }
 
 /** A design uploaded to be printed on templates: its own listing group. */
@@ -267,19 +282,12 @@ export interface MockupDesign {
   has_alpha: boolean;
 }
 
-/** Templates that belong together (one garment in several colours). */
-export interface MockupSet {
-  id: string;
-  name: string;
-  position: number;
-  template_ids: string[];
-}
-
 export interface MockupOutput {
   id: string;
-  template_id: string | null;
+  photo_id: string | null;
   template_name: string;
-  /** "<SKU>_<template name>.jpg" */
+  photo_name?: string | null;
+  /** "<SKU>_<template name>_<photo name>.jpg" */
   filename: string;
   available: boolean;
 }
@@ -316,6 +324,9 @@ export interface MockupRun {
   failed: number;
   error?: string | null;
   templates: string[];
+  /** Photos printed on, and photos of the chosen templates left out because they are not confirmed. */
+  photos: number;
+  skipped: number;
   designs: MockupRunDesign[];
   zips: MockupZip[];
 }

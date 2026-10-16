@@ -4,17 +4,30 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { MockupDesign, MockupRun, MockupSet, MockupTemplate, MockupZip } from "@/lib/types";
-import { GARMENT_MODE_LABELS, LIMIT_NOTE, MAX_TEMPLATES_PER_RUN, SIDE_LABELS, megabytes, runLine, sizeProblem } from "@/lib/mockups";
+import type { MockupDesign, MockupRun, MockupTemplate, MockupZip } from "@/lib/types";
+import {
+  GARMENT_MODE_LABELS,
+  LIMIT_NOTE,
+  MAX_PHOTOS_PER_RUN,
+  NEEDS_CHECK,
+  SIDE_LABELS,
+  megabytes,
+  printable,
+  runLine,
+  sizeProblem,
+  skippedLine,
+} from "@/lib/mockups";
 
 import { Txt } from "@/components/Txt";
 /**
  * "Make mockups from designs" on the Uploads page (backend api/mockups.py).
  *
- * 1. The seller picks a whole colour set or any templates, and uploads one or many
- *    designs (each up to 30 MB, with progress; too-large files are refused before
- *    anything is sent). Each design's SKU, read from its file name, can be changed.
- * 2. The worker places every design on every chosen template; progress per design.
+ * 1. The seller picks one or more templates, and uploads one or many designs (each up
+ *    to 30 MB, with progress; too-large files are refused before anything is sent).
+ *    Each design's SKU, read from its file name, can be changed.
+ * 2. The worker places every design on every confirmed photo of the chosen templates
+ *    (10 photos: 10 mockups per design); photos still waiting for the seller's check are
+ *    left out, and the page says how many. Progress per design.
  * 3. Per design or for all: "Use for listings" (a listing group per design, the
  *    chosen colour as its cover) and/or "Download" (a ZIP, private, kept 24 hours).
  *
@@ -27,7 +40,6 @@ const STALL_MS = 5 * 60_000;
 export function MockupUpload({ shop }: { shop: string | null }) {
   const router = useRouter();
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
-  const [sets, setSets] = useState<MockupSet[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
   const [sides, setSides] = useState<"both" | "front" | "back">("both");
   const [garmentMode, setGarmentMode] = useState<"same" | "order">("same");
@@ -42,11 +54,8 @@ export function MockupUpload({ shop }: { shop: string | null }) {
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    Promise.all([api.mockupTemplates(), api.mockupSets()])
-      .then(([t, s]) => {
-        setTemplates(t);
-        setSets(s);
-      })
+    api.mockupTemplates()
+      .then(setTemplates)
       .catch((e) => {
         setTemplates([]);
         setError(String(e.message ?? e));
@@ -71,10 +80,8 @@ export function MockupUpload({ shop }: { shop: string | null }) {
     return () => clearTimeout(t);
   }, [run]);
 
-  const ready = (templates ?? []).filter((t) => t.status === "ready");
-  const order = (ids: string[]) => ready.map((t) => t.id).filter((id) => ids.includes(id)).slice(0, MAX_TEMPLATES_PER_RUN);
-  const toggle = (ids: string[], on: boolean) =>
-    setChosen((now) => order(on ? [...now, ...ids] : now.filter((x) => !ids.includes(x))));
+  const toggle = (id: string, on: boolean) =>
+    setChosen((now) => (templates ?? []).map((t) => t.id).filter((x) => (x === id ? on : now.includes(x))));
 
   function pick(files: File[]) {
     setError(null);
@@ -129,24 +136,23 @@ export function MockupUpload({ shop }: { shop: string | null }) {
     }
   }
 
-  // The chosen templates the run prints on (by the side each shows), and whether any
-  // photo has several garments (then the seller says how designs fill them).
-  const chosenTemplates = (templates ?? []).filter((t) => chosen.includes(t.id));
-  const printed = chosenTemplates.filter((t) => sides === "both" || (t.view === "back" ? "back" : "front") === sides);
-  const multiGarment = printed.some((t) => (t.garments?.length ?? 0) > 1);
+  // The photos the run prints on (confirmed, by the side each shows), those it leaves out,
+  // and whether any photo has several garments (then the seller says how designs fill them).
+  const { photos: printed, skipped } = printable(templates ?? [], chosen, sides);
+  const tooMany = printed.length > MAX_PHOTOS_PER_RUN;
+  const multiGarment = printed.some((p) => p.areas.length > 1);
 
   if (templates === null) return <section className="card h-[11rem] animate-pulse" aria-hidden />;
   const busy = phase === "uploading" || phase === "making";
   const total = run?.total ?? 0;
   const progress = total ? (run?.done ?? 0) / total : 0;
-  const loose = ready.filter((t) => !t.set_id || !sets.some((s) => s.id === t.set_id));
   return (
     <section className="card space-y-4 p-5" data-testid="mockup-upload">
       <div>
         <h2 className="text-base font-semibold text-slate-900">Make mockups from designs</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Every design is placed on every template you pick, as if printed on the fabric. Afterwards, use them as each
-          design&apos;s listing photos, download them as a ZIP, or both.
+          Every design is placed on every photo of the templates you pick, as if printed on the fabric. Afterwards, use
+          them as each design&apos;s listing photos, download them as a ZIP, or both.
         </p>
       </div>
       {templates.length === 0 ? (
@@ -158,25 +164,31 @@ export function MockupUpload({ shop }: { shop: string | null }) {
         <div key="form" className="space-y-5">
           <fieldset className="space-y-2" disabled={busy || phase === "done"}>
             <legend className="label">1. Print on</legend>
-            {sets.map((s) => {
-              const ids = ready.filter((t) => t.set_id === s.id).map((t) => t.id);
-              if (!ids.length) return null;
-              const all = ids.every((id) => chosen.includes(id));
-              return (
-                <div key={s.id} className="rounded-md border border-slate-200 p-2.5">
-                  <label className="flex min-h-[2.75rem] min-w-0 items-center gap-2.5 text-sm font-medium text-slate-800">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={all}
-                      onChange={(e) => toggle(ids, e.target.checked)} data-testid="mockup-set-pick" />
-                    <span className="min-w-0 truncate" title={s.name}>{s.name}</span>
-                    <span className="shrink-0 text-xs font-normal text-slate-500" translate="no"><span>whole set · <span>{ids.length}</span></span></span>
-                  </label>
-                  <TemplateChecks list={ready.filter((t) => t.set_id === s.id)} chosen={chosen} toggle={toggle} />
-                </div>
-              );
-            })}
-            {loose.length > 0 && <TemplateChecks key="loose" list={loose} chosen={chosen} toggle={toggle} />}
-            {templates.some((t) => t.status === "preparing") && (
-              <p key="preparing" className="text-xs text-slate-500">Templates still being prepared appear here when they are ready.</p>
+            <ul className="grid gap-x-3 sm:grid-cols-2" data-testid="mockup-templates">
+              {templates.map((t) => {
+                const ready = t.photos.filter((p) => p.status === "ready");
+                return (
+                  <li key={t.id} className="min-w-0">
+                    <label className="flex min-h-[2.75rem] min-w-0 items-center gap-2.5 text-sm text-slate-700">
+                      <input type="checkbox" className="h-4 w-4 shrink-0 rounded border-slate-300" checked={chosen.includes(t.id)}
+                        onChange={(e) => toggle(t.id, e.target.checked)} disabled={!ready.length} data-testid="mockup-template" />
+                      <span className="min-w-0 truncate font-medium" title={t.name}>{t.name}</span>
+                      <span className="shrink-0 text-xs text-slate-500" translate="no">
+                        <span>{`${t.confirmed} of ${t.photos.length} ${t.photos.length === 1 ? "photo" : "photos"}`}</span>
+                      </span>
+                    </label>
+                    {t.needs_check > 0 && (
+                      <p key="check" className="-mt-1 mb-1 pl-6 text-xs text-amber-800" translate="no">
+                        <span>{`${NEEDS_CHECK}: ${t.needs_check}. `}</span>
+                        <Link href="/templates" className="tap underline">Check them</Link>
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {templates.some((t) => t.photos.some((p) => p.status === "preparing")) && (
+              <p key="preparing" className="text-xs text-slate-500">Photos still being prepared are used once they are ready and you have checked them.</p>
             )}
           </fieldset>
 
@@ -245,13 +257,19 @@ export function MockupUpload({ shop }: { shop: string | null }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 text-sm text-slate-600" translate="no">
-                {`${designs.length} ${designs.length === 1 ? "design" : "designs"} × ${printed.length} ${printed.length === 1 ? "template" : "templates"} = ${designs.length * printed.length} mockups`}
+                {`${designs.length} ${designs.length === 1 ? "design" : "designs"} × ${printed.length} ${printed.length === 1 ? "photo" : "photos"} = ${designs.length * printed.length} mockups`}
               </span>
               <button type="button" className="btn-primary sm:ml-auto" onClick={make} data-testid="mockup-make"
-                disabled={busy || phase === "done" || !designs.length || !printed.length}>
+                disabled={busy || phase === "done" || !designs.length || !printed.length || tooMany}>
                 {phase === "making" ? "Making…" : "3. Make mockups"}
               </button>
             </div>
+            {chosen.length > 0 && skipped > 0 && (
+              <p key="skipped" role="status" className="text-sm text-amber-800" data-testid="mockup-skipped">{skippedLine(skipped)}</p>
+            )}
+            {tooMany && (
+              <p key="too-many" role="alert" className="text-sm text-rose-700">{`One run prints on up to ${MAX_PHOTOS_PER_RUN} photos; choose fewer templates.`}</p>
+            )}
             {/* One line, the same height in every state: nothing below it moves. */}
             <div className="space-y-1.5" aria-live="polite">
               <div className="progress" aria-hidden><div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
@@ -274,31 +292,6 @@ export function MockupUpload({ shop }: { shop: string | null }) {
         </div>
       )}
     </section>
-  );
-}
-
-function TemplateChecks({
-  list,
-  chosen,
-  toggle,
-}: {
-  list: MockupTemplate[];
-  chosen: string[];
-  toggle: (ids: string[], on: boolean) => void;
-}) {
-  return (
-    <ul className="grid gap-x-3 sm:grid-cols-2">
-      {list.map((t) => (
-        <li key={t.id} className="min-w-0">
-          <label className="flex min-h-[2.75rem] min-w-0 items-center gap-2.5 text-sm text-slate-700">
-            <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={chosen.includes(t.id)}
-              onChange={(e) => toggle([t.id], e.target.checked)} data-testid="mockup-template" />
-            <span className="min-w-0 truncate" title={t.name}>{t.name}</span>
-            <span className="shrink-0 text-xs text-slate-500">{t.view === "back" ? "Back" : "Front"}</span>
-          </label>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -398,10 +391,12 @@ function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun)
             {finished && d.outputs.length > 0 && (
               <label key="cover" className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-600">
                 <span className="shrink-0">Cover</span>
-                <select className="field min-w-0 flex-1 text-xs" value={covers[d.design_id] ?? d.outputs[0].template_id ?? ""}
+                <select className="field min-w-0 flex-1 text-xs" value={covers[d.design_id] ?? d.outputs[0].photo_id ?? ""}
                   onChange={(e) => setCovers((all) => ({ ...all, [d.design_id]: e.target.value }))} data-testid="mockup-cover">
                   {d.outputs.map((o) => (
-                    <option key={o.id} value={o.template_id ?? ""} disabled={!o.template_id}>{o.template_name}</option>
+                    <option key={o.id} value={o.photo_id ?? ""} disabled={!o.photo_id}>
+                      {o.photo_name && o.photo_name !== o.template_name ? `${o.template_name} – ${o.photo_name}` : o.template_name}
+                    </option>
                   ))}
                 </select>
               </label>

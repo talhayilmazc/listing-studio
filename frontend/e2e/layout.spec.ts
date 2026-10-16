@@ -2,6 +2,9 @@
  * The page ends where its footer ends, nothing is wider than the screen, and the
  * Admin tab bar stays where it is.
  *
+ * The print-area editor (components/PrintAreaEditor.tsx) is opened on /templates and must fit
+ * the screen with 44 px controls and its confirm button in view.
+ *
  * Three faults these tests were written after:
  *   - the sign-in screens kept their footer inside a centred column, so the height
  *     the window had to spare was left below it;
@@ -161,6 +164,35 @@ test.describe("signed in", () => {
       await settle(page);
       await expectSound(page, path.replace(/[0-9a-f-]{36}/, "<batch>"));
     }
+  });
+
+  test("the print-area editor fits the screen, its controls are 44 px and nothing scrolls sideways", async ({ page }) => {
+    await page.goto("/templates");
+    await settle(page);
+    const open = page.getByTestId("template-photo-open").first();
+    await open.waitFor({ state: "visible", timeout: 30_000 });
+    await open.click();
+    const editor = page.getByTestId("area-editor");
+    await page.getByTestId("editor-confirm").waitFor({ state: "visible", timeout: 15_000 });
+    const { width, height } = page.viewportSize()!;
+    const panel = (await editor.locator(":scope > div").boundingBox())!;
+    // Full screen on a phone; at least 900 px wide on a desktop, inside the window.
+    if (width < 1024) expect(Math.round(panel.width), "the editor is full width on a phone").toBe(width);
+    else expect(panel.width, "the editor is at least 900 px wide on a desktop").toBeGreaterThanOrEqual(900);
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(width + 1);
+    expect(panel.y + panel.height).toBeLessThanOrEqual(height + 1);
+    const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(sideways, "the page scrolls sideways with the editor open").toBeLessThanOrEqual(0);
+    // Every button in the editor, and the confirm button in view, at least 44 px.
+    const small = await editor.locator("button").evaluateAll((buttons) =>
+      buttons.filter((b) => b.getClientRects().length).map((b) => ({ t: b.textContent?.trim() || b.getAttribute("aria-label"), h: b.getBoundingClientRect().height, w: b.getBoundingClientRect().width }))
+        .filter((b) => b.h < 44 || b.w < 44));
+    expect(small, "editor buttons under 44 px").toEqual([]);
+    const confirm = (await page.getByTestId("editor-confirm").boundingBox())!;
+    expect(confirm.y + confirm.height, "Looks right is on screen without scrolling").toBeLessThanOrEqual(height + 1);
+    await page.getByTestId("editor-close").click();
+    await expectSound(page, "/templates after the editor");
   });
 
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {

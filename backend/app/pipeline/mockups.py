@@ -192,6 +192,8 @@ class PreparedBlank:
     garments: list[dict[str, Any]] = field(default_factory=list)
     #: "front" or "back" (the seller can change it); None when it is not known.
     view: str | None = None
+    #: Where garments are, one-band PNG at the analysis size, or None (the earlier analysis).
+    foreground: bytes | None = None
 
 
 def _to_numpy(image):  # noqa: ANN001, ANN202 - pyvips uchar -> numpy (h, w[, bands])
@@ -301,10 +303,14 @@ def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default
     jpeg = rgb.copy(interpretation="srgb").write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True)
     png = mask.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
     area = analysis.print_area or default_print_area(mask)
+    foreground = None
+    if analysis.foreground is not None:
+        foreground = _from_numpy(analysis.foreground).copy(interpretation="b-w").write_to_buffer(
+            ".png", compression=6, strip=True)
     return PreparedBlank(
         jpeg, png, rgb.width, rgb.height, source, area, occluder=occluder, confidence=analysis.confidence,
         method=analysis.method, note=analysis.note, details=dict(analysis.details),
-        garments=list(analysis.garments), view=analysis.view,
+        garments=list(analysis.garments), view=analysis.view, foreground=foreground,
     )
 
 
@@ -342,9 +348,13 @@ def safe_name(text: str, limit: int = 120) -> str:
     return re.sub(r"\s+", " ", cleaned)[:limit].strip() or "mockup"
 
 
-def output_name(base: str, template_name: str, taken: set[str]) -> str:
-    """"<SKU>_<template name>.jpg", made unique among ``taken`` (which it joins)."""
-    stem = f"{safe_name(base, 60)}_{safe_name(template_name)}"
+def output_name(base: str, template_name: str, taken: set[str], photo_name: str | None = None) -> str:
+    """"<SKU>_<template name>_<photo name>.jpg", made unique among ``taken`` (which it
+    joins). The photo's part is left out when it is the template's own name (a template
+    of one photo, as migration 0068 made them), so it is not said twice."""
+    stem = f"{safe_name(base, 60)}_{safe_name(template_name, 80)}"
+    if photo_name and safe_name(photo_name).lower() != safe_name(template_name).lower():
+        stem = f"{stem}_{safe_name(photo_name, 80)}"
     name, n = f"{stem}.jpg", 1
     while name.lower() in taken:
         n += 1

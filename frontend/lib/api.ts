@@ -1,9 +1,10 @@
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import type {
+  FoundArea,
   MockupDesign,
+  MockupPhoto,
   MockupRun,
-  MockupSet,
   MockupTemplate,
   MockupZip,
   Checklist,
@@ -397,57 +398,51 @@ export const api = {
     }),
   updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">> & { personalization?: Personalization | null }) =>
     req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  // Mockup templates (backend api/mockups.py): no Etsy call, no AI call.
+  // Mockup templates and their photos (backend api/mockups.py): no Etsy call, no AI call.
   mockupTemplates: () => req<MockupTemplate[]>("/mockup-templates"),
-  /** One blank photo (up to 30 MB), with upload progress, a timeout and the server's own error. */
-  createMockupTemplate: (
-    file: File,
-    name: string,
-    rightsConfirmed: boolean,
-    onProgress: (pct: number) => void,
-    setId?: string | null,
-  ) => {
+  mockupTemplate: (id: string) => req<MockupTemplate>(`/mockup-templates/${id}`),
+  createMockupTemplate: (name: string) =>
+    req<MockupTemplate>("/mockup-templates", { method: "POST", body: JSON.stringify({ name }) }),
+  renameMockupTemplate: (id: string, name: string) =>
+    req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
+  orderMockupTemplates: (ids: string[]) =>
+    req<MockupTemplate[]>("/mockup-templates/order", { method: "PUT", body: JSON.stringify({ ids }) }),
+  /** One blank photo (up to 30 MB) into a template, with upload progress, a timeout and the server's own error. */
+  addMockupPhoto: (templateId: string, file: File, name: string, rightsConfirmed: boolean, onProgress: (pct: number) => void) => {
     const form = new FormData();
     form.append("file", file, file.name);
     form.append("name", name);
     form.append("rights_confirmed", rightsConfirmed ? "true" : "false");
-    if (setId) form.append("set_id", setId);
-    return postForm<MockupTemplate>(`${BASE}/mockup-templates`, form, onProgress, UPLOAD_TIMEOUT_MS);
+    return postForm<MockupPhoto>(`${BASE}/mockup-templates/${templateId}/photos`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
-  updateMockupTemplate: (
+  orderMockupPhotos: (templateId: string, ids: string[]) =>
+    req<MockupTemplate>(`/mockup-templates/${templateId}/photos/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  mockupPhoto: (id: string) => req<MockupPhoto>(`/mockup-photos/${id}`),
+  updateMockupPhoto: (
     id: string,
-    body: {
-      name?: string;
-      print_area?: [number, number][];
-      reset_print_area?: boolean;
-      size?: number;
-      fold_strength?: number;
-      set_id?: string | null;
-      view?: "front" | "back";
-      /** Which garment print_area / reset_print_area is for (0 = first). */
-      garment?: number;
-      occlusion?: boolean;
-    },
-  ) => req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  mockupSets: () => req<MockupSet[]>("/mockup-sets"),
-  createMockupSet: (name: string) => req<MockupSet>("/mockup-sets", { method: "POST", body: JSON.stringify({ name }) }),
-  renameMockupSet: (id: string, name: string) =>
-    req<MockupSet>(`/mockup-sets/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
-  deleteMockupSet: (id: string) => req<void>(`/mockup-sets/${id}`, { method: "DELETE" }),
-  /** One template's print area, size and fold strength, given to every template of its set. */
-  applyToMockupSet: (setId: string, templateId: string) =>
-    req<MockupTemplate[]>(`/mockup-sets/${setId}/apply`, { method: "POST", body: JSON.stringify({ template_id: templateId }) }),
-  orderMockupTemplates: (ids: string[]) =>
-    req<MockupTemplate[]>("/mockup-templates/order", { method: "PUT", body: JSON.stringify({ ids }) }),
-  deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
-  mockupTemplateImageUrl: (id: string, w?: number) =>
-    `${BASE}/mockup-templates/${id}/image${w ? `?w=${w}` : ""}`,
-  /** The template with a sample design, with unsaved settings: a JPEG. */
-  previewMockupTemplate: async (
+    body: { name?: string; size?: number; fold_strength?: number; occlusion?: boolean; view?: "front" | "back"; template_id?: string },
+  ) => req<MockupPhoto>(`/mockup-photos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  /** The editor's print areas; confirm = "Looks right". */
+  saveMockupAreas: (
     id: string,
-    body: { print_area?: [number, number][]; size?: number; fold_strength?: number; occlusion?: boolean; garment?: number },
+    areas: { print_area: [number, number][]; detected_area?: [number, number][]; source: string; kind?: string | null }[],
+    confirm: boolean,
+    size?: number,
+  ) => req<MockupPhoto>(`/mockup-photos/${id}/areas`, { method: "PUT", body: JSON.stringify({ areas, confirm, size }) }),
+  /** "Add area": the garment under the tap (shares of the photo), alone. Nothing is saved. */
+  findMockupGarment: (id: string, x: number, y: number, areas: [number, number][][]) =>
+    req<FoundArea>(`/mockup-photos/${id}/find`, { method: "POST", body: JSON.stringify({ x, y, areas }) }),
+  copyMockupAreas: (id: string, photoIds: string[]) =>
+    req<MockupPhoto[]>(`/mockup-photos/${id}/copy`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds }) }),
+  deleteMockupPhoto: (id: string) => req<void>(`/mockup-photos/${id}`, { method: "DELETE" }),
+  mockupPhotoImageUrl: (id: string, w?: number) => `${BASE}/mockup-photos/${id}/image${w ? `?w=${w}` : ""}`,
+  /** The photo with a sample design printed (shaded and warped by the fabric), with unsaved areas: a JPEG. */
+  previewMockupPhoto: async (
+    id: string,
+    body: { areas?: [number, number][][]; size?: number; fold_strength?: number; occlusion?: boolean },
   ) => {
-    const res = await fetch(`${BASE}/mockup-templates/${id}/preview`, {
+    const res = await fetch(`${BASE}/mockup-photos/${id}/preview`, {
       method: "POST",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },

@@ -114,9 +114,11 @@ export default function PrivacyPage() {
           <strong>Your uploads.</strong> The design images you upload are resized and stored in that
           resized form only (the file as you sent it is not kept), with their file and folder names,
           the SKU read from them, and their dimensions. If you make mockups, the blank garment photos you
-          save as templates are kept too, with the garment&rsquo;s outline, the print area of each garment
-          in the photo, whether it shows the front or the back, the settings you chose, the colour sets you
-          put them in, and when you confirmed you may use each photo. Where something is in front of the
+          save in templates are kept too, with the template&rsquo;s name and the photos&rsquo; order, the
+          garment&rsquo;s outline, a map of where the garments are in the photo, the print area of each
+          garment (as suggested and as you set it), whether and when you confirmed it, whether the photo
+          shows the front or the back, the settings you chose, and when you confirmed you may use each
+          photo. Where something is in front of the
           garment (hair, skin, accessories or a thing held in front of it), a mask of it is kept with the
           photo, so designs can be placed behind it. Photos are analysed on our own server by bundled
           open-source image-analysis models; no photo is sent to any outside service for this. The
@@ -403,7 +405,7 @@ export default function PrivacyPage() {
             period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch`}</span>}
           />
           <Row
-            data="The blank garment photos you save as mockup templates, with each one's outline, the print area of each garment in it, front or back, colour set and the mask of what is in front of the garment"
+            data="The blank garment photos you save as mockup templates, with each one's outline, the map of where its garments are, the print area of each garment and its confirmation, front or back, the template it is in and the mask of what is in front of the garment"
             period="Until you delete the template or your account. The designs you upload to make mockups, and the mockups made from them, are image files like the rest and are kept as above"
           />
           <Row

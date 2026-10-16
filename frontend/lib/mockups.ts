@@ -3,6 +3,7 @@
  * pipeline/mockups.py, core/config.py). lib/mockups.test.ts fails if a figure or
  * the rights sentence drifts from the backend's.
  */
+import type { MockupPhoto, MockupTemplate } from "./types";
 
 /** What the seller confirms when uploading a blank: the same words the server checks for. */
 export const RIGHTS_STATEMENT = "This photo is my own, or I have the right to use it to show my products.";
@@ -10,31 +11,42 @@ export const RIGHTS_STATEMENT = "This photo is my own, or I have the right to us
 /** The size setting (share of the print area) and fold strength, as the server allows them. */
 export const SIZE_RANGE: [number, number] = [0.2, 1.0];
 export const FOLD_RANGE: [number, number] = [0.0, 1.0];
-/** The most templates one upload prints on. */
-export const MAX_TEMPLATES_PER_RUN = 20;
+/** The most photos one run prints on (every design on each). */
+export const MAX_PHOTOS_PER_RUN = 60;
+/** Photos one template holds. */
+export const MAX_PHOTOS_PER_TEMPLATE = 40;
 /** A blank photo or a design, per file (the server refuses more). */
 export const MAX_UPLOAD_MB = 30;
-/** A template's or a set's name. */
+/** A template's or a photo's name. */
 export const MAX_NAME = 120;
 
 export const TEMPLATES_INTRO =
-  "Upload a blank garment photo once; your designs are placed on it as if printed on the fabric. Only your design is used: it is fitted, warped to the fabric and shaded by it, never redrawn. Mockups do not count toward Listings generated.";
+  "A template is a group of blank photos: the same garment in each colour, or several shots of one product. Every design is placed on every photo of the template, as if printed on the fabric. Only your design is used: it is fitted, warped to the fabric and shaded by it, never redrawn. Mockups do not count toward Listings generated.";
 
 export const ACCURACY_NOTE =
   "Etsy asks for photos that show the item accurately: use a blank of the garment you actually sell, in its real colour.";
 
-/** Said on a template whose print area the analysis was not sure of. */
-export const CHECK_NOTE = "Check the print area: drag the corners onto the chest if it is not right.";
+/** On a photo whose print areas the seller has not confirmed yet. */
+export const NEEDS_CHECK = "Needs your check";
+/** The editor's primary button: saves the areas and marks the photo confirmed. */
+export const LOOKS_RIGHT = "Looks right";
+/** What the editor says about the suggestion: it is where to start, not the answer. */
+export const SUGGESTION_NOTE =
+  "We placed the print area where we think it goes. Move it if it is not right, then press Looks right. Photos are used for mockups only after this check.";
+export const EDITOR_HINT =
+  "Drag inside the area to move it, a corner to resize it, the round handle to turn it. Arrow keys nudge it (Shift for bigger steps). Lines appear when it lines up; hold Alt to place it freely.";
 export const OCCLUSION_LABEL = "Put the design behind hair, skin, hands and things held in front";
+/** Said when a run leaves photos out because they are not confirmed. */
+export const skippedLine = (n: number) =>
+  `${n} ${n === 1 ? "photo needs" : "photos need"} your check and will not be used until you confirm ${n === 1 ? "it" : "them"}.`;
+/** "3 photos need your check" on a template card. */
+export const checkLine = (n: number) => `${n} ${n === 1 ? "photo needs" : "photos need"} your check`;
 
-/** "2 garments: each has its own print area." */
-export const garmentsLine = (n: number) => `${n} garments in this photo: each has its own print area.`;
-
-/** The run's choices: which templates (by the side they show) and how designs fill a photo of several garments. */
+/** The run's choices: which photos (by the side each shows) and how designs fill a photo of several garments. */
 export const SIDE_LABELS: Record<"both" | "front" | "back", string> = {
-  both: "Front and back templates",
-  front: "Front templates only",
-  back: "Back templates only",
+  both: "Front and back photos",
+  front: "Front photos only",
+  back: "Back photos only",
 };
 export const GARMENT_MODE_LABELS: Record<"same" | "order", string> = {
   same: "The same design on every garment of a photo",
@@ -51,16 +63,48 @@ export function sizeProblem(file: { name: string; size: number }): string | null
   return `${file.name} is ${(file.size / (1024 * 1024)).toFixed(1)} MB: the limit is ${MAX_UPLOAD_MB} MB per file.`;
 }
 
-/** A template's name from its file name: "white-tee_front.png" -> "white tee front". */
+/** A photo's name from its file name: "white-tee_front.png" -> "white tee front". */
 export function nameFromFile(filename: string): string {
   const stem = filename.replace(/\\/g, "/").split("/").pop()!.replace(/\.[^.]+$/, "");
   return stem.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_NAME) || "Blank";
 }
 
-/** A corner moved to (x, y) (shares of the photo), kept inside the photo. */
-export function moveCorner(corners: Corner[], index: number, x: number, y: number): Corner[] {
-  const clamp = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 10000) / 10000;
-  return corners.map((c, i) => (i === index ? [clamp(x), clamp(y)] : c));
+/** A template's name from several photos: what their names share ("Comfort Colors 1717 White", "… Black" -> "Comfort Colors 1717"). */
+export function templateNameFrom(names: string[]): string {
+  if (!names.length) return "Template";
+  const words = names.map((n) => n.split(/\s+/));
+  const shared: string[] = [];
+  for (let i = 0; i < words[0].length; i++) {
+    if (words.every((w) => w[i]?.toLowerCase() === words[0][i].toLowerCase())) shared.push(words[0][i]);
+    else break;
+  }
+  if (names.length === 1) return names[0];
+  return shared.join(" ").trim().slice(0, MAX_NAME) || names[0];
+}
+
+/**
+ * The photos a run prints on: every confirmed, ready photo of the chosen templates showing
+ * the chosen side, in template order then photo order (as the server does,
+ * api/mockups.py ``start_run``), and how many of those templates' photos it leaves out
+ * because they are not confirmed.
+ */
+export function printable(templates: MockupTemplate[], chosen: string[], sides: "both" | "front" | "back"): { photos: MockupPhoto[]; skipped: number } {
+  const photos: MockupPhoto[] = [];
+  let skipped = 0;
+  for (const t of templates) {
+    if (!chosen.includes(t.id)) continue;
+    for (const p of t.photos) {
+      if (sides !== "both" && (p.view === "back" ? "back" : "front") !== sides) continue;
+      if (p.status === "ready" && p.confirmed) photos.push(p);
+      else skipped += 1;
+    }
+  }
+  return { photos, skipped };
+}
+
+/** The photos of a template still waiting for "Looks right", in order (the editor's queue). */
+export function waitingForCheck(template: MockupTemplate): string[] {
+  return template.photos.filter((p) => p.needs_check).map((p) => p.id);
 }
 
 /** "73%": a setting as the seller reads it. */
@@ -76,3 +120,22 @@ export function runLine(run: { status: string; done: number; total: number; fail
 
 /** "1.4 MB" */
 export const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+/**
+ * The editor's sample design (a plain drawing of our own, not a real design): shown in the
+ * live preview when the seller has not chosen one of theirs. 1000 x 1000.
+ */
+export const SAMPLE_DESIGN = {
+  width: 1000,
+  height: 1000,
+  url:
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000">' +
+        '<circle cx="500" cy="380" r="300" fill="#f59e0b"/>' +
+        '<rect x="120" y="620" width="760" height="150" rx="24" fill="#0f766e"/>' +
+        '<text x="500" y="728" font-family="Arial,Helvetica,sans-serif" font-size="110" font-weight="700" fill="#fff" text-anchor="middle">SAMPLE</text>' +
+        '<path d="M300 860h400" stroke="#0f766e" stroke-width="40" stroke-linecap="round"/>' +
+        "</svg>",
+    ),
+};

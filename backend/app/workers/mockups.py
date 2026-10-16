@@ -1,14 +1,16 @@
-"""Mockups in the worker (pipeline/mockups.py): preparing templates, making a run's
-mockups, turning them into listings, and building ZIPs to download.
+"""Mockups in the worker (pipeline/mockups.py): preparing template photos, making a
+run's mockups, turning them into listings, and building ZIPs to download.
 
-* **Preparing a template**: finding the garment's outline and a default print area
-  takes seconds on a large photo, so it runs here; the template shows "preparing"
-  on the page until it is "ready" (or "failed", with the reason).
-* **A run** prints every design of the batch on every template the seller chose
-  (front ones, back ones or both), in the seller's template order. A photo with
-  several garments gets the same design on each, or one design per garment in order. Each mockup is an output named
-  "<SKU>_<template name>.jpg" (the design's file name when it has no SKU), unique
-  in the run. Progress is saved after every mockup, per design.
+* **Preparing a photo**: finding the garment's outline and suggesting print areas
+  takes seconds on a large photo, so it runs here; the photo shows "preparing" on the
+  page until it is "ready" (or "failed", with the reason). The suggestion waits for
+  the seller's "Looks right" before the photo is used.
+* **A run** prints every design of the batch on every photo it holds (the confirmed
+  photos of the chosen templates, front ones, back ones or both, in order). A photo
+  with several garments gets the same design on each, or one design per garment in
+  order. Each mockup is an output named "<SKU>_<template name>_<photo name>.jpg" (the
+  design's file name when it has no SKU), unique in the run. Progress is saved after
+  every mockup, per design.
 * **Use for listings**: the chosen designs become listing groups (one per design,
   all its mockups as its photos, the cover the seller picked first). The photos
   read the outputs' files: nothing is copied.
@@ -39,6 +41,7 @@ from app.db.models import (
     AssetStatus,
     MockupDesign,
     MockupOutput,
+    MockupPhoto,
     MockupRun,
     MockupTemplate,
     MockupZip,
@@ -53,11 +56,11 @@ from app.pipeline.storage import Storage
 
 logger = logging.getLogger(__name__)
 
-#: The most templates one run prints on.
-MAX_TEMPLATES = 20
+#: The most photos one run prints on (every design on each).
+MAX_PHOTOS = 60
 #: Said on the run when a design cannot be printed (its own words stay in the log).
 DESIGN_FAILED = "Some designs could not be read as images."
-#: Said on a template the worker could not prepare.
+#: Said on a photo the worker could not prepare.
 PREPARE_FAILED = "This photo could not be prepared. Try another file (JPEG or PNG)."
 
 
@@ -65,79 +68,146 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# --- templates --------------------------------------------------------------------------------
+# --- template photos ---------------------------------------------------------------------------
 
 
-async def prepare(session: AsyncSession, storage: Storage, template_id: uuid.UUID) -> MockupTemplate | None:
-    """Find the template's outline and print area; "ready", or "failed" with the reason."""
-    template = await session.get(MockupTemplate, template_id)
-    if template is None or template.status != "preparing" or not template.source_key:
-        return template
+async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) -> MockupPhoto | None:
+    """Find the photo's outline and suggest its print areas; "ready", or "failed" with the reason."""
+    photo = await session.get(MockupPhoto, photo_id)
+    if photo is None or photo.status != "preparing" or not photo.source_key:
+        return photo
     try:
-        source = storage.get(template.source_key)
-        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", template.name)
+        source = storage.get(photo.source_key)
+        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", photo.name)
     except (FileNotFoundError, ImageProcessingError, mockups.MockupError) as exc:
-        logger.info("mockup template %s could not be prepared: %s", template.id, exc)
-        template.status, template.error = "failed", PREPARE_FAILED
+        logger.info("mockup photo %s could not be prepared: %s", photo.id, exc)
+        photo.status, photo.error = "failed", PREPARE_FAILED
         await session.commit()
-        return template
-    base = f"{template.tenant_id}/templates/{template.id}"
+        return photo
+    base = f"{photo.tenant_id}/templates/{photo.id}"
     storage.put(f"{base}/blank.jpg", prepared.image, "image/jpeg")
     storage.put(f"{base}/mask.png", prepared.mask, "image/png")
     if prepared.occluder is not None:
         storage.put(f"{base}/occluder.png", prepared.occluder, "image/png")
-    storage.delete_with_derivatives(template.source_key)
-    storage_cap.forget(template.tenant_id)
-    template.image_key, template.mask_key = f"{base}/blank.jpg", f"{base}/mask.png"
-    template.occluder_key = f"{base}/occluder.png" if prepared.occluder is not None else None
-    template.width, template.height, template.mask_source = prepared.width, prepared.height, prepared.mask_source
-    template.print_area_confidence = prepared.confidence
-    template.analysis = {
+    if prepared.foreground is not None:
+        storage.put(f"{base}/foreground.png", prepared.foreground, "image/png")
+    storage.delete_with_derivatives(photo.source_key)
+    storage_cap.forget(photo.tenant_id)
+    photo.image_key, photo.mask_key = f"{base}/blank.jpg", f"{base}/mask.png"
+    photo.occluder_key = f"{base}/occluder.png" if prepared.occluder is not None else None
+    photo.foreground_key = f"{base}/foreground.png" if prepared.foreground is not None else None
+    photo.width, photo.height, photo.mask_source = prepared.width, prepared.height, prepared.mask_source
+    photo.print_area_confidence = prepared.confidence
+    photo.analysis = {
         "method": prepared.method, "note": prepared.note, "detected_area": prepared.print_area,
         "details": prepared.details,
     }
-    if template.print_area is None:  # a set's area applied while it was preparing is kept
-        template.print_area, template.print_area_source = prepared.print_area, "default"
-    if prepared.garments and len(prepared.garments) > 1:
-        found = [{**g, "source": "default", "detected_area": g["print_area"]} for g in prepared.garments]
-        found[0] = {**found[0], "print_area": template.print_area, "source": template.print_area_source}
-        template.garments = found
+    found = prepared.garments or [{"print_area": prepared.print_area, "confidence": prepared.confidence}]
+    if photo.garments:  # areas copied from another photo while it was preparing are kept
+        rows = [dict(g) for g in photo.garments]
+        for i, g in enumerate(rows):
+            if i < len(found):
+                g["detected_area"] = found[i]["print_area"]
     else:
-        template.garments = None
+        rows = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
+                 "detected_area": g["print_area"]} for g in found]
+    photo.garments = rows
+    photo.print_area = rows[0]["print_area"]
+    photo.print_area_source = "default" if all(r.get("source") == "default" for r in rows) else "seller"
     if prepared.view in ("front", "back"):
-        template.view = prepared.view
-    template.status, template.error, template.source_key = "ready", None, None
-    template.version += 1
+        photo.view = prepared.view
+    photo.status, photo.error, photo.source_key = "ready", None, None
+    photo.version += 1
     await session.commit()
-    return template
+    return photo
 
 
-async def prepare_mockup_template(ctx: dict[str, Any], template_id: str) -> str:
-    """arq entrypoint."""
+async def prepare_mockup_template(ctx: dict[str, Any], photo_id: str) -> str:
+    """arq entrypoint (the job keeps its name: a photo queued before an update still runs)."""
     from app.api.deps import get_storage
 
     async with ctx["sessionmaker"]() as session:
-        done = await prepare(session, get_storage(), uuid.UUID(template_id))
+        done = await prepare(session, get_storage(), uuid.UUID(photo_id))
         return done.status if done is not None else "missing"
+
+
+def photo_print_areas(photo: MockupPhoto) -> list[list[list[float]]]:
+    """A photo's print areas, one per garment, in the seller's order."""
+    rows = [g.get("print_area") for g in (photo.garments or []) if g.get("print_area")]
+    return rows or ([photo.print_area] if photo.print_area else [])
+
+
+def _plane(data: bytes, width: int, height: int) -> Any:
+    """A one-band PNG as float 0..1 at (height, width)."""
+    import numpy as np
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(data)).convert("L")
+    if im.size != (width, height):
+        im = im.resize((width, height), Image.BILINEAR)
+    return np.asarray(im, dtype=np.float32) / 255.0
+
+
+def find_at(blank: bytes, ground: bytes, occluder: bytes | None, tap: tuple[float, float],
+            others: list[list[list[float]]], name: str = "") -> tuple[list[list[float]], float, str] | None:
+    """"Add area" (api/mockups.py): the garment under ``tap`` (shares of the photo) and
+    its print area, as shares, with confidence and kind; None when nothing is there.
+    ``ground`` is the photo's foreground map (or its garment mask for photos prepared
+    before it was kept). In the API process, without a model: 1-2 s, about 300 MB."""
+    import numpy as np
+    from PIL import Image
+
+    from app.pipeline import garments
+
+    im = Image.open(io.BytesIO(blank)).convert("RGB")
+    scale = min(1.0, garments.WORK / max(im.size))
+    if scale < 1.0:
+        im = im.resize((round(im.width * scale), round(im.height * scale)), Image.BILINEAR)
+    w, h = im.size
+    rgb = np.asarray(im, dtype=np.uint8)
+    fg = _plane(ground, w, h)
+    occ = _plane(occluder, w, h) if occluder else None
+    px = [[(x * w, y * h) for x, y in quad] for quad in others]
+    found = garments.find_at(rgb, fg, occ, (tap[0] * w, tap[1] * h), px, name)
+    if found is None:
+        return None
+    corners = [[round(min(max(x / w, 0.0), 1.0), 4), round(min(max(y / h, 0.0), 1.0), 4)] for x, y in found.corners]
+    return corners, round(float(found.confidence), 3), found.kind
+
+
+def box_at(x: float, y: float, others: list[list[list[float]]], width: int, height: int) -> list[list[float]]:
+    """A print area centred where the seller tapped, when no garment was found there: as
+    wide as the other areas (their median), else a quarter of the photo, 1.2 x as tall
+    as wide (a standard adult print), kept inside the photo. Shares of the photo."""
+    import statistics
+
+    widths = [abs(q[1][0] - q[0][0]) * width for q in others if len(q) == 4]
+    side = statistics.median(widths) if widths else 0.25 * min(width, height)
+    bw, bh = side / width, min(1.2 * side / height, 0.9)
+    bw = min(bw, 0.9)
+    cx = min(max(x, bw / 2), 1 - bw / 2)
+    cy = min(max(y, bh / 2), 1 - bh / 2)
+    x0, y0, x1, y1 = cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2
+    return [[round(x0, 4), round(y0, 4)], [round(x1, 4), round(y0, 4)], [round(x1, 4), round(y1, 4)], [round(x0, 4), round(y1, 4)]]
 
 
 # --- runs -------------------------------------------------------------------------------------
 
 
-async def _templates(session: AsyncSession, run: MockupRun) -> list[MockupTemplate]:
-    found: list[MockupTemplate] = []
-    for raw in run.template_ids:
-        template = await session.get(MockupTemplate, uuid.UUID(str(raw)))
-        if template is not None and template.tenant_id == run.tenant_id and template.status == "ready":
-            found.append(template)
+async def _photos(session: AsyncSession, run: MockupRun) -> list[tuple[MockupPhoto, str]]:
+    """The run's photos with their template's name; a photo deleted since, or no longer
+    ready or confirmed, is left out."""
+    found: list[tuple[MockupPhoto, str]] = []
+    names: dict[uuid.UUID, str] = {}
+    for raw in run.photo_ids:
+        photo = await session.get(MockupPhoto, uuid.UUID(str(raw)))
+        if photo is None or photo.tenant_id != run.tenant_id or photo.status != "ready" or photo.confirmed_at is None:
+            continue
+        if photo.template_id not in names:
+            template = await session.get(MockupTemplate, photo.template_id)
+            names[photo.template_id] = template.name if template is not None else photo.name
+        found.append((photo, names[photo.template_id]))
     return found
-
-
-def template_areas(template: MockupTemplate) -> list[list[list[float]]]:
-    """A template's print areas, one per garment (the first is ``print_area``)."""
-    first = template.print_area or []
-    extra = [g.get("print_area") or [] for g in (template.garments or [])[1:]]
-    return [first] + [a for a in extra if a]
 
 
 def design_base(design: MockupDesign) -> str:
@@ -169,14 +239,14 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
     if job is None or job.status not in ("queued", "running"):
         return job
     job.status, job.started_at, job.done, job.failed, job.error = "running", _now(), 0, 0, None
-    templates = await _templates(session, job)
+    photos = await _photos(session, job)
     designs = list((await session.execute(
         select(MockupDesign)
         .where(MockupDesign.batch_id == job.batch_id, MockupDesign.design_key.is_not(None),
                MockupDesign.files_removed_at.is_(None))
         .order_by(MockupDesign.group_key, MockupDesign.original_filename)
     )).scalars())
-    job.total = len(designs) * len(templates)
+    job.total = len(designs) * len(photos)
     await replace_earlier(session, storage, job.batch_id)
     await session.commit()
 
@@ -187,7 +257,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
     taken: set[str] = set()
 
     try:
-        areas = {t.id: template_areas(t) for t in templates}
+        areas = {p.id: photo_print_areas(p) for p, _ in photos}
         images: dict[uuid.UUID, Any] = {}
         usable: list[MockupDesign] = []
         for design in designs:
@@ -196,18 +266,20 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 usable.append(design)
             except (mockups.MockupError, ImageProcessingError, FileNotFoundError) as exc:
                 logger.info("mockup design %s could not be used: %s", design.id, exc)
-                job.failed += len(templates)
+                job.failed += len(photos)
                 job.error = DESIGN_FAILED
                 await session.commit()
         made = 0
-        for position, template in enumerate(templates):
-            # One template's maps at a time (~60 MB each at 2000 px): a 20-template run
+        for position, (photo, template_name) in enumerate(photos):
+            # One photo's maps at a time (~60 MB each at 2000 px): a 20-photo run
             # holding them all peaked 0.6 GB higher.
-            blank, mask = storage.get(template.image_key or ""), storage.get(template.mask_key or "")
-            occluder = storage.get(template.occluder_key) if template.occluder_key and template.occlusion else None
-            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, areas[template.id])
-            garments = areas[template.id]
-            settings = mockups.Settings(garments[0], template.size, template.fold_strength, template.occlusion)
+            blank, mask = storage.get(photo.image_key or ""), storage.get(photo.mask_key or "")
+            occluder = storage.get(photo.occluder_key) if photo.occluder_key and photo.occlusion else None
+            garments = areas[photo.id]
+            if not garments:
+                continue
+            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments)
+            settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
             if job.garment_mode == "order" and len(garments) > 1:
@@ -223,7 +295,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                     jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
                     job.failed += len(group)
-                    job.error = f"{template.name}: {exc}"
+                    job.error = f"{template_name} – {photo.name}: {exc}"
                     await session.commit()
                     continue
                 if cap is not None and in_use + len(jpeg) > cap:
@@ -240,9 +312,9 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 for k, design in enumerate(group):
                     session.add(MockupOutput(
                         id=output_id if k == 0 else uuid.uuid4(), tenant_id=job.tenant_id, run_id=job.id,
-                        batch_id=job.batch_id, design_id=design.id, template_id=template.id,
-                        template_name=template.name, position=position,
-                        filename=mockups.output_name(design_base(design), template.name, taken), key=key,
+                        batch_id=job.batch_id, design_id=design.id, photo_id=photo.id,
+                        template_name=template_name, photo_name=photo.name, position=position,
+                        filename=mockups.output_name(design_base(design), template_name, taken, photo.name), key=key,
                         width=maps.width, height=maps.height, byte_size=len(jpeg),
                     ))
                     job.done += 1
@@ -292,7 +364,7 @@ async def make_listings(
     covers: dict[uuid.UUID, uuid.UUID],
 ) -> tuple[int, int]:
     """The chosen designs (None: all) become listing groups: one per design, its
-    mockups as its photos in the template order, the chosen cover first. Using a
+    mockups as its photos in the run's photo order, the chosen cover first. Using a
     design again replaces its group's photos (another cover, say). Returns
     (groups, photos). The caller commits."""
     by_design = await outputs_by_design(session, job.id)
@@ -307,7 +379,7 @@ async def make_listings(
         if design is None or not usable:
             continue
         cover = covers.get(design_id)
-        ordered = sorted(usable, key=lambda o: (0 if o.template_id == cover else 1, o.position))
+        ordered = sorted(usable, key=lambda o: (0 if o.photo_id == cover else 1, o.position))
         await session.execute(delete(Asset).where(Asset.batch_id == job.batch_id, Asset.mockup_design_id == design_id))
         for rank, output in enumerate(ordered, start=1):
             session.add(Asset(
@@ -316,7 +388,7 @@ async def make_listings(
                 parsed_sku=design.parsed_sku, group_key=design.group_key, upload_folder=design.group_key,
                 processed_key=output.key, mime_type="image/jpeg", width=output.width, height=output.height,
                 byte_size=output.byte_size, rank=rank, status=AssetStatus.processed,
-                mockup_design_id=design.id, mockup_template_id=output.template_id,
+                mockup_design_id=design.id, mockup_photo_id=output.photo_id,
             ))
             photos += 1
         groups += 1

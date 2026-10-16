@@ -336,8 +336,9 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
     details = {**found.details, "garments": n, "persons": found.persons}
     garment = np.clip(found.garment_mask * 255.0, 0, 255).astype(np.uint8)
     occluder = np.clip(found.occluder * 255.0, 0, 255).astype(np.uint8) if found.persons or found.occluder.max() > 0.5 else None
+    fg = np.clip(found.foreground * 255.0, 0, 255).astype(np.uint8) if found.foreground is not None else None
     return Analysis(method, confidence, first["print_area"], garment, occluder, note, details, garments=items,
-                    view=first["view"], kind=first["kind"])
+                    view=first["view"], kind=first["kind"], foreground=fg)
 
 
 @dataclass
@@ -356,6 +357,8 @@ class Analysis:
     garments: list[dict[str, Any]] = field(default_factory=list)
     view: str | None = None
     kind: str | None = None
+    #: Where garments are (uint8, the analysis size): what "Add area" grows a garment in.
+    foreground: np.ndarray | None = None
 
     @property
     def needs_check(self) -> bool:

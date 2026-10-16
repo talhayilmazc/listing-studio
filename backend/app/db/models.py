@@ -676,87 +676,107 @@ class Asset(Base):
     #: the app still shows what the listing is. Only the group's cover has one.
     thumbnail_key: Mapped[str | None] = mapped_column(Text)
     #: Set when this photo is a mockup the app made: the design and the template
-    #: it was made from (pipeline/mockups.py). Otherwise an uploaded photo.
+    #: photo it was made from (pipeline/mockups.py). Otherwise an uploaded photo.
     mockup_design_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("mockup_design.id", ondelete="SET NULL")
     )
-    mockup_template_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("mockup_template.id", ondelete="SET NULL")
+    mockup_photo_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_photo.id", ondelete="SET NULL")
     )
 
 
-class MockupTemplateSet(Base):
-    """Templates that belong together, such as one T-shirt photographed in ten colours.
+class MockupTemplate(Base):
+    """A named group of the seller's blank photos (pipeline/mockups.py): the same tee
+    in ten colours, or several shots of one product. Every design of a run is placed
+    on every confirmed photo of each chosen template (``MockupPhoto``).
 
-    A set has its own name; a template is in at most one set. The print area, size
-    and fold strength of one template can be applied to every template of its set.
+    The seller's own, kept until they delete it or their account: it is not Etsy
+    content and is not shared with any other account. (Until migration 0068 this was
+    "a colour set", and a template was one photo.)
     """
 
-    __tablename__ = "mockup_template_set"
+    __tablename__ = "mockup_template"
+    #: Templates per account.
+    MAX_PER_ACCOUNT: ClassVar[int] = 60
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The seller's order of templates.
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
-class MockupTemplate(Base):
-    """A seller's blank garment photo, ready to print designs on (pipeline/mockups.py).
+class MockupPhoto(Base):
+    """One blank photo of a template, ready to print designs on (pipeline/mockups.py).
 
-    The seller's own upload, kept until they delete it or their account: it is not
-    Etsy content and is not shared with any other account. ``print_area`` is four
-    corners TL, TR, BR, BL as shares (0..1) of the photo's width and height.
+    Saved at once (``status`` "preparing", the photo resized and kept as
+    ``source_key``); the worker finds its outline and suggests a print area per
+    garment, and makes it "ready" (or "failed" with ``error``). The suggestion is
+    only a starting point: the photo is used for mockups only after the seller has
+    looked at its print areas and pressed "Looks right" (``confirmed_at``); any later
+    change to its areas asks again.
 
-    A template is saved at once (``status`` "preparing", the photo resized and kept
-    as ``source_key``); the worker finds its outline and print area and makes it
-    "ready", or "failed" with ``error``. The photo's own fields are empty until then.
+    ``garments`` holds every print area, in the seller's order: ``[{"print_area",
+    "detected_area" (the suggestion: guides and "Reset to suggestion"), "source"
+    ("default" found, "tap" found from the seller's tap, "seller" moved by hand,
+    "copied" from another photo), "confidence", "kind", "view", "layout"}]``; each
+    print area is four corners TL, TR, BR, BL as shares (0..1) of the photo's width
+    and height. ``print_area`` is the first one's.
     """
 
-    __tablename__ = "mockup_template"
+    __tablename__ = "mockup_photo"
+    #: Photos per account (each keeps a photo and its masks on our disk), and per template.
+    MAX_PER_ACCOUNT: ClassVar[int] = 200
+    MAX_PER_TEMPLATE: ClassVar[int] = 40
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    set_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("mockup_template_set.id", ondelete="SET NULL"), index=True
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_template.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    #: The photo's own name (from its file name; the seller can change it).
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     #: "preparing" | "ready" | "failed"
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="ready")
     error: Mapped[str | None] = mapped_column(Text)
     #: The uploaded photo, resized, until the worker has prepared it.
     source_key: Mapped[str | None] = mapped_column(Text)
-    #: The seller's order: a design's mockups follow it, the first is the cover.
+    #: The seller's order inside the template: a design's mockups follow it.
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     image_key: Mapped[str | None] = mapped_column(Text)
     mask_key: Mapped[str | None] = mapped_column(Text)
+    #: Where garments are (foreground, 8-bit, at the analysis size): what "Add area"
+    #: grows a garment from the seller's tap in, without running a model again.
+    foreground_key: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
     #: "alpha" (the photo's transparency), "background" (removed), "segmentation"
     #: (the garment on a person, pipeline/mockup_vision.py) or "none".
     mask_source: Mapped[str | None] = mapped_column(Text)
     print_area: Mapped[list[list[float]] | None] = mapped_column(JSONB_TYPE)
-    #: Hair, skin and accessories in front of the garment, when the photo shows a person.
+    #: Hair, skin, accessories and held things in front of the garment.
     occluder_key: Mapped[str | None] = mapped_column(Text)
     #: Print behind them (the seller can switch it off).
     occlusion: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
-    #: How sure the found print area is (0..1); None for templates made before it was measured.
+    #: How sure the suggested print area is (0..1); None for photos made before it was measured.
     print_area_confidence: Mapped[float | None] = mapped_column(Float)
     #: How the print area was found: {"method", "note", "detected_area", ...}.
     analysis: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: "front" or "back" (found from the pose; the seller can change it).
     view: Mapped[str] = mapped_column(Text, nullable=False, server_default="front")
-    #: Every garment in the photo, reading order: [{"print_area", "confidence", "kind",
-    #: "view", "layout", "source"}]; the first is ``print_area``. None: one garment.
+    #: Every print area, in the seller's order (see the class docstring).
     garments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
-    #: "default" (from the garment's bounds) or "seller" (moved by hand).
+    #: "default" (as suggested) or "seller" (changed by hand): the first area's source.
     print_area_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="default")
+    #: When the seller pressed "Looks right" on these print areas; None: not yet (not used for mockups).
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Share of the print area the design fills (aspect kept), and how much the
     #: folds move the print (0..1).
     size: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.9")
@@ -800,7 +820,8 @@ class MockupDesign(Base):
 
 
 class MockupRun(Base):
-    """One "make the mockups" for a batch: which templates, in order, and progress."""
+    """One "make the mockups" for a batch: which templates, the photos printed on (the
+    confirmed photos of those templates when it started, in order), and progress."""
 
     __tablename__ = "mockup_run"
 
@@ -812,13 +833,17 @@ class MockupRun(Base):
         ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
     )
     template_ids: Mapped[list[str]] = mapped_column(JSONB_TYPE, nullable=False)
+    #: The photos it prints on, in order (template order, then each template's photo order).
+    photo_ids: Mapped[list[str]] = mapped_column(JSONB_TYPE, nullable=False)
+    #: Photos of the chosen templates left out because the seller had not confirmed them.
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     #: "queued" | "running" | "succeeded" | "failed"
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
     total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     done: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
-    #: Which chosen templates it prints on: "front", "back" or "both".
+    #: Which photos of the chosen templates it prints on: "front", "back" or "both".
     sides: Mapped[str] = mapped_column(Text, nullable=False, server_default="both")
     #: "same": the same design on every garment of a photo; "order": one design per garment.
     garment_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="same")
@@ -830,8 +855,8 @@ class MockupRun(Base):
 
 
 class MockupOutput(Base):
-    """One mockup a run made: a design on a template, as a JPEG named
-    "<SKU>_<template name>.jpg". It becomes a listing photo only when the seller
+    """One mockup a run made: a design on a template photo, as a JPEG named
+    "<SKU>_<template name>_<photo name>.jpg". It becomes a listing photo only when the seller
     chooses "Use for listings" (then an ``asset`` reads the same file), and goes
     into a ZIP when they choose "Download"."""
 
@@ -850,12 +875,13 @@ class MockupOutput(Base):
     design_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    template_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("mockup_template.id", ondelete="SET NULL")
+    photo_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_photo.id", ondelete="SET NULL")
     )
-    #: The template's name when it was made (the template may be renamed or deleted).
+    #: The template's and the photo's names when it was made (either may be renamed or deleted).
     template_name: Mapped[str] = mapped_column(Text, nullable=False)
-    #: Its place in the seller's template order (0 = first).
+    photo_name: Mapped[str | None] = mapped_column(Text)
+    #: Its place in the run's photo order (0 = first).
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     key: Mapped[str | None] = mapped_column(Text)

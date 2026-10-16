@@ -154,6 +154,53 @@ async def main():
                          total_count=900, next_offset=900, read_count=900, synced_until=end, requests_used=10, backfill_state="complete",
                          backfill_target=mid - 395 * 86400, covered_from=mid - 395 * 86400, backfill_requests=40))
         await s.commit()
+        await mockup_templates(s, storage, t)
         print(b.id, await SessionStore(Redis.from_url(get_settings().redis_url)).create(t.id))
+
+
+async def mockup_templates(s, storage, t):
+    """Two mockup templates of drawn blank tees (tests/mockup_samples.py: our own drawings),
+    prepared as the worker does: one in three colours (the first confirmed, the others
+    waiting for the check) and one photo of two tees side by side (two print areas)."""
+    import io
+    import uuid
+    from PIL import Image
+    from app.workers import mockups as work
+    from tests import mockup_samples as samples
+
+    now = datetime.now(timezone.utc)
+
+    def two_tees():
+        canvas = Image.new("RGB", (1400, 760), (232, 233, 236))
+        for i, colour in enumerate(((200, 60, 60), (50, 90, 200))):
+            tee = Image.open(io.BytesIO(samples.blank(colour, size=(640, 740), background=(232, 233, 236)))).convert("RGB")
+            canvas.paste(tee, (40 + i * 700, 10))
+        buf = io.BytesIO()
+        canvas.save(buf, format="PNG")
+        return buf.getvalue()
+
+    groups = [
+        ("Comfort Colors 1717", [("White", samples.blank((238, 238, 236), size=(1200, 1400))),
+                                 ("Black", samples.blank((30, 30, 32), size=(1200, 1400))),
+                                 ("Brick", samples.blank((150, 60, 50), size=(1200, 1400)))]),
+        ("Matching tees", [("Red and blue", two_tees())]),
+    ]
+    first = None
+    for position, (name, photos) in enumerate(groups, start=1):
+        template = MockupTemplate(tenant_id=t.id, name=name, position=position)
+        s.add(template)
+        await s.flush()
+        for i, (photo_name, data) in enumerate(photos, start=1):
+            pid = uuid.uuid4()
+            key = f"{t.id}/templates/{pid}/source.png"
+            storage.put(key, data, "image/png")
+            s.add(MockupPhoto(id=pid, tenant_id=t.id, template_id=template.id, name=photo_name, position=i, status="preparing",
+                              source_key=key, rights_confirmed_at=now))
+            await s.commit()
+            done = await work.prepare(s, storage, pid)
+            if first is None:
+                first = done
+                done.confirmed_at = now
+                await s.commit()
 
 asyncio.run(main())
