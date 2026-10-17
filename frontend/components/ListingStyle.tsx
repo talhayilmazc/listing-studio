@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { SEARCH_RULES_NOTE, STYLE_HELP, STYLE_LABELS } from "@/lib/listingStyle";
 import type { Profile } from "@/lib/types";
 
 /**
- * How listings are written with this profile: "Etsy recommended (short)" (the
- * default for new profiles) or "Long keyword" (the earlier style, which existing
+ * How listings are written with this profile: "Short, clear title" (the default
+ * for new profiles) or "Long keyword title" (the earlier style, which existing
  * profiles kept). One click switches; nothing changes for the other profiles.
  *
- * The wording never promises a ranking: the style follows Etsy's published
- * guidance on what search matches, which is all anyone outside Etsy can know.
+ * The words come from lib/listingStyle.ts and describe what the style does, never
+ * what it achieves: Etsy publishes no figures on views, sales or ranking.
  */
 export function ListingStyle({
   profile,
@@ -40,12 +41,7 @@ export function ListingStyle({
     <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3">
       <legend className="px-1 text-xs font-medium text-slate-600">Listing style</legend>
       <div className="grid gap-2 sm:grid-cols-2">
-        {(
-          [
-            ["search", "Etsy recommended (short)", "Up to 15 words: what the item is, what makes the design special, a few objective traits. Gift and occasion phrases go in the tags."],
-            ["classic", "Long keyword", "110–140 character title made of keyword phrases, as before."],
-          ] as const
-        ).map(([value, label, detail]) => (
+        {(["search", "classic"] as const).map((value) => [value, STYLE_LABELS[value], STYLE_HELP[value]] as const).map(([value, label, detail]) => (
           <label
             key={value}
             className={
@@ -100,7 +96,7 @@ export function ListingStyle({
               />
             </div>
             <p className="pb-2 text-xs text-slate-500">
-              <span>characters, at most 15 words</span>
+              <span>characters, fewer than 15 words</span>
               {profile.title_length_custom && (
                 <button
                   key="reset"
@@ -124,10 +120,7 @@ export function ListingStyle({
             </p>
           )}
           <p className="text-xs text-slate-500">
-            <span>
-              Written to be optimised for search matching, following Etsy&apos;s current guidance for titles, tags,
-              descriptions and attributes. It does not promise a ranking. Applies to listings written from now on.
-            </span>
+            <span>{SEARCH_RULES_NOTE}</span>
           </p>
           <p className="text-xs text-slate-500" translate="no">
             <span>

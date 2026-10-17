@@ -142,6 +142,123 @@ def run(path: Path = SET) -> dict[str, Any]:
     }
 
 
+# --- live: the real content model on the same 20 synthetic analyses -----------------------------
+
+
+def _analysis(design: dict[str, Any]) -> Any:
+    """A vision analysis built from the synthetic set's own fields (no image, no vision call)."""
+    from app.pipeline.vision import VisionAnalysis
+
+    a = design["analysis"]
+    themes = list(a.get("themes") or [a.get("theme", "")])
+    return VisionAnalysis(
+        theme=a.get("theme") or themes[0], embedded_text="", style=a.get("style", ""), colors=list(a.get("colors") or []),
+        target_audience="", product_type_hints=["t-shirt"], occasion=a.get("occasion", ""),
+        meaning="A design about " + " and ".join(themes), themes=themes, profession=a.get("profession", ""),
+        season=a.get("season", ""),
+    )
+
+
+async def _live_rows(designs: list[dict[str, Any]], style: str) -> tuple[list[dict[str, Any]], list[Any]]:
+    from app.core import ai_meter
+    from app.core.config import get_settings
+    from app.pipeline.content import AnthropicContentGenerator, ContentValidationError
+    from app.pipeline.llm import client_for
+    from app.pipeline.templates import load_template
+
+    args: dict[str, Any] = {}
+    if style == "search":
+        args = {"title_rules": sr.SEARCH_TITLE, "attribute_choices": CHOICES, "category_names": CATEGORY, "max_tokens": 2048}
+    generator = AnthropicContentGenerator(
+        client_for(get_settings(), "content"),
+        template=load_template("content/apparel_search" if style == "search" else "content/apparel"),
+        policy=policy_for("apparel"), title_prefix=PREFIX, trademarks=Blocklist(()), **args,
+    )
+    rows: list[dict[str, Any]] = []
+    usages: list[Any] = []
+
+    async def one(design: dict[str, Any]) -> None:
+        try:
+            with ai_meter.origin("eval"):
+                result = await generator.generate(_analysis(design), design["sku"])
+            usages.extend(result.usages)
+            rows.append({"sku": design["sku"], "title": result.listing.title, "tags": result.listing.tags,
+                         "attempts": result.attempts, "warnings": result.warnings, "failed": None})
+        except ContentValidationError as exc:
+            usages.extend(exc.usages)
+            rows.append({"sku": design["sku"], "title": "", "tags": [], "attempts": 2, "warnings": [],
+                         "failed": exc.errors})
+
+    for design in designs:  # one at a time: the measurement, not throughput
+        await one(design)
+    return rows, usages
+
+
+def live_measure(rows: list[dict[str, Any]], usages: list[Any]) -> dict[str, Any]:
+    """Per style: the share of titles meeting each rule of Etsy's title guidance (the
+    same rules for both styles: 140 characters at most, fewer than 15 words, …),
+    the mean words per title, tags repeating title words, attempts, warnings, cost."""
+    from app.core import ai_prices
+
+    guidance = sr.TitleRules(min_length=1, max_length=sr.ETSY_MAX_TITLE_LENGTH, max_words=sr.MAX_TITLE_WORDS)
+    written = [r for r in rows if r["title"]]
+    reports = [sr.rule_report(r["title"], guidance, PREFIX) for r in written]
+    table = ai_prices.merged(None)
+    cost = sum((ai_prices.cost(u.model, table, input_tokens=u.input_tokens, output_tokens=u.output_tokens,
+                               cache_write_tokens=u.cache_creation_input_tokens - u.cache_creation_1h_input_tokens,
+                               cache_write_1h_tokens=u.cache_creation_1h_input_tokens,
+                               cache_read_tokens=u.cache_read_input_tokens) or 0) for u in usages)
+    tags_all = 0
+    tags_some = 0
+    for r in written:
+        in_title = set(sr.keywords(r["title"]))
+        for t in r["tags"]:
+            key = set(sr.keywords(t))
+            tags_all += bool(key) and key <= in_title
+            tags_some += bool(key & in_title)
+    n = len(written) or 1
+    return {
+        "listings": len(rows),
+        "written": len(written),
+        "failed": sum(1 for r in rows if r["failed"]),
+        "rule_share": {rule: round(sum(rep[rule] for rep in reports) / n, 2) for rule in sr.TITLE_RULES},
+        "all_rules": round(sum(all(rep.values()) for rep in reports) / n, 2),
+        "words_mean": round(mean(sr.word_count(r["title"]) for r in written), 1) if written else None,
+        "tags_mean": round(mean(len(r["tags"]) for r in written), 1) if written else None,
+        "tags_only_title_words": tags_all,
+        "tags_sharing_a_title_word": tags_some,
+        "tags_total": sum(len(r["tags"]) for r in written),
+        "rewritten_once": sum(1 for r in written if r["attempts"] == 2),
+        "kept_with_warning": sum(1 for r in written if r["warnings"]),
+        "calls": len(usages),
+        "cost_usd": float(round(cost, 4)),
+    }
+
+
+def live(path: Path = SET) -> dict[str, Any]:
+    """20 listings per style from the synthetic analyses, written by the real model.
+    No Etsy call; the model calls are metered as ``eval`` (no seller)."""
+    import asyncio
+
+    designs = json.loads(path.read_text())["designs"]
+    out: dict[str, Any] = {}
+
+    async def both() -> None:  # one event loop: the meter's database engine belongs to it
+        for style in ("search", "classic"):
+            rows, usages = await _live_rows(designs, style)
+            out[style] = live_measure(rows, usages)
+            out[style + "_examples"] = [
+                {"sku": r["sku"], "title": r["title"], "tags": r["tags"], "warnings": r["warnings"], "failed": r["failed"]}
+                for r in rows
+            ]
+
+    asyncio.run(both())
+    return out
+
+
 if __name__ == "__main__":
-    report = run(Path(sys.argv[1]) if len(sys.argv) > 1 else SET)
-    print(json.dumps(report, indent=1, ensure_ascii=False))
+    if "--live" in sys.argv:
+        print(json.dumps(live(), indent=1, ensure_ascii=False))
+    else:
+        report = run(Path(sys.argv[1]) if len(sys.argv) > 1 else SET)
+        print(json.dumps(report, indent=1, ensure_ascii=False))

@@ -205,6 +205,8 @@ export interface Content {
   image_limit?: ImageLimit | null;
   /** Its profile looks print-on-demand and names no production partner (Etsy's Creativity Standards). */
   production_note?: string | null;
+  /** Short-title style: the app's title still broke Etsy's title guidance after one rewrite (kept, never cut). */
+  title_warnings?: string[];
   /** The search-readiness checklist, worked out by the server (pipeline/checklist.py). */
   checklist?: Checklist | null;
   /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */

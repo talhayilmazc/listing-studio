@@ -52,7 +52,7 @@ def test_a_clear_short_title_with_distinct_tags_passes() -> None:
 def test_the_old_keyword_title_is_what_the_new_rules_reject() -> None:
     errors = " | ".join(check(listing(OLD_TITLE)))
     assert "6 phrases" in errors
-    assert "19 words; keep it to 15 or fewer" in errors
+    assert "19 words; keep it to 14 or fewer" in errors
     assert "remove 'gift' from the title" in errors
     assert "repeats 'humor', 'nurse'" in errors
     assert "names the product type 3 times" in errors
@@ -75,14 +75,14 @@ def test_every_spelling_of_tshirt_is_one_product_word() -> None:
     assert "repeats 'tshirt'" in " ".join(sr.title_errors("Nurse T-Shirt, Flu Season Tshirt", RULES))
 
 
-def test_a_tag_that_only_repeats_the_title_is_used_only_when_no_distinct_phrase_is_left() -> None:
+def test_a_tag_that_only_repeats_the_title_is_never_used() -> None:
     title = "Funny Nurse Shirt, Flu Season Humor"
     candidates = ["funny nurse shirt", "flu season", *TAGS]
     tags, _ = sr.select_tags(title, candidates, ["humor", "subject", *INTENTS])
     assert "funny nurse shirt" not in tags and "flu season" not in tags and tags == TAGS
-    # Too few distinct phrases: the title's own phrase fills the 13th place.
+    # Too few distinct phrases: the set stays short (and is rewritten), the title's words are not used.
     tags, _ = sr.select_tags(title, ["flu season", *TAGS[:12]], ["subject", *INTENTS[:12]])
-    assert tags == [*TAGS[:12], "flu season"]
+    assert tags == TAGS[:12]
 
 
 def test_reordered_and_plural_tags_are_one_search() -> None:
@@ -150,7 +150,7 @@ def test_a_spare_tag_of_a_missing_kind_replaces_one_of_a_crowded_kind() -> None:
 def test_profile_bounds_stay_inside_etsys_limit() -> None:
     assert (sr.title_rules().min_length, sr.title_rules().max_length) == (40, 140)
     wide = sr.title_rules(60, 400)
-    assert (wide.min_length, wide.max_length, wide.max_words) == (60, 140, 15)
+    assert (wide.min_length, wide.max_length, wide.max_words) == (60, 140, 14)
     assert sr.title_rules(90, 50).min_length == 50  # never above its own maximum
 
 

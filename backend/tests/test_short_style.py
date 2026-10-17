@@ -1,4 +1,4 @@
-"""Part C: "Etsy recommended (short)" titles, Etsy's tag rules, every known attribute.
+"""Part C: "Short, clear title" titles, Etsy's tag rules, every known attribute.
 
 docs/etsy-growth-research.md has the guidance and its sources.
 """
@@ -21,12 +21,12 @@ RULES = sr.SEARCH_TITLE
 PREFIX = "Comfort Colors®"
 
 
-def test_the_short_title_is_at_most_15_words_and_140_characters_prefix_included() -> None:
-    assert (RULES.max_words, RULES.max_length, RULES.min_phrases) == (15, 140, 1)
-    fifteen = f"{PREFIX} Funny Nurse Shirt, Flu Season Humor, Hand Washing Joke, Retro Red Blue Lettering"
-    assert len(fifteen.split()) == 15 and sr.title_errors(fifteen, RULES, prefix=PREFIX) == []
-    sixteen = fifteen + " Style"
-    assert "16 words; keep it to 15 or fewer" in " ".join(sr.title_errors(sixteen, RULES, prefix=PREFIX))
+def test_the_short_title_is_fewer_than_15_words_and_140_characters_prefix_included() -> None:
+    assert (RULES.max_words, RULES.max_length, RULES.min_phrases) == (14, 140, 1)
+    fourteen = f"{PREFIX} Funny Nurse Shirt, Flu Season Humor, Hand Washing Joke, Retro Red Lettering"
+    assert sr.word_count(fourteen) == 14 and sr.title_errors(fourteen, RULES, prefix=PREFIX) == []
+    fifteen = fourteen + " Style"
+    assert "15 words; keep it to 14 or fewer" in " ".join(sr.title_errors(fifteen, RULES, prefix=PREFIX))
     # One clear phrase is enough.
     assert sr.title_errors(f"{PREFIX} Funny Nurse Shirt", RULES, prefix=PREFIX) == []
 
@@ -84,11 +84,11 @@ def test_tags_follow_etsys_rules_deterministically() -> None:
     assert len({frozenset(sr.keywords(t)) for t in tags}) == 13  # no two share their root words
 
 
-def test_a_tag_that_repeats_the_title_fills_a_place_only_when_nothing_better_is_left() -> None:
+def test_a_tag_that_repeats_the_title_never_fills_a_place() -> None:
     title = "Christmas Nurse Shirt, Funny Holiday Scrubs"
     distinct = [f"distinct tag {n}" for n in range(12)]
     tags, _ = sr.select_tags(title, ["nurse shirt", *distinct], ["x"] * 13)
-    assert tags == [*distinct, "nurse shirt"]
+    assert tags == distinct
 
 
 CHOICES = {

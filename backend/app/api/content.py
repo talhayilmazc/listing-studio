@@ -32,6 +32,7 @@ from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline import creativity, manual, versions
 from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
+from app.pipeline.generation import TITLE_WARNINGS
 from app.pipeline.personalization import DEFAULT_QUESTION
 from app.pipeline.reference import decode_etsy_text
 from app.pipeline.personalization import for_listing as personalization_for_listing
@@ -347,6 +348,7 @@ def _to_out(
         rank=asset.rank,
         group_key=asset.group_key or "",
         source=manual.MANUAL if manual.is_manual(content) else manual.AI,
+        title_warnings=[str(w) for w in (content.attributes or {}).get(TITLE_WARNINGS) or []],
     )
 
 
@@ -468,6 +470,9 @@ async def update_content(
     content = await _get(session, tenant, content_id)
     before = (content.title, list(content.tags or []), content.description)
     if body.title is not None:
+        if body.title != content.title and (content.attributes or {}).get(TITLE_WARNINGS):
+            # The seller's own title: the warnings were about the app's.
+            content.attributes = {k: v for k, v in content.attributes.items() if k != TITLE_WARNINGS}
         content.title = body.title
     if body.tags is not None:
         content.tags = body.tags

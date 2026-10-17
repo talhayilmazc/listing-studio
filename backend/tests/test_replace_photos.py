@@ -264,7 +264,8 @@ async def _run_full(ctx, monkeypatch, *, listing_style: str, template: str) -> t
         def __init__(self, client: Any, **kwargs: Any) -> None:
             made.update(kwargs)
 
-        async def generate(self, analysis: Any, sku: Any = None) -> Any:
+        async def generate(self, analysis: Any, sku: Any = None, **kwargs: Any) -> Any:
+            made["generate"] = kwargs
             listing = SimpleNamespace(title="Retro Frog Shirt, Pond Humor", tags=[f"t{i}" for i in range(13)],
                                       opening="A retro frog shirt for pond lovers.")
             return SimpleNamespace(listing=listing, usages=[SimpleNamespace(model="claude-sonnet-5-5")])
@@ -319,7 +320,9 @@ async def _run_full(ctx, monkeypatch, *, listing_style: str, template: str) -> t
 async def test_full_replace_writes_in_the_profiles_short_style(ctx, monkeypatch) -> None:  # noqa: F811
     made, rows = await _run_full(ctx, monkeypatch, listing_style="search", template="apparel")
     assert made["template"].name == "content/apparel_search" and made["title_rules"].readable
-    assert made["title_rules"].max_words == 15 and "attribute_choices" in made
+    assert made["title_rules"].max_words == 14 and "attribute_choices" in made
+    # Replace images writes to Etsy without a review: a title still breaking the guidance is never written.
+    assert made["generate"] == {"allow_warnings": False}
     sent = next(c[1] for c in _Etsy.calls if c[0] == "update_listing")
     # The new opening above the listing's own body; the old title block is gone.
     assert sent["description"] == "A retro frog shirt for pond lovers.\n\nBody"

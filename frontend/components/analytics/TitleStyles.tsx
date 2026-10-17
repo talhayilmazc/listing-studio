@@ -2,20 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { COMPARISON_LABELS } from "@/lib/listingStyle";
 import type { StyleRate, StyleRateKey, StyleResult, TitleStyleComparison } from "@/lib/types";
 
 /**
- * "Etsy recommended (short)" against "Long keyword" titles, for listings this shop
+ * "Short, clear title" against "Long keyword title", for listings this shop
  * published with the app in the same period (Part D). Every rate carries its
  * sample size and a 95% interval; below the thresholds it says "not enough data
  * yet" and shows no rate. These are listing views on Etsy, not search
  * impressions. Nothing is rewritten from it: the seller decides.
  */
 
-const STYLE_LABEL: Record<StyleResult["style"], string> = {
-  short: "Etsy recommended (short)",
-  long: "Long keyword",
-};
+const STYLE_LABEL: Record<StyleResult["style"], string> = COMPARISON_LABELS;
 const RATES: { key: StyleRateKey; label: string; percent: boolean }[] = [
   { key: "views_per_listing_day", label: "Views per listing per day", percent: false },
   { key: "favorites_per_view", label: "Favourites per view", percent: true },

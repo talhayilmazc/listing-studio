@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 SELLER_FAILURE = "This listing could not be written this time. Nothing is wrong with your design: try again."
 
 _MAX_REASON = 500
+#: Where a listing keeps the title warnings it was written with (``attributes``).
+TITLE_WARNINGS = "title_warnings"
 
 
 @dataclass
@@ -169,6 +171,12 @@ async def generate_listing_content(
         # Optional category attributes, each one of Etsy's own values for that
         # property; written to the draft by the publisher.
         attributes = {**(attributes or {}), "listing": chosen}
+
+    if result.warnings:
+        # The title still broke Etsy's title guidance after the one rewrite: kept as
+        # written (never cut) and the seller is told why on the card; cleared when
+        # the seller edits the title (api/content.py).
+        attributes = {**(attributes or {}), TITLE_WARNINGS: list(result.warnings)}
 
     content = GeneratedContent(
         tenant_id=tenant_id,

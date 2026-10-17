@@ -1,11 +1,15 @@
 """Listing rules that follow Etsy's current search guidance.
 
-Etsy's Seller Handbook ("New Guidance for Listing Titles, and a Tool to Help",
-April 2026; "Keywords 101") moved away from long keyword titles: a title states
-clearly what the item is, in fewer than 15 words, without repeated words,
-subjective words or anything about price, sales or shipping. The other keywords
-belong in the 13 tags (distinct multi-word phrases), the first sentences of the
-description, and the category's attributes, all of which Etsy matches on.
+Etsy's Seller Handbook ("How Etsy Search Works", "Keywords 101" and "Anatomy of a
+Well-Crafted Listing", August 2025; "New Guidance for Listing Titles", April 2026;
+docs/etsy-growth-research.md) moved away from long keyword titles: a title names
+the item clearly, with its key traits (colour, material, size, style) near the
+front, in fewer than 15 words, without repeated words, subjective words or
+anything about price, sales or shipping; holidays, occasions and recipients only
+when essential to the item. The other keywords belong in the 13 tags (distinct
+multi-word phrases, gift and recipient phrases among them), the first sentences of
+the description, and the category's attributes. Etsy publishes no figures on what
+this does to views or sales, and nothing here claims any.
 
 Pure checks only; :mod:`app.pipeline.content` decides when they apply.
 """
@@ -36,11 +40,13 @@ class TitleRules:
 
 #: The rule the app shipped with: 110-140 characters of comma-separated keywords.
 LEGACY_TITLE = TitleRules(min_length=110, max_length=140)
-#: "Etsy recommended (short)": at most 15 words (the prefix included) and 140
-#: characters, 1-4 phrases (Part C; docs/etsy-growth-research.md). The character
-#: bounds are the default a profile may change.
+#: Etsy's guidance: a title of fewer than 15 words.
+MAX_TITLE_WORDS = 14
+#: The "Short, clear title" style (``search``): fewer than 15 words (the shop's
+#: prefix included, as the buyer reads it) and 140 characters, 1-4 phrases (Part C;
+#: docs/etsy-growth-research.md). The character bounds are the default a profile may change.
 SEARCH_TITLE = TitleRules(
-    min_length=40, max_length=140, max_words=15, min_phrases=1, max_phrases=4, readable=True
+    min_length=40, max_length=140, max_words=MAX_TITLE_WORDS, min_phrases=1, max_phrases=4, readable=True
 )
 
 
@@ -179,6 +185,11 @@ def same_search_tags(tags: list[str]) -> list[tuple[str, str]]:
     return pairs
 
 
+def word_count(title: str) -> int:
+    """Words as a buyer reads them: separated by spaces; a lone "&" or "-" is not one."""
+    return sum(1 for w in title.replace(",", " ").split() if re.search(r"[A-Za-z0-9]", w))
+
+
 def title_errors(
     title: str, rules: TitleRules, *, names_type: bool = True, prefix: str | None = None
 ) -> list[str]:
@@ -196,7 +207,7 @@ def title_errors(
             f"the title has {len(parts)} phrases; keep {rules.min_phrases}-{rules.max_phrases} and "
             "move the rest to the tags"
         )
-    count = len(title.split())
+    count = word_count(title)
     if rules.max_words and count > rules.max_words:
         errors.append(
             f"the title has {count} words; keep it to {rules.max_words} or fewer. "
@@ -241,6 +252,68 @@ def title_errors(
             f"remove '{term}' from the title: gift, occasion and recipient phrases go in the tags"
         )
     return errors
+
+
+#: The title rules the app measures and warns about (``rule_report``), in the order shown.
+TITLE_RULES = ("length", "words", "repeats", "subjective", "commerce", "gift", "item_first")
+
+
+def rule_report(title: str, rules: TitleRules, prefix: str | None = None) -> dict[str, bool]:
+    """Each title rule of Etsy's guidance, met (True) or not (False): characters
+    within the profile's bounds, fewer than 15 words, no repeated word (the prefix
+    left out), no subjective word, nothing about price, sales or shipping, no gift
+    or recipient phrase, and the item (the product type) named in the first phrase.
+    Used by the measurement (``evals/style_check.py``) and the tests."""
+    first = phrases(without_prefix(title, prefix))[:1]
+    return {
+        "length": rules.min_length <= len(title.strip()) <= rules.max_length,
+        "words": not rules.max_words or word_count(title) <= rules.max_words,
+        "repeats": not repeated_words(title, prefix),
+        "subjective": not any(_has(title, t) for t in SUBJECTIVE),
+        "commerce": not any(_has(title, t) for t in COMMERCE),
+        "gift": not gift_in(title),
+        "item_first": bool(first) and any(w in _TYPES for w in words(first[0])),
+    }
+
+
+def title_warnings(title: str, rules: TitleRules, prefix: str | None = None) -> list[str]:
+    """What the seller is told when a title still breaks Etsy's title guidance after
+    the one rewrite (``content.AnthropicContentGenerator.generate``): one plain
+    sentence per rule. The title is never shortened or changed for them."""
+    out: list[str] = []
+    n = len(title.strip())
+    if n > rules.max_length:
+        out.append(f"The title is {n} characters; the most is {rules.max_length}. Shorten it before creating the draft.")
+    elif n < rules.min_length:
+        out.append(f"The title is {n} characters; this profile asks for at least {rules.min_length}.")
+    count = word_count(title)
+    if rules.max_words and count > rules.max_words:
+        out.append(f"The title has {count} words; Etsy's guidance is fewer than 15. Move extra keywords to the tags.")
+    repeated = repeated_words(title, prefix)
+    if repeated:
+        out.append("The title repeats " + ", ".join(f"“{w}”" for w in repeated) + "; Etsy suggests using each word once.")
+    subjective = [t for t in SUBJECTIVE if _has(title, t)]
+    if subjective:
+        out.append("Remove " + ", ".join(f"“{t}”" for t in subjective) + " from the title; words like these belong in the description.")
+    commerce = [t for t in COMMERCE if _has(title, t)]
+    if commerce:
+        out.append("Remove " + ", ".join(f"“{t}”" for t in commerce) + " from the title; Etsy shows price, sales and shipping itself.")
+    gift = gift_in(title)
+    if gift:
+        out.append("Remove " + ", ".join(f"“{t}”" for t in gift) + " from the title; gift and recipient phrases go in the tags.")
+    parts = phrases(title)
+    if rules.max_phrases and len(parts) > rules.max_phrases:
+        out.append(f"The title has {len(parts)} comma-separated parts; keep {rules.max_phrases} at most and move the rest to the tags.")
+    types = [w for w in words(title) if w in _TYPES]
+    if len(types) > 1:
+        out.append(f"The title names the garment {len(types)} times ({', '.join(types)}); name it once.")
+    for part in parts:
+        last = words(part)[-2:]
+        if last and last[-1] in TITLE_FILLER and not (
+            last[-1].startswith("print") and len(last) == 2 and last[0] in _PATTERNS
+        ):
+            out.append(f"“{part.split()[-1]}” at the end of “{part}” describes any printed item; end the phrase on what the design shows.")
+    return out
 
 
 def opinion_in(tag: str) -> str | None:
@@ -313,13 +386,12 @@ def select_tags(
     is a character too long, an opinion, the category or an attribute value
     again, or another tag's root words (reordered, plural/singular) is passed
     over rather than costing the whole listing a retry. One made only of the
-    title's words is kept back and used only if the distinct ones run out.
+    title's words is never used: it adds no search the title does not already match
+    (Etsy's guidance), so a set that runs short is rewritten instead.
     """
     in_title = set(keywords(title))
     kept: list[str] = []
     kept_intents: list[str] = []
-    #: Tags made only of title words: used only when no distinct phrase is left.
-    spare: list[tuple[str, str]] = []
     seen: set[frozenset[str]] = set()
     for i, raw in enumerate(candidates):
         tag = " ".join(raw.split())
@@ -333,13 +405,9 @@ def select_tags(
             continue
         seen.add(key)
         if key and key <= in_title:
-            spare.append((tag, intents[i] if i < len(intents) else ""))
-            continue
+            continue  # only the title's words again
         kept.append(tag)
         kept_intents.append(intents[i] if i < len(intents) else "")
-    for tag, intent in spare[: max(0, count - len(kept))]:
-        kept.append(tag)
-        kept_intents.append(intent)
     # The first ``count`` usable ones, best first. If those serve too few kinds
     # of search and a spare serves a kind they lack, the spare takes the place of
     # the last tag of the most crowded kind.

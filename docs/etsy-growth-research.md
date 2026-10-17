@@ -1,6 +1,6 @@
 # Writing listings the way Etsy's current guidance says
 
-Research behind the "Etsy recommended (short)" listing style (Part C). Only Etsy's
+Research behind the "Short, clear title" listing style (Part C; shown as "Etsy recommended (short)" until 2026-10-18, renamed so the label cannot read as Etsy's endorsement). Only Etsy's
 own Seller Handbook is used; nothing here comes from other sellers' listings (rule 2).
 Read on 2026-10-06; the dates are the articles' own.
 
@@ -52,20 +52,23 @@ details first, no keyword lists, don't copy the title.
 
 | Guidance | Where | Kind |
 |---|---|---|
-| Max 15 words, 140 characters, product first | `pipeline/search_rules.py::SEARCH_TITLE`, prompt `content/apparel_search` | checked after writing; a failing title is rewritten once |
+| Fewer than 15 words (14 at most, the prefix included), 140 characters, item and key traits first | `pipeline/search_rules.py::SEARCH_TITLE`, `rule_report`, prompt `content/apparel_search` | checked after writing; a failing title is rewritten once; if it still fails it is kept as written (never cut) and the seller sees `title_warnings` on the card |
 | No repeated word (the profile's prefix excluded) | `search_rules.title_errors(prefix=…)` | checked |
 | No subjective, gift, price/sale/shipping words | `SUBJECTIVE`, `GIFT`, `COMMERCE` | checked |
 | Recipient/profession only when it defines the item ("Nurse Shirt") | `GIFT` bans "for her/him/mom…", not "Nurse" | checked (the "for …" form); the rest is in the prompt |
 | Holiday/occasion only when essential | prompt | **not checkable**: whether an occasion is essential is a judgement |
-| 13 tags, ≤20 chars, phrases, variety | `search_rules.select_tags` + `tag_errors` | enforced: unusable tags are dropped, a short set is rewritten |
-| No tag duplicating category, attribute value, another tag's root, or (when a better phrase exists) the title | `select_tags` | enforced |
+| 13 tags, ≤20 chars, phrases, variety | `search_rules.select_tags` + `tag_errors` | enforced: unusable tags are dropped, a short set is rewritten once, then the seller is told how many are missing |
+| No tag duplicating category, attribute value, another tag's root, or only the title's words | `select_tags` | enforced (a tag made only of title words is never used) |
 | Gift, occasion, recipient phrases | tags (prompt) | — |
 | All relevant attributes | `pipeline/attribute_fill.py` + the model's choice from Etsy's lists | only values Etsy lists; only what is visible or in the profile |
 | Opening 1–2 sentences, naming the item and its main phrases | `search_rules.opening_errors` | checked |
 
 ## What this does not claim
 
-The app follows Etsy's written guidance; it does not claim a ranking, click or sales
-effect, and the interface says "optimised for search matching". Whether the short
+The app follows Etsy's written guidance; it does not claim a ranking, view, click or
+sales effect (Etsy has published no such figures). The interface says: "Follows Etsy's
+current title guidance: a short, clear title with the item and its key details first.
+Other keywords go to tags and the description." (`frontend/lib/listingStyle.ts`;
+`lib/listingStyle.test.ts` fails on a performance claim in the app or site copy). Whether the short
 style performs better in a given shop is measured from that shop's own data
 (views, favourites, orders) — see `docs/analytics.md`.

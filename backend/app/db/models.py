@@ -1239,7 +1239,7 @@ class ListingProfile(Base):
     #: derived; "" = deliberately none.
     title_prefix: Mapped[str | None] = mapped_column(Text)
     #: How listings are written with this profile: "classic" ("Long keyword":
-    #: 110-140 character keyword titles) or "search" ("Etsy recommended (short)":
+    #: 110-140 character keyword titles) or "search" ("Short, clear title":
     #: at most 15 words, tags that do not repeat it, a design-specific description
     #: opening and attributes; pipeline/search_rules.py). The seller chooses, per
     #: profile. New profiles start on "search"; migration 0050 left existing ones

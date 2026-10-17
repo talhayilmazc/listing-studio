@@ -29,7 +29,7 @@ def source_of(content: GeneratedContent | None) -> str:
 
 
 def title_style(content: GeneratedContent | None) -> str:
-    """"short" when the listing was written in the "Etsy recommended (short)" style;
+    """"short" when the listing was written in the "Short, clear title" style;
     "manual" when the seller wrote the title, which is in neither of the app's styles."""
     if source_of(content) == MANUAL:
         return MANUAL

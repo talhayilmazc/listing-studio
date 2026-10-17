@@ -26,6 +26,7 @@ import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { SearchChecklist } from "./SearchChecklist";
+import { SEARCH_CARD_NOTE, TITLE_WARNING_HEAD, TITLE_WARNING_TAIL } from "@/lib/listingStyle";
 import { useSession } from "./SessionProvider";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
 const DEFAULT_MIN_TITLE = 110;
@@ -485,6 +486,16 @@ export function ReviewCard({
             )}
             <div>
               <span className="label">Title</span>
+              {(initial.title_warnings ?? []).length > 0 && title === initial.title && (
+                <div key="title-warnings" role="status" className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                  data-testid="title-warnings">
+                  <p className="font-medium">{TITLE_WARNING_HEAD}</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {(initial.title_warnings ?? []).map((w, i) => <li key={i}>{w}</li>)}
+                  </ul>
+                  <p className="mt-1">{TITLE_WARNING_TAIL}</p>
+                </div>
+              )}
               <div className="relative">
                 {/* The whole title, wrapped: a one-line box showed only its first
                     words, on a phone about a quarter of it. A title has no line breaks. */}
@@ -536,10 +547,7 @@ export function ReviewCard({
             )}
             <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} onChanged={recheck} />
             {initial.listing_style === "search" && !manual && (
-              <p key="search-note" className="text-xs text-slate-500">
-                Written to be optimised for search matching: a short title, with the other keywords in the tags,
-                the description&apos;s opening and the attributes. This is not a promise of ranking.
-              </p>
+              <p key="search-note" className="text-xs text-slate-500">{SEARCH_CARD_NOTE}</p>
             )}
 
             <Description value={description} onChange={change(setDescription)} />

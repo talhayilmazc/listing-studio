@@ -9,6 +9,7 @@ e-mail text an operator copies, alerts. Comments and docstrings are not copy.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 from app.api.admin import invite_message
@@ -46,3 +47,26 @@ def test_the_invite_message_says_what_replaced_it() -> None:
     assert "A spot has opened in Listyro's early access" in message
     assert "Listyro is invite-only and free while we onboard sellers in small groups." in message
     assert "beta" not in message.lower()
+
+
+#: A claim of an effect Etsy has published no data for, in English and Turkish
+#: (frontend/lib/listingStyle.ts::PERFORMANCE_CLAIMS is the frontend's list).
+_CLAIMS = re.compile(
+    r"more (views|clicks|sales|traffic|visits|buyers|orders)|(boost|increase|improve)s? (your )?(views|clicks|sales|"
+    r"traffic|ranking|visibility)|rank(s|ed)? higher|higher (in )?(search|ranking)|best (for|in) 202\d|top of (etsy|search)|"
+    r"get (found|seen) more|guarantee[ds]?|daha fazla (görüntülenme|tıklama|satış|ziyaret|sipariş)|"
+    r"(sıralama|aramada)[^.]{0,20}(yüksel|üst sıra)|en iyi[^.]{0,30}202\d|202\d[^.]{0,30}en iyi|garantili",
+    re.IGNORECASE,
+)
+_DENIES = re.compile(r"\?|\b(no|not|never|nobody|cannot|does not|do not|without|değil|etmez|yok)\b", re.IGNORECASE)
+
+
+def test_no_backend_text_or_prompt_claims_more_views_sales_or_ranking() -> None:
+    texts = [(f"{p.relative_to(APP)}:{line}", t) for p in sorted(APP.rglob("*.py")) for line, t in _strings(p)]
+    texts += [(str(p.relative_to(APP)), p.read_text(encoding="utf-8")) for p in sorted((APP / "pipeline" / "prompts").rglob("*.md"))]
+    found = []
+    for where, text in texts:
+        for sentence in re.split(r"(?<=[.!?\n])\s+", text):
+            if _CLAIMS.search(sentence) and not _DENIES.search(sentence):
+                found.append(f"{where}: {sentence.strip()[:100]!r}")
+    assert found == []

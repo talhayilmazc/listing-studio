@@ -338,6 +338,20 @@ class ContentResult:
     listing: GeneratedListing
     usages: list[Usage]  # one per attempt (failed attempts still cost tokens)
     attempts: int
+    #: Short-title style only: the title (or tag count) still broke Etsy's guidance
+    #: after the one rewrite. The listing is kept exactly as written, never cut, and
+    #: these sentences are shown to the seller on its card (``search_rules.title_warnings``).
+    warnings: list[str] = field(default_factory=list)
+
+
+def tag_count_warning(tags: list[str]) -> str | None:
+    """The seller's sentence for a tag set that is still short after the rewrite."""
+    if len(tags) >= REQUIRED_TAG_COUNT:
+        return None
+    return (
+        f"{len(tags)} tags; Etsy allows {REQUIRED_TAG_COUNT}. Add {REQUIRED_TAG_COUNT - len(tags)} "
+        "before creating the draft (each 20 characters at most, not just words from the title)."
+    )
 
 
 class ContentValidationError(Exception):
@@ -592,7 +606,12 @@ def bounds_for(profile: Any) -> TitleRules:
 
 class ContentGenerator(Protocol):
     async def generate(
-        self, analysis: VisionAnalysis, sku: str | None = None, pattern: dict[str, Any] | None = None
+        self,
+        analysis: VisionAnalysis,
+        sku: str | None = None,
+        pattern: dict[str, Any] | None = None,
+        *,
+        allow_warnings: bool = True,
     ) -> ContentResult: ...
 
 
@@ -801,12 +820,25 @@ class AnthropicContentGenerator:
         return _to_listing(result.data), result.usage
 
     async def generate(
-        self, analysis: VisionAnalysis, sku: str | None = None, pattern: dict[str, Any] | None = None
+        self,
+        analysis: VisionAnalysis,
+        sku: str | None = None,
+        pattern: dict[str, Any] | None = None,
+        *,
+        allow_warnings: bool = True,
     ) -> ContentResult:
         """Generate + validate, regenerating once on failure before giving up.
 
         The retry prompt carries the previous attempt's validation errors so the
         model knows precisely what to correct.
+
+        Short-title style: when, after that one rewrite, only Etsy's title guidance
+        (length, words, repeats, subjective, price/sale/shipping or gift words) or a
+        short tag set still fails, the listing is returned as written with
+        ``warnings`` for the seller instead of failing: the title is never cut
+        silently. Anything else (a trademark, a banned word, the tag rules) still
+        fails. ``allow_warnings=False`` (Replace images, which writes to Etsy without
+        a review) keeps the failure.
         """
         usages: list[Usage] = []
         last_errors: list[str] = []
@@ -815,8 +847,11 @@ class AnthropicContentGenerator:
             listing, usage = await self._generate_once(analysis, sku, correction=correction, pattern=pattern)
             usages.append(usage)
             listing = self._apply_prefix(listing)  # prepend the profile's title prefix
-            # One character over is not a reason to throw the listing away (v7 §A3).
-            listing.title = fit_title(listing.title, self._rules.min_length, self._rules.max_length)
+            if not self._rules.readable:
+                # One character over is not a reason to throw the listing away (v7 §A3).
+                # The short-title style never cuts: a long title is rewritten, then shown
+                # to the seller with a warning.
+                listing.title = fit_title(listing.title, self._rules.min_length, self._rules.max_length)
             if self._rules.readable:
                 # Every attribute the design shows, from Etsy's lists (Part C): the
                 # model's choices stay; the empty ones the analysis answers are filled.
@@ -852,6 +887,19 @@ class AnthropicContentGenerator:
                 errors.extend(example_errors(listing.title, str(pattern["title"])))
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
+            if attempt == 1 and allow_warnings and self._rules.readable:
+                soft = {
+                    *title_length_errors(listing.title, self._rules),
+                    *search_rules.title_errors(listing.title, self._rules, prefix=self._title_prefix),
+                    *(m for kind, _, m in tag_problems(listing.tags)
+                      if kind == TAG_COUNT and len(listing.tags) < REQUIRED_TAG_COUNT),
+                }
+                if all(e in soft for e in errors):
+                    warnings = search_rules.title_warnings(listing.title, self._rules, self._title_prefix)
+                    short = tag_count_warning(listing.tags)
+                    return ContentResult(
+                        listing=listing, usages=usages, attempts=2, warnings=[*warnings, *([short] if short else [])]
+                    )
             last_errors = errors
             correction = self._correction_block(listing, errors)
         raise ContentValidationError(last_errors, usages)

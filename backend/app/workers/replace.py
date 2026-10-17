@@ -269,8 +269,8 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                 new_title = new_tags = new_description = None
                 if full:
                     # Regenerate title + 13 tags from the new primary image. A draft this
-                    # app made is written in its profile's title style ("Etsy recommended
-                    # (short)" or "Long keyword"), exactly as a new listing would be;
+                    # app made is written in its profile's title style ("Short, clear
+                    # title" or "Long keyword title"), exactly as a new listing would be;
                     # otherwise the long style, template from the listing's own taxonomy.
                     profile = await replace_profile(session, job, connection.id, listing_id)
                     if profile is not None and uses_search_style(profile):
@@ -298,7 +298,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     )
                     async with ai_meter.scope(tenant.id, session) as meter:
                         vision = await analyzer.analyze(primary_bytes, primary.mime_type or "image/jpeg")
-                        result = await generator.generate(vision.analysis, primary.parsed_sku)
+                        result = await generator.generate(vision.analysis, primary.parsed_sku, allow_warnings=False)
                         meter.listing_written()
                     # Counted, or one of the design's free rewrites: as decided when it was queued.
                     allowance.record(

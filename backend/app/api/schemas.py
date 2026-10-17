@@ -295,6 +295,10 @@ class ContentOut(BaseModel):
     # The search-readiness checklist (pipeline/checklist.py): computed from the
     # listing's own text and settings, never blocking anything.
     checklist: "ChecklistOut | None" = None
+    # Short-title style: the title the app wrote still broke Etsy's title guidance
+    # after one rewrite (kept as written, never cut); one sentence each. Cleared
+    # when the seller edits the title.
+    title_warnings: list[str] = Field(default_factory=list)
 
 
 class CheckOut(BaseModel):
