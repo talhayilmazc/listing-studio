@@ -226,6 +226,10 @@ export interface MockupArea {
   axis_angle?: number | null;
   /** "front" or "back": a back area prints the design's back file. */
   role?: "front" | "back" | string;
+  /** The subgroup the seller linked this area to; null: by the garment's tone, else the photo's. */
+  subgroup_id?: string | null;
+  /** The garment's brightness ("light" or "dark"), read from the photo: the default link. */
+  tone?: "light" | "dark" | string | null;
 }
 
 /** One blank photo of a template (backend api/mockups.py PhotoOut). */
@@ -258,6 +262,8 @@ export interface MockupPhoto {
   /** "single", "front_back" or "several"; set by the analysis when sure ("auto") or the seller. */
   layout?: "single" | "front_back" | "several" | string;
   layout_source?: "auto" | "seller" | string;
+  /** The subgroup of its template the photo belongs to. */
+  subgroup_id?: string | null;
   areas: MockupArea[];
   /** Its suggestion came from the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
@@ -275,6 +281,26 @@ export interface MockupTemplate {
   own_placement?: number | null;
   /** "Back area without a back design": the front design, or nothing. */
   back_without_design?: "front" | "plain" | string;
+  /** Its subgroups, in order (at least one, named after it at first). */
+  subgroups?: MockupSubgroup[];
+}
+
+/** An upload slot as the designs page sends it: a subgroup's name, file-name suffix and "Use on". */
+export interface SlotIn {
+  name: string;
+  suffix: string | null;
+  use_on: string;
+}
+
+/** A subgroup of a template ("Comfort Colors White"): which garments it is for and the file-name suffix of its designs. */
+export interface MockupSubgroup {
+  id: string;
+  name: string;
+  /** "Use on": "any", "dark" garments or "light" garments. */
+  use_on: "any" | "dark" | "light" | string;
+  /** The file-name suffix that pairs a design's files ("-white"). */
+  suffix: string | null;
+  position: number;
 }
 
 /** The seller's own print placement, learnt from the photos they confirmed. */
@@ -303,6 +329,12 @@ export interface MockupDesign {
   has_alpha: boolean;
   /** It has a back file (printed on back areas). */
   has_back?: boolean;
+  /** The subgroup (by name) its file is for; null: every subgroup. */
+  subgroup?: string | null;
+  /** The colour of its ink: "light", "dark" or "mixed". */
+  ink?: string | null;
+  /** Its files for other subgroups: one design, one listing. */
+  versions?: { id: string; subgroup: string; original_filename: string; has_alpha?: boolean }[];
 }
 
 export interface MockupOutput {

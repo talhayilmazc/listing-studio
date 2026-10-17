@@ -4,20 +4,25 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { MockupDesign, MockupRun, MockupTemplate, MockupZip } from "@/lib/types";
+import type { MockupDesign, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
 import { FileDrop } from "@/components/FileDrop";
-import { kindOf, pick as pickFiles } from "@/lib/fileDrop";
+import { filesFromDrop, kindOf, pick as pickFiles } from "@/lib/fileDrop";
 import {
   GARMENT_MODE_LABELS,
   LIMIT_NOTE,
   MAX_PHOTOS_PER_RUN,
   NEEDS_CHECK,
   SIDE_LABELS,
+  type SlotFile,
+  USE_ON_LABELS,
   designNote,
+  designSlotsLine,
+  filesBySlot,
   megabytes,
   printable,
   runLine,
   skippedLine,
+  uploadSlots,
 } from "@/lib/mockups";
 
 import { Txt } from "@/components/Txt";
@@ -32,6 +37,13 @@ import { Txt } from "@/components/Txt";
  *    left out, and the page says how many. Progress per design.
  * 3. Per design or for all: "Use for listings" (a listing group per design, the
  *    chosen colour as its cover) and/or "Download" (a ZIP, private, kept 24 hours).
+ *
+ * When a chosen template is split into subgroups ("White", "Black"), there is a slot per
+ * subgroup: files dropped on a slot are for it; files dropped together pair into one design by
+ * name plus each subgroup's suffix ("BR100-white", "BR100-black"); a file that pairs with
+ * nothing goes to the slot its ink suggests (light ink: dark garments). Files can be dragged
+ * (or moved with "Move to") between slots. One design still makes one listing; each
+ * subgroup's mockups use its own file (pipeline/subgroups.py).
  *
  * No Etsy call, no AI call; mockups do not count toward Listings generated.
  */
@@ -89,21 +101,27 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   const toggle = (id: string, on: boolean) =>
     setChosen((now) => (templates ?? []).map((t) => t.id).filter((x) => (x === id ? on : now.includes(x))));
 
+  // The chosen templates' subgroups, when any is split: a slot each.
+  const slots: SlotIn[] = uploadSlots((templates ?? []).filter((t) => chosen.includes(t.id)));
+  // A design coming back again (a second file paired into it) replaces itself in the list.
+  const upsert = (list: MockupDesign[]) =>
+    setDesigns((all) => [...all.filter((d) => !list.some((x) => x.id === d.id)), ...list]);
+
   // Designs are sent as soon as they are chosen or dropped: each with its own progress,
   // and one that fails (too small, not an image, over 30 MB) says why without stopping the rest.
-  function choose(files: File[]) {
+  function choose(files: File[], slot?: string) {
     setError(null);
     const picked = pickFiles(files, { zip: true }).map(({ file, problem }, i) => ({
       key: `${Date.now()}-${i}-${file.name}-${file.size}`, file, pct: 0,
       state: problem ? "error" : "waiting", message: problem ?? undefined,
     }) as Upload);
     setUploads((now) => [...now.filter((u) => u.state !== "done"), ...picked]);
-    send(picked.filter((u) => u.state === "waiting"));
+    send(picked.filter((u) => u.state === "waiting"), slot);
   }
   const update = (key: string, patch: Partial<Upload>) => setUploads((all) => all.map((u) => (u.key === key ? { ...u, ...patch } : u)));
   const [failed, setFailed] = useState<{ filename: string; reason: string }[]>([]);
 
-  async function send(waiting: Upload[]) {
+  async function send(waiting: Upload[], slot?: string) {
     if (!waiting.length) return;
     setError(null);
     setPhase("uploading");
@@ -117,12 +135,13 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
         try {
           if (kindOf(u.file) === "zip") {
             // A ZIP: every image in it becomes a design; what fails comes back with why.
-            const res = await api.addMockupDesignArchive(id, u.file, (pct) => update(u.key, { pct }));
-            setDesigns((all) => [...all, ...res.added]);
+            const res = await api.addMockupDesignArchive(id, u.file, (pct) => update(u.key, { pct }), slots);
+            upsert(res.added);
             if (res.failed.length) setFailed((all) => [...all, ...res.failed]);
           } else {
-            const design = await api.addMockupDesign(id, u.file, (pct) => update(u.key, { pct }));
-            setDesigns((all) => [...all, design]);
+            const design = await api.addMockupDesign(id, u.file, (pct) => update(u.key, { pct }),
+              slots.length ? { subgroup: slot ?? null, subgroups: slots } : undefined);
+            upsert([design]);
           }
           update(u.key, { state: "done", pct: 100 });
         } catch (e: any) {
@@ -236,10 +255,15 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
                 ))}
               </ul>
             )}
+            {slots.length > 0 && (
+              <SlotBoard key="slots" slots={slots} designs={designs} disabled={busy || phase === "done"}
+                onFiles={(files, slot) => choose(files, slot)}
+                onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))} />
+            )}
             {designs.length > 0 && (
               <ul key="designs" className="divide-y divide-slate-100 rounded-md border border-slate-200" data-testid="mockup-design-list">
                 {designs.map((d) => (
-                  <DesignRow key={d.id} design={d} disabled={busy || phase === "done"}
+                  <DesignRow key={d.id} design={d} disabled={busy || phase === "done"} split={slots.length > 0}
                     onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))} />
                 ))}
               </ul>
@@ -312,7 +336,9 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   );
 }
 
-function DesignRow({ design, disabled, onChange }: { design: MockupDesign; disabled: boolean; onChange: (d: MockupDesign) => void }) {
+function DesignRow({ design, disabled, split, onChange }: {
+  design: MockupDesign; disabled: boolean; split?: boolean; onChange: (d: MockupDesign) => void;
+}) {
   const [sku, setSku] = useState(design.parsed_sku ?? "");
   const [message, setMessage] = useState<string | null>(null);
   async function save() {
@@ -346,6 +372,11 @@ function DesignRow({ design, disabled, onChange }: { design: MockupDesign; disab
   return (
     <li className="flex flex-wrap items-center gap-2 p-2.5 text-sm">
       <span className="min-w-0 flex-1 truncate text-slate-700" title={design.original_filename}>{design.original_filename}</span>
+      {split && (
+        <span key="slots" className="min-w-0 max-w-full truncate text-xs text-slate-500" translate="no" title={designSlotsLine(design)}>
+          {`Files: ${designSlotsLine(design)}`}
+        </span>
+      )}
       {designNote(design) && <span key="note" className="w-full text-xs text-amber-800 sm:order-last">{designNote(design)}</span>}
       <label className="flex items-center gap-1.5 text-xs text-slate-500">
         <span>SKU</span>
@@ -368,6 +399,102 @@ function DesignRow({ design, disabled, onChange }: { design: MockupDesign; disab
       </span>
       {message && <p key="m" role="alert" className="w-full text-xs text-rose-700">{message}</p>}
     </li>
+  );
+}
+
+/** A slot per subgroup: drop files on one (they are for it), drag a file to another, or "Move to". */
+function SlotBoard({ slots, designs, disabled, onFiles, onChange }: {
+  slots: SlotIn[];
+  designs: MockupDesign[];
+  disabled: boolean;
+  onFiles: (files: File[], slot: string) => void;
+  onChange: (design: MockupDesign) => void;
+}) {
+  const files = filesBySlot(designs, slots);
+  const [dragging, setDragging] = useState<SlotFile | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const names = [...slots.map((s) => s.name), ...(files[""].length ? [""] : [])];
+
+  async function move(file: SlotFile, to: string) {
+    setMessage(null);
+    try {
+      if (file.versionId) {
+        if (!to) return; // a second file is always for a subgroup
+        onChange(await api.moveMockupDesignVersion(file.versionId, to));
+      } else {
+        onChange(await api.moveMockupDesign(file.design.id, to || null));
+      }
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
+  return (
+    <div className="space-y-2" data-testid="mockup-slots">
+      <p className="text-xs text-slate-500">
+        Files dropped together pair into one design by name and each subgroup&apos;s suffix; a file that pairs with nothing goes where its ink colour suggests. Drag a file to another slot to change it.
+      </p>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {names.map((name) => {
+          const slot = slots.find((s) => s.name === name);
+          return (
+            <li key={name || "~every"} className={`min-w-0 rounded-lg border-2 border-dashed p-3 ${over === name ? "border-brand-500 bg-brand-50" : "border-slate-300 bg-white"}`}
+              onDragOver={(e) => { e.preventDefault(); if (!disabled) setOver(name); }}
+              onDragLeave={() => setOver(null)}
+              onDrop={async (e) => {
+                e.preventDefault();
+                setOver(null);
+                if (disabled) return;
+                if (dragging) {
+                  const f = dragging;
+                  setDragging(null);
+                  await move(f, name);
+                  return;
+                }
+                const dropped = await filesFromDrop(e.dataTransfer);
+                if (dropped.length && name) onFiles(dropped, name);
+              }}
+              data-testid="mockup-slot" data-slot={name}>
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                <p className="min-w-0 truncate text-sm font-medium text-slate-800" title={name || "Every subgroup"} translate="no">{name || "Every subgroup"}</p>
+                <span className="text-xs text-slate-500" translate="no">
+                  {slot ? [USE_ON_LABELS[slot.use_on as keyof typeof USE_ON_LABELS] ?? "", slot.suffix ? `suffix ${slot.suffix}` : ""].filter(Boolean).join(" · ") : "printed for every subgroup"}
+                </span>
+              </div>
+              <ul className="mt-2 space-y-1.5">
+                {files[name].map((f) => (
+                  <li key={`${f.design.id}-${f.versionId ?? "own"}`} draggable={!disabled}
+                    onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDragging(f); }}
+                    onDragEnd={() => setDragging(null)}
+                    className="flex min-w-0 cursor-grab flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs"
+                    data-testid="mockup-slot-file">
+                    <span className="min-w-[8rem] flex-1 truncate text-slate-700" title={f.filename} translate="no">{f.filename}</span>
+                    <label className="w-full min-w-0 sm:w-auto sm:max-w-[50%]">
+                      <span className="sr-only">{`Move ${f.filename} to`}</span>
+                      <select className="field w-full text-xs" value={name} disabled={disabled}
+                        onChange={(e) => move(f, e.target.value)} data-testid="mockup-slot-move">
+                        {slots.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+                        {!f.versionId && <option key="~every" value="">Every subgroup</option>}
+                      </select>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              {name && (
+                <label key="choose" className="btn-secondary mt-2 min-h-11 w-full cursor-pointer text-sm">
+                  <span>{`Add ${name} files`}</span>
+                  <input type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={disabled}
+                    onChange={(e) => { const chosen = Array.from(e.target.files ?? []); e.target.value = ""; if (chosen.length) onFiles(chosen, name); }}
+                    data-testid="mockup-slot-files" />
+                </label>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {message && <p key="m" role="alert" className="text-xs text-rose-700">{message}</p>}
+    </div>
   );
 }
 

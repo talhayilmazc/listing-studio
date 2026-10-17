@@ -792,6 +792,8 @@ class MockupPhoto(Base):
     #: (``layout_source`` "auto") or by the seller ("seller").
     layout: Mapped[str] = mapped_column(Text, nullable=False, server_default="single")
     layout_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="auto")
+    #: The template's subgroup the photo belongs to (``MockupSubgroup``; None: the template's first).
+    subgroup_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mockup_subgroup.id", ondelete="SET NULL"), index=True)
     #: Every print area, in the seller's order (see the class docstring).
     garments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
     #: "default" (as suggested) or "seller" (changed by hand): the first area's source.
@@ -809,6 +811,50 @@ class MockupPhoto(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class MockupSubgroup(Base):
+    """A named part of a template (``MockupTemplate``: "Comfort Colors" split into "Comfort Colors
+    White" and "Comfort Colors Black"), whose photos print a design's version for it. "Use on"
+    (``use_on``: "any", "dark" or "light" garments) gives a garment's area its subgroup by the
+    garment's brightness in several-garment photos; ``suffix`` pairs a design's files by name.
+    Every template has at least one (made with it)."""
+
+    __tablename__ = "mockup_subgroup"
+    USE_ON: ClassVar[tuple[str, ...]] = ("any", "dark", "light")
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_template.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    use_on: Mapped[str] = mapped_column(Text, nullable=False, server_default="any")
+    suffix: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MockupDesignVersion(Base):
+    """A design's file for one more subgroup (by name): the design stays one listing; each
+    subgroup's mockups use their own version. Deleted with the design."""
+
+    __tablename__ = "mockup_design_version"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    design_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subgroup: Mapped[str] = mapped_column(Text, nullable=False)
+    original_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    design_key: Mapped[str | None] = mapped_column(Text)
+    back_key: Mapped[str | None] = mapped_column(Text)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    has_alpha: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    ink: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class MockupPlacement(Base):
@@ -864,6 +910,13 @@ class MockupDesign(Base):
     #: The design's optional back file: printed on back areas (else the template's
     #: ``back_without_design``).
     back_key: Mapped[str | None] = mapped_column(Text)
+    #: The subgroup (by name) its file is for; None: every subgroup. Other subgroups' files are
+    #: its versions (``MockupDesignVersion``): one design, one listing.
+    subgroup: Mapped[str | None] = mapped_column(Text)
+    #: Its file name without the subgroup's suffix: how its other versions pair with it.
+    pair_base: Mapped[str | None] = mapped_column(Text)
+    #: "light", "dark" or "mixed": the colour of its opaque pixels.
+    ink: Mapped[str | None] = mapped_column(Text)
     files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

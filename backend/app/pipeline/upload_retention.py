@@ -44,7 +44,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import AppSetting, Asset, MockupDesign, MockupOutput, UploadBatch
+from app.db.models import AppSetting, Asset, MockupDesign, MockupDesignVersion, MockupOutput, UploadBatch
 from app.pipeline import group_state as gs
 from app.pipeline.images import ImageProcessingError, resize_preview
 from app.pipeline.storage import Storage
@@ -204,12 +204,21 @@ async def due_groups(session: AsyncSession, now: datetime, days: Policy) -> tupl
             )
         )
         by_group = {(d.batch_id, d.group_key): d for d in due}
+        owner: dict[uuid.UUID, Due] = {}
         for design_id, batch_id, group_key, key, back in rows.all():
             found = by_group.get((batch_id, group_key))
             if found is not None:
+                owner[design_id] = found
                 found.designs.append((design_id, key))
                 if back:  # the design's back file goes with it
                     found.designs.append((design_id, back))
+        if owner:
+            # Its files for other subgroups (one design, one listing) go with it too.
+            for design_id, key, back in (await session.execute(
+                select(MockupDesignVersion.design_id, MockupDesignVersion.design_key, MockupDesignVersion.back_key)
+                .where(MockupDesignVersion.design_id.in_(list(owner)))
+            )).all():
+                owner[design_id].designs.extend((design_id, k) for k in (key, back) if k)
     return due, waiting
 
 
@@ -275,10 +284,12 @@ async def run(
                     update(MockupOutput).where(MockupOutput.key.in_(gone)).values(files_removed_at=now, key=None)
                 )
             if group.designs:
+                ids = list({i for i, _ in group.designs})
                 await session.execute(
-                    update(MockupDesign)
-                    .where(MockupDesign.id.in_([i for i, _ in group.designs]))
-                    .values(files_removed_at=now, design_key=None, back_key=None)
+                    update(MockupDesign).where(MockupDesign.id.in_(ids)).values(files_removed_at=now, design_key=None, back_key=None)
+                )
+                await session.execute(
+                    update(MockupDesignVersion).where(MockupDesignVersion.design_id.in_(ids)).values(design_key=None, back_key=None)
                 )
             if kept is not None and group.cover is not None:
                 await session.execute(update(Asset).where(Asset.id == group.cover.id).values(thumbnail_key=kept[0]))
@@ -311,15 +322,21 @@ async def _unprinted_designs(
         )
     )).scalars())
     for design in rows:
-        files, size = await asyncio.to_thread(storage.measure_with_derivatives, design.design_key or "")
-        if design.back_key:
-            more, extra = await asyncio.to_thread(storage.measure_with_derivatives, design.back_key)
+        versions = list((await session.execute(
+            select(MockupDesignVersion).where(MockupDesignVersion.design_id == design.id)
+        )).scalars())
+        keys = [k for k in (design.design_key, design.back_key) if k]
+        keys += [k for v in versions for k in (v.design_key, v.back_key) if k]
+        files = size = 0
+        for key in keys:
+            more, extra = await asyncio.to_thread(storage.measure_with_derivatives, key)
             files, size = files + more, size + extra
         if apply:
-            await asyncio.to_thread(storage.delete_with_derivatives, design.design_key or "")
-            if design.back_key:
-                await asyncio.to_thread(storage.delete_with_derivatives, design.back_key)
+            for key in keys:
+                await asyncio.to_thread(storage.delete_with_derivatives, key)
             design.files_removed_at, design.design_key, design.back_key = now, None, None
+            for v in versions:
+                v.design_key, v.back_key = None, None
             await session.commit()
         result.files += files
         result.freed_bytes += size

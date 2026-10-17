@@ -311,6 +311,18 @@ def _with_holes_filled(garment: np.ndarray, occluder: np.ndarray) -> np.ndarray:
 # --- the analysis -------------------------------------------------------------------------------
 
 
+def _tone(rgb: np.ndarray, region: np.ndarray) -> str | None:
+    """"light" or "dark": the garment's lightness (CIELAB L* of its median colour)."""
+    from skimage import color
+
+    from app.pipeline import subgroups
+
+    if region is None or not region.any():
+        return None
+    median = np.median(rgb[region].reshape(-1, 3), axis=0) / 255.0
+    return subgroups.tone_of(float(color.rgb2lab(median.reshape(1, 1, 3))[0, 0, 0]))
+
+
 def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name: str = "",
                      personal: dict[str, dict[str, float]] | None = None) -> "Analysis | None":
     """Every garment in the photo (pipeline/garments.py): a print area, confidence, kind
@@ -345,7 +357,7 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
             "print_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.corners],
             "confidence": round(float(g.confidence), 3), "kind": g.kind, "view": g.view, "layout": g.layout,
             "notes": list(g.notes), "guards": list(g.info.get("guards", [])), "main": g is main,
-            "pair": pair.get(id(g)),
+            "pair": pair.get(id(g)), "tone": _tone(rgb, g.region),
             "back_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.info["back_corners"]]
             if g.info.get("back_corners") else None,
             "ratios": g.info.get("ratios"), "geometry": placement.geometry(g, w, h),

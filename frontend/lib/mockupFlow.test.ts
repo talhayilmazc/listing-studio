@@ -77,7 +77,7 @@ test("Add designs appears once a photo is confirmed, and right after the last ch
   assert.match(page, /data-testid="templates-add-designs"/);
   // After "Looks right" on the last photo that needed it.
   assert.equal(ALL_READY, "All photos are ready. Add designs");
-  assert.match(page, /if \(!rest\.length\) setReadyTemplate\(saved\.template_id\);/);
+  assert.match(page, /if \(!rest\.length\) \{\s*setReadyTemplate\(saved\.template_id\);/);
   assert.match(page, /data-testid="all-ready-add">Add designs<\/Link>/);
   // The editor's previews are never the only action: "Looks right" is always there.
   assert.match(read(EDITOR), /data-testid="editor-confirm"/);
@@ -87,7 +87,7 @@ test("bulk designs: the step, ZIPs, per-design notes, skipped photos named", () 
   const designs = read(DESIGNS);
   assert.match(designs, /<MockupUpload shop=\{selected\?\.id \?\? null\} initialTemplates=\{ids\} \/>/);
   const upload = read(UPLOAD);
-  assert.match(upload, /api\.addMockupDesignArchive\(id, u\.file, \(pct\) => update\(u\.key, \{ pct \}\)\)/);
+  assert.match(upload, /api\.addMockupDesignArchive\(id, u\.file, \(pct\) => update\(u\.key, \{ pct \}\), slots\)/);
   assert.match(upload, /data-testid="mockup-design-failed"/);
   assert.match(upload, /"3\. Create mockups"/);
   assert.match(upload, /`Not used: \$\{\(run\?\.skipped_photos\?\.length \? run\.skipped_photos : skippedNames\)\.join\(", "\)\}`/);

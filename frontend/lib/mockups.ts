@@ -3,7 +3,7 @@
  * pipeline/mockups.py, core/config.py). lib/mockups.test.ts fails if a figure or
  * the rights sentence drifts from the backend's.
  */
-import type { MockupPhoto, MockupTemplate } from "./types";
+import type { MockupArea, MockupDesign, MockupPhoto, MockupSubgroup, MockupTemplate, SlotIn } from "./types";
 
 /** What the seller confirms when uploading a blank: the same words the server checks for. */
 export const RIGHTS_STATEMENT = "This photo is my own, or I have the right to use it to show my products.";
@@ -215,4 +215,115 @@ export function firstConfirmOffer(before: MockupTemplate | undefined, savedId: s
  *  the editor moves on to the first of them. */
 export function stillToCheck(template: MockupTemplate | undefined, savedId: string): string[] {
   return (template?.photos ?? []).filter((p) => p.id !== savedId && p.needs_check).map((p) => p.id);
+}
+
+// --- collapsed template cards and the photo viewer ------------------------------------------------
+
+/** Which template cards are open, remembered in this browser (a convenience; storage can be missing). */
+export const OPEN_TEMPLATES_KEY = "listyro.templates.open";
+
+export function readOpenTemplates(storage: Pick<Storage, "getItem"> | null | undefined): string[] {
+  try {
+    const raw = storage?.getItem(OPEN_TEMPLATES_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeOpenTemplates(storage: Pick<Storage, "setItem"> | null | undefined, ids: string[]): void {
+  try {
+    storage?.setItem(OPEN_TEMPLATES_KEY, JSON.stringify(ids));
+  } catch {
+    // private window or blocked storage: the cards just start collapsed next time
+  }
+}
+
+/** A collapsed card's thumbnail strip: up to six ready photos, those needing a check first. */
+export const STRIP_PHOTOS = 6;
+export function stripPhotos(photos: MockupPhoto[], n: number = STRIP_PHOTOS): MockupPhoto[] {
+  const ready = photos.filter((p) => p.status === "ready");
+  return [...ready.filter((p) => p.needs_check), ...ready.filter((p) => !p.needs_check)].slice(0, n);
+}
+
+/** "3 need check" on a collapsed card's header. */
+export const needCheckBadge = (n: number) => `${n} need${n === 1 ? "s" : ""} check`;
+
+/** The viewer's next photo: ← and → stop at the first and the last. */
+export function viewerStep(index: number, total: number, by: -1 | 1): number {
+  return Math.min(Math.max(index + by, 0), Math.max(total - 1, 0));
+}
+
+/** A swipe on a phone: a mostly sideways move of at least 40 px; left = next. */
+export const SWIPE_MIN = 40;
+export function swipeStep(dx: number, dy: number): -1 | 0 | 1 {
+  if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
+  return dx < 0 ? 1 : -1;
+}
+
+export const viewerCounter = (index: number, total: number) => `${index + 1} of ${total}`;
+
+// --- subgroups ------------------------------------------------------------------------------------
+
+export const USE_ON_LABELS: Record<"any" | "dark" | "light", string> = {
+  any: "Any garment",
+  dark: "Dark garments",
+  light: "Light garments",
+};
+export const SUBGROUPS_HINT =
+  "Split this template by garment colour (for example White and Black). Each design can have a file per subgroup, paired by the suffix at the end of its file name; it still makes one listing.";
+export const MAX_SUBGROUPS = 12;
+
+const same = (a: string | null | undefined, b: string | null | undefined) =>
+  (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
+/** The subgroup an area prints for, as the server decides (pipeline/subgroups.py area_subgroup):
+ * the seller's link, else (several subgroups) the one whose "Use on" matches the garment's tone, else the photo's. */
+export function areaSubgroup(
+  area: Pick<MockupArea, "subgroup_id" | "tone">,
+  photoSubgroupId: string | null | undefined,
+  subgroups: MockupSubgroup[],
+): MockupSubgroup | null {
+  const linked = subgroups.find((g) => g.id === area.subgroup_id);
+  if (linked) return linked;
+  if (subgroups.length > 1 && (area.tone === "light" || area.tone === "dark")) {
+    const match = subgroups.find((g) => g.use_on === area.tone);
+    if (match) return match;
+  }
+  return subgroups.find((g) => g.id === photoSubgroupId) ?? subgroups[0] ?? null;
+}
+
+/** The upload's slots: the subgroups of the chosen templates that are split (two or more), one per name. */
+export function uploadSlots(templates: Pick<MockupTemplate, "subgroups">[]): SlotIn[] {
+  const out: SlotIn[] = [];
+  for (const t of templates) {
+    const groups = t.subgroups ?? [];
+    if (groups.length < 2) continue;
+    for (const g of groups) {
+      if (!out.some((s) => same(s.name, g.name))) out.push({ name: g.name, suffix: g.suffix, use_on: g.use_on });
+    }
+  }
+  return out;
+}
+
+/** One file in a slot: a design's own file or one of its versions. */
+export type SlotFile = { design: MockupDesign; versionId: string | null; filename: string };
+
+/** The designs' files by slot name ("" = no subgroup: printed for every subgroup), in upload order. */
+export function filesBySlot(designs: MockupDesign[], slots: SlotIn[]): Record<string, SlotFile[]> {
+  const out: Record<string, SlotFile[]> = { "": [] };
+  for (const s of slots) out[s.name] = [];
+  const slotOf = (name: string | null | undefined) => slots.find((s) => same(s.name, name))?.name ?? "";
+  for (const d of designs) {
+    out[slotOf(d.subgroup)].push({ design: d, versionId: null, filename: d.original_filename });
+    for (const v of d.versions ?? []) out[slotOf(v.subgroup)].push({ design: d, versionId: v.id, filename: v.original_filename });
+  }
+  return out;
+}
+
+/** "BR100: White, Black" — which slots a design has files for. */
+export function designSlotsLine(design: MockupDesign): string {
+  const names = [design.subgroup ?? "Every subgroup", ...(design.versions ?? []).map((v) => v.subgroup)];
+  return names.join(", ");
 }

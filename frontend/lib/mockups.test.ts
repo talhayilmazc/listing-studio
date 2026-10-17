@@ -87,7 +87,7 @@ test("no upload waits silently: progress, the server's own error, and a timeout"
   assert.match(page, /api\.addMockupPhoto\(templateId, row\.file, row\.name, confirmed, \(pct\) => update\(row\.key, \{ pct \}\)\)/);
   assert.match(page, /update\(row\.key, \{ state: "error", message: String\(e\.message \?\? e\) \}\)/);
   const upload = read(UPLOAD);
-  assert.match(upload, /api\.addMockupDesign\(id, u\.file, \(pct\) => update\(u\.key, \{ pct \}\)\)/);
+  assert.match(upload, /api\.addMockupDesign\(id, u\.file, \(pct\) => update\(u\.key, \{ pct \}\),/);
   assert.match(upload, /update\(u\.key, \{ state: "error", message: String\(e\.message \?\? e\) \}\)/);
   // A run that stops moving for five minutes says so.
   assert.match(upload, /const STALL_MS = 5 \* 60_000;/);

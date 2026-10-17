@@ -58,6 +58,7 @@ DESTRUCTIVE = frozenset({
     "plan.cancelled",
     "mockup_template.deleted",
     "mockup_photo.deleted",
+    "mockup_subgroup.deleted",
     "mockup_placement.reset",
 })
 

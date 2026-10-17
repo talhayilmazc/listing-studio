@@ -40,9 +40,11 @@ from app.db.models import (
     Asset,
     AssetStatus,
     MockupDesign,
+    MockupDesignVersion,
     MockupOutput,
     MockupPhoto,
     MockupRun,
+    MockupSubgroup,
     MockupTemplate,
     MockupZip,
     Tenant,
@@ -50,7 +52,7 @@ from app.db.models import (
     UploadBatchStatus,
 )
 from app.pipeline import mockup_vision as vision
-from app.pipeline import mockups, placement, upload_retention
+from app.pipeline import mockups, placement, subgroups, upload_retention
 from app.pipeline.images import ImageProcessingError
 from app.pipeline.ingest import _rerank
 from app.pipeline.storage import Storage
@@ -198,6 +200,37 @@ def photo_print_areas(photo: MockupPhoto) -> list[list[list[float]]]:
     """A photo's print areas, one per garment, in the seller's order."""
     rows = [g.get("print_area") for g in (photo.garments or []) if g.get("print_area")]
     return rows or ([photo.print_area] if photo.print_area else [])
+
+
+def photo_area_rows(photo: MockupPhoto) -> list[dict]:
+    """The rows behind ``photo_print_areas``, in the same order (a photo without rows: one, empty)."""
+    rows = [g for g in (photo.garments or []) if g.get("print_area")]
+    return rows or ([{}] if photo.print_area else [])
+
+
+def area_subgroup_names(photo: MockupPhoto, groups: list[MockupSubgroup]) -> list[str | None]:
+    """Each area's subgroup name, in area order: the seller's link, the garment's tone, else
+    the photo's subgroup (``groups``: the photo's template's subgroups, in order)."""
+    own = next((g for g in groups if g.id == photo.subgroup_id), groups[0] if groups else None)
+    return [getattr(subgroups.area_subgroup(r, own, groups), "name", None) for r in photo_area_rows(photo)]
+
+
+async def template_subgroups(session: AsyncSession, template_ids: Any) -> dict[uuid.UUID, list[MockupSubgroup]]:
+    ids = list({uuid.UUID(str(t)) for t in template_ids})
+    out: dict[uuid.UUID, list[MockupSubgroup]] = {t: [] for t in ids}
+    if ids:
+        for g in (await session.execute(
+            select(MockupSubgroup).where(MockupSubgroup.template_id.in_(ids))
+            .order_by(MockupSubgroup.position, MockupSubgroup.created_at)
+        )).scalars():
+            out[g.template_id].append(g)
+    return out
+
+
+def prints_on(design: MockupDesign, versions: list[MockupDesignVersion], names: list[str | None]) -> bool:
+    """Whether a design has a file for any area of a photo (a design made only for one subgroup
+    prints only on that subgroup's photos)."""
+    return any(subgroups.file_for(design, versions, n) is not None for n in names)
 
 
 def photo_area_roles(photo: MockupPhoto) -> list[str]:
@@ -423,6 +456,25 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
         images: dict[uuid.UUID, Any] = {}
         backs: dict[uuid.UUID, Any] = {}
         usable: list[MockupDesign] = []
+        # Each design's files for other subgroups (one design, one listing), loaded when used.
+        versions: dict[uuid.UUID, list[MockupDesignVersion]] = {}
+        if designs:
+            for v in (await session.execute(
+                select(MockupDesignVersion).where(MockupDesignVersion.design_id.in_([d.id for d in designs]),
+                                                  MockupDesignVersion.design_key.is_not(None))
+            )).scalars():
+                versions.setdefault(v.design_id, []).append(v)
+        loaded: dict[tuple[str, uuid.UUID], Any] = {}
+
+        async def image_of(file: Any, back: bool) -> Any:
+            key = file.back_key if back else file.design_key
+            if not key:
+                return None
+            if (("back" if back else "front"), file.id) not in loaded:
+                loaded[("back" if back else "front", file.id)] = await asyncio.to_thread(mockups.load_design, storage.get(key))
+            return loaded[("back" if back else "front", file.id)]
+
+        template_groups = await template_subgroups(session, {p.template_id for p, _ in photos})
         for design in designs:
             try:
                 images[design.id] = await asyncio.to_thread(mockups.load_design, storage.get(design.design_key or ""))
@@ -445,6 +497,11 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 continue
             roles = photo_area_roles(photo)
             fallback = _BACK_FALLBACK.get(photo.template_id, "front")
+            # Each area's subgroup: the seller's link, the garment's tone, else the photo's.
+            area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []))
+            if not any(prints_on(d, versions.get(d.id, []), area_names) for d in usable):
+                job.total = max(0, job.total - len(usable))  # no design has a file for this photo's subgroup
+                continue
             maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
@@ -456,12 +513,22 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 groups = [[d] for d in usable]
             for group in groups:
                 if len(group) == 1:
-                    chosen = [(group[0], a, r) for a, r in zip(garments, roles)]
+                    chosen = [(group[0], a, r, n) for a, r, n in zip(garments, roles, area_names)]
                 else:
-                    chosen = [(d, a, r) for d, a, r in zip(group, garments, roles)]
-                placements = [(img, a) for d, a, r in chosen
-                              if (img := design_for(r, images[d.id], backs.get(d.id), fallback)) is not None]
+                    chosen = [(d, a, r, n) for d, a, r, n in zip(group, garments, roles, area_names)]
+                placements = []
+                for d, a, r, n in chosen:
+                    # The design's file for the area's subgroup (None: it has none for it).
+                    f = subgroups.file_for(d, versions.get(d.id, []), n)
+                    if f is None:
+                        continue
+                    front_img = images[d.id] if f is d else await image_of(f, False)
+                    back_img = backs.get(d.id) if f is d else await image_of(f, True)
+                    img = design_for(r, front_img, back_img, fallback)
+                    if img is not None:
+                        placements.append((img, a))
                 if not placements:
+                    job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue
                 try:
                     jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)

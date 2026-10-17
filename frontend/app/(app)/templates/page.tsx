@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmGrid } from "@/components/ConfirmGrid";
 import { FileDrop } from "@/components/FileDrop";
+import { PhotoViewer } from "@/components/PhotoViewer";
 import { PrintAreaEditor } from "@/components/PrintAreaEditor";
 import { api } from "@/lib/api";
 import { pick } from "@/lib/fileDrop";
-import type { MockupPhoto, MockupTemplate } from "@/lib/types";
+import type { MockupPhoto, MockupSubgroup, MockupTemplate } from "@/lib/types";
 import {
   ACCURACY_NOTE,
   ALL_READY,
@@ -20,7 +21,14 @@ import {
   BACK_FALLBACK_OPTIONS,
   LAYOUT_HINT,
   LAYOUT_LABELS,
+  MAX_SUBGROUPS,
   type PhotoLayout,
+  SUBGROUPS_HINT,
+  USE_ON_LABELS,
+  needCheckBadge,
+  readOpenTemplates,
+  stripPhotos,
+  writeOpenTemplates,
   TEMPLATES_INTRO,
   addDesignsHref,
   appliedLine,
@@ -46,7 +54,12 @@ import {
  * ("Apply this area to selected": each placed by its own garment) and be confirmed together
  * ("Confirm selected"). Once a template has a confirmed photo, "Add designs" leads to the
  * bulk step; the last check says "All photos are ready". Photos are reordered, moved and
- * removed here. Nothing here calls Etsy or an AI model.
+ * removed here. Cards start collapsed (name, photo count, "N need check", a strip of
+ * thumbnails); which are open is remembered in this browser. A photo opens large in a viewer
+ * (components/PhotoViewer.tsx) that moves through the template's photos and leads to the
+ * editor. A template can be split into subgroups ("White", "Black"), each for dark, light or
+ * any garments, with the file-name suffix that pairs a design's files (pipeline/subgroups.py).
+ * Nothing here calls Etsy or an AI model.
  */
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
@@ -60,6 +73,35 @@ export default function TemplatesPage() {
   // with "Apply to these N photos" (the area placed on each by its own garment).
   const [offer, setOffer] = useState<{ templateId: string; sourceId: string; ids: string[] } | null>(null);
   const polls = useRef(0);
+  // Which cards are open (they start collapsed); remembered in this browser only.
+  const [open, setOpenIds] = useState<string[]>([]);
+  useEffect(() => {
+    let stored: Storage | null = null;
+    try {
+      stored = window.localStorage;
+    } catch {
+      // blocked storage: every card starts collapsed
+    }
+    setOpenIds(readOpenTemplates(stored));
+  }, []);
+  const remember = (ids: string[]) => {
+    try {
+      writeOpenTemplates(window.localStorage, ids);
+    } catch {
+      // no storage: open for this visit only
+    }
+  };
+  const setOpen = useCallback((ids: string[]) => {
+    setOpenIds(ids);
+    remember(ids);
+  }, []);
+  const openOne = useCallback((id: string) => setOpenIds((now) => {
+    if (now.includes(id)) return now;
+    const ids = [...now, id];
+    remember(ids);
+    return ids;
+  }), []);
+  const [viewer, setViewer] = useState<{ templateId: string; index: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +169,7 @@ export default function TemplatesPage() {
       // The template's first confirmed photo: offer its area for the others instead of
       // opening them one by one.
       setEditor(null);
+      openOne(saved.template_id);
       setOffer({ templateId: saved.template_id, sourceId: saved.id, ids: offerIds });
       load();
       return;
@@ -137,12 +180,16 @@ export default function TemplatesPage() {
       // The queue is done: on to the next photo of this template that still needs a check.
       const rest = stillToCheck(before, saved.id);
       setEditor(rest.length ? { queue: rest, index: 0 } : null);
-      if (!rest.length) setReadyTemplate(saved.template_id);
+      if (!rest.length) {
+        setReadyTemplate(saved.template_id);
+        openOne(saved.template_id);
+      }
     }
     load();
   }
 
   const anyConfirmed = (templates ?? []).filter(canAddDesigns);
+  const viewed = viewer ? (templates ?? []).find((t) => t.id === viewer.templateId) : undefined;
 
   return (
     <div className="space-y-8">
@@ -171,11 +218,25 @@ export default function TemplatesPage() {
       ) : templates.length === 0 ? (
         <p key="empty" className="card p-6 text-sm text-slate-500">No templates yet. Add blank garment photos above.</p>
       ) : (
-        <ol key="list" className="space-y-6" data-testid="templates">
+        <div key="list" className="space-y-3">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" className="btn-secondary min-h-11 px-3 text-sm" onClick={() => setOpen(templates.map((t) => t.id))}
+              disabled={templates.every((t) => open.includes(t.id))} data-testid="templates-expand-all">
+              Expand all
+            </button>
+            <button type="button" className="btn-secondary min-h-11 px-3 text-sm" onClick={() => setOpen([])}
+              disabled={!templates.some((t) => open.includes(t.id))} data-testid="templates-collapse-all">
+              Collapse all
+            </button>
+          </div>
+          <ol className="space-y-4" data-testid="templates">
           {templates.map((t, i) => (
             <li key={t.id}>
               <TemplateCard
                 template={t}
+                open={open.includes(t.id)}
+                onToggle={() => setOpen(open.includes(t.id) ? open.filter((x) => x !== t.id) : [...open, t.id])}
+                onView={(index) => setViewer({ templateId: t.id, index })}
                 first={i === 0}
                 last={i === templates.length - 1}
                 onMove={(by) => moveTemplate(t.id, by)}
@@ -190,13 +251,20 @@ export default function TemplatesPage() {
               />
             </li>
           ))}
-        </ol>
+          </ol>
+        </div>
+      )}
+      {viewed && viewer && (
+        <PhotoViewer key={`viewer-${viewed.id}`} photos={viewed.photos} start={viewer.index} subgroups={viewed.subgroups}
+          onCheck={(p) => { setViewer(null); setEditor({ queue: [p.id], index: 0 }); }}
+          onClose={() => setViewer(null)} />
       )}
       {current && current.status === "ready" && (
         <PrintAreaEditor
           key="editor"
           photo={current}
           siblings={siblings}
+          subgroups={(templates ?? []).find((t) => t.id === current.template_id)?.subgroups ?? []}
           step={editor ? { index: editor.index, total: editor.queue.length } : null}
           onConfirmed={(saved) => { replace(saved); next(saved); }}
           onCopied={(copied, saved) => {
@@ -331,6 +399,9 @@ function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; 
 
 function TemplateCard({
   template,
+  open,
+  onToggle,
+  onView,
   first,
   last,
   onMove,
@@ -344,6 +415,11 @@ function TemplateCard({
   onOfferDone,
 }: {
   template: MockupTemplate;
+  /** Expanded; collapsed shows only the header row. */
+  open: boolean;
+  onToggle: () => void;
+  /** Open the viewer on this template's photo at this index. */
+  onView: (index: number) => void;
   first: boolean;
   last: boolean;
   onMove: (by: -1 | 1) => void;
@@ -410,6 +486,15 @@ function TemplateCard({
   async function setBackFallback(value: "front" | "plain") {
     try {
       onChange(await api.updateMockupTemplate(template.id, { back_without_design: value }));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
+  async function setPhotoSubgroup(photo: MockupPhoto, subgroupId: string) {
+    try {
+      await api.updateMockupPhoto(photo.id, { subgroup_id: subgroupId });
+      onReload();
     } catch (e: any) {
       setMessage(String(e.message ?? e));
     }
@@ -511,22 +596,53 @@ function TemplateCard({
   }
 
   return (
-    <article className="card space-y-4 p-4" data-testid="template-card">
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="block min-w-0 flex-1">
-          <span className="label">Template</span>
-          <input className="field w-full font-medium" value={name} maxLength={MAX_NAME} title={template.name}
-            onChange={(e) => setName(e.target.value)} onBlur={rename} data-testid="template-rename" />
-        </label>
-        <span className="pb-2 text-xs text-slate-500" translate="no">
-          <span><span>{template.photos.length}</span> <span>{template.photos.length === 1 ? "photo" : "photos"}</span></span>
-        </span>
+    <article className={`card p-4 ${open ? "space-y-4" : ""}`} data-testid="template-card" data-open={open ? "yes" : "no"}>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <button type="button" className="flex min-h-11 min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1 rounded-md text-left sm:basis-0 sm:flex-1" onClick={onToggle}
+          aria-expanded={open} data-testid="template-toggle">
+          <svg viewBox="0 0 20 20" className={`h-5 w-5 shrink-0 text-slate-500 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+            aria-hidden>
+            <path d="M7 4l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="min-w-0 max-w-[calc(100%-2rem)] truncate font-medium text-slate-900" title={template.name} translate="no">{template.name}</span>
+          <span className="shrink-0 text-xs text-slate-500" translate="no">
+            {`${template.photos.length} ${template.photos.length === 1 ? "photo" : "photos"}`}
+          </span>
+          {template.needs_check > 0 && (
+            <span key="badge" className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900" translate="no"
+              data-testid="template-badge">
+              {needCheckBadge(template.needs_check)}
+            </span>
+          )}
+        </button>
         {canAddDesigns(template) && (
           <Link key="add-designs" href={addDesignsHref([template.id])} className="btn-primary min-h-11" data-testid="template-add-designs">
             Add designs
           </Link>
         )}
       </div>
+      {!open && stripPhotos(template.photos).length > 0 && (
+        <ul key="strip" className="mt-3 flex min-w-0 gap-2 overflow-hidden" data-testid="template-strip">
+          {stripPhotos(template.photos).map((p) => (
+            <li key={p.id} className="shrink-0">
+              <button type="button" className={`block h-14 w-12 overflow-hidden rounded border bg-white sm:h-16 sm:w-14 ${p.needs_check ? "border-amber-400" : "border-slate-200"}`}
+                onClick={() => onView(template.photos.findIndex((x) => x.id === p.id))} aria-label={`View ${p.name}`}
+                data-testid="template-strip-photo">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={api.mockupPhotoImageUrl(p.id, 112)} alt="" loading="lazy" className="h-full w-full object-cover" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && (
+      <div key="body" className="space-y-4">
+      <label className="block min-w-0">
+        <span className="label">Template name</span>
+        <input className="field w-full font-medium" value={name} maxLength={MAX_NAME} title={template.name}
+          onChange={(e) => setName(e.target.value)} onBlur={rename} data-testid="template-rename" />
+      </label>
+      <SubgroupsEditor template={template} onChange={onChange} onError={setMessage} />
       {allReady && (
         <div key="all-ready" ref={readyBox} role="status"
           className="flex flex-wrap items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2" data-testid="all-ready">
@@ -619,8 +735,9 @@ function TemplateCard({
             <li key={p.id} className="min-w-0">
               <PhotoTile photo={p} first={i === 0} last={i === template.photos.length - 1}
                 selected={selected.includes(p.id)} onSelect={(on) => toggle(p.id, on)}
-                onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)}
-                onLayout={(layout) => setLayout(p, layout)} />
+                onView={() => onView(i)} onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)}
+                onLayout={(layout) => setLayout(p, layout)}
+                subgroups={template.subgroups ?? []} onSubgroup={(id) => setPhotoSubgroup(p, id)} />
             </li>
           ))}
         </ul>
@@ -641,6 +758,8 @@ function TemplateCard({
         <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => onMove(1)} disabled={last}>Later</button>
         <button type="button" className="btn-secondary ml-auto min-h-11 px-3 text-xs text-rose-700" onClick={remove}>Delete template</button>
       </div>
+      </div>
+      )}
     </article>
   );
 }
@@ -652,20 +771,28 @@ function PhotoTile({
   last,
   selected,
   onSelect,
+  onView,
   onOpen,
   onMove,
   onRemove,
   onLayout,
+  subgroups,
+  onSubgroup,
 }: {
   photo: MockupPhoto;
   first: boolean;
   last: boolean;
   selected: boolean;
   onSelect: (on: boolean) => void;
+  /** The large viewer, at this photo. */
+  onView: () => void;
+  /** The print-area editor. */
   onOpen: () => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
   onLayout: (layout: PhotoLayout) => void;
+  subgroups: MockupSubgroup[];
+  onSubgroup: (id: string) => void;
 }) {
   const ready = photo.status === "ready" && photo.width && photo.height;
   const aspect = ready ? `${photo.width} / ${photo.height}` : "6 / 7";
@@ -673,8 +800,8 @@ function PhotoTile({
     <div className={`overflow-hidden rounded-lg border ${photo.needs_check ? "border-amber-400 ring-1 ring-amber-300" : "border-slate-200"}`}
       data-testid="template-photo" data-status={photo.status} data-confirmed={photo.confirmed ? "yes" : "no"}>
       {ready ? (
-        <button key="open" type="button" className="relative block w-full bg-white" style={{ aspectRatio: aspect }} onClick={onOpen}
-          aria-label={`${photo.needs_check ? "Check" : "Edit"} the print area of ${photo.name}`} data-testid="template-photo-open">
+        <button key="open" type="button" className="relative block w-full bg-white" style={{ aspectRatio: aspect }} onClick={onView}
+          aria-label={`View ${photo.name}`} data-testid="template-photo-open">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={api.mockupPhotoImageUrl(photo.id, 448)} alt="" loading="lazy" className="h-full w-full object-fill" />
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
@@ -716,6 +843,15 @@ function PhotoTile({
             </select>
           </label>
         )}
+        {ready && subgroups.length > 1 && (
+          <label key="subgroup" className="block">
+            <span className="sr-only">{`Subgroup of ${photo.name}`}</span>
+            <select className="field w-full text-xs" value={photo.subgroup_id ?? subgroups[0].id}
+              onChange={(e) => onSubgroup(e.target.value)} data-testid="template-photo-subgroup">
+              {subgroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </label>
+        )}
         <div className="flex flex-wrap gap-1">
           {ready && (
             <button key="edit" type="button" className={`${photo.needs_check ? "btn-primary" : "btn-secondary"} min-h-11 flex-1 px-2 text-xs`} onClick={onOpen}>
@@ -737,5 +873,102 @@ function PhotoTile({
         </div>
       </div>
     </div>
+  );
+}
+
+/** A template's subgroups ("White", "Black"): name, "Use on" and the suffix that pairs a design's files. */
+function SubgroupsEditor({ template, onChange, onError }: {
+  template: MockupTemplate;
+  onChange: (template: MockupTemplate) => void;
+  onError: (message: string) => void;
+}) {
+  const groups = template.subgroups ?? [];
+  const [name, setName] = useState("");
+  const [useOn, setUseOn] = useState<"any" | "dark" | "light">("any");
+  const [suffix, setSuffix] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function run(work: () => Promise<MockupTemplate>) {
+    setBusy(true);
+    try {
+      onChange(await work());
+    } catch (e: any) {
+      onError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function add() {
+    if (!name.trim()) return;
+    await run(() => api.addMockupSubgroup(template.id, { name: name.trim(), use_on: useOn, suffix: suffix.trim() || null }));
+    setName("");
+    setSuffix("");
+    setUseOn("any");
+  }
+
+  return (
+    <details className="rounded-md border border-slate-200" data-testid="template-subgroups" open={groups.length > 1 || undefined}>
+      <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm font-medium text-slate-800">
+        <span>Subgroups</span>
+        <span className="text-xs font-normal text-slate-500" translate="no">{groups.length > 1 ? `${groups.length}` : "none yet"}</span>
+      </summary>
+      <div className="space-y-3 border-t border-slate-200 p-3">
+        <p className="text-xs text-slate-500">{SUBGROUPS_HINT}</p>
+        <ul className="space-y-2">
+          {groups.map((g) => (
+            <SubgroupRow key={`${g.id}-${g.name}-${g.suffix ?? ""}`} group={g} removable={groups.length > 1} busy={busy}
+              onSave={(body) => run(() => api.updateMockupSubgroup(g.id, body))}
+              onRemove={() => {
+                const keep = groups.find((x) => x.id !== g.id)?.name ?? "";
+                if (window.confirm(`Remove the subgroup “${g.name}”? Its photos move to “${keep}”.`)) run(() => api.deleteMockupSubgroup(g.id));
+              }} />
+          ))}
+        </ul>
+        {groups.length < MAX_SUBGROUPS && (
+          <div key="add" className="grid gap-2 sm:grid-cols-[1fr_11rem_8rem_auto]">
+            <input className="field min-w-0" value={name} maxLength={MAX_NAME} placeholder="New subgroup, for example White"
+              aria-label="New subgroup name" onChange={(e) => setName(e.target.value)} data-testid="subgroup-new-name" />
+            <select className="field min-w-0" value={useOn} onChange={(e) => setUseOn(e.target.value as "any" | "dark" | "light")}
+              aria-label="Use on" data-testid="subgroup-new-use-on">
+              {Object.entries(USE_ON_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+            <input className="field min-w-0" value={suffix} maxLength={40} placeholder="Suffix: -white" aria-label="File name suffix"
+              onChange={(e) => setSuffix(e.target.value)} data-testid="subgroup-new-suffix" />
+            <button type="button" className="btn-secondary min-h-11" onClick={add} disabled={busy || !name.trim()} data-testid="subgroup-add">
+              Add subgroup
+            </button>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function SubgroupRow({ group, removable, busy, onSave, onRemove }: {
+  group: MockupSubgroup;
+  removable: boolean;
+  busy: boolean;
+  onSave: (body: { name?: string; use_on?: string; suffix?: string | null }) => void;
+  onRemove: () => void;
+}) {
+  const [name, setName] = useState(group.name);
+  const [suffix, setSuffix] = useState(group.suffix ?? "");
+  return (
+    <li className="grid gap-2 sm:grid-cols-[1fr_11rem_8rem_auto]" data-testid="subgroup-row">
+      <input className="field min-w-0" value={name} maxLength={MAX_NAME} aria-label="Subgroup name"
+        onChange={(e) => setName(e.target.value)} onBlur={() => { if (name.trim() && name !== group.name) onSave({ name: name.trim() }); }} />
+      <select className="field min-w-0" value={group.use_on} aria-label={`Use ${group.name} on`} disabled={busy}
+        onChange={(e) => onSave({ use_on: e.target.value })}>
+        {Object.entries(USE_ON_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+      </select>
+      <input className="field min-w-0" value={suffix} maxLength={40} placeholder="Suffix" aria-label={`File name suffix of ${group.name}`}
+        onChange={(e) => setSuffix(e.target.value)}
+        onBlur={() => { if (suffix !== (group.suffix ?? "")) onSave({ suffix: suffix.trim() || null }); }} />
+      <button type="button" className="btn-secondary min-h-11 px-3 text-rose-700" onClick={onRemove} disabled={busy || !removable}
+        aria-label={`Remove ${group.name}`}>
+        Remove
+      </button>
+    </li>
   );
 }

@@ -21,6 +21,7 @@ runs in the worker: the photo is returned at once, "preparing".
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
@@ -38,15 +39,17 @@ from app.db.models import (
     Asset,
     GeneratedContent,
     MockupDesign,
+    MockupDesignVersion,
     MockupOutput,
     MockupPhoto,
     MockupRun,
+    MockupSubgroup,
     MockupTemplate,
     MockupZip,
     Tenant,
     UploadBatch,
 )
-from app.pipeline import grouping, mockup_sample, mockups, placement, skus, upload_retention
+from app.pipeline import grouping, mockup_sample, mockups, placement, skus, subgroups, upload_retention
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
@@ -84,6 +87,8 @@ NONE_CONFIRMED = (
 #: Said by "Add area" when nothing garment-shaped is under the tap: a box is placed there instead.
 TAP_MISSED = "No garment was found where you tapped, so a box was placed there: drag it onto the print area."
 _CACHE = {"Cache-Control": "private, max-age=3600"}
+#: Subgroups per template.
+MAX_SUBGROUPS = 12
 Quad = list[list[float]]
 Source = Literal["default", "tap", "seller", "copied"]
 
@@ -101,6 +106,10 @@ class AreaOut(BaseModel):
     #: "front" or "back": a back area prints the design's back file (or the template's
     #: "Back area without a back design").
     role: str = "front"
+    #: The subgroup the seller linked this area to (None: by the garment's tone, else the
+    #: photo's), and the garment's tone ("light"/"dark") that default comes from.
+    subgroup_id: uuid.UUID | None = None
+    tone: str | None = None
     #: The analysis's estimate of the garment's own axis (degrees, clockwise; None: unknown):
     #: the editor snaps a rotation to it and offers "Match garment angle". The automatic
     #: suggestion stays upright unless two estimates agree; this one is the seller's choice.
@@ -139,6 +148,8 @@ class PhotoOut(BaseModel):
     #: "auto" (the analysis, when sure) or "seller".
     layout: str = "single"
     layout_source: str = "auto"
+    #: The template's subgroup the photo belongs to.
+    subgroup_id: uuid.UUID | None = None
     #: Every print area, in the seller's order.
     areas: list[AreaOut] = Field(default_factory=list)
     #: The suggestion was built from the seller's own placement, learnt from this many of
@@ -158,6 +169,8 @@ class TemplateOut(BaseModel):
     own_placement: int | None = None
     #: "Back area without a back design": "front" (the front design) or "plain".
     back_without_design: str = "front"
+    #: Its subgroups, in order (at least one).
+    subgroups: list[SubgroupOut] = Field(default_factory=list)
 
 
 class PlacementGroupOut(BaseModel):
@@ -173,6 +186,32 @@ class PlacementOut(BaseModel):
 
     photos: int = 0
     groups: list[PlacementGroupOut] = Field(default_factory=list)
+
+
+UseOn = Literal["any", "dark", "light"]
+
+
+class SubgroupOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    #: "Use on": "any", "dark" garments or "light" garments.
+    use_on: str = "any"
+    #: The file-name suffix that pairs a design's files ("-white").
+    suffix: str | None = None
+    position: int = 0
+
+
+class SubgroupIn(BaseModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME)
+    use_on: UseOn = "any"
+    suffix: str | None = Field(default=None, max_length=40)
+
+
+class SubgroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
+    use_on: UseOn | None = None
+    suffix: str | None = Field(default=None, max_length=40)
+    position: int | None = Field(default=None, ge=0, le=1000)
 
 
 class TemplateIn(BaseModel):
@@ -197,6 +236,8 @@ class PhotoUpdate(BaseModel):
     view: Literal["front", "back"] | None = None
     #: The photo's layout: its suggested areas are chosen again (confirmed areas never change).
     layout: Literal["single", "front_back", "several"] | None = None
+    #: The subgroup of its template the photo belongs to.
+    subgroup_id: uuid.UUID | None = None
     #: Move the photo to another of the seller's templates (at its end).
     template_id: uuid.UUID | None = None
 
@@ -207,6 +248,8 @@ class AreaIn(BaseModel):
     source: Source = "seller"
     kind: str | None = Field(default=None, max_length=40)
     role: Literal["front", "back"] | None = None
+    #: The subgroup this area prints for (several-garment photos); null: by the garment's tone.
+    subgroup_id: uuid.UUID | None = None
 
 
 class AreasUpdate(BaseModel):
@@ -278,14 +321,29 @@ class DesignOut(BaseModel):
     has_alpha: bool
     #: It has a back file (printed on back areas).
     has_back: bool = False
+    #: The subgroup (by name) its file is for (None: every subgroup), the colour of its ink, and
+    #: its files for other subgroups (one design, one listing).
+    subgroup: str | None = None
+    ink: str | None = None
+    versions: list[DesignVersionOut] = Field(default_factory=list)
+
+
+class DesignVersionOut(BaseModel):
+    id: uuid.UUID
+    subgroup: str
+    original_filename: str
+    has_alpha: bool = True
 
 
 DesignArchiveOut.model_rebuild()
+DesignOut.model_rebuild()
 
 
 class DesignUpdate(BaseModel):
     #: The SKU the design's mockups and listing are named after; null = none (its file name).
     sku: str | None = Field(default=None, max_length=200)
+    #: The subgroup (by name) its file is for (moved between upload slots); null = every subgroup.
+    subgroup: str | None = Field(default=None, max_length=MAX_NAME)
 
 
 class RunRequest(BaseModel):
@@ -388,21 +446,53 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
         confirmed=p.confirmed_at is not None, needs_check=ready and p.confirmed_at is None,
         occlusion=p.occlusion, has_occluder=p.occluder_key is not None, has_front_brush=p.occluder_manual_key is not None,
         view=p.view or "front", own_placement=placement.built_from_own(p) if ready else None,
-        layout=p.layout or "single", layout_source=p.layout_source or "auto",
+        layout=p.layout or "single", layout_source=p.layout_source or "auto", subgroup_id=p.subgroup_id,
         areas=[
             AreaOut(print_area=g["print_area"], detected_area=g.get("detected_area") or g["print_area"],
                     source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"),
                     axis_angle=(g.get("geometry") or {}).get("axis_estimate"),
-                    role=g.get("role") if g.get("role") in ("front", "back") else ("back" if p.view == "back" else "front"))
+                    role=g.get("role") if g.get("role") in ("front", "back") else ("back" if p.view == "back" else "front"),
+                    subgroup_id=_uuid_or_none(g.get("subgroup_id")), tone=g.get("tone"))
             for g in photo_areas(p)
         ],
     )
 
 
-def _template_out(t: MockupTemplate, photos: list[MockupPhoto]) -> TemplateOut:
+def _uuid_or_none(value: Any) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+async def _subgroups_of(session: AsyncSession, template_id: uuid.UUID) -> list[MockupSubgroup]:
+    """A template's subgroups, in order; one is made (named after it) if it has none."""
+    rows = list((await session.execute(
+        select(MockupSubgroup).where(MockupSubgroup.template_id == template_id)
+        .order_by(MockupSubgroup.position, MockupSubgroup.created_at)
+    )).scalars())
+    if not rows:
+        template = await session.get(MockupTemplate, template_id)
+        if template is None:
+            return []
+        first = MockupSubgroup(tenant_id=template.tenant_id, template_id=template_id, name=template.name, use_on="any")
+        session.add(first)
+        await session.flush()
+        rows = [first]
+    return rows
+
+
+async def _template_full(session: AsyncSession, t: MockupTemplate) -> TemplateOut:
+    groups = await _subgroups_of(session, t.id)
+    return _template_out(t, await _photos_of(session, t.id), groups)
+
+
+def _template_out(t: MockupTemplate, photos: list[MockupPhoto], groups: list[MockupSubgroup] | None = None) -> TemplateOut:
     out = [_photo_out(p) for p in photos]
     own = [p.own_placement for p in out if p.own_placement]
     return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out, back_without_design=t.back_without_design,
+                       subgroups=[SubgroupOut(id=g.id, name=g.name, use_on=g.use_on, suffix=g.suffix, position=g.position)
+                                  for g in (groups or [])],
                        needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out),
                        own_placement=max(own) if own else None)
 
@@ -526,7 +616,16 @@ async def _templates_out(session: AsyncSession, tenant: Tenant) -> list[Template
         .order_by(MockupPhoto.position, MockupPhoto.created_at)
     )).scalars():
         by_template.setdefault(photo.template_id, []).append(photo)
-    return [_template_out(t, by_template.get(t.id, [])) for t in templates]
+    groups: dict[uuid.UUID, list[MockupSubgroup]] = {}
+    for g in (await session.execute(
+        select(MockupSubgroup).where(MockupSubgroup.tenant_id == tenant.id)
+        .order_by(MockupSubgroup.position, MockupSubgroup.created_at)
+    )).scalars():
+        groups.setdefault(g.template_id, []).append(g)
+    for t in templates:
+        if t.id not in groups:
+            groups[t.id] = await _subgroups_of(session, t.id)
+    return [_template_out(t, by_template.get(t.id, []), groups[t.id]) for t in templates]
 
 
 @router.get("/mockup-templates", response_model=list[TemplateOut])
@@ -534,6 +633,79 @@ async def list_templates(
     session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> list[TemplateOut]:
     return await _templates_out(session, tenant)
+
+
+@router.post("/mockup-templates/{template_id}/subgroups", response_model=TemplateOut, status_code=201)
+async def add_subgroup(
+    template_id: uuid.UUID, body: SubgroupIn, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> TemplateOut:
+    """A subgroup of the template ("Comfort Colors White"), with "Use on" and the file-name
+    suffix that pairs a design's files."""
+    template = await _own_template(session, tenant, template_id)
+    groups = await _subgroups_of(session, template.id)
+    if len(groups) >= MAX_SUBGROUPS:
+        raise HTTPException(status_code=409, detail=f"A template has up to {MAX_SUBGROUPS} subgroups.")
+    if any(subgroups.same(g.name, body.name) for g in groups):
+        raise HTTPException(status_code=409, detail="This template already has a subgroup of that name.")
+    session.add(MockupSubgroup(tenant_id=tenant.id, template_id=template.id, name=clean_name(body.name, "Subgroup"),
+                               use_on=body.use_on, suffix=(body.suffix or "").strip() or None,
+                               position=max((g.position for g in groups), default=0) + 1))
+    await session.commit()
+    return await _template_full(session, template)
+
+
+async def _own_subgroup(session: AsyncSession, tenant: Tenant, subgroup_id: uuid.UUID) -> MockupSubgroup:
+    group = await session.get(MockupSubgroup, subgroup_id)
+    if group is None or group.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="subgroup not found")
+    return group
+
+
+@router.patch("/mockup-subgroups/{subgroup_id}", response_model=TemplateOut)
+async def update_subgroup(
+    subgroup_id: uuid.UUID, body: SubgroupUpdate, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> TemplateOut:
+    group = await _own_subgroup(session, tenant, subgroup_id)
+    if body.name is not None:
+        others = [g for g in await _subgroups_of(session, group.template_id) if g.id != group.id]
+        if any(subgroups.same(g.name, body.name) for g in others):
+            raise HTTPException(status_code=409, detail="This template already has a subgroup of that name.")
+        group.name = clean_name(body.name, group.name)
+    if body.use_on is not None:
+        group.use_on = body.use_on
+    if body.suffix is not None:
+        group.suffix = body.suffix.strip() or None
+    if body.position is not None:
+        group.position = body.position
+    await session.commit()
+    return await _template_full(session, await session.get(MockupTemplate, group.template_id))
+
+
+@router.delete("/mockup-subgroups/{subgroup_id}", response_model=TemplateOut)
+async def delete_subgroup(
+    subgroup_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+) -> TemplateOut:
+    """Remove a subgroup: its photos go to the template's first remaining subgroup; area
+    links to it fall back to the default. A template keeps at least one."""
+    group = await _own_subgroup(session, tenant, subgroup_id)
+    groups = await _subgroups_of(session, group.template_id)
+    if len(groups) <= 1:
+        raise HTTPException(status_code=409, detail="A template keeps at least one subgroup.")
+    keep = next(g for g in groups if g.id != group.id)
+    for photo in await _photos_of(session, group.template_id):
+        if photo.subgroup_id == group.id:
+            photo.subgroup_id = keep.id
+        if any(r.get("subgroup_id") == str(group.id) for r in photo.garments or []):
+            photo.garments = [{**r, "subgroup_id": None} if r.get("subgroup_id") == str(group.id) else r
+                              for r in photo.garments or []]
+            photo.version += 1
+    audit.destructive(session, "mockup_subgroup.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None, object_id=group.id)
+    template = await session.get(MockupTemplate, group.template_id)
+    await session.delete(group)
+    await session.commit()
+    return await _template_full(session, template)
 
 
 @router.get("/mockup-placement", response_model=PlacementOut)
@@ -568,8 +740,11 @@ async def create_template(
     last = await session.scalar(select(func.max(MockupTemplate.position)).where(MockupTemplate.tenant_id == tenant.id))
     template = MockupTemplate(tenant_id=tenant.id, name=clean_name(body.name, "Template"), position=int(last or 0) + 1)
     session.add(template)
+    await session.flush()
+    first = MockupSubgroup(tenant_id=tenant.id, template_id=template.id, name=template.name, use_on="any")
+    session.add(first)
     await session.commit()
-    return _template_out(template, [])
+    return _template_out(template, [], [first])
 
 
 @router.get("/mockup-templates/{template_id}", response_model=TemplateOut)
@@ -577,7 +752,7 @@ async def get_template(
     template_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> TemplateOut:
     template = await _own_template(session, tenant, template_id)
-    return _template_out(template, await _photos_of(session, template.id))
+    return await _template_full(session, template)
 
 
 @router.patch("/mockup-templates/{template_id}", response_model=TemplateOut)
@@ -592,9 +767,8 @@ async def update_template(
         template.name = clean_name(body.name, template.name)
     if body.back_without_design is not None:
         template.back_without_design = body.back_without_design
-    photos = await _photos_of(session, template.id)
     await session.commit()
-    return _template_out(template, photos)
+    return await _template_full(session, template)
 
 
 def resuggest(photo: MockupPhoto, layout: str) -> bool:
@@ -689,7 +863,7 @@ async def add_photo(
     storage_cap.added(tenant.id, len(source.image))
     last = await session.scalar(select(func.max(MockupPhoto.position)).where(MockupPhoto.template_id == template.id))
     photo = MockupPhoto(
-        id=photo_id, tenant_id=tenant.id, template_id=template.id,
+        id=photo_id, tenant_id=tenant.id, template_id=template.id, subgroup_id=(await _subgroups_of(session, template.id))[0].id,
         name=clean_name(name, PurePosixPath((file.filename or "").replace("\\", "/")).stem),
         position=int(last or 0) + 1, status="preparing", source_key=key, print_area_source="default",
         size=mockups.DEFAULT_SIZE, fold_strength=mockups.DEFAULT_FOLD, rights_confirmed_at=datetime.now(timezone.utc),
@@ -717,7 +891,7 @@ async def order_photos(
     for position, photo in enumerate([*(rows[i] for i in body.ids), *rest], start=1):
         photo.position = position
     await session.commit()
-    return _template_out(template, await _photos_of(session, template.id))
+    return await _template_full(session, template)
 
 
 @router.get("/mockup-photos/{photo_id}", response_model=PhotoOut)
@@ -742,6 +916,10 @@ async def update_photo(
     if body.layout is not None:
         photo.layout, photo.layout_source = body.layout, "seller"
         resuggest(photo, body.layout)
+    if body.subgroup_id is not None:
+        if body.subgroup_id not in {g.id for g in await _subgroups_of(session, photo.template_id)}:
+            raise HTTPException(status_code=422, detail="That subgroup is not in this photo's template.")
+        photo.subgroup_id = body.subgroup_id
     if body.size is not None:
         photo.size = round(body.size, 3)
     if body.fold_strength is not None:
@@ -750,6 +928,7 @@ async def update_photo(
         target = await _own_template(session, tenant, body.template_id)
         last = await session.scalar(select(func.max(MockupPhoto.position)).where(MockupPhoto.template_id == target.id))
         photo.template_id, photo.position = target.id, int(last or 0) + 1
+        photo.subgroup_id = (await _subgroups_of(session, target.id))[0].id
     photo.version += 1
     await session.commit()
     return _photo_out(photo)
@@ -765,6 +944,7 @@ async def save_areas(
     photo = await _own_photo(session, tenant, photo_id)
     _ready(photo)
     earlier = photo_areas(photo)
+    valid = {str(g.id) for g in await _subgroups_of(session, photo.template_id)}
     rows = []
     for i, area in enumerate(body.areas):
         corners = _clean(area.print_area)
@@ -776,6 +956,8 @@ async def save_areas(
             "confidence": before.get("confidence") if area.source in ("default", "seller") else None,
             "kind": area.kind or before.get("kind"),
             "role": area.role or before.get("role") or ("back" if photo.view == "back" else "front"),
+            "subgroup_id": str(area.subgroup_id) if area.subgroup_id and str(area.subgroup_id) in valid else None,
+            "tone": before.get("tone"),
         })
     photo.garments = rows
     photo.print_area = rows[0]["print_area"]
@@ -890,7 +1072,7 @@ async def confirm_photos(
             photo.version += 1
             await placement.record(session, photo)
     await session.commit()
-    return _template_out(template, await _photos_of(session, template.id))
+    return await _template_full(session, template)
 
 
 @router.put("/mockup-photos/{photo_id}/front", response_model=PhotoOut)
@@ -1062,9 +1244,11 @@ def design_group(filename: str, sku: str | None, taken: set[str]) -> str:
     return key
 
 
-def _design_out(d: MockupDesign) -> DesignOut:
+def _design_out(d: MockupDesign, versions: list[MockupDesignVersion] | None = None) -> DesignOut:
     return DesignOut(id=d.id, original_filename=d.original_filename, group_key=d.group_key, parsed_sku=d.parsed_sku,
-                     has_back=bool(d.back_key),
+                     has_back=bool(d.back_key), subgroup=d.subgroup, ink=d.ink,
+                     versions=[DesignVersionOut(id=v.id, subgroup=v.subgroup, original_filename=v.original_filename,
+                                                has_alpha=v.has_alpha) for v in versions or []],
                      width=d.width, height=d.height, has_alpha=d.has_alpha)
 
 
@@ -1079,36 +1263,71 @@ async def list_designs(
     batch_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> list[DesignOut]:
     await _own_batch(session, tenant, batch_id)
-    rows = await session.execute(
+    rows = list((await session.execute(
         select(MockupDesign).where(MockupDesign.batch_id == batch_id).order_by(MockupDesign.group_key)
-    )
-    return [_design_out(d) for d in rows.scalars()]
+    )).scalars())
+    versions = await _versions_of(session, [d.id for d in rows])
+    return [_design_out(d, versions.get(d.id, [])) for d in rows]
+
+
+async def _versions_of(session: AsyncSession, design_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[MockupDesignVersion]]:
+    out: dict[uuid.UUID, list[MockupDesignVersion]] = {}
+    if design_ids:
+        for v in (await session.execute(
+            select(MockupDesignVersion).where(MockupDesignVersion.design_id.in_(design_ids))
+            .order_by(MockupDesignVersion.created_at)
+        )).scalars():
+            out.setdefault(v.design_id, []).append(v)
+    return out
+
+
+def _slots(raw: str | None) -> list[dict[str, Any]]:
+    """The upload's subgroup slots, as the page sends them: [{"name", "suffix", "use_on"}]."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="subgroups must be a JSON list") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=422, detail="subgroups must be a JSON list")
+    return [{"name": str(g.get("name") or "")[:MAX_NAME], "suffix": str(g.get("suffix") or "")[:40] or None,
+             "use_on": g.get("use_on") if g.get("use_on") in ("any", "dark", "light") else "any"}
+            for g in data[:MAX_SUBGROUPS] if isinstance(g, dict) and g.get("name")]
 
 
 @router.post("/batches/{batch_id}/designs", response_model=DesignOut, status_code=201)
 async def add_design(
     batch_id: uuid.UUID,
     file: UploadFile,
+    subgroup: str | None = Form(None),
+    subgroups_json: str | None = Form(None, alias="subgroups"),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignOut:
     """A design to print on templates; it becomes its own listing group. Its SKU is
     read from its file name (pipeline/grouping.py) and can be changed before the
-    mockups are made."""
+    mockups are made. With the chosen templates' subgroups (``subgroups``: their names,
+    suffixes and "Use on") the file goes to the subgroup it was dropped on (``subgroup``),
+    else the one its name's suffix says, else the one its ink suggests; and a file whose name
+    without the suffix matches a design of the batch becomes that design's version for its
+    subgroup (one design, one listing)."""
     batch = await _own_batch(session, tenant, batch_id)
     if await _written(session, batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
     data = await file.read()
-    design = await _store_design(session, storage, tenant, batch, file.filename or "design.png", data)
+    design = await _store_design(session, storage, tenant, batch, file.filename or "design.png", data,
+                                 subgroup=subgroup, slots=_slots(subgroups_json))
     await session.commit()
-    return _design_out(design)
+    return _design_out(design, (await _versions_of(session, [design.id])).get(design.id, []))
 
 
 @router.post("/batches/{batch_id}/designs/archive", response_model=DesignArchiveOut, status_code=201)
 async def add_design_archive(
     batch_id: uuid.UUID,
     file: UploadFile,
+    subgroups_json: str | None = Form(None, alias="subgroups"),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
@@ -1134,26 +1353,32 @@ async def add_design_archive(
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     del data
     out = DesignArchiveOut()
+    slots = _slots(subgroups_json)
     for name in contents.too_large:
         out.failed.append(DesignFailed(filename=name, reason=f"over the {settings.max_mockup_upload_bytes // (1024 * 1024)} MB limit per file"))
     if contents.unsupported:
         out.failed.append(DesignFailed(filename=f"{contents.unsupported} file(s)", reason="not an image (PNG, JPEG or WebP)"))
     for item in contents.files:
         try:
-            design = await _store_design(session, storage, tenant, batch, item.filename, item.data)
+            design = await _store_design(session, storage, tenant, batch, item.filename, item.data, slots=slots)
         except HTTPException as exc:
             if exc.status_code == 413 and "storage" in str(exc.detail).lower():
                 raise  # the account's storage is full: nothing more fits
             out.failed.append(DesignFailed(filename=item.filename, reason=str(exc.detail)))
             continue
         await session.commit()
-        out.added.append(_design_out(design))
+        # A file that paired with an earlier one is that design's version: listed once.
+        shown = _design_out(design, (await _versions_of(session, [design.id])).get(design.id, []))
+        out.added = [d for d in out.added if d.id != design.id] + [shown]
     return out
 
 
 async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant, batch: UploadBatch,
-                        filename: str, data: bytes) -> MockupDesign:
-    """Check, resize and store one design of the batch (the caller commits)."""
+                        filename: str, data: bytes, subgroup: str | None = None,
+                        slots: list[dict[str, Any]] | None = None) -> MockupDesign:
+    """Check, resize and store one design of the batch (the caller commits). With subgroup
+    ``slots``: its subgroup (dropped on, else its name's suffix, else its ink) and, when a
+    design of the batch has the same name without the suffix, a version of that design."""
     batch_id = batch.id
     _admitted(data)
     try:
@@ -1163,8 +1388,33 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     except (ImageProcessingError, mockups.MockupError) as exc:
         raise HTTPException(status_code=422, detail="This file could not be read as a design.") from exc
     await _room(session, storage, tenant, len(prepared.image))
+    slots = slots or []
+    base, by_suffix = subgroups.split_name(filename, slots)
+    ink = await asyncio.to_thread(subgroups.ink_of, prepared.image)
+    chosen = None
+    if slots:
+        named = next((g["name"] for g in slots if subgroups.same(g["name"], subgroup)), None) if subgroup else None
+        chosen = named or by_suffix or subgroups.by_ink(ink, slots)
+    if chosen:
+        for other in (await session.execute(
+            select(MockupDesign).where(MockupDesign.batch_id == batch_id, MockupDesign.design_key.is_not(None))
+        )).scalars():
+            if not subgroups.same(other.pair_base, base) or subgroups.same(other.subgroup, chosen):
+                continue
+            have = (await _versions_of(session, [other.id])).get(other.id, [])
+            if any(subgroups.same(v.subgroup, chosen) for v in have):
+                continue
+            version_id = uuid.uuid4()
+            vkey = f"{tenant.id}/{batch_id}/designs/{other.id}-v-{version_id.hex[:8]}.png"
+            storage.put(vkey, prepared.image, "image/png")
+            storage_cap.added(tenant.id, len(prepared.image))
+            session.add(MockupDesignVersion(id=version_id, tenant_id=tenant.id, design_id=other.id, subgroup=chosen,
+                                            original_filename=filename, design_key=vkey, width=prepared.width,
+                                            height=prepared.height, has_alpha=prepared.has_alpha, ink=ink))
+            await session.flush()
+            return other
     taken = set((await session.execute(select(MockupDesign.group_key).where(MockupDesign.batch_id == batch_id))).scalars())
-    sku = grouping.sku_of(filename, SkuParser())
+    sku = grouping.sku_of(base if slots else filename, SkuParser())
     design_id = uuid.uuid4()
     key = f"{tenant.id}/{batch_id}/designs/{design_id}.png"
     storage.put(key, prepared.image, "image/png")
@@ -1172,7 +1422,7 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     design = MockupDesign(
         id=design_id, tenant_id=tenant.id, batch_id=batch_id, group_key=design_group(filename, sku, taken),
         original_filename=filename, parsed_sku=sku, design_key=key, width=prepared.width, height=prepared.height,
-        has_alpha=prepared.has_alpha,
+        has_alpha=prepared.has_alpha, subgroup=chosen, pair_base=base, ink=ink,
     )
     session.add(design)
     batch.grouping_mode = batch.grouping_mode or "folder"
@@ -1245,19 +1495,26 @@ async def update_design(
         raise HTTPException(status_code=404, detail="design not found")
     if await _written(session, design.batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
-    sku = None
-    if body.sku is not None and body.sku.strip():
-        try:
-            sku = skus.validate(body.sku)
-        except skus.SkuInvalid as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-    taken = set((await session.execute(
-        select(MockupDesign.group_key).where(MockupDesign.batch_id == design.batch_id, MockupDesign.id != design.id)
-    )).scalars())
-    design.parsed_sku = sku
-    design.group_key = design_group(design.original_filename, sku, taken)
+    versions = (await _versions_of(session, [design.id])).get(design.id, [])
+    if "subgroup" in body.model_fields_set:
+        wanted = (body.subgroup or "").strip() or None
+        if wanted and any(subgroups.same(v.subgroup, wanted) for v in versions):
+            raise HTTPException(status_code=409, detail="This design already has a file for that subgroup.")
+        design.subgroup = wanted
+    if "sku" in body.model_fields_set or "subgroup" not in body.model_fields_set:
+        sku = None
+        if body.sku is not None and body.sku.strip():
+            try:
+                sku = skus.validate(body.sku)
+            except skus.SkuInvalid as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        taken = set((await session.execute(
+            select(MockupDesign.group_key).where(MockupDesign.batch_id == design.batch_id, MockupDesign.id != design.id)
+        )).scalars())
+        design.parsed_sku = sku
+        design.group_key = design_group(design.original_filename, sku, taken)
     await session.commit()
-    return _design_out(design)
+    return _design_out(design, versions)
 
 
 # --- runs -----------------------------------------------------------------------------------
@@ -1291,7 +1548,14 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
     used = set((await session.execute(
         select(Asset.mockup_design_id).where(Asset.batch_id == run.batch_id, Asset.mockup_design_id.is_not(None))
     )).scalars())
-    per_design = len(run.photo_ids)
+    # Per design: the run's photos it has a file for (a design made for one subgroup only
+    # prints on that subgroup's photos).
+    run_photos = [p for raw in run.photo_ids if (p := await session.get(MockupPhoto, uuid.UUID(str(raw)))) is not None]
+    groups = await work.template_subgroups(session, {p.template_id for p in run_photos})
+    photo_names = [work.area_subgroup_names(p, groups.get(p.template_id, [])) for p in run_photos]
+    versions = await _versions_of(session, [d.id for d in designs])
+    per_design = {d.id: sum(work.prints_on(d, versions.get(d.id, []), n) for n in photo_names) if run_photos else len(run.photo_ids)
+                  for d in designs}
     used_photos = {str(p) for p in run.photo_ids}
     skipped_photos: list[str] = []
     for raw in run.template_ids:
@@ -1307,7 +1571,7 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
         designs=[
             RunDesignOut(
                 design_id=d.id, original_filename=d.original_filename, sku=d.parsed_sku, group_key=d.group_key,
-                done=len(outputs.get(d.id, [])), total=per_design, in_listings=d.id in used,
+                done=len(outputs.get(d.id, [])), total=per_design[d.id], in_listings=d.id in used,
                 outputs=[
                     OutputOut(id=o.id, photo_id=o.photo_id, template_name=o.template_name, photo_name=o.photo_name,
                               filename=o.filename, available=bool(o.key) and o.files_removed_at is None)
@@ -1318,6 +1582,33 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
         ],
         zips=[_zip_out(z) for z in zips],
     )
+
+
+class VersionUpdate(BaseModel):
+    #: The subgroup (by name) this file is for (moved between upload slots).
+    subgroup: str = Field(min_length=1, max_length=MAX_NAME)
+
+
+@router.patch("/mockup-design-versions/{version_id}", response_model=DesignOut)
+async def update_design_version(
+    version_id: uuid.UUID, body: VersionUpdate, session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> DesignOut:
+    """Move one of a design's files to another subgroup's slot (the design keeps one listing)."""
+    version = await session.get(MockupDesignVersion, version_id)
+    if version is None or version.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="design not found")
+    design = await _own_design(session, tenant, version.design_id)
+    if await _written(session, design.batch_id):
+        raise HTTPException(status_code=409, detail=WRITTEN)
+    versions = (await _versions_of(session, [design.id])).get(design.id, [])
+    wanted = body.subgroup.strip()
+    if subgroups.same(design.subgroup, wanted) or any(
+            v.id != version.id and subgroups.same(v.subgroup, wanted) for v in versions):
+        raise HTTPException(status_code=409, detail="This design already has a file for that subgroup.")
+    version.subgroup = wanted
+    await session.commit()
+    return _design_out(design, versions)
 
 
 @router.post("/batches/{batch_id}/mockups", response_model=RunOut, status_code=202)

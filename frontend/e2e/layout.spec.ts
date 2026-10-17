@@ -169,9 +169,23 @@ test.describe("signed in", () => {
   test("the print-area editor fits the screen, its controls are 44 px and nothing scrolls sideways", async ({ page }) => {
     await page.goto("/templates");
     await settle(page);
+    // Template cards start collapsed: open them, then a photo opens in the viewer.
+    const expand = page.getByTestId("templates-expand-all");
+    await expand.waitFor({ state: "visible", timeout: 30_000 });
+    if (await expand.isEnabled()) await expand.click();
+    await expectSound(page, "/templates with every card open");
     const open = page.getByTestId("template-photo-open").first();
     await open.waitFor({ state: "visible", timeout: 30_000 });
     await open.click();
+    const viewer = page.getByTestId("photo-viewer");
+    await viewer.waitFor({ state: "visible", timeout: 15_000 });
+    const viewerSideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(viewerSideways, "the page scrolls sideways with the viewer open").toBeLessThanOrEqual(0);
+    const smallInViewer = await viewer.locator("button").evaluateAll((buttons) =>
+      buttons.filter((b) => b.getClientRects().length).map((b) => ({ t: b.textContent?.trim(), h: b.getBoundingClientRect().height, w: b.getBoundingClientRect().width }))
+        .filter((b) => b.h < 44 || b.w < 44));
+    expect(smallInViewer, "viewer buttons under 44 px").toEqual([]);
+    await page.getByTestId("viewer-check").click();
     const editor = page.getByTestId("area-editor");
     await page.getByTestId("editor-confirm").waitFor({ state: "visible", timeout: 15_000 });
     const { width, height } = page.viewportSize()!;

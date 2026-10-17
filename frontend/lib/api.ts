@@ -8,6 +8,7 @@ import type {
   MockupRun,
   MockupPlacement,
   MockupTemplate,
+  SlotIn,
   MockupZip,
   Checklist,
   DistributionPreview,
@@ -411,6 +412,12 @@ export const api = {
   updateMockupTemplate: (id: string, body: { name?: string; back_without_design?: "front" | "plain" }) =>
     req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
+  /** A template's subgroups ("Comfort Colors White"): add, change, remove (its photos go to the first one). */
+  addMockupSubgroup: (templateId: string, body: { name: string; use_on?: string; suffix?: string | null }) =>
+    req<MockupTemplate>(`/mockup-templates/${templateId}/subgroups`, { method: "POST", body: JSON.stringify(body) }),
+  updateMockupSubgroup: (id: string, body: { name?: string; use_on?: string; suffix?: string | null; position?: number }) =>
+    req<MockupTemplate>(`/mockup-subgroups/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteMockupSubgroup: (id: string) => req<MockupTemplate>(`/mockup-subgroups/${id}`, { method: "DELETE" }),
   orderMockupTemplates: (ids: string[]) =>
     req<MockupTemplate[]>("/mockup-templates/order", { method: "PUT", body: JSON.stringify({ ids }) }),
   /** One blank photo (up to 30 MB) into a template, with upload progress, a timeout and the server's own error. */
@@ -428,13 +435,16 @@ export const api = {
     id: string,
     body: {
       name?: string; size?: number; fold_strength?: number; occlusion?: boolean; view?: "front" | "back"; template_id?: string;
-      layout?: "single" | "front_back" | "several";
+      layout?: "single" | "front_back" | "several"; subgroup_id?: string;
     },
   ) => req<MockupPhoto>(`/mockup-photos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   /** The editor's print areas; confirm = "Looks right". */
   saveMockupAreas: (
     id: string,
-    areas: { print_area: [number, number][]; detected_area?: [number, number][]; source: string; kind?: string | null; role?: string }[],
+    areas: {
+      print_area: [number, number][]; detected_area?: [number, number][]; source: string; kind?: string | null; role?: string;
+      subgroup_id?: string | null; tone?: string | null;
+    }[],
     confirm: boolean,
     size?: number,
   ) => req<MockupPhoto>(`/mockup-photos/${id}/areas`, { method: "PUT", body: JSON.stringify({ areas, confirm, size }) }),
@@ -479,15 +489,19 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? "The preview could not be drawn.");
     return res.blob();
   },
-  addMockupDesign: (batchId: string, file: File, onProgress: (pct: number) => void) => {
+  /** A design; with subgroup slots, the slot it was dropped on and every slot's name, suffix and "Use on" (pairs files into one design). */
+  addMockupDesign: (batchId: string, file: File, onProgress: (pct: number) => void, slots?: { subgroup?: string | null; subgroups: SlotIn[] }) => {
     const form = new FormData();
     form.append("file", file, file.name);
+    if (slots?.subgroups.length) form.append("subgroups", JSON.stringify(slots.subgroups));
+    if (slots?.subgroup) form.append("subgroup", slots.subgroup);
     return postForm<MockupDesign>(`${BASE}/batches/${batchId}/designs`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
   /** A ZIP of designs: each image added (its SKU read from its name); what fails, with why. */
-  addMockupDesignArchive: (batchId: string, file: File, onProgress: (pct: number) => void) => {
+  addMockupDesignArchive: (batchId: string, file: File, onProgress: (pct: number) => void, subgroups?: SlotIn[]) => {
     const form = new FormData();
     form.append("file", file, file.name);
+    if (subgroups?.length) form.append("subgroups", JSON.stringify(subgroups));
     return postForm<{ added: MockupDesign[]; failed: { filename: string; reason: string }[] }>(
       `${BASE}/batches/${batchId}/designs/archive`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
@@ -500,6 +514,11 @@ export const api = {
   removeDesignBack: (id: string) => req<MockupDesign>(`/mockup-designs/${id}/back`, { method: "DELETE" }),
   updateMockupDesign: (id: string, sku: string | null) =>
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ sku }) }),
+  /** Move a design's file (or one of its versions) to another subgroup's slot. */
+  moveMockupDesign: (id: string, subgroup: string | null) =>
+    req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ subgroup }) }),
+  moveMockupDesignVersion: (id: string, subgroup: string) =>
+    req<MockupDesign>(`/mockup-design-versions/${id}`, { method: "PATCH", body: JSON.stringify({ subgroup }) }),
   mockupOutputImageUrl: (runId: string, outputId: string, w?: number) =>
     `${BASE}/mockup-runs/${runId}/outputs/${outputId}/image${w ? `?w=${w}` : ""}`,
   /** "Use for listings": a listing group per design, the chosen cover first. */

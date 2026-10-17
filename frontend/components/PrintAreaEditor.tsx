@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import type { MockupPhoto } from "@/lib/types";
+import type { MockupPhoto, MockupSubgroup } from "@/lib/types";
 import {
   MIN_SIZE,
   SNAP_SCREEN_PX,
@@ -43,7 +43,7 @@ import {
 } from "@/lib/areaEditor";
 import {
   BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LAYOUT_HINT, LAYOUT_LABELS, LOOKS_RIGHT, OCCLUSION_LABEL, ROLE_LABELS, SAMPLE_DESIGN, SIZE_RANGE,
-  SUGGESTION_NOTE, percent, type PhotoLayout,
+  SUGGESTION_NOTE, areaSubgroup, percent, type PhotoLayout,
 } from "@/lib/mockups";
 
 /**
@@ -56,7 +56,11 @@ import {
  * desktop; every control is at least 44 px. Nothing here calls Etsy or an AI model.
  */
 /** ``axis``: the garment's own axis (radians) a turn snaps to and "Match garment angle" uses. */
-type Area = { quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null; role: "front" | "back" };
+type Area = {
+  quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null; role: "front" | "back";
+  /** The subgroup the seller linked it to (null: by the garment's tone), and that tone. */
+  subgroup?: string | null; tone?: string | null;
+};
 type Drag =
   | { kind: "move"; index: number; start: Pt; quad: Quad }
   | { kind: "corner"; index: number; corner: number; start: Pt; quad: Quad }
@@ -68,6 +72,7 @@ const GUIDE_COLOUR: Record<Guide["kind"], string> = { axis: "#db2777", collar: "
 export function PrintAreaEditor({
   photo,
   siblings,
+  subgroups = [],
   step,
   onConfirmed,
   onCopied,
@@ -77,6 +82,8 @@ export function PrintAreaEditor({
   photo: MockupPhoto;
   /** The other photos of the template (for "Copy to other photos"). */
   siblings: MockupPhoto[];
+  /** The template's subgroups: with two or more, each area says which one it prints for. */
+  subgroups?: MockupSubgroup[];
   /** "2 of 5" when the seller is going through several photos. */
   step?: { index: number; total: number } | null;
   onConfirmed: (photo: MockupPhoto) => void;
@@ -92,6 +99,7 @@ export function PrintAreaEditor({
       return {
         quad: toPx(a.print_area, W, H), suggested, source: a.source, kind: a.kind, axis: garmentAxis(a.axis_angle, suggested),
         role: (a.role === "back" ? "back" : "front") as "front" | "back",
+        subgroup: a.subgroup_id ?? null, tone: a.tone ?? null,
       };
     }),
     [photo.id, photo.version], // eslint-disable-line react-hooks/exhaustive-deps
@@ -381,6 +389,10 @@ export function PrintAreaEditor({
     commit(areas.map((a, i) => (i === selected ? a : { ...a, quad: copyToGarment(src.quad, src.suggested, a.suggested), source: "seller" })));
   }
 
+  function setSubgroup(id: string | null) {
+    commit(areas.map((a, i) => (i === selected ? { ...a, subgroup: id } : a)));
+  }
+
   function setRole(role: "front" | "back") {
     commit(areas.map((a, i) => (i === selected ? { ...a, role } : a)));
   }
@@ -415,7 +427,10 @@ export function PrintAreaEditor({
       const shares = toShares(a.quad, W, H);
       const suggested = toShares(a.suggested, W, H);
       const unchanged = JSON.stringify(shares) === JSON.stringify(suggested);
-      return { print_area: shares, detected_area: suggested, source: unchanged ? a.source : "seller", kind: a.kind ?? null, role: a.role };
+      return {
+        print_area: shares, detected_area: suggested, source: unchanged ? a.source : "seller", kind: a.kind ?? null, role: a.role,
+        subgroup_id: a.subgroup ?? null, tone: a.tone ?? null,
+      };
     });
   }
 
@@ -555,10 +570,14 @@ export function PrintAreaEditor({
                 )}
               </svg>
               {areas.map((a, i) => (
-                <span key={`n${i}`} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded bg-slate-900/70 px-1.5 text-xs font-semibold text-white"
+                <span key={`n${i}`} className="pointer-events-none absolute max-w-[45%] -translate-x-1/2 -translate-y-1/2 truncate whitespace-nowrap rounded bg-slate-900/70 px-1.5 text-xs font-semibold text-white"
                   style={px([(a.quad[0][0] + a.quad[2][0]) / 2, (a.quad[0][1] + a.quad[2][1]) / 2])} translate="no"
                   data-testid="editor-area-label">
-                  {photo.layout === "front_back" || a.role === "back" ? `${i + 1} · ${ROLE_LABELS[a.role]}` : `${i + 1}`}
+                  {[
+                    `${i + 1}`,
+                    photo.layout === "front_back" || a.role === "back" ? ROLE_LABELS[a.role] : "",
+                    subgroups.length > 1 ? areaSubgroup({ subgroup_id: a.subgroup, tone: a.tone }, photo.subgroup_id, subgroups)?.name ?? "" : "",
+                  ].filter(Boolean).join(" · ")}
                 </span>
               ))}
               {brushing && (
@@ -639,6 +658,18 @@ export function PrintAreaEditor({
                     data-testid="editor-copy-all">
                     Copy this area to all garments
                   </button>
+                )}
+                {sel && subgroups.length > 1 && (
+                  <label key="subgroup" className="col-span-3 block">
+                    <span className="label">This area prints for</span>
+                    <select className="field w-full" value={sel.subgroup ?? ""} onChange={(e) => setSubgroup(e.target.value || null)}
+                      data-testid="editor-area-subgroup">
+                      <option value="">
+                        {`${areaSubgroup({ tone: sel.tone, subgroup_id: null }, photo.subgroup_id, subgroups)?.name ?? ""} (by garment colour)`}
+                      </option>
+                      {subgroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                  </label>
                 )}
                 {sel && (
                   <div key="role" className="col-span-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="This area prints the">
