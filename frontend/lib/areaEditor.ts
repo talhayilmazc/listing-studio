@@ -286,6 +286,13 @@ export function axisGuide(q: Quad, axis: number): Guide {
   return { a: c, b: add(c, [-Math.sin(axis), Math.cos(axis)]), kind: "axis", dir: "v", features: ["centre"] };
 }
 
+/** "Copy this area to all garments": the area placed on another garment where it sits on its
+ *  own (relative to each garment's suggestion), so the copy scales with that garment's width. */
+export function copyToGarment(area: Quad, from: Quad, to: Quad): Quad {
+  const h = homography(from, to);
+  return area.map((p) => apply(h, p)) as Quad;
+}
+
 /** The ends of a guide line drawn across the whole photo. */
 export function across(g: Guide, width: number, height: number): [Pt, Pt] {
   const t = sub(g.b, g.a);

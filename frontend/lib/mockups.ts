@@ -174,10 +174,19 @@ export const SAMPLE_DESIGN = {
     ),
 };
 
-/** The per-template switch: only when it is on may the analysis suggest several areas per photo. */
-export const SEVERAL_LABEL = "This template has several garments in one photo";
-export const SEVERAL_HINT =
-  "Off: each photo gets one print area, on its main garment (add more with Add area). On: every garment found gets its own.";
+/** Each photo's layout: how its print areas are suggested (the analysis sets it when sure). */
+export type PhotoLayout = "single" | "front_back" | "several";
+export const LAYOUT_LABELS: Record<PhotoLayout, string> = {
+  single: "Single garment",
+  front_back: "Front & back",
+  several: "Several garments",
+};
+export const LAYOUT_HINT = "Changing it suggests this photo's areas again. Confirmed areas never change on their own.";
+/** Each area's role on a front & back photo. */
+export const ROLE_LABELS = { front: "Front", back: "Back" } as const;
+/** The template setting for back areas of designs without a back file. */
+export const BACK_FALLBACK_LABEL = "Back area without a back design";
+export const BACK_FALLBACK_OPTIONS = { front: "Use the front design", plain: "Leave the back plain" } as const;
 
 /** "Confirm all": what the grid of previews says, and its button. */
 export const CONFIRM_ALL_HINT = "Each print area with a design placeholder. Fix any that look off, then confirm them all.";

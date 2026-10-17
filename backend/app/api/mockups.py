@@ -98,6 +98,9 @@ class AreaOut(BaseModel):
     source: str = "default"
     confidence: float | None = None
     kind: str | None = None
+    #: "front" or "back": a back area prints the design's back file (or the template's
+    #: "Back area without a back design").
+    role: str = "front"
     #: The analysis's estimate of the garment's own axis (degrees, clockwise; None: unknown):
     #: the editor snaps a rotation to it and offers "Match garment angle". The automatic
     #: suggestion stays upright unless two estimates agree; this one is the seller's choice.
@@ -132,6 +135,10 @@ class PhotoOut(BaseModel):
     has_front_brush: bool = False
     #: "front" or "back" (found from the pose; the seller can change it).
     view: str = "front"
+    #: "single", "front_back" or "several": how its areas are suggested; ``layout_source``
+    #: "auto" (the analysis, when sure) or "seller".
+    layout: str = "single"
+    layout_source: str = "auto"
     #: Every print area, in the seller's order.
     areas: list[AreaOut] = Field(default_factory=list)
     #: The suggestion was built from the seller's own placement, learnt from this many of
@@ -149,8 +156,8 @@ class TemplateOut(BaseModel):
     confirmed: int = 0
     #: Its suggestions use the seller's own placement, from this many photos (None: the standard).
     own_placement: int | None = None
-    #: "This template has several garments in one photo" (off: one area per photo by default).
-    several_garments: bool = False
+    #: "Back area without a back design": "front" (the front design) or "plain".
+    back_without_design: str = "front"
 
 
 class PlacementGroupOut(BaseModel):
@@ -174,8 +181,8 @@ class TemplateIn(BaseModel):
 
 class TemplateUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
-    #: "This template has several garments in one photo".
-    several_garments: bool | None = None
+    #: "Back area without a back design": the front design, or nothing.
+    back_without_design: Literal["front", "plain"] | None = None
 
 
 class Order(BaseModel):
@@ -188,6 +195,8 @@ class PhotoUpdate(BaseModel):
     fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
     occlusion: bool | None = None
     view: Literal["front", "back"] | None = None
+    #: The photo's layout: its suggested areas are chosen again (confirmed areas never change).
+    layout: Literal["single", "front_back", "several"] | None = None
     #: Move the photo to another of the seller's templates (at its end).
     template_id: uuid.UUID | None = None
 
@@ -197,6 +206,7 @@ class AreaIn(BaseModel):
     detected_area: Quad | None = None
     source: Source = "seller"
     kind: str | None = Field(default=None, max_length=40)
+    role: Literal["front", "back"] | None = None
 
 
 class AreasUpdate(BaseModel):
@@ -213,6 +223,8 @@ class FindRequest(BaseModel):
     x: float = Field(ge=0.0, le=1.0)
     y: float = Field(ge=0.0, le=1.0)
     areas: list[Quad] = Field(default_factory=list, max_length=MAX_GARMENTS)
+    #: The last area: when no garment is found, a box of its size and angle goes where the seller clicked.
+    like: Quad | None = None
 
 
 class FindOut(BaseModel):
@@ -264,6 +276,8 @@ class DesignOut(BaseModel):
     width: int
     height: int
     has_alpha: bool
+    #: It has a back file (printed on back areas).
+    has_back: bool = False
 
 
 DesignArchiveOut.model_rebuild()
@@ -374,10 +388,12 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
         confirmed=p.confirmed_at is not None, needs_check=ready and p.confirmed_at is None,
         occlusion=p.occlusion, has_occluder=p.occluder_key is not None, has_front_brush=p.occluder_manual_key is not None,
         view=p.view or "front", own_placement=placement.built_from_own(p) if ready else None,
+        layout=p.layout or "single", layout_source=p.layout_source or "auto",
         areas=[
             AreaOut(print_area=g["print_area"], detected_area=g.get("detected_area") or g["print_area"],
                     source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"),
-                    axis_angle=(g.get("geometry") or {}).get("axis_estimate"))
+                    axis_angle=(g.get("geometry") or {}).get("axis_estimate"),
+                    role=g.get("role") if g.get("role") in ("front", "back") else ("back" if p.view == "back" else "front"))
             for g in photo_areas(p)
         ],
     )
@@ -386,7 +402,7 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
 def _template_out(t: MockupTemplate, photos: list[MockupPhoto]) -> TemplateOut:
     out = [_photo_out(p) for p in photos]
     own = [p.own_placement for p in out if p.own_placement]
-    return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out, several_garments=t.several_garments,
+    return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out, back_without_design=t.back_without_design,
                        needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out),
                        own_placement=max(own) if own else None)
 
@@ -569,33 +585,30 @@ async def update_template(
     template_id: uuid.UUID, body: TemplateUpdate, session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
-    """Rename a template, or switch "This template has several garments in one photo": the
-    photos still waiting for a check with their areas as suggested then show every garment
-    found (on) or the main garment's area alone (off). Confirmed photos, and areas the seller
-    moved, added or copied, are not touched."""
+    """Rename a template, or set what its back areas print without a back design. (Each
+    photo has its own layout: ``PATCH /mockup-photos/{id}`` ``layout``.)"""
     template = await _own_template(session, tenant, template_id)
     if body.name is not None:
         template.name = clean_name(body.name, template.name)
+    if body.back_without_design is not None:
+        template.back_without_design = body.back_without_design
     photos = await _photos_of(session, template.id)
-    if body.several_garments is not None and body.several_garments != template.several_garments:
-        template.several_garments = body.several_garments
-        for photo in photos:
-            resuggest(photo, template.several_garments)
     await session.commit()
     return _template_out(template, photos)
 
 
-def resuggest(photo: MockupPhoto, several: bool) -> bool:
-    """A waiting photo's suggested areas chosen again from its analysis's candidates
-    (``mockups.chosen_rows``); False when the photo is confirmed, edited by the seller or
-    has no candidates (analysed before they were kept)."""
+def resuggest(photo: MockupPhoto, layout: str) -> bool:
+    """A waiting photo's suggested areas chosen again for its layout from its analysis's
+    candidates (``mockups.chosen_rows``); False when the photo is confirmed, edited by the
+    seller or has no candidates (analysed before they were kept): confirmed areas never change
+    without the seller."""
     candidates = (photo.analysis or {}).get("candidates")
     rows = photo.garments or []
     if (photo.status != "ready" or photo.confirmed_at is not None or not candidates
             or any((r.get("source") or "default") != "default" for r in rows)):
         return False
-    chosen = mockups.chosen_rows(candidates, several)
-    if [r.get("print_area") for r in chosen] == [r.get("print_area") for r in rows]:
+    chosen = mockups.chosen_rows(candidates, layout)
+    if [(r.get("print_area"), r.get("role")) for r in chosen] == [(r.get("print_area"), r.get("role")) for r in rows]:
         return False
     photo.garments = chosen
     photo.print_area, photo.print_area_source = chosen[0]["print_area"], "default"
@@ -726,6 +739,9 @@ async def update_photo(
         photo.occlusion = body.occlusion
     if body.view is not None:
         photo.view = body.view
+    if body.layout is not None:
+        photo.layout, photo.layout_source = body.layout, "seller"
+        resuggest(photo, body.layout)
     if body.size is not None:
         photo.size = round(body.size, 3)
     if body.fold_strength is not None:
@@ -759,6 +775,7 @@ async def save_areas(
             "print_area": corners, "detected_area": suggested, "source": area.source,
             "confidence": before.get("confidence") if area.source in ("default", "seller") else None,
             "kind": area.kind or before.get("kind"),
+            "role": area.role or before.get("role") or ("back" if photo.view == "back" else "front"),
         })
     photo.garments = rows
     photo.print_area = rows[0]["print_area"]
@@ -783,6 +800,11 @@ async def find_garment(
     photo = await _own_photo(session, tenant, photo_id)
     _ready(photo)
     others = [_clean(a) for a in body.areas]
+    # 1. A garment the analysis already found under the click (not yet given an area).
+    picked = work.candidate_at(photo, body.x, body.y, others)
+    if picked is not None:
+        return FindOut(found=True, print_area=picked["print_area"], confidence=picked.get("confidence"),
+                       kind=picked.get("kind"))
     blank = storage.get(photo.image_key or "")
     ground = storage.get(photo.foreground_key) if photo.foreground_key else storage.get(photo.mask_key or "")
     occluder = storage.get(photo.occluder_key) if photo.occluder_key else None
@@ -792,8 +814,11 @@ async def find_garment(
     if found is not None:
         corners, confidence, kind = found
         return FindOut(found=True, print_area=corners, confidence=confidence, kind=kind)
-    return FindOut(found=False, print_area=work.box_at(body.x, body.y, others, photo.width or 1, photo.height or 1),
-                   note=TAP_MISSED)
+    # 3. Nothing garment-shaped there: the last area's size and angle, centred on the click.
+    like = _clean(body.like) if body.like else None
+    box = (work.like_at(body.x, body.y, like, photo.width or 1, photo.height or 1) if like
+           else work.box_at(body.x, body.y, others, photo.width or 1, photo.height or 1))
+    return FindOut(found=False, print_area=box, note=TAP_MISSED)
 
 
 @router.post("/mockup-photos/{photo_id}/copy", response_model=list[PhotoOut])
@@ -1039,6 +1064,7 @@ def design_group(filename: str, sku: str | None, taken: set[str]) -> str:
 
 def _design_out(d: MockupDesign) -> DesignOut:
     return DesignOut(id=d.id, original_filename=d.original_filename, group_key=d.group_key, parsed_sku=d.parsed_sku,
+                     has_back=bool(d.back_key),
                      width=d.width, height=d.height, has_alpha=d.has_alpha)
 
 
@@ -1152,6 +1178,59 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     batch.grouping_mode = batch.grouping_mode or "folder"
     await session.flush()
     return design
+
+
+async def _own_design(session: AsyncSession, tenant: Tenant, design_id: uuid.UUID) -> MockupDesign:
+    design = await session.get(MockupDesign, design_id)
+    if design is None or design.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="design not found")
+    return design
+
+
+@router.put("/mockup-designs/{design_id}/back", response_model=DesignOut)
+async def set_design_back(
+    design_id: uuid.UUID,
+    file: UploadFile,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> DesignOut:
+    """The design's back file: printed on back areas (front & back photos, garments seen from
+    behind). Checked and stored like the design itself."""
+    design = await _own_design(session, tenant, design_id)
+    if await _written(session, design.batch_id):
+        raise HTTPException(status_code=409, detail=WRITTEN)
+    data = await file.read()
+    _admitted(data)
+    try:
+        prepared = await asyncio.to_thread(mockups.prepare_design, data)
+    except mockups.DesignTooSmall as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ImageProcessingError, mockups.MockupError) as exc:
+        raise HTTPException(status_code=422, detail="This file could not be read as a design.") from exc
+    await _room(session, storage, tenant, len(prepared.image))
+    if design.back_key:
+        storage.delete_with_derivatives(design.back_key)
+    key = f"{tenant.id}/{design.batch_id}/designs/{design.id}-back-{uuid.uuid4().hex[:8]}.png"
+    storage.put(key, prepared.image, "image/png")
+    storage_cap.added(tenant.id, len(prepared.image))
+    design.back_key = key
+    await session.commit()
+    return _design_out(design)
+
+
+@router.delete("/mockup-designs/{design_id}/back", response_model=DesignOut)
+async def delete_design_back(
+    design_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> DesignOut:
+    design = await _own_design(session, tenant, design_id)
+    if design.back_key:
+        storage.delete_with_derivatives(design.back_key)
+        storage_cap.forget(tenant.id)
+        design.back_key = None
+        await session.commit()
+    return _design_out(design)
 
 
 @router.patch("/mockup-designs/{design_id}", response_model=DesignOut)

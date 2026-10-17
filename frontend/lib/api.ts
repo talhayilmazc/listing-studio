@@ -119,8 +119,8 @@ function query(params: Record<string, string | number | null | undefined>): stri
 }
 
 /** A multipart request: the browser sets the boundary, so no Content-Type here. */
-async function reqForm<T>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: "POST", body: form, cache: "no-store" });
+async function reqForm<T>(path: string, form: FormData, method: "POST" | "PUT" = "POST"): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method, body: form, cache: "no-store" });
   if (!res.ok) {
     let detail: unknown;
     try {
@@ -408,7 +408,7 @@ export const api = {
   renameMockupTemplate: (id: string, name: string) =>
     req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   /** "This template has several garments in one photo". */
-  updateMockupTemplate: (id: string, body: { name?: string; several_garments?: boolean }) =>
+  updateMockupTemplate: (id: string, body: { name?: string; back_without_design?: "front" | "plain" }) =>
     req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
   orderMockupTemplates: (ids: string[]) =>
@@ -426,18 +426,22 @@ export const api = {
   mockupPhoto: (id: string) => req<MockupPhoto>(`/mockup-photos/${id}`),
   updateMockupPhoto: (
     id: string,
-    body: { name?: string; size?: number; fold_strength?: number; occlusion?: boolean; view?: "front" | "back"; template_id?: string },
+    body: {
+      name?: string; size?: number; fold_strength?: number; occlusion?: boolean; view?: "front" | "back"; template_id?: string;
+      layout?: "single" | "front_back" | "several";
+    },
   ) => req<MockupPhoto>(`/mockup-photos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   /** The editor's print areas; confirm = "Looks right". */
   saveMockupAreas: (
     id: string,
-    areas: { print_area: [number, number][]; detected_area?: [number, number][]; source: string; kind?: string | null }[],
+    areas: { print_area: [number, number][]; detected_area?: [number, number][]; source: string; kind?: string | null; role?: string }[],
     confirm: boolean,
     size?: number,
   ) => req<MockupPhoto>(`/mockup-photos/${id}/areas`, { method: "PUT", body: JSON.stringify({ areas, confirm, size }) }),
   /** "Add area": the garment under the tap (shares of the photo), alone. Nothing is saved. */
-  findMockupGarment: (id: string, x: number, y: number, areas: [number, number][][]) =>
-    req<FoundArea>(`/mockup-photos/${id}/find`, { method: "POST", body: JSON.stringify({ x, y, areas }) }),
+  /** "Click a garment to add an area": the garment under the click; else a box of ``like``'s size and angle there. */
+  findMockupGarment: (id: string, x: number, y: number, areas: [number, number][][], like?: [number, number][] | null) =>
+    req<FoundArea>(`/mockup-photos/${id}/find`, { method: "POST", body: JSON.stringify({ x, y, areas, like: like ?? null }) }),
   /** "Apply this area to selected": each target placed by its own garment (fit), or the same shares. */
   copyMockupAreas: (id: string, photoIds: string[], fit = true) =>
     req<MockupPhoto[]>(`/mockup-photos/${id}/copy`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds, fit }) }),
@@ -487,6 +491,13 @@ export const api = {
     return postForm<{ added: MockupDesign[]; failed: { filename: string; reason: string }[] }>(
       `${BASE}/batches/${batchId}/designs/archive`, form, onProgress, UPLOAD_TIMEOUT_MS);
   },
+  /** A design's back file (printed on back areas), and removing it. */
+  setDesignBack: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return reqForm<MockupDesign>(`/mockup-designs/${id}/back`, form, "PUT");
+  },
+  removeDesignBack: (id: string) => req<MockupDesign>(`/mockup-designs/${id}/back`, { method: "DELETE" }),
   updateMockupDesign: (id: string, sku: string | null) =>
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ sku }) }),
   mockupOutputImageUrl: (runId: string, outputId: string, w?: number) =>

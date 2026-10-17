@@ -710,6 +710,10 @@ class MockupTemplate(Base):
     #: more than one print area per photo (otherwise the main garment's; the seller adds more
     #: with "Add area").
     several_garments: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: (Replaced by each photo's own ``MockupPhoto.layout`` in migration 0072; kept, unread.)
+    #: What a back area prints when a design has no back file: "front" (the front design) or
+    #: "plain" (nothing).
+    back_without_design: Mapped[str] = mapped_column(Text, nullable=False, server_default="front")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -783,6 +787,11 @@ class MockupPhoto(Base):
     analysis: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: "front" or "back" (found from the pose; the seller can change it).
     view: Mapped[str] = mapped_column(Text, nullable=False, server_default="front")
+    #: "single" (one garment), "front_back" (front and back side by side) or "several"
+    #: (several garments): how its areas are suggested; set by the analysis when it is sure
+    #: (``layout_source`` "auto") or by the seller ("seller").
+    layout: Mapped[str] = mapped_column(Text, nullable=False, server_default="single")
+    layout_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="auto")
     #: Every print area, in the seller's order (see the class docstring).
     garments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
     #: "default" (as suggested) or "seller" (changed by hand): the first area's source.
@@ -852,6 +861,9 @@ class MockupDesign(Base):
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     height: Mapped[int] = mapped_column(Integer, nullable=False)
     has_alpha: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: The design's optional back file: printed on back areas (else the template's
+    #: ``back_without_design``).
+    back_key: Mapped[str | None] = mapped_column(Text)
     files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

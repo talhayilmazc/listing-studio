@@ -397,30 +397,6 @@ def _two_tees() -> bytes:
     return buf.getvalue()
 
 
-async def test_one_area_per_photo_unless_the_template_has_several_garments(mw) -> None:  # noqa: F811
-    t = await _template(mw, "a", "Two tees")
-    card = next(x for x in (await mw["a"].get("/api/mockup-templates")).json() if x["id"] == t)
-    assert card["several_garments"] is False
-    waiting = await _prepared(mw, "a", t, "waiting", _two_tees())
-    confirmed = await _prepared(mw, "a", t, "kept", _two_tees())
-    assert len(waiting["areas"]) == 1 and len(confirmed["areas"]) == 1
-    res = await mw["a"].put(f"/api/mockup-photos/{confirmed['id']}/areas", json={"confirm": True, "areas": [
-        {"print_area": confirmed["areas"][0]["print_area"], "detected_area": confirmed["areas"][0]["detected_area"],
-         "source": "default"}]})
-    assert res.status_code == 200
-    # Another account cannot switch it.
-    assert (await mw["b"].patch(f"/api/mockup-templates/{t}", json={"several_garments": True})).status_code == 404
-    on = (await mw["a"].patch(f"/api/mockup-templates/{t}", json={"several_garments": True})).json()
-    assert on["several_garments"] is True
-    by_id = {p["id"]: p for p in on["photos"]}
-    assert len(by_id[waiting["id"]]["areas"]) == 2  # every garment found, still waiting for a check
-    assert len(by_id[confirmed["id"]]["areas"]) == 1 and by_id[confirmed["id"]]["confirmed"]  # untouched
-    third = await _prepared(mw, "a", t, "new", _two_tees())
-    assert len(third["areas"]) == 2  # new photos follow the switch
-    off = (await mw["a"].patch(f"/api/mockup-templates/{t}", json={"several_garments": False})).json()
-    assert all(len(p["areas"]) == 1 for p in off["photos"])
-
-
 async def test_the_angle_travels_with_apply_to_selected(mw) -> None:  # noqa: F811
     t = await _template(mw, "a", "Angles")
     src = await _prepared(mw, "a", t, "one", samples.blank((60, 90, 200), size=(700, 800)))
@@ -442,33 +418,3 @@ async def test_the_angle_travels_with_apply_to_selected(mw) -> None:  # noqa: F8
     assert angle == pytest.approx(8.0, abs=0.5)
     # Another account cannot copy from it.
     assert (await mw["b"].post(f"/api/mockup-photos/{src['id']}/copy", json={"photo_ids": [dst["id"]]})).status_code == 404
-
-
-async def test_the_single_area_command_reduces_waiting_photos_only(mw) -> None:  # noqa: F811
-    from datetime import datetime, timezone
-
-    from app.db.models import MockupPhoto
-    from app.ops.mockup_single_area import run
-
-    t = await _template(mw, "a", "Old")
-    waiting = await _prepared(mw, "a", t, "waiting", _two_tees())
-    other = await _template(mw, "a", "Several kept")
-    several = await _prepared(mw, "a", other, "both", _two_tees())
-    async with mw["sm"]() as s:  # as photos prepared before one area per photo: every garment
-        for pid, confirm in ((waiting["id"], False), (several["id"], True)):
-            photo = await s.get(MockupPhoto, uuid.UUID(pid))
-            rows = [dict(c) for c in photo.analysis["candidates"]]
-            for row in rows:
-                row.pop("main", None)
-            photo.garments = rows
-            if confirm:
-                photo.confirmed_at = datetime.now(timezone.utc)
-        await s.commit()
-    assert "would be" in await run(mw["sm"], apply=False)
-    out = await run(mw["sm"], apply=True)
-    assert out.startswith("1 waiting photo(s) reduced") and "1 template(s)" in out, out
-    by_id = {p["id"]: p for x in (await mw["a"].get("/api/mockup-templates")).json() for p in x["photos"]}
-    assert len(by_id[waiting["id"]]["areas"]) == 1
-    assert len(by_id[several["id"]]["areas"]) == 2  # the seller confirmed several: kept, switch on
-    kept = next(x for x in (await mw["a"].get("/api/mockup-templates")).json() if x["id"] == other)
-    assert kept["several_garments"] is True

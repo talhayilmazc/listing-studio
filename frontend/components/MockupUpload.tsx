@@ -326,6 +326,23 @@ function DesignRow({ design, disabled, onChange }: { design: MockupDesign; disab
       setMessage(String(e.message ?? e));
     }
   }
+  async function addBack(file: File | undefined) {
+    if (!file) return;
+    setMessage(null);
+    try {
+      onChange(await api.setDesignBack(design.id, file));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+  async function removeBack() {
+    setMessage(null);
+    try {
+      onChange(await api.removeDesignBack(design.id));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
   return (
     <li className="flex flex-wrap items-center gap-2 p-2.5 text-sm">
       <span className="min-w-0 flex-1 truncate text-slate-700" title={design.original_filename}>{design.original_filename}</span>
@@ -335,6 +352,20 @@ function DesignRow({ design, disabled, onChange }: { design: MockupDesign; disab
         <input className="field w-36" value={sku} placeholder="none" maxLength={32} disabled={disabled}
           onChange={(e) => setSku(e.target.value)} onBlur={save} aria-label={`SKU for ${design.original_filename}`} />
       </label>
+      <span className="flex items-center gap-1.5 text-xs text-slate-500">
+        {design.has_back ? (
+          <span key="has" className="flex items-center gap-1.5">
+            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-800" data-testid="design-back-added">Back added</span>
+            <button type="button" className="tap underline" disabled={disabled} onClick={removeBack}>Remove back</button>
+          </span>
+        ) : (
+          <label key="add" className="tap cursor-pointer underline" title="Printed on back areas (front & back photos)">
+            <span>Add back design</span>
+            <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={disabled}
+              onChange={(e) => addBack(e.target.files?.[0])} data-testid="design-back-file" />
+          </label>
+        )}
+      </span>
       {message && <p key="m" role="alert" className="w-full text-xs text-rose-700">{message}</p>}
     </li>
   );

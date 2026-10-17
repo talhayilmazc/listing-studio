@@ -115,6 +115,11 @@ class Detection:
     #: and which of them is the main one.
     candidates: list[Found] = field(default_factory=list)
     main: int = 0
+    #: The photo's layout as the analysis reads it ("single", "front_back", "several"), whether
+    #: it is sure enough to set it on the photo, and for front & back which candidate is which.
+    layout: str = "single"
+    layout_confident: bool = False
+    pair: tuple[int, int] | None = None  # (front, back) indices into ``candidates``
 
 
 # --- the saliency model ----------------------------------------------------------------------
@@ -388,7 +393,7 @@ def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, r
     for region, f, m in zip(regions, frames_, meta):
         hull = _hull(region) if region.any() else region
         hair = probs[..., HAIR] > 0.5  # the chest is measured across hair over it, not arms beside it
-        neck, armpits, how, shift = _worn_landmarks(region | (hair & hull), probs, m["shoulders"], m["neck"])
+        neck, armpits, how, shift = _worn_landmarks(region | (hair & hull), probs, m["shoulders"], m["neck"], region)
         # A name that says tee or sweatshirt is the seller's own word: no hood is looked for.
         hood_mass = _hood_mass(region, probs, m["shoulders"], neck)
         hood = m["kind"] == "hoodie" or (hint not in ("t-shirt", "sweatshirt") and _is_hood(hood_mass))
@@ -461,7 +466,7 @@ def _body_lean(points) -> float | None:  # noqa: ANN001
     return float(np.median(angles))
 
 
-def _worn_landmarks(region: np.ndarray, probs: np.ndarray, shoulders, neck_guess):  # noqa: ANN001, ANN202
+def _worn_landmarks(region: np.ndarray, probs: np.ndarray, shoulders, neck_guess, garment=None):  # noqa: ANN001, ANN202
     """A worn garment's landmarks from its own region and the pose:
 
     * the axis: midway between the shoulder landmarks, corrected to the middle of the
@@ -536,12 +541,53 @@ def _worn_landmarks(region: np.ndarray, probs: np.ndarray, shoulders, neck_guess
     # shoulders' midpoint was worse on the seller's dev photos: a turned body shows its garment
     # off the joints' midpoint.) How far the two disagree is returned to lower the confidence.
     shift = abs(axis_x - mx) / max(chest, 1.0)
-    if plausible and shift > SHOULDER_DRIFT:
+    notch = _worn_notch(garment if garment is not None else region, mx, my, span) if plausible else None
+    if notch is not None:
+        axis_x = notch  # the neckline's centre: the collar is found
+    elif plausible and shift > SHOULDER_DRIFT:
         axis_x = mx
     arm_y = neck_y + WORN["armpits_below_collar"] * chest
     armpits = ((axis_x - chest / 2, arm_y), (axis_x + chest / 2, arm_y))
     how = ("region" if top is not None else "skin") if plausible else "region, pose implausible"
     return (axis_x, neck_y), armpits, how, shift
+
+
+def _worn_notch(region: np.ndarray, mx: float, my: float, span: float) -> float | None:
+    """The centre of a worn garment's neck opening: around the shoulders' midpoint the
+    garment's top edge sinks (skin or hair above it) between two shoulders that rise above it.
+    None when no clear opening is there (a hood, hair over both shoulders, a crop)."""
+    h, w = region.shape
+    x0, x1 = int(max(0, mx - 0.6 * span)), int(min(w, mx + 0.6 * span))
+    y0, y1 = int(max(0, my - 0.8 * span)), int(min(h, my + 0.4 * span))
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return None
+    window = region[y0:y1, x0:x1]
+    has = window.any(axis=0)
+    tops = np.where(has, window.argmax(axis=0), y1 - y0).astype(float)
+    c = int(round(mx)) - x0
+    if not 0 <= c < len(tops):
+        return None
+    floor = float(np.median(tops[max(0, c - 2): c + 3]))
+    lo = c
+    while lo > 0 and tops[lo - 1] >= floor - 0.05 * span:
+        lo -= 1
+    hi = c
+    while hi < len(tops) - 1 and tops[hi + 1] >= floor - 0.05 * span:
+        hi += 1
+    if lo == 0 or hi == len(tops) - 1:
+        return None  # no shoulder rises on one side
+    run = hi - lo + 1
+    if not (0.15 * span <= run <= 0.8 * span):
+        return None
+    left_sh = float(np.min(tops[max(0, lo - int(0.15 * span)): lo]))
+    right_sh = float(np.min(tops[hi + 1: hi + 1 + int(0.15 * span)]))
+    if floor - max(left_sh, right_sh) < 0.08 * span:
+        return None  # the edge does not really sink: not an opening
+    if abs(left_sh - right_sh) > 0.12 * span:
+        return None  # one shoulder hidden (hair, a hand) or a turned body: the opening is lopsided
+    centre = x0 + (lo + hi) / 2
+    return float(centre) if abs(centre - mx) <= 0.15 * span else None
+
 
 
 def _hood_mass(region: np.ndarray, probs: np.ndarray, shoulders, neck) -> dict[str, float]:  # noqa: ANN001
@@ -685,8 +731,10 @@ def _flat(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, h
     largest = max((r.sum() for r in regions), default=0)
     sized = [r for r in regions if r.sum() >= max(0.015 * h * w, 0.25 * largest)]
     plain = [r for r in sized if float(np.median(texture[r])) <= 2.5]
+    # Garments of a size side by side lie flat; a hat or leaves beside a folded shirt do not make it one of several.
+    plain = [r for r in plain if r.sum() >= PROP["share"] * largest]
     for region in sized:
-        g = _flat_landmarks(region, hint)
+        g = _flat_landmarks(region, hint, cover=(fg > 0.5) & ~region)
         if g is None:
             continue
         # Folded or lying flat: several garments in a photo lie flat (sleeves often under
@@ -694,7 +742,7 @@ def _flat(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, h
         # on the seller's photos: folded panels reach 1.3 x the body's width, sleeves 1.5+).
         layout = "flat" if (len(plain) > 1 or g["sleeve_ratio"] > FLAT["sleeve_ratio_flat"]) else "folded"
         if layout != g["layout"]:
-            g = _flat_landmarks(region, hint, force=layout) or g
+            g = _flat_landmarks(region, hint, force=layout, cover=(fg > 0.5) & ~region) or g
         # Only garment-shaped, plain regions: sleeves in the profile, or a near
         # rectangle (folded); a patterned skirt or a hat is not a print surface.
         busy = float(np.median(texture[region]))
@@ -814,10 +862,18 @@ def _split_touching(part: np.ndarray) -> list[np.ndarray]:
 
 
 def _flat_landmarks(region: np.ndarray, hint: str | None, angle: float | None = None,
-                    refine: bool = True, force: str | None = None) -> dict[str, Any] | None:
+                    refine: bool = True, force: str | None = None,
+                    notch_region: np.ndarray | None = None, cover: np.ndarray | None = None) -> dict[str, Any] | None:
     """Collar point, armpits, lower edge and layout of a flat garment from its region:
     its orientation (minimum-area rectangle), the width profile down its axis (the
-    sleeves end where the width drops to the body's), folded when it has no sleeves."""
+    sleeves end where the width drops to the body's), folded when it has no sleeves.
+
+    A folded garment is measured on its completed outline: holes filled, and inside its
+    convex hull the pixels of another object lying over it (``cover``: a hat brim, leaves, a
+    necklace) taken as shirt, so they cannot narrow or shorten it (the area came out very small
+    and low). Only what lies over it is added: the hull alone also swallowed a folded panel's
+    own corners and widened it. Its collar notch is still read on the real region
+    (``notch_region``). The axis is the collar notch's centre when the notch is found."""
     from skimage import measure
 
     h, w = region.shape
@@ -878,11 +934,28 @@ def _flat_landmarks(region: np.ndarray, hint: str | None, angle: float | None = 
         va = collar_v + FLAT["armpit_below_collar"][layout] * chest
         arm_i = row_of(va)
         chest = float(np.median(widths[arm_i: arm_i + 4])) or chest
+    if layout == "folded" and notch_region is None and cover is not None:
+        from scipy import ndimage as ndi
+
+        whole = ndi.binary_fill_holes(region | (_hull(region) & cover))
+        if whole.sum() > FOLDED_COMPLETED * region.sum():
+            again = _flat_landmarks(whole, hint, angle, refine=False, force="folded", notch_region=region)
+            if again is not None:
+                again["notes"].append("outline completed under props")
+                return again
     k = slice(arm_i + 1, min(len(widths), arm_i + 5))
     lu = float(np.median(lefts_a[k])) if widths[k].size else -chest / 2
     ru = float(np.median(rights_a[k])) if widths[k].size else chest / 2
     axis_u = (lu + ru) / 2
     to_photo = lambda uu, vv: tuple(centre + across * uu + down * vv)  # noqa: E731
+    # The collar notch, on the real region (props over a folded shirt are not its outline).
+    if notch_region is not None:
+        rys, rxs = np.nonzero(notch_region)
+        rpts = np.stack([rxs, rys], 1).astype(float)
+        u, v = (rpts - centre) @ across, (rpts - centre) @ down
+    notch = _notch_u(u, v, axis_u, chest)
+    if notch is not None:
+        axis_u = notch  # centred on the collar, not on the outline's middle
     # The neckline: the top edge of the region on the axis lies below the shoulders' top
     # (the collar dips); when it is found it gives the collar point directly.
     near = np.abs(u - axis_u) < 0.03 * chest
@@ -911,11 +984,48 @@ def _flat_landmarks(region: np.ndarray, hint: str | None, angle: float | None = 
     kind = hint or "t-shirt"
     solidity = float(props.solidity)
     confidence = 0.55 + 0.25 * (layout == "flat") + 0.2 * min(1.0, max(0.0, (solidity - 0.6) / 0.3))
-    return {"neck": neck, "armpits": armpits, "bottom": bottom, "layout": layout, "kind": kind,
+    return {"neck": neck, "armpits": armpits, "bottom": bottom, "layout": layout, "kind": kind, "notch": notch is not None,
             "confidence": round(min(1.0, confidence), 3), "notes": notes,
             "top": to_photo(axis_u, top_v), "chest": chest, "angle": angle, "fill": fill,
             "neckline": neckline_pt, "sleeve_ratio": float(upper.max() / body) if body else 0.0,
             "aspect": float((v1 - v0) / max(body, 1e-6))}
+
+
+#: A folded shirt whose outline completed under what lies over it is this much larger than its
+#: region has something over it (a hat brim, leaves): it is measured on the completed outline.
+FOLDED_COMPLETED = 1.03
+#: The collar notch: where the garment's top edge dips at least NOTCH["depth"] chest widths below
+#: its shoulders, over a run NOTCH["run"] chest widths wide around the axis.
+NOTCH = {"depth": 0.04, "run": (0.06, 0.5), "reach": 0.2}
+
+
+def _notch_u(u: np.ndarray, v: np.ndarray, axis_u: float, chest: float) -> float | None:
+    """The centre of a flat garment's collar notch, across its axis (None when not found)."""
+    edges = np.linspace(axis_u - 0.4 * chest, axis_u + 0.4 * chest, 41)
+    tops = np.full(len(edges) - 1, np.nan)
+    for i, (a, b) in enumerate(zip(edges[:-1], edges[1:])):
+        sel = (u >= a) & (u < b)
+        if sel.sum() >= 2:
+            tops[i] = np.percentile(v[sel], 1)
+    if np.isnan(tops).all():
+        return None
+    shoulder = float(np.nanpercentile(tops, 15))
+    deep = np.nan_to_num(tops, nan=-np.inf) > shoulder + NOTCH["depth"] * chest
+    mid = len(deep) // 2
+    if not deep[mid - 2: mid + 3].any():
+        return None
+    start = next(i for i in range(mid - 2, mid + 3) if deep[i])
+    lo = start
+    while lo > 0 and deep[lo - 1]:
+        lo -= 1
+    hi = start
+    while hi < len(deep) - 1 and deep[hi + 1]:
+        hi += 1
+    run = (hi - lo + 1) * (edges[1] - edges[0])
+    if not (NOTCH["run"][0] * chest <= run <= NOTCH["run"][1] * chest) or lo == 0 or hi == len(deep) - 1:
+        return None
+    centre_u = float((edges[lo] + edges[hi + 1]) / 2)
+    return centre_u if abs(centre_u - axis_u) <= NOTCH["reach"] * chest else None
 
 
 def _smooth(a: np.ndarray, sigma: float) -> np.ndarray:
@@ -1155,6 +1265,11 @@ def _clipped_area(corners: list[tuple[float, float]], w: int, h: int) -> float:
 
 
 MIN_WIDTH = 0.3
+#: An area's width as a share of the garment's chest (armpit to armpit). The seller's marked
+#: areas on the dev photos spanned 0.42-0.93 of it (folded panels 0.75-0.93: a folded panel is
+#: narrower than the chest); outside WIDTH_RANGE the standard size is used and the photo asks
+#: for a check.
+WIDTH_RANGE = (0.40, 0.95)
 #: A guard that moves an area by more than this many chest widths lowers the confidence.
 MOVED_A_LOT = 0.08
 #: Shrunk by more than this share to stay on the garment: the guard changed it.
@@ -1186,8 +1301,9 @@ def _finish(region: np.ndarray, hair_acc: np.ndarray, neck, armpits, bottom, kin
     def use_window(pad: int) -> None:
         """Measure inside the area's box plus ``pad`` pixels (tight while it only shrinks;
         wide enough for every move when it is moved)."""
-        xs = [x for x, _ in area.corners]
-        ys = [y for _, y in area.corners]
+        basis = win.get("basis") or area.corners
+        xs = [x for x, _ in basis]
+        ys = [y for _, y in basis]
         x0, y0 = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
         x1, y1 = min(w, int(max(xs)) + pad + 1), min(h, int(max(ys)) + pad + 1)
         win.update(m=allowed[y0:y1, x0:x1], x0=x0, y0=y0)
@@ -1232,10 +1348,27 @@ def _finish(region: np.ndarray, hair_acc: np.ndarray, neck, armpits, bottom, kin
         dy = f.across[1] * du + f.down[1] * dv
         return [(x + dx, y + dy) for x, y in corners]
 
-    before, _ = outside(area.corners)
-    width0 = math.dist(area.corners[0], area.corners[1])
-    min_share = min(1.0, MIN_WIDTH * f.chest / max(width0, 1e-6))
-    corners, kept, after = print_rule.fit(area.corners, outside, limit=FIT_LIMIT, min_share=min_share)
+    def to_standard(quad: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        """The area at the standard width for this garment, its top centre kept."""
+        ratios, _ = print_rule.ratios_for(kind, view, layout, None, personal)
+        scale = ratios["width"] * f.chest / max(math.dist(quad[0], quad[1]), 1e-6)
+        cx, cy = (quad[0][0] + quad[1][0]) / 2, (quad[0][1] + quad[1][1]) / 2
+        return [(cx + (x - cx) * scale, cy + (y - cy) * scale) for x, y in quad]
+
+    # The size, first: an area under WIDTH_RANGE of the chest (a lower edge read too high shrank
+    # it to a sliver) becomes the standard size and the photo asks for a check.
+    start = list(area.corners)
+    if math.dist(start[0], start[1]) / f.chest < WIDTH_RANGE[0]:
+        start = to_standard(start)
+        guards.append("too small: standard size")
+        win["basis"] = start
+        use_window(4)
+    before, _ = outside(start)
+    width0 = math.dist(start[0], start[1])
+    # Shrinking to stay on the garment stops at WIDTH_RANGE[0] of the chest: below that the
+    # area is moved instead (and, still spilling, says so).
+    min_share = min(1.0, max(MIN_WIDTH, WIDTH_RANGE[0]) * f.chest / max(width0, 1e-6))
+    corners, kept, after = print_rule.fit(start, outside, limit=FIT_LIMIT, min_share=min_share)
     if after > FIT_LIMIT:
         # Still spilling at the smallest allowed size: move it inward (sideways, or down;
         # never up toward the collar) to where it spills least.
@@ -1260,6 +1393,9 @@ def _finish(region: np.ndarray, hair_acc: np.ndarray, neck, armpits, bottom, kin
     if rise > 0.5:
         corners = shifted(corners, 0.0, rise)
         guards.append("kept below the collar")
+    if math.dist(corners[0], corners[1]) / f.chest > WIDTH_RANGE[1]:
+        corners = to_standard(corners)
+        guards.append("size set to the standard")
     # The chest band: the centre no deeper than CENTRE_MAX chest widths below the collar.
     centre = (sum(x for x, _ in corners) / 4, sum(y for _, y in corners) / 4)
     deep = f.depth(centre) - CENTRE_MAX * f.chest
@@ -1354,6 +1490,56 @@ def main_index(found: list[Found], shape: tuple[int, int]) -> int:
     return best
 
 
+#: Front & back: two garments of a size (the smaller at least LAYOUT["pair_size"] of the
+#: larger) and of one colour (CIELAB distance, lightness halved, under LAYOUT["pair_colour"]),
+#: side by side or stacked. Several garments: two or more garment-sized regions otherwise
+#: (each at least LAYOUT["garment_size"] of the largest). Words in the file name ("front",
+#: "back", "FB") are a hint that lets a pair of different sizes (a collage inset) count.
+LAYOUT = {"pair_size": 0.6, "pair_colour": 15.0, "garment_size": 0.35}
+
+
+def _name_says_front_back(name: str) -> bool:
+    import re
+
+    n = name.lower()
+    return bool(("front" in n and "back" in n) or re.search(r"(^|[^a-z])fb([^a-z]|$)", n))
+
+
+def guess_layout(found: list[Found], main: int, lab: np.ndarray, name: str = "") -> tuple[str, bool, tuple[int, int] | None]:
+    """(layout, confident, (front, back)) for a photo: see LAYOUT. Front is the garment the pose
+    sees from the front (a face) and back the one seen from behind; otherwise the first in
+    reading order (left, then top) is the front."""
+    if len(found) < 2:
+        return "single", True, None
+    sizes = [int(g.region.sum()) for g in found]
+    largest = max(sizes)
+    big = [i for i in sorted(range(len(found)), key=lambda i: -sizes[i]) if sizes[i] >= LAYOUT["garment_size"] * largest]
+    hint = _name_says_front_back(name)
+    if len(big) < 2 and not hint:
+        return "single", True, None
+    order = sorted(range(len(found)), key=lambda i: -sizes[i])
+    a, b = order[0], order[1]
+
+    def colour(g: Found) -> np.ndarray:
+        return np.median(lab[g.region], axis=0) * np.array([0.5, 1.0, 1.0])
+
+    same_colour = float(np.linalg.norm(colour(found[a]) - colour(found[b]))) < LAYOUT["pair_colour"]
+    similar = sizes[b] >= LAYOUT["pair_size"] * sizes[a]
+    views = {found[a].view, found[b].view}
+    if (same_colour and similar and len(big) == 2) or (hint and same_colour) or views == {"front", "back"}:
+        if found[a].view == "back" or found[b].view == "back":
+            back = a if found[a].view == "back" else b
+            front = b if back == a else a
+        else:
+            first = min((a, b), key=lambda i: (found[i].neck[0], found[i].neck[1]))
+            front, back = first, (b if first == a else a)
+        confident = views == {"front", "back"} or hint or (same_colour and similar and len(big) == 2)
+        return "front_back", bool(confident), (front, back)
+    if len(big) >= 2:
+        return "several", True, None
+    return "single", True, None
+
+
 def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "", personal: Personal = None,
            several: bool = False) -> Detection:
     """The garments in ``rgb`` (uint8, at most WORK px: the caller resizes): only the main
@@ -1400,10 +1586,20 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "", personal
     from app.pipeline.mockup_vision import front_of  # the classes decided against the fabric
 
     occluder = np.maximum(front_of(probs), held.astype(np.float32))
+    layout, confident, pair = guess_layout(candidates, main, lab, name)
+    if pair is not None:
+        back = candidates[pair[1]]
+        if back.view != "back":  # a flat back panel: the back's own proportions
+            area = _finish(back.region, back.allowed, back.neck, back.armpits, back.bottom, back.kind, "back",
+                           back.layout, personal=personal)
+            back.info["back_corners"] = area.corners
+        else:
+            back.info["back_corners"] = back.corners
     chosen = candidates if several else candidates[main:main + 1]
     return Detection(chosen, occluder, union.astype(np.float32), len(persons),
                      {"person_share": round(person_share, 4), "kind_hint": hint, "found": len(candidates)},
-                     foreground=fg, candidates=candidates, main=main)
+                     foreground=fg, candidates=candidates, main=main, layout=layout, layout_confident=confident,
+                     pair=pair)
 
 
 # --- one garment from the seller's tap ("Add area") ---------------------------------------------

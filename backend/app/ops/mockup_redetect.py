@@ -30,7 +30,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models import MockupPhoto, MockupTemplate, Tenant
+from app.db.models import MockupPhoto, Tenant
 from app.pipeline import mockups, placement
 from app.pipeline.storage import Storage
 
@@ -43,7 +43,7 @@ def _waiting_as_suggested(photo: MockupPhoto) -> bool:
 
 
 def apply_found(photo: MockupPhoto, found: list[dict[str, Any]], confidence: float | None,
-                several: bool = False) -> str:
+                several: bool | str = False) -> str:
     """The new suggestions on one photo; what happened ("replaced", "suggestions", "kept").
     Every garment found is kept as a candidate; the photo's suggestions are the main
     garment's unless its template has several garments in one photo (``several``)."""
@@ -108,9 +108,7 @@ async def run(sm: async_sessionmaker, storage: Storage, *, apply: bool, email: s
             except Exception:  # noqa: BLE001 - one photo that cannot be read does not stop the rest
                 counts["failed"] += 1
                 continue
-            template = await session.get(MockupTemplate, photo.template_id)
-            what = apply_found(photo, prepared.garments, prepared.confidence,
-                               several=bool(template is not None and template.several_garments))
+            what = apply_found(photo, prepared.garments, prepared.confidence, several=photo.layout)
             counts[what] += 1
             if what == "suggestions":
                 await placement.record(session, photo)

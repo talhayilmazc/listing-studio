@@ -16,8 +16,11 @@ import {
   NEEDS_CHECK,
   RESET_PLACEMENT,
   RIGHTS_STATEMENT,
-  SEVERAL_HINT,
-  SEVERAL_LABEL,
+  BACK_FALLBACK_LABEL,
+  BACK_FALLBACK_OPTIONS,
+  LAYOUT_HINT,
+  LAYOUT_LABELS,
+  type PhotoLayout,
   TEMPLATES_INTRO,
   addDesignsHref,
   appliedLine,
@@ -404,9 +407,18 @@ function TemplateCard({
     if (updated.needs_check === 0) onAllConfirmed();
   }
 
-  async function setSeveral(on: boolean) {
+  async function setBackFallback(value: "front" | "plain") {
     try {
-      onChange(await api.updateMockupTemplate(template.id, { several_garments: on }));
+      onChange(await api.updateMockupTemplate(template.id, { back_without_design: value }));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
+  async function setLayout(photo: MockupPhoto, layout: PhotoLayout) {
+    try {
+      await api.updateMockupPhoto(photo.id, { layout });
+      onReload();
     } catch (e: any) {
       setMessage(String(e.message ?? e));
     }
@@ -523,14 +535,15 @@ function TemplateCard({
           <button type="button" className="btn-secondary min-h-11" onClick={onReadySeen}>Later</button>
         </div>
       )}
-      <label key="several" className="flex min-h-11 items-start gap-2.5 text-sm text-slate-700" data-testid="template-several">
-        <input type="checkbox" className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300" checked={!!template.several_garments}
-          onChange={(e) => setSeveral(e.target.checked)} data-testid="template-several-toggle" />
-        <span className="min-w-0">
-          <span className="block">{SEVERAL_LABEL}</span>
-          <span className="block text-xs text-slate-500">{SEVERAL_HINT}</span>
-        </span>
-      </label>
+      {template.photos.some((p) => p.layout === "front_back" || p.areas.some((a) => a.role === "back")) && (
+        <label key="back" className="flex min-h-11 flex-wrap items-center gap-2 text-sm text-slate-700" data-testid="template-back-fallback">
+          <span>{BACK_FALLBACK_LABEL}</span>
+          <select className="field min-w-0 text-sm" value={template.back_without_design === "plain" ? "plain" : "front"}
+            onChange={(e) => setBackFallback(e.target.value as "front" | "plain")} data-testid="template-back-fallback-select">
+            {Object.entries(BACK_FALLBACK_OPTIONS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </label>
+      )}
       {offer && offer.ids.length > 0 && (
         <div key="offer" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-800"
           data-testid="template-offer">
@@ -606,7 +619,8 @@ function TemplateCard({
             <li key={p.id} className="min-w-0">
               <PhotoTile photo={p} first={i === 0} last={i === template.photos.length - 1}
                 selected={selected.includes(p.id)} onSelect={(on) => toggle(p.id, on)}
-                onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)} />
+                onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)}
+                onLayout={(layout) => setLayout(p, layout)} />
             </li>
           ))}
         </ul>
@@ -641,6 +655,7 @@ function PhotoTile({
   onOpen,
   onMove,
   onRemove,
+  onLayout,
 }: {
   photo: MockupPhoto;
   first: boolean;
@@ -650,6 +665,7 @@ function PhotoTile({
   onOpen: () => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
+  onLayout: (layout: PhotoLayout) => void;
 }) {
   const ready = photo.status === "ready" && photo.width && photo.height;
   const aspect = ready ? `${photo.width} / ${photo.height}` : "6 / 7";
@@ -689,6 +705,17 @@ function PhotoTile({
             onChange={(e) => onSelect(e.target.checked)} aria-label={`Select ${photo.name}`} data-testid="template-photo-select" />
           <span className="min-w-0 truncate text-xs font-medium text-slate-800" title={photo.name} translate="no">{photo.name}</span>
         </label>
+        {ready && (
+          <label key="layout" className="block" title={LAYOUT_HINT}>
+            <span className="sr-only">{`Layout of ${photo.name}`}</span>
+            <select className="field w-full text-xs" value={(photo.layout as PhotoLayout) ?? "single"}
+              onChange={(e) => onLayout(e.target.value as PhotoLayout)} data-testid="template-photo-layout">
+              {(Object.keys(LAYOUT_LABELS) as PhotoLayout[]).map((v) => (
+                <option key={v} value={v}>{`${LAYOUT_LABELS[v]}${photo.layout === v && photo.layout_source === "auto" && v !== "single" ? " (found)" : ""}`}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="flex flex-wrap gap-1">
           {ready && (
             <button key="edit" type="button" className={`${photo.needs_check ? "btn-primary" : "btn-secondary"} min-h-11 flex-1 px-2 text-xs`} onClick={onOpen}>

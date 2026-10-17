@@ -224,6 +224,8 @@ export interface MockupArea {
   kind?: string | null;
   /** The analysis's estimate of the garment's own axis (degrees, clockwise): what a turn snaps to. */
   axis_angle?: number | null;
+  /** "front" or "back": a back area prints the design's back file. */
+  role?: "front" | "back" | string;
 }
 
 /** One blank photo of a template (backend api/mockups.py PhotoOut). */
@@ -253,6 +255,9 @@ export interface MockupPhoto {
   /** The seller painted "Keep in front" on this photo. */
   has_front_brush?: boolean;
   view?: "front" | "back" | string;
+  /** "single", "front_back" or "several"; set by the analysis when sure ("auto") or the seller. */
+  layout?: "single" | "front_back" | "several" | string;
+  layout_source?: "auto" | "seller" | string;
   areas: MockupArea[];
   /** Its suggestion came from the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
@@ -268,8 +273,8 @@ export interface MockupTemplate {
   confirmed: number;
   /** Its suggestions use the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
-  /** "This template has several garments in one photo" (off: one area per photo by default). */
-  several_garments?: boolean;
+  /** "Back area without a back design": the front design, or nothing. */
+  back_without_design?: "front" | "plain" | string;
 }
 
 /** The seller's own print placement, learnt from the photos they confirmed. */
@@ -296,6 +301,8 @@ export interface MockupDesign {
   width: number;
   height: number;
   has_alpha: boolean;
+  /** It has a back file (printed on back areas). */
+  has_back?: boolean;
 }
 
 export interface MockupOutput {

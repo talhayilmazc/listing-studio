@@ -1,13 +1,13 @@
 """``python -m app.cli mockup-single-area [--apply] [--email <address>]``: one print area per
 photo by default, for template photos prepared before it.
 
-* A template where the seller confirmed a photo with several areas gets "This template has
-  several garments in one photo" switched on: nothing of it changes.
-* In every other template, a photo still waiting for the seller's check whose areas are all
+* A photo the seller confirmed with several areas gets the layout "Several garments": nothing
+  of it changes. (Photos have their own layout since migration 0072.)
+* A photo with the layout "Single garment" still waiting for the seller's check whose areas are all
   as suggested (``source`` "default") and that has more than one keeps only the main
   garment's area (the one marked main by the analysis, else the largest nearest the middle;
-  ``mockups.chosen_rows``). All its suggestions are kept as candidates, so switching the
-  template to several garments brings them back.
+  ``mockups.chosen_rows``). All its suggestions are kept as candidates, so setting the
+  photo's layout to several garments brings them back.
 * Confirmed photos, and areas the seller moved, added or copied, are not touched.
 
 No analysis runs (no model, no network). A dry run unless ``--apply``.
@@ -40,16 +40,15 @@ async def run(sm: async_sessionmaker, *, apply: bool, email: str | None = None) 
             photos = list((await session.execute(
                 select(MockupPhoto).where(MockupPhoto.template_id == template.id, MockupPhoto.status == "ready")
             )).scalars())
-            if template.several_garments:
-                continue
-            if any(p.confirmed_at is not None and len(p.garments or []) > 1 for p in photos):
-                switched += 1
-                if apply:
-                    template.several_garments = True
-                continue
             for photo in photos:
                 rows = photo.garments or []
-                if photo.confirmed_at is not None or len(rows) <= 1 or not _as_suggested(photo):
+                if photo.confirmed_at is not None and len(rows) > 1 and photo.layout == "single":
+                    switched += 1
+                    if apply:
+                        photo.layout, photo.layout_source = "several", "seller"
+                    continue
+                if (photo.confirmed_at is not None or len(rows) <= 1 or not _as_suggested(photo)
+                        or photo.layout != "single"):
                     continue
                 reduced += 1
                 if not apply:
@@ -66,5 +65,5 @@ async def run(sm: async_sessionmaker, *, apply: bool, email: str | None = None) 
             await session.commit()
         verb = "" if apply else "would be "
         return (f"{reduced} waiting photo(s) {verb}reduced to their main garment's area; "
-                f"{switched} template(s) with a confirmed several-area photo {verb}switched to several garments; "
+                f"{switched} confirmed several-area photo(s) {verb}set to the layout several garments; "
                 "confirmed photos untouched." + ("" if apply else " Run with --apply."))

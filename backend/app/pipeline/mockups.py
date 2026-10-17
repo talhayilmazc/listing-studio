@@ -194,6 +194,9 @@ class PreparedBlank:
     view: str | None = None
     #: Where garments are, one-band PNG at the analysis size, or None (the earlier analysis).
     foreground: bytes | None = None
+    #: The photo's layout as the analysis reads it, and whether it is sure enough to set it.
+    layout: str = "single"
+    layout_confident: bool = False
 
 
 def _to_numpy(image):  # noqa: ANN001, ANN202 - pyvips uchar -> numpy (h, w[, bands])
@@ -312,6 +315,7 @@ def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default
         jpeg, png, rgb.width, rgb.height, source, area, occluder=occluder, confidence=analysis.confidence,
         method=analysis.method, note=analysis.note, details=dict(analysis.details),
         garments=list(analysis.garments), view=analysis.view, foreground=foreground,
+        layout=analysis.layout, layout_confident=analysis.layout_confident,
     )
 
 
@@ -902,15 +906,34 @@ def preview_scale(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None
             small(occluder_png) if occluder_png else None)
 
 
-def chosen_rows(candidates: list[dict], several: bool) -> list[dict]:
-    """A photo's suggested areas from every garment the analysis found: all of them when the
-    template has several garments in one photo, else the main garment's alone (the seller
-    adds more with "Add area"). Rows without a "main" mark (photos analysed before it) count
-    the main one by size and nearness to the middle (``main_row``)."""
-    if several or len(candidates) <= 1:
-        return [dict(c) for c in candidates]
+LAYOUTS = ("single", "front_back", "several")
+
+
+def chosen_rows(candidates: list[dict], layout: str | bool) -> list[dict]:
+    """A photo's suggested areas, by its layout, from every garment the analysis found:
+    "several" every garment's; "front_back" the front garment's area and the back garment's
+    back area (each with its role); "single" the main garment's alone (the seller adds more
+    with "Add area"). Rows without a "main" mark (photos analysed before it) count the main
+    one by size and nearness to the middle (``main_row``). (``True``/``False``: several/single,
+    as the template switch said before photo layouts.)"""
+    if layout is True:
+        layout = "several"
+    elif layout is False:
+        layout = "single"
+    if layout == "front_back":
+        front = next((c for c in candidates if c.get("pair") == "front"), None)
+        back = next((c for c in candidates if c.get("pair") == "back"), None)
+        if front is not None and back is not None:
+            b = dict(back)
+            if b.get("back_area"):
+                b["print_area"] = b["detected_area"] = b["back_area"]
+            return [{**dict(front), "role": "front"}, {**b, "role": "back"}]
+        layout = "several"  # no pair was found: every garment, the seller sets the roles
+    role = lambda c: {**dict(c), "role": "back" if c.get("view") == "back" else "front"}  # noqa: E731
+    if layout == "several" or len(candidates) <= 1:
+        return [role(c) for c in candidates]
     marked = [c for c in candidates if c.get("main")]
-    return [dict(marked[0] if marked else candidates[main_row(candidates)])]
+    return [role(marked[0] if marked else candidates[main_row(candidates)])]
 
 
 def main_row(rows: list[dict]) -> int:

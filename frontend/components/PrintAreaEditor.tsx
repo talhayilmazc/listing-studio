@@ -11,6 +11,7 @@ import {
   angleDegrees,
   angleKey,
   axisGuide,
+  copyToGarment,
   designQuad,
   dragCorner,
   garmentAxis,
@@ -40,7 +41,10 @@ import {
   type Pt,
   type Quad,
 } from "@/lib/areaEditor";
-import { BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LOOKS_RIGHT, OCCLUSION_LABEL, SAMPLE_DESIGN, SIZE_RANGE, SUGGESTION_NOTE, percent } from "@/lib/mockups";
+import {
+  BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LAYOUT_HINT, LAYOUT_LABELS, LOOKS_RIGHT, OCCLUSION_LABEL, ROLE_LABELS, SAMPLE_DESIGN, SIZE_RANGE,
+  SUGGESTION_NOTE, percent, type PhotoLayout,
+} from "@/lib/mockups";
 
 /**
  * The print-area editor (backend api/mockups.py): one photo, large, with its suggested
@@ -52,7 +56,7 @@ import { BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LOOKS_RIGHT, OCCLUSION_LABEL, SAMP
  * desktop; every control is at least 44 px. Nothing here calls Etsy or an AI model.
  */
 /** ``axis``: the garment's own axis (radians) a turn snaps to and "Match garment angle" uses. */
-type Area = { quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null };
+type Area = { quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null; role: "front" | "back" };
 type Drag =
   | { kind: "move"; index: number; start: Pt; quad: Quad }
   | { kind: "corner"; index: number; corner: number; start: Pt; quad: Quad }
@@ -85,7 +89,10 @@ export function PrintAreaEditor({
   const initial = useMemo<Area[]>(
     () => photo.areas.map((a) => {
       const suggested = toPx(a.detected_area, W, H);
-      return { quad: toPx(a.print_area, W, H), suggested, source: a.source, kind: a.kind, axis: garmentAxis(a.axis_angle, suggested) };
+      return {
+        quad: toPx(a.print_area, W, H), suggested, source: a.source, kind: a.kind, axis: garmentAxis(a.axis_angle, suggested),
+        role: (a.role === "back" ? "back" : "front") as "front" | "back",
+      };
     }),
     [photo.id, photo.version], // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -326,9 +333,11 @@ export function PrintAreaEditor({
     setFinding(true);
     setNote(null);
     try {
-      const found = await api.findMockupGarment(photo.id, x / W, y / H, areas.map((a) => toShares(a.quad, W, H)));
+      const last = areas[areas.length - 1];
+      const found = await api.findMockupGarment(photo.id, x / W, y / H, areas.map((a) => toShares(a.quad, W, H)),
+        last ? toShares(last.quad, W, H) : null);
       const quad = toPx(found.print_area, W, H);
-      const next = [...areas, { quad, suggested: quad, source: found.found ? "tap" : "seller", kind: found.kind, axis: null }];
+      const next = [...areas, { quad, suggested: quad, source: found.found ? "tap" : "seller", kind: found.kind, axis: null, role: "front" as const }];
       commit(next);
       setSelected(next.length - 1);
       if (!found.found && found.note) setNote(found.note);
@@ -365,6 +374,17 @@ export function PrintAreaEditor({
     commit(areas.map((a, i) => (i === selected ? { ...a, quad: move(a.quad, by[0], by[1]) } : a)));
   }
 
+  /** "Copy this area to all garments": every other area placed like the selected one on its own garment. */
+  function copyToAll() {
+    const src = areas[selected];
+    if (!src) return;
+    commit(areas.map((a, i) => (i === selected ? a : { ...a, quad: copyToGarment(src.quad, src.suggested, a.suggested), source: "seller" })));
+  }
+
+  function setRole(role: "front" | "back") {
+    commit(areas.map((a, i) => (i === selected ? { ...a, role } : a)));
+  }
+
   function matchGarment() {
     const a = areas[selected];
     if (!a || a.axis === null) return;
@@ -395,7 +415,7 @@ export function PrintAreaEditor({
       const shares = toShares(a.quad, W, H);
       const suggested = toShares(a.suggested, W, H);
       const unchanged = JSON.stringify(shares) === JSON.stringify(suggested);
-      return { print_area: shares, detected_area: suggested, source: unchanged ? a.source : "seller", kind: a.kind ?? null };
+      return { print_area: shares, detected_area: suggested, source: unchanged ? a.source : "seller", kind: a.kind ?? null, role: a.role };
     });
   }
 
@@ -536,8 +556,9 @@ export function PrintAreaEditor({
               </svg>
               {areas.map((a, i) => (
                 <span key={`n${i}`} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded bg-slate-900/70 px-1.5 text-xs font-semibold text-white"
-                  style={px([(a.quad[0][0] + a.quad[2][0]) / 2, (a.quad[0][1] + a.quad[2][1]) / 2])} translate="no">
-                  {`${i + 1}`}
+                  style={px([(a.quad[0][0] + a.quad[2][0]) / 2, (a.quad[0][1] + a.quad[2][1]) / 2])} translate="no"
+                  data-testid="editor-area-label">
+                  {photo.layout === "front_back" || a.role === "back" ? `${i + 1} · ${ROLE_LABELS[a.role]}` : `${i + 1}`}
                 </span>
               ))}
               {brushing && (
@@ -569,7 +590,7 @@ export function PrintAreaEditor({
             </div>
             {(tapping || finding) && (
               <p key="tap" role="status" className="absolute left-1/2 top-3 -translate-x-1/2 rounded-md bg-slate-900/80 px-3 py-2 text-sm text-white" translate="no">
-                {finding ? "Finding that garment…" : "Tap the garment to add its print area"}
+                {finding ? "Finding that garment…" : "Click a garment to add an area"}
               </p>
             )}
           </div>
@@ -577,6 +598,14 @@ export function PrintAreaEditor({
           <aside className="flex max-h-[45vh] min-w-0 flex-col overflow-y-auto border-t border-slate-200 lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
             <div className="space-y-4 p-3 sm:p-4">
               <p className="text-sm text-slate-600">{SUGGESTION_NOTE}</p>
+              <label className="block" title={LAYOUT_HINT}>
+                <span className="label">Layout</span>
+                <select className="field w-full" value={(photo.layout as PhotoLayout) ?? "single"}
+                  onChange={(e) => setting({ layout: e.target.value as PhotoLayout })} disabled={dirty} data-testid="editor-layout">
+                  {(Object.keys(LAYOUT_LABELS) as PhotoLayout[]).map((v) => <option key={v} value={v}>{LAYOUT_LABELS[v]}</option>)}
+                </select>
+                <span className="mt-1 block text-xs text-slate-500">{dirty ? "Save or reset your changes to change the layout." : LAYOUT_HINT}</span>
+              </label>
               <div className="grid grid-cols-3 gap-2" role="toolbar" aria-label="Edit the print area">
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => undo(n))} disabled={!h.past.length} data-testid="editor-undo">Undo</button>
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => redo(n))} disabled={!h.future.length} data-testid="editor-redo">Redo</button>
@@ -605,6 +634,23 @@ export function PrintAreaEditor({
                   data-testid="editor-fabric">
                   On fabric
                 </button>
+                {areas.length > 1 && (
+                  <button key="copy-all" type="button" className="col-span-3 min-h-11 px-2 btn-secondary" onClick={copyToAll}
+                    data-testid="editor-copy-all">
+                    Copy this area to all garments
+                  </button>
+                )}
+                {sel && (
+                  <div key="role" className="col-span-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="This area prints the">
+                    {(["front", "back"] as const).map((r) => (
+                      <button key={r} type="button" role="radio" aria-checked={sel.role === r}
+                        className={`min-h-11 px-2 ${sel.role === r ? "btn-primary" : "btn-secondary"}`} onClick={() => setRole(r)}
+                        data-testid={`editor-role-${r}`}>
+                        {`${ROLE_LABELS[r]} design`}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button type="button" className="col-span-3 min-h-11 px-2 btn-secondary" onClick={matchGarment}
                   disabled={!sel || sel.axis === null || Math.abs(angleDegrees(sel.quad) - angleDegrees(turnTo(sel.quad, sel.axis))) < 0.05}
                   title="Turn the print area to the garment's own angle" data-testid="editor-match-angle">

@@ -198,15 +198,18 @@ async def due_groups(session: AsyncSession, now: datetime, days: Policy) -> tupl
                        cover=cover, group_key=group.group_key))
     if due:
         rows = await session.execute(
-            select(MockupDesign.id, MockupDesign.batch_id, MockupDesign.group_key, MockupDesign.design_key).where(
+            select(MockupDesign.id, MockupDesign.batch_id, MockupDesign.group_key, MockupDesign.design_key,
+                   MockupDesign.back_key).where(
                 MockupDesign.batch_id.in_({d.batch_id for d in due}), MockupDesign.design_key.is_not(None)
             )
         )
         by_group = {(d.batch_id, d.group_key): d for d in due}
-        for design_id, batch_id, group_key, key in rows.all():
+        for design_id, batch_id, group_key, key, back in rows.all():
             found = by_group.get((batch_id, group_key))
             if found is not None:
                 found.designs.append((design_id, key))
+                if back:  # the design's back file goes with it
+                    found.designs.append((design_id, back))
     return due, waiting
 
 
@@ -275,7 +278,7 @@ async def run(
                 await session.execute(
                     update(MockupDesign)
                     .where(MockupDesign.id.in_([i for i, _ in group.designs]))
-                    .values(files_removed_at=now, design_key=None)
+                    .values(files_removed_at=now, design_key=None, back_key=None)
                 )
             if kept is not None and group.cover is not None:
                 await session.execute(update(Asset).where(Asset.id == group.cover.id).values(thumbnail_key=kept[0]))
@@ -309,9 +312,14 @@ async def _unprinted_designs(
     )).scalars())
     for design in rows:
         files, size = await asyncio.to_thread(storage.measure_with_derivatives, design.design_key or "")
+        if design.back_key:
+            more, extra = await asyncio.to_thread(storage.measure_with_derivatives, design.back_key)
+            files, size = files + more, size + extra
         if apply:
             await asyncio.to_thread(storage.delete_with_derivatives, design.design_key or "")
-            design.files_removed_at, design.design_key = now, None
+            if design.back_key:
+                await asyncio.to_thread(storage.delete_with_derivatives, design.back_key)
+            design.files_removed_at, design.design_key, design.back_key = now, None, None
             await session.commit()
         result.files += files
         result.freed_bytes += size

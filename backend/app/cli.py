@@ -788,6 +788,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     single.add_argument("--apply", action="store_true", help="change them (default: only count)")
     single.add_argument("--email", default=None, help="only this account's templates")
+    layouts = sub.add_parser(
+        "mockup-layouts",
+        help="waiting template photos: set each photo's layout and refresh its suggestions (confirmed untouched); --apply",
+    )
+    layouts.add_argument("--apply", action="store_true", help="analyse them (default: only count)")
+    layouts.add_argument("--email", default=None, help="only this account's photos")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -862,6 +868,11 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.mockup_single_area import run as single_run
 
         print(asyncio.run(single_run(sm, apply=args.apply, email=args.email)))
+    elif args.command == "mockup-layouts":
+        from app.api.deps import get_storage
+        from app.ops.mockup_layouts import run as layouts_run
+
+        print(asyncio.run(layouts_run(sm, get_storage(), apply=args.apply, email=args.email)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 

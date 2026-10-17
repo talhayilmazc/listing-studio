@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { MAX_UPLOAD_MB as DROP_LIMIT, kindOf, pick } from "./fileDrop.ts";
-import { ALL_READY, MAX_UPLOAD_MB, RESET_PLACEMENT, SEVERAL_LABEL, applyToTheseLabel, confirmAllLabel, firstConfirmOffer, stillToCheck, addDesignsHref, appliedLine, canAddDesigns, designNote, ownPlacementLine, printable } from "./mockups.ts";
+import { ALL_READY, MAX_UPLOAD_MB, RESET_PLACEMENT, LAYOUT_LABELS, applyToTheseLabel, confirmAllLabel, firstConfirmOffer, stillToCheck, addDesignsHref, appliedLine, canAddDesigns, designNote, ownPlacementLine, printable } from "./mockups.ts";
 import type { MockupPhoto, MockupTemplate } from "./types.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
@@ -136,11 +136,11 @@ test("one-time setup: after the first confirmed photo the others are offered; th
   assert.equal(firstConfirmOffer(template([waiting("a")]), "a"), null);
   assert.equal(confirmAllLabel(5), "Confirm all 5");
   const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "templates", "page.tsx"), "utf8");
-  assert.match(page, /template-several-toggle/);
-  assert.match(page, /SEVERAL_LABEL/);
+  assert.match(page, /template-photo-layout/);
+  assert.match(page, /LAYOUT_LABELS/);
   assert.match(page, /<ConfirmGrid/);
   assert.match(page, /firstConfirmOffer\(before, saved\.id\)/);
-  assert.match(SEVERAL_LABEL, /several garments in one photo/);
+  assert.deepEqual(Object.values(LAYOUT_LABELS), ["Single garment", "Front & back", "Several garments"]);
   const grid = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "ConfirmGrid.tsx"), "utf8");
   assert.match(grid, /designQuad/); // the placeholder sits where a mockup puts the design
   const editor = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "PrintAreaEditor.tsx"), "utf8");

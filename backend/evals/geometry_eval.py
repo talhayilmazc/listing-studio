@@ -54,6 +54,7 @@ HOLDOUT_SHARE = 0.30
 OUTSIDE_LIMIT = 0.05
 TILTED = 6.0
 TORSO_DEPTH = 1.5
+MIN_SHARE = 0.40  # an area narrower than this share of the marked chest is "below the minimum"
 LEARN_FIRST = 3
 GROUPS = {"on a person": "worn", "folded": "folded", "flat-lay": "flat-lay", "on a hanger": "hanger",
           "several garments": "several"}
@@ -155,20 +156,61 @@ def _detect(name: str, table: dict[str, Any] | None = None) -> dict[str, Any]:
     params = inspect.signature(garments_.detect).parameters
     if table is not None and "personal" in params:
         kwargs["personal"] = table
-    if "several" in params:  # "This template has several garments in one photo" (bench --several)
-        kwargs["several"] = os.environ.get("GEOMETRY_SEVERAL") == "1"
+    if "several" in params:
+        kwargs["several"] = True  # every garment; the photo's layout chooses below, as the worker does
     t = time.perf_counter()
     found = garments_.detect(rgb, vision.default_runner(), garments_.default_saliency(), name, **kwargs)
     seconds = time.perf_counter() - t
     nx = lambda p: [round(p[0] / aw, 5), round(p[1] / ah, 5)]  # noqa: E731
+    # The photo's layout: the analysis's when it is sure, else one garment (as the worker sets
+    # it); GEOMETRY_LAYOUT=marked uses the marks' own type (what the seller would choose);
+    # GEOMETRY_SEVERAL=1 every garment (the earlier template switch).
+    layout = getattr(found, "layout", "single") if getattr(found, "layout_confident", False) else "single"
+    mode = os.environ.get("GEOMETRY_LAYOUT")
+    if mode == "marked":
+        layout = _marked_layout(name)
+    if os.environ.get("GEOMETRY_SEVERAL") == "1":
+        layout = "several"
+    candidates = getattr(found, "candidates", None) or found.garments
+    main = getattr(found, "main", 0)
+    pair = getattr(found, "pair", None)
+    if layout == "several":
+        chosen = [(g, g.corners, "front") for g in candidates]
+    elif layout == "front_back" and pair is not None:
+        f, b = candidates[pair[0]], candidates[pair[1]]
+        chosen = [(f, f.corners, "front"), (b, b.info.get("back_corners") or b.corners, "back")]
+    else:
+        g = candidates[main] if candidates else None
+        chosen = [(g, g.corners, "front")] if g is not None else []
     out = []
-    for g in found.garments:
-        out.append({"area": [nx(p) for p in g.corners], "neck": nx(g.neck), "armpits": [nx(p) for p in g.armpits],
+    for g, corners, role in chosen:
+        out.append({"area": [nx(p) for p in corners], "neck": nx(g.neck), "armpits": [nx(p) for p in g.armpits],
                     "bottom": nx(g.bottom) if g.bottom else None, "kind": g.kind, "view": g.view,
                     "layout": g.layout, "confidence": round(float(g.confidence), 3),
                     "angle": g.info.get("angle"), "guards": g.info.get("guards", []),
-                    "notes": list(g.notes)})
-    return {"name": name, "seconds": round(seconds, 2), "garments": out}
+                    "notes": list(g.notes), "role": role})
+    return {"name": name, "seconds": round(seconds, 2), "garments": out, "photo_layout": layout,
+            "layout_read": getattr(found, "layout", None), "layout_confident": getattr(found, "layout_confident", None),
+            "found": len(candidates)}
+
+
+def _marked_layout(name: str) -> str:
+    """The layout the marks show: front & back (a front and a back garment), several, or single."""
+    entry = me.load_marks()[name]
+    views = {g.get("view", entry.get("view")) for g in entry.get("garments", [])}
+    if views >= {"front", "back"}:
+        return "front_back"
+    if entry.get("layout") == "several garments" or len(entry.get("garments", [])) > 1:
+        return "several"
+    return "single"
+
+
+def photo_type(entry: dict[str, Any]) -> str:
+    """The type a photo is reported under: front/back, several, worn, folded or flat."""
+    views = {g.get("view", entry.get("view")) for g in entry.get("garments", [])}
+    if views >= {"front", "back"}:
+        return "front/back"
+    return {"several garments": "several", "on a person": "worn", "folded": "folded"}.get(entry.get("layout"), "flat")
 
 
 def _detect_many(names: list[str], jobs: int, tables: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
@@ -314,6 +356,9 @@ def score_photo(name: str, key: dict[str, Any], det: dict[str, Any]) -> tuple[li
             # down to TORSO_DEPTH chest widths.
             cu, cv = _uv(fc, fr)
             row["off_torso"] = bool(abs(cu) > 0.5 * chest or cv < 0 or cv > TORSO_DEPTH * chest)
+            neck_u = _uv((kg["neck"][0] * w, kg["neck"][1] * h), fr)[0]
+            row["neck_offset"] = round(abs(cu - neck_u) / chest, 3)
+            row["below_min"] = bool(fw / chest < MIN_SHARE)
         rows.append(row)
     areas = []
     for j, a in enumerate(found):
@@ -330,6 +375,8 @@ def score_photo(name: str, key: dict[str, Any], det: dict[str, Any]) -> tuple[li
                       "confidence": det["garments"][j]["confidence"]})
     zero = len(found) == len(key["garments"]) and all(r["iou"] >= me.ACTIONS_IOU for r in rows)
     photo = {"photo": name, "found": len(found), "marked": len(key["garments"]), "zero_action": zero,
+             "ptype": key.get("ptype"), "photo_layout": det.get("photo_layout"),
+             "matched": sum(r["match"] is not None and r["iou"] > 0.1 for r in rows),
              "multi": len(found) > 1, "every_08": all(r["iou"] >= 0.8 for r in rows), "mean_iou": round(statistics.mean(r["iou"] for r in rows), 3),
              "layout": GROUPS.get(key["layout"], key["layout"]), "type": key["type"], "seconds": det["seconds"],
              "low_contrast": all(r["low_contrast"] for r in rows), "areas": areas,
@@ -510,6 +557,35 @@ def rescore(tag: str) -> None:
     print("\n".join(lines))
 
 
+def types(tags: list[str]) -> None:
+    """Per photo type (single = every one-garment photo; worn; folded; front/back; several), for
+    each run: median IoU, IoU >= 0.8, areas below the minimum (MIN_SHARE of the marked chest),
+    the median offset of the area's centre from the marked neckline (chest widths) and, for
+    several-garment photos, how many marked garments got an area. Dev and holdout apart."""
+    s, marks = split(), me.load_marks()
+    lines = []
+    for which in ("dev", "holdout"):
+        lines.append(f"== {which}")
+        for tag in tags:
+            data = json.loads((OUT / tag / "rows.json").read_text())
+            kinds = {n: photo_type(marks[n]) for n in s[which]}
+            for t in ("single", "worn", "folded", "front/back", "several"):
+                names = {n for n, k in kinds.items() if (k == t or (t == "single" and k in ("worn", "folded", "flat")))}
+                rows = [r for r in data["rows"] if r["photo"] in names and not r["low_contrast"]]
+                if not rows:
+                    lines.append(f"   {tag:14} {t:10} -")
+                    continue
+                ious = [r["iou"] for r in rows]
+                found = sum(r["match"] is not None and r["iou"] > 0.1 for r in rows)
+                lines.append(
+                    f"   {tag:14} {t:10} {len(names):3d} ph {len(rows):3d} g | median IoU {statistics.median(ious):.2f}"
+                    f" | IoU>=0.8 {sum(v >= 0.8 for v in ious) / len(ious):6.1%} | below min {sum(bool(r.get('below_min')) for r in rows):2d}"
+                    f" | neckline offset {_med([r.get('neck_offset') for r in rows]):.3f}"
+                    + (f" | garments found {found}/{len(rows)}" if t == "several" else ""))
+    print("\n".join(lines))
+    (OUT / f"types-{'-'.join(tags)}.txt").write_text("\n".join(lines) + "\n")
+
+
 def compare(before: str, after: str) -> None:
     s = split()
     lines = []
@@ -579,7 +655,9 @@ def main(argv: list[str]) -> None:
         learn_ = "--learn" in args
         if "--several" in args:
             os.environ["GEOMETRY_SEVERAL"] = "1"
-        args = [a for a in args if a not in ("--learn", "--several")]
+        if "--marked" in args:  # each photo's layout as the marks show it (what the seller would choose)
+            os.environ["GEOMETRY_LAYOUT"] = "marked"
+        args = [a for a in args if a not in ("--learn", "--several", "--marked")]
         only = None
         if "--only" in args:
             only = args[args.index("--only") + 1].split("|")
@@ -599,6 +677,8 @@ def main(argv: list[str]) -> None:
         rescore(args[0])
     elif cmd == "sheet":
         print(sheet(args[0], args[1:]))
+    elif cmd == "types":
+        types(args)
     elif cmd == "compare":
         compare(args[0], args[1])
     else:

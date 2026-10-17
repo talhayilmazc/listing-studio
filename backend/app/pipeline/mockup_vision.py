@@ -336,12 +336,18 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
             rows.append([g])
     ordered = [g for r in rows for g in sorted(r, key=lambda g: g.neck[0])]
     main = found.candidates[found.main] if found.candidates else ordered[0]
+    pair = {}
+    if found.pair is not None:
+        pair = {id(found.candidates[found.pair[0]]): "front", id(found.candidates[found.pair[1]]): "back"}
     items = []
     for g in ordered:
         items.append({
             "print_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.corners],
             "confidence": round(float(g.confidence), 3), "kind": g.kind, "view": g.view, "layout": g.layout,
             "notes": list(g.notes), "guards": list(g.info.get("guards", [])), "main": g is main,
+            "pair": pair.get(id(g)),
+            "back_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.info["back_corners"]]
+            if g.info.get("back_corners") else None,
             "ratios": g.info.get("ratios"), "geometry": placement.geometry(g, w, h),
             "personal_n": int((personal or {}).get(print_rule.personal_key(g.kind, g.layout), {}).get("n", 0))
             if str(g.info.get("ratios") or "").startswith("yours") else None,
@@ -358,7 +364,8 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
     occluder = np.clip(found.occluder * 255.0, 0, 255).astype(np.uint8) if found.persons or found.occluder.max() > 0.5 else None
     fg = np.clip(found.foreground * 255.0, 0, 255).astype(np.uint8) if found.foreground is not None else None
     return Analysis(method, confidence, first["print_area"], garment, occluder, note, details, garments=items,
-                    view=first["view"], kind=first["kind"], foreground=fg)
+                    view=first["view"], kind=first["kind"], foreground=fg, layout=found.layout,
+                    layout_confident=found.layout_confident)
 
 
 @dataclass
@@ -379,6 +386,9 @@ class Analysis:
     kind: str | None = None
     #: Where garments are (uint8, the analysis size): what "Add area" grows a garment in.
     foreground: np.ndarray | None = None
+    #: The photo's layout as read ("single", "front_back", "several") and whether it is sure.
+    layout: str = "single"
+    layout_confident: bool = False
 
     @property
     def needs_check(self) -> bool:

@@ -107,15 +107,16 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
         "details": prepared.details,
     }
     found = prepared.garments or [{"print_area": prepared.print_area, "confidence": prepared.confidence}]
-    # Every garment found is kept as a candidate; the photo shows the main one's area unless
-    # its template has several garments in one photo.
-    template = await session.get(MockupTemplate, photo.template_id)
-    several = bool(template is not None and template.several_garments)
+    # Every garment found is kept as a candidate; the photo's areas follow its layout: the
+    # seller's choice, else the analysis's when it is sure, else one garment.
+    if photo.layout_source != "seller":
+        photo.layout = prepared.layout if prepared.layout_confident else "single"
     candidates = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
                    "detected_area": g["print_area"]} for g in found]
-    chosen = mockups.chosen_rows(candidates, several)
+    chosen = mockups.chosen_rows(candidates, photo.layout)
     analysis["candidates"] = candidates
-    if several and len(chosen) > 1:
+    analysis["layout_read"] = {"layout": prepared.layout, "confident": prepared.layout_confident}
+    if photo.layout == "several" and len(chosen) > 1:
         analysis["note"] = vision.NOTES["garments"].format(n=len(chosen))
     photo.analysis = analysis
     photo.print_area_confidence = min((c.get("confidence") or 0.0) for c in chosen) if chosen else prepared.confidence
@@ -124,7 +125,7 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
         for i, g in enumerate(rows):
             if i < len(chosen):
                 g["detected_area"] = chosen[i]["print_area"]
-                for k in ("geometry", "ratios", "personal_n", "guards", "layout", "main"):
+                for k in ("geometry", "ratios", "personal_n", "guards", "layout", "main", "role", "pair"):
                     if k in chosen[i]:
                         g[k] = chosen[i][k]
     else:
@@ -199,6 +200,26 @@ def photo_print_areas(photo: MockupPhoto) -> list[list[list[float]]]:
     return rows or ([photo.print_area] if photo.print_area else [])
 
 
+def photo_area_roles(photo: MockupPhoto) -> list[str]:
+    """Each print area's role, "front" or "back", in the same order (a photo of a garment seen
+    from behind: back)."""
+    rows = [g for g in (photo.garments or []) if g.get("print_area")]
+    if not rows:
+        return ["back" if photo.view == "back" else "front"] if photo.print_area else []
+    return [g.get("role") if g.get("role") in ("front", "back") else ("back" if photo.view == "back" else "front")
+            for g in rows]
+
+
+def design_for(role: str, front: Any, back: Any, fallback: str) -> Any:
+    """The design image an area prints: a back area the design's back file, else the front
+    design ("front") or nothing ("plain"), as its template says."""
+    if role != "back":
+        return front
+    if back is not None:
+        return back
+    return front if fallback != "plain" else None
+
+
 def _plane(data: bytes, width: int, height: int) -> Any:
     """A one-band PNG as float 0..1 at (height, width)."""
     import numpy as np
@@ -232,10 +253,83 @@ def find_at(blank: bytes, ground: bytes, occluder: bytes | None, tap: tuple[floa
     occ = _plane(occluder, w, h) if occluder else None
     px = [[(x * w, y * h) for x, y in quad] for quad in others]
     found = garments.find_at(rgb, fg, occ, (tap[0] * w, tap[1] * h), px, name, personal)
-    if found is None:
+    if found is not None:
+        corners = [[round(min(max(x / w, 0.0), 1.0), 4), round(min(max(y / h, 0.0), 1.0), 4)] for x, y in found.corners]
+        return corners, round(float(found.confidence), 3), found.kind
+    # 2. Nothing found on the whole photo: the same search on a crop around the click, at
+    # twice the detail (a small garment among others; no model runs, as above).
+    full = Image.open(io.BytesIO(blank)).convert("RGB")
+    fw, fh = full.size
+    side = 0.5 * max(fw, fh)
+    cx, cy = tap[0] * fw, tap[1] * fh
+    box = (int(max(0, cx - side / 2)), int(max(0, cy - side / 2)), int(min(fw, cx + side / 2)), int(min(fh, cy + side / 2)))
+    crop = full.crop(box)
+    k = min(1.0, garments.WORK / max(crop.size))
+    if k < 1.0:
+        crop = crop.resize((max(1, round(crop.width * k)), max(1, round(crop.height * k))), Image.BILINEAR)
+    cw, ch = crop.size
+    sx, sy = (box[2] - box[0]) / cw, (box[3] - box[1]) / ch
+    fg_full = _plane(ground, fw, fh)[box[1]:box[3], box[0]:box[2]]
+    fg_crop = np.asarray(Image.fromarray((fg_full * 255).astype(np.uint8)).resize((cw, ch), Image.BILINEAR), np.float32) / 255
+    occ_crop = None
+    if occluder:
+        occ_full = _plane(occluder, fw, fh)[box[1]:box[3], box[0]:box[2]]
+        occ_crop = np.asarray(Image.fromarray((occ_full * 255).astype(np.uint8)).resize((cw, ch), Image.BILINEAR), np.float32) / 255
+    local = [[((x * fw - box[0]) / sx, (y * fh - box[1]) / sy) for x, y in quad] for quad in others]
+    again = garments.find_at(np.asarray(crop, dtype=np.uint8), fg_crop, occ_crop, ((cx - box[0]) / sx, (cy - box[1]) / sy),
+                             local, name, personal)
+    if again is None:
         return None
-    corners = [[round(min(max(x / w, 0.0), 1.0), 4), round(min(max(y / h, 0.0), 1.0), 4)] for x, y in found.corners]
-    return corners, round(float(found.confidence), 3), found.kind
+    corners = [[round(min(max((box[0] + x * sx) / fw, 0.0), 1.0), 4), round(min(max((box[1] + y * sy) / fh, 0.0), 1.0), 4)]
+               for x, y in again.corners]
+    return corners, round(float(again.confidence) * 0.8, 3), again.kind
+
+
+def candidate_at(photo: MockupPhoto, x: float, y: float, others: list[list[list[float]]]) -> dict | None:
+    """"Click a garment to add an area", step 1: a garment the analysis found under the click
+    that has no area yet (``analysis["candidates"]``): its torso, between its armpits from its
+    collar down, holds the click. None when there is none."""
+    import math
+
+    w, h = photo.width or 1, photo.height or 1
+    for c in (photo.analysis or {}).get("candidates") or []:
+        geo = c.get("geometry") or {}
+        q = c.get("print_area")
+        if not q or not geo.get("armpits") or not geo.get("neck"):
+            continue
+        (lx, ly), (rx, ry) = [(p[0] * w, p[1] * h) for p in geo["armpits"]]
+        chest = max(math.dist((lx, ly), (rx, ry)), 1.0)
+        nx, ny = geo["neck"][0] * w, geo["neck"][1] * h
+        px, py = x * w, y * h
+        if not (min(lx, rx) <= px <= max(lx, rx) and ny - 0.1 * chest <= py <= ny + 1.6 * chest):
+            continue
+        cx, cy = sum(p[0] for p in q) / 4, sum(p[1] for p in q) / 4
+        if any(_inside((cx, cy), o) for o in others):
+            continue  # this garment has its area already
+        return c
+    return None
+
+
+def _inside(p: tuple[float, float], q: list[list[float]]) -> bool:
+    sign = None
+    for i in range(4):
+        (ax, ay), (bx, by) = q[i], q[(i + 1) % 4]
+        c = (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)
+        if c:
+            if sign is None:
+                sign = c > 0
+            elif sign != (c > 0):
+                return False
+    return True
+
+
+def like_at(x: float, y: float, like: list[list[float]], width: int, height: int) -> list[list[float]]:
+    """Step 3: an area of ``like``'s size and angle centred where the seller clicked (shares)."""
+    pts = [(p[0] * width, p[1] * height) for p in like]
+    cx, cy = sum(p[0] for p in pts) / 4, sum(p[1] for p in pts) / 4
+    dx, dy = x * width - cx, y * height - cy
+    return [[round(min(max((px + dx) / width, 0.0), 1.0), 4), round(min(max((py + dy) / height, 0.0), 1.0), 4)]
+            for px, py in pts]
 
 
 def box_at(x: float, y: float, others: list[list[list[float]]], width: int, height: int) -> list[list[float]]:
@@ -269,8 +363,13 @@ async def _photos(session: AsyncSession, run: MockupRun) -> list[tuple[MockupPho
         if photo.template_id not in names:
             template = await session.get(MockupTemplate, photo.template_id)
             names[photo.template_id] = template.name if template is not None else photo.name
+            _BACK_FALLBACK[photo.template_id] = template.back_without_design if template is not None else "front"
         found.append((photo, names[photo.template_id]))
     return found
+
+
+#: Each template's "Back area without a back design", read with its photos for a run.
+_BACK_FALLBACK: dict[uuid.UUID, str] = {}
 
 
 def design_base(design: MockupDesign) -> str:
@@ -322,10 +421,13 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
     try:
         areas = {p.id: photo_print_areas(p) for p, _ in photos}
         images: dict[uuid.UUID, Any] = {}
+        backs: dict[uuid.UUID, Any] = {}
         usable: list[MockupDesign] = []
         for design in designs:
             try:
                 images[design.id] = await asyncio.to_thread(mockups.load_design, storage.get(design.design_key or ""))
+                if design.back_key:
+                    backs[design.id] = await asyncio.to_thread(mockups.load_design, storage.get(design.back_key))
                 usable.append(design)
             except (mockups.MockupError, ImageProcessingError, FileNotFoundError) as exc:
                 logger.info("mockup design %s could not be used: %s", design.id, exc)
@@ -341,19 +443,26 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
             garments = areas[photo.id]
             if not garments:
                 continue
+            roles = photo_area_roles(photo)
+            fallback = _BACK_FALLBACK.get(photo.template_id, "front")
             maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
-            if job.garment_mode == "order" and len(garments) > 1:
+            # A front & back photo always shows one design, front and back.
+            if job.garment_mode == "order" and len(garments) > 1 and photo.layout != "front_back":
                 groups = [usable[i:i + len(garments)] for i in range(0, len(usable), len(garments))]
             else:
                 groups = [[d] for d in usable]
             for group in groups:
-                if len(group) == 1 and job.garment_mode != "order":
-                    placements = [(images[group[0].id], a) for a in garments]
+                if len(group) == 1:
+                    chosen = [(group[0], a, r) for a, r in zip(garments, roles)]
                 else:
-                    placements = [(images[d.id], a) for d, a in zip(group, garments)]
+                    chosen = [(d, a, r) for d, a, r in zip(group, garments, roles)]
+                placements = [(img, a) for d, a, r in chosen
+                              if (img := design_for(r, images[d.id], backs.get(d.id), fallback)) is not None]
+                if not placements:
+                    continue
                 try:
                     jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:

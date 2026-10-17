@@ -119,7 +119,9 @@ async def test_copy_to_other_photos_gives_each_its_own_check(mw, monkeypatch) ->
     res = await mw["a"].post(f"/api/mockup-photos/{source['id']}/copy", json={"photo_ids": [t["id"] for t in targets]})
     assert res.status_code == 200, res.text
     for photo in res.json():
-        assert photo["areas"][0]["print_area"] == AREA and photo["areas"][0]["source"] == "copied"
+        # Placed by each photo's own garment: the same tee in another colour, so (nearly) the same place.
+        assert all(abs(p - q) < 0.01 for c, d in zip(photo["areas"][0]["print_area"], AREA) for p, q in zip(c, d))
+        assert photo["areas"][0]["source"] == "copied"
         assert (photo["size"], photo["fold_strength"]) == (0.75, 0.3)
         # Each copy is shown on its own photo and waits for its own "Looks right".
         assert photo["needs_check"] and not photo["confirmed"]
@@ -139,9 +141,9 @@ async def test_copy_to_other_photos_gives_each_its_own_check(mw, monkeypatch) ->
 async def test_add_area_finds_the_tapped_garment_alone_in_the_order_of_the_taps(mw, monkeypatch) -> None:  # noqa: F811
     guard = _NoCalls(monkeypatch)
     tee = await _new_template(mw, "Two tees")
-    # Two garments in one photo: the seller says so (one area per photo otherwise).
-    assert (await mw["a"].patch(f"/api/mockup-templates/{tee["id"]}", json={"several_garments": True})).status_code == 200
     photo = await _photo(mw, tee["id"], "Two tees", blank=_tees(), confirm=False)
+    # Two garments in one photo: this photo's layout (one area per photo otherwise).
+    photo = (await mw["a"].patch(f"/api/mockup-photos/{photo['id']}", json={"layout": "several"})).json()
     left, right = sorted(photo["areas"], key=lambda a: _centre(a["print_area"])[0])
     # The seller starts from nothing: taps the right tee first, then the left one.
     first = await mw["a"].post(f"/api/mockup-photos/{photo['id']}/find", json={"x": 0.75, "y": 0.45, "areas": []})

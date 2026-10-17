@@ -62,6 +62,25 @@ def personal_key(kind: str | None, layout: str | None) -> str:
 def ratios_for(kind: str | None, view: str | None = None, layout: str | None = None,
                table: dict[str, dict[str, float]] | None = None,
                personal: dict[str, dict[str, float]] | None = None) -> tuple[dict[str, float], str]:
+    """The ratios for a garment (``_front_ratios``); a back is printed larger and closer to its
+    collar (BACK): the same aspect, BACK["width"] times as wide, its top BACK["top"] chest
+    widths below the back collar."""
+    ratios, source = _front_ratios(kind, view, layout, table, None if view == "back" else personal)
+    if view == "back":
+        return ({"width": round(ratios["width"] * BACK["width"], 4), "top": BACK["top"], "aspect": ratios["aspect"],
+                 "n": ratios.get("n", 0)}, f"{source} (back)")
+    return ratios, source
+
+
+#: The back print: no PSD template in the seller's set shows a back, so these follow common
+#: print practice: a back print is about a tenth wider than the front one and sits closer to
+#: its collar (the back neckline is higher than the front's dip).
+BACK = {"width": 1.12, "top": 0.12}
+
+
+def _front_ratios(kind: str | None, view: str | None = None, layout: str | None = None,
+                  table: dict[str, dict[str, float]] | None = None,
+                  personal: dict[str, dict[str, float]] | None = None) -> tuple[dict[str, float], str]:
     """The ratios for a garment and the group they come from. The seller's own placement for
     this type and layout (``personal``, from ``personal_table``) comes first. Otherwise the
     template standard: no template shows a back or a hoodie: a back uses its type's front
@@ -72,7 +91,7 @@ def ratios_for(kind: str | None, view: str | None = None, layout: str | None = N
         if mine and mine.get("n", 0) >= PERSONAL_MIN:
             # Blended with the standard by how many photos it comes from (n / (n + PRIOR)):
             # a seller's first photos move the suggestion part of the way, ten nearly all.
-            base, _ = ratios_for(kind, view, layout, table)
+            base, _ = _front_ratios(kind, view, layout, table)
             k = mine["n"] / (mine["n"] + PERSONAL_PRIOR)
             blended = {r: round(k * mine[r] + (1 - k) * base[r], 4) for r in ("width", "top", "aspect")}
             return {**blended, "n": mine["n"]}, f"yours: {personal_key(kind, layout)}"
