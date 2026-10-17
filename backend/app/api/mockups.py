@@ -46,7 +46,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.pipeline import grouping, mockup_sample, mockups, skus, upload_retention
+from app.pipeline import grouping, mockup_sample, mockups, placement, skus, upload_retention
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
@@ -130,6 +130,9 @@ class PhotoOut(BaseModel):
     view: str = "front"
     #: Every print area, in the seller's order.
     areas: list[AreaOut] = Field(default_factory=list)
+    #: The suggestion was built from the seller's own placement, learnt from this many of
+    #: their confirmed photos (None: the template standard).
+    own_placement: int | None = None
 
 
 class TemplateOut(BaseModel):
@@ -140,6 +143,23 @@ class TemplateOut(BaseModel):
     #: Ready photos not confirmed yet (shown as "Needs your check").
     needs_check: int = 0
     confirmed: int = 0
+    #: Its suggestions use the seller's own placement, from this many photos (None: the standard).
+    own_placement: int | None = None
+
+
+class PlacementGroupOut(BaseModel):
+    key: str
+    label: str
+    photos: int
+    #: Used for new photos (enough photos: ``print_rule.PERSONAL_MIN``).
+    in_use: bool
+
+
+class PlacementOut(BaseModel):
+    """The seller's own print placement, learnt from the photos they confirmed."""
+
+    photos: int = 0
+    groups: list[PlacementGroupOut] = Field(default_factory=list)
 
 
 class TemplateIn(BaseModel):
@@ -341,7 +361,7 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
         confidence=p.print_area_confidence, analysis_note=analysis.get("note"),
         confirmed=p.confirmed_at is not None, needs_check=ready and p.confirmed_at is None,
         occlusion=p.occlusion, has_occluder=p.occluder_key is not None, has_front_brush=p.occluder_manual_key is not None,
-        view=p.view or "front",
+        view=p.view or "front", own_placement=placement.built_from_own(p) if ready else None,
         areas=[
             AreaOut(print_area=g["print_area"], detected_area=g.get("detected_area") or g["print_area"],
                     source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"))
@@ -352,8 +372,26 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
 
 def _template_out(t: MockupTemplate, photos: list[MockupPhoto]) -> TemplateOut:
     out = [_photo_out(p) for p in photos]
+    own = [p.own_placement for p in out if p.own_placement]
     return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out,
-                       needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out))
+                       needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out),
+                       own_placement=max(own) if own else None)
+
+
+def _same_quad(a: Any, b: Any) -> bool:
+    try:
+        return bool(a and b) and all(abs(p[0] - q[0]) < 1e-3 and abs(p[1] - q[1]) < 1e-3 for p, q in zip(a, b, strict=True))
+    except (TypeError, ValueError, IndexError):
+        return False
+
+
+def _kept(earlier: list[dict[str, Any]], suggested: Any) -> dict[str, Any]:
+    """What the analysis kept with a suggestion (its geometry and ratios), found by the
+    suggestion itself: the seller may have reordered the areas."""
+    for row in earlier:
+        if _same_quad(row.get("detected_area"), suggested):
+            return {k: row[k] for k in ("geometry", "ratios", "personal_n", "guards", "layout", "view") if k in row}
+    return {}
 
 
 def clean_name(value: str | None, fallback: str) -> str:
@@ -467,6 +505,27 @@ async def list_templates(
     session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
 ) -> list[TemplateOut]:
     return await _templates_out(session, tenant)
+
+
+@router.get("/mockup-placement", response_model=PlacementOut)
+async def get_placement(
+    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+) -> PlacementOut:
+    """The seller's own print placement, learnt from the photos they confirmed (theirs only)."""
+    return PlacementOut(**await placement.summary(session, tenant.id))
+
+
+@router.delete("/mockup-placement", response_model=PlacementOut)
+async def reset_placement(
+    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+) -> PlacementOut:
+    """"Reset": forget the seller's placement; new photos are suggested from the standard
+    again. Areas already on photos stay as they are."""
+    removed = await placement.reset(session, tenant.id)
+    audit.destructive(session, "mockup_placement.reset", actor=tenant, tenant_id=tenant.id, shop_id=None,
+                      object_id=str(tenant.id), rows=removed)
+    await session.commit()
+    return PlacementOut()
 
 
 @router.post("/mockup-templates", response_model=TemplateOut, status_code=201)
@@ -655,6 +714,7 @@ async def save_areas(
         before = earlier[i] if i < len(earlier) else {}
         suggested = _clean(area.detected_area) if area.detected_area else (before.get("detected_area") or corners)
         rows.append({
+            **_kept(earlier, suggested),
             "print_area": corners, "detected_area": suggested, "source": area.source,
             "confidence": before.get("confidence") if area.source in ("default", "seller") else None,
             "kind": area.kind or before.get("kind"),
@@ -666,6 +726,7 @@ async def save_areas(
         photo.size = round(body.size, 3)
     photo.confirmed_at = datetime.now(timezone.utc) if body.confirm else None
     photo.version += 1
+    await placement.record(session, photo)  # "Looks right" teaches the seller's placement
     await session.commit()
     return _photo_out(photo)
 
@@ -684,7 +745,9 @@ async def find_garment(
     blank = storage.get(photo.image_key or "")
     ground = storage.get(photo.foreground_key) if photo.foreground_key else storage.get(photo.mask_key or "")
     occluder = storage.get(photo.occluder_key) if photo.occluder_key else None
-    found = await asyncio.to_thread(work.find_at, blank, ground, occluder, (body.x, body.y), others, photo.name)
+    personal = await placement.personal(session, tenant.id)
+    found = await asyncio.to_thread(work.find_at, blank, ground, occluder, (body.x, body.y), others, photo.name,
+                                    personal)
     if found is not None:
         corners, confidence, kind = found
         return FindOut(found=True, print_area=corners, confidence=confidence, kind=kind)
@@ -726,13 +789,15 @@ async def copy_areas(
                                                    (source.width, source.height or 1), (target.width, target.height or 1))
                 except mockups.MockupError:
                     placed = [list(c) for c in g["print_area"]]  # a degenerate suggestion: the same shares
-            rows.append({"print_area": placed, "detected_area": suggested or placed,
+            rows.append({**(_kept(own, suggested) if suggested else {}),
+                         "print_area": placed, "detected_area": suggested or placed,
                          "source": "copied", "confidence": None, "kind": g.get("kind")})
         target.garments = rows
         target.print_area, target.print_area_source = rows[0]["print_area"], "seller"
         target.size, target.fold_strength = source.size, source.fold_strength
         target.confirmed_at = None
         target.version += 1
+        await placement.record(session, target)  # not confirmed any more: nothing learnt from it
         out.append(target)
     await session.commit()
     return [_photo_out(p) for p in out]
@@ -754,6 +819,7 @@ async def confirm_photos(
         if photo.status == "ready" and photo_areas(photo):
             photo.confirmed_at = now
             photo.version += 1
+            await placement.record(session, photo)
     await session.commit()
     return _template_out(template, await _photos_of(session, template.id))
 

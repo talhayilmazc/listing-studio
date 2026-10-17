@@ -6,6 +6,7 @@ import type {
   MockupDesign,
   MockupPhoto,
   MockupRun,
+  MockupPlacement,
   MockupTemplate,
   MockupZip,
   Checklist,
@@ -438,6 +439,9 @@ export const api = {
   copyMockupAreas: (id: string, photoIds: string[], fit = true) =>
     req<MockupPhoto[]>(`/mockup-photos/${id}/copy`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds, fit }) }),
   /** "Confirm selected": these photos' areas confirmed as they are. */
+  mockupPlacement: () => req<MockupPlacement>("/mockup-placement"),
+  /** Forget the seller's own placement: new photos are suggested from the standard again. */
+  resetMockupPlacement: () => req<MockupPlacement>("/mockup-placement", { method: "DELETE" }),
   confirmMockupPhotos: (templateId: string, photoIds: string[]) =>
     req<MockupTemplate>(`/mockup-templates/${templateId}/confirm`, { method: "POST", body: JSON.stringify({ photo_ids: photoIds }) }),
   /** The "Keep in front" brush: a gray PNG (white in front, black not, mid gray as found). */

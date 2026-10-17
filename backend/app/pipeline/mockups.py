@@ -216,13 +216,13 @@ def _from_numpy(arr):  # noqa: ANN001, ANN202 - numpy uint8 (h, w) -> pyvips one
 _ANALYSIS = threading.Lock()
 
 
-def _analyse(rgb, mask, runner: Any, saliency: Any = "default", name: str = ""):  # noqa: ANN001, ANN202
+def _analyse(rgb, mask, runner: Any, saliency: Any = "default", name: str = "", personal: Any = None):  # noqa: ANN001, ANN202
     """The template's analysis, one at a time per process (``_ANALYSIS``); never raises."""
     with _ANALYSIS:
-        return _analyse_one(rgb, mask, runner, saliency, name)
+        return _analyse_one(rgb, mask, runner, saliency, name, personal)
 
 
-def _analyse_one(rgb, mask, runner: Any, saliency: Any = "default", name: str = ""):  # noqa: ANN001, ANN202
+def _analyse_one(rgb, mask, runner: Any, saliency: Any = "default", name: str = "", personal: Any = None):  # noqa: ANN001, ANN202
     """The template's analysis at its working size; never raises. Every garment is found
     by pipeline/garments.py (bundled models); when that finds none or cannot run, the
     earlier analysis (pipeline/mockup_vision.py ``analyse``) is used."""
@@ -247,7 +247,7 @@ def _analyse_one(rgb, mask, runner: Any, saliency: Any = "default", name: str = 
         try:
             scale = min(1.0, garments_.WORK / max(rgb.width, rgb.height))
             small = rgb.resize(scale) if scale < 1.0 else rgb
-            found = vision.analyse_garments(_to_numpy(small), runner, saliency, name)
+            found = vision.analyse_garments(_to_numpy(small), runner, saliency, name, personal)
             if found is not None:
                 return found
         except Exception:  # an unusual photo or a model fault: the earlier analysis still works
@@ -269,7 +269,8 @@ def _full_size(small, width: int, height: int):  # noqa: ANN001, ANN202
     return image.resize(width / image.width, vscale=height / image.height, kernel="linear").cast("uchar")
 
 
-def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default", name: str = "") -> PreparedBlank:
+def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default", name: str = "",
+                  personal: dict[str, dict[str, float]] | None = None) -> PreparedBlank:
     """The template for a blank garment photo (once, in the worker): its outline,
     print area, and what is in front of the garment. ``runner``: the analysis
     models (pipeline/mockup_vision.py); "default" the bundled ones, None none."""
@@ -291,7 +292,7 @@ def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default
             source = "background"
     if mask is None:
         mask = (pyvips.Image.black(rgb.width, rgb.height) + 255).cast("uchar")
-    analysis = _analyse(rgb, mask, runner, saliency, name)
+    analysis = _analyse(rgb, mask, runner, saliency, name, personal)
     occluder = None
     if analysis.garment is not None and source != "alpha":  # the photo's own transparency is exact
         mask, source = _full_size(analysis.garment, rgb.width, rgb.height), "segmentation"

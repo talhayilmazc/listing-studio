@@ -122,6 +122,15 @@ export function designNote(design: { has_alpha: boolean }): string | null {
   return design.has_alpha ? null : "No transparent background: it is printed as a rectangle.";
 }
 
+/** On a template whose suggestions were built from the seller's own confirmed photos. */
+export function ownPlacementLine(n: number): string {
+  return `Using your own placement from ${n} ${n === 1 ? "photo" : "photos"}`;
+}
+
+/** What "Reset" asks before forgetting the seller's placement. */
+export const RESET_PLACEMENT =
+  "Forget your own placement? New photos are suggested from the standard placement again. Areas already on your photos stay as they are.";
+
 /** "Apply this area to selected" and "Confirm selected", as one line about what happened. */
 export function appliedLine(n: number): string {
   return `Placed on ${n} ${n === 1 ? "photo" : "photos"} by each one's own garment. Check them, then press Confirm selected.`;

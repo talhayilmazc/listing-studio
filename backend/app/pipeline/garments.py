@@ -31,6 +31,9 @@ from app.pipeline import print_rule
 
 logger = logging.getLogger(__name__)
 
+#: The seller's own placement ratios (``print_rule.personal_table``); None = the template standard.
+Personal = dict[str, dict[str, float]] | None
+
 SALIENCY = "isnet-general-use.onnx"  # the name pipeline/fetch_models.py writes
 #: Two distance-transform centres further apart than this many half-widths are two garments.
 SPLIT_SEPARATION = 1.5
@@ -53,10 +56,24 @@ WORN = {
 #: Hoodies (calibrated on the seller's hoodie photos): the print starts this far below the
 #: collar (under the hood and drawstrings) and stops above the pocket.
 HOODIE = {"below_hood": 0.14, "pocket_below_collar": 0.66}
-#: A flat garment's collar point below the top of its region, in chest widths.
-FLAT = {"collar_drop": {"folded": 0.37, "flat": 0.267},
+#: A hood is a real mass of fabric beside the neck, above the collar line. Measured on the
+#: seller's worn photos (evals/geometry_eval.py, dev set): beside a worn tee's or
+#: sweatshirt's neck the fabric rises at most 0.27 shoulder spans above the collar point and
+#: covers at most 9% of the band there; a worn hood rose 0.44 and covered 47%. The old test,
+#: anchored to the pose's shoulder line instead of the collar, read ordinary shoulder fabric
+#: as a hood and made worn tees "hoodies" (their print came out far too small).
+HOOD = {"rise": 0.33, "mass": 0.25, "band": (0.15, 0.8), "beside": (0.10, 0.45)}
+#: Pose shoulders closer together than the garment's body width / this are not the wearer's
+#: shoulders (a cropped head confuses the pose): the chest is then measured on the region alone.
+POSE_IMPLAUSIBLE = 3.0
+#: A flat garment's collar point below the top of its region, in chest widths. Recalibrated on
+#: the seller's dev photos (evals/geometry_eval.py): the collar came out 0.034 chest widths
+#: low on folded and flat garments, and the width at the armpits read 1.12x (folded: the
+#: folded panel bulges there) and 1.04x (flat) the marked chest (medians).
+FLAT = {"collar_drop": {"folded": 0.34, "flat": 0.234},
         "armpit_below_collar": {"folded": 0.115, "flat": 0.336},
-        "ribbing": {"folded": 0.279, "flat": 0.206},
+        "ribbing": {"folded": 0.249, "flat": 0.173},
+        "chest_scale": {"folded": 0.89, "flat": 0.96},
         "sleeve_ratio_flat": 1.4,
         "neighbour_cap": 0.95}  # collar point below the region's neckline edge
 
@@ -305,7 +322,7 @@ def _persons(probs: np.ndarray) -> list[dict[str, Any]]:
 
 
 def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, runner: Any,
-          persons: list[dict[str, Any]], hint: str | None) -> list[Found]:
+          persons: list[dict[str, Any]], hint: str | None, personal: Personal = None) -> list[Found]:
     h, w = probs.shape[:2]
     person_any = (probs[..., HAIR] + probs[..., BODY] + probs[..., FACE] + probs[..., CLOTHES]) > 0.5
     xs_all = [p["x"] for p in persons]
@@ -331,8 +348,9 @@ def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, r
         span = math.dist(left, right)
         if span < 0.06 * w:
             continue
-        # Facing the camera: the person's left shoulder (11) is on the right of the photo.
-        view = "front" if (p["face"] and a[0] > b[0]) else "back"
+        # Facing the camera: the person's left shoulder (11) is on the right of the photo. A
+        # face says front; without one (a cropped head) the shoulders' order decides.
+        view = "front" if (p["face"] and a[0] > b[0]) or (p.get("cropped") and a[0] > b[0]) else "back"
         mid = ((left[0] + right[0]) / 2, (left[1] + right[1]) / 2)
         chest = WORN["chest_per_span"] * span
         drop = WORN["armpit_drop"] * span
@@ -359,11 +377,12 @@ def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, r
 
     for region, f, m in zip(regions, frames_, meta):
         hull = _hull(region) if region.any() else region
-        # A name that says tee or sweatshirt is the seller's own word: no hood is looked for.
-        hood = m["kind"] == "hoodie" or (hint not in ("t-shirt", "sweatshirt") and _has_hood(region, probs, m["shoulders"]))
-        kind = "hoodie" if hood else m["kind"]
         hair = probs[..., HAIR] > 0.5  # the chest is measured across hair over it, not arms beside it
         neck, armpits, how = _worn_landmarks(region | (hair & hull), probs, m["shoulders"], m["neck"])
+        # A name that says tee or sweatshirt is the seller's own word: no hood is looked for.
+        hood_mass = _hood_mass(region, probs, m["shoulders"], neck)
+        hood = m["kind"] == "hoodie" or (hint not in ("t-shirt", "sweatshirt") and _is_hood(hood_mass))
+        kind = "hoodie" if hood else m["kind"]
         if hood and m["view"] == "back":
             # The hood hangs over the upper back: the back collar is at the shoulder line,
             # not at the hood's top edge.
@@ -373,7 +392,13 @@ def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, r
             if dy > 0:
                 neck = (neck[0], shoulder_y)
                 armpits = ((armpits[0][0], armpits[0][1] + dy), (armpits[1][0], armpits[1][1] + dy))
-        f2 = print_rule.frame(neck, armpits, "on a person")
+        lean = _body_lean(m["points"])
+        hem_centre = None
+        if lean is not None:  # the wearer leans: the print follows the body's own axis
+            t = math.radians(lean)
+            reach = math.dist(*armpits)
+            hem_centre = (neck[0] - math.sin(t) * reach, neck[1] + math.cos(t) * reach)
+        f2 = print_rule.frame(neck, armpits, "on a person", hem_centre)
         bottom = _lower_edge(region, f2, 0.35)
         top = None
         if hood:
@@ -383,12 +408,43 @@ def _worn(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, r
                 pocket = _pocket(lab, region, f2) or f2.to_photo(0, HOODIE["pocket_below_collar"] * chest)
                 if bottom is None or f2.depth(pocket) < f2.depth(bottom):
                     bottom = pocket
-        found = _finish(region, hair_acc, neck, armpits, bottom, kind, m["view"], "on a person", top=top)
+        found = _finish(region, hair_acc, neck, armpits, bottom, kind, m["view"], "on a person", top=top,
+                        hem_centre=hem_centre, personal=personal)
+        if lean is not None:
+            found.info["lean"] = round(lean, 1)
         found.confidence = round(float(min(1.0, m["presence"] * m["vis"] * found.info.get("on_region", 1.0)
-                                           * (1.0 if how == "region" else 0.85))), 3)
-        found.info.update({"method": "pose", "shoulders": m["shoulders"], "chest_from": how})
+                                           * {"region": 1.0, "skin": 0.85}.get(how, GUARD_PENALTY))), 3)
+        found.info.update({"method": "pose", "shoulders": m["shoulders"], "chest_from": how, "hood": hood_mass})
         out.append(found)
     return out
+
+
+#: A wearer leans (the print is turned with the body) only when the pose's shoulder line, hip
+#: line and shoulder-to-hip axis all lean the same way by more than print_rule.UPRIGHT_DEGREES
+#: and agree within LEAN_AGREE degrees: one landmark pair alone tilts with a raised arm or a
+#: turned hip.
+LEAN_AGREE = 5.0
+
+
+def _body_lean(points) -> float | None:  # noqa: ANN001
+    """Degrees (clockwise) the wearer's torso leans, or None when upright or unsure."""
+    if points is None or len(points) < 25 or min(points[i][2] for i in (11, 12, 23, 24)) < 0.5:
+        return None
+    sl, sr = sorted([(points[11][0], points[11][1]), (points[12][0], points[12][1])])
+    hl, hr = sorted([(points[23][0], points[23][1]), (points[24][0], points[24][1])])
+    shoulders = math.degrees(math.atan2(sr[1] - sl[1], sr[0] - sl[0]))
+    hips = math.degrees(math.atan2(hr[1] - hl[1], hr[0] - hl[0]))
+    sm = ((sl[0] + sr[0]) / 2, (sl[1] + sr[1]) / 2)
+    hm = ((hl[0] + hr[0]) / 2, (hl[1] + hr[1]) / 2)
+    if hm[1] <= sm[1]:
+        return None
+    axis = math.degrees(math.atan2(-(hm[0] - sm[0]), hm[1] - sm[1]))
+    angles = (shoulders, hips, axis)
+    if min(abs(a) for a in angles) <= print_rule.UPRIGHT_DEGREES or len({a > 0 for a in angles}) > 1:
+        return None
+    if max(angles) - min(angles) > LEAN_AGREE:
+        return None
+    return float(np.median(angles))
 
 
 def _worn_landmarks(region: np.ndarray, probs: np.ndarray, shoulders, neck_guess):  # noqa: ANN001, ANN202
@@ -430,36 +486,68 @@ def _worn_landmarks(region: np.ndarray, probs: np.ndarray, shoulders, neck_guess
     # the chest: the body's width at the armpit depth (iterated once: depth depends on it)
     chest = WORN["chest_per_span"] * span
     axis_x = mx
+    unit = span  # the pose's shoulder span, unless it is not the wearer's (below)
+    plausible = True
     for _ in range(2):
         arm_y = neck_y + WORN["armpits_below_collar"] * chest
-        samples = [body_width(arm_y + d * span) for d in (0.1, 0.2, 0.3)]
+        samples = [body_width(arm_y + d * unit) for d in (0.1, 0.2, 0.3)]
         widths = [s_[0] for s_ in samples if s_[0] > 0]
         if widths:
             chest = float(np.median(widths))
             axis_x = float(np.median([s_[1] for s_ in samples if s_[0] > 0]))
-        chest = min(max(chest, 1.05 * span), WORN["max_chest_per_span"] * span)
-    if abs(axis_x - mx) > 0.25 * span:
+        if chest > POSE_IMPLAUSIBLE * span:
+            # The body is far wider than the pose's shoulders: the pose is not the wearer's
+            # (a cropped head); the body's own width is the chest. (Arms in long sleeves
+            # touching the body also widen it: on the seller's photos one sweatshirt came out
+            # 1.45x too wide this way, against three cropped-head photos put right.)
+            plausible = False
+            unit = chest / WORN["chest_per_span"]
+        elif plausible:
+            chest = min(max(chest, 1.05 * span), WORN["max_chest_per_span"] * span)
+    if plausible and abs(axis_x - mx) > 0.25 * span:
         axis_x = mx
     arm_y = neck_y + WORN["armpits_below_collar"] * chest
     armpits = ((axis_x - chest / 2, arm_y), (axis_x + chest / 2, arm_y))
-    return (axis_x, neck_y), armpits, "region" if top is not None else "skin"
+    how = ("region" if top is not None else "skin") if plausible else "region, pose implausible"
+    return (axis_x, neck_y), armpits, how
 
 
-def _has_hood(region: np.ndarray, probs: np.ndarray, shoulders) -> bool:  # noqa: ANN001
-    """A hood: the garment rises around the head, above the shoulder line, on both
-    sides of the face (or over the head from behind)."""
+def _hood_mass(region: np.ndarray, probs: np.ndarray, shoulders, neck) -> dict[str, float]:  # noqa: ANN001
+    """How much fabric lies beside the neck above the collar line, on each side: how high it
+    rises above the collar point and how much of the band HOOD["band"] (in shoulder spans
+    above the collar) it covers, HOOD["beside"] spans off the garment's axis. Fabric only:
+    hair, skin and face are not counted (long hair beside the face is not a hood)."""
     h, w = region.shape
     (lx, ly), (rx, ry) = shoulders
-    span = math.dist((lx, ly), (rx, ry))
-    mx, my = (lx + rx) / 2, (ly + ry) / 2
-    x0, x1 = int(max(0, mx - 0.45 * span)), int(min(w, mx + 0.45 * span))
-    y0, y1 = int(max(0, my - 0.55 * span)), int(max(0, my - 0.08 * span))
-    if x1 - x0 < 4 or y1 - y0 < 4:
-        return False
-    # Fabric only: long hair falling beside the face is not a hood (it made worn tees "hoodies").
-    band = region[y0:y1, x0:x1] & ~((probs[y0:y1, x0:x1, FACE] + probs[y0:y1, x0:x1, BODY] + probs[y0:y1, x0:x1, HAIR]) > 0.5)
-    left, right = band[:, : band.shape[1] // 2].mean(), band[:, band.shape[1] // 2:].mean()
-    return bool(min(left, right) > 0.3)
+    span = max(math.dist((lx, ly), (rx, ry)), 1.0)
+    ax, ny = neck
+    fabric = region & ~((probs[..., FACE] + probs[..., BODY] + probs[..., HAIR]) > 0.5)
+    out: dict[str, float] = {}
+    lo, hi = HOOD["band"]
+    near, far = HOOD["beside"]
+    for side, sign in (("left", -1), ("right", 1)):
+        x0, x1 = sorted((int(round(ax + sign * near * span)), int(round(ax + sign * far * span))))
+        x0, x1 = max(0, x0), min(w, x1)
+        if x1 - x0 < 2:
+            out[f"{side}_rise"], out[f"{side}_mass"] = 0.0, 0.0
+            continue
+        cols = fabric[:, x0:x1]
+        rows = np.nonzero(cols.mean(axis=1) > 0.3)[0]
+        rows = rows[(rows > ny - 1.2 * span) & (rows < ny + 0.5 * span)]
+        out[f"{side}_rise"] = round(float((ny - rows.min()) / span), 3) if len(rows) else 0.0
+        y0, y1 = int(max(0, ny - hi * span)), int(max(0, ny - lo * span))
+        band = cols[y0:y1]
+        out[f"{side}_mass"] = round(float(band.mean()), 3) if band.size else 0.0
+    return out
+
+
+def _is_hood(mass: dict[str, float]) -> bool:
+    """A hood: on at least one side of the neck the fabric rises HOOD["rise"] shoulder spans
+    above the collar and fills HOOD["mass"] of the band (a head turned or hair over one side
+    can hide the other), and on the other side it at least reaches above the collar."""
+    sides = [("left", "right"), ("right", "left")]
+    return any(mass[f"{a}_rise"] >= HOOD["rise"] and mass[f"{a}_mass"] >= HOOD["mass"] and mass[f"{b}_rise"] > 0.0
+               for a, b in sides)
 
 
 def _pocket(lab: np.ndarray, region: np.ndarray, f: print_rule.Frame) -> tuple[float, float] | None:
@@ -523,7 +611,8 @@ def _sleeve_kind(points: np.ndarray, probs: np.ndarray) -> str:
 # --- flat garments -----------------------------------------------------------------------------
 
 
-def _flat(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, hint: str | None) -> list[Found]:
+def _flat(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, hint: str | None,
+          personal: Personal = None) -> list[Found]:
     """Garments lying flat (single, folded or several): colour clusters of the
     foreground, their garment-sized parts, a region per part."""
     from scipy import ndimage as ndi
@@ -580,18 +669,22 @@ def _flat(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, h
         if busy > 2.5:  # a patterned region (a skirt, a rug) is not a print surface
             rejected.append((g, region, busy))
             continue
-        found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"])
+        found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"],
+                        personal=personal)
         found.confidence = g["confidence"] * found.info.get("on_region", 1.0)
         found.info["method"] = "outline"
         found.notes.extend(g["notes"])
+        found.info["colour"] = [round(float(c), 1) for c in np.median(lab[region], axis=0)]
         found.info.update({"top_point": g["top"], "region_chest": g["chest"], "tilt": g["angle"],
                            "neckline": g["neckline"], "layout_found": g["layout"],
                            "sleeve_ratio": g["sleeve_ratio"], "fill": g["fill"], "aspect": g["aspect"]})
         out.append(found)
-    out = _cap_by_neighbours(out, hair_acc)
+    out = _drop_props(out)
+    out = _cap_by_neighbours(out, hair_acc, personal)
     if not out and rejected:  # nothing garment-shaped: the best candidate, flagged
         g, region, busy = max(rejected, key=lambda t: t[1].sum())
-        found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"])
+        found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"],
+                        personal=personal)
         found.confidence = min(0.4, g["confidence"])
         found.info["method"] = "outline"
         found.notes.append("unusual shape")
@@ -769,7 +862,8 @@ def _flat_landmarks(region: np.ndarray, hint: str | None, angle: float | None = 
             collar_v = neckline + FLAT["ribbing"][layout] * chest
             if not len(sleeve_rows):
                 va = collar_v + FLAT["armpit_below_collar"][layout] * chest
-    armpits = (to_photo(axis_u - chest / 2, va), to_photo(axis_u + chest / 2, va))
+    half = FLAT["chest_scale"][layout] * chest / 2
+    armpits = (to_photo(axis_u - half, va), to_photo(axis_u + half, va))
     neck = to_photo(axis_u, collar_v)
     f = print_rule.frame(neck, armpits, layout)
     bottom = _lower_edge(region, f, 0.35)
@@ -816,6 +910,16 @@ def _rect_fill(region: np.ndarray) -> float:
     return float(region.sum() / best) if best else 0.0
 
 
+#: A region filling this much of its minimum-area rectangle is a folded garment whose
+#: rectangle gives its tilt exactly. Measured on the seller's dev photos: the folded tees
+#: filling 0.80-0.91 had their rectangle within 1.1 degrees of the marked tilt; below 0.75
+#: (folded sweatshirts showing sleeves, overlapped tees) the rectangle was off by 5-28.
+RECT_FILL = 0.78
+#: A mirror match (intersection over union of the upper garment and its mirror image) this
+#: good says the garment is symmetric about the axis found.
+MIRROR_CLEAR = 0.88
+
+
 def _orientation(region: np.ndarray, folded: bool | None = None) -> float:
     """The garment's tilt in degrees (within +-35); 0 within ``print_rule.UPRIGHT_DEGREES``.
 
@@ -840,15 +944,10 @@ def _orientation(region: np.ndarray, folded: bool | None = None) -> float:
         if area < rect[0]:
             rect = (area, math.degrees(ang))
     fill = region.sum() / rect[0] if rect[0] else 0.0
-    if folded or (folded is None and fill > 0.86):
+    if folded or (folded is None and fill > RECT_FILL):
         deg = ((rect[1] + 45) % 90) - 45
         return 0.0 if abs(deg) <= print_rule.UPRIGHT_DEGREES else deg
     y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
-    # The upper part (collar, shoulders, sleeves) is symmetric even when the hem is
-    # knotted or folded under.
-    y1 = y0 + max(2, int(0.6 * (y1 - y0)))
-    region = region.copy()
-    region[y1:] = False
     side = max(y1 - y0, x1 - x0)
     pad = np.zeros((side * 2, side * 2), np.uint8)
     oy, ox = side - (y1 - y0) // 2, side - (x1 - x0) // 2
@@ -857,6 +956,14 @@ def _orientation(region: np.ndarray, folded: bool | None = None) -> float:
     best = (-1.0, 0.0)
     for deg in range(-25, 26, 1):
         r = np.asarray(small.rotate(deg, resample=Image.BILINEAR), np.float32) / 255
+        # The upper part (collar, shoulders, sleeves) is symmetric even when the hem is
+        # knotted or folded under; it is cut in the turned garment's own frame (cutting
+        # before turning cut a tilted garment slantwise and pulled its tilt to 0).
+        rows = np.nonzero(r.sum(1) > 0.5)[0]
+        if len(rows) < 2:
+            continue
+        r = r.copy()
+        r[rows[0] + max(2, int(0.6 * (rows[-1] - rows[0]))):] = 0
         cols = r.sum(0)
         if cols.sum() == 0:
             continue
@@ -865,19 +972,63 @@ def _orientation(region: np.ndarray, folded: bool | None = None) -> float:
         mirrored = np.roll(r[:, ::-1], shift, axis=1)
         score = float((np.minimum(r, mirrored)).sum() / max(np.maximum(r, mirrored).sum(), 1e-6))
         if score > best[0]:
-            best = (score, -deg)
+            best = (score, deg)  # turning it back by deg (PIL: counter-clockwise) makes it upright
     deg = float(best[1])
     if abs(deg) <= print_rule.UPRIGHT_DEGREES:
         return 0.0
-    # A garment overlapped by a neighbour is not symmetric any more: rotate only when the
-    # outline's own rectangle agrees (within 6 degrees) or the mirror match is clear.
+    # A garment overlapped by a neighbour, knotted or folded unevenly is not symmetric any
+    # more: rotate only when the mirror match is clear (MIRROR_CLEAR) and the outline's own
+    # rectangle agrees (within 6 degrees). On the seller's dev photos a clear match alone
+    # turned upright knotted tees by 11-18 degrees, and agreement alone turned folded
+    # sweatshirts (matches 0.76-0.83) by 7-12.
     rect_deg = ((rect[1] + 45) % 90) - 45
-    if abs(rect_deg - deg) <= 6.0 or best[0] >= 0.92:
+    if best[0] >= MIRROR_CLEAR and abs(rect_deg - deg) <= 6.0:
         return deg
     return 0.0
 
 
-def _cap_by_neighbours(found: list[Found], hair_acc: np.ndarray) -> list[Found]:
+#: Props lying beside a garment (a hat, jeans, a cap) are found as regions too. A region under
+#: PROP["share"] of the largest one's size is a prop when it is not garment-shaped: long like
+#: trousers (longer than PROP["long"] body widths) or, when nothing else in the photo is
+#: tee-shaped, without a neckline and of another colour than the largest garment (a second
+#: view of the same garment, as in a collage inset, has its colour). On the seller's dev
+#: photos this removed both hats, both jeans and the cap and kept every marked garment
+#: (several tees of a size keep each other). Among several tees, a region without a neckline
+#: under PROP["typical"] of the typical tee's size is a prop too (a hat beside a row of tees).
+PROP = {"share": 0.5, "long": 2.6, "colour": 15.0, "typical": 0.6}
+
+
+def _tee_shaped(f: Found) -> bool:
+    return f.info.get("neckline") is not None and f.info.get("aspect", 0.0) <= PROP["long"]
+
+
+def _drop_props(found: list[Found]) -> list[Found]:
+    if len(found) < 2:
+        return found
+    main = max(found, key=lambda f: int(f.region.sum()))
+    largest = int(main.region.sum())
+    shaped = sum(_tee_shaped(f) for f in found)
+    sizes = sorted(int(f.region.sum()) for f in found if _tee_shaped(f))
+    typical = sizes[len(sizes) // 2] if len(sizes) >= 2 else 0
+
+    def other_colour(f: Found) -> bool:
+        a, b = f.info.get("colour"), main.info.get("colour")
+        if a is None or b is None:
+            return True
+        return math.dist((0.5 * a[0], a[1], a[2]), (0.5 * b[0], b[1], b[2])) > PROP["colour"]
+
+    kept = []
+    for f in found:
+        small = f.region.sum() < PROP["share"] * largest
+        long_ = f.info.get("aspect", 0.0) > PROP["long"]
+        neckless = f.info.get("neckline") is None
+        if small and (long_ or (neckless and ((shaped < 2 and other_colour(f)) or f.region.sum() < PROP["typical"] * typical))):
+            continue
+        kept.append(f)
+    return kept
+
+
+def _cap_by_neighbours(found: list[Found], hair_acc: np.ndarray, personal: Personal = None) -> list[Found]:
     """Several garments side by side: a garment's chest is at most FLAT["neighbour_cap"]
     of the distance to the nearest garment in the same row (its region can run into a
     neighbour of the same colour). Calibrated: the marked chest is 0.86 of that distance
@@ -900,7 +1051,7 @@ def _cap_by_neighbours(found: list[Found], hair_acc: np.ndarray) -> list[Found]:
                 cx, cy = (ax + bx) / 2, (ay + by) / 2
                 k = cap / chest
                 armpits = ((cx + (ax - cx) * k, cy + (ay - cy) * k), (cx + (bx - cx) * k, cy + (by - cy) * k))
-                again = _finish(g.region, hair_acc, g.neck, armpits, g.bottom, g.kind, g.view, g.layout)
+                again = _finish(g.region, hair_acc, g.neck, armpits, g.bottom, g.kind, g.view, g.layout, personal=personal)
                 again.confidence, again.notes = g.confidence, g.notes + ["chest capped by a neighbour"]
                 again.info = {**g.info, **again.info}
                 g = again
@@ -911,12 +1062,12 @@ def _cap_by_neighbours(found: list[Found], hair_acc: np.ndarray) -> list[Found]:
 # --- the print area ----------------------------------------------------------------------------
 
 
-def _safe_top(region: np.ndarray, neck, armpits, layout: str):  # noqa: ANN001, ANN202
+def _safe_top(region: np.ndarray, neck, armpits, layout: str, hem_centre=None):  # noqa: ANN001, ANN202
     """The point the print must stay below: COLLAR_MARGIN chest widths under the
     garment's own top edge on its axis (the neckline), so a collar point estimated too
     high cannot put the print on the collar."""
     h, w = region.shape
-    f = print_rule.frame(neck, armpits, layout)
+    f = print_rule.frame(neck, armpits, layout, hem_centre)
     v = -0.6 * f.chest
     step = max(1.0, f.chest / 150)
     while v < 0.6 * f.chest:
@@ -927,61 +1078,198 @@ def _safe_top(region: np.ndarray, neck, armpits, layout: str):  # noqa: ANN001, 
     return None
 
 
+#: The hard guards every print area passes (``_finish``), in chest widths:
+#: * it stays on the garment: at most print_rule.fit's 2% off the region (hair, hands and
+#:   held things over the garment count as garment), shrunk from the side that spills, and
+#:   moved inward (never up toward the collar) when shrinking to MIN_WIDTH is not enough;
+#: * it never reaches above the collar point (nor the neckline edge less COLLAR_MARGIN);
+#: * its centre is never deeper than CENTRE_MAX below the collar (the chest band: a print's
+#:   centre sits about 0.6 below it on the seller's templates);
+#: * it is never narrower than MIN_WIDTH.
+#: Each guard that changes the area is named in ``info["guards"]`` and lowers the
+#: confidence by GUARD_PENALTY, so the photo asks for a check.
+def _clipped_area(corners: list[tuple[float, float]], w: int, h: int) -> float:
+    """The area of a polygon inside the photo (Sutherland-Hodgman against its edges)."""
+    pts = list(corners)
+    for inside, cut in (
+        (lambda p: p[0] >= 0, lambda a, b: (0.0, a[1] + (b[1] - a[1]) * (0 - a[0]) / (b[0] - a[0]))),
+        (lambda p: p[0] <= w, lambda a, b: (float(w), a[1] + (b[1] - a[1]) * (w - a[0]) / (b[0] - a[0]))),
+        (lambda p: p[1] >= 0, lambda a, b: (a[0] + (b[0] - a[0]) * (0 - a[1]) / (b[1] - a[1]), 0.0)),
+        (lambda p: p[1] <= h, lambda a, b: (a[0] + (b[0] - a[0]) * (h - a[1]) / (b[1] - a[1]), float(h))),
+    ):
+        out = []
+        for i, b in enumerate(pts):
+            a = pts[i - 1]
+            if inside(b):
+                if not inside(a):
+                    out.append(cut(a, b))
+                out.append(b)
+            elif inside(a):
+                out.append(cut(a, b))
+        pts = out
+        if not pts:
+            return 0.0
+    return abs(sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                   for i in range(len(pts)))) / 2
+
+
+MIN_WIDTH = 0.3
+#: Shrunk by more than this share to stay on the garment: the guard changed it.
+SHRINK_NOTED = 0.9
+CENTRE_MAX = 1.0
+GUARD_PENALTY = 0.6
+FIT_LIMIT = 0.02
+
+
 def _finish(region: np.ndarray, hair_acc: np.ndarray, neck, armpits, bottom, kind: str, view: str,  # noqa: ANN001
-            layout: str, top=None) -> Found:  # noqa: ANN001
-    """The print area from the landmarks (``print_rule``), kept on the region."""
+            layout: str, top=None, hem_centre=None, personal: Personal = None) -> Found:  # noqa: ANN001
+    """The print area from the landmarks (``print_rule``), kept on the region by the guards."""
     from scipy import ndimage as ndi
 
     h, w = region.shape
     hull = _hull(region) if region.any() else region
     allowed = ndi.binary_fill_holes(region | (hair_acc & hull))
-    safe = _safe_top(region, neck, armpits, layout)
-    if top is not None:
-        f = print_rule.frame(neck, armpits, layout)
-        if safe is None or f.depth(top) > f.depth(safe):
-            safe = top
-    area = print_rule.print_area(neck, armpits, kind=kind, view=view, layout=layout, bottom=bottom, top=safe)
+    f = print_rule.frame(neck, armpits, layout, hem_centre)
+    safe = _safe_top(region, neck, armpits, layout, hem_centre)
+    if top is not None and (safe is None or f.depth(top) > f.depth(safe)):
+        safe = top
+    area = print_rule.print_area(neck, armpits, kind=kind, view=view, layout=layout, bottom=bottom, top=safe,
+                                 hem_centre=hem_centre, personal=personal)
+    guards: list[str] = []
 
-    xs = [x for x, _ in area.corners]
-    ys = [y for _, y in area.corners]
-    pad = 4
-    x0, y0 = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
-    x1, y1 = min(w, int(max(xs)) + pad + 1), min(h, int(max(ys)) + pad + 1)
-    window = allowed[y0:y1, x0:x1]
-    wh, ww = window.shape
+    win: dict[str, Any] = {}
+
+    def use_window(pad: int) -> None:
+        """Measure inside the area's box plus ``pad`` pixels (tight while it only shrinks;
+        wide enough for every move when it is moved)."""
+        xs = [x for x, _ in area.corners]
+        ys = [y for _, y in area.corners]
+        x0, y0 = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
+        x1, y1 = min(w, int(max(xs)) + pad + 1), min(h, int(max(ys)) + pad + 1)
+        win.update(m=allowed[y0:y1, x0:x1], x0=x0, y0=y0)
+
+    use_window(4)
 
     def local(points: list[tuple[float, float]]) -> np.ndarray:
-        return _poly([(x - x0, y - y0) for x, y in points], wh, ww)
+        wh, ww = win["m"].shape
+        return _poly([(x - win["x0"], y - win["y0"]) for x, y in points], wh, ww)
 
-    def outside(corners: list[tuple[float, float]]) -> tuple[float, str]:
-        if ww < 2 or wh < 2:
-            return 1.0, "bottom"
+    def area_of(points: list[tuple[float, float]]) -> float:
+        return abs(sum(points[i][0] * points[(i + 1) % 4][1] - points[(i + 1) % 4][0] * points[i][1] for i in range(4))) / 2
+
+    def off_photo(corners: list[tuple[float, float]]) -> float:
+        full = area_of(corners)
+        return 1.0 - _clipped_area(corners, w, h) / full if full else 0.0
+
+    def spill(corners: list[tuple[float, float]]) -> float:
+        if min(win["m"].shape) < 2:
+            return 1.0
         m = local(corners)
         n = m.sum()
-        if not n:
-            return 0.0, "bottom"
-        share = float((m & ~window).sum() / n)
+        # off the garment, plus off the photo (the window holds every place the area can be)
+        return float((m & ~win["m"]).sum() / n) + off_photo(corners) if n else 0.0
+
+    def outside(corners: list[tuple[float, float]]) -> tuple[float, str]:
+        if min(win["m"].shape) < 2:
+            return 1.0, "bottom"
+        share = spill(corners)
+        if share <= FIT_LIMIT:  # nothing to shrink: which side spills does not matter
+            return share, "bottom"
         (ax, ay), (bx, by), _, (dx, dy) = corners
         thirds = {}
         for side, (ua, ub, va, vb) in {"left": (0, 1 / 3, 0, 1), "right": (2 / 3, 1, 0, 1), "bottom": (0, 1, 2 / 3, 1)}.items():
             pts = [(ax + (bx - ax) * uu + (dx - ax) * vv, ay + (by - ay) * uu + (dy - ay) * vv)
                    for uu, vv in ((ua, va), (ub, va), (ub, vb), (ua, vb))]
-            thirds[side] = int((local(pts) & ~window).sum())
+            thirds[side] = int((local(pts) & ~win["m"]).sum()) + off_photo(pts) * area_of(pts)
         return share, max(thirds, key=thirds.get)
 
+    def shifted(corners: list[tuple[float, float]], du: float, dv: float) -> list[tuple[float, float]]:
+        dx = f.across[0] * du + f.down[0] * dv
+        dy = f.across[1] * du + f.down[1] * dv
+        return [(x + dx, y + dy) for x, y in corners]
+
     before, _ = outside(area.corners)
-    corners, kept, after = print_rule.fit(area.corners, outside)
+    width0 = math.dist(area.corners[0], area.corners[1])
+    min_share = min(1.0, MIN_WIDTH * f.chest / max(width0, 1e-6))
+    corners, kept, after = print_rule.fit(area.corners, outside, limit=FIT_LIMIT, min_share=min_share)
+    if after > FIT_LIMIT:
+        # Still spilling at the smallest allowed size: move it inward (sideways, or down;
+        # never up toward the collar) to where it spills least.
+        best = (after, 0.0, 0.0)
+        use_window(int(0.22 * f.chest) + 4)  # reaches every move (at most 0.2 chest)
+        for du in np.linspace(-0.2, 0.2, 5) * f.chest:
+            for dv in np.linspace(0.0, 0.2, 4) * f.chest:
+                share = spill(shifted(corners, du, dv))
+                if share < best[0] - 1e-3:
+                    best = (share, du, dv)
+        if best[1] or best[2]:
+            corners = shifted(corners, best[1], best[2])
+            after = best[0]
+            guards.append("moved onto the garment")
+        if after > FIT_LIMIT:
+            guards.append("off the garment")
+    if kept[1] - kept[0] < SHRINK_NOTED:
+        guards.append("shrunk to stay on the garment")
+    # The collar: no corner above the collar point or the safe top.
+    limit = max(0.0, f.depth(safe)) if safe is not None else 0.0
+    rise = limit - min(f.depth(corners[0]), f.depth(corners[1]))
+    if rise > 0.5:
+        corners = shifted(corners, 0.0, rise)
+        guards.append("kept below the collar")
+    # The chest band: the centre no deeper than CENTRE_MAX chest widths below the collar.
+    centre = (sum(x for x, _ in corners) / 4, sum(y for _, y in corners) / 4)
+    deep = f.depth(centre) - CENTRE_MAX * f.chest
+    if deep > 0.5:
+        top_depth = min(f.depth(corners[0]), f.depth(corners[1]))
+        tall = math.dist(corners[0], corners[3])
+        room = max(0.0, CENTRE_MAX * f.chest - top_depth) * 2
+        scale = max(room / max(tall, 1e-6), MIN_WIDTH * f.chest / max(math.dist(corners[0], corners[1]), 1e-6))
+        if scale < 1.0:
+            corners = print_rule.keep_share(corners, (1 - scale) / 2, (1 + scale) / 2)
+        centre = (sum(x for x, _ in corners) / 4, sum(y for _, y in corners) / 4)
+        still = f.depth(centre) - CENTRE_MAX * f.chest
+        if still > 0.5:
+            corners = shifted(corners, 0.0, -still)
+        guards.append("kept in the chest band")
+    use_window(int(0.22 * f.chest) + 4)  # the final measure sees every move made
+    after = spill(corners)
     info = dict(area.info)
-    info.update({"outside_before": round(before, 3), "outside": round(after, 3), "kept": kept,
-                 "on_region": round(1.0 - min(1.0, after * 5), 3)})
+    info.update({"outside_before": round(before, 3), "outside": round(after, 3), "kept": kept, "guards": guards,
+                 "on_region": round((1.0 - min(1.0, after * 5)) * GUARD_PENALTY ** len(guards), 3)})
     return Found(corners, 0.0, kind, view, layout, neck, armpits, bottom, region, allowed, info=info)
 
 
 # --- the whole photo ---------------------------------------------------------------------------
 
 
-def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "") -> Detection:
-    """Every garment in ``rgb`` (uint8, at most WORK px: the caller resizes)."""
+def _one_per_garment(found: list[Found]) -> list[Found]:
+    """Each garment gets one print area: an area whose centre lies inside a more confident
+    one's (two regions of one garment) is dropped. The reading order is kept."""
+    def inside(p: tuple[float, float], q: list[tuple[float, float]]) -> bool:
+        sign = None
+        for i in range(4):
+            (ax, ay), (bx, by) = q[i], q[(i + 1) % 4]
+            c = (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)
+            if c != 0:
+                if sign is None:
+                    sign = c > 0
+                elif sign != (c > 0):
+                    return False
+        return True
+
+    order = sorted(range(len(found)), key=lambda i: -found[i].confidence)
+    kept: list[int] = []
+    for i in order:
+        c = (sum(x for x, _ in found[i].corners) / 4, sum(y for _, y in found[i].corners) / 4)
+        if any(inside(c, found[k].corners) for k in kept):
+            continue
+        kept.append(i)
+    return [found[i] for i in sorted(kept)]
+
+
+def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "", personal: Personal = None) -> Detection:
+    """Every garment in ``rgb`` (uint8, at most WORK px: the caller resizes). ``personal``: the
+    seller's own placement ratios (``print_rule.personal_table``), else the template standard."""
     h, w = rgb.shape[:2]
     probs = runner.segment(rgb) if runner is not None else None
     if probs is None:
@@ -994,10 +1282,15 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "") -> Detec
     lab = _lab(rgb)
     hint = _kind_from_name(name)
     person_share = float(((probs[..., HAIR] + probs[..., BODY] + probs[..., FACE]) > 0.5).mean())
-    persons = _persons(probs) if (runner is not None and is_person(rgb, probs, runner)) else []
-    garments = _worn(rgb, probs, fg, lab, runner, persons, hint) if persons else []
+    persons = []
+    if runner is not None and is_person(rgb, probs, runner):
+        # A worn photo with the head cropped off has no face (and often too little hair) to
+        # place the person by: one person, the pose found on the whole photo.
+        persons = _persons(probs) or [{"x": w / 2, "y": 0.0, "face": False, "size": 0, "cropped": True}]
+    garments = _worn(rgb, probs, fg, lab, runner, persons, hint, personal) if persons else []
     if not garments:
-        garments = _flat(rgb, probs, fg, lab, hint)
+        garments = _flat(rgb, probs, fg, lab, hint, personal)
+    garments = _one_per_garment(garments)
     from scipy import ndimage as ndi
 
     union = np.zeros((h, w), bool)
@@ -1025,7 +1318,7 @@ _FIND = threading.Lock()  # the module's region bookkeeping (_ENCLOSED) is share
 
 
 def find_at(rgb: np.ndarray, fg: np.ndarray, occluder: np.ndarray | None, tap: tuple[float, float],
-            others: list[list[tuple[float, float]]], name: str = "") -> Found | None:
+            others: list[list[tuple[float, float]]], name: str = "", personal: Personal = None) -> Found | None:
     """The garment under the seller's tap, alone, and its print area: a seeded watershed
     (the tap is this garment's seed; every other print area on the photo is a seed of its
     own, so a neighbouring garment, even a touching one of the same colour, is not taken
@@ -1074,7 +1367,8 @@ def find_at(rgb: np.ndarray, fg: np.ndarray, occluder: np.ndarray | None, tap: t
             if g is None:
                 return None
             hair_acc = (occluder > 0.5) if occluder is not None else np.zeros((h, w), bool)
-            found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"])
+            found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"],
+                            personal=personal)
             found.confidence = g["confidence"] * found.info.get("on_region", 1.0)
             found.info["method"] = "tap"
             return found

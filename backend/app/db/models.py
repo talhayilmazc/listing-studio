@@ -798,6 +798,33 @@ class MockupPhoto(Base):
     )
 
 
+class MockupPlacement(Base):
+    """How the seller placed a print on one garment of a photo they confirmed
+    (pipeline/placement.py): the garment's type and layout (``key``, "t-shirt worn") and
+    the confirmed area's width, offset below the collar and aspect, in chest widths
+    (pipeline/print_rule.py ``observe``). Their next photos of that type and layout are
+    suggested from their own rows. The seller's only: never read for another account,
+    deleted with the account or by "Reset"; a deleted photo leaves its numbers."""
+
+    __tablename__ = "mockup_placement"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    photo_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mockup_photo.id", ondelete="SET NULL"), index=True
+    )
+    garment: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    width: Mapped[float] = mapped_column(Float, nullable=False)
+    top: Mapped[float] = mapped_column(Float, nullable=False)
+    aspect: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class MockupDesign(Base):
     """A design uploaded to be printed on templates: its own listing group.
 

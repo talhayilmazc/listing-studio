@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { MAX_UPLOAD_MB as DROP_LIMIT, kindOf, pick } from "./fileDrop.ts";
-import { ALL_READY, MAX_UPLOAD_MB, addDesignsHref, appliedLine, canAddDesigns, designNote, printable } from "./mockups.ts";
+import { ALL_READY, MAX_UPLOAD_MB, RESET_PLACEMENT, addDesignsHref, appliedLine, canAddDesigns, designNote, ownPlacementLine, printable } from "./mockups.ts";
 import type { MockupPhoto, MockupTemplate } from "./types.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
@@ -112,4 +112,14 @@ test("what is in front: the live preview draws it over the design; the brush pai
   assert.match(editor, /onChanged\(await api\.saveFrontBrush\(photo\.id, blob\)\);/);
   // No model, no outside service: the brush goes to our own API only.
   assert.doesNotMatch(editor, /https?:\/\//);
+});
+
+test("the seller's own placement is named on the template and Reset says what it keeps", () => {
+  assert.equal(ownPlacementLine(1), "Using your own placement from 1 photo");
+  assert.equal(ownPlacementLine(4), "Using your own placement from 4 photos");
+  assert.match(RESET_PLACEMENT, /standard placement/);
+  assert.match(RESET_PLACEMENT, /stay as they are/);
+  const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "templates", "page.tsx"), "utf8");
+  assert.match(page, /ownPlacementLine\(template\.own_placement\)/);
+  assert.match(page, /resetMockupPlacement/);
 });

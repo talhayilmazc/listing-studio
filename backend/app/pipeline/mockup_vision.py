@@ -311,13 +311,17 @@ def _with_holes_filled(garment: np.ndarray, occluder: np.ndarray) -> np.ndarray:
 # --- the analysis -------------------------------------------------------------------------------
 
 
-def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name: str = "") -> "Analysis | None":
+def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name: str = "",
+                     personal: dict[str, dict[str, float]] | None = None) -> "Analysis | None":
     """Every garment in the photo (pipeline/garments.py): a print area, confidence, kind
     and view per garment, in reading order (rows top to bottom, then left to right).
-    None when no garment was found (the caller falls back to the outline)."""
+    None when no garment was found (the caller falls back to the outline). ``personal``: the
+    seller's own placement (pipeline/placement.py). Each garment keeps the geometry its
+    suggestion was built from, so the seller's confirmation can be learnt from."""
     from app.pipeline import garments as garments_
+    from app.pipeline import placement, print_rule
 
-    found = garments_.detect(rgb, runner, saliency, name)
+    found = garments_.detect(rgb, runner, saliency, name, personal=personal)
     if not found.garments:
         return None
     h, w = rgb.shape[:2]
@@ -336,7 +340,10 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
         items.append({
             "print_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.corners],
             "confidence": round(float(g.confidence), 3), "kind": g.kind, "view": g.view, "layout": g.layout,
-            "notes": list(g.notes),
+            "notes": list(g.notes), "guards": list(g.info.get("guards", [])),
+            "ratios": g.info.get("ratios"), "geometry": placement.geometry(g, w, h),
+            "personal_n": int((personal or {}).get(print_rule.personal_key(g.kind, g.layout), {}).get("n", 0))
+            if str(g.info.get("ratios") or "").startswith("yours") else None,
         })
     first = items[0]
     confidence = min(i["confidence"] for i in items)

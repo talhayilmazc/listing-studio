@@ -49,7 +49,7 @@ from app.db.models import (
     UploadBatch,
     UploadBatchStatus,
 )
-from app.pipeline import mockups, upload_retention
+from app.pipeline import mockups, placement, upload_retention
 from app.pipeline.images import ImageProcessingError
 from app.pipeline.ingest import _rerank
 from app.pipeline.storage import Storage
@@ -78,7 +78,8 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
         return photo
     try:
         source = storage.get(photo.source_key)
-        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", photo.name)
+        personal = await placement.personal(session, photo.tenant_id)  # the seller's own placement
+        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", photo.name, personal)
     except (FileNotFoundError, ImageProcessingError, mockups.MockupError) as exc:
         logger.info("mockup photo %s could not be prepared: %s", photo.id, exc)
         photo.status, photo.error = "failed", PREPARE_FAILED
@@ -110,6 +111,8 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
         for i, g in enumerate(rows):
             if i < len(found):
                 g["detected_area"] = found[i]["print_area"]
+                if found[i].get("geometry"):
+                    g["geometry"] = found[i]["geometry"]
     else:
         rows = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
                  "detected_area": g["print_area"]} for g in found]
@@ -195,7 +198,8 @@ def _plane(data: bytes, width: int, height: int) -> Any:
 
 
 def find_at(blank: bytes, ground: bytes, occluder: bytes | None, tap: tuple[float, float],
-            others: list[list[list[float]]], name: str = "") -> tuple[list[list[float]], float, str] | None:
+            others: list[list[list[float]]], name: str = "",
+            personal: dict[str, dict[str, float]] | None = None) -> tuple[list[list[float]], float, str] | None:
     """"Add area" (api/mockups.py): the garment under ``tap`` (shares of the photo) and
     its print area, as shares, with confidence and kind; None when nothing is there.
     ``ground`` is the photo's foreground map (or its garment mask for photos prepared
@@ -214,7 +218,7 @@ def find_at(blank: bytes, ground: bytes, occluder: bytes | None, tap: tuple[floa
     fg = _plane(ground, w, h)
     occ = _plane(occluder, w, h) if occluder else None
     px = [[(x * w, y * h) for x, y in quad] for quad in others]
-    found = garments.find_at(rgb, fg, occ, (tap[0] * w, tap[1] * h), px, name)
+    found = garments.find_at(rgb, fg, occ, (tap[0] * w, tap[1] * h), px, name, personal)
     if found is None:
         return None
     corners = [[round(min(max(x / w, 0.0), 1.0), 4), round(min(max(y / h, 0.0), 1.0), 4)] for x, y in found.corners]

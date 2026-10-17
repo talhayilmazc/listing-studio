@@ -776,6 +776,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     occluders.add_argument("--apply", action="store_true", help="analyse them (default: only count)")
     occluders.add_argument("--email", default=None, help="only this account's photos")
+    redetect = sub.add_parser(
+        "mockup-redetect",
+        help="template photos: suggest print areas again with the current geometry (confirmed areas kept); --apply",
+    )
+    redetect.add_argument("--apply", action="store_true", help="analyse them (default: only count)")
+    redetect.add_argument("--email", default=None, help="only this account's photos")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -841,6 +847,11 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.mockup_occluders import run as occluders_run
 
         print(asyncio.run(occluders_run(sm, get_storage(), apply=args.apply, email=args.email)))
+    elif args.command == "mockup-redetect":
+        from app.api.deps import get_storage
+        from app.ops.mockup_redetect import run as redetect_run
+
+        print(asyncio.run(redetect_run(sm, get_storage(), apply=args.apply, email=args.email)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 

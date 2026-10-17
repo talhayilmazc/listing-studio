@@ -13,6 +13,7 @@ import {
   LIMIT_NOTE,
   MAX_NAME,
   NEEDS_CHECK,
+  RESET_PLACEMENT,
   RIGHTS_STATEMENT,
   TEMPLATES_INTRO,
   addDesignsHref,
@@ -20,6 +21,7 @@ import {
   canAddDesigns,
   checkLine,
   nameFromFile,
+  ownPlacementLine,
   templateNameFrom,
   waitingForCheck,
 } from "@/lib/mockups";
@@ -373,6 +375,17 @@ function TemplateCard({
     }
   }
 
+  async function resetPlacement() {
+    if (!window.confirm(RESET_PLACEMENT)) return;
+    try {
+      await api.resetMockupPlacement();
+      setNote("Your own placement was reset. New photos use the standard placement.");
+      onReload();
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
   async function rename() {
     if (!name.trim() || name === template.name) return;
     try {
@@ -439,6 +452,16 @@ function TemplateCard({
           <p className="min-w-[11rem] flex-1 text-sm font-medium text-emerald-900">{`${ALL_READY.split(". ")[0]}.`}</p>
           <Link href={addDesignsHref([template.id])} className="btn-primary min-h-11" data-testid="all-ready-add">Add designs</Link>
           <button type="button" className="btn-secondary min-h-11" onClick={onReadySeen}>Later</button>
+        </div>
+      )}
+      {!!template.own_placement && (
+        <div key="own-placement" className="flex flex-wrap items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900"
+          data-testid="template-own-placement">
+          <span className="min-w-0 flex-1" translate="no">{ownPlacementLine(template.own_placement)}</span>
+          <button type="button" className="tap text-sm font-medium text-sky-800 underline" onClick={resetPlacement}
+            data-testid="template-reset-placement">
+            Reset
+          </button>
         </div>
       )}
       {waiting.length > 0 && (

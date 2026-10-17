@@ -24,6 +24,7 @@ worn tee's or sweatshirt's print ends within WORN_BOTTOM_MAX chest widths of the
 from __future__ import annotations
 
 import math
+import statistics
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -49,12 +50,32 @@ EDGE_MARGIN = 0.03
 WORN_BOTTOM_MAX = 1.1
 
 
+def layout_key(layout: str | None) -> str:
+    """The layout group a seller's own placement is learnt for."""
+    return {"on a person": "worn", "folded": "folded", "on a hanger": "hanger"}.get(layout or "", "flat")
+
+
+def personal_key(kind: str | None, layout: str | None) -> str:
+    return f"{kind if kind in KINDS else 't-shirt'} {layout_key(layout)}"
+
+
 def ratios_for(kind: str | None, view: str | None = None, layout: str | None = None,
-               table: dict[str, dict[str, float]] | None = None) -> tuple[dict[str, float], str]:
-    """The ratios for a garment and the group they come from. No template shows a back
-    or a hoodie: a back uses its type's front ratios, a hoodie a worn sweatshirt's,
-    anything else (a baby bodysuit) a t-shirt's; a group with too few templates falls
-    back to the same type's other layout, then to t-shirts."""
+               table: dict[str, dict[str, float]] | None = None,
+               personal: dict[str, dict[str, float]] | None = None) -> tuple[dict[str, float], str]:
+    """The ratios for a garment and the group they come from. The seller's own placement for
+    this type and layout (``personal``, from ``personal_table``) comes first. Otherwise the
+    template standard: no template shows a back or a hoodie: a back uses its type's front
+    ratios, a hoodie a worn sweatshirt's, anything else (a baby bodysuit) a t-shirt's; a
+    group with too few templates falls back to the same type's other layout, then to t-shirts."""
+    if personal:
+        mine = personal.get(personal_key(kind, layout))
+        if mine and mine.get("n", 0) >= PERSONAL_MIN:
+            # Blended with the standard by how many photos it comes from (n / (n + PRIOR)):
+            # a seller's first photos move the suggestion part of the way, ten nearly all.
+            base, _ = ratios_for(kind, view, layout, table)
+            k = mine["n"] / (mine["n"] + PERSONAL_PRIOR)
+            blended = {r: round(k * mine[r] + (1 - k) * base[r], 4) for r in ("width", "top", "aspect")}
+            return {**blended, "n": mine["n"]}, f"yours: {personal_key(kind, layout)}"
     table = table or STANDARD
     kind = kind if kind in KINDS else "t-shirt"
     fold = "folded" if layout == "folded" else "worn"
@@ -120,9 +141,10 @@ class Area:
 
 def print_area(neck: Point, armpits: tuple[Point, Point], *, kind: str | None = None, view: str | None = None,
                layout: str | None = None, top: Point | None = None, bottom: Point | None = None,
-               hem_centre: Point | None = None, table: dict[str, dict[str, float]] | None = None) -> Area:
+               hem_centre: Point | None = None, table: dict[str, dict[str, float]] | None = None,
+               personal: dict[str, dict[str, float]] | None = None) -> Area:
     """The print area (photo pixels) from a garment's landmarks: see the module."""
-    ratios, source = ratios_for(kind, view, layout, table)
+    ratios, source = ratios_for(kind, view, layout, table, personal)
     f = frame(neck, armpits, layout, hem_centre)
     info: dict[str, Any] = {"ratios": source, "angle": round(f.angle, 1), "chest": f.chest}
     y0 = ratios["top"] * f.chest
@@ -130,7 +152,8 @@ def print_area(neck: Point, armpits: tuple[Point, Point], *, kind: str | None = 
         y0 = max(y0, f.depth(top))
     w = ratios["width"] * f.chest
     tall = w * ratios["aspect"]
-    if layout in UPRIGHT_LAYOUTS and kind in ("t-shirt", "sweatshirt") and y0 + tall > WORN_BOTTOM_MAX * f.chest:
+    if (layout in UPRIGHT_LAYOUTS and kind in ("t-shirt", "sweatshirt") and not source.startswith("yours")
+            and y0 + tall > WORN_BOTTOM_MAX * f.chest):
         info["worn_cap"] = round((y0 + tall) / f.chest, 3)
         tall = WORN_BOTTOM_MAX * f.chest - y0
     if bottom is not None:
@@ -143,6 +166,107 @@ def print_area(neck: Point, armpits: tuple[Point, Point], *, kind: str | None = 
     half = w / 2
     corners = [f.to_photo(u, v) for u, v in ((-half, y0), (half, y0), (half, y0 + tall), (-half, y0 + tall))]
     return Area(corners, info)
+
+
+def frame_at(neck: Point, armpits: tuple[Point, Point], angle: float) -> Frame:
+    """The garment's frame turned by a known angle (the one its print area was built in)."""
+    left, right = armpits
+    chest = max(math.dist(left, right), 1e-6)
+    t = math.radians(angle)
+    across = (math.cos(t), math.sin(t))
+    down = (-across[1], across[0])
+    mid = ((left[0] + right[0]) / 2, (left[1] + right[1]) / 2)
+    along = (neck[0] - mid[0]) * across[0] + (neck[1] - mid[1]) * across[1]
+    return Frame(across, down, (neck[0] - across[0] * along, neck[1] - across[1] * along), chest, angle)
+
+
+#: A seller's own placement for a garment type and layout is used once this many of their
+#: confirmed photos show it; it is the median of their most recent PERSONAL_RECENT photos.
+PERSONAL_MIN = 2
+PERSONAL_RECENT = 20
+PERSONAL_PRIOR = 2.0
+#: An area this far from any print (the seller drew it on something else) is not learnt from.
+OBSERVE_BOUNDS = {"width": (0.15, 1.5), "top": (-0.3, 1.2), "aspect": (0.3, 3.0)}
+#: Learnt only when the confirmed area overlaps the suggestion at least this much: the seller
+#: adjusted a suggestion on the right garment. A larger change means the analysis misread
+#: the garment, and measuring against its landmarks would teach that misreading (on the
+#: seller's dev photos it made the next suggestions worse).
+LEARN_MIN_IOU = 0.5
+#: Photos of more garments than this (overlapping rows) are not learnt from: there each area
+#: stops above the garment lying over it, a cut for that photo, not the seller's placement.
+LEARN_MAX_GARMENTS = 2
+
+
+def quad_iou(a: list[Point], b: list[Point]) -> float:
+    """Overlap of two convex quadrilaterals (intersection over union of their areas)."""
+    def area(p: list[Point]) -> float:
+        return abs(sum(p[i][0] * p[(i + 1) % len(p)][1] - p[(i + 1) % len(p)][0] * p[i][1] for i in range(len(p)))) / 2
+
+    def clip(subject: list[Point], clipper: list[Point]) -> list[Point]:
+        sign = 1.0 if sum(clipper[i][0] * clipper[(i + 1) % 4][1] - clipper[(i + 1) % 4][0] * clipper[i][1]
+                          for i in range(4)) > 0 else -1.0
+        out = list(subject)
+        for i in range(len(clipper)):
+            (ax, ay), (bx, by) = clipper[i], clipper[(i + 1) % len(clipper)]
+
+            def side(p: Point) -> float:
+                return sign * ((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax))
+
+            pts, out = out, []
+            for j, q in enumerate(pts):
+                p = pts[j - 1]
+                sp, sq = side(p), side(q)
+                if sq >= 0:
+                    if sp < 0:
+                        t = sp / (sp - sq)
+                        out.append((p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t))
+                    out.append(q)
+                elif sp >= 0:
+                    t = sp / (sp - sq)
+                    out.append((p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t))
+            if not out:
+                return []
+        return out
+
+    inter = clip(list(a), list(b))
+    i = area(inter) if len(inter) >= 3 else 0.0
+    u = area(list(a)) + area(list(b)) - i
+    return i / u if u > 0 else 0.0
+
+
+def observe(neck: Point, armpits: tuple[Point, Point], corners: list[Point], *, kind: str | None,
+            layout: str | None, angle: float = 0.0, suggested: list[Point] | None = None) -> dict[str, Any] | None:
+    """How a confirmed print area sits on its garment, in the same terms as the standard:
+    width and offset below the collar in chest widths, aspect = height / width, measured in
+    the garment's own frame (``angle``: the frame the suggestion was built in). None when it
+    is not a print area on this garment, or (given the ``suggested`` area) when the seller
+    replaced rather than adjusted the suggestion (LEARN_MIN_IOU)."""
+    if suggested is not None and quad_iou(list(corners), list(suggested)) < LEARN_MIN_IOU:
+        return None
+    f = frame_at(neck, armpits, angle)
+    c0, c1, _c2, c3 = corners
+    width = math.dist(c0, c1)
+    if width <= 0:
+        return None
+    top_mid = ((c0[0] + c1[0]) / 2, (c0[1] + c1[1]) / 2)
+    o = {"width": width / f.chest, "top": f.depth(top_mid) / f.chest, "aspect": math.dist(c0, c3) / width}
+    if any(not (lo <= o[k] <= hi) for k, (lo, hi) in OBSERVE_BOUNDS.items()):
+        return None
+    return {"key": personal_key(kind, layout), **{k: round(v, 4) for k, v in o.items()}}
+
+
+def personal_table(observations: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """A seller's own ratios per garment type and layout: the median of their most recent
+    PERSONAL_RECENT observations (oldest first in ``observations``) and how many there are."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for o in observations:
+        groups.setdefault(o["key"], []).append(o)
+    out = {}
+    for key, items in groups.items():
+        items = items[-PERSONAL_RECENT:]
+        med = {k: round(statistics.median(float(i[k]) for i in items), 4) for k in ("width", "top", "aspect")}
+        out[key] = {**med, "n": len(items)}
+    return out
 
 
 def keep_share(corners: list[Point], a: float, b: float) -> list[Point]:

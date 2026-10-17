@@ -252,6 +252,8 @@ export interface MockupPhoto {
   has_front_brush?: boolean;
   view?: "front" | "back" | string;
   areas: MockupArea[];
+  /** Its suggestion came from the seller's own placement, learnt from this many photos. */
+  own_placement?: number | null;
 }
 
 /** A named group of blank photos (the same tee in ten colours, or several shots of one product). */
@@ -262,6 +264,14 @@ export interface MockupTemplate {
   photos: MockupPhoto[];
   needs_check: number;
   confirmed: number;
+  /** Its suggestions use the seller's own placement, learnt from this many photos. */
+  own_placement?: number | null;
+}
+
+/** The seller's own print placement, learnt from the photos they confirmed. */
+export interface MockupPlacement {
+  photos: number;
+  groups: { key: string; label: string; photos: number; in_use: boolean }[];
 }
 
 /** "Add area": the garment under the seller's tap, or a box there when none was found. */
