@@ -321,7 +321,7 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
     from app.pipeline import garments as garments_
     from app.pipeline import placement, print_rule
 
-    found = garments_.detect(rgb, runner, saliency, name, personal=personal)
+    found = garments_.detect(rgb, runner, saliency, name, personal=personal, several=True)
     if not found.garments:
         return None
     h, w = rgb.shape[:2]
@@ -335,21 +335,24 @@ def analyse_garments(rgb: np.ndarray, runner: Runner | None, saliency: Any, name
         else:
             rows.append([g])
     ordered = [g for r in rows for g in sorted(r, key=lambda g: g.neck[0])]
+    main = found.candidates[found.main] if found.candidates else ordered[0]
     items = []
     for g in ordered:
         items.append({
             "print_area": [[round(x / w, 4), round(y / h, 4)] for x, y in g.corners],
             "confidence": round(float(g.confidence), 3), "kind": g.kind, "view": g.view, "layout": g.layout,
-            "notes": list(g.notes), "guards": list(g.info.get("guards", [])),
+            "notes": list(g.notes), "guards": list(g.info.get("guards", [])), "main": g is main,
             "ratios": g.info.get("ratios"), "geometry": placement.geometry(g, w, h),
             "personal_n": int((personal or {}).get(print_rule.personal_key(g.kind, g.layout), {}).get("n", 0))
             if str(g.info.get("ratios") or "").startswith("yours") else None,
         })
-    first = items[0]
-    confidence = min(i["confidence"] for i in items)
+    # The main garment's area is the photo's area; the others are kept as candidates (shown
+    # only when the template says it has several garments in one photo).
+    first = next(i for i in items if i["main"])
+    confidence = first["confidence"]
     method = "pose" if found.persons else "outline"
     n = len(items)
-    note = NOTES["pose" if found.persons else "outline"] if n == 1 else NOTES["garments"].format(n=n)
+    note = NOTES["pose" if found.persons else "outline"]  # the worker says "N garments" when it keeps them
     details = {**found.details, "garments": n, "persons": found.persons}
     garment = np.clip(found.garment_mask * 255.0, 0, 255).astype(np.uint8)
     occluder = np.clip(found.occluder * 255.0, 0, 255).astype(np.uint8) if found.persons or found.occluder.max() > 0.5 else None

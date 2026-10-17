@@ -228,6 +228,8 @@ async def test_the_view_is_changed_by_the_seller_and_a_run_prints_front_back_or_
 async def test_several_garments_get_the_same_design_or_one_each_in_order(mw, monkeypatch) -> None:  # noqa: F811
     guard = _NoCalls(monkeypatch)
     template = await _new_template(mw, "Two tees")
+    # Two garments in one photo: the seller says so (one area per photo otherwise).
+    assert (await mw["a"].patch(f"/api/mockup-templates/{template["id"]}", json={"several_garments": True})).status_code == 200
     photo = await _photo(mw, template["id"], "Two tees", blank=_tees(), confirm=False)
     assert len(photo["areas"]) == 2
     # The second garment's area is the seller's to move, alone; then "Looks right".

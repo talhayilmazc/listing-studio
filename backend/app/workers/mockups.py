@@ -49,6 +49,7 @@ from app.db.models import (
     UploadBatch,
     UploadBatchStatus,
 )
+from app.pipeline import mockup_vision as vision
 from app.pipeline import mockups, placement, upload_retention
 from app.pipeline.images import ImageProcessingError
 from app.pipeline.ingest import _rerank
@@ -101,21 +102,33 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
     photo.foreground_key = f"{base}/foreground.png" if prepared.foreground is not None else None
     photo.width, photo.height, photo.mask_source = prepared.width, prepared.height, prepared.mask_source
     photo.print_area_confidence = prepared.confidence
-    photo.analysis = {
+    analysis = {
         "method": prepared.method, "note": prepared.note, "detected_area": prepared.print_area,
         "details": prepared.details,
     }
     found = prepared.garments or [{"print_area": prepared.print_area, "confidence": prepared.confidence}]
+    # Every garment found is kept as a candidate; the photo shows the main one's area unless
+    # its template has several garments in one photo.
+    template = await session.get(MockupTemplate, photo.template_id)
+    several = bool(template is not None and template.several_garments)
+    candidates = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
+                   "detected_area": g["print_area"]} for g in found]
+    chosen = mockups.chosen_rows(candidates, several)
+    analysis["candidates"] = candidates
+    if several and len(chosen) > 1:
+        analysis["note"] = vision.NOTES["garments"].format(n=len(chosen))
+    photo.analysis = analysis
+    photo.print_area_confidence = min((c.get("confidence") or 0.0) for c in chosen) if chosen else prepared.confidence
     if photo.garments:  # areas copied from another photo while it was preparing are kept
         rows = [dict(g) for g in photo.garments]
         for i, g in enumerate(rows):
-            if i < len(found):
-                g["detected_area"] = found[i]["print_area"]
-                if found[i].get("geometry"):
-                    g["geometry"] = found[i]["geometry"]
+            if i < len(chosen):
+                g["detected_area"] = chosen[i]["print_area"]
+                for k in ("geometry", "ratios", "personal_n", "guards", "layout", "main"):
+                    if k in chosen[i]:
+                        g[k] = chosen[i][k]
     else:
-        rows = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
-                 "detected_area": g["print_area"]} for g in found]
+        rows = chosen
     photo.garments = rows
     photo.print_area = rows[0]["print_area"]
     photo.print_area_source = "default" if all(r.get("source") == "default" for r in rows) else "seller"

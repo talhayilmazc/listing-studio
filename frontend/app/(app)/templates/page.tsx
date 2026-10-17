@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ConfirmGrid } from "@/components/ConfirmGrid";
 import { FileDrop } from "@/components/FileDrop";
 import { PrintAreaEditor } from "@/components/PrintAreaEditor";
 import { api } from "@/lib/api";
@@ -15,13 +16,19 @@ import {
   NEEDS_CHECK,
   RESET_PLACEMENT,
   RIGHTS_STATEMENT,
+  SEVERAL_HINT,
+  SEVERAL_LABEL,
   TEMPLATES_INTRO,
   addDesignsHref,
   appliedLine,
+  applyToTheseLabel,
   canAddDesigns,
   checkLine,
+  firstConfirmOffer,
   nameFromFile,
+  offerLine,
   ownPlacementLine,
+  stillToCheck,
   templateNameFrom,
   waitingForCheck,
 } from "@/lib/mockups";
@@ -46,6 +53,9 @@ export default function TemplatesPage() {
   const [pending, setPending] = useState<string[]>([]);
   // The template whose last waiting photo was just confirmed: "All photos are ready".
   const [readyTemplate, setReadyTemplate] = useState<string | null>(null);
+  // Right after a template's first photo is confirmed: its other waiting photos, pre-selected,
+  // with "Apply to these N photos" (the area placed on each by its own garment).
+  const [offer, setOffer] = useState<{ templateId: string; sourceId: string; ids: string[] } | null>(null);
   const polls = useRef(0);
 
   const load = useCallback(async () => {
@@ -108,13 +118,23 @@ export default function TemplatesPage() {
   const siblings = current ? (templates ?? []).find((t) => t.id === current.template_id)?.photos ?? [] : [];
 
   function next(saved: MockupPhoto) {
-    const finished = !editor || editor.index + 1 >= editor.queue.length;
-    setEditor((e) => (e && e.index + 1 < e.queue.length ? { ...e, index: e.index + 1 } : null));
-    if (finished) {
-      // The last photo that needed a check: say what comes next, straight away.
-      const template = (templates ?? []).find((t) => t.id === saved.template_id);
-      const stillWaiting = template?.photos.filter((p) => p.id !== saved.id && p.needs_check).length ?? 0;
-      if (stillWaiting === 0) setReadyTemplate(saved.template_id);
+    const before = (templates ?? []).find((t) => t.id === saved.template_id);
+    const offerIds = firstConfirmOffer(before, saved.id);
+    if (offerIds) {
+      // The template's first confirmed photo: offer its area for the others instead of
+      // opening them one by one.
+      setEditor(null);
+      setOffer({ templateId: saved.template_id, sourceId: saved.id, ids: offerIds });
+      load();
+      return;
+    }
+    if (editor && editor.index + 1 < editor.queue.length) {
+      setEditor({ ...editor, index: editor.index + 1 });
+    } else {
+      // The queue is done: on to the next photo of this template that still needs a check.
+      const rest = stillToCheck(before, saved.id);
+      setEditor(rest.length ? { queue: rest, index: 0 } : null);
+      if (!rest.length) setReadyTemplate(saved.template_id);
     }
     load();
   }
@@ -161,6 +181,9 @@ export default function TemplatesPage() {
                 onOpen={(queue) => setEditor({ queue, index: 0 })}
                 allReady={readyTemplate === t.id && t.needs_check === 0 && canAddDesigns(t)}
                 onReadySeen={() => setReadyTemplate(null)}
+                onAllConfirmed={() => setReadyTemplate(t.id)}
+                offer={offer && offer.templateId === t.id ? offer : null}
+                onOfferDone={() => setOffer(null)}
               />
             </li>
           ))}
@@ -313,6 +336,9 @@ function TemplateCard({
   onOpen,
   allReady,
   onReadySeen,
+  onAllConfirmed,
+  offer,
+  onOfferDone,
 }: {
   template: MockupTemplate;
   first: boolean;
@@ -324,6 +350,10 @@ function TemplateCard({
   /** Its last waiting photo was just confirmed: say what comes next, here, in view. */
   allReady: boolean;
   onReadySeen: () => void;
+  onAllConfirmed: () => void;
+  /** Right after its first photo was confirmed: the other waiting photos to apply the area to. */
+  offer: { sourceId: string; ids: string[] } | null;
+  onOfferDone: () => void;
 }) {
   const readyBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -342,6 +372,45 @@ function TemplateCard({
   const source = confirmedPhotos.find((p) => p.id === sourceId) ?? confirmedPhotos[0];
   const chosen = selected.filter((id) => readyPhotos.some((p) => p.id === id));
   const toggle = (id: string, on: boolean) => setSelected((now) => (on ? [...now, id] : now.filter((x) => x !== id)));
+  const [grid, setGrid] = useState(false);
+  const offerKey = offer ? offer.ids.join(",") : "";
+  useEffect(() => {
+    if (offer) setSelected(offer.ids); // pre-selected, as the offer says
+  }, [offerKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function applyOffer() {
+    if (!offer) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const placed = await api.copyMockupAreas(offer.sourceId, offer.ids, true);
+      setNote(appliedLine(placed.length));
+      onOfferDone();
+      onReload();
+      setGrid(true); // then look over them all at once
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmFromGrid(ids: string[]) {
+    const updated = await api.confirmMockupPhotos(template.id, ids);
+    onChange(updated);
+    setGrid(false);
+    setSelected([]);
+    setNote(`${ids.length} ${ids.length === 1 ? "photo" : "photos"} confirmed.`);
+    if (updated.needs_check === 0) onAllConfirmed();
+  }
+
+  async function setSeveral(on: boolean) {
+    try {
+      onChange(await api.updateMockupTemplate(template.id, { several_garments: on }));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
 
   async function applyToSelected() {
     if (!source) return;
@@ -454,6 +523,27 @@ function TemplateCard({
           <button type="button" className="btn-secondary min-h-11" onClick={onReadySeen}>Later</button>
         </div>
       )}
+      <label key="several" className="flex min-h-11 items-start gap-2.5 text-sm text-slate-700" data-testid="template-several">
+        <input type="checkbox" className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300" checked={!!template.several_garments}
+          onChange={(e) => setSeveral(e.target.checked)} data-testid="template-several-toggle" />
+        <span className="min-w-0">
+          <span className="block">{SEVERAL_LABEL}</span>
+          <span className="block text-xs text-slate-500">{SEVERAL_HINT}</span>
+        </span>
+      </label>
+      {offer && offer.ids.length > 0 && (
+        <div key="offer" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-800"
+          data-testid="template-offer">
+          <span className="min-w-0 flex-1" translate="no">{offerLine(offer.ids.length)}</span>
+          <button type="button" className="btn-primary min-h-11" onClick={applyOffer} disabled={busy} data-testid="template-offer-apply">
+            <span translate="no">{applyToTheseLabel(offer.ids.length)}</span>
+          </button>
+          <button type="button" className="btn-secondary min-h-11" onClick={() => { onOfferDone(); onOpen(offer.ids); }}
+            data-testid="template-offer-one-by-one">
+            One by one
+          </button>
+        </div>
+      )}
       {!!template.own_placement && (
         <div key="own-placement" className="flex flex-wrap items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900"
           data-testid="template-own-placement">
@@ -468,10 +558,18 @@ function TemplateCard({
         <div key="check" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
           data-testid="template-needs-check">
           <span className="min-w-0 flex-1" translate="no">{`${checkLine(waiting.length)}: they are not used for mockups until you confirm them.`}</span>
-          <button type="button" className="btn-primary min-h-11" onClick={() => onOpen(waiting)} data-testid="template-check-all">
+          <button type="button" className="btn-primary min-h-11" onClick={() => setGrid(true)} data-testid="template-confirm-all">
+            Confirm all
+          </button>
+          <button type="button" className="btn-secondary min-h-11" onClick={() => onOpen(waiting)} data-testid="template-check-all">
             <span translate="no">{waiting.length === 1 ? "Check it" : `Check ${waiting.length} photos`}</span>
           </button>
         </div>
+      )}
+      {grid && (
+        <ConfirmGrid key="grid" photos={template.photos.filter((p) => p.needs_check)} onConfirm={confirmFromGrid}
+          onFix={(p) => { setGrid(false); onOpen([p.id, ...waiting.filter((id) => id !== p.id)]); }}
+          onClose={() => setGrid(false)} />
       )}
       {readyPhotos.length > 1 && (
         <div key="select" className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2" data-testid="template-selection">

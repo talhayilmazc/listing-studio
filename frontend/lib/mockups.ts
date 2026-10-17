@@ -34,7 +34,7 @@ export const LOOKS_RIGHT = "Looks right";
 export const SUGGESTION_NOTE =
   "We placed the print area where we think it goes. Move it if it is not right, then press Looks right. Photos are used for mockups only after this check.";
 export const EDITOR_HINT =
-  "Drag inside the area to move it, a corner to resize it, the round handle to turn it. Arrow keys nudge it (Shift for bigger steps). Lines appear when it lines up; hold Alt to place it freely.";
+  "Drag inside the area to move it, a corner to resize it, the round handle to turn it (it snaps upright and to the garment's angle). Arrow keys nudge it, [ and ] turn it by 1° (Shift for bigger steps). Lines appear when it lines up; hold Alt to place it freely.";
 export const OCCLUSION_LABEL = "Put the design behind hair, skin, hands and things held in front";
 /** The "Keep in front" brush, said in the editor. */
 export const BRUSH_HINT =
@@ -173,3 +173,37 @@ export const SAMPLE_DESIGN = {
         "</svg>",
     ),
 };
+
+/** The per-template switch: only when it is on may the analysis suggest several areas per photo. */
+export const SEVERAL_LABEL = "This template has several garments in one photo";
+export const SEVERAL_HINT =
+  "Off: each photo gets one print area, on its main garment (add more with Add area). On: every garment found gets its own.";
+
+/** "Confirm all": what the grid of previews says, and its button. */
+export const CONFIRM_ALL_HINT = "Each print area with a design placeholder. Fix any that look off, then confirm them all.";
+export function confirmAllLabel(n: number): string {
+  return n === 1 ? "Confirm it" : `Confirm all ${n}`;
+}
+
+/** After the first photo of a template is confirmed: the offer for its other photos. */
+export function applyToTheseLabel(n: number): string {
+  return `Apply to these ${n} ${n === 1 ? "photo" : "photos"}`;
+}
+export function offerLine(n: number): string {
+  return `Use this area on the other ${n} ${n === 1 ? "photo" : "photos"}? Each is placed by its own garment, then you look over them all at once.`;
+}
+
+/** The photos to offer the area to right after "Looks right": the template's other photos still
+ *  waiting for a check, when this was its first confirmed photo (``before``: the template as it
+ *  was before the save); otherwise null. */
+export function firstConfirmOffer(before: MockupTemplate | undefined, savedId: string): string[] | null {
+  if (!before || before.photos.some((p) => p.confirmed && p.id !== savedId)) return null;
+  const ids = before.photos.filter((p) => p.id !== savedId && p.needs_check).map((p) => p.id);
+  return ids.length ? ids : null;
+}
+
+/** The template's photos still waiting for a check after ``savedId`` was confirmed, in order:
+ *  the editor moves on to the first of them. */
+export function stillToCheck(template: MockupTemplate | undefined, savedId: string): string[] {
+  return (template?.photos ?? []).filter((p) => p.id !== savedId && p.needs_check).map((p) => p.id);
+}

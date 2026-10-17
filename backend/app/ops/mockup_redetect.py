@@ -30,7 +30,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models import MockupPhoto, Tenant
+from app.db.models import MockupPhoto, MockupTemplate, Tenant
 from app.pipeline import mockups, placement
 from app.pipeline.storage import Storage
 
@@ -42,13 +42,21 @@ def _waiting_as_suggested(photo: MockupPhoto) -> bool:
     return photo.confirmed_at is None and all((r.get("source") or "default") == "default" for r in rows)
 
 
-def apply_found(photo: MockupPhoto, found: list[dict[str, Any]], confidence: float | None) -> str:
-    """The new suggestions on one photo; what happened ("replaced", "suggestions", "kept")."""
+def apply_found(photo: MockupPhoto, found: list[dict[str, Any]], confidence: float | None,
+                several: bool = False) -> str:
+    """The new suggestions on one photo; what happened ("replaced", "suggestions", "kept").
+    Every garment found is kept as a candidate; the photo's suggestions are the main
+    garment's unless its template has several garments in one photo (``several``)."""
     if not found:
         return "kept"
+    candidates = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
+                   "detected_area": g["print_area"]} for g in found]
+    found = mockups.chosen_rows(candidates, several)
+    analysis = dict(getattr(photo, "analysis", None) or {})
+    analysis["candidates"] = candidates
+    photo.analysis = analysis
     if _waiting_as_suggested(photo):
-        rows = [{**{k: v for k, v in g.items() if k != "notes"}, "source": "default",
-                 "detected_area": g["print_area"]} for g in found]
+        rows = [dict(g) for g in found]
         photo.garments = rows
         photo.print_area, photo.print_area_source = rows[0]["print_area"], "default"
         photo.print_area_confidence = confidence
@@ -59,7 +67,7 @@ def apply_found(photo: MockupPhoto, found: list[dict[str, Any]], confidence: flo
         return "kept"  # which suggestion belongs to which area is not known: nothing changes
     for row, g in zip(rows, found, strict=True):
         row["detected_area"] = g["print_area"]
-        for k in ("geometry", "ratios", "personal_n", "guards", "layout"):
+        for k in ("geometry", "ratios", "personal_n", "guards", "layout", "main"):
             if k in g:
                 row[k] = g[k]
     photo.garments = rows
@@ -100,7 +108,9 @@ async def run(sm: async_sessionmaker, storage: Storage, *, apply: bool, email: s
             except Exception:  # noqa: BLE001 - one photo that cannot be read does not stop the rest
                 counts["failed"] += 1
                 continue
-            what = apply_found(photo, prepared.garments, prepared.confidence)
+            template = await session.get(MockupTemplate, photo.template_id)
+            what = apply_found(photo, prepared.garments, prepared.confidence,
+                               several=bool(template is not None and template.several_garments))
             counts[what] += 1
             if what == "suggestions":
                 await placement.record(session, photo)

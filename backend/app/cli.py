@@ -782,6 +782,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     redetect.add_argument("--apply", action="store_true", help="analyse them (default: only count)")
     redetect.add_argument("--email", default=None, help="only this account's photos")
+    single = sub.add_parser(
+        "mockup-single-area",
+        help="waiting template photos with several suggested areas: keep the main garment's (confirmed untouched); --apply",
+    )
+    single.add_argument("--apply", action="store_true", help="change them (default: only count)")
+    single.add_argument("--email", default=None, help="only this account's templates")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -852,6 +858,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.mockup_redetect import run as redetect_run
 
         print(asyncio.run(redetect_run(sm, get_storage(), apply=args.apply, email=args.email)))
+    elif args.command == "mockup-single-area":
+        from app.ops.mockup_single_area import run as single_run
+
+        print(asyncio.run(single_run(sm, apply=args.apply, email=args.email)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 

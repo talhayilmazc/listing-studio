@@ -222,6 +222,8 @@ export interface MockupArea {
   source: "default" | "tap" | "seller" | "copied" | string;
   confidence?: number | null;
   kind?: string | null;
+  /** The analysis's estimate of the garment's own axis (degrees, clockwise): what a turn snaps to. */
+  axis_angle?: number | null;
 }
 
 /** One blank photo of a template (backend api/mockups.py PhotoOut). */
@@ -266,6 +268,8 @@ export interface MockupTemplate {
   confirmed: number;
   /** Its suggestions use the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
+  /** "This template has several garments in one photo" (off: one area per photo by default). */
+  several_garments?: boolean;
 }
 
 /** The seller's own print placement, learnt from the photos they confirmed. */

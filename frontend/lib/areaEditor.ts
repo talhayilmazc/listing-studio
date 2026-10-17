@@ -254,6 +254,38 @@ export function axisAngle(suggestion: Quad | null): number | null {
   return suggestion ? rectOf(suggestion).angle : null;
 }
 
+/** The garment's axis to snap a rotation to: the analysis's own estimate (degrees, from the
+ *  server; it may lean even when the suggestion was left upright), else the suggestion's angle. */
+export function garmentAxis(estimateDegrees: number | null | undefined, suggestion: Quad | null): number | null {
+  if (typeof estimateDegrees === "number" && Number.isFinite(estimateDegrees)) return (estimateDegrees * Math.PI) / 180;
+  return axisAngle(suggestion);
+}
+
+/** The area's angle in degrees (its top edge, clockwise; -180..180), to one decimal. */
+export function angleDegrees(q: Quad): number {
+  const d = (rectOf(q).angle * 180) / Math.PI;
+  const r = Math.round(d * 10) / 10;
+  return Object.is(r, -0) ? 0 : r;
+}
+
+/** The area turned to exactly ``angle`` radians about its centre ("Match garment angle"). */
+export function turnTo(q: Quad, angle: number): Quad {
+  return rotate(q, angle - rectOf(q).angle);
+}
+
+/** "[" and "]" turn the area by 1 degree, with Shift by 5 (radians; by the key's code, so
+ *  Shift, which makes them "{" and "}" on many keyboards, does not change the key). */
+export function angleKey(code: string, shift: boolean): number | null {
+  const step = ((shift ? 5 : 1) * Math.PI) / 180;
+  return code === "BracketLeft" ? -step : code === "BracketRight" ? step : null;
+}
+
+/** The guide drawn when a turn snaps to the garment's axis: along the axis, through the area's centre. */
+export function axisGuide(q: Quad, axis: number): Guide {
+  const c = centre(q);
+  return { a: c, b: add(c, [-Math.sin(axis), Math.cos(axis)]), kind: "axis", dir: "v", features: ["centre"] };
+}
+
 /** The ends of a guide line drawn across the whole photo. */
 export function across(g: Guide, width: number, height: number): [Pt, Pt] {
   const t = sub(g.b, g.a);

@@ -139,6 +139,8 @@ async def test_copy_to_other_photos_gives_each_its_own_check(mw, monkeypatch) ->
 async def test_add_area_finds_the_tapped_garment_alone_in_the_order_of_the_taps(mw, monkeypatch) -> None:  # noqa: F811
     guard = _NoCalls(monkeypatch)
     tee = await _new_template(mw, "Two tees")
+    # Two garments in one photo: the seller says so (one area per photo otherwise).
+    assert (await mw["a"].patch(f"/api/mockup-templates/{tee["id"]}", json={"several_garments": True})).status_code == 200
     photo = await _photo(mw, tee["id"], "Two tees", blank=_tees(), confirm=False)
     left, right = sorted(photo["areas"], key=lambda a: _centre(a["print_area"])[0])
     # The seller starts from nothing: taps the right tee first, then the left one.

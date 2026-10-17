@@ -98,6 +98,10 @@ class AreaOut(BaseModel):
     source: str = "default"
     confidence: float | None = None
     kind: str | None = None
+    #: The analysis's estimate of the garment's own axis (degrees, clockwise; None: unknown):
+    #: the editor snaps a rotation to it and offers "Match garment angle". The automatic
+    #: suggestion stays upright unless two estimates agree; this one is the seller's choice.
+    axis_angle: float | None = None
 
 
 class PhotoOut(BaseModel):
@@ -145,6 +149,8 @@ class TemplateOut(BaseModel):
     confirmed: int = 0
     #: Its suggestions use the seller's own placement, from this many photos (None: the standard).
     own_placement: int | None = None
+    #: "This template has several garments in one photo" (off: one area per photo by default).
+    several_garments: bool = False
 
 
 class PlacementGroupOut(BaseModel):
@@ -164,6 +170,12 @@ class PlacementOut(BaseModel):
 
 class TemplateIn(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_NAME)
+
+
+class TemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
+    #: "This template has several garments in one photo".
+    several_garments: bool | None = None
 
 
 class Order(BaseModel):
@@ -364,7 +376,8 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
         view=p.view or "front", own_placement=placement.built_from_own(p) if ready else None,
         areas=[
             AreaOut(print_area=g["print_area"], detected_area=g.get("detected_area") or g["print_area"],
-                    source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"))
+                    source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"),
+                    axis_angle=(g.get("geometry") or {}).get("axis_estimate"))
             for g in photo_areas(p)
         ],
     )
@@ -373,7 +386,7 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
 def _template_out(t: MockupTemplate, photos: list[MockupPhoto]) -> TemplateOut:
     out = [_photo_out(p) for p in photos]
     own = [p.own_placement for p in out if p.own_placement]
-    return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out,
+    return TemplateOut(id=t.id, name=t.name, position=t.position, photos=out, several_garments=t.several_garments,
                        needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out),
                        own_placement=max(own) if own else None)
 
@@ -552,14 +565,42 @@ async def get_template(
 
 
 @router.patch("/mockup-templates/{template_id}", response_model=TemplateOut)
-async def rename_template(
-    template_id: uuid.UUID, body: TemplateIn, session: AsyncSession = Depends(get_session),
+async def update_template(
+    template_id: uuid.UUID, body: TemplateUpdate, session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
+    """Rename a template, or switch "This template has several garments in one photo": the
+    photos still waiting for a check with their areas as suggested then show every garment
+    found (on) or the main garment's area alone (off). Confirmed photos, and areas the seller
+    moved, added or copied, are not touched."""
     template = await _own_template(session, tenant, template_id)
-    template.name = clean_name(body.name, template.name)
+    if body.name is not None:
+        template.name = clean_name(body.name, template.name)
+    photos = await _photos_of(session, template.id)
+    if body.several_garments is not None and body.several_garments != template.several_garments:
+        template.several_garments = body.several_garments
+        for photo in photos:
+            resuggest(photo, template.several_garments)
     await session.commit()
-    return _template_out(template, await _photos_of(session, template.id))
+    return _template_out(template, photos)
+
+
+def resuggest(photo: MockupPhoto, several: bool) -> bool:
+    """A waiting photo's suggested areas chosen again from its analysis's candidates
+    (``mockups.chosen_rows``); False when the photo is confirmed, edited by the seller or
+    has no candidates (analysed before they were kept)."""
+    candidates = (photo.analysis or {}).get("candidates")
+    rows = photo.garments or []
+    if (photo.status != "ready" or photo.confirmed_at is not None or not candidates
+            or any((r.get("source") or "default") != "default" for r in rows)):
+        return False
+    chosen = mockups.chosen_rows(candidates, several)
+    if [r.get("print_area") for r in chosen] == [r.get("print_area") for r in rows]:
+        return False
+    photo.garments = chosen
+    photo.print_area, photo.print_area_source = chosen[0]["print_area"], "default"
+    photo.version += 1
+    return True
 
 
 @router.put("/mockup-templates/order", response_model=list[TemplateOut])
@@ -787,6 +828,9 @@ async def copy_areas(
                 try:
                     placed = mockups.transfer_area(g["print_area"], g["detected_area"], suggested,
                                                    (source.width, source.height or 1), (target.width, target.height or 1))
+                    # The seller's angle travels as set (the mapping above can skew it).
+                    placed = mockups.with_angle_of(placed, g["print_area"], (source.width, source.height or 1),
+                                                   (target.width, target.height or 1))
                 except mockups.MockupError:
                     placed = [list(c) for c in g["print_area"]]  # a degenerate suggestion: the same shares
             rows.append({**(_kept(own, suggested) if suggested else {}),

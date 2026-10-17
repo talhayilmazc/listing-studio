@@ -8,9 +8,12 @@ import {
   MIN_SIZE,
   SNAP_SCREEN_PX,
   across,
-  axisAngle,
+  angleDegrees,
+  angleKey,
+  axisGuide,
   designQuad,
   dragCorner,
+  garmentAxis,
   history,
   isRect,
   makeGuides,
@@ -30,6 +33,7 @@ import {
   toPx,
   toShares,
   turn,
+  turnTo,
   undo,
   type Guide,
   type History,
@@ -47,7 +51,8 @@ import { BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LOOKS_RIGHT, OCCLUSION_LABEL, SAMP
  * each shown on its own photo to confirm. Full screen on a phone, at least 900 px wide on a
  * desktop; every control is at least 44 px. Nothing here calls Etsy or an AI model.
  */
-type Area = { quad: Quad; suggested: Quad; source: string; kind?: string | null };
+/** ``axis``: the garment's own axis (radians) a turn snaps to and "Match garment angle" uses. */
+type Area = { quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null };
 type Drag =
   | { kind: "move"; index: number; start: Pt; quad: Quad }
   | { kind: "corner"; index: number; corner: number; start: Pt; quad: Quad }
@@ -78,7 +83,10 @@ export function PrintAreaEditor({
   const W = photo.width ?? 1;
   const H = photo.height ?? 1;
   const initial = useMemo<Area[]>(
-    () => photo.areas.map((a) => ({ quad: toPx(a.print_area, W, H), suggested: toPx(a.detected_area, W, H), source: a.source, kind: a.kind })),
+    () => photo.areas.map((a) => {
+      const suggested = toPx(a.detected_area, W, H);
+      return { quad: toPx(a.print_area, W, H), suggested, source: a.source, kind: a.kind, axis: garmentAxis(a.axis_angle, suggested) };
+    }),
     [photo.id, photo.version], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const [h, setH] = useState<History<Area[]>>(() => history(initial));
@@ -197,10 +205,9 @@ export function PrintAreaEditor({
     } else {
       const start = rectOf(d.quad).angle;
       const wanted = start + turn(d.quad, d.start, p);
-      const sug = areas[d.index].suggested;
-      const s = snapAngle(wanted, axisAngle(sug), snapOn && !e.altKey ? undefined : 0);
+      const s = snapAngle(wanted, areas[d.index].axis, snapOn && !e.altKey ? undefined : 0);
       quad = rotate(d.quad, s.angle - start);
-      if (s.snapped === "axis") shown = guides.filter((g) => g.kind === "axis");
+      if (s.snapped === "axis") shown = [axisGuide(quad, s.angle)];
       if (s.snapped === "upright") {
         const c = rectOf(quad);
         shown = [{ a: [c.cx, 0], b: [c.cx, H], kind: "photo", dir: "v", features: ["centre"] }];
@@ -321,7 +328,7 @@ export function PrintAreaEditor({
     try {
       const found = await api.findMockupGarment(photo.id, x / W, y / H, areas.map((a) => toShares(a.quad, W, H)));
       const quad = toPx(found.print_area, W, H);
-      const next = [...areas, { quad, suggested: quad, source: found.found ? "tap" : "seller", kind: found.kind }];
+      const next = [...areas, { quad, suggested: quad, source: found.found ? "tap" : "seller", kind: found.kind, axis: null }];
       commit(next);
       setSelected(next.length - 1);
       if (!found.found && found.note) setNote(found.note);
@@ -346,10 +353,22 @@ export function PrintAreaEditor({
       return;
     }
     if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+    const turnBy = angleKey(e.code, e.shiftKey);
+    if (turnBy !== null && areas[selected]) {
+      e.preventDefault();
+      commit(areas.map((a, i) => (i === selected ? { ...a, quad: rotate(a.quad, turnBy) } : a)));
+      return;
+    }
     const by = nudge(e.key, e.shiftKey, W);
     if (!by || !areas[selected]) return;
     e.preventDefault();
     commit(areas.map((a, i) => (i === selected ? { ...a, quad: move(a.quad, by[0], by[1]) } : a)));
+  }
+
+  function matchGarment() {
+    const a = areas[selected];
+    if (!a || a.axis === null) return;
+    commit(areas.map((x, i) => (i === selected ? { ...x, quad: turnTo(x.quad, a.axis as number) } : x)));
   }
 
   function reset() {
@@ -544,7 +563,7 @@ export function PrintAreaEditor({
                   style={px(rotateHandle(sel.quad, handleGap))}
                   onPointerDown={(e) => begin(e, { kind: "rotate", index: selected, start: at(e), quad: sel.quad })}
                   data-testid="editor-rotate">
-                  <span aria-hidden className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-brand-600 text-xs text-white shadow">↻</span>
+                  <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-brand-600 text-base text-white shadow-md ring-2 ring-brand-600/30">↻</span>
                 </button>
               )}
             </div>
@@ -585,6 +604,11 @@ export function PrintAreaEditor({
                 <button type="button" className={`min-h-11 px-2 ${fabric ? "btn-primary" : "btn-secondary"}`} aria-pressed={!!fabric} onClick={showFabric}
                   data-testid="editor-fabric">
                   On fabric
+                </button>
+                <button type="button" className="col-span-3 min-h-11 px-2 btn-secondary" onClick={matchGarment}
+                  disabled={!sel || sel.axis === null || Math.abs(angleDegrees(sel.quad) - angleDegrees(turnTo(sel.quad, sel.axis))) < 0.05}
+                  title="Turn the print area to the garment's own angle" data-testid="editor-match-angle">
+                  Match garment angle
                 </button>
                 <button type="button" className={`col-span-3 min-h-11 px-2 ${brushing ? "btn-primary" : "btn-secondary"}`} aria-pressed={brushing}
                   onClick={() => { setBrushing(!brushing); setBrushDirty(false); setTapping(false); }} data-testid="editor-brush">
@@ -638,6 +662,12 @@ export function PrintAreaEditor({
                     </button>
                   ))}
                 </div>
+              )}
+              {sel && (
+                <p key="angle" className="flex items-baseline justify-between gap-2 text-sm text-slate-700" data-testid="editor-angle-row">
+                  <span>Angle</span>
+                  <span className="tabular-nums" translate="no" data-testid="editor-angle">{`${angleDegrees(sel.quad).toFixed(1)}°`}</span>
+                </p>
               )}
               {note && <p key="note" role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{note}</p>}
               <label className="block">
@@ -727,7 +757,7 @@ export function PrintAreaEditor({
 
         <footer className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2 sm:px-4">
           <span className="hidden min-w-0 flex-1 truncate text-xs text-slate-500 sm:block" translate="no">
-            {`${areas.length} ${areas.length === 1 ? "print area" : "print areas"}${snapOn ? "" : " · snapping off"}`}
+            {`${areas.length} ${areas.length === 1 ? "print area" : "print areas"}${sel ? ` · ${angleDegrees(sel.quad).toFixed(1)}°` : ""}${snapOn ? "" : " · snapping off"}`}
           </span>
           <button type="button" className="btn-primary min-h-12 flex-1 text-base sm:flex-none sm:px-10" onClick={confirm} disabled={saving}
             data-testid="editor-confirm">

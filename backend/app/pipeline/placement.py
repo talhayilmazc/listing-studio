@@ -43,7 +43,8 @@ def geometry(found: Any, width: int, height: int) -> dict[str, Any]:
 
     return {"neck": share(found.neck), "armpits": [share(p) for p in found.armpits],
             "angle": float(found.info.get("angle") or 0.0), "kind": found.kind, "layout": found.layout,
-            "suggested": [share(p) for p in found.corners]}
+            "suggested": [share(p) for p in found.corners],
+            "axis_estimate": found.info.get("axis_estimate")}
 
 
 def observation(row: dict[str, Any], width: int, height: int) -> dict[str, Any] | None:

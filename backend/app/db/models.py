@@ -706,6 +706,10 @@ class MockupTemplate(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     #: The seller's order of templates.
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    #: "This template has several garments in one photo": only then may the analysis suggest
+    #: more than one print area per photo (otherwise the main garment's; the seller adds more
+    #: with "Add area").
+    several_garments: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

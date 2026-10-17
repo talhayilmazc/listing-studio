@@ -186,7 +186,7 @@ def test_a_worn_tees_shoulders_are_not_a_hood_but_a_hood_is() -> None:
     assert garments._is_hood(mass), mass
 
 
-def test_several_garments_get_one_area_each_and_a_prop_gets_none() -> None:
+def test_with_the_switch_several_garments_get_one_area_each_and_a_prop_gets_none() -> None:
     size = (1500, 800)
     img = Image.new("RGB", size, BACKGROUND)
     mask = np.zeros((size[1], size[0]), bool)
@@ -198,7 +198,7 @@ def test_several_garments_get_one_area_each_and_a_prop_gets_none() -> None:
     d.ellipse([1180, 200, 1380, 400], fill=(205, 175, 120))  # a hat beside them
     yy, xx = np.ogrid[:size[1], :size[0]]
     mask |= ((xx - 1280) ** 2 + (yy - 300) ** 2) <= 100 ** 2
-    found = _detect(np.asarray(img), mask).garments
+    found = _detect(np.asarray(img), mask, several=True).garments
     assert len(found) == 3
     centres = sorted(sum(x for x, _ in g.corners) / 4 / size[0] for g in found)
     for c, (lo, hi) in zip(centres, ((0.03, 0.25), (0.28, 0.50), (0.53, 0.75)), strict=True):
@@ -333,4 +333,142 @@ def test_redetect_keeps_confirmed_areas_and_renews_waiting_suggestions() -> None
     assert confirmed.garments[0]["detected_area"] == new and confirmed.garments[0]["geometry"]
     assert confirmed.confirmed_at is not None
     two = photo("default", True)
-    assert apply_found(two, found + found, 0.8) == "kept" and two.garments[0]["detected_area"] == old
+    assert apply_found(two, found + found, 0.8, several=True) == "kept" and two.garments[0]["detected_area"] == old
+
+
+# --- one area per photo by default; the torso -------------------------------------------------------
+
+
+def test_one_area_by_default_on_the_main_garment_and_none_on_a_hat() -> None:
+    size = (1500, 900)
+    img = Image.new("RGB", size, BACKGROUND)
+    mask = np.zeros((size[1], size[0]), bool)
+    # A large tee in the middle, a smaller one at the edge, a hat and a bag (props).
+    for box, colour in (((0.33, 0.12, 0.67, 0.82), (200, 60, 60)), ((0.03, 0.40, 0.22, 0.80), (60, 90, 200))):
+        rgb, m = _tee(size, box, colour=colour)
+        img.paste(Image.fromarray(rgb), (0, 0), Image.fromarray((m * 255).astype(np.uint8)))
+        mask |= m
+    d = ImageDraw.Draw(img)
+    d.ellipse([1150, 120, 1400, 330], fill=(205, 175, 120))  # a hat
+    d.rectangle([1180, 520, 1420, 760], fill=(90, 60, 40))  # a bag
+    yy, xx = np.ogrid[:size[1], :size[0]]
+    mask |= ((xx - 1275) ** 2 / 125 ** 2 + (yy - 225) ** 2 / 105 ** 2) <= 1
+    mask[520:760, 1180:1420] = True
+    found = _detect(np.asarray(img), mask)
+    assert len(found.garments) == 1 and len(found.candidates) >= 2  # the others are only candidates
+    cx = sum(x for x, _ in found.garments[0].corners) / 4 / size[0]
+    assert 0.40 < cx < 0.60  # on the main tee
+    for g in found.candidates:  # and never an area on the hat or the bag
+        gx = sum(x for x, _ in g.corners) / 4
+        assert not 1130 < gx < 1430
+
+
+def test_a_wide_arm_pose_keeps_the_area_on_the_torso() -> None:
+    png, truth = samples.person("hair", colour=(90, 110, 160))
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    w, h = img.size
+    # A long sleeve and arm held out and down against the body on one side, the same fabric:
+    # the body's measured width (and so its middle) runs onto the arm.
+    arm = [(w * 0.76, h * 0.30), (w * 0.99, h * 0.40), (w * 0.99, h * 0.95), (w * 0.76, h * 0.95)]
+    ImageDraw.Draw(img).polygon(arm, fill=(90, 110, 160))
+    classes = truth["classes"].copy()
+    ImageDraw.Draw(classes).polygon(arm, fill=4)
+    truth = {**truth, "classes": classes}
+    small = img.copy()
+    small.thumbnail((garments.WORK, garments.WORK))
+    sw, sh = small.size
+    mask = np.asarray(classes.resize((sw, sh), Image.NEAREST)) > 0
+    found = garments.detect(np.asarray(small), samples.TruthRunner(truth), Drawn(mask), "tshirt").garments
+    assert len(found) == 1
+    xs = [x / sw for x, _ in found[0].corners]
+    # The torso runs from 0.25 to 0.75 of the photo; the shoulders' midpoint is 0.5.
+    assert min(xs) > 0.25 and max(xs) < 0.75, xs
+    assert abs(sum(xs) / 4 - 0.5) < 0.05
+
+
+def _two_tees() -> bytes:
+    w, h = 1400, 760
+    canvas = Image.new("RGB", (w, h), (232, 233, 236))
+    for i, colour in enumerate(((200, 60, 60), (50, 90, 200))):
+        tee = Image.open(io.BytesIO(samples.blank(colour, size=(640, 740), background=(232, 233, 236)))).convert("RGB")
+        canvas.paste(tee, (40 + i * 700, 10))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def test_one_area_per_photo_unless_the_template_has_several_garments(mw) -> None:  # noqa: F811
+    t = await _template(mw, "a", "Two tees")
+    card = next(x for x in (await mw["a"].get("/api/mockup-templates")).json() if x["id"] == t)
+    assert card["several_garments"] is False
+    waiting = await _prepared(mw, "a", t, "waiting", _two_tees())
+    confirmed = await _prepared(mw, "a", t, "kept", _two_tees())
+    assert len(waiting["areas"]) == 1 and len(confirmed["areas"]) == 1
+    res = await mw["a"].put(f"/api/mockup-photos/{confirmed['id']}/areas", json={"confirm": True, "areas": [
+        {"print_area": confirmed["areas"][0]["print_area"], "detected_area": confirmed["areas"][0]["detected_area"],
+         "source": "default"}]})
+    assert res.status_code == 200
+    # Another account cannot switch it.
+    assert (await mw["b"].patch(f"/api/mockup-templates/{t}", json={"several_garments": True})).status_code == 404
+    on = (await mw["a"].patch(f"/api/mockup-templates/{t}", json={"several_garments": True})).json()
+    assert on["several_garments"] is True
+    by_id = {p["id"]: p for p in on["photos"]}
+    assert len(by_id[waiting["id"]]["areas"]) == 2  # every garment found, still waiting for a check
+    assert len(by_id[confirmed["id"]]["areas"]) == 1 and by_id[confirmed["id"]]["confirmed"]  # untouched
+    third = await _prepared(mw, "a", t, "new", _two_tees())
+    assert len(third["areas"]) == 2  # new photos follow the switch
+    off = (await mw["a"].patch(f"/api/mockup-templates/{t}", json={"several_garments": False})).json()
+    assert all(len(p["areas"]) == 1 for p in off["photos"])
+
+
+async def test_the_angle_travels_with_apply_to_selected(mw) -> None:  # noqa: F811
+    t = await _template(mw, "a", "Angles")
+    src = await _prepared(mw, "a", t, "one", samples.blank((60, 90, 200), size=(700, 800)))
+    dst = await _prepared(mw, "a", t, "two", samples.blank((200, 60, 60), size=(700, 800)))
+    a = src["areas"][0]["detected_area"]
+    w, h = 700, 800
+    cx, cy = sum(p[0] for p in a) / 4 * w, sum(p[1] for p in a) / 4 * h
+    hw, hh = (a[1][0] - a[0][0]) * w / 2, (a[3][1] - a[0][1]) * h / 2
+    t8 = math.radians(8)
+    turned = [[round((cx + su * hw * math.cos(t8) - sv * hh * math.sin(t8)) / w, 4),
+               round((cy + su * hw * math.sin(t8) + sv * hh * math.cos(t8)) / h, 4)]
+              for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    res = await mw["a"].put(f"/api/mockup-photos/{src['id']}/areas", json={"confirm": True, "areas": [
+        {"print_area": turned, "detected_area": a, "source": "seller"}]})
+    assert res.status_code == 200
+    copied = (await mw["a"].post(f"/api/mockup-photos/{src['id']}/copy", json={"photo_ids": [dst["id"]], "fit": True})).json()
+    q = copied[0]["areas"][0]["print_area"]
+    angle = math.degrees(math.atan2((q[1][1] - q[0][1]) * h, (q[1][0] - q[0][0]) * w))
+    assert angle == pytest.approx(8.0, abs=0.5)
+    # Another account cannot copy from it.
+    assert (await mw["b"].post(f"/api/mockup-photos/{src['id']}/copy", json={"photo_ids": [dst["id"]]})).status_code == 404
+
+
+async def test_the_single_area_command_reduces_waiting_photos_only(mw) -> None:  # noqa: F811
+    from datetime import datetime, timezone
+
+    from app.db.models import MockupPhoto
+    from app.ops.mockup_single_area import run
+
+    t = await _template(mw, "a", "Old")
+    waiting = await _prepared(mw, "a", t, "waiting", _two_tees())
+    other = await _template(mw, "a", "Several kept")
+    several = await _prepared(mw, "a", other, "both", _two_tees())
+    async with mw["sm"]() as s:  # as photos prepared before one area per photo: every garment
+        for pid, confirm in ((waiting["id"], False), (several["id"], True)):
+            photo = await s.get(MockupPhoto, uuid.UUID(pid))
+            rows = [dict(c) for c in photo.analysis["candidates"]]
+            for row in rows:
+                row.pop("main", None)
+            photo.garments = rows
+            if confirm:
+                photo.confirmed_at = datetime.now(timezone.utc)
+        await s.commit()
+    assert "would be" in await run(mw["sm"], apply=False)
+    out = await run(mw["sm"], apply=True)
+    assert out.startswith("1 waiting photo(s) reduced") and "1 template(s)" in out, out
+    by_id = {p["id"]: p for x in (await mw["a"].get("/api/mockup-templates")).json() for p in x["photos"]}
+    assert len(by_id[waiting["id"]]["areas"]) == 1
+    assert len(by_id[several["id"]]["areas"]) == 2  # the seller confirmed several: kept, switch on
+    kept = next(x for x in (await mw["a"].get("/api/mockup-templates")).json() if x["id"] == other)
+    assert kept["several_garments"] is True

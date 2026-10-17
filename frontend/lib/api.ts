@@ -407,6 +407,9 @@ export const api = {
     req<MockupTemplate>("/mockup-templates", { method: "POST", body: JSON.stringify({ name }) }),
   renameMockupTemplate: (id: string, name: string) =>
     req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  /** "This template has several garments in one photo". */
+  updateMockupTemplate: (id: string, body: { name?: string; several_garments?: boolean }) =>
+    req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
   orderMockupTemplates: (ids: string[]) =>
     req<MockupTemplate[]>("/mockup-templates/order", { method: "PUT", body: JSON.stringify({ ids }) }),

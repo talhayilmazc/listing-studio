@@ -210,7 +210,7 @@ test("the editor's tools: undo, redo, reset to the suggestion, free corners, sna
   assert.match(editor, /const reach = \(alt: boolean\) => \(snapOn && !alt \? SNAP_SCREEN_PX \/ scale : 0\);/);
   // "Add area": the tap is sent with the areas already there; the new area goes last (tap order).
   assert.match(editor, /api\.findMockupGarment\(photo\.id, x \/ W, y \/ H, areas\.map\(\(a\) => toShares\(a\.quad, W, H\)\)\)/);
-  assert.match(editor, /const next = \[\.\.\.areas, \{ quad, suggested: quad, source: found\.found \? "tap" : "seller", kind: found\.kind \}\];/);
+  assert.match(editor, /const next = \[\.\.\.areas, \{ quad, suggested: quad, source: found\.found \? "tap" : "seller", kind: found\.kind, axis: null \}\];/);
   // Copy: this photo saved, then each copied photo opens for its own check.
   assert.match(editor, /const copied = await api\.copyMockupAreas\(photo\.id, copyIds\);/);
   assert.match(read(PAGE), /setEditor\(copied\.length \? \{ queue: copied\.map\(\(p\) => p\.id\), index: 0 \} : null\);/);

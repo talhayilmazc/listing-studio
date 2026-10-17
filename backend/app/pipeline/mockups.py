@@ -900,3 +900,68 @@ def preview_scale(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None
 
     return (blank.resize(scale).write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True), small(mask_png),
             small(occluder_png) if occluder_png else None)
+
+
+def chosen_rows(candidates: list[dict], several: bool) -> list[dict]:
+    """A photo's suggested areas from every garment the analysis found: all of them when the
+    template has several garments in one photo, else the main garment's alone (the seller
+    adds more with "Add area"). Rows without a "main" mark (photos analysed before it) count
+    the main one by size and nearness to the middle (``main_row``)."""
+    if several or len(candidates) <= 1:
+        return [dict(c) for c in candidates]
+    marked = [c for c in candidates if c.get("main")]
+    return [dict(marked[0] if marked else candidates[main_row(candidates)])]
+
+
+def main_row(rows: list[dict]) -> int:
+    """For rows that carry no "main" mark: the largest print area nearest the middle."""
+    best, score = 0, -1.0
+    for i, row in enumerate(rows):
+        q = row.get("detected_area") or row.get("print_area")
+        if not q:
+            continue
+        area = abs(sum(q[k][0] * q[(k + 1) % 4][1] - q[(k + 1) % 4][0] * q[k][1] for k in range(4))) / 2
+        cx, cy = sum(p[0] for p in q) / 4, sum(p[1] for p in q) / 4
+        off = math.hypot(cx - 0.5, cy - 0.5) / math.hypot(0.5, 0.5)
+        s = area * (1.0 - 0.6 * min(1.0, off))
+        if s > score:
+            best, score = i, s
+    return best
+
+
+def _rect_of(q: list[tuple[float, float]]) -> tuple[float, float, float, float, float]:
+    """(cx, cy, width, height, angle in radians of the top edge) of a quad in pixels."""
+    (ax, ay), (bx, by), _, _ = q
+    w = (math.dist(q[0], q[1]) + math.dist(q[3], q[2])) / 2
+    h = (math.dist(q[0], q[3]) + math.dist(q[1], q[2])) / 2
+    return sum(p[0] for p in q) / 4, sum(p[1] for p in q) / 4, w, h, math.atan2(by - ay, bx - ax)
+
+
+def _is_rect(q: list[tuple[float, float]], tolerance: float = 0.02) -> bool:
+    w = math.dist(q[0], q[1])
+    h = math.dist(q[0], q[3])
+    if w <= 0 or h <= 0:
+        return False
+    ux, uy = (q[1][0] - q[0][0]) / w, (q[1][1] - q[0][1]) / w
+    vx, vy = (q[3][0] - q[0][0]) / h, (q[3][1] - q[0][1]) / h
+    return abs(ux * vx + uy * vy) < tolerance and abs(math.dist(q[3], q[2]) - w) < tolerance * w
+
+
+def with_angle_of(placed: list[list[float]], source: list[list[float]], source_size: tuple[int, int],
+                  target_size: tuple[int, int]) -> list[list[float]]:
+    """``placed`` (shares of the target photo) turned to exactly the angle of ``source`` (shares
+    of the source photo), its centre and size kept: "Apply this area to selected" copies the
+    seller's angle as set. A source with free corners (perspective) is left as mapped."""
+    sw, sh = source_size
+    tw, th = target_size
+    src = [(x * sw, y * sh) for x, y in source]
+    if not _is_rect(src):
+        return placed
+    cx, cy, w, h, _ = _rect_of([(x * tw, y * th) for x, y in placed])
+    angle = _rect_of(src)[4]
+    ux, uy = math.cos(angle), math.sin(angle)
+    vx, vy = -uy, ux
+    out = [[round(min(1.0, max(0.0, (cx + su * ux * w / 2 + sv * vx * h / 2) / tw)), 4),
+            round(min(1.0, max(0.0, (cy + su * uy * w / 2 + sv * vy * h / 2) / th)), 4)]
+           for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    return clean_print_area(out)

@@ -22,6 +22,11 @@ import {
   resizeRect,
   rotate,
   snapAngle,
+  angleDegrees,
+  angleKey,
+  axisGuide,
+  garmentAxis,
+  turnTo,
   snapArea,
   snapPoint,
   toPx,
@@ -173,4 +178,31 @@ test("the live preview places the design as the mockups do: proportions kept, to
   // The homography maps the corners it was made from.
   const h = homography([[0, 0], [1, 0], [1, 1], [0, 1]], [[10, 10], [110, 20], [100, 120], [5, 100]]);
   assert.deepEqual(apply(h, [1, 1]).map((v) => Math.round(v * 1000) / 1000), [100, 120]);
+});
+
+test("a turn snaps to upright and to the garment's own axis estimate, with a guide along the axis", () => {
+  const q = box(300, 300, 700, 700);
+  const axis = garmentAxis(12, q); // the analysis's estimate, in degrees, wins over the upright suggestion
+  close(axis as number, (12 * Math.PI) / 180);
+  assert.equal(garmentAxis(null, rotate(q, 0.1)), rectOf(rotate(q, 0.1)).angle); // else the suggestion's own angle
+  assert.equal(snapAngle((11 * Math.PI) / 180, axis).snapped, "axis");
+  assert.equal(snapAngle((1 * Math.PI) / 180, axis).snapped, "upright");
+  assert.equal(snapAngle((7 * Math.PI) / 180, axis).snapped, null);
+  const g = axisGuide(q, axis as number);
+  assert.equal(g.kind, "axis");
+  close(g.a[0], 500); close(g.a[1], 500);
+  close(Math.atan2(g.b[0] - g.a[0], g.b[1] - g.a[1]), -(axis as number)); // along the garment, through the centre
+});
+
+test("Match garment angle turns the area to the axis exactly; [ and ] turn by 1, Shift by 5; the angle reads in degrees", () => {
+  const q = box(300, 300, 700, 600);
+  const matched = turnTo(q, (12 * Math.PI) / 180);
+  assert.equal(angleDegrees(matched), 12);
+  closeQuad(turnTo(matched, 0), q, 1e-6);
+  close(rectOf(matched).w, rectOf(q).w); close(rectOf(matched).h, rectOf(q).h); // size kept
+  close(angleKey("BracketRight", false) as number, Math.PI / 180);
+  close(angleKey("BracketLeft", true) as number, (-5 * Math.PI) / 180);
+  assert.equal(angleKey("KeyA", false), null);
+  assert.equal(angleDegrees(rotate(q, angleKey("BracketLeft", false) as number)), -1);
+  assert.equal(angleDegrees(q), 0);
 });

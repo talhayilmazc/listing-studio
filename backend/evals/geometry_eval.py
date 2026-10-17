@@ -32,6 +32,7 @@ collar (above the marked collar point, or a hoodie's marked ``top``).
 from __future__ import annotations
 
 import inspect
+import os
 import io
 import json
 import math
@@ -52,6 +53,7 @@ SEED = 20261016
 HOLDOUT_SHARE = 0.30
 OUTSIDE_LIMIT = 0.05
 TILTED = 6.0
+TORSO_DEPTH = 1.5
 LEARN_FIRST = 3
 GROUPS = {"on a person": "worn", "folded": "folded", "flat-lay": "flat-lay", "on a hanger": "hanger",
           "several garments": "several"}
@@ -150,8 +152,11 @@ def _detect(name: str, table: dict[str, Any] | None = None) -> dict[str, Any]:
     rgb = np.asarray(im)
     aw, ah = im.size
     kwargs = {}
-    if table is not None and "personal" in inspect.signature(garments_.detect).parameters:
+    params = inspect.signature(garments_.detect).parameters
+    if table is not None and "personal" in params:
         kwargs["personal"] = table
+    if "several" in params:  # "This template has several garments in one photo" (bench --several)
+        kwargs["several"] = os.environ.get("GEOMETRY_SEVERAL") == "1"
     t = time.perf_counter()
     found = garments_.detect(rgb, vision.default_runner(), garments_.default_saliency(), name, **kwargs)
     seconds = time.perf_counter() - t
@@ -305,6 +310,10 @@ def score_photo(name: str, key: dict[str, Any], det: dict[str, Any]) -> tuple[li
                         "angle_error": round(abs((d + 180) % 360 - 180), 2),
                         "kind": det["garments"][best]["kind"], "found_layout": det["garments"][best]["layout"],
                         "confidence": det["garments"][best]["confidence"]})
+            # The area's centre on the torso: between the marked armpits, from the collar
+            # down to TORSO_DEPTH chest widths.
+            cu, cv = _uv(fc, fr)
+            row["off_torso"] = bool(abs(cu) > 0.5 * chest or cv < 0 or cv > TORSO_DEPTH * chest)
         rows.append(row)
     areas = []
     for j, a in enumerate(found):
@@ -315,10 +324,13 @@ def score_photo(name: str, key: dict[str, Any], det: dict[str, Any]) -> tuple[li
                       "unmarked": on is None and key.get("unmarked_garments", False) and not off_fg,
                       "outside": bool(off_fg or (on is None and not key.get("unmarked_garments", False))),
                       "collar": _collar(a, key, on),
+                      # On something that is not a marked garment (a hat, jeans, the floor):
+                      # photos whose marks leave garments out on purpose are not counted.
+                      "prop": on is None and not key.get("unmarked_garments", False),
                       "confidence": det["garments"][j]["confidence"]})
     zero = len(found) == len(key["garments"]) and all(r["iou"] >= me.ACTIONS_IOU for r in rows)
     photo = {"photo": name, "found": len(found), "marked": len(key["garments"]), "zero_action": zero,
-             "every_08": all(r["iou"] >= 0.8 for r in rows), "mean_iou": round(statistics.mean(r["iou"] for r in rows), 3),
+             "multi": len(found) > 1, "every_08": all(r["iou"] >= 0.8 for r in rows), "mean_iou": round(statistics.mean(r["iou"] for r in rows), 3),
              "layout": GROUPS.get(key["layout"], key["layout"]), "type": key["type"], "seconds": det["seconds"],
              "low_contrast": all(r["low_contrast"] for r in rows), "areas": areas,
              "min_confidence": min((g["confidence"] for g in det["garments"]), default=0.0)}
@@ -350,6 +362,8 @@ def _block(rows: list[dict[str, Any]], photos_: list[dict[str, Any]]) -> dict[st
         "collar": sum(a["collar"] for a in areas), "unmarked": sum(a.get("unmarked", False) for a in areas),
         "iou09": sum(r["iou"] >= 0.9 for r in rows) / len(rows) if rows else float("nan"),
         "missed": sum(r["match"] is None for r in rows),
+        "multi": sum(p.get("multi", False) for p in photos_), "prop": sum(a.get("prop", False) for a in areas),
+        "off_torso": sum(bool(r.get("off_torso")) for r in rows),
     }
 
 
@@ -378,6 +392,7 @@ def _fmt(b: dict[str, Any]) -> str:
     f = lambda v, s: ("   n/a" if v != v else s.format(v))  # noqa: E731
     return (f"{b['photos']:3d} ph {b['garments']:3d} g | IoU>=0.8 {f(b['iou08'], '{:6.1%}')} med {f(b['median_iou'], '{:.2f}')}"
             f" >=0.9 {f(b['iou09'], '{:6.1%}')} | every>=0.8 {f(b['every08'], '{:6.1%}')} zero-action {b['zero_action']:2d}"
+            f" | multi-area photos {b['multi']:2d} on a prop {b['prop']:2d} centre off torso {b['off_torso']:2d}"
             f" | outside {b['outside']:2d}/{b['areas']:<3d} collar {b['collar']:2d} missed {b['missed']:2d}"
             f" | centre {f(b['centre'], '{:.3f}')} size {f(b['size'], '{:.3f}')} angle {f(b['angle'], '{:4.1f}')}"
             f" (tilted {b['tilted']}: med {f(b['tilted_angle'], '{:4.1f}')} max {f(b['tilted_max'], '{:4.1f}')})")
@@ -562,7 +577,9 @@ def main(argv: list[str]) -> None:
             jobs = int(args[args.index("--jobs") + 1])
             del args[args.index("--jobs"): args.index("--jobs") + 2]
         learn_ = "--learn" in args
-        args = [a for a in args if a != "--learn"]
+        if "--several" in args:
+            os.environ["GEOMETRY_SEVERAL"] = "1"
+        args = [a for a in args if a not in ("--learn", "--several")]
         only = None
         if "--only" in args:
             only = args[args.index("--only") + 1].split("|")

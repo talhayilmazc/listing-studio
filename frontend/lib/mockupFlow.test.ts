@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { MAX_UPLOAD_MB as DROP_LIMIT, kindOf, pick } from "./fileDrop.ts";
-import { ALL_READY, MAX_UPLOAD_MB, RESET_PLACEMENT, addDesignsHref, appliedLine, canAddDesigns, designNote, ownPlacementLine, printable } from "./mockups.ts";
+import { ALL_READY, MAX_UPLOAD_MB, RESET_PLACEMENT, SEVERAL_LABEL, applyToTheseLabel, confirmAllLabel, firstConfirmOffer, stillToCheck, addDesignsHref, appliedLine, canAddDesigns, designNote, ownPlacementLine, printable } from "./mockups.ts";
 import type { MockupPhoto, MockupTemplate } from "./types.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
@@ -77,7 +77,7 @@ test("Add designs appears once a photo is confirmed, and right after the last ch
   assert.match(page, /data-testid="templates-add-designs"/);
   // After "Looks right" on the last photo that needed it.
   assert.equal(ALL_READY, "All photos are ready. Add designs");
-  assert.match(page, /if \(stillWaiting === 0\) setReadyTemplate\(saved\.template_id\);/);
+  assert.match(page, /if \(!rest\.length\) setReadyTemplate\(saved\.template_id\);/);
   assert.match(page, /data-testid="all-ready-add">Add designs<\/Link>/);
   // The editor's previews are never the only action: "Looks right" is always there.
   assert.match(read(EDITOR), /data-testid="editor-confirm"/);
@@ -122,4 +122,29 @@ test("the seller's own placement is named on the template and Reset says what it
   const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "templates", "page.tsx"), "utf8");
   assert.match(page, /ownPlacementLine\(template\.own_placement\)/);
   assert.match(page, /resetMockupPlacement/);
+});
+
+test("one-time setup: after the first confirmed photo the others are offered; the editor moves on; Confirm all", () => {
+  const waiting = (id: string) => photo(id, { confirmed: false, needs_check: true });
+  const fresh = template([waiting("a"), waiting("b"), waiting("c")]);
+  assert.deepEqual(firstConfirmOffer(fresh, "a"), ["b", "c"]);
+  assert.equal(applyToTheseLabel(2), "Apply to these 2 photos");
+  // Not the first confirmed photo: no offer, the editor goes on to the next one waiting.
+  const later = template([photo("a"), waiting("b"), waiting("c")]);
+  assert.equal(firstConfirmOffer(later, "b"), null);
+  assert.deepEqual(stillToCheck(later, "b"), ["c"]);
+  assert.equal(firstConfirmOffer(template([waiting("a")]), "a"), null);
+  assert.equal(confirmAllLabel(5), "Confirm all 5");
+  const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "templates", "page.tsx"), "utf8");
+  assert.match(page, /template-several-toggle/);
+  assert.match(page, /SEVERAL_LABEL/);
+  assert.match(page, /<ConfirmGrid/);
+  assert.match(page, /firstConfirmOffer\(before, saved\.id\)/);
+  assert.match(SEVERAL_LABEL, /several garments in one photo/);
+  const grid = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "ConfirmGrid.tsx"), "utf8");
+  assert.match(grid, /designQuad/); // the placeholder sits where a mockup puts the design
+  const editor = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "PrintAreaEditor.tsx"), "utf8");
+  assert.match(editor, /Match garment angle/);
+  assert.match(editor, /angleKey\(e\.code, e\.shiftKey\)/);
+  assert.match(editor, /editor-angle/);
 });
