@@ -293,6 +293,68 @@ export function copyToGarment(area: Quad, from: Quad, to: Quad): Quad {
   return area.map((p) => apply(h, p)) as Quad;
 }
 
+/** Whether ``p`` lies inside the convex quad ``q`` grown by ``grow`` around its centre. */
+export function inQuad(p: Pt, q: Quad, grow = 1): boolean {
+  const c = centre(q);
+  const g = q.map(([x, y]) => [c[0] + (x - c[0]) * grow, c[1] + (y - c[1]) * grow]) as Quad;
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = g[i];
+    const [bx, by] = g[(i + 1) % 4];
+    const s = Math.sign((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax));
+    if (s !== 0) {
+      if (sign !== 0 && s !== sign) return false;
+      sign = s;
+    }
+  }
+  return true;
+}
+
+/** "N of M garments found; add the others with Click a garment or Duplicate". */
+export const foundNote = (found: number, total: number) =>
+  `${found} of ${total} garments found; add the others with Click a garment or Duplicate`;
+
+/** "Copy this area to all garments" (seller feedback A3): a copy goes only onto each garment the
+ *  analysis really found (``found``: their suggested areas, photo pixels), placed by that garment's
+ *  own geometry: where the selected area sits on its own found garment, it is put on each other
+ *  one. An area already on a found garment is moved there (its subgroup and switches kept); a found
+ *  garment with no area gets a new one (``make``). Areas on garments nobody found stay as they
+ *  are, and no copy ever goes where no garment was found. Before, every other area took a copy
+ *  placed by its own "suggestion": an added area's suggestion is its own box (or, after a save, the
+ *  suggestion of whichever area had held its place in the list), so copies moved and stretched. */
+export function copyToFound<A extends { quad: Quad; suggested: Quad }>(
+  areas: A[],
+  selected: number,
+  found: Quad[],
+  make: (quad: Quad, garment: Quad) => A,
+): { areas: A[]; copied: number; note: string | null } {
+  const src = areas[selected];
+  if (!src || !found.length) {
+    return { areas, copied: 0, note: src ? foundNote(0, Math.max(areas.length, 1)) : null };
+  }
+  const own = (q: Quad) => {
+    const inside = found.findIndex((g) => inQuad(centre(q), g, 1.5));
+    if (inside >= 0) return inside;
+    return -1;
+  };
+  const from = own(src.quad) >= 0 ? own(src.quad) : own(src.suggested);
+  if (from < 0) {
+    return { areas, copied: 0, note: "This area is not on a garment the analysis found: select an area on a found garment, or add the others with Click a garment or Duplicate." };
+  }
+  const out = [...areas];
+  let copied = 0;
+  found.forEach((garment, g) => {
+    if (g === from) return;
+    const quad = copyToGarment(src.quad, found[from], garment);
+    const at = out.findIndex((a, i) => i !== selected && inQuad(centre(a.quad), garment, 1.5));
+    if (at >= 0) out[at] = { ...out[at], quad, suggested: garment };
+    else out.push(make(quad, garment));
+    copied += 1;
+  });
+  const total = Math.max(found.length, out.length);
+  return { areas: out, copied, note: found.length < total ? foundNote(found.length, total) : null };
+}
+
 /** The ends of a guide line drawn across the whole photo. */
 export function across(g: Guide, width: number, height: number): [Pt, Pt] {
   const t = sub(g.b, g.a);

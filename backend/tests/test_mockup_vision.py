@@ -170,7 +170,9 @@ def test_a_crease_bends_the_print_and_breaks_it_along_its_line() -> None:
     # Bent near it: the print moves there, much more than far from the crease.
     near = np.abs(folded[rows, centre - 30:centre - 6] - flat[rows, centre - 30:centre - 6]).mean()
     far = np.abs(folded[rows, round(0.40 * w):round(0.42 * w)] - flat[rows, round(0.40 * w):round(0.42 * w)]).mean()
-    assert near > far * 1.5 and near > 3, (near, far)
+    # (The absolute floor was 3 with q85 4:2:0 output, whose noise added to every difference;
+    # at q92 4:4:4 the same bend measures 2.9 near and 1.3 far.)
+    assert near > far * 1.5 and near > 2.5, (near, far)
 
 
 def test_a_heathered_fabric_is_not_read_as_creases() -> None:

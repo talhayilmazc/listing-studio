@@ -25,8 +25,19 @@ light ink stays light, clipped to the garment.
 
 **Same inputs, same pixels:** every statistic comes from exact integer
 histograms (no floating-point sums whose order could change between threads)
-and every other step is a per-pixel operation. The output is the image
-pipeline's own: at most 2000 px, JPEG quality 85.
+and every other step is a per-pixel operation. The output is at most 2000 px.
+
+**Colour is kept as the seller sees it** (seller feedback: mockups looked faded):
+
+* every photo and design is converted to sRGB **with its own embedded ICC profile**
+  (Display P3 from phones, Adobe RGB, CMYK: ``_to_srgb``), never by dropping the
+  profile. Read as sRGB numbers, a P3 photo's red lost 14% of its saturation;
+* every mockup JPEG keeps full colour resolution (4:4:4, no chroma subsampling) at
+  quality ``JPEG_QUALITY`` (92), and the stored blank is a near-lossless working copy
+  (``BLANK_QUALITY``, 95): outside the print areas a mockup is the photo (mean absolute
+  difference about 0.3 of 255, was 0.6 to 1.0 after three generations at quality 85);
+* the fabric's highlight sheen lifts the ink only a little (``SHEEN``): black ink stays
+  black on a lit fold.
 """
 
 from __future__ import annotations
@@ -42,10 +53,20 @@ from app.pipeline.images import ImageProcessingError, ProcessingSpec
 
 #: Raised whenever the rendering changes, so old previews are not mistaken for new.
 #: 2: the surface and creases bend the print; the occluder puts it behind hair and skin.
-ENGINE_VERSION = 2
+#: 3: colour kept (ICC profiles applied, 4:4:4 at quality 92, a gentler sheen).
+ENGINE_VERSION = 3
 
-#: The image pipeline's own output (pipeline/images.py, ProcessingSpec).
+#: The image pipeline's own output (pipeline/images.py, ProcessingSpec): its size limits.
 OUTPUT = ProcessingSpec()
+#: Every mockup and preview JPEG: this quality, chroma at full resolution (4:4:4).
+JPEG_QUALITY = 92
+#: The stored blank (a working copy every mockup is printed on): near lossless.
+BLANK_QUALITY = 95
+#: How much the fabric's highlights lift the ink (a screen at this share of the light above
+#: the garment's average, at most ``SHEEN_MAX``). Was 0.5 with no cap: a lit fold lifted
+#: black ink to grey (17 of 255 on average, 31 at the 95th percentile, on a grey tee).
+SHEEN = 0.2
+SHEEN_MAX = 0.06
 #: Defaults a template starts with; the seller changes them on the Templates page.
 #: The design fills the print area: it touches the area on its limiting side (a design of
 #: the area's proportions fills it corner to corner). The seller can make it smaller.
@@ -100,6 +121,27 @@ def _vips():  # noqa: ANN202
 # --- loading ----------------------------------------------------------------------------------
 
 
+def _to_srgb(image):  # noqa: ANN001, ANN202 - pyvips.Image
+    """The image in sRGB using its own embedded ICC profile (Display P3, Adobe RGB, CMYK,
+    a grey profile...), alpha kept. An image without a profile is taken as sRGB, as every
+    browser takes it. A profile libvips cannot read falls back to the plain conversion
+    below (never to the numbers read as if they were sRGB)."""
+    pyvips = _vips()
+    if image.get_typeof("icc-profile-data") == 0:
+        return image
+    try:
+        return image.icc_transform("srgb", embedded=True, intent="relative", depth=8).copy_memory()
+    except pyvips.Error:  # type: ignore[attr-defined]
+        return image
+
+
+def jpeg(image, quality: int = JPEG_QUALITY) -> bytes:  # noqa: ANN001
+    """A mockup JPEG: sRGB, chroma at full resolution (4:4:4), no metadata (the pixels are
+    already sRGB, as an untagged JPEG is read)."""
+    return image.copy(interpretation="srgb").write_to_buffer(
+        ".jpg", Q=quality, strip=True, optimize_coding=True, subsample_mode="off")
+
+
 def _load(data: bytes):  # noqa: ANN202 - pyvips.Image
     pyvips = _vips()
     try:
@@ -107,6 +149,7 @@ def _load(data: bytes):  # noqa: ANN202 - pyvips.Image
         image = image.autorot()
     except pyvips.Error as exc:  # type: ignore[attr-defined]
         raise ImageProcessingError(str(exc)) from exc
+    image = _to_srgb(image)
     if image.interpretation not in ("srgb", "b-w"):
         image = image.colourspace("srgb")
     if image.format != "uchar":
@@ -310,7 +353,7 @@ def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default
         occluder = occ.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
     # A soft edge, so the print does not stop on a jagged line.
     mask = mask.gaussblur(0.8).cast("uchar")
-    jpeg = rgb.copy(interpretation="srgb").write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True)
+    blank_jpeg = jpeg(rgb, BLANK_QUALITY)
     png = mask.copy(interpretation="b-w").write_to_buffer(".png", compression=6, strip=True)
     area = analysis.print_area or default_print_area(mask)
     foreground = None
@@ -318,7 +361,7 @@ def prepare_blank(data: bytes, runner: Any = "default", saliency: Any = "default
         foreground = _from_numpy(analysis.foreground).copy(interpretation="b-w").write_to_buffer(
             ".png", compression=6, strip=True)
     return PreparedBlank(
-        jpeg, png, rgb.width, rgb.height, source, area, occluder=occluder, confidence=analysis.confidence,
+        blank_jpeg, png, rgb.width, rgb.height, source, area, occluder=occluder, confidence=analysis.confidence,
         method=analysis.method, note=analysis.note, details=dict(analysis.details),
         garments=list(analysis.garments), view=analysis.view, foreground=foreground,
         layout=analysis.layout, layout_confident=analysis.layout_confident,
@@ -345,7 +388,7 @@ def resize_upload(data: bytes) -> Source:
     if has_alpha:
         out = image.write_to_buffer(".png", compression=3, strip=True)
     else:
-        out = image.write_to_buffer(".jpg", Q=95, strip=True)
+        out = jpeg(image, BLANK_QUALITY)
     return Source(out, image.width, image.height, has_alpha)
 
 
@@ -579,6 +622,50 @@ def _masked_mean(values, mask_bool) -> float:  # noqa: ANN001 - uchar values 0..
     return sum(i * n for i, n in enumerate(counts)) / total if total else 128.0
 
 
+#: An area the garment mask covers less than this share of is on a garment the analysis did
+#: not find: the area (grown by ``UNMASKED_GROW``) is taken as garment, so it prints.
+UNMASKED_COVER = 0.5
+UNMASKED_GROW = 0.15
+
+
+def with_unmasked_areas(mask_u8, area: Any):  # noqa: ANN001, ANN201 - pyvips one band uchar
+    """The garment mask with every print area the analysis missed added to it.
+
+    The print is clipped to the mask and the fabric's light and shade are measured from the
+    mask's pixels. An area the seller set on a garment detection did not find (a several-
+    garment photo where 3 of 6 were found) lay outside the mask: it printed nothing, or
+    printed on maps measured from nothing. Every area the seller set renders: such an area
+    (covered less than ``UNMASKED_COVER``) is added, grown a little so its shading has
+    fabric around it to be measured from."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    if not area:
+        return mask_u8
+    areas = area if isinstance(area[0][0], (list, tuple)) else [area]
+    w, h = mask_u8.width, mask_u8.height
+    current = _to_numpy(mask_u8)
+    added = None
+    for quad in areas:
+        if not quad:
+            continue
+        pts = [(x * w, y * h) for x, y in clean_print_area(quad)]
+        shape = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(shape).polygon(pts, fill=255)
+        inside = np.asarray(shape) > 0
+        if not inside.any() or float(np.mean(current[inside] >= 128)) >= UNMASKED_COVER:
+            continue
+        cx, cy = sum(p[0] for p in pts) / 4, sum(p[1] for p in pts) / 4
+        grown = [(cx + (x - cx) * (1 + UNMASKED_GROW), cy + (y - cy) * (1 + UNMASKED_GROW)) for x, y in pts]
+        shape = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(shape).polygon(grown, fill=255)
+        part = np.asarray(shape)
+        added = part if added is None else np.maximum(added, part)
+    if added is None:
+        return mask_u8
+    return _from_numpy(np.maximum(current, added))
+
+
 def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = None, area: Any = None) -> Maps:
     """The maps for one template, kept only for the window a print in ``area`` can reach.
 
@@ -590,6 +677,7 @@ def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = 
     mask_u8 = pyvips.Image.new_from_buffer(mask_png, "", access="random")[0]
     if (mask_u8.width, mask_u8.height) != (blank.width, blank.height):
         mask_u8 = mask_u8.resize(blank.width / mask_u8.width, vscale=blank.height / mask_u8.height)
+    mask_u8 = with_unmasked_areas(mask_u8, area)
     mask = mask_u8.cast("float") / 255
     garment = (mask_u8 >= 128).ifthenelse(1, 0).cast("uchar")
     luma = (blank[0] * 0.299 + blank[1] * 0.587 + blank[2] * 0.114)
@@ -767,14 +855,13 @@ class Settings:
     occlusion: bool = True
 
 
-def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.quality) -> bytes:  # noqa: ANN001
+def render(maps: Maps, design, settings: Settings, *, quality: int = JPEG_QUALITY) -> bytes:  # noqa: ANN001
     """One mockup, as JPEG bytes. Same maps, design and settings: same bytes."""
-    result = _print_on(maps, maps.blank, design, settings)
-    return result.copy(interpretation="srgb").write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
+    return jpeg(_print_on(maps, maps.blank, design, settings), quality)
 
 
 def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], settings: Settings, *,
-                quality: int = OUTPUT.quality) -> bytes:
+                quality: int = JPEG_QUALITY) -> bytes:
     """One mockup with a design on each of several garments: ``placements`` pairs a design
     with a print area (the template's garments, in order), and optionally that area's
     "design goes behind hair and arms" switch. Same inputs: same bytes."""
@@ -784,7 +871,7 @@ def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], set
             continue
         behind = settings.occlusion and (switch[0] if switch else True)
         result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, behind))
-    return result.copy(interpretation="srgb").write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
+    return jpeg(result, quality)
 
 
 def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, ANN202
@@ -855,7 +942,7 @@ def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, AN
         target = (ink * shade.maxpair(0.75).minpair(1.2).bandjoin([shade.maxpair(0.75).minpair(1.2)] * 2)).maxpair(0).minpair(1)
         k = lift * light
         printed = printed * (1 - k) + target * k
-    sheen = ((shade - 1).maxpair(0).minpair(1) * 0.5)
+    sheen = ((shade - 1) * SHEEN).maxpair(0).minpair(SHEEN_MAX)
     printed = 1 - (1 - printed) * (1 - sheen)  # screen: the highlights survive the ink
 
     photo = base.crop(left, top, rw, rh).cast("float") / 255
@@ -944,7 +1031,7 @@ def preview_scale(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None
         image = pyvips.Image.new_from_buffer(png, "", access="random")[0].resize(scale)
         return image.copy(interpretation="b-w").write_to_buffer(".png", compression=1, strip=True)
 
-    return (blank.resize(scale).write_to_buffer(".jpg", Q=OUTPUT.quality, strip=True), small(mask_png),
+    return (jpeg(blank.resize(scale)), small(mask_png),
             small(occluder_png) if occluder_png else None)
 
 

@@ -270,6 +270,9 @@ export interface MockupPhoto {
   /** The subgroup of its template the photo belongs to. */
   subgroup_id?: string | null;
   areas: MockupArea[];
+  /** The garments the analysis really found (their suggested areas): copies go only onto these. */
+  found_areas?: number[][][];
+  garments_found?: number;
   /** Its suggestion came from the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
 }

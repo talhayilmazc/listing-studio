@@ -155,6 +155,10 @@ class PhotoOut(BaseModel):
     subgroup_id: uuid.UUID | None = None
     #: Every print area, in the seller's order.
     areas: list[AreaOut] = Field(default_factory=list)
+    #: The garments the analysis really found (each one's suggested area): "Copy this area to
+    #: all garments" puts copies only on these, by their own geometry, never where none was found.
+    found_areas: list[Quad] = Field(default_factory=list)
+    garments_found: int = 0
     #: The suggestion was built from the seller's own placement, learnt from this many of
     #: their confirmed photos (None: the template standard).
     own_placement: int | None = None
@@ -463,7 +467,25 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
                     occlusion=g.get("occlusion") is not False, occlusion_note=g.get("occlusion_note"))
             for g in photo_areas(p)
         ],
+        found_areas=(found := found_garments(p)), garments_found=len(found),
     )
+
+
+def found_garments(p: MockupPhoto) -> list[Quad]:
+    """The garments the analysis found on the photo, as their suggested areas (front ones; a
+    garment seen from behind keeps its own). Photos analysed before every candidate was kept:
+    the detected areas among its rows. Never an area the seller added by hand."""
+    if p.status != "ready":
+        return []
+    quads = []
+    for c in (p.analysis or {}).get("candidates") or []:
+        q = c.get("detected_area") or c.get("print_area")
+        if q:
+            quads.append([[float(x), float(y)] for x, y in q])
+    if not quads:
+        quads = [[[float(x), float(y)] for x, y in g["detected_area"]] for g in photo_areas(p)
+                 if g.get("source") == "default" and g.get("detected_area")]
+    return quads
 
 
 def _uuid_or_none(value: Any) -> uuid.UUID | None:
@@ -956,8 +978,15 @@ async def save_areas(
     rows = []
     for i, area in enumerate(body.areas):
         corners = _clean(area.print_area)
-        before = earlier[i] if i < len(earlier) else {}
-        suggested = _clean(area.detected_area) if area.detected_area else (before.get("detected_area") or corners)
+        # The row this area was before, found by its suggestion (the seller may have reordered,
+        # added or removed areas): its tone, confidence and kind belong to that garment only.
+        # An area sent without a suggestion is the same position's row only when it is the same area.
+        sent = _clean(area.detected_area) if area.detected_area else None
+        before = next((r for r in earlier if sent is not None and _same_quad(r.get("detected_area"), sent)), None)
+        if before is None:
+            same = i < len(earlier) and _same_quad(earlier[i].get("print_area"), corners)
+            before = earlier[i] if (same or (sent is None and i < len(earlier) and area.source != "tap")) else {}
+        suggested = sent or before.get("detected_area") or corners
         rows.append({
             **_kept(earlier, suggested),
             "print_area": corners, "detected_area": suggested, "source": area.source,

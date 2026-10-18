@@ -12,7 +12,8 @@ import {
   angleDegrees,
   angleKey,
   axisGuide,
-  copyToGarment,
+  copyToFound,
+  foundNote,
   designQuad,
   fitAreaToDesign,
   dragCorner,
@@ -389,11 +390,17 @@ export function PrintAreaEditor({
     commit(areas.map((a, i) => (i === selected ? { ...a, quad: move(a.quad, by[0], by[1]) } : a)));
   }
 
-  /** "Copy this area to all garments": every other area placed like the selected one on its own garment. */
+  /** "Copy this area to all garments": a copy on each garment the analysis found, by that garment's
+   *  own geometry; never where no garment was found (lib/areaEditor.ts ``copyToFound``). */
   function copyToAll() {
     const src = areas[selected];
     if (!src) return;
-    commit(areas.map((a, i) => (i === selected ? a : { ...a, quad: copyToGarment(src.quad, src.suggested, a.suggested), source: "seller" })));
+    const found = (photo.found_areas ?? []).map((q) => toPx(q, W, H));
+    const done = copyToFound(areas, selected, found, (quad, garment) => ({
+      ...src, quad, suggested: garment, source: "copied", kind: src.kind ?? null, axis: null,
+    }));
+    if (done.copied) commit(done.areas.map((a, i) => (i === selected || a === areas[i] ? a : { ...a, source: a.source === "copied" ? "copied" : "seller" })));
+    setNote(done.note);
   }
 
   function setSubgroup(id: string | null) {
@@ -694,6 +701,11 @@ export function PrintAreaEditor({
                     data-testid="editor-copy-all">
                     Copy this area to all garments
                   </button>
+                )}
+                {areas.length > 1 && (photo.garments_found ?? 0) < areas.length && (
+                  <p key="found" className="col-span-3 text-xs text-slate-600" translate="no" data-testid="editor-found">
+                    {foundNote(photo.garments_found ?? 0, areas.length)}
+                  </p>
                 )}
                 {sel && subgroups.length > 1 && (
                   <label key="subgroup" className="col-span-3 block">

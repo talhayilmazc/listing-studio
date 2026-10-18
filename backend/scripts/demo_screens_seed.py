@@ -179,11 +179,23 @@ async def mockup_templates(s, storage, t):
         canvas.save(buf, format="PNG")
         return buf.getvalue()
 
+    def six_tees():
+        """Three white tees above three black ones (a several-garment photo)."""
+        canvas = Image.new("RGB", (1500, 1100), (225, 226, 229))
+        for row, colour in enumerate(((238, 238, 236), (32, 32, 35))):
+            for col in range(3):
+                tee = Image.open(io.BytesIO(samples.blank(colour, size=(480, 540), background=(225, 226, 229)))).convert("RGB")
+                canvas.paste(tee, (10 + col * 495, 10 + row * 545))
+        buf = io.BytesIO()
+        canvas.save(buf, format="PNG")
+        return buf.getvalue()
+
     groups = [
         ("Comfort Colors 1717", [("White", samples.blank((238, 238, 236), size=(1200, 1400))),
                                  ("Black", samples.blank((30, 30, 32), size=(1200, 1400))),
                                  ("Brick", samples.blank((150, 60, 50), size=(1200, 1400)))]),
         ("Matching tees", [("Red and blue", two_tees())]),
+        ("Six tees", [("Three white, three black", six_tees())]),
     ]
     first = None
     for position, (name, photos) in enumerate(groups, start=1):

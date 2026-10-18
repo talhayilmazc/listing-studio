@@ -250,11 +250,67 @@ def photo_area_rows(photo: MockupPhoto) -> list[dict]:
     return rows or ([{}] if photo.print_area else [])
 
 
-def area_subgroup_names(photo: MockupPhoto, groups: list[MockupSubgroup]) -> list[str | None]:
+def area_subgroup_names(photo: MockupPhoto, groups: list[MockupSubgroup],
+                        tones: list[str | None] | None = None) -> list[str | None]:
     """Each area's subgroup name, in area order: the seller's link, the garment's tone, else
-    the photo's subgroup (``groups``: the photo's template's subgroups, in order)."""
+    the photo's subgroup (``groups``: the photo's template's subgroups, in order). ``tones``:
+    each area's tone measured from the photo, for areas the analysis gave none (one the
+    seller added where nothing was detected)."""
     own = next((g for g in groups if g.id == photo.subgroup_id), groups[0] if groups else None)
-    return [getattr(subgroups.area_subgroup(r, own, groups), "name", None) for r in photo_area_rows(photo)]
+    rows = photo_area_rows(photo)
+    if tones:
+        rows = [r if r.get("tone") in ("light", "dark") or i >= len(tones) else {**r, "tone": tones[i]}
+                for i, r in enumerate(rows)]
+    return [getattr(subgroups.area_subgroup(r, own, groups), "name", None) for r in rows]
+
+
+def measured_tones(blank: bytes, areas: list[list[list[float]]]) -> list[str | None]:
+    """Each area's garment tone, read from the photo under it (the middle half of the area,
+    CIELAB L*): what the analysis would have said for a garment it did not find."""
+    import numpy as np
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(blank)).convert("RGB")
+    image.thumbnail((600, 600))
+    rgb = np.asarray(image, dtype=np.float32) / 255
+    h, w = rgb.shape[:2]
+    out: list[str | None] = []
+    for quad in areas:
+        xs, ys = [p[0] for p in quad], [p[1] for p in quad]
+        cx, cy, hw, hh = sum(xs) / 4 * w, sum(ys) / 4 * h, (max(xs) - min(xs)) * w / 4, (max(ys) - min(ys)) * h / 4
+        patch = rgb[max(0, int(cy - hh)):max(1, int(cy + hh)), max(0, int(cx - hw)):max(1, int(cx + hw))]
+        if patch.size == 0:
+            out.append(None)
+            continue
+        lin = np.where(patch <= 0.04045, patch / 12.92, ((patch + 0.055) / 1.055) ** 2.4)
+        y = float(np.median(lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722))
+        lightness = 116 * (y ** (1 / 3) if y > 0.008856 else 7.787 * y + 16 / 116) - 16
+        out.append(subgroups.tone_of(lightness))
+    return out
+
+
+def files_for_areas(design: MockupDesign, versions: list[MockupDesignVersion], names: list[str | None]) -> list[Any]:
+    """The file each area of one photo prints for ``design``: its subgroup's file; when the
+    design prints anywhere on the photo, an area whose subgroup has no file of it prints the
+    design's own file (every area the seller set renders: on a photo of three white and three
+    black tees a design made only for dark garments used to print on three areas of six).
+    A design with nothing for any area of the photo: None for each (it does not print there)."""
+    own = [subgroups.file_for(design, versions, n) for n in names]
+    if any(f is not None for f in own):
+        return [f if f is not None else design for f in own]
+    return own
+
+
+def order_groups(designs: list[Any], areas: int) -> list[list[Any]]:
+    """"One design per garment, in order": the designs taken ``areas`` at a time, each
+    mockup's list filled from the start of the list so every area prints (three designs on a
+    six-area photo: a, b, c, a, b, c). The mockup belongs to its own designs (the first ones)."""
+    if not designs or areas < 1:
+        return []
+    out = []
+    for start in range(0, len(designs), areas):
+        out.append([designs[(start + k) % len(designs)] for k in range(areas)])
+    return out
 
 
 async def template_subgroups(session: AsyncSession, template_ids: Any) -> dict[uuid.UUID, list[MockupSubgroup]]:
@@ -543,8 +599,10 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
             roles = photo_area_roles(photo)
             behind = photo_area_occlusion(photo)
             fallback = _BACK_FALLBACK.get(photo.template_id, "front")
-            # Each area's subgroup: the seller's link, the garment's tone, else the photo's.
-            area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []))
+            # Each area's subgroup: the seller's link, the garment's tone (measured from the
+            # photo for an area the analysis did not find), else the photo's.
+            area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []),
+                                             await asyncio.to_thread(measured_tones, blank, garments))
             if not any(prints_on(d, versions.get(d.id, []), area_names) for d in usable):
                 job.total = max(0, job.total - len(usable))  # no design has a file for this photo's subgroup
                 continue
@@ -554,18 +612,18 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
             # or one design per garment in order ("order").
             # A front & back photo always shows one design, front and back.
             if job.garment_mode == "order" and len(garments) > 1 and photo.layout != "front_back":
+                filled = order_groups(usable, len(garments))
                 groups = [usable[i:i + len(garments)] for i in range(0, len(usable), len(garments))]
             else:
                 groups = [[d] for d in usable]
-            for group in groups:
-                if len(group) == 1:
-                    chosen = [(group[0], a, r, n, o) for a, r, n, o in zip(garments, roles, area_names, behind)]
-                else:
-                    chosen = [(d, a, r, n, o) for d, a, r, n, o in zip(group, garments, roles, area_names, behind)]
+                filled = [[d] * len(garments) for d in usable]
+            for group, shown in zip(groups, filled):
+                chosen = list(zip(shown, garments, roles, area_names, behind))
+                # Each area's file: its subgroup's, else the design's own (every area renders).
+                files = {d.id: files_for_areas(d, versions.get(d.id, []), area_names) for d in dict.fromkeys(shown)}
                 placements = []
-                for d, a, r, n, o in chosen:
-                    # The design's file for the area's subgroup (None: it has none for it).
-                    f = subgroups.file_for(d, versions.get(d.id, []), n)
+                for k, (d, a, r, n, o) in enumerate(chosen):
+                    f = files[d.id][k]
                     if f is None:
                         continue
                     front_img = images[d.id] if f is d else await image_of(f, False)
