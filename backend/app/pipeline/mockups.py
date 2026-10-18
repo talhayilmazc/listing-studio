@@ -47,7 +47,13 @@ ENGINE_VERSION = 2
 #: The image pipeline's own output (pipeline/images.py, ProcessingSpec).
 OUTPUT = ProcessingSpec()
 #: Defaults a template starts with; the seller changes them on the Templates page.
-DEFAULT_SIZE = 0.9
+#: The design fills the print area: it touches the area on its limiting side (a design of
+#: the area's proportions fills it corner to corner). The seller can make it smaller.
+DEFAULT_SIZE = 1.0
+#: A design's transparent padding is trimmed to its pixels with more alpha than this
+#: (0..255; anti-aliased edges are kept), plus a safety edge of this many pixels.
+TRIM_ALPHA = 8
+TRIM_EDGE = 2
 DEFAULT_FOLD = 0.5
 SIZE_RANGE = (0.2, 1.0)
 FOLD_RANGE = (0.0, 1.0)
@@ -703,13 +709,47 @@ def prepare_design(data: bytes) -> PreparedDesign:
     return PreparedDesign(png, image.width, image.height, has_alpha)
 
 
-def load_design(data: bytes):  # noqa: ANN201 - pyvips.Image, sRGB + alpha, trimmed
-    """The design with an alpha band, trimmed to its visible pixels (geometry only)."""
+def _with_alpha(data: bytes):  # noqa: ANN202 - pyvips.Image, sRGB + alpha
     image = _fit_within(_load(data), max(OUTPUT.max_width, OUTPUT.max_height))
-    if image.bands == 3:
-        image = image.bandjoin(255)
-    alpha = image[3]
-    x0, y0, x1, y1 = _bounds(alpha)
+    return image.bandjoin(255) if image.bands == 3 else image
+
+
+def trim_box_of(image) -> tuple[int, int, int, int]:  # noqa: ANN001
+    """The box (left, top, right, bottom) of a design's pixels with alpha above
+    ``TRIM_ALPHA``, grown by ``TRIM_EDGE`` and kept inside the image: its transparent
+    padding is outside it, none of its drawn pixels are."""
+    solid = (image[3] > TRIM_ALPHA).ifthenelse(1, 0).cast("uchar")
+    columns, rows = solid.project()
+    col, row = _uints(columns), _uints(rows)
+    xs = [i for i, n in enumerate(col) if n > 0]
+    ys = [i for i, n in enumerate(row) if n > 0]
+    if not xs or not ys:
+        raise MockupError("The design has no visible pixels.")
+    return (max(0, xs[0] - TRIM_EDGE), max(0, ys[0] - TRIM_EDGE),
+            min(image.width, xs[-1] + 1 + TRIM_EDGE), min(image.height, ys[-1] + 1 + TRIM_EDGE))
+
+
+def design_trim(data: bytes) -> dict[str, list[int]]:
+    """What is stored with a design file: its trim box and the size it was measured
+    on (the stored file itself is never changed)."""
+    image = _with_alpha(data)
+    return {"box": list(trim_box_of(image)), "size": [image.width, image.height]}
+
+
+def load_design(data: bytes, trim: dict | None = None):  # noqa: ANN201 - pyvips.Image, sRGB + alpha, trimmed
+    """The design with an alpha band, cropped to its stored trim box (``design_trim``;
+    measured here when there is none): the transparent padding goes, every drawn pixel
+    stays. Geometry only."""
+    image = _with_alpha(data)
+    box = None
+    if trim and trim.get("box") and trim.get("size"):
+        x0, y0, x1, y1 = trim["box"]
+        tw, th = trim["size"]
+        if (tw, th) != (image.width, image.height):  # measured on another size of the same file
+            sx, sy = image.width / tw, image.height / th
+            x0, y0, x1, y1 = int(x0 * sx), int(y0 * sy), math.ceil(x1 * sx), math.ceil(y1 * sy)
+        box = (max(0, x0), max(0, y0), min(image.width, x1), min(image.height, y1))
+    x0, y0, x1, y1 = box or trim_box_of(image)
     if x1 - x0 < 2 or y1 - y0 < 2:
         raise MockupError("The design has no visible pixels.")
     return image.crop(x0, y0, x1 - x0, y1 - y0).copy_memory()
@@ -736,12 +776,14 @@ def render(maps: Maps, design, settings: Settings, *, quality: int = OUTPUT.qual
 def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], settings: Settings, *,
                 quality: int = OUTPUT.quality) -> bytes:
     """One mockup with a design on each of several garments: ``placements`` pairs a design
-    with a print area (the template's garments, in order). Same inputs: same bytes."""
+    with a print area (the template's garments, in order), and optionally that area's
+    "design goes behind hair and arms" switch. Same inputs: same bytes."""
     result = maps.blank
-    for design, corners in placements:
+    for design, corners, *switch in placements:
         if design is None or not corners:
             continue
-        result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, settings.occlusion))
+        behind = settings.occlusion and (switch[0] if switch else True)
+        result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, behind))
     return result.copy(interpretation="srgb").write_to_buffer(".jpg", Q=quality, strip=True, optimize_coding=True)
 
 

@@ -156,20 +156,23 @@ def test_front_or_back_from_the_pose() -> None:
     assert back.view == "back"
 
 
-def test_an_object_held_over_the_garment_goes_in_front_of_the_print() -> None:
+def test_a_blob_on_a_garment_with_no_person_is_never_put_in_front_of_the_print() -> None:
+    # Part B4: a patch inside the garment (here a dark disc; on a seller's grey tee, parts of
+    # the fabric) used to count as a "held object" and hid the design. With nobody in the photo
+    # nothing is in front of the print; the seller's "Keep in front" brush adds a real one.
     w, h = 1200, 1400
     tee = Image.open(io.BytesIO(samples.blank((238, 238, 236), size=(w, h)))).convert("RGB")
-    ImageDraw.Draw(tee).ellipse([0.44 * w, 0.30 * h, 0.58 * w, 0.42 * h], fill=(30, 30, 34))  # a mug on the chest
+    ImageDraw.Draw(tee).ellipse([0.44 * w, 0.30 * h, 0.58 * w, 0.42 * h], fill=(30, 30, 34))
     prepared = mockups.prepare_blank(_png(tee))
-    assert prepared.occluder is not None
-    occ = Image.open(io.BytesIO(prepared.occluder)).convert("L")
-    assert occ.getpixel((round(0.51 * w), round(0.36 * h))) > 200  # the mug is in front
+    if prepared.occluder is not None:
+        occ = Image.open(io.BytesIO(prepared.occluder)).convert("L")
+        assert occ.getpixel((round(0.51 * w), round(0.36 * h))) < 50
     maps = mockups.build_maps(prepared.image, prepared.mask, prepared.occluder, [prepared.print_area])
     out = Image.open(io.BytesIO(mockups.render(maps, mockups.load_design(samples.design("opaque")),
                                                mockups.Settings(prepared.print_area, 1.0, 0.0))))
     blank = Image.open(io.BytesIO(prepared.image))
-    on_mug = (round(0.51 * w), round(0.36 * h))
-    assert sum(abs(a - b) for a, b in zip(out.getpixel(on_mug), blank.getpixel(on_mug))) < 20
+    on_disc = (round(0.51 * w), round(0.36 * h))
+    assert sum(abs(a - b) for a, b in zip(out.getpixel(on_disc), blank.getpixel(on_disc))) > 30  # printed over it (the old rule left it within 20)
 
 
 def test_detection_needs_no_network_and_gives_the_same_answer_twice(monkeypatch) -> None:

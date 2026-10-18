@@ -132,6 +132,14 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
                         g[k] = chosen[i][k]
     else:
         rows = chosen
+    rows, cleaned, notes = guard_rows(storage.get(photo.occluder_auto_key) if photo.occluder_auto_key else None,
+                                      rows, photo.width or 1, photo.height or 1)
+    if cleaned is not None:
+        storage.put(f"{base}/occluder_auto.png", cleaned, "image/png")
+        storage.put(f"{base}/occluder.png", cleaned, "image/png")  # no brush yet: the same
+    if notes:
+        analysis["note"] = notes[0]
+        photo.analysis = analysis
     photo.garments = rows
     photo.print_area = rows[0]["print_area"]
     photo.print_area_source = "default" if all(r.get("source") == "default" for r in rows) else "seller"
@@ -194,6 +202,40 @@ def save_front(storage: Storage, photo: MockupPhoto, *, auto: Any = _KEEP, brush
             storage.delete_with_derivatives(photo.occluder_key)
         photo.occluder_key = None
     photo.version += 1
+
+
+def guard_rows(occluder_png: bytes | None, rows: list[dict], width: int, height: int
+               ) -> tuple[list[dict], bytes | None, list[str]]:
+    """Each area's "design goes behind hair and arms" switch from the occluder (pipeline/
+    occlusion.py): blobs wholly inside an area are dropped from the map; an area that would be
+    more than a quarter hidden, or cut into pieces, has its switch turned off and says why.
+    Returns the rows, the cleaned map (PNG, or None when unchanged or absent) and the reasons."""
+    import numpy as np
+    from PIL import Image
+
+    from app.pipeline import occlusion
+
+    if not occluder_png:
+        return [{**r, "occlusion": r.get("occlusion", True)} for r in rows], None, []
+    occ = _plane(occluder_png, width, height)
+    cleaned, checks = occlusion.guard(occ, [r.get("print_area") for r in rows])
+    out, notes = [], []
+    for r, c in zip(rows, checks):
+        out.append({**r, "occlusion": c.occlusion, "occlusion_note": c.reason, "occlusion_hidden": c.hidden})
+        if c.reason:
+            notes.append(c.reason)
+    changed = not np.array_equal(cleaned > occlusion.ON, occ > occlusion.ON)
+    png = None
+    if changed:
+        buf = io.BytesIO()
+        Image.fromarray(np.clip(cleaned * 255.0, 0, 255).astype(np.uint8), "L").save(buf, format="PNG")
+        png = buf.getvalue()
+    return out, png, notes
+
+
+def photo_area_occlusion(photo: MockupPhoto) -> list[bool]:
+    """Each area's switch, in ``photo_print_areas`` order (on unless turned off)."""
+    return [r.get("occlusion") is not False for r in photo_area_rows(photo)]
 
 
 def photo_print_areas(photo: MockupPhoto) -> list[list[list[float]]]:
@@ -471,15 +513,18 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
             if not key:
                 return None
             if (("back" if back else "front"), file.id) not in loaded:
-                loaded[("back" if back else "front", file.id)] = await asyncio.to_thread(mockups.load_design, storage.get(key))
+                loaded[("back" if back else "front", file.id)] = await asyncio.to_thread(
+                    mockups.load_design, storage.get(key), (file.trims or {}).get("back" if back else "front"))
             return loaded[("back" if back else "front", file.id)]
 
         template_groups = await template_subgroups(session, {p.template_id for p, _ in photos})
         for design in designs:
             try:
-                images[design.id] = await asyncio.to_thread(mockups.load_design, storage.get(design.design_key or ""))
+                images[design.id] = await asyncio.to_thread(
+                    mockups.load_design, storage.get(design.design_key or ""), (design.trims or {}).get("front"))
                 if design.back_key:
-                    backs[design.id] = await asyncio.to_thread(mockups.load_design, storage.get(design.back_key))
+                    backs[design.id] = await asyncio.to_thread(
+                        mockups.load_design, storage.get(design.back_key), (design.trims or {}).get("back"))
                 usable.append(design)
             except (mockups.MockupError, ImageProcessingError, FileNotFoundError) as exc:
                 logger.info("mockup design %s could not be used: %s", design.id, exc)
@@ -496,6 +541,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
             if not garments:
                 continue
             roles = photo_area_roles(photo)
+            behind = photo_area_occlusion(photo)
             fallback = _BACK_FALLBACK.get(photo.template_id, "front")
             # Each area's subgroup: the seller's link, the garment's tone, else the photo's.
             area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []))
@@ -513,11 +559,11 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 groups = [[d] for d in usable]
             for group in groups:
                 if len(group) == 1:
-                    chosen = [(group[0], a, r, n) for a, r, n in zip(garments, roles, area_names)]
+                    chosen = [(group[0], a, r, n, o) for a, r, n, o in zip(garments, roles, area_names, behind)]
                 else:
-                    chosen = [(d, a, r, n) for d, a, r, n in zip(group, garments, roles, area_names)]
+                    chosen = [(d, a, r, n, o) for d, a, r, n, o in zip(group, garments, roles, area_names, behind)]
                 placements = []
-                for d, a, r, n in chosen:
+                for d, a, r, n, o in chosen:
                     # The design's file for the area's subgroup (None: it has none for it).
                     f = subgroups.file_for(d, versions.get(d.id, []), n)
                     if f is None:
@@ -526,7 +572,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                     back_img = backs.get(d.id) if f is d else await image_of(f, True)
                     img = design_for(r, front_img, back_img, fallback)
                     if img is not None:
-                        placements.append((img, a))
+                        placements.append((img, a, o))
                 if not placements:
                     job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue

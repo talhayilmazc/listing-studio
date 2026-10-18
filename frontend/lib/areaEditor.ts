@@ -345,8 +345,20 @@ export function redo<T>(h: History<T>): History<T> {
  * ``place``): its proportions kept, ``size`` of the area, centred and top-aligned. Returned
  * as the design's four corners in photo pixels (following the area's perspective).
  */
+/** The print area's width and height as the renderer measures them (pipeline/mockups.py
+ * ``place``): the mean of its top and bottom edges, and of its left and right sides. */
+export function areaSize(q: Quad): { w: number; h: number } {
+  const d = (a: Pt, b: Pt) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  return { w: (d(q[0], q[1]) + d(q[3], q[2])) / 2, h: (d(q[0], q[3]) + d(q[1], q[2])) / 2 };
+}
+
+/** Where the design lands in the area: aspect kept, ``size`` of the area on its limiting
+ * side (1: it touches the area there; a design of the area's proportions fills it corner to
+ * corner), top-aligned, centred. The same arithmetic as the renderer (pipeline/mockups.py
+ * ``place``), so the preview and the mockup put it in the same place; ``designW``/``designH``
+ * are the design's trimmed size (its transparent padding left out). */
 export function designQuad(q: Quad, designW: number, designH: number, size: number): Quad {
-  const r = rectOf(q);
+  const r = areaSize(q);
   const s = size * Math.min(r.w / designW, r.h / designH);
   const bw = (designW * s) / r.w;
   const bh = (designH * s) / r.h;
@@ -354,6 +366,26 @@ export function designQuad(q: Quad, designW: number, designH: number, size: numb
   const h = homography([[0, 0], [1, 0], [1, 1], [0, 1]], q);
   const at = (u: number, v: number) => apply(h, [u, v]);
   return [at(u0, 0), at(u0 + bw, 0), at(u0 + bw, bh), at(u0, bh)];
+}
+
+/** "Fit area to design": the area takes the design's proportions with its top edge (and so
+ * its top-centre) fixed: its sides grow or shrink to the height the width calls for; when that
+ * would leave the photo (``maxW``/``maxH``), the width changes instead, around the top-centre. */
+export function fitAreaToDesign(q: Quad, designW: number, designH: number, maxW = Infinity, maxH = Infinity): Quad {
+  const r = areaSize(q);
+  if (r.w <= 0 || r.h <= 0 || designW <= 0 || designH <= 0) return q;
+  const k = (r.w * designH) / designW / r.h;
+  const [tl, tr, br, bl] = q;
+  const taller: Quad = [tl, tr, [tr[0] + (br[0] - tr[0]) * k, tr[1] + (br[1] - tr[1]) * k], [tl[0] + (bl[0] - tl[0]) * k, tl[1] + (bl[1] - tl[1]) * k]];
+  const inside = taller.every(([x, y]) => x >= -0.5 && y >= -0.5 && x <= maxW + 0.5 && y <= maxH + 0.5);
+  if (inside) return taller;
+  // Keep the height; the width follows the design, the top-centre stays where it is.
+  const j = (r.h * designW) / designH / r.w;
+  const mid = (a: Pt, b: Pt): Pt => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const around = (c: Pt, p: Pt): Pt => [c[0] + (p[0] - c[0]) * j, c[1] + (p[1] - c[1]) * j];
+  const top = mid(tl, tr);
+  const bottom = mid(bl, br);
+  return [around(top, tl), around(top, tr), around(bottom, br), around(bottom, bl)];
 }
 
 /** The projective map taking four points to four points (3x3, row-major, h33 = 1). */

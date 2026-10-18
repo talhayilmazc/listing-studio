@@ -159,13 +159,15 @@ export const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1
  * The editor's sample design (a plain drawing of our own, not a real design): shown in the
  * live preview when the seller has not chosen one of theirs. 1000 x 1000.
  */
+/** The editor's stand-in design, drawn to its own edges (no padding: a padded sample made a
+ * perfect fit look inset). The seller's own design is trimmed the same way the server trims it. */
 export const SAMPLE_DESIGN = {
-  width: 1000,
-  height: 1000,
+  width: 760,
+  height: 800,
   url:
     "data:image/svg+xml;utf8," +
     encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" width="760" height="800" viewBox="120 80 760 800">' +
         '<circle cx="500" cy="380" r="300" fill="#f59e0b"/>' +
         '<rect x="120" y="620" width="760" height="150" rx="24" fill="#0f766e"/>' +
         '<text x="500" y="728" font-family="Arial,Helvetica,sans-serif" font-size="110" font-weight="700" fill="#fff" text-anchor="middle">SAMPLE</text>' +

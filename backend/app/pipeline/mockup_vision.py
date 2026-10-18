@@ -438,7 +438,9 @@ def analyse(rgb: np.ndarray, base_mask: np.ndarray, runner: Runner | None) -> An
             person = float(np.isin(classes, (HAIR, BODY, FACE)).mean())
             details["person_share"] = round(person, 4)
             if person >= PERSON_SHARE:
-                occluder = np.clip(front_of(probs) * 255.0, 0, 255).astype(np.uint8)
+                from app.pipeline import occlusion
+
+                occluder = np.clip(occlusion.person_front(probs, True) * 255.0, 0, 255).astype(np.uint8)
                 garment = _with_holes_filled(np.clip(probs[..., CLOTHES] * 255.0, 0, 255).astype(np.uint8), occluder)
                 ys, xs = np.where(classes != BACKGROUND)
                 box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)

@@ -478,7 +478,7 @@ export const api = {
   /** The photo with a sample design printed (shaded and warped by the fabric), with unsaved areas: a JPEG. */
   previewMockupPhoto: async (
     id: string,
-    body: { areas?: [number, number][][]; size?: number; fold_strength?: number; occlusion?: boolean },
+    body: { areas?: [number, number][][]; size?: number; fold_strength?: number; occlusion?: boolean; behind?: boolean[] },
   ) => {
     const res = await fetch(`${BASE}/mockup-photos/${id}/preview`, {
       method: "POST",
@@ -514,6 +514,11 @@ export const api = {
   removeDesignBack: (id: string) => req<MockupDesign>(`/mockup-designs/${id}/back`, { method: "DELETE" }),
   updateMockupDesign: (id: string, sku: string | null) =>
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ sku }) }),
+  /** Delete a design and its files ("onlyFile": just its own file; a version then takes its place). */
+  deleteMockupDesign: (id: string, onlyFile = false) =>
+    req<{ deleted: boolean; design: MockupDesign | null }>(`/mockup-designs/${id}${onlyFile ? "?only_file=true" : ""}`, { method: "DELETE" }),
+  /** Delete one of a design's files for another subgroup. */
+  deleteMockupDesignVersion: (id: string) => req<MockupDesign>(`/mockup-design-versions/${id}`, { method: "DELETE" }),
   /** Move a design's file (or one of its versions) to another subgroup's slot. */
   moveMockupDesign: (id: string, subgroup: string | null) =>
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ subgroup }) }),

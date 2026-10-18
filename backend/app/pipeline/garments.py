@@ -120,6 +120,8 @@ class Detection:
     layout: str = "single"
     layout_confident: bool = False
     pair: tuple[int, int] | None = None  # (front, back) indices into ``candidates``
+    #: Per candidate: whether the design may go behind what is in front there (pipeline/occlusion.py).
+    area_checks: list[Any] = field(default_factory=list)
 
 
 # --- the saliency model ----------------------------------------------------------------------
@@ -1569,23 +1571,19 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "", personal
     garments = _one_per_garment(garments)
     candidates = garments
     main = main_index(candidates, (h, w))
-    from scipy import ndimage as ndi
-
     union = np.zeros((h, w), bool)
-    held = np.zeros((h, w), bool)
     for g in garments:
-        union |= g.allowed  # the print may pass under hair, hands and held things
-        enclosed = _ENCLOSED.get(id(g.region))
-        if enclosed is not None and enclosed.any():
-            cc, n = ndi.label(enclosed & (fg > 0.5))
-            for i in range(1, n + 1):
-                part = cc == i
-                if part.sum() >= 0.002 * h * w:  # an object, not a speck in the fabric
-                    held |= part
+        union |= g.allowed  # the print may pass under hair and hands
     _ENCLOSED.clear()
-    from app.pipeline.mockup_vision import front_of  # the classes decided against the fabric
+    from app.pipeline import occlusion
 
-    occluder = np.maximum(front_of(probs), held.astype(np.float32))
+    # Only hair, skin and face of a person in the photo can be in front of the print, and only
+    # what reaches an area from outside it (pipeline/occlusion.py). A patch of the garment the
+    # regions left out ("held objects") and the segmenter's "accessory" class no longer count:
+    # on a grey tee both had hidden half the design.
+    occluder = occlusion.person_front(probs, bool(persons))
+    occluder, area_checks = occlusion.guard(
+        occluder, [[[x / w, y / h] for x, y in g.corners] for g in candidates if g.corners])
     layout, confident, pair = guess_layout(candidates, main, lab, name)
     if pair is not None:
         back = candidates[pair[1]]
@@ -1599,7 +1597,7 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "", personal
     return Detection(chosen, occluder, union.astype(np.float32), len(persons),
                      {"person_share": round(person_share, 4), "kind_hint": hint, "found": len(candidates)},
                      foreground=fg, candidates=candidates, main=main, layout=layout, layout_confident=confident,
-                     pair=pair)
+                     pair=pair, area_checks=area_checks)
 
 
 # --- one garment from the seller's tap ("Add area") ---------------------------------------------

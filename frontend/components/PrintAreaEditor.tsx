@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import type { MockupPhoto, MockupSubgroup } from "@/lib/types";
+import { trimmedDesign } from "@/lib/designTrim";
 import {
   MIN_SIZE,
   SNAP_SCREEN_PX,
@@ -13,6 +14,7 @@ import {
   axisGuide,
   copyToGarment,
   designQuad,
+  fitAreaToDesign,
   dragCorner,
   garmentAxis,
   history,
@@ -60,6 +62,8 @@ type Area = {
   quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null; role: "front" | "back";
   /** The subgroup the seller linked it to (null: by the garment's tone), and that tone. */
   subgroup?: string | null; tone?: string | null;
+  /** "Design goes behind hair and arms" here, and why the analysis turned it off. */
+  occlusion: boolean; occlusionNote?: string | null;
 };
 type Drag =
   | { kind: "move"; index: number; start: Pt; quad: Quad }
@@ -100,6 +104,7 @@ export function PrintAreaEditor({
         quad: toPx(a.print_area, W, H), suggested, source: a.source, kind: a.kind, axis: garmentAxis(a.axis_angle, suggested),
         role: (a.role === "back" ? "back" : "front") as "front" | "back",
         subgroup: a.subgroup_id ?? null, tone: a.tone ?? null,
+        occlusion: a.occlusion !== false, occlusionNote: a.occlusion_note ?? null,
       };
     }),
     [photo.id, photo.version], // eslint-disable-line react-hooks/exhaustive-deps
@@ -110,6 +115,8 @@ export function PrintAreaEditor({
   const [free, setFree] = useState(() => initial.some((a) => !isRect(a.quad)));
   const [snapOn, setSnapOn] = useState(true);
   const [showDesign, setShowDesign] = useState(true);
+  // What the analysis put in front of the garment, tinted over the photo.
+  const [showFront, setShowFront] = useState(false);
   const [design, setDesign] = useState(SAMPLE_DESIGN);
   const [size, setSize] = useState(photo.size);
   const [tapping, setTapping] = useState(false);
@@ -345,7 +352,7 @@ export function PrintAreaEditor({
       const found = await api.findMockupGarment(photo.id, x / W, y / H, areas.map((a) => toShares(a.quad, W, H)),
         last ? toShares(last.quad, W, H) : null);
       const quad = toPx(found.print_area, W, H);
-      const next = [...areas, { quad, suggested: quad, source: found.found ? "tap" : "seller", kind: found.kind, axis: null, role: "front" as const }];
+      const next = [...areas, { quad, suggested: quad, source: found.found ? "tap" : "seller", kind: found.kind, axis: null, role: "front" as const, occlusion: true }];
       commit(next);
       setSelected(next.length - 1);
       if (!found.found && found.note) setNote(found.note);
@@ -397,6 +404,15 @@ export function PrintAreaEditor({
     commit(areas.map((a, i) => (i === selected ? { ...a, role } : a)));
   }
 
+  // "Fit area to design": the area takes the design's proportions, its top-centre fixed.
+  function fitToDesign() {
+    commit(areas.map((x, i) => (i === selected ? { ...x, quad: fitAreaToDesign(x.quad, design.width, design.height, W, H) } : x)));
+  }
+
+  function setBehind(on: boolean) {
+    commit(areas.map((x, i) => (i === selected ? { ...x, occlusion: on, occlusionNote: on ? null : x.occlusionNote } : x)));
+  }
+
   function matchGarment() {
     const a = areas[selected];
     if (!a || a.axis === null) return;
@@ -429,7 +445,7 @@ export function PrintAreaEditor({
       const unchanged = JSON.stringify(shares) === JSON.stringify(suggested);
       return {
         print_area: shares, detected_area: suggested, source: unchanged ? a.source : "seller", kind: a.kind ?? null, role: a.role,
-        subgroup_id: a.subgroup ?? null, tone: a.tone ?? null,
+        subgroup_id: a.subgroup ?? null, tone: a.tone ?? null, occlusion: a.occlusion,
       };
     });
   }
@@ -469,7 +485,7 @@ export function PrintAreaEditor({
     }
     setError(null);
     try {
-      const blob = await api.previewMockupPhoto(photo.id, { areas: h.present.map((a) => toShares(a.quad, W, H)), size });
+      const blob = await api.previewMockupPhoto(photo.id, { areas: h.present.map((a) => toShares(a.quad, W, H)), size, behind: h.present.map((a) => a.occlusion) });
       setFabric(URL.createObjectURL(blob));
     } catch (err: any) {
       setError(String(err.message ?? err));
@@ -484,12 +500,18 @@ export function PrintAreaEditor({
     }
   }
 
-  function chooseDesign(file: File | undefined) {
+  async function chooseDesign(file: File | undefined) {
     if (!file) return;
-    const url = URL.createObjectURL(file); // shown here only; nothing is uploaded
-    const img = new Image();
-    img.onload = () => setDesign({ url, width: img.naturalWidth || 1000, height: img.naturalHeight || 1000 });
-    img.src = url;
+    // Shown here only; nothing is uploaded. Cropped to its pixels the way the server trims it,
+    // so the preview and the mockup place it identically.
+    try {
+      setDesign(await trimmedDesign(file));
+    } catch {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => setDesign({ url, width: img.naturalWidth || 1000, height: img.naturalHeight || 1000 });
+      img.src = url;
+    }
   }
 
   function close() {
@@ -536,12 +558,26 @@ export function PrintAreaEditor({
                     transform: matrix3d(design.width, design.height, designQuad(a.quad, design.width, design.height, size).map(([x, y]) => [x * scale, y * scale]) as Quad) }}
                   data-testid="editor-design" />
               ))}
-              {showDesign && !fabric && photo.has_occluder && photo.occlusion !== false && (
-                // What is in front of the garment (hair, hands), over the design: the live
-                // preview hides the design exactly where the mockup does.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key="front" src={api.mockupFrontUrl(photo.id, "cutout", photo.version)} alt="" aria-hidden draggable={false}
-                  className="pointer-events-none absolute inset-0 h-full w-full" data-testid="editor-front-layer" />
+              {showDesign && !fabric && photo.has_occluder && photo.occlusion !== false && areas.some((a) => a.occlusion) && (
+                // What is in front of the garment (hair, hands), over the design, in the areas whose
+                // switch is on: the live preview hides the design exactly where the mockup does.
+                <svg key="front" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden
+                  className="pointer-events-none absolute inset-0 h-full w-full" data-testid="editor-front-layer">
+                  <defs>
+                    <clipPath id={`front-${photo.id}`}>
+                      {areas.map((a, i) => (a.occlusion ? <polygon key={i} points={a.quad.map((p) => p.join(",")).join(" ")} /> : null))}
+                    </clipPath>
+                  </defs>
+                  <image href={api.mockupFrontUrl(photo.id, "cutout", photo.version)} x={0} y={0} width={W} height={H}
+                    preserveAspectRatio="none" clipPath={`url(#front-${photo.id})`} />
+                </svg>
+              )}
+              {showFront && photo.has_occluder && (
+                <div key="front-overlay" aria-hidden className="pointer-events-none absolute inset-0 bg-fuchsia-500/60"
+                  style={{ WebkitMaskImage: `url(${api.mockupFrontUrl(photo.id, "combined", photo.version)})`,
+                    maskImage: `url(${api.mockupFrontUrl(photo.id, "combined", photo.version)})`,
+                    WebkitMaskSize: "100% 100%", maskSize: "100% 100%", maskMode: "luminance" } as React.CSSProperties}
+                  data-testid="editor-occlusion-overlay" />
               )}
               {fabric && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -681,6 +717,30 @@ export function PrintAreaEditor({
                       </button>
                     ))}
                   </div>
+                )}
+                <button type="button" className="col-span-3 min-h-11 px-2 btn-secondary" onClick={fitToDesign} disabled={!sel}
+                  title="Give the area the design's proportions, keeping its top-centre where it is" data-testid="editor-fit-design">
+                  Fit area to design
+                </button>
+                {sel && photo.has_occluder && (
+                  <div key="behind" className="col-span-3 space-y-1">
+                    <button type="button" role="switch" aria-checked={sel.occlusion}
+                      className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-3 text-left text-sm ${sel.occlusion ? "border-brand-600 bg-brand-50 text-brand-800" : "border-slate-300 bg-white text-slate-700"}`}
+                      onClick={() => setBehind(!sel.occlusion)} data-testid="editor-behind">
+                      <span>Design goes behind hair and arms</span>
+                      <span className="shrink-0 font-semibold" translate="no">{sel.occlusion ? "On" : "Off"}</span>
+                    </button>
+                    {!sel.occlusion && sel.occlusionNote && (
+                      <p key="why" className="text-xs text-amber-800" data-testid="editor-behind-note">{sel.occlusionNote}</p>
+                    )}
+                  </div>
+                )}
+                {photo.has_occluder && (
+                  <button key="show-front" type="button" aria-pressed={showFront}
+                    className={`col-span-3 min-h-11 px-2 ${showFront ? "btn-primary" : "btn-secondary"}`}
+                    onClick={() => setShowFront(!showFront)} data-testid="editor-show-front">
+                    {showFront ? "Hide what is in front" : "Show what is in front"}
+                  </button>
                 )}
                 <button type="button" className="col-span-3 min-h-11 px-2 btn-secondary" onClick={matchGarment}
                   disabled={!sel || sel.axis === null || Math.abs(angleDegrees(sel.quad) - angleDegrees(turnTo(sel.quad, sel.axis))) < 0.05}

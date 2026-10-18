@@ -110,6 +110,9 @@ class AreaOut(BaseModel):
     #: photo's), and the garment's tone ("light"/"dark") that default comes from.
     subgroup_id: uuid.UUID | None = None
     tone: str | None = None
+    #: "Design goes behind hair and arms" in this area, and why the analysis turned it off.
+    occlusion: bool = True
+    occlusion_note: str | None = None
     #: The analysis's estimate of the garment's own axis (degrees, clockwise; None: unknown):
     #: the editor snaps a rotation to it and offers "Match garment angle". The automatic
     #: suggestion stays upright unless two estimates agree; this one is the seller's choice.
@@ -250,6 +253,8 @@ class AreaIn(BaseModel):
     role: Literal["front", "back"] | None = None
     #: The subgroup this area prints for (several-garment photos); null: by the garment's tone.
     subgroup_id: uuid.UUID | None = None
+    #: "Design goes behind hair and arms" in this area.
+    occlusion: bool = True
 
 
 class AreasUpdate(BaseModel):
@@ -309,6 +314,8 @@ class PreviewRequest(BaseModel):
     size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
     fold_strength: float | None = Field(default=None, ge=mockups.FOLD_RANGE[0], le=mockups.FOLD_RANGE[1])
     occlusion: bool | None = None
+    #: Each area's "design goes behind hair and arms" switch, in the areas' order.
+    behind: list[bool] | None = Field(default=None, max_length=MAX_GARMENTS)
 
 
 class DesignOut(BaseModel):
@@ -452,7 +459,8 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
                     source=g.get("source") or "default", confidence=g.get("confidence"), kind=g.get("kind"),
                     axis_angle=(g.get("geometry") or {}).get("axis_estimate"),
                     role=g.get("role") if g.get("role") in ("front", "back") else ("back" if p.view == "back" else "front"),
-                    subgroup_id=_uuid_or_none(g.get("subgroup_id")), tone=g.get("tone"))
+                    subgroup_id=_uuid_or_none(g.get("subgroup_id")), tone=g.get("tone"),
+                    occlusion=g.get("occlusion") is not False, occlusion_note=g.get("occlusion_note"))
             for g in photo_areas(p)
         ],
     )
@@ -958,6 +966,9 @@ async def save_areas(
             "role": area.role or before.get("role") or ("back" if photo.view == "back" else "front"),
             "subgroup_id": str(area.subgroup_id) if area.subgroup_id and str(area.subgroup_id) in valid else None,
             "tone": before.get("tone"),
+            "occlusion": area.occlusion,
+            # The analysis's reason stays only while the seller leaves the switch as it set it.
+            "occlusion_note": before.get("occlusion_note") if area.occlusion is (before.get("occlusion") is not False) else None,
         })
     photo.garments = rows
     photo.print_area = rows[0]["print_area"]
@@ -1042,7 +1053,8 @@ async def copy_areas(
                     placed = [list(c) for c in g["print_area"]]  # a degenerate suggestion: the same shares
             rows.append({**(_kept(own, suggested) if suggested else {}),
                          "print_area": placed, "detected_area": suggested or placed,
-                         "source": "copied", "confidence": None, "kind": g.get("kind")})
+                         "source": "copied", "confidence": None, "kind": g.get("kind"),
+                         "occlusion": g.get("occlusion") is not False})
         target.garments = rows
         target.print_area, target.print_area_source = rows[0]["print_area"], "seller"
         target.size, target.fold_strength = source.size, source.fold_strength
@@ -1219,7 +1231,10 @@ async def preview_photo(
         small = mockups.preview_scale(blank, mask, occluder, PREVIEW_WIDTH)
         maps = mockups.build_maps(*small, areas)
         design = mockups.load_design(mockup_sample.sample(light_ink=maps.underbase >= 0.5))
-        return mockups.render_many(maps, [(design, a) for a in areas], settings, quality=80)
+        switches = body.behind if body.behind is not None else work.photo_area_occlusion(photo)
+        return mockups.render_many(
+            maps, [(design, a, switches[i] if i < len(switches) else True) for i, a in enumerate(areas)], settings,
+            quality=80)
 
     try:
         data = await asyncio.to_thread(draw)
@@ -1388,6 +1403,8 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     except (ImageProcessingError, mockups.MockupError) as exc:
         raise HTTPException(status_code=422, detail="This file could not be read as a design.") from exc
     await _room(session, storage, tenant, len(prepared.image))
+    # Its trim box (transparent padding left out), kept with it; the file stays as uploaded.
+    trim = await asyncio.to_thread(mockups.design_trim, prepared.image)
     slots = slots or []
     base, by_suffix = subgroups.split_name(filename, slots)
     ink = await asyncio.to_thread(subgroups.ink_of, prepared.image)
@@ -1410,7 +1427,8 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
             storage_cap.added(tenant.id, len(prepared.image))
             session.add(MockupDesignVersion(id=version_id, tenant_id=tenant.id, design_id=other.id, subgroup=chosen,
                                             original_filename=filename, design_key=vkey, width=prepared.width,
-                                            height=prepared.height, has_alpha=prepared.has_alpha, ink=ink))
+                                            height=prepared.height, has_alpha=prepared.has_alpha, ink=ink,
+                                            trims={"front": trim}))
             await session.flush()
             return other
     taken = set((await session.execute(select(MockupDesign.group_key).where(MockupDesign.batch_id == batch_id))).scalars())
@@ -1422,7 +1440,7 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     design = MockupDesign(
         id=design_id, tenant_id=tenant.id, batch_id=batch_id, group_key=design_group(filename, sku, taken),
         original_filename=filename, parsed_sku=sku, design_key=key, width=prepared.width, height=prepared.height,
-        has_alpha=prepared.has_alpha, subgroup=chosen, pair_base=base, ink=ink,
+        has_alpha=prepared.has_alpha, subgroup=chosen, pair_base=base, ink=ink, trims={"front": trim},
     )
     session.add(design)
     batch.grouping_mode = batch.grouping_mode or "folder"
@@ -1465,6 +1483,7 @@ async def set_design_back(
     storage.put(key, prepared.image, "image/png")
     storage_cap.added(tenant.id, len(prepared.image))
     design.back_key = key
+    design.trims = {**(design.trims or {}), "back": await asyncio.to_thread(mockups.design_trim, prepared.image)}
     await session.commit()
     return _design_out(design)
 
@@ -1479,6 +1498,7 @@ async def delete_design_back(
         storage.delete_with_derivatives(design.back_key)
         storage_cap.forget(tenant.id)
         design.back_key = None
+        design.trims = {k: v for k, v in (design.trims or {}).items() if k != "back"} or None
         await session.commit()
     return _design_out(design)
 
@@ -1587,6 +1607,113 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
 class VersionUpdate(BaseModel):
     #: The subgroup (by name) this file is for (moved between upload slots).
     subgroup: str = Field(min_length=1, max_length=MAX_NAME)
+
+
+class DesignDeleted(BaseModel):
+    #: The whole design went (with its files); False: only the chosen file, another took its place.
+    deleted: bool
+    design: DesignOut | None = None
+
+
+#: Said when a design's mockups are already a listing's photos (B2): the design stays.
+DESIGN_IN_LISTING = (
+    "This design is used by a listing in this batch, so it cannot be deleted. Delete that listing first if you no "
+    "longer need it."
+)
+DESIGN_IN_GROUP = (
+    "This design's mockups are the photos of a listing group in this batch, so it cannot be deleted. Remove that "
+    "group's photos first."
+)
+
+
+async def _design_in_use(session: AsyncSession, design: MockupDesign) -> str | None:
+    """Why ``design`` cannot be deleted: its mockups became a listing group's photos ("Use
+    for listings"), and that listing may already be written or drafted. None: unused."""
+    group = (await session.execute(
+        select(Asset.group_key).where(Asset.batch_id == design.batch_id, Asset.mockup_design_id == design.id).limit(1)
+    )).scalar()
+    if group is None:
+        return None
+    written = (await session.execute(
+        select(GeneratedContent.id).join(Asset, GeneratedContent.asset_id == Asset.id)
+        .where(Asset.batch_id == design.batch_id, Asset.group_key == group).limit(1)
+    )).scalar()
+    return DESIGN_IN_LISTING if written is not None else DESIGN_IN_GROUP
+
+
+def _drop_files(storage: Storage, keys: list[str | None]) -> None:
+    for key in keys:
+        if key:
+            storage.delete_with_derivatives(key)
+
+
+@router.delete("/mockup-designs/{design_id}", response_model=DesignDeleted)
+async def delete_design(
+    design_id: uuid.UUID,
+    only_file: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> DesignDeleted:
+    """Delete a design, its files (front, back, every subgroup's file) and the mockups made
+    from it; or with ``only_file`` just its own file: its first other file takes its place
+    (with none, the whole design goes). Refused, saying why, while its mockups are a listing's
+    photos. Files go the way every upload goes (with their previews)."""
+    design = await _own_design(session, tenant, design_id)
+    reason = await _design_in_use(session, design)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+    versions = (await _versions_of(session, [design.id])).get(design.id, [])
+    if only_file and versions:
+        first, rest = versions[0], versions[1:]
+        _drop_files(storage, [design.design_key, design.back_key])
+        design.design_key, design.back_key = first.design_key, first.back_key
+        design.subgroup, design.original_filename = first.subgroup, first.original_filename
+        design.width, design.height, design.has_alpha = first.width, first.height, first.has_alpha
+        design.ink, design.trims = first.ink, first.trims
+        await session.delete(first)
+        audit.destructive(session, "mockup_design.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None,
+                          object_id=design.id)
+        storage_cap.forget(tenant.id)
+        await session.commit()
+        return DesignDeleted(deleted=False, design=_design_out(design, rest))
+    outputs = list((await session.execute(select(MockupOutput).where(MockupOutput.design_id == design.id))).scalars())
+    _drop_files(storage, [design.design_key, design.back_key, *[k for v in versions for k in (v.design_key, v.back_key)],
+                          *[o.key for o in outputs]])
+    for o in outputs:
+        await session.delete(o)
+    for v in versions:
+        await session.delete(v)
+    await session.delete(design)
+    audit.destructive(session, "mockup_design.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None,
+                      object_id=design_id)
+    storage_cap.forget(tenant.id)
+    await session.commit()
+    return DesignDeleted(deleted=True)
+
+
+@router.delete("/mockup-design-versions/{version_id}", response_model=DesignOut)
+async def delete_design_version(
+    version_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> DesignOut:
+    """Delete one of a design's files for another subgroup (the design keeps its others).
+    Mockups already made stay until mockups are made again."""
+    version = await session.get(MockupDesignVersion, version_id)
+    if version is None or version.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="design not found")
+    design = await _own_design(session, tenant, version.design_id)
+    reason = await _design_in_use(session, design)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+    _drop_files(storage, [version.design_key, version.back_key])
+    await session.delete(version)
+    audit.destructive(session, "mockup_design.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None,
+                      object_id=version_id)
+    storage_cap.forget(tenant.id)
+    await session.commit()
+    rest = (await _versions_of(session, [design.id])).get(design.id, [])
+    return _design_out(design, rest)
 
 
 @router.patch("/mockup-design-versions/{version_id}", response_model=DesignOut)

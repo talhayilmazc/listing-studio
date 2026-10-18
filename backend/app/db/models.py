@@ -802,7 +802,7 @@ class MockupPhoto(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Share of the print area the design fills (aspect kept), and how much the
     #: folds move the print (0..1).
-    size: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.9")
+    size: Mapped[float] = mapped_column(Float, nullable=False, server_default="1.0")
     fold_strength: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.5")
     #: When the seller confirmed the photo is theirs or that they may use it.
     rights_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -850,6 +850,9 @@ class MockupDesignVersion(Base):
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     design_key: Mapped[str | None] = mapped_column(Text)
     back_key: Mapped[str | None] = mapped_column(Text)
+    #: Each file's trim box (transparent padding left out), as measured at upload:
+    #: {"front": {"box": [l, t, r, b], "size": [w, h]}, "back": ...}. The files are never changed.
+    trims: Mapped[dict | None] = mapped_column(JSON)
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     height: Mapped[int] = mapped_column(Integer, nullable=False)
     has_alpha: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
@@ -910,6 +913,9 @@ class MockupDesign(Base):
     #: The design's optional back file: printed on back areas (else the template's
     #: ``back_without_design``).
     back_key: Mapped[str | None] = mapped_column(Text)
+    #: Each file's trim box (transparent padding left out), as measured at upload:
+    #: {"front": {"box": [l, t, r, b], "size": [w, h]}, "back": ...}. The files are never changed.
+    trims: Mapped[dict | None] = mapped_column(JSON)
     #: The subgroup (by name) its file is for; None: every subgroup. Other subgroups' files are
     #: its versions (``MockupDesignVersion``): one design, one listing.
     subgroup: Mapped[str | None] = mapped_column(Text)

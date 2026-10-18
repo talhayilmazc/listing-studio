@@ -232,6 +232,9 @@ export interface MockupArea {
   subgroup_id?: string | null;
   /** The garment's brightness ("light" or "dark"), read from the photo: the default link. */
   tone?: "light" | "dark" | string | null;
+  /** "Design goes behind hair and arms" in this area, and why the analysis turned it off. */
+  occlusion?: boolean;
+  occlusion_note?: string | null;
 }
 
 /** One blank photo of a template (backend api/mockups.py PhotoOut). */

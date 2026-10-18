@@ -106,6 +106,18 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   // A design coming back again (a second file paired into it) replaces itself in the list.
   const upsert = (list: MockupDesign[]) =>
     setDesigns((all) => [...all.filter((d) => !list.some((x) => x.id === d.id)), ...list]);
+  // A design deleted (it and its files are gone on the server): out of the list, and out of
+  // the run's results when mockups were made.
+  async function removed(id: string) {
+    setDesigns((all) => all.filter((d) => d.id !== id));
+    if (run) {
+      try {
+        setRun(await api.mockupRun(run.id));
+      } catch {
+        // the results refresh on the next poll
+      }
+    }
+  }
 
   // Designs are sent as soon as they are chosen or dropped: each with its own progress,
   // and one that fails (too small, not an image, over 30 MB) says why without stopping the rest.
@@ -256,15 +268,17 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
               </ul>
             )}
             {slots.length > 0 && (
-              <SlotBoard key="slots" slots={slots} designs={designs} disabled={busy || phase === "done"}
+              <SlotBoard key="slots" slots={slots} designs={designs} disabled={busy || phase === "done"} removing={busy}
                 onFiles={(files, slot) => choose(files, slot)}
-                onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))} />
+                onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))}
+                onRemoved={removed} />
             )}
             {designs.length > 0 && (
               <ul key="designs" className="divide-y divide-slate-100 rounded-md border border-slate-200" data-testid="mockup-design-list">
                 {designs.map((d) => (
-                  <DesignRow key={d.id} design={d} disabled={busy || phase === "done"} split={slots.length > 0}
-                    onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))} />
+                  <DesignRow key={d.id} design={d} disabled={busy || phase === "done"} split={slots.length > 0} removing={busy}
+                    onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))}
+                    onRemoved={() => removed(d.id)} />
                 ))}
               </ul>
             )}
@@ -336,8 +350,9 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   );
 }
 
-function DesignRow({ design, disabled, split, onChange }: {
-  design: MockupDesign; disabled: boolean; split?: boolean; onChange: (d: MockupDesign) => void;
+function DesignRow({ design, disabled, split, removing, onChange, onRemoved }: {
+  design: MockupDesign; disabled: boolean; split?: boolean; removing?: boolean; onChange: (d: MockupDesign) => void;
+  onRemoved: () => void;
 }) {
   const [sku, setSku] = useState(design.parsed_sku ?? "");
   const [message, setMessage] = useState<string | null>(null);
@@ -357,6 +372,17 @@ function DesignRow({ design, disabled, split, onChange }: {
     setMessage(null);
     try {
       onChange(await api.setDesignBack(design.id, file));
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+  async function remove() {
+    const files = 1 + (design.versions?.length ?? 0) + (design.has_back ? 1 : 0);
+    if (!window.confirm(`Delete “${design.original_filename}”${files > 1 ? ` and its ${files} files` : ""}? Mockups made from it are deleted too.`)) return;
+    setMessage(null);
+    try {
+      await api.deleteMockupDesign(design.id);
+      onRemoved();
     } catch (e: any) {
       setMessage(String(e.message ?? e));
     }
@@ -397,18 +423,24 @@ function DesignRow({ design, disabled, split, onChange }: {
           </label>
         )}
       </span>
+      <button type="button" className="btn-secondary min-h-11 px-3 text-xs text-rose-700" onClick={remove} disabled={removing}
+        aria-label={`Remove ${design.original_filename}`} data-testid="design-remove">
+        Remove
+      </button>
       {message && <p key="m" role="alert" className="w-full text-xs text-rose-700">{message}</p>}
     </li>
   );
 }
 
 /** A slot per subgroup: drop files on one (they are for it), drag a file to another, or "Move to". */
-function SlotBoard({ slots, designs, disabled, onFiles, onChange }: {
+function SlotBoard({ slots, designs, disabled, removing, onFiles, onChange, onRemoved }: {
   slots: SlotIn[];
   designs: MockupDesign[];
   disabled: boolean;
+  removing: boolean;
   onFiles: (files: File[], slot: string) => void;
   onChange: (design: MockupDesign) => void;
+  onRemoved: (id: string) => void;
 }) {
   const files = filesBySlot(designs, slots);
   const [dragging, setDragging] = useState<SlotFile | null>(null);
@@ -424,6 +456,24 @@ function SlotBoard({ slots, designs, disabled, onFiles, onChange }: {
         onChange(await api.moveMockupDesignVersion(file.versionId, to));
       } else {
         onChange(await api.moveMockupDesign(file.design.id, to || null));
+      }
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
+  // One file out of a design: a version, or its own file (a version then takes its place;
+  // with none left, the whole design goes).
+  async function removeFile(file: SlotFile) {
+    if (!window.confirm(`Remove “${file.filename}”?`)) return;
+    setMessage(null);
+    try {
+      if (file.versionId) {
+        onChange(await api.deleteMockupDesignVersion(file.versionId));
+      } else {
+        const res = await api.deleteMockupDesign(file.design.id, true);
+        if (res.design) onChange(res.design);
+        else onRemoved(file.design.id);
       }
     } catch (e: any) {
       setMessage(String(e.message ?? e));
@@ -478,6 +528,10 @@ function SlotBoard({ slots, designs, disabled, onFiles, onChange }: {
                         {!f.versionId && <option key="~every" value="">Every subgroup</option>}
                       </select>
                     </label>
+                    <button type="button" className="btn-secondary min-h-11 shrink-0 px-2 text-xs text-rose-700" onClick={() => removeFile(f)}
+                      disabled={removing} aria-label={`Remove ${f.filename}`} data-testid="mockup-slot-remove">
+                      Remove
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -598,17 +652,17 @@ function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun)
         </div>
       )}
       {said && (
-        <p key="said" role="status" className="text-sm text-emerald-700">
-          <span><span><span>{said}</span> </span></span>
-          <button type="button" className="tap text-brand-700 underline" onClick={onOpen}>Open batch</button>
-        </p>
+        <div key="said" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+          <p className="min-w-0 flex-1 text-sm font-medium text-emerald-900">{said}</p>
+          <button type="button" className="btn-primary min-h-11" onClick={onOpen} data-testid="mockup-open-batch">Open batch</button>
+        </div>
       )}
       {zip && (
         <p key="zip" role="status" className="text-sm text-slate-700" translate="no" data-testid="mockup-zip-status">
           {zip.status === "ready" ? (
             <span key="ready">
-              <a className="tap text-brand-700 underline" href={api.mockupZipUrl(zip.id)} download>Download the ZIP</a>
-              <span>{` (${zip.files} files, ${megabytes(zip.byte_size ?? 0)}). Kept 24 hours, then deleted.`}</span>
+              <a className="btn-primary min-h-11" href={api.mockupZipUrl(zip.id)} download data-testid="mockup-zip-download">Download the ZIP</a>
+              <span className="ml-2">{` ${zip.files} files, ${megabytes(zip.byte_size ?? 0)}. Kept 24 hours, then deleted.`}</span>
             </span>
           ) : zip.status === "failed" ? (
             <span key="failed" className="text-rose-700">{zip.error ?? "The ZIP could not be made."}</span>
