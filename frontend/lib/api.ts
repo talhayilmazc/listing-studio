@@ -741,9 +741,10 @@ export const api = {
   unfinishedDrafts: (batchId?: string) =>
     req<UnfinishedDraft[]>(`/drafts/unfinished${batchId ? `?batch_id=${batchId}` : ""}`),
   /** Take a draft a newer one replaced off the list (only the app's record; Etsy is not touched). */
-  dismissReplacedDraft: (attemptId: string) => req<void>(`/drafts/unfinished/${attemptId}/dismiss`, { method: "POST" }),
-  finishDrafts: (body: { attempt_ids?: string[] | null; batch_id?: string | null }) =>
-    req<{ started: number; skipped: { attempt_id: string; reason: string }[] }>("/drafts/unfinished/finish", {
+  dismissReplacedDraft: (recordId: string) =>
+    req<void>(`/drafts/unfinished/${encodeURIComponent(recordId)}/dismiss`, { method: "POST" }),
+  finishDrafts: (body: { record_ids?: string[] | null; attempt_ids?: string[] | null; batch_id?: string | null }) =>
+    req<{ started: number; skipped: { record_id: string; attempt_id: string | null; reason: string }[] }>("/drafts/unfinished/finish", {
       method: "POST",
       body: JSON.stringify(body),
     }),

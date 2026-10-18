@@ -257,6 +257,7 @@ async def _enqueue(
     profile_id: uuid.UUID | None = None,
     job_type: JobType = JobType.create_draft,
     function: str = "run_publish_job",
+    extra: dict | None = None,
 ) -> Job:
     # One unfinished job per content, shop and action. A job paused until the
     # daily reset can wait for hours; asking again must not queue a second one
@@ -276,6 +277,7 @@ async def _enqueue(
     payload = {"content_id": str(content.id)}
     if profile_id is not None:
         payload["profile_id"] = str(profile_id)
+    payload.update(extra or {})
     job = Job(
         tenant_id=tenant.id,
         connection_id=connection.id,

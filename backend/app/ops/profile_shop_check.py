@@ -116,10 +116,11 @@ async def _report(session: AsyncSession, email: str) -> str:
         lines.append(f'  listing {d.etsy_listing_id} in {d.shop_name}: "{d.title[:70]}"')
         lines.append(f"    failed step: {d.step or 'unknown'}; when: {when}")
         lines.append(f"    Etsy said: {d.error or 'no error recorded'}")
+        lines.append(f"    action: {d.label}" + (f" (by listing {d.replaced_by}, matched by {d.replaced_key})" if d.replaced_by else ""))
         if d.blocked:
             lines.append(f"    cannot be finished yet: {d.blocked}")
         elif d.finishing:
             lines.append("    being finished now")
-        else:
+        elif d.category == unfinished.FINISH:
             lines.append("    can be finished: the seller presses Finish these drafts")
     return "\n".join(lines)

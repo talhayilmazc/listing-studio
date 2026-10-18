@@ -515,6 +515,31 @@ class DraftAttempt(Base):
     )
 
 
+class DraftDismissal(Base):
+    """A half-made draft the seller took off the list ("I deleted it on Etsy",
+    pipeline/unfinished.py): its shop and Etsy listing id, so the list does not show it
+    again from a job's create snapshot once its draft attempt is gone.
+
+    The app's own bookkeeping (a listing id), not Etsy content. Removed with the shop,
+    and after :attr:`RETENTION_DAYS` (the create snapshots it hides are gone by then).
+    """
+
+    __tablename__ = "draft_dismissal"
+    __table_args__ = (UniqueConstraint("connection_id", "etsy_listing_id", name="uq_draft_dismissal_shop_listing"),)
+
+    RETENTION_DAYS: ClassVar[int] = 90
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
+    )
+    etsy_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class ListingSnapshot(Base):
     """Pre-change copy of a listing, used for rollback.
 

@@ -43,6 +43,7 @@ from app.db.models import (
     AllowanceUse,
     ContentVersion,
     DraftAttempt,
+    DraftDismissal,
     EtsyConnection,
     InviteRequest,
     Job,
@@ -108,6 +109,7 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
         await _bulk(session, delete(table).where(table.month < oldest.replace(day=1)))
     # Drafts that were started and never finished or retried (etsy/publisher.py).
     await _bulk(session, delete(DraftAttempt).where(DraftAttempt.created_at < now - timedelta(days=DraftAttempt.RETENTION_DAYS)))
+    await _bulk(session, delete(DraftDismissal).where(DraftDismissal.created_at < now - timedelta(days=DraftDismissal.RETENTION_DAYS)))
     # Allowance usage: long past any period an allowance counts over.
     await _bulk(session, delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
     # Invite requests are personal data from people who are not users.
@@ -215,6 +217,7 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))
     await session.execute(delete(DraftAttempt).where(DraftAttempt.connection_id == connection_id))
+    await session.execute(delete(DraftDismissal).where(DraftDismissal.connection_id == connection_id))
     await session.execute(delete(LedgerSync).where(LedgerSync.connection_id == connection_id))
     # Imported statements and Ads reports, and the order lines: the shop's, so they go with it.
     for table in (SaleLine, AdsDaily, AdCharge, StatementImport, StatementOrder, StatementListingFee):

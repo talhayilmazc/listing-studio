@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.db.models import (
+    Asset,
     ComplianceFinding,
     ComplianceSeverity,
     DraftAttempt,
@@ -51,13 +52,14 @@ from app.db.models import (
     GeneratedContent,
     Job,
     JobStatus,
+    JobType,
     ListingPublication,
     ListingSnapshot,
     Tenant,
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline import chart_order, item_options, skus, versions
+from app.pipeline import chart_order, design_match, item_options, skus, versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
@@ -81,6 +83,11 @@ class PublishBlocked(Exception):
 class ShopNotSetUp(ValueError):
     """The profile lacks one of this shop's own settings (its processing profile, say):
     nothing is sent to Etsy until the seller sets it up there."""
+
+
+class FinishRefused(ValueError):
+    """"Finish draft" would have made a second listing of this design in this shop (one is
+    there already, as a draft the app knows or a live listing): nothing was sent to Etsy."""
 
 
 class NotYet(Exception):
@@ -145,6 +152,96 @@ async def _find_unanswered_draft(
         if _same_title(row.get("title"), attempt.title) and int(row["listing_id"]) not in known:
             return int(row["listing_id"])
     return None
+
+
+#: Pages of the shop's drafts the "Finish draft" guard reads at most (100 a page, newest first).
+FINISH_DRAFT_PAGES = 3
+
+
+async def _existing_for_finish(
+    session: AsyncSession,
+    client: EtsyApiClient,
+    *,
+    content: GeneratedContent,
+    connection: EtsyConnection,
+    shop_id: int,
+    title: str,
+    sku: str | None,
+    ctx: dict[str, Any],
+) -> tuple[int | None, str | None]:
+    """A listing of this design already in this shop (pipeline/design_match.py), for
+    "Finish draft": ``(listing id, None)`` to carry on with a draft, ``(None, reason)``
+    when one is finished or live (the reason names it), ``(None, None)`` when there is none.
+
+    Looked for in order: the app's drafts in this shop (finished: refuse); the listing
+    this text's own earlier create returned (its create snapshot); another half-made
+    draft of this design the app holds; the shop's drafts on Etsy since the text was
+    written; the shop's live listings with this SKU. Reads only."""
+    shop = connection.shop_name or "this shop"
+    group = await session.scalar(select(Asset.group_key).where(Asset.id == content.asset_id))
+    mine = design_match.keys(content=content.id, batch=content.batch_id, group=group, skus=[sku], title=title)
+    known: set[int] = set()
+    for pub, batch, pub_group, parsed in (await session.execute(
+        select(ListingPublication, GeneratedContent.batch_id, Asset.group_key, Asset.parsed_sku)
+        .outerjoin(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
+        .outerjoin(Asset, Asset.id == GeneratedContent.asset_id)
+        .where(ListingPublication.connection_id == connection.id, ListingPublication.state != "deleted_on_etsy")
+    )).all():
+        known.add(int(pub.etsy_listing_id))
+        match = design_match.same(mine, design_match.keys(content=pub.content_id, batch=batch, group=pub_group,
+                                                          skus=[pub.sku, parsed], title=pub.title))
+        if match is not None:
+            return None, (f"{shop} already has listing {pub.etsy_listing_id} for this design (matched by {match}); "
+                          "finishing would make a second one, so nothing was sent to Etsy. Delete this half-made "
+                          "draft on Etsy if you no longer want it")
+    # This text's own earlier create (its attempt was lost: deleted after 30 days, say).
+    for job in (await session.execute(
+        select(Job).where(Job.connection_id == connection.id, Job.type == JobType.create_draft,
+                          Job.batch_id == content.batch_id).order_by(Job.created_at.desc())
+    )).scalars():
+        if (job.payload or {}).get("content_id") != str(content.id):
+            continue
+        snap = await session.scalar(select(ListingSnapshot).where(ListingSnapshot.job_id == job.id)
+                                    .order_by(ListingSnapshot.taken_at.desc()).limit(1))
+        if snap is not None and (snap.payload or {}).get("operation") == "create_draft":
+            return int(snap.listing_id), None
+    # Another half-made draft of this design the app holds in this shop.
+    for other, other_content, other_group, other_sku in (await session.execute(
+        select(DraftAttempt, GeneratedContent, Asset.group_key, Asset.parsed_sku)
+        .join(GeneratedContent, GeneratedContent.id == DraftAttempt.content_id)
+        .outerjoin(Asset, Asset.id == GeneratedContent.asset_id)
+        .where(DraftAttempt.connection_id == connection.id, DraftAttempt.etsy_listing_id.is_not(None),
+               DraftAttempt.content_id != content.id)
+    )).all():
+        known.add(int(other.etsy_listing_id))
+        if design_match.same(mine, design_match.keys(content=other_content.id, batch=other_content.batch_id,
+                                                     group=other_group, skus=[other_sku],
+                                                     title=other.title or other_content.title)):
+            return int(other.etsy_listing_id), None
+    # On Etsy: the shop's drafts made since this text was written, newest first.
+    written = content.created_at or _now()
+    written = written if written.tzinfo else written.replace(tzinfo=timezone.utc)
+    since = written - timedelta(minutes=30)
+    for page in range(FINISH_DRAFT_PAGES):
+        rows = (await client.get_listings_by_shop(shop_id, state="draft", limit=100, offset=page * 100, **ctx)).get("results") or []
+        for row in rows:
+            lid = int(row.get("listing_id") or 0)
+            if lid in known:
+                continue
+            if design_match.same(mine, design_match.etsy_keys(row)) is not None:
+                return lid, None
+        times = [t for t in (design_match.created_of(r) for r in rows) if t is not None]
+        if len(rows) < 100 or (times and min(times) < since):
+            break
+    # A live listing with this SKU (one published in Shop Manager, say).
+    if skus.clean(sku):
+        live = (await client.find_active_listings_by_shop(shop_id, keywords=skus.clean(sku), limit=25, **ctx)).get("results") or []
+        for row in live:
+            match = design_match.same(mine, design_match.etsy_keys(row))
+            if match is not None:
+                return None, (f"{shop} already has a live listing {row.get('listing_id')} for this design (matched by "
+                              f"{match}); finishing would make a second one, so nothing was sent to Etsy")
+    return None, None
 
 
 @dataclass
@@ -335,8 +432,15 @@ async def publish_content(
     chart_slots: list[int] | None = None,
     section_choice: dict[str, Any] | None = None,
     theme_words: list[str] | None = None,
+    finishing: bool = False,
 ) -> PublishResult:
     """Create the draft in ``connection``'s shop from ``reference`` (that shop's profile).
+
+    ``finishing``: the seller pressed "Finish draft" (api/unfinished.py). Then a new
+    listing is never made while one for this design exists in this shop
+    (:func:`_existing_for_finish`): a draft is carried on with, a live listing or the
+    app's finished draft refuses with its listing id; only when nothing is there, after
+    looking, is the draft created.
 
     ``personalization`` is the profile's effective setting (pipeline/personalization.py):
     when enabled, the draft gets that question, verified on read-back.
@@ -413,11 +517,43 @@ async def publish_content(
             attempt.etsy_listing_id, attempt.create_sent_at = None, None
             await session.commit()
         else:
+            if readback.get("state") not in (None, "draft") and finishing:
+                # Published (or otherwise moved on) in Shop Manager: finishing would make a
+                # second listing of it. Nothing is sent.
+                raise FinishRefused(
+                    f"listing {attempt.etsy_listing_id} is already {readback.get('state')} in "
+                    f"{connection.shop_name or 'this shop'}, so there is nothing to finish and no second listing was made"
+                )
             if readback.get("state") not in (None, "draft"):
                 # No longer a draft (published or removed by hand): not ours to continue.
                 attempt.etsy_listing_id, attempt.create_sent_at = None, None
                 await session.commit()
                 listing_id, readback = None, None
+    if finishing and listing_id is None:
+        # "Finish draft" with no listing of its own to carry on with: never a second
+        # listing of this design here. A draft found is carried on with; one that is live,
+        # or the app's finished draft, refuses with its id; nothing found: created below.
+        found, refusal = await _existing_for_finish(
+            session, client, content=content, connection=connection, shop_id=shop_id,
+            title=(title if title is not None else content.title) or "", sku=sku, ctx=ctx,
+        )
+        if refusal:
+            raise FinishRefused(refusal)
+        if found is not None:
+            readback = await client.get_listing(found, **ctx)
+            if readback.get("state") not in (None, "draft"):
+                raise FinishRefused(
+                    f"listing {found} for this design is already {readback.get('state')} in "
+                    f"{connection.shop_name or 'this shop'}, so no second listing was made"
+                )
+            if attempt is None:
+                attempt = DraftAttempt(tenant_id=tenant_id, content_id=content.id, connection_id=connection.id)
+                session.add(attempt)
+            attempt.etsy_listing_id, attempt.create_sent_at = found, None
+            attempt.title = readback.get("title") or attempt.title
+            await session.commit()
+            logger.info("draft: finishing carries on with listing %s of this design", found)
+            listing_id = found
     resumed = listing_id is not None
 
     # 3) The shop section (pipeline/item_options.py): the seller's choice for this

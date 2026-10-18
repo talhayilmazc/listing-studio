@@ -143,6 +143,7 @@ HTTP_CLIENTS = {
     "cli.py": "hands the client to EtsyApiClient (guarded)",
     "core/alerts.py": "the operator's own alert webhook, not Etsy",
     "etsy/connection.py": "the default factory for oauth.refresh_tokens (guarded)",
+    "ops/draft_failures.py": "draft-failures --check-etsy: hands the client to EtsyApiClient, reads only (guarded)",
     "pipeline/fetch_models.py": "build time only (docker/Dockerfile): the bundled mockup analysis models, not Etsy; nothing at runtime imports it",
     "workers/ledger.py": "EtsyApiClient (guarded)",
     "workers/links.py": "EtsyApiClient (guarded)",

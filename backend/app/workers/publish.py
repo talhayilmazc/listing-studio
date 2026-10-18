@@ -410,6 +410,8 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     profile_id=profile.id,
                     title=target.title,
                     description=target.description,
+                    # "Finish draft": never a second listing for this design in this shop.
+                    finishing=bool((job.payload or {}).get("finish")),
                 )
         except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
             return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_job")

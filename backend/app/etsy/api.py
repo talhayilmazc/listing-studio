@@ -351,6 +351,27 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def find_active_listings_by_shop(
+        self,
+        shop_id: int,
+        *,
+        keywords: str,
+        access_token: str,
+        limit: int = 25,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """findAllActiveListingsByShop: the shop's live listings matching ``keywords`` (read only;
+        the "Finish draft" guard looks for a live listing with the draft's SKU)."""
+        return await self._request(
+            "GET",
+            f"/application/shops/{shop_id}/listings/active",
+            access_token=access_token,
+            params={"keywords": keywords, "limit": limit},
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     async def get_listing(
         self,
         listing_id: int,

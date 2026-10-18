@@ -1918,8 +1918,11 @@ export interface SkuResult {
 
 /** A listing created on Etsy whose draft did not finish (backend api/unfinished.py). */
 export interface UnfinishedDraft {
-  attempt_id: string;
-  content_id: string;
+  /** How this draft is addressed (finish, dismiss). */
+  record_id: string;
+  attempt_id: string | null;
+  /** The listing text in the app; null when its batch was deleted. */
+  content_id: string | null;
   batch_id: string | null;
   connection_id: string;
   shop_name: string;
@@ -1937,9 +1940,20 @@ export interface UnfinishedDraft {
   profile_id: string | null;
   profile_name: string | null;
   setup: boolean;
-  /** A newer draft of the same design in this shop succeeded: its listing id and Shop Manager link. */
+  /** What to do (finish, fix_personalization, fix_shop, replaced, batch_deleted) and the list it is in. */
+  category: UnfinishedCategory;
+  category_label: string;
+  section: UnfinishedSection;
+  /** Why Etsy would refuse its personalization question (fix it on the card, then finish). */
+  personalization_problems: string[];
+  /** Another draft of the same design in this shop: its listing id, Shop Manager link and what matched. */
   replaced_by?: number | null;
   replaced_edit_url?: string | null;
-  /** "Finish draft" can run now. */
+  replaced_key?: string | null;
+  /** "Finish draft" can run now; "I deleted it on Etsy" takes it off the list. */
   can_finish?: boolean;
+  can_dismiss?: boolean;
 }
+
+export type UnfinishedCategory = "finish" | "fix_personalization" | "fix_shop" | "replaced" | "batch_deleted";
+export type UnfinishedSection = "finish" | "fix" | "delete";

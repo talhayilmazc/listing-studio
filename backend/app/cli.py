@@ -803,11 +803,15 @@ def main(argv: list[str] | None = None) -> int:
     occl.add_argument("--email", default=None, help="only this account's photos")
     failures = sub.add_parser(
         "draft-failures",
-        help="one account's failed and half-made drafts: shop, listing id, step, Etsy's answer, what was sent "
-        "(names and kinds only) and whether a newer draft replaced it; read only",
+        help="one account's failed and half-made drafts, one per design and shop, with a summary per action: shop, "
+        "listing id and where it was found, step, Etsy's answer, what was sent (names and kinds only), which draft "
+        "replaced it; read only",
     )
     failures.add_argument("email")
     failures.add_argument("--since", default=None, help="only drafts from this day on (YYYY-MM-DD)")
+    failures.add_argument("--check-etsy", action="store_true",
+                          help="also READ each listing on Etsy (draft, active or gone) and the shop's drafts near each "
+                          "failure without a listing id; rate limited, counted, never writes (run on the server)")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -898,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.draft_failures import report as draft_failures_report
 
         since = _date.fromisoformat(args.since) if args.since else None
-        print(asyncio.run(draft_failures_report(sm, args.email, since)))
+        print(asyncio.run(draft_failures_report(sm, args.email, since, check_etsy=args.check_etsy)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 
