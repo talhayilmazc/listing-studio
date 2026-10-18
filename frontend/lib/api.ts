@@ -3,7 +3,10 @@ import type { GroupingMode } from "./grouping";
 import type {
   FoundArea,
   UnfinishedDraft,
+  MockupAdjustmentRow,
   MockupDesign,
+  MockupEdits,
+  MockupRecolourRow,
   MockupPhoto,
   MockupRun,
   MockupPlacement,
@@ -546,6 +549,23 @@ export const api = {
       body: JSON.stringify({ template_ids: templateIds, ...options }),
     }),
   mockupRun: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}`),
+  /** The design editor (backend api/mockup_edits.py): every edit is a render-time layer. */
+  mockupEdits: (runId: string) => req<MockupEdits>(`/mockup-runs/${runId}/edits`),
+  mockupDesignFileUrl: (designId: string, versionId?: string | null) =>
+    `${BASE}/mockup-designs/${designId}/file${versionId ? `?version=${versionId}` : ""}`,
+  saveAdjustment: (row: MockupAdjustmentRow) =>
+    req<MockupAdjustmentRow>("/mockup-adjustments", { method: "PUT", body: JSON.stringify(row) }),
+  applyAdjustment: (body: { run_id: string; design_id: string; photo_id: string; area: number; before: unknown; after: unknown;
+    scope: "design_photos" | "photo_designs" | "template_all" }) =>
+    req<{ changed: number; undo: MockupAdjustmentRow[] }>("/mockup-adjustments/apply", { method: "POST", body: JSON.stringify(body) }),
+  restoreAdjustments: (rows: MockupAdjustmentRow[]) =>
+    req<{ changed: number }>("/mockup-adjustments/restore", { method: "POST", body: JSON.stringify({ rows }) }),
+  saveRecolour: (designId: string, body: { subgroup: string; regions: unknown[]; scope?: "photo_designs" | "template_all" | null }) =>
+    req<{ changed: number; undo: MockupRecolourRow[] }>(`/mockup-designs/${designId}/recolour`, { method: "PUT", body: JSON.stringify(body) }),
+  restoreRecolours: (rows: MockupRecolourRow[]) =>
+    req<{ changed: number }>("/mockup-recolours/restore", { method: "POST", body: JSON.stringify({ rows }) }),
+  rerenderMockups: (runId: string, pairs: [string, string][]) =>
+    req<{ queued: number }>(`/mockup-runs/${runId}/rerender`, { method: "POST", body: JSON.stringify({ pairs }) }),
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */
   previewChecklist: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
     req<Checklist>(`/content/${id}/checklist`, { method: "POST", body: JSON.stringify(body) }),

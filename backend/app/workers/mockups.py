@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import uuid
 import zipfile
@@ -39,10 +40,12 @@ from app.core import storage_cap
 from app.db.models import (
     Asset,
     AssetStatus,
+    MockupAdjustment,
     MockupDesign,
     MockupDesignVersion,
     MockupOutput,
     MockupPhoto,
+    MockupRecolour,
     MockupRun,
     MockupSubgroup,
     MockupTemplate,
@@ -526,33 +529,72 @@ async def replace_earlier(session: AsyncSession, storage: Storage, batch_id: uui
     return len(keys)
 
 
-async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> MockupRun | None:
-    """Make one run's mockups. Returns the run, or None when there is nothing to do."""
+async def design_edits_for(session: AsyncSession, design_ids: list[uuid.UUID], photo_ids: list[uuid.UUID]) -> tuple[
+        dict[tuple[uuid.UUID, uuid.UUID, int], dict], dict[tuple[uuid.UUID, str], list]]:
+    """The seller's adjustments (per design, photo and area) and recolourings (per design and
+    subgroup name, casefolded; "" = every subgroup) for these designs and photos."""
+    adjust: dict[tuple[uuid.UUID, uuid.UUID, int], dict] = {}
+    recolour: dict[tuple[uuid.UUID, str], list] = {}
+    if design_ids and photo_ids:
+        for row in (await session.execute(select(MockupAdjustment).where(
+                MockupAdjustment.design_id.in_(design_ids), MockupAdjustment.photo_id.in_(photo_ids)))).scalars():
+            adjust[(row.design_id, row.photo_id, row.area)] = row.data
+    if design_ids:
+        for row in (await session.execute(select(MockupRecolour).where(MockupRecolour.design_id.in_(design_ids)))).scalars():
+            if row.regions:
+                recolour[(row.design_id, (row.subgroup or "").casefold())] = row.regions
+    return adjust, recolour
+
+
+def regions_for(recolour: dict[tuple[uuid.UUID, str], list], design_id: uuid.UUID, subgroup: str | None) -> list | None:
+    """A design's recoloured regions for one subgroup: its own, else those for every subgroup."""
+    return recolour.get((design_id, (subgroup or "").casefold())) or recolour.get((design_id, "")) or None
+
+
+async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
+              refresh: list[tuple[uuid.UUID, uuid.UUID]] | None = None) -> MockupRun | None:
+    """Make one run's mockups. Returns the run, or None when there is nothing to do.
+
+    ``refresh``: (design, photo) pairs to make again after the seller adjusted or recoloured
+    a design (api/mockup_edits.py): only those mockups are re-rendered, each keeping its
+    record (a new file replaces the old one); nothing else of the run changes."""
     job = await session.get(MockupRun, run_id)
     if job is None or job.status not in ("queued", "running"):
         return job
-    job.status, job.started_at, job.done, job.failed, job.error = "running", _now(), 0, 0, None
-    photos = await _photos(session, job)
+    refreshing = refresh is not None
+    wanted = {(uuid.UUID(str(d)), uuid.UUID(str(p))) for d, p in (refresh or [])}
+    if refreshing:
+        job.status, job.error = "running", None
+    else:
+        job.status, job.started_at, job.done, job.failed, job.error = "running", _now(), 0, 0, None
+    all_photos = await _photos(session, job)
+    positions = {p.id: i for i, (p, _) in enumerate(all_photos)}
+    photos = [(p, n) for p, n in all_photos if not refreshing or any(p.id == pid for _, pid in wanted)]
     designs = list((await session.execute(
         select(MockupDesign)
         .where(MockupDesign.batch_id == job.batch_id, MockupDesign.design_key.is_not(None),
                MockupDesign.files_removed_at.is_(None))
         .order_by(MockupDesign.group_key, MockupDesign.original_filename)
     )).scalars())
-    job.total = len(designs) * len(photos)
-    await replace_earlier(session, storage, job.batch_id)
+    existing: dict[tuple[uuid.UUID, uuid.UUID], MockupOutput] = {}
+    if refreshing:
+        for row in (await session.execute(select(MockupOutput).where(MockupOutput.run_id == job.id))).scalars():
+            if row.photo_id is not None:
+                existing[(row.design_id, row.photo_id)] = row
+    else:
+        job.total = len(designs) * len(photos)
+        await replace_earlier(session, storage, job.batch_id)
     await session.commit()
 
     tenant = await session.get(Tenant, job.tenant_id)
     cap = storage_cap.limit(tenant) if tenant is not None else None
     days = await upload_retention.policy(session)
     in_use = await asyncio.to_thread(storage_cap.used, storage, job.tenant_id)
-    taken: set[str] = set()
+    taken: set[str] = {o.filename.lower() for o in existing.values()}
 
     try:
         areas = {p.id: photo_print_areas(p) for p, _ in photos}
         images: dict[uuid.UUID, Any] = {}
-        backs: dict[uuid.UUID, Any] = {}
         usable: list[MockupDesign] = []
         # Each design's files for other subgroups (one design, one listing), loaded when used.
         versions: dict[uuid.UUID, list[MockupDesignVersion]] = {}
@@ -562,33 +604,37 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                                                   MockupDesignVersion.design_key.is_not(None))
             )).scalars():
                 versions.setdefault(v.design_id, []).append(v)
-        loaded: dict[tuple[str, uuid.UUID], Any] = {}
+        adjustments, recolours = await design_edits_for(session, [d.id for d in designs], [p.id for p, _ in photos])
+        loaded: dict[tuple[str, uuid.UUID, str], Any] = {}
 
-        async def image_of(file: Any, back: bool) -> Any:
+        async def image_of(file: Any, back: bool, regions: list | None = None) -> Any:
+            """A design file as printed: trimmed, recoloured (front files) as the seller set."""
             key = file.back_key if back else file.design_key
             if not key:
                 return None
-            if (("back" if back else "front"), file.id) not in loaded:
-                loaded[("back" if back else "front", file.id)] = await asyncio.to_thread(
-                    mockups.load_design, storage.get(key), (file.trims or {}).get("back" if back else "front"))
-            return loaded[("back" if back else "front", file.id)]
+            regions = None if back else regions
+            cache = ("back" if back else "front", file.id, json.dumps(regions, sort_keys=True) if regions else "")
+            if cache not in loaded:
+                loaded[cache] = await asyncio.to_thread(
+                    mockups.load_design, storage.get(key), (file.trims or {}).get("back" if back else "front"), regions)
+            return loaded[cache]
 
         template_groups = await template_subgroups(session, {p.template_id for p, _ in photos})
         for design in designs:
             try:
-                images[design.id] = await asyncio.to_thread(
-                    mockups.load_design, storage.get(design.design_key or ""), (design.trims or {}).get("front"))
+                images[design.id] = await image_of(design, False)
                 if design.back_key:
-                    backs[design.id] = await asyncio.to_thread(
-                        mockups.load_design, storage.get(design.back_key), (design.trims or {}).get("back"))
+                    await image_of(design, True)
                 usable.append(design)
             except (mockups.MockupError, ImageProcessingError, FileNotFoundError) as exc:
                 logger.info("mockup design %s could not be used: %s", design.id, exc)
-                job.failed += len(photos)
+                if not refreshing:
+                    job.failed += len(photos)
                 job.error = DESIGN_FAILED
                 await session.commit()
         made = 0
-        for position, (photo, template_name) in enumerate(photos):
+        for photo, template_name in photos:
+            position = positions[photo.id]
             # One photo's maps at a time (~60 MB each at 2000 px): a 20-photo run
             # holding them all peaked 0.6 GB higher.
             blank, mask = storage.get(photo.image_key or ""), storage.get(photo.mask_key or "")
@@ -604,9 +650,20 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
             area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []),
                                              await asyncio.to_thread(measured_tones, blank, garments))
             if not any(prints_on(d, versions.get(d.id, []), area_names) for d in usable):
-                job.total = max(0, job.total - len(usable))  # no design has a file for this photo's subgroup
+                if not refreshing:
+                    job.total = max(0, job.total - len(usable))  # no design has a file for this photo's subgroup
                 continue
-            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments)
+            # Wherever an adjusted design reaches beyond its area, the maps cover it too.
+            W, H = photo.width or 1, photo.height or 1
+            reach = []
+            for (did, pid, k), adj in adjustments.items():
+                if pid == photo.id and k < len(garments) and did in images and images[did] is not None:
+                    img = images[did]
+                    r = mockups.design_reach([(x * W, y * H) for x, y in garments[k]], (img.width, img.height),
+                                             photo.size, adj, W, H)
+                    if r:
+                        reach.append(r)
+            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments, reach)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
@@ -618,6 +675,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 groups = [[d] for d in usable]
                 filled = [[d] * len(garments) for d in usable]
             for group, shown in zip(groups, filled):
+                if refreshing and not any((d.id, photo.id) in wanted for d in group):
+                    continue
                 chosen = list(zip(shown, garments, roles, area_names, behind))
                 # Each area's file: its subgroup's, else the design's own (every area renders).
                 files = {d.id: files_for_areas(d, versions.get(d.id, []), area_names) for d in dict.fromkeys(shown)}
@@ -626,18 +685,21 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                     f = files[d.id][k]
                     if f is None:
                         continue
-                    front_img = images[d.id] if f is d else await image_of(f, False)
-                    back_img = backs.get(d.id) if f is d else await image_of(f, True)
+                    regions = regions_for(recolours, d.id, n)
+                    front_img = await image_of(f, False, regions)
+                    back_img = await image_of(f, True)
                     img = design_for(r, front_img, back_img, fallback)
                     if img is not None:
-                        placements.append((img, a, o))
+                        placements.append((img, a, o, adjustments.get((d.id, photo.id, k))))
                 if not placements:
-                    job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
+                    if not refreshing:
+                        job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue
                 try:
                     jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
-                    job.failed += len(group)
+                    if not refreshing:
+                        job.failed += len(group)
                     job.error = f"{template_name} – {photo.name}: {exc}"
                     await session.commit()
                     continue
@@ -652,7 +714,14 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                 in_use += len(jpeg)
                 # One output per design shown (they share the file): each design's
                 # listing and ZIP folder has the mockup it is printed on.
+                replaced: set[str] = set()
                 for k, design in enumerate(group):
+                    row = existing.get((design.id, photo.id)) if refreshing else None
+                    if row is not None:
+                        if row.key and row.key != key:
+                            replaced.add(row.key)
+                        row.key, row.byte_size, row.width, row.height = key, len(jpeg), maps.width, maps.height
+                        continue
                     session.add(MockupOutput(
                         id=output_id if k == 0 else uuid.uuid4(), tenant_id=job.tenant_id, run_id=job.id,
                         batch_id=job.batch_id, design_id=design.id, photo_id=photo.id,
@@ -661,9 +730,11 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID) -> Moc
                         width=maps.width, height=maps.height, byte_size=len(jpeg),
                     ))
                     job.done += 1
+                for old in replaced:  # the earlier file of a re-rendered mockup
+                    await asyncio.to_thread(storage.delete_with_derivatives, old)
                 made += 1
                 await session.commit()
-        job.status = "succeeded" if made or not job.total else "failed"
+        job.status = "succeeded" if made or not job.total or refreshing else "failed"
     except storage_cap.StorageFull as exc:
         job.status, job.error = "failed", str(exc)
     except Exception:  # an unexpected fault: the run says so, the log has the rest
@@ -684,6 +755,15 @@ async def generate_mockups(ctx: dict[str, Any], run_id: str) -> str:
 
     async with ctx["sessionmaker"]() as session:
         done = await run(session, get_storage(), uuid.UUID(run_id))
+        return done.status if done is not None else "missing"
+
+
+async def rerender_mockups(ctx: dict[str, Any], run_id: str, pairs: list[list[str]]) -> str:
+    """arq entrypoint: make chosen mockups of a run again (the seller's edits)."""
+    from app.api.deps import get_storage
+
+    async with ctx["sessionmaker"]() as session:
+        done = await run(session, get_storage(), uuid.UUID(run_id), refresh=[(d, p) for d, p in pairs])
         return done.status if done is not None else "missing"
 
 

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { MockupDesign, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
+import type { MockupDesign, MockupEdits, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
+import { DesignEditor } from "@/components/DesignEditor";
 import { FileDrop } from "@/components/FileDrop";
 import { filesFromDrop, kindOf, pick as pickFiles } from "@/lib/fileDrop";
 import {
@@ -562,6 +563,18 @@ function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun)
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zip, setZip] = useState<MockupZip | null>(null);
+  // "Adjust": one design on one photo, in the design editor (Part B).
+  const [edits, setEdits] = useState<MockupEdits | null>(null);
+  const [editing, setEditing] = useState<{ designId: string; photoId: string } | null>(null);
+  async function adjust(designId: string, photoId: string) {
+    setError(null);
+    try {
+      setEdits(await api.mockupEdits(run.id));
+      setEditing({ designId, photoId });
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
 
   useEffect(() => {
     if (!zip || zip.status === "ready" || zip.status === "failed" || zip.status === "expired") return;
@@ -618,6 +631,23 @@ function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun)
                 <span><Txt>{d.in_listings ? "in listings · " : ""}</Txt><span>{d.done}</span><span> / </span><span>{d.total}</span></span>
               </span>
             </div>
+            {d.outputs.length > 0 && (
+              <ul key="thumbs" className="mt-2 flex gap-2 overflow-x-auto pb-1" data-testid="mockup-thumbs">
+                {d.outputs.map((o) => (
+                  <li key={o.id} className="shrink-0">
+                    <button type="button" className="group block w-28 rounded-md border border-slate-200 p-1 text-left disabled:opacity-60"
+                      disabled={!finished || !o.photo_id || !o.available} onClick={() => o.photo_id && adjust(d.design_id, o.photo_id)}
+                      aria-label={`Adjust ${d.sku ?? d.original_filename} on ${o.photo_name ?? o.template_name}`} data-testid="mockup-adjust">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`${api.mockupOutputImageUrl(run.id, o.id, 224)}&v=${o.stamp ?? ""}`} alt="" loading="lazy"
+                        className="aspect-square w-full rounded object-cover" />
+                      <span className="mt-1 block truncate text-xs text-slate-600" translate="no">{o.photo_name ?? o.template_name}</span>
+                      <span className="block text-xs font-medium text-brand-700">Adjust</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             {finished && d.outputs.length > 0 && (
               <label key="cover" className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-600">
                 <span className="shrink-0">Cover</span>
@@ -674,6 +704,11 @@ function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun)
         </p>
       )}
       {error && <p key="error" role="alert" className="text-sm text-rose-700">{error}</p>}
+      {editing && edits && (
+        <DesignEditor key={`${editing.designId}-${editing.photoId}`} runId={run.id} edits={edits} designId={editing.designId} photoId={editing.photoId}
+          onClose={() => { setEditing(null); setEdits(null); }}
+          onSaved={() => onRun({ ...run, status: "queued" })} />
+      )}
     </div>
   );
 }

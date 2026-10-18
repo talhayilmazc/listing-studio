@@ -19,6 +19,7 @@ from app.api import (
     invite_requests,
     item_options,
     meta,
+    mockup_edits,
     mockups,
     pnl,
     profile_links,
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     application.include_router(profiles.router)
     application.include_router(shop_groups.router)
     application.include_router(mockups.router)
+    application.include_router(mockup_edits.router)
     application.include_router(distribution.router)
     application.include_router(shop.router)
     application.include_router(shops.router)

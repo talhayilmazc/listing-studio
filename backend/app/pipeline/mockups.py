@@ -556,6 +556,44 @@ def place(corners_px: list[Point], design_size: tuple[int, int], size: float) ->
     return Placement(_mul(_square_to_quad(list(corners_px)), to_unit), (u0, v0, du, dv), (sw, sh))
 
 
+def placement(corners_px: list[Point], design_size: tuple[int, int], size: float,
+              adjust: dict[str, Any] | None = None) -> Placement:
+    """Where the design goes: the automatic fit (``place``), or that fit adjusted by the
+    seller (pipeline/design_edits.py: moved, scaled, stretched, turned, free corners). The
+    matrix takes the resized design's corners to the adjusted corners in the photo."""
+    if not adjust:
+        return place(corners_px, design_size, size)
+    from app.pipeline import design_edits
+
+    dw, dh = design_size
+    u0, v0, du, dv, area_w, area_h = design_edits.fit_box(corners_px, design_size, size)
+    if area_w < 4 or area_h < 4 or dw < 1 or dh < 1:
+        raise MockupError("The print area is too small.")
+    a = design_edits.full(adjust)
+    scale = min(area_w / dw, area_h / dh) * size * float(a["scale"])
+    sw, sh = max(1, round(dw * scale * float(a["sx"]))), max(1, round(dh * scale * float(a["sy"])))
+    pts = design_edits.photo_points(corners_px, design_size, size, adjust)
+    matrix = _mul(_square_to_quad(pts), [[1 / sw, 0.0, 0.0], [0.0, 1 / sh, 0.0], [0.0, 0.0, 1.0]])
+    return Placement(matrix, (u0, v0, du, dv), (sw, sh))
+
+
+def design_reach(corners_px: list[Point], design_size: tuple[int, int], size: float,
+                 adjust: dict[str, Any] | None, width: int, height: int) -> list[list[float]] | None:
+    """The quad an adjusted design covers, as shares of the photo (for the maps' window), or
+    None when it stays in its area (no adjustment)."""
+    if not adjust:
+        return None
+    from app.pipeline import design_edits
+
+    pts = design_edits.photo_points(corners_px, design_size, size, adjust)
+    xs, ys = [p[0] / width for p in pts], [p[1] / height for p in pts]
+    lo_x, hi_x = max(0.0, min(xs)), min(1.0, max(xs))
+    lo_y, hi_y = max(0.0, min(ys)), min(1.0, max(ys))
+    if hi_x - lo_x < 1e-3 or hi_y - lo_y < 1e-3:
+        return None
+    return [[lo_x, lo_y], [hi_x, lo_y], [hi_x, hi_y], [lo_x, hi_y]]
+
+
 # --- the template's maps ----------------------------------------------------------------------
 
 
@@ -666,7 +704,8 @@ def with_unmasked_areas(mask_u8, area: Any):  # noqa: ANN001, ANN201 - pyvips on
     return _from_numpy(np.maximum(current, added))
 
 
-def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = None, area: Any = None) -> Maps:
+def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = None, area: Any = None,
+               design_reach_quads: list[list[list[float]]] | None = None) -> Maps:
     """The maps for one template, kept only for the window a print in ``area`` can reach.
 
     libvips computes lazily, so only that window (and what its blurs read around it)
@@ -747,7 +786,9 @@ def build_maps(blank_jpeg: bytes, mask_png: bytes, occluder_png: bytes | None = 
             occ = occ.resize(blank.width / occ.width, vscale=blank.height / occ.height)
         occluder = (occ.cast("float") / 255).copy_memory()
     underbase = min(1.0, max(0.0, (UNDERBASE_FROM + UNDERBASE_RAMP - mean / 255) / UNDERBASE_RAMP))
-    left, top, ww, wh = window(area, blank.width, blank.height)
+    # The window: every print area, and wherever an adjusted design reaches beyond its area.
+    areas = (area if area and isinstance(area[0][0], (list, tuple)) else ([area] if area else []))
+    left, top, ww, wh = window([*areas, *(design_reach_quads or [])] or None, blank.width, blank.height)
 
     def kept(image):  # noqa: ANN001, ANN202
         return None if image is None else image.crop(left, top, ww, wh).copy_memory()
@@ -824,11 +865,17 @@ def design_trim(data: bytes) -> dict[str, list[int]]:
     return {"box": list(trim_box_of(image)), "size": [image.width, image.height]}
 
 
-def load_design(data: bytes, trim: dict | None = None):  # noqa: ANN201 - pyvips.Image, sRGB + alpha, trimmed
+def load_design(data: bytes, trim: dict | None = None, recolour: list[dict] | None = None):  # noqa: ANN201 - pyvips.Image, sRGB + alpha, trimmed
     """The design with an alpha band, cropped to its stored trim box (``design_trim``;
     measured here when there is none): the transparent padding goes, every drawn pixel
-    stays. Geometry only."""
+    stays. ``recolour``: regions of the file recoloured first (pipeline/design_edits.py; their
+    points are shares of the whole file), a render-time layer: the stored file never changes."""
     image = _with_alpha(data)
+    if recolour:
+        from app.pipeline import design_edits
+
+        rgba = design_edits.recolour(_to_numpy(image), recolour)
+        image = _vips().Image.new_from_memory(rgba.tobytes(), image.width, image.height, 4, "uchar").copy(interpretation="srgb")
     box = None
     if trim and trim.get("box") and trim.get("size"):
         x0, y0, x1, y1 = trim["box"]
@@ -853,6 +900,8 @@ class Settings:
     fold: float = DEFAULT_FOLD
     #: Print behind the hair, skin and accessories the template found (when it found any).
     occlusion: bool = True
+    #: The seller's adjustment of this design here, and its look (pipeline/design_edits.py).
+    adjust: dict | None = None
 
 
 def render(maps: Maps, design, settings: Settings, *, quality: int = JPEG_QUALITY) -> bytes:  # noqa: ANN001
@@ -866,11 +915,12 @@ def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], set
     with a print area (the template's garments, in order), and optionally that area's
     "design goes behind hair and arms" switch. Same inputs: same bytes."""
     result = maps.blank
-    for design, corners, *switch in placements:
+    for design, corners, *extra in placements:
         if design is None or not corners:
             continue
-        behind = settings.occlusion and (switch[0] if switch else True)
-        result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, behind))
+        behind = settings.occlusion and (extra[0] if extra else True)
+        adjust = extra[1] if len(extra) > 1 else None
+        result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, behind, adjust))
     return jpeg(result, quality)
 
 
@@ -882,7 +932,13 @@ def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, AN
     corners = [(x * W, y * H) for x, y in clean_print_area(settings.corners)]
     size = min(SIZE_RANGE[1], max(SIZE_RANGE[0], float(settings.size)))
     fold = min(FOLD_RANGE[1], max(FOLD_RANGE[0], float(settings.fold)))
-    placed = place(corners, (design.width, design.height), size)
+    from app.pipeline import design_edits
+
+    adjust = design_edits.clean(settings.adjust)  # always inside the documented ranges
+    placed = placement(corners, (design.width, design.height), size, adjust)
+    if adjust:
+        looked = design_edits.look_rgba(_to_numpy(design), adjust)
+        design = pyvips.Image.new_from_memory(looked.tobytes(), design.width, design.height, 4, "uchar").copy(interpretation="srgb")
 
     # The design at the size it will be printed, premultiplied (no dark fringes when warped).
     sw, sh = placed.scaled

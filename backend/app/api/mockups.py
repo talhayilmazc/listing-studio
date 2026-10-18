@@ -373,6 +373,8 @@ class OutputOut(BaseModel):
     photo_name: str | None = None
     filename: str
     available: bool
+    #: Changes when the mockup is made again (its image URL carries it, so no stale copy shows).
+    stamp: str = ""
 
 
 class RunDesignOut(BaseModel):
@@ -1623,7 +1625,8 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
                 done=len(outputs.get(d.id, [])), total=per_design[d.id], in_listings=d.id in used,
                 outputs=[
                     OutputOut(id=o.id, photo_id=o.photo_id, template_name=o.template_name, photo_name=o.photo_name,
-                              filename=o.filename, available=bool(o.key) and o.files_removed_at is None)
+                              filename=o.filename, available=bool(o.key) and o.files_removed_at is None,
+                              stamp=(o.key or "").rsplit("/", 1)[-1].removesuffix(".jpg")[:12])
                     for o in outputs.get(d.id, [])
                 ],
             )

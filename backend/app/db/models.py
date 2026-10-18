@@ -1029,6 +1029,45 @@ class MockupOutput(Base):
     )
 
 
+class MockupAdjustment(Base):
+    """A design adjusted on one photo's print area (pipeline/design_edits.py): where it sits
+    relative to its automatic fit (move, scale, stretch, turn, free corners) and its look
+    (opacity, brightness, contrast). A render-time layer: the design file is never changed.
+    Goes with the design or the photo; none is the automatic fit."""
+
+    __tablename__ = "mockup_adjustment"
+    __table_args__ = (UniqueConstraint("design_id", "photo_id", "area", name="uq_mockup_adjustment_place"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    design_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False)
+    photo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("mockup_photo.id", ondelete="CASCADE"), nullable=False, index=True)
+    #: The photo's print area (0 = its first).
+    area: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MockupRecolour(Base):
+    """Parts of a design recoloured (pipeline/design_edits.py ``recolour``), for one subgroup's
+    mockups ("" = every subgroup without its own): regions chosen with a rectangle, a lasso or
+    a wand click, each with its colour. RGB replaced, alpha kept; the file is never changed."""
+
+    __tablename__ = "mockup_recolour"
+    __table_args__ = (UniqueConstraint("design_id", "subgroup", name="uq_mockup_recolour_design_subgroup"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    design_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False)
+    subgroup: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    regions: Mapped[list] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class MockupZip(Base):
     """A ZIP of a run's mockups to download: private to the account, deleted
     ``RETENTION_HOURS`` after it is ready."""

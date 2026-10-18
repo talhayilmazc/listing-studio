@@ -353,7 +353,24 @@ export interface MockupOutput {
   /** "<SKU>_<template name>_<photo name>.jpg" */
   filename: string;
   available: boolean;
+  /** Changes when the mockup is made again (its image URL carries it). */
+  stamp?: string;
 }
+
+/** What the design editor needs for a run (backend api/mockup_edits.py). */
+export interface MockupEdits {
+  run_id: string;
+  photos: { id: string; template_id: string; name: string; width: number; height: number; size: number;
+    areas: { print_area: number[][]; subgroup: string | null }[] }[];
+  designs: { id: string; original_filename: string; sku: string | null;
+    files: { version_id: string | null; subgroup: string | null; filename: string; width: number; height: number;
+      trim: number[] | null; trim_size: number[] | null }[] }[];
+  adjustments: MockupAdjustmentRow[];
+  recolours: MockupRecolourRow[];
+  editable: boolean;
+}
+export interface MockupAdjustmentRow { design_id: string; photo_id: string; area: number; data: Record<string, unknown> | null }
+export interface MockupRecolourRow { design_id: string; subgroup: string; regions: unknown[] | null }
 
 export interface MockupRunDesign {
   design_id: string;
