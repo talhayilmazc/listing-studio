@@ -20,7 +20,7 @@ export const STYLE_LABELS: Record<ListingStyleKey, string> = {
 export const STYLE_HELP: Record<ListingStyleKey, string> = {
   search:
     "Follows Etsy's current title guidance: a short, clear title with the item and its key details first. Other keywords go to tags and the description.",
-  classic: "110–140 character title made of keyword phrases, as before.",
+  classic: "110–140 character title made of keyword phrases, as before. A title over 140 characters is rewritten once, then flagged on its card, never cut.",
 };
 
 /** The rules the short style writes to, under the choice once it is picked. */

@@ -3,13 +3,16 @@
 A production pg_dump (tokens, shop and listing data) was once committed and had
 to be removed from history. .gitignore keeps new ones out of ``git add``; this
 fails if one is tracked anyway (``git add -f``, or a pattern dropped from
-.gitignore). Skipped where there is no git checkout (the container).
+.gitignore). The tracked files come from ``git ls-files``, or, where git itself is
+not installed (the test container, ``docker compose run --rm tests``), from git's
+own index file, which that run mounts read-only.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -20,9 +23,29 @@ ROOT = Path(__file__).resolve().parents[2]
 FORBIDDEN = ("*.sql", "*.dump", "*.sql.gz", "*.rdb", "backup_*", "acts-*.json")
 
 
+def index_paths(data: bytes) -> list[str]:
+    """The paths in a git index file (versions 2 and 3: every tracked file)."""
+    if data[:4] != b"DIRC":
+        raise ValueError("not a git index")
+    version, count = struct.unpack(">II", data[4:12])
+    if version not in (2, 3):
+        raise ValueError(f"git index version {version} is not read here")
+    paths: list[str] = []
+    at = 12
+    for _ in range(count):
+        flags = struct.unpack(">H", data[at + 60 : at + 62])[0]
+        fixed = 62 + (2 if version == 3 and flags & 0x4000 else 0)
+        end = data.index(b"\0", at + fixed)
+        paths.append(data[at + fixed : end].decode("utf-8"))
+        at += (end - at + 8) // 8 * 8  # each entry is NUL-padded to a multiple of 8
+    return paths
+
+
 def _tracked() -> list[str]:
-    if shutil.which("git") is None or not (ROOT / ".git").exists():
-        pytest.skip("no git checkout here")
+    if not (ROOT / ".git").exists():
+        pytest.skip("no git checkout here: run the suite with `docker compose run --rm tests`")
+    if shutil.which("git") is None:
+        return index_paths((ROOT / ".git" / "index").read_bytes())
     out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True)
     return [p for p in out.stdout.decode().split("\0") if p]
 

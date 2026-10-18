@@ -286,6 +286,8 @@ def title_warnings(title: str, rules: TitleRules, prefix: str | None = None) -> 
         out.append(f"The title is {n} characters; the most is {rules.max_length}. Shorten it before creating the draft.")
     elif n < rules.min_length:
         out.append(f"The title is {n} characters; this profile asks for at least {rules.min_length}.")
+    if not rules.readable:
+        return out  # the long keyword style: only its length is a rule
     count = word_count(title)
     if rules.max_words and count > rules.max_words:
         out.append(f"The title has {count} words; Etsy's guidance is fewer than 15. Move extra keywords to the tags.")

@@ -283,6 +283,17 @@ export function ProfileCard({
           onSave={(body) => run("style", () => api.updateProfile(profile.id, body))}
         />
 
+        <p className="text-xs text-slate-600" data-testid="profile-materials" translate="no">
+          <span className="font-medium text-slate-700">Materials: </span>
+          <span>
+            {profile.materials == null
+              ? "read with the next profile refresh"
+              : profile.materials.length
+                ? profile.materials.join(", ")
+                : "none on the reference listing, so none are added"}
+          </span>
+        </p>
+
         <PersonalizationEditor
           profile={profile}
           busy={busy !== null}

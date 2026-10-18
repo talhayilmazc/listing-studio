@@ -338,8 +338,7 @@ class ContentResult:
     listing: GeneratedListing
     usages: list[Usage]  # one per attempt (failed attempts still cost tokens)
     attempts: int
-    #: Short-title style only: the title (or tag count) still broke Etsy's guidance
-    #: after the one rewrite. The listing is kept exactly as written, never cut, and
+    #: The title (or the tag count) still broke its rules after the one rewrite. The listing is kept exactly as written, never cut, and
     #: these sentences are shown to the seller on its card (``search_rules.title_warnings``).
     warnings: list[str] = field(default_factory=list)
 
@@ -518,39 +517,6 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
             errors.append(f"at least one tag must name the product type (e.g. {options})")
 
     return errors
-
-
-def fit_title(title: str, min_length: int = MIN_TITLE_LENGTH, max_length: int = MAX_TITLE_LENGTH) -> str:
-    """Bring a too-long title within ``max_length`` instead of failing it (v7 §A3).
-
-    Titles are comma-separated phrases. Trailing phrases are dropped until it
-    fits; if that leaves it under ``min_length``, the last dropped phrase comes
-    back shortened word by word to the longest length that fits. A title that
-    cannot land in the range either way is returned unchanged, for validation
-    to report. The prefix is part of the first phrase, so it is never cut off.
-    """
-    title = title.strip()
-    if len(title) <= max_length:
-        return title
-    phrases = [p.strip() for p in title.split(",") if p.strip()]
-    join = ", ".join
-    kept = list(phrases)
-    dropped = ""
-    while len(kept) > 1 and len(join(kept)) > max_length:
-        dropped = kept.pop()
-    if len(join(kept)) <= max_length and len(join(kept)) >= min_length:
-        return join(kept)
-    # Too short without the dropped phrase (or one phrase too long by itself):
-    # the longest word-by-word cut of that phrase that fits.
-    if len(join(kept)) > max_length:  # a single phrase: cut its own words
-        dropped, kept = kept[0], []
-    words = dropped.split()
-    while words:
-        candidate = join([*kept, " ".join(words)])
-        if len(candidate) <= max_length:
-            return candidate if len(candidate) >= min_length else title
-        words.pop()
-    return title
 
 
 def join_prefix(prefix: str | None, title: str) -> str:
@@ -832,11 +798,11 @@ class AnthropicContentGenerator:
         The retry prompt carries the previous attempt's validation errors so the
         model knows precisely what to correct.
 
-        Short-title style: when, after that one rewrite, only Etsy's title guidance
-        (length, words, repeats, subjective, price/sale/shipping or gift words) or a
-        short tag set still fails, the listing is returned as written with
-        ``warnings`` for the seller instead of failing: the title is never cut
-        silently. Anything else (a trademark, a banned word, the tag rules) still
+        When, after that one rewrite, only the title's rules (its length for both
+        styles; for the short style also Etsy's guidance: words, repeats, subjective,
+        price/sale/shipping or gift words) or a short tag set still fail, the listing
+        is returned as written with ``warnings`` for the seller instead of failing:
+        a title is never cut. Anything else (a trademark, a banned word, the tag rules) still
         fails. ``allow_warnings=False`` (Replace images, which writes to Etsy without
         a review) keeps the failure.
         """
@@ -846,12 +812,9 @@ class AnthropicContentGenerator:
         for attempt in range(2):
             listing, usage = await self._generate_once(analysis, sku, correction=correction, pattern=pattern)
             usages.append(usage)
+            # Never cut: a title out of bounds is rewritten once, then kept as written
+            # and shown to the seller with a warning (both styles).
             listing = self._apply_prefix(listing)  # prepend the profile's title prefix
-            if not self._rules.readable:
-                # One character over is not a reason to throw the listing away (v7 §A3).
-                # The short-title style never cuts: a long title is rewritten, then shown
-                # to the seller with a warning.
-                listing.title = fit_title(listing.title, self._rules.min_length, self._rules.max_length)
             if self._rules.readable:
                 # Every attribute the design shows, from Etsy's lists (Part C): the
                 # model's choices stay; the empty ones the analysis answers are filled.
@@ -887,16 +850,20 @@ class AnthropicContentGenerator:
                 errors.extend(example_errors(listing.title, str(pattern["title"])))
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
-            if attempt == 1 and allow_warnings and self._rules.readable:
+            if attempt == 1 and allow_warnings:
                 soft = {
-                    *title_length_errors(listing.title, self._rules),
+                    # The long keyword style: only a title over its maximum (never cut) is
+                    # kept with a warning; one too short still fails, as before.
+                    *(e for e in title_length_errors(listing.title, self._rules)
+                      if self._rules.readable or len(listing.title) > self._rules.max_length),
                     *search_rules.title_errors(listing.title, self._rules, prefix=self._title_prefix),
+                    # A short tag set only in the short style, where the app drops unusable tags.
                     *(m for kind, _, m in tag_problems(listing.tags)
-                      if kind == TAG_COUNT and len(listing.tags) < REQUIRED_TAG_COUNT),
+                      if self._rules.readable and kind == TAG_COUNT and len(listing.tags) < REQUIRED_TAG_COUNT),
                 }
                 if all(e in soft for e in errors):
                     warnings = search_rules.title_warnings(listing.title, self._rules, self._title_prefix)
-                    short = tag_count_warning(listing.tags)
+                    short = tag_count_warning(listing.tags) if self._rules.readable else None
                     return ContentResult(
                         listing=listing, usages=usages, attempts=2, warnings=[*warnings, *([short] if short else [])]
                     )

@@ -109,6 +109,7 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         attribute_lists=(
             len(payload["category_attributes"]) if isinstance(payload.get("category_attributes"), dict) else None
         ),
+        materials=list(payload["materials"]) if isinstance(payload.get("materials"), list) else None,
         fixed_image_ids=list(profile.fixed_image_ids or []),
         size_chart_position=profile.size_chart_position or "last",
         size_chart_placement=_chart_placement(profile),

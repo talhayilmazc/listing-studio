@@ -14,7 +14,6 @@ from app.pipeline.content import (
     MAX_TAG_LENGTH,
     REQUIRED_TAG_COUNT,
     copied_text_errors,
-    fit_title,
     theme_errors,
     validate_listing,
 )
@@ -33,7 +32,6 @@ async def main() -> None:
         analysis = VisionAnalysis(**design["analysis"])
         listing, _ = await generator._generate_once(analysis, design["id"])
         raw = list(listing.tags)
-        listing.title = fit_title(listing.title, sr.SEARCH_TITLE.min_length, sr.SEARCH_TITLE.max_length)
         listing.tags, listing.tag_intents = sr.select_tags(
             listing.title, listing.tags, listing.tag_intents, REQUIRED_TAG_COUNT, MAX_TAG_LENGTH,
             already=[*STAND_IN_CATEGORY, *listing.attributes.values()], banned=generator.banned_in_tags(),

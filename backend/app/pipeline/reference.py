@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html
 import math
+import re
 from collections import Counter
 from typing import Any
 
@@ -57,6 +58,33 @@ def production_partner_ids(listing: dict[str, Any]) -> list[int]:
     return sorted(ids)
 
 
+#: Etsy's limits on a listing's materials (its listing editor and API: up to 13,
+#: each up to 45 characters, letters, digits and spaces only). Known behaviour,
+#: like the SKU limits (pipeline/skus.py); only these constants change if the
+#: published schema says otherwise.
+MAX_MATERIALS = 13
+MAX_MATERIAL_LENGTH = 45
+
+
+def clean_materials(raw: object) -> list[str]:
+    """A reference listing's materials as a new draft may carry them: Etsy's own
+    characters only (letters, digits, spaces), each trimmed to 45 characters, no
+    empty or repeated one (case ignored), at most 13. Nothing is ever added: a
+    reference with none gives none."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = " ".join(re.sub(r"[^\w\s]|_", " ", str(item or "")).split())[:MAX_MATERIAL_LENGTH].strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append(text)
+        if len(out) == MAX_MATERIALS:
+            break
+    return out
+
+
 def build_profile_payload(
     listing: dict[str, Any],
     inventory: dict[str, Any],
@@ -79,6 +107,9 @@ def build_profile_payload(
         "production_partner_ids": production_partner_ids(listing),
         "who_made": listing.get("who_made"),
         "when_made": listing.get("when_made"),
+        # The reference's own materials, copied to new drafts within Etsy's limits;
+        # an empty list when it has none (never invented).
+        "materials": clean_materials(listing.get("materials")),
         "is_supply": listing.get("is_supply"),
         "is_customizable": listing.get("is_customizable"),
         "is_personalizable": listing.get("is_personalizable"),

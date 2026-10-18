@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 from app.pipeline.content import (
-    MAX_TITLE_LENGTH,
-    MIN_TITLE_LENGTH,
     AnthropicContentGenerator,
-    GeneratedListing,
-    fit_title,
+    GeneratedListing,
     policy_for,
     theme_errors,
 )
@@ -84,49 +81,7 @@ async def test_the_generator_retries_a_title_that_drops_the_second_theme() -> No
     assert "second theme, 'nurse'" in retry
 
 
-# --- A3: fitting a title into 110-140 -----------------------------------------------------
-BASE = "Christmas Nurse Sweatshirt, Funny Nurse Holiday Tee, Nurse Christmas Gift, RN Xmas Crewneck, Winter Nursing Shirt"
-
-
-def test_a_141_character_title_loses_its_last_phrase_not_the_listing() -> None:
-    title = BASE + ", Warm Hospital Staff Jumper"
-    assert len(title) == 141
-    fitted = fit_title(title)
-    assert fitted == BASE and MIN_TITLE_LENGTH <= len(fitted) <= MAX_TITLE_LENGTH
-
-
-def test_when_dropping_goes_under_110_the_phrase_is_cut_word_by_word() -> None:
-    short = "Christmas Nurse Sweatshirt, Funny Nurse Holiday Tee, Nurse Christmas Gift"  # 74
-    long_tail = "Warm Winter Crewneck for Registered Nurses and Nursing Students Who Love the Holidays"
-    fitted = fit_title(f"{short}, {long_tail}")
-    assert MIN_TITLE_LENGTH <= len(fitted) <= MAX_TITLE_LENGTH
-    assert fitted.startswith(short + ", Warm Winter Crewneck")
-    assert not fitted.endswith(" ")
-
-
-def test_the_prefix_is_kept_when_the_title_is_fitted() -> None:
-    prefixed = "Comfort Colors® " + BASE + ", Hospital Xmas Top"
-    assert len(prefixed) > MAX_TITLE_LENGTH
-    fitted = fit_title(prefixed)
-    assert fitted.startswith("Comfort Colors® Christmas Nurse") and len(fitted) <= MAX_TITLE_LENGTH
-
-
-def test_a_title_that_cannot_fit_is_left_for_validation() -> None:
-    impossible = "Word" * 40  # one 160-character word
-    assert fit_title(impossible) == impossible
-    assert fit_title(BASE) == BASE  # already in range: untouched
-
-
-async def test_the_generator_no_longer_fails_a_title_one_character_over() -> None:
-    title = BASE + ", Warm Hospital Staff Jumper"
-    assert len(title) == 141
-    msgs = FakeMessages([fake_response({"title": title, "tags": TAGS, "description": "d"})])
-    client = AnthropicLLMClient(api_key="t", model="claude-haiku-4-5-20251001", messages_client=msgs)
-    gen = AnthropicContentGenerator(client, load_template("content/apparel"), policy=APPAREL)
-    analysis = VisionAnalysis(theme="christmas", themes=["christmas", "nurse"], embedded_text="", style="",
-                              colors=[], target_audience="nurses", product_type_hints=[])
-    result = await gen.generate(analysis)
-    assert result.attempts == 1 and result.listing.title == BASE
+# --- A3: a long title is rewritten once, never cut (tests/test_classic_title.py) ---------------
 
 
 def test_a_trademark_theme_is_never_demanded_in_the_title() -> None:

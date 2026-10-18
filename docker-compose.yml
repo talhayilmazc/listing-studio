@@ -58,6 +58,48 @@ services:
       redis:
         condition: service_healthy
 
+  # The whole backend test suite, one command (CLAUDE.md "Geliştirme notları"):
+  #   docker compose run --rm tests                      # everything
+  #   docker compose run --rm tests -q tests/test_x.py   # a part of it
+  # Some tests read files outside backend/ (deploy scripts, docs, the frontend's
+  # copy, .gitignore, git's own index); they are mounted read-only where the tests
+  # look for them (the repository root is "/" inside the container). Its own
+  # storage folder, never the uploads volume; nothing is sent to Etsy.
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        EXTRAS: dev
+    entrypoint: ["python", "-m", "pytest", "-p", "no:cacheprovider"]
+    command: ["-q"]
+    environment:
+      STORAGE_DIR: /tmp/test-storage
+      ETSY_CALLS_BLOCKED: "true"
+      UPLOAD_RETENTION_APPLY: "false"
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - ./backend:/backend:ro
+      - ./frontend:/frontend:ro
+      - ./deploy:/deploy:ro
+      - ./docs:/docs:ro
+      - ./docker:/docker:ro
+      - ./.githooks:/.githooks:ro
+      - ./.git:/.git:ro
+      - ./.gitignore:/.gitignore:ro
+      - ./.env.example:/.env.example:ro
+      - ./CLAUDE.md:/CLAUDE.md:ro
+      - ./docker-compose.yml:/docker-compose.yml:ro
+      - ./docker-compose.prod.yml:/docker-compose.prod.yml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   worker:
     build:
       context: .

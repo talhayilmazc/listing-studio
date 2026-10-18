@@ -111,6 +111,7 @@ class FakeEtsy:
             "who_made": submitted.get("who_made"),
             "when_made": submitted.get("when_made"),
             "shop_section_id": submitted.get("shop_section_id"),
+            "materials": list(submitted.get("materials") or []),
             "production_partners": [
                 {"production_partner_id": pid, "partner_name": "Print Co"}
                 for pid in submitted.get("production_partner_ids") or []

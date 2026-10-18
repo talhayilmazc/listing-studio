@@ -66,6 +66,7 @@ from app.pipeline.links import LINKED, setup_message
 from app.pipeline.reference import (
     PAYLOAD_VERSION,
     build_inventory_from_reference,
+    clean_materials,
     production_partner_ids,
 )
 
@@ -512,6 +513,11 @@ async def publish_content(
     # production_partner_ids: required only for made-by-someone-else; copy if present.
     if reference.get("production_partner_ids"):
         listing["production_partner_ids"] = reference["production_partner_ids"]
+    # The reference's materials, when it has any (text, the same in every shop);
+    # none are made up for a reference without them.
+    materials = clean_materials(reference.get("materials"))
+    if materials:
+        listing["materials"] = materials
     # Tri-state flags: include when explicitly set (False is meaningful, don't drop).
     # is_personalizable is not a createDraftListing field any more: personalization
     # is set through its own endpoint below (v7 §D4).
@@ -587,6 +593,8 @@ async def publish_content(
         differs.append("production partners")
     if section_id is not None and readback.get("shop_section_id") != section_id:
         differs.append("shop section")
+    if materials and {m.casefold() for m in readback.get("materials") or []} != {m.casefold() for m in materials}:
+        differs.append("materials")
     if differs:
         raise ValueError(
             "the draft's production details do not match the reference ("

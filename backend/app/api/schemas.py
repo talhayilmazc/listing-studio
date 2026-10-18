@@ -963,6 +963,9 @@ class ProfileOut(BaseModel):
     #: How many of the category's attribute lists Etsy gave us (search style
     #: fills attributes only from them); None until the profile is next refreshed.
     attribute_lists: int | None = None
+    #: The reference listing's materials, copied to new drafts; [] when it has none,
+    #: None until the profile is next refreshed (read before materials were copied).
+    materials: list[str] | None = None
     fixed_image_ids: list[int] = Field(default_factory=list)
     size_chart_position: str = "last"  # "after_cover" | "third" | "last"
     # Where each chart goes by default, in the order they appear (what drafts use

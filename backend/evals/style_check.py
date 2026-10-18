@@ -33,7 +33,6 @@ from app.pipeline import search_rules as sr
 from app.pipeline.attribute_fill import fill_design_attributes
 from app.pipeline.content import (
     GeneratedListing,
-    fit_title,
     join_prefix,
     policy_for,
     validate_listing,
@@ -80,7 +79,7 @@ def _tag_checks(title: str, tags: list[str], attributes: dict[str, str]) -> dict
 
 def old(design: dict[str, Any]) -> dict[str, Any]:
     raw = design["old"]
-    title = fit_title(join_prefix(PREFIX, raw["title"]), 110, 140)
+    title = join_prefix(PREFIX, raw["title"])
     return {"title": title, "tags": list(raw["tags"]), "attributes": {}}
 
 
@@ -88,7 +87,7 @@ def new(design: dict[str, Any]) -> dict[str, Any]:
     raw = design["new"]
     analysis = SimpleNamespace(**design["analysis"])
     rules = sr.SEARCH_TITLE
-    title = fit_title(join_prefix(PREFIX, raw["title"]), rules.min_length, rules.max_length)
+    title = join_prefix(PREFIX, raw["title"])
     attributes, source = fill_design_attributes(dict(raw.get("attributes") or {}), CHOICES, analysis)
     policy = policy_for("apparel")
     banned = (*policy.forbidden_terms, *policy.forbidden_tag_terms, *policy.forbidden_filler_terms)

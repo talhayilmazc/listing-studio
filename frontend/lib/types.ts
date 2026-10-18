@@ -613,6 +613,8 @@ export interface Profile {
   title_length_custom: boolean;
   /** Attribute value lists Etsy gave for the category; null until refreshed. */
   attribute_lists: number | null;
+  /** The reference listing's materials, copied to new drafts; [] none, null until the next refresh. */
+  materials?: string[] | null;
   fixed_image_ids: number[];
   /** Where its size charts go on a draft: the preset... */
   size_chart_position?: "after_cover" | "third" | "last";
