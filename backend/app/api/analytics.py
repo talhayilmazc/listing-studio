@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.api import sales_reread
+from app.api.shop import fresh_counts
 from app.api.shops import missing_scopes, selected_shop
 from app.db.models import (
     Asset,
@@ -606,7 +607,8 @@ def _data(loaded: _Loaded) -> dict[str, Any]:
                    "read": l.read_count if l else 0, "of": l.total_count if l else None, "note": l.note if l else None},
         "reports_until": max(ends) if ends else None,
         "titles_refreshing": not shop.cache_fresh,
-        "listing_counts": c.listing_counts,
+        # Other Etsy content: shown only while under a day old (the cleanup clears it after).
+        "listing_counts": fresh_counts(c),
         "costs_entered": shop.entered,
     }
 

@@ -55,6 +55,15 @@ test("the page title, the hero heading and every section heading leave Etsy's na
   assert.equal((page.match(/<h1/g) ?? []).length, 1);
 });
 
+test("the trademark notice is in the hero, in full, not only in the footer", () => {
+  const page = read("app/(marketing)/page.tsx");
+  assert.match(page, /import \{ TRADEMARK_NOTICE \} from "@\/lib\/legal";/);
+  const hero = page.slice(page.indexOf('aria-labelledby="hero-title"'), page.indexOf("<Apart />"));
+  assert.match(hero, /data-testid="home-trademark-notice">\{TRADEMARK_NOTICE\}<\/p>/);
+  // Readable at a glance: not the footer's muted grey and not smaller than body text.
+  assert.match(hero, /text-sm[^"]*text-slate-700/);
+});
+
 test("no forbidden word or promise is anywhere on the home page", () => {
   for (const text of allCopy()) assert.deepEqual(violations(text), [], text);
   // Nor in the files that lay the copy out (their own words, comments included).

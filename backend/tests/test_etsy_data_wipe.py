@@ -70,6 +70,7 @@ async def _etsy_data(sm: async_sessionmaker) -> tuple:
         shop = await s.get(EtsyConnection, shop_id)
         shop.access_token_enc, shop.refresh_token_enc, shop.shop_name, shop.shop_id = b"a", b"r", "Real Shop Name", 4242
         shop.sections, shop.scopes = [{"id": 1, "title": "Tees"}], ["listings_r"]
+        shop.listing_counts, shop.listing_counts_at = {"active": 3, "draft": 1}, NOW
         profile = ListingProfile(tenant_id=tenant_id, connection_id=shop_id, name="Tee", reference_listing_id=1,
                                  content_template="apparel", confirmed=True, cached_payload={"description": "from Etsy"})
         s.add(profile)
@@ -148,6 +149,8 @@ async def test_disconnecting_a_shop_deletes_all_its_stored_etsy_data_at_once(asy
     async with async_sm() as s:
         shop = await s.get(EtsyConnection, first[1])
         assert (shop.access_token_enc, shop.refresh_token_enc, shop.status, shop.sections) == (None, None, ConnectionStatus.revoked, None)
+        # Its listing counts per state are Etsy content too: gone with the rest.
+        assert (shop.listing_counts, shop.listing_counts_at) == (None, None)
         # The seller's own work stays: the upload and the text written in the app.
         content = await s.get(GeneratedContent, first[2])
         assert content is not None and content.title and await s.get(Asset, content.asset_id) is not None

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { HeroDemo } from "@/components/marketing/HeroDemo";
 import { Apart, Built, Closing, Faq, How, Safe } from "@/components/marketing/Sections";
 import { HOME } from "@/lib/homeCopy";
+import { TRADEMARK_NOTICE } from "@/lib/legal";
 
 // Rendered per request, not served as a static file: "/" depends on who asks
 // (middleware.ts sends a live session to the dashboard and clears a dead
@@ -42,6 +43,10 @@ export default function Landing() {
               <span aria-hidden className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-brand-600" />
               <span>{hero.note}</span>
             </p>
+            {/* Etsy's Commercial Access review asks for the notice in a prominent place on the
+                home page, not only in the footer: here, beside the first call to action. */}
+            <p className="mt-6 max-w-[34rem] rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-700"
+              data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>
           </div>
           <div className="min-w-0 lg:-mr-6 xl:-mr-16">
             <HeroDemo />

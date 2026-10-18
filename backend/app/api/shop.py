@@ -73,6 +73,20 @@ def _as_int(value: Any) -> int | None:
 #: The top strip's counts are how many listings the shop has in each state: not
 #: listing content, so they may be a day old (CLAUDE.md: 24 hours).
 COUNTS_FRESH_SECONDS = 24 * 3600
+
+
+def fresh_counts(connection: Any) -> dict[str, Any] | None:
+    """The shop's listing counts per state, or None when older than a day (or never read)."""
+    if connection is None or not connection.listing_counts or connection.listing_counts_at is None:
+        return None
+    counted_at = connection.listing_counts_at
+    if counted_at.tzinfo is None:  # SQLite hands back naive datetimes
+        counted_at = counted_at.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - counted_at).total_seconds() >= COUNTS_FRESH_SECONDS:
+        return None
+    return connection.listing_counts
+
+
 #: While the counts are unknown, ask for them at most this often.
 SUMMARY_SYNC_EVERY_SECONDS = 3600
 SUMMARY_SYNCING_SECONDS = 10 * 60
@@ -241,13 +255,7 @@ async def shop_summary(
     published_known = bool(cached)
     # How many there are in each state does not: Etsy reports that with one
     # request per state, kept for a day (workers/profiles.py::sync_shop_counts).
-    counts = None
-    if connection is not None and connection.listing_counts and connection.listing_counts_at is not None:
-        counted_at = connection.listing_counts_at
-        if counted_at.tzinfo is None:  # SQLite hands back naive datetimes
-            counted_at = counted_at.replace(tzinfo=timezone.utc)
-        if (datetime.now(timezone.utc) - counted_at).total_seconds() < COUNTS_FRESH_SECONDS:
-            counts = connection.listing_counts
+    counts = fresh_counts(connection)
     known = published_known or counts is not None
 
     # The months are the seller's own: the 1st at midnight in their time zone.

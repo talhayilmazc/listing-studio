@@ -66,6 +66,10 @@ from app.core import app_settings
 
 logger = logging.getLogger(__name__)
 
+#: "Other Etsy content" (API Terms, section 1): a day at most. The same figure as a
+#: profile's reference details (``ListingProfile.CACHE_MAX_AGE_SECONDS``).
+OTHER_CONTENT_MAX_AGE_SECONDS = ListingProfile.CACHE_MAX_AGE_SECONDS
+
 
 async def _bulk(session: AsyncSession, statement: Any) -> Any:
     """Run a bulk DELETE/UPDATE, matching rows in the database rather than by
@@ -124,6 +128,17 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     # Our own record of model calls: kept 25 months, so twelve months can be
     # compared with the twelve before them.
     await _bulk(session, delete(AiCall).where(AiCall.day < (now - timedelta(days=AiCall.RETENTION_DAYS)).date()))
+    # A shop's section list and its listing counts per state: other Etsy content,
+    # kept on the shop's row for a day at most (the Privacy Policy says so), then cleared.
+    stale = now - timedelta(seconds=OTHER_CONTENT_MAX_AGE_SECONDS)
+    await _bulk(session, update(EtsyConnection).where(
+        EtsyConnection.sections.is_not(None),
+        or_(EtsyConnection.sections_at.is_(None), EtsyConnection.sections_at < stale),
+    ).values(sections=null(), sections_at=None))
+    await _bulk(session, update(EtsyConnection).where(
+        EtsyConnection.listing_counts.is_not(None),
+        or_(EtsyConnection.listing_counts_at.is_(None), EtsyConnection.listing_counts_at < stale),
+    ).values(listing_counts=null(), listing_counts_at=None))
     image_links = await _strip_display_fields(session, now)
     profiles = await _bulk(session, 
         update(ListingProfile)
@@ -209,10 +224,11 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     from app.pipeline.profile_shops import detach_shop
 
     detached = await detach_shop(session, connection_id)
-    # Its sections (other Etsy content, kept on the shop for the review card).
+    # Its sections and listing counts (other Etsy content, kept on the shop's row).
     connection = await session.get(EtsyConnection, connection_id)
     if connection is not None:
         connection.sections, connection.sections_at = None, None
+        connection.listing_counts, connection.listing_counts_at = None, None
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))

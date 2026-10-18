@@ -197,6 +197,11 @@ export default function PrivacyPage() {
             period={<span>{`${R.listingSnapshotDays} days, then deleted automatically`}</span>}
           />
           <Row
+            data="The record of each draft the Service made in your shop: its Etsy listing id, its state (draft, live or deleted on Etsy) and when it went live; for a draft that was started but not finished, its listing id and the title that was sent"
+            why="To publish a draft you approved or scheduled, to finish a half-made draft without ever making a second one, and to count what you published"
+            period={<span>{`Until you disconnect the shop or delete your account. A draft that was started and never finished: ${R.draftAttemptDays} days. A half-made draft you took off the list: ${R.draftDismissalDays} days`}</span>}
+          />
+          <Row
             data="Views and favourites of the listings you published with the Service (two totals per listing, read once a day)"
             why="To show how each listing is doing over time"
             period={<span><span>Daily figures, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months</span></span>}

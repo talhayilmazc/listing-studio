@@ -37,7 +37,7 @@ Take each at 1366 px wide, and the first three also at 375 px (phone).
 
 | # | Screenshot | Where | Must be visible |
 |---|---|---|---|
-| 1 | Trademark notice in the footer | `listyro.com`, bottom of the page | The full sentence: "The term 'Etsy' is a trademark of Etsy, Inc. This application uses Etsy's API, but is not endorsed or certified by Etsy." |
+| 1 | Trademark notice on the home page | `listyro.com`, under the first call to action (and again in the footer) | The full sentence: "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc." |
 | 2 | Trademark notice beside "Connect a shop" | `/connect` | The button and the notice in the same view, with the scope reasons open. |
 | 3 | Consent checkbox | `/register` | The box **unticked**, the sentence "I agree to the Terms of Service and Privacy Policy" with both links, the disabled button, and the provider line. |
 | 4 | The one-time acceptance screen | `/accept-terms` (an account from before consent was recorded, or after a version change) | The two links, the box, "Agree and continue". |

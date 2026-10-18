@@ -20,7 +20,7 @@ test("nothing waiting is said as nothing, not left out", () => {
 test("the legal constants are the exact texts", () => {
   assert.equal(
     TRADEMARK_NOTICE,
-    "The term 'Etsy' is a trademark of Etsy, Inc. This application uses Etsy's API, but is not endorsed or certified by Etsy.",
+    "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.",
   );
   assert.equal(PROVIDER_DISCLAIMER, "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO.");
   assert.equal(CONSENT_STATEMENT, "I agree to the Terms of Service and Privacy Policy");

@@ -7,7 +7,7 @@
 
 /** The notice Etsy's API terms ask every application to show. Never altered or shortened. */
 export const TRADEMARK_NOTICE =
-  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses Etsy's API, but is not endorsed or certified by Etsy.";
+  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
 
 /** Who provides the application, in the words Etsy's API terms ask for. */
 export const PROVIDER_DISCLAIMER =
@@ -46,6 +46,10 @@ export const RETENTION = {
   analyticsMonths: 24,
   /** Copies of listings taken before the app changes them: ListingSnapshot.RETENTION_DAYS */
   listingSnapshotDays: 90,
+  /** The record of a draft started and never finished: DraftAttempt.RETENTION_DAYS */
+  draftAttemptDays: 30,
+  /** A half-made draft the seller took off the list: DraftDismissal.RETENTION_DAYS */
+  draftDismissalDays: 90,
   /** An invite request, decided or not: InviteRequest.*_RETENTION_DAYS */
   inviteRequestDays: 90,
   /** Database backups: RETENTION_DAYS in deploy/backup.sh */

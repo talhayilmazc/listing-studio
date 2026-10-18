@@ -21,7 +21,9 @@ from app.api import schemas
 from app.api.item_options import SECTIONS_MAX_AGE
 from app.core import app_settings, terms
 from app.core.config import Settings
-from app.db.models import AiCall, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, ShopListingCache
+from app.db.models import (
+    AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, ShopListingCache,
+)
 from app.etsy import oauth
 from app.workers import accounts as account_jobs
 
@@ -32,7 +34,7 @@ TERMS = ROOT / "frontend" / "app" / "(marketing)" / "terms" / "page.tsx"
 
 pytestmark = pytest.mark.skipif(not LEGAL.exists(), reason="frontend/ is not here (the dev container mounts only backend/)")
 
-NOTICE = "The term 'Etsy' is a trademark of Etsy, Inc. This application uses Etsy's API, but is not endorsed or certified by Etsy."
+NOTICE = "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc."
 DISCLAIMER = "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."
 
 
@@ -67,7 +69,9 @@ def test_the_trademark_notice_and_the_disclaimer_are_the_exact_texts_everywhere(
     assert _const("TRADEMARK_NOTICE") == schemas.TRADEMARK_NOTICE == NOTICE
     assert _const("PROVIDER_DISCLAIMER") == schemas.PROVIDER_DISCLAIMER == DISCLAIMER
     # One copy: no page or component types the notice out for itself (or keeps the old wording).
-    old = "uses the Etsy API but is not endorsed"
+    # (The API Terms' own wording, used until 18 October 2026; Etsy's Commercial Access
+    # review criteria ask for the wording above, and a reviewer looks for that one.)
+    old = "uses Etsy's API, but is not endorsed"
     for path in (ROOT / "frontend").rglob("*.ts*"):
         if "node_modules" in path.parts or ".next" in path.parts or path == LEGAL or path.name.endswith(".test.ts"):
             continue  # (a test pins the exact text on purpose)
@@ -86,6 +90,12 @@ def test_the_notice_is_in_every_footer_beside_connect_and_in_the_terms() -> None
     assert uses("components/AuthShell.tsx")  # sign-in, sign-up, the acceptance screen
     assert uses("app/(app)/connect/page.tsx")  # beside "Connect a shop"
     assert uses("app/(marketing)/terms/page.tsx")
+    # Prominent on the home page, not only in its footer (Etsy's Commercial Access review
+    # criteria): in the hero, before the first section below it.
+    home = (ROOT / "frontend/app/(marketing)/page.tsx").read_text(encoding="utf-8")
+    assert uses("app/(marketing)/page.tsx")
+    hero = home[home.index('aria-labelledby="hero-title"'): home.index("<Apart />")]
+    assert 'data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>' in hero
     # The frames that carry those footers are the ones every page is rendered in.
     assert "<SiteFooter />" in (ROOT / "frontend/app/(marketing)/layout.tsx").read_text(encoding="utf-8")
     assert "<Footer />" in (ROOT / "frontend/components/AppShell.tsx").read_text(encoding="utf-8")
@@ -114,6 +124,8 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "uploadsOtherwiseDays": settings.unpublished_retention_days,
         "analyticsMonths": app_settings.ANALYTICS_MONTHS,
         "listingSnapshotDays": ListingSnapshot.RETENTION_DAYS,
+        "draftAttemptDays": DraftAttempt.RETENTION_DAYS,
+        "draftDismissalDays": DraftDismissal.RETENTION_DAYS,
         "inviteRequestDays": InviteRequest.PENDING_RETENTION_DAYS,
         "backupDays": _backup_days(),
         "sessionDays": settings.session_ttl_days,
