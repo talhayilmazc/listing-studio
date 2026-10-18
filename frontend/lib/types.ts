@@ -32,6 +32,8 @@ export const showable = (a: Asset): boolean => !a.files_removed || Boolean(a.has
 export interface BatchSummary {
   id: string;
   status: BatchStatus;
+  /** Every status the batch is in (lib/batchStatus.ts; backend pipeline/batch_status.py). */
+  statuses?: string[];
   file_count: number;
   created_at: string;
   asset_count: number;
@@ -413,6 +415,7 @@ export interface MockupRun {
   failed: number;
   error?: string | null;
   templates: string[];
+  template_ids?: string[];
   /** Photos printed on, and photos of the chosen templates left out because they are not confirmed. */
   photos: number;
   skipped: number;

@@ -417,12 +417,20 @@ async def list_batches(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.BatchSummary]:
-    rows = await session.execute(
+    from app.pipeline.batch_status import batch_statuses
+
+    batches = list((await session.execute(
         select(UploadBatch)
         .where(UploadBatch.tenant_id == tenant.id)
         .order_by(UploadBatch.created_at.desc())
-    )
-    return [await _summary(session, b) for b in rows.scalars()]
+    )).scalars())
+    statuses = await batch_statuses(session, tenant.id, batches)
+    out = []
+    for b in batches:
+        summary = await _summary(session, b)
+        summary.statuses = statuses.get(b.id, [])
+        out.append(summary)
+    return out
 
 
 @router.get("/batches/{batch_id}", response_model=schemas.BatchDetail)

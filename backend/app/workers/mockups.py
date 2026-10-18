@@ -588,13 +588,15 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                MockupDesign.files_removed_at.is_(None))
         .order_by(MockupDesign.group_key, MockupDesign.original_filename)
     )).scalars())
+    if job.design_ids is not None:  # the designs the seller ticked
+        ticked = {str(x) for x in job.design_ids}
+        designs = [d for d in designs if str(d.id) in ticked]
     existing: dict[tuple[uuid.UUID, uuid.UUID], MockupOutput] = {}
     if refreshing:
         for row in (await session.execute(select(MockupOutput).where(MockupOutput.run_id == job.id))).scalars():
             if row.photo_id is not None:
                 existing[(row.design_id, row.photo_id)] = row
     else:
-        job.total = len(designs) * len(photos)
         await replace_earlier(session, storage, job.batch_id)
     await session.commit()
 

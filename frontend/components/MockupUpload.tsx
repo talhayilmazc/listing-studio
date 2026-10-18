@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { MockupDesign, MockupEdits, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
 import { DesignEditor } from "@/components/DesignEditor";
+import { announceRun } from "@/components/MockupRunWatcher";
+import { designAnchor } from "@/lib/mockupRuns";
 import { FileDrop } from "@/components/FileDrop";
 import { filesFromDrop, kindOf, pick as pickFiles } from "@/lib/fileDrop";
 import {
@@ -16,12 +18,15 @@ import {
   SIDE_LABELS,
   type SlotFile,
   USE_ON_LABELS,
+  countLine,
   designNote,
   designSlotsLine,
   filesBySlot,
   megabytes,
+  mockupCount,
   printable,
   runLine,
+  selectionLine,
   skippedLine,
   uploadSlots,
 } from "@/lib/mockups";
@@ -52,7 +57,11 @@ type Upload = { key: string; file: File; pct: number; state: "waiting" | "sendin
 
 const STALL_MS = 5 * 60_000;
 
-export function MockupUpload({ shop, initialTemplates }: { shop: string | null; initialTemplates?: string[] }) {
+export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign }: {
+  shop: string | null; initialTemplates?: string[];
+  /** A run opened from its notification (lib/mockupRuns.ts), and the design to scroll to. */
+  initialRun?: string | null; initialDesign?: string | null;
+}) {
   const router = useRouter();
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
   const [chosen, setChosen] = useState<string[]>(initialTemplates ?? []);
@@ -60,6 +69,8 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   const [garmentMode, setGarmentMode] = useState<"same" | "order">("same");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [designs, setDesigns] = useState<MockupDesign[]>([]);
+  // The designs ticked for mockups (D3); null: every design.
+  const [picked, setPicked] = useState<string[] | null>(null);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [phase, setPhase] = useState<"idle" | "uploading" | "ready" | "making" | "done">("idle");
   const [run, setRun] = useState<MockupRun | null>(null);
@@ -80,6 +91,30 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
         setError(String(e.message ?? e));
       });
   }, []);
+
+  // A run opened from its notification: its batch's designs and its results, scrolled to the design.
+  useEffect(() => {
+    if (!initialRun) return;
+    let gone = false;
+    api.mockupRun(initialRun).then(async (r) => {
+      if (gone) return;
+      setRun(r);
+      setBatchId(r.batch_id);
+      // As it was made: its templates chosen and its designs ticked.
+      if (r.template_ids?.length) setChosen(r.template_ids);
+      setPicked(r.designs.map((d) => d.design_id));
+      batchRef.current = Promise.resolve(r.batch_id);
+      setPhase(r.status === "succeeded" || r.status === "failed" ? "done" : "making");
+      try {
+        setDesigns(await api.batchDesigns(r.batch_id));
+      } catch {
+        // the results still show
+      }
+    }).catch((e) => setError(String(e.message ?? e)));
+    return () => {
+      gone = true;
+    };
+  }, [initialRun]);
 
   // The run's progress, until it is finished; said when it seems stuck.
   useEffect(() => {
@@ -176,7 +211,9 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
     lastProgress.current = { done: -1, at: Date.now() };
     try {
       setPhase("making");
-      setRun(await api.startMockups(batchId, chosen, { sides, garment_mode: garmentMode }));
+      const started = await api.startMockups(batchId, chosen, { sides, garment_mode: garmentMode, design_ids: ticked.length === designs.length ? null : ticked.map((d) => d.id) });
+      setRun(started);
+      announceRun(started); // a notification when they are done, from any page
     } catch (e: any) {
       setError(String(e.message ?? e));
       setPhase("ready");
@@ -188,6 +225,14 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   const { photos: printed, skipped, skippedNames } = printable(templates ?? [], chosen, sides);
   const tooMany = printed.length > MAX_PHOTOS_PER_RUN;
   const multiGarment = printed.some((p) => p.areas.length > 1);
+  // The designs ticked (all until the seller unticks one), and how many mockups they make.
+  const ticked = designs.filter((d) => picked === null || picked.includes(d.id));
+  const pick = (id: string, on: boolean) =>
+    setPicked((now) => {
+      const base = now ?? designs.map((d) => d.id);
+      return on ? Array.from(new Set([...base, id])) : base.filter((x) => x !== id);
+    });
+  const mockups = mockupCount(ticked, printed, templates ?? []);
 
   if (templates === null) return <section className="card h-[11rem] animate-pulse" aria-hidden />;
   const busy = phase === "uploading" || phase === "making";
@@ -275,9 +320,19 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
                 onRemoved={removed} />
             )}
             {designs.length > 0 && (
+              <div key="pick" className="flex flex-wrap items-center gap-2 text-xs text-slate-600" data-testid="mockup-design-pick">
+                <span className="min-w-0 flex-1" translate="no" data-testid="mockup-design-count">{selectionLine(ticked.length, designs.length)}</span>
+                <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => setPicked(null)}
+                  disabled={busy || phase === "done" || ticked.length === designs.length} data-testid="mockup-select-all">Select all</button>
+                <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => setPicked([])}
+                  disabled={busy || phase === "done" || !ticked.length} data-testid="mockup-select-none">Select none</button>
+              </div>
+            )}
+            {designs.length > 0 && (
               <ul key="designs" className="divide-y divide-slate-100 rounded-md border border-slate-200" data-testid="mockup-design-list">
                 {designs.map((d) => (
                   <DesignRow key={d.id} design={d} disabled={busy || phase === "done"} split={slots.length > 0} removing={busy}
+                    picked={picked === null || picked.includes(d.id)} onPick={(on) => pick(d.id, on)}
                     onChange={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))}
                     onRemoved={() => removed(d.id)} />
                 ))}
@@ -309,11 +364,11 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 text-sm text-slate-600" translate="no">
-                {`${designs.length} ${designs.length === 1 ? "design" : "designs"} × ${printed.length} ${printed.length === 1 ? "photo" : "photos"} = ${designs.length * printed.length} mockups`}
+              <span className="min-w-0 text-sm text-slate-600" translate="no" data-testid="mockup-count">
+                {countLine(ticked.length, printed.length, mockups)}
               </span>
               <button type="button" className="btn-primary sm:ml-auto" onClick={make} data-testid="mockup-make"
-                disabled={busy || phase === "done" || !designs.length || !printed.length || tooMany}>
+                disabled={busy || phase === "done" || !ticked.length || !printed.length || tooMany}>
                 {phase === "making" ? "Making…" : "3. Create mockups"}
               </button>
             </div>
@@ -343,7 +398,7 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
           </div>
 
           {run && run.designs.length > 0 && (
-            <Results key="results" run={run} onRun={setRun} onOpen={() => batchId && router.push(`/batches/${batchId}`)} />
+            <Results key="results" run={run} onRun={setRun} onOpen={() => batchId && router.push(`/batches/${batchId}`)} focus={initialDesign ?? null} />
           )}
         </div>
       )}
@@ -351,9 +406,12 @@ export function MockupUpload({ shop, initialTemplates }: { shop: string | null; 
   );
 }
 
-function DesignRow({ design, disabled, split, removing, onChange, onRemoved }: {
+function DesignRow({ design, disabled, split, removing, picked = true, onPick, onChange, onRemoved }: {
   design: MockupDesign; disabled: boolean; split?: boolean; removing?: boolean; onChange: (d: MockupDesign) => void;
   onRemoved: () => void;
+  /** Ticked for mockups (D3). */
+  picked?: boolean;
+  onPick?: (on: boolean) => void;
 }) {
   const [sku, setSku] = useState(design.parsed_sku ?? "");
   const [message, setMessage] = useState<string | null>(null);
@@ -398,6 +456,10 @@ function DesignRow({ design, disabled, split, removing, onChange, onRemoved }: {
   }
   return (
     <li className="flex flex-wrap items-center gap-2 p-2.5 text-sm">
+      {onPick && (
+        <input key="pick" type="checkbox" className="h-4 w-4 shrink-0 rounded border-slate-300" checked={picked} disabled={disabled}
+          onChange={(e) => onPick(e.target.checked)} aria-label={`Use ${design.original_filename}`} data-testid="design-pick" />
+      )}
       <span className="min-w-0 flex-1 truncate text-slate-700" title={design.original_filename}>{design.original_filename}</span>
       {split && (
         <span key="slots" className="min-w-0 max-w-full truncate text-xs text-slate-500" translate="no" title={designSlotsLine(design)}>
@@ -554,7 +616,17 @@ function SlotBoard({ slots, designs, disabled, removing, onFiles, onChange, onRe
 }
 
 /** After a run: per design or for all, "Use for listings" (with a cover) and/or "Download". */
-function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun) => void; onOpen: () => void }) {
+function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: MockupRun) => void; onOpen: () => void; focus?: string | null }) {
+  // Opened from the notification: scrolled to that design's results and highlighted for a moment.
+  const [highlight, setHighlight] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focus || !run.designs.some((d) => d.design_id === focus)) return;
+    const el = document.getElementById(designAnchor(focus));
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlight(focus);
+    const t = setTimeout(() => setHighlight(null), 4000);
+    return () => clearTimeout(t);
+  }, [focus, run.designs.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const finished = run.status === "succeeded" || run.status === "failed";
   const [selected, setSelected] = useState<string[]>(run.designs.map((d) => d.design_id));
   const [covers, setCovers] = useState<Record<string, string>>({});
@@ -619,7 +691,9 @@ function Results({ run, onRun, onOpen }: { run: MockupRun; onRun: (r: MockupRun)
       <p className="label">4. Your mockups</p>
       <ul className="space-y-2">
         {run.designs.map((d) => (
-          <li key={d.design_id} className="rounded-md border border-slate-200 p-2.5 text-sm">
+          <li key={d.design_id} id={designAnchor(d.design_id)}
+            className={`rounded-md border p-2.5 text-sm transition-shadow ${highlight === d.design_id ? "border-brand-500 ring-4 ring-brand-200" : "border-slate-200"}`}
+            data-testid="mockup-result" data-highlight={highlight === d.design_id ? "true" : undefined}>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-2.5">
                 <input type="checkbox" className="h-4 w-4 shrink-0 rounded border-slate-300" disabled={!finished}

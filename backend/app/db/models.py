@@ -1006,6 +1006,8 @@ class MockupRun(Base):
     sides: Mapped[str] = mapped_column(Text, nullable=False, server_default="both")
     #: "same": the same design on every garment of a photo; "order": one design per garment.
     garment_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="same")
+    #: The designs the seller ticked for this run (None: every design of the batch).
+    design_ids: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

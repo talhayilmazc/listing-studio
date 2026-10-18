@@ -405,6 +405,8 @@ class RunRequest(BaseModel):
     #: A photo with several garments: the same design on each ("same"), or one design
     #: per garment in order ("order").
     garment_mode: Literal["same", "order"] = "same"
+    #: The designs to make mockups of (ticked in the list); null: every design of the batch.
+    design_ids: list[uuid.UUID] | None = Field(default=None, max_length=2000)
 
 
 class OutputOut(BaseModel):
@@ -449,6 +451,8 @@ class RunOut(BaseModel):
     failed: int
     error: str | None = None
     templates: list[str] = Field(default_factory=list)
+    #: The chosen templates' ids (a run reopened from its notification shows them chosen).
+    template_ids: list[uuid.UUID] = Field(default_factory=list)
     photos: int = 0
     #: Photos of the chosen templates left out because they are not confirmed yet, and their names.
     skipped: int = 0
@@ -1756,6 +1760,9 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
     designs = list((await session.execute(
         select(MockupDesign).where(MockupDesign.batch_id == run.batch_id).order_by(MockupDesign.group_key)
     )).scalars())
+    if run.design_ids is not None:  # only the designs the seller ticked for this run
+        ticked = {str(x) for x in run.design_ids}
+        designs = [d for d in designs if str(d.id) in ticked]
     outputs = await work.outputs_by_design(session, run.id)
     # Designs already used for listings: their group has the mockups as photos.
     used = set((await session.execute(
@@ -1779,7 +1786,8 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
     zips = (await session.execute(select(MockupZip).where(MockupZip.run_id == run.id).order_by(MockupZip.created_at))).scalars()
     return RunOut(
         id=run.id, batch_id=run.batch_id, status=run.status, total=run.total, done=run.done, failed=run.failed,
-        error=run.error, templates=names, photos=len(run.photo_ids), skipped=run.skipped,
+        error=run.error, templates=names, template_ids=[uuid.UUID(str(t)) for t in run.template_ids],
+        photos=len(run.photo_ids), skipped=run.skipped,
         skipped_photos=skipped_photos[: max(run.skipped, 0)] if run.skipped else [],
         designs=[
             RunDesignOut(
@@ -1966,16 +1974,26 @@ async def start_run(
         raise HTTPException(status_code=422, detail=f"One run prints on up to {work.MAX_PHOTOS} photos; choose fewer templates.")
     if await _written(session, batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
-    designs = await session.scalar(select(func.count()).select_from(MockupDesign).where(
-        MockupDesign.batch_id == batch_id, MockupDesign.design_key.is_not(None)))
-    if not designs:
-        raise HTTPException(status_code=409, detail="Upload at least one design first.")
+    chosen = list((await session.execute(select(MockupDesign).where(
+        MockupDesign.batch_id == batch_id, MockupDesign.design_key.is_not(None)))).scalars())
+    if body.design_ids is not None:
+        wanted = set(body.design_ids)
+        chosen = [d for d in chosen if d.id in wanted]
+    if not chosen:
+        raise HTTPException(status_code=409, detail="Upload at least one design first." if body.design_ids is None
+                            else "Choose at least one design.")
     runs = (await session.execute(select(MockupRun).where(MockupRun.batch_id == batch_id))).scalars()
     if any(_active(r) for r in runs):
         raise HTTPException(status_code=409, detail="Mockups for this batch are already being made.")
+    # Each design counts the photos it prints on (a design made for one subgroup prints only there).
+    groups = await work.template_subgroups(session, {p.template_id for p in photos})
+    names = [work.area_subgroup_names(p, groups.get(p.template_id, [])) for p in photos]
+    versions = await _versions_of(session, [d.id for d in chosen])
+    total = sum(sum(work.prints_on(d, versions.get(d.id, []), n) for n in names) for d in chosen)
     run = MockupRun(tenant_id=tenant.id, batch_id=batch_id, template_ids=[str(t.id) for t in templates],
                     photo_ids=[str(p.id) for p in photos], skipped=skipped,
-                    total=int(designs) * len(photos), sides=body.sides, garment_mode=body.garment_mode)
+                    total=total, sides=body.sides, garment_mode=body.garment_mode,
+                    design_ids=[str(d.id) for d in chosen] if body.design_ids is not None else None)
     session.add(run)
     await session.commit()
     await enqueuer.enqueue("generate_mockups", str(run.id), _job_id=f"mockups:{run.id}")

@@ -107,6 +107,36 @@ export function printable(
   return { photos, skipped: skippedNames.length, skippedNames };
 }
 
+const sameName = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
+/** Whether a design has a file for any of a photo's areas (backend workers ``prints_on``: a design
+ *  made for one subgroup prints only on that subgroup's photos; "Any" prints its own file). */
+export function printsOn(design: Pick<MockupDesign, "subgroup" | "versions">, names: (string | null)[]): boolean {
+  return names.some((n) => n === ANY_SUBGROUP.name || n === ANY_SUBGROUP.id
+    || (design.versions ?? []).some((v) => sameName(v.subgroup, n))
+    || design.subgroup == null || sameName(design.subgroup, n));
+}
+
+/** How many mockups the chosen designs make on these photos: each design on each photo it has a
+ *  file for (not simply designs × photos when a template is split into subgroups). */
+export function mockupCount(
+  designs: Pick<MockupDesign, "subgroup" | "versions">[], photos: MockupPhoto[], templates: Pick<MockupTemplate, "id" | "subgroups">[],
+): number {
+  const groups = new Map(templates.map((t) => [t.id, t.subgroups ?? []]));
+  const names = photos.map((p) => p.areas.map((a) => areaSubgroup(a, p.subgroup_id, groups.get(p.template_id) ?? [])?.name ?? null));
+  return designs.reduce((sum, d) => sum + names.filter((n) => printsOn(d, n.length ? n : [null])).length, 0);
+}
+
+/** "3 of 8 designs selected" */
+export const selectionLine = (picked: number, all: number) => `${picked} of ${all} ${all === 1 ? "design" : "designs"} selected`;
+
+/** "3 designs × 4 photos = 10 mockups": the count follows each design's subgroups. */
+export function countLine(designs: number, photos: number, mockups: number): string {
+  const base = `${designs} ${designs === 1 ? "design" : "designs"} × ${photos} ${photos === 1 ? "photo" : "photos"}`;
+  return mockups === designs * photos ? `${base} = ${mockups} ${mockups === 1 ? "mockup" : "mockups"}`
+    : `${base} → ${mockups} ${mockups === 1 ? "mockup" : "mockups"} (each design prints on its own subgroups' photos)`;
+}
+
 /** Where "Add designs" goes: the bulk step with these templates chosen. */
 export const addDesignsHref = (templateIds: string[]) =>
   `/templates/designs${templateIds.length ? `?templates=${templateIds.join(",")}` : ""}`;

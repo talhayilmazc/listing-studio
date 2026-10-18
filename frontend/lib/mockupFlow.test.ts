@@ -85,7 +85,7 @@ test("Add designs appears once a photo is confirmed, and right after the last ch
 
 test("bulk designs: the step, ZIPs, per-design notes, skipped photos named", () => {
   const designs = read(DESIGNS);
-  assert.match(designs, /<MockupUpload shop=\{selected\?\.id \?\? null\} initialTemplates=\{ids\} \/>/);
+  assert.match(designs, /<MockupUpload key=\{params\.get\(\"run\"\) \?\? \"new\"\} shop=\{selected\?\.id \?\? null\} initialTemplates=\{ids\}/);
   const upload = read(UPLOAD);
   assert.match(upload, /api\.addMockupDesignArchive\(id, u\.file, \(pct\) => update\(u\.key, \{ pct \}\), slots\)/);
   assert.match(upload, /data-testid="mockup-design-failed"/);

@@ -30,7 +30,9 @@ function AddDesigns() {
       <Link href="/templates" className="tap inline-block text-sm text-slate-500 hover:text-slate-700">
         ← Mockup templates
       </Link>
-      <MockupUpload shop={selected?.id ?? null} initialTemplates={ids} />
+      {/* From a "Mockups ready" notification: that run's results, scrolled to the design. */}
+      <MockupUpload key={params.get("run") ?? "new"} shop={selected?.id ?? null} initialTemplates={ids}
+        initialRun={params.get("run")} initialDesign={params.get("design")} />
     </div>
   );
 }

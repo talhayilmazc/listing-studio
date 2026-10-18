@@ -11,6 +11,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
 import { DeleteBatches } from "@/components/DeleteBatches";
+import { BATCH_STATUSES, counts, matches, parseStatuses, withStatuses } from "@/lib/batchStatus";
 
 /** Per-batch detail loaded after the list paints, so the page never waits on it. */
 interface Enrichment {
@@ -95,10 +96,20 @@ export default function Home() {
   // Finding a batch again: by the name the seller gave it, or the one taken from its contents.
   const [q, setQ] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
+  // The status filter: several at once, kept in the URL (?status=drafted,published).
+  const [chosen, setChosen] = useState<string[]>([]);
+  useEffect(() => {
+    setChosen(parseStatuses(new URLSearchParams(window.location.search).get("status")));
+  }, []);
+  function choose(next: string[]) {
+    setChosen(next);
+    window.history.replaceState(null, "", `${window.location.pathname}${withStatuses(window.location.search, next)}`);
+  }
+  const perStatus = counts(batches ?? []);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = (batches ?? []).filter((b) => {
     const hay = `${b.name} ${(b.shop_names ?? []).join(" ")}`.toLowerCase();
-    return words.every((w) => hay.includes(w));
+    return words.every((w) => hay.includes(w)) && matches(b.statuses, chosen);
   });
 
   return (
@@ -144,14 +155,31 @@ export default function Home() {
               onChange={(e) => setQ(e.target.value)}
               aria-label="Search batches by name"
             />
-            {q && (
+            {(q || chosen.length > 0) && (
               <span key="count" translate="no" className="text-xs text-slate-500">
                 {`${shown.length} of ${batches.length}`}
               </span>
             )}
           </div>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status" data-testid="batch-status-filter">
+            <button type="button" aria-pressed={chosen.length === 0} onClick={() => choose([])}
+              className={`min-h-11 rounded-full px-3 text-xs font-medium ${chosen.length === 0 ? "bg-brand-600 text-white" : "bg-white text-slate-700 ring-1 ring-inset ring-slate-300"}`}>
+              <span translate="no">{`All ${batches.length}`}</span>
+            </button>
+            {BATCH_STATUSES.map((s) => {
+              const on = chosen.includes(s.key);
+              return (
+                <button key={s.key} type="button" aria-pressed={on} disabled={!on && perStatus[s.key] === 0}
+                  onClick={() => choose(on ? chosen.filter((x) => x !== s.key) : [...chosen, s.key])}
+                  className={`min-h-11 rounded-full px-3 text-xs font-medium disabled:opacity-40 ${on ? "bg-brand-600 text-white" : "bg-white text-slate-700 ring-1 ring-inset ring-slate-300"}`}
+                  data-testid="batch-status" data-status={s.key}>
+                  <span>{s.label}</span><span translate="no">{` ${perStatus[s.key]}`}</span>
+                </button>
+              );
+            })}
+          </div>
           {shown.length === 0 && (
-            <p key="nomatch" className="text-sm text-slate-500">No batch has a name like that.</p>
+            <p key="nomatch" className="text-sm text-slate-500">{chosen.length ? "No batch matches these filters." : "No batch has a name like that."}</p>
           )}
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <label className="flex cursor-pointer items-center gap-1.5">

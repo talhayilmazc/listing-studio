@@ -554,13 +554,15 @@ export const api = {
   startMockups: (
     batchId: string,
     templateIds: string[],
-    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order" } = {},
+    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order"; design_ids?: string[] | null } = {},
   ) =>
     req<MockupRun>(`/batches/${batchId}/mockups`, {
       method: "POST",
       body: JSON.stringify({ template_ids: templateIds, ...options }),
     }),
   mockupRun: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}`),
+  /** A batch's designs (a run's results opened from its notification). */
+  batchDesigns: (batchId: string) => req<MockupDesign[]>(`/batches/${batchId}/designs`),
   /** The design editor (backend api/mockup_edits.py): every edit is a render-time layer. */
   mockupEdits: (runId: string) => req<MockupEdits>(`/mockup-runs/${runId}/edits`),
   mockupDesignFileUrl: (designId: string, versionId?: string | null) =>
