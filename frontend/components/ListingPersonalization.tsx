@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DEFAULT_QUESTION, MAX_CHARACTERS, MAX_INSTRUCTIONS, MAX_QUESTION, personalizationErrors } from "@/lib/personalization";
+import { DEFAULT_MAX_CHARACTERS, DEFAULT_QUESTION, MAX_CHARACTERS, MAX_INSTRUCTIONS, MAX_QUESTION, personalizationErrors } from "@/lib/personalization";
 import type { Personalization } from "@/lib/types";
 import { Txt } from "./Txt";
 
@@ -106,7 +106,7 @@ export function ListingPersonalization({
           </label>
           <label className="space-y-0.5">
             <span>{`Max characters (1–${MAX_CHARACTERS})`}</span>
-            <input type="number" min={1} max={MAX_CHARACTERS} className="field py-1" value={draft.max_allowed_characters ?? ""}
+            <input type="number" min={1} max={MAX_CHARACTERS} className="field py-1" value={draft.max_allowed_characters ?? ""} placeholder={String(DEFAULT_MAX_CHARACTERS)}
               onChange={(e) => set({ max_allowed_characters: e.target.value ? Number(e.target.value) : null })} />
           </label>
           <label className="space-y-0.5 sm:col-span-2">

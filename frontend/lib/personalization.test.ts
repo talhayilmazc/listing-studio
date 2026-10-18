@@ -11,5 +11,8 @@ test("an off setting is always valid; an on one is checked against the limits", 
   assert.equal(personalizationErrors({ ...base, question_text: "x".repeat(MAX_QUESTION + 1) }).length, 1);
   assert.equal(personalizationErrors({ ...base, max_allowed_characters: 0 }).length, 1);
   assert.equal(personalizationErrors({ ...base, max_allowed_characters: 1025 }).length, 1);
-  assert.equal(personalizationErrors({ ...base, instructions: "x".repeat(257) }).length, 1);
+  assert.equal(personalizationErrors({ ...base, instructions: "x".repeat(121) }).length, 1); // Etsy: 120 at most
+  assert.equal(personalizationErrors({ ...base, question_text: "- Name" }).length, 1); // starts with a letter or a number
+  assert.equal(personalizationErrors({ ...base, instructions: "ADD YOUR NAME" }).length, 1); // one word in capitals at most
+  assert.deepEqual(personalizationErrors({ ...base, instructions: "Add the NAME you want" }), []);
 });

@@ -495,6 +495,8 @@ export interface MatrixCell {
   wanted: boolean;
   /** What stops it is this shop's setup, not the listing's own text. */
   by_shop?: boolean;
+  /** Worth knowing before the draft (does not stop it): the title is rewritten once for this shop's prefix. */
+  note?: string | null;
 }
 
 export interface MatrixRow {
@@ -1935,4 +1937,9 @@ export interface UnfinishedDraft {
   profile_id: string | null;
   profile_name: string | null;
   setup: boolean;
+  /** A newer draft of the same design in this shop succeeded: its listing id and Shop Manager link. */
+  replaced_by?: number | null;
+  replaced_edit_url?: string | null;
+  /** "Finish draft" can run now. */
+  can_finish?: boolean;
 }

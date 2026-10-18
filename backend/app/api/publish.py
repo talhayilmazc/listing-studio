@@ -517,6 +517,9 @@ async def _matrix(
             cells.append(schemas.MatrixCellOut(
                 connection_id=shop.id, state="available", profile_id=target.profile.id,
                 profile_name=target.profile.name, chosen=(content.id, shop.id) in planned, wanted=wanted,
+                note=(f"The title is {len(target.title or '')} characters with this shop's prefix: it is rewritten "
+                      "once for this shop when the draft is made. If that does not fit, the listing's card says so; "
+                      "the title is never cut.") if target.title_fit else None,
             ))
         asset = assets.get(content.asset_id)
         rows.append(schemas.MatrixRowOut(

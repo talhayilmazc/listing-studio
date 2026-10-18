@@ -14,7 +14,11 @@ function name(row: MatrixRow): string {
 
 /** What a ticked or unticked cell says beside its checkbox. */
 function cellText(cell: MatrixCell): { text: string; tone: string } {
-  if (cell.state === "available") return cell.wanted ? { text: "create draft", tone: "text-slate-700" } : { text: "not sent", tone: "text-slate-400" };
+  if (cell.state === "available") {
+    if (!cell.wanted) return { text: "not sent", tone: "text-slate-400" };
+    // The title is rewritten once for this shop's longer prefix (never cut).
+    return cell.note ? { text: "create draft; title rewritten once to fit this shop", tone: "text-amber-800" } : { text: "create draft", tone: "text-slate-700" };
+  }
   // Unavailable: its own text first (approve it), else what this shop lacks.
   return { text: cell.reason ?? "cannot go to this shop yet", tone: cell.wanted ? "text-amber-800" : "text-slate-400" };
 }
@@ -124,7 +128,7 @@ export function PublishMatrix({
           onChange={(e) => onToggle(row, cell, e.target.checked)}
           aria-label={`${name(row)} to ${col.shop_name ?? "this shop"}`}
         />
-        <span className={"min-w-0 " + said.tone}>
+        <span className={"min-w-0 " + said.tone} title={cell.note ?? undefined}>
           <Txt>{said.text}</Txt>
         </span>
       </label>

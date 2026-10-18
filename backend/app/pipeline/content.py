@@ -32,6 +32,8 @@ MIN_TITLE_LENGTH = 110
 MAX_TITLE_LENGTH = 140
 # How the too-short title error begins (targets.py relaxes it for trimmed titles).
 TITLE_TOO_SHORT = "title must be at least"
+#: How a title over its maximum is reported (``title_length_errors``).
+TITLE_TOO_LONG = "title exceeds"
 MAX_TAG_LENGTH = 20
 
 
@@ -436,7 +438,7 @@ def title_length_errors(title: str, title_rules: TitleRules) -> list[str]:
         )
     if n > title_rules.max_length:
         errors.append(
-            f"title exceeds {title_rules.max_length} characters "
+            f"{TITLE_TOO_LONG} {title_rules.max_length} characters "
             f"(yours was {n}); target {title_rules.min_length}-{title_rules.max_length}"
         )
     return errors

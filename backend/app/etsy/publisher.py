@@ -61,6 +61,7 @@ from app.pipeline import chart_order, item_options, skus, versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
+from app.pipeline.personalization import etsy_problems as personalization_problems
 from app.pipeline.personalization import questions_for
 from app.pipeline.links import LINKED, setup_message
 from app.pipeline.reference import (
@@ -491,6 +492,14 @@ async def publish_content(
         raise ValueError(
             "the reference profile was read by an older version that did not copy "
             "production partners; refresh the profile, then try again"
+        )
+    problems = personalization_problems(personalization)
+    if problems:
+        # Refused here, before the draft is created: Etsy would create the listing and then
+        # refuse its question (400), leaving a half-made draft behind.
+        raise ValueError(
+            "this listing's personalization question cannot be sent to Etsy: " + "; ".join(problems)
+            + ". Change it on the listing's card (or the profile), then try again"
         )
     missing = [name for name, value in required.items() if value is None or value == ""]
     if missing:

@@ -23,11 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile, ProfileShopLink
 from app.compliance.trademarks import tenant_blocklist
-from app.pipeline import profile_shops
+from app.pipeline import profile_shops, title_fit
 from app.pipeline.content import (
     bounds_for,
     MAX_TITLE_LENGTH,
     join_prefix,
+    TITLE_TOO_LONG,
     TITLE_TOO_SHORT,
     GeneratedListing,
     policy_for,
@@ -62,6 +63,9 @@ class Target:
     #: What is wrong is the listing's own text under this shop's profile (its
     #: title or tags), not the shop's setup.
     by_text: bool = False
+    #: The title is over 140 characters with this shop's prefix: the draft job rewrites it
+    #: once for this shop (pipeline/title_fit.py), else stops and flags the card. Never cut.
+    title_fit: bool = False
 
     @property
     def ok(self) -> bool:
@@ -87,8 +91,10 @@ def is_fresh(profile: ListingProfile) -> bool:
 @dataclass(frozen=True)
 class FittedTitle:
     title: str
-    used_all: bool  # every phrase of the original title is still in it
+    used_all: bool  # every phrase of the original title is still in it (always, now)
     dropped: tuple[str, ...] = ()
+    #: Over ``max_length`` with the new prefix: kept whole, for the one rewrite (title_fit).
+    too_long: bool = False
 
 
 def _phrases(text: str) -> list[str]:
@@ -102,13 +108,14 @@ def retarget_title(
     *,
     max_length: int = MAX_TITLE_LENGTH,
 ) -> FittedTitle:
-    """Swap one shop's title prefix for another's, adjusting by phrase.
+    """Swap one shop's title prefix for another's.
 
     Titles are comma-separated phrases, and the prefix is part of the first one
     ("Comfort Colors® Funny Nurse Shirt, ...", v6 §C). The source shop's prefix
-    comes off and the target shop's goes on. If a longer prefix pushes the title
-    past ``max_length``, trailing phrases are dropped until it fits. A shorter
-    prefix leaves every phrase in place: the title is simply shorter.
+    comes off and the target shop's goes on. Nothing is ever dropped: a longer
+    prefix that pushes the title past ``max_length`` keeps it whole and marks it
+    ``too_long`` (the draft job rewrites it once for that shop, else flags the card;
+    trailing phrases used to be dropped silently, only logged).
     """
     source = (from_prefix or "").strip()
     stripped = title.strip()
@@ -121,10 +128,8 @@ def retarget_title(
     def join(kept: list[str]) -> str:
         return join_prefix(target, ", ".join(kept))
 
-    kept = list(phrases)
-    while len(kept) > 1 and len(join(kept)) > max_length:
-        kept.pop()
-    return FittedTitle(join(kept), len(kept) == len(phrases), tuple(phrases[len(kept):]))
+    whole = join(phrases)
+    return FittedTitle(whole, True, (), too_long=len(whole) > max_length)
 
 
 def _widest(a: TitleRules, b: TitleRules) -> TitleRules:
@@ -141,7 +146,7 @@ def retext(
 ) -> tuple[str, str, FittedTitle]:
     """The listing's title and description as ``chosen`` builds them, when it was
     written with ``source``: the title's prefix is swapped for the new profile's
-    (trailing phrases dropped only if that pushes it past 140 characters) and the
+    (never cut: one too long for 140 characters is marked for a rewrite) and the
     description is the new profile's reference body under the listing's opening
     (short style) or title (long style). A title the seller has not written yet
     stays empty."""
@@ -229,6 +234,11 @@ async def resolve_target(
         title, description = content.title or "", content.description or ""
     else:
         title, description, fitted = retext(content, source, chosen)
+        stored = title_fit.stored_for(content, connection.id)
+        if fitted.too_long and stored:
+            # Rewritten once for this shop already, from this very title.
+            description = description.replace(title, stored, 1) if title and description.startswith(title) else description
+            title, fitted = stored, FittedTitle(stored, True)
         errors = validate_listing(
             GeneratedListing(title=title, tags=list(content.tags or []), description=description),
             policy_for(chosen.content_template),
@@ -240,17 +250,14 @@ async def resolve_target(
             # profile may use the other style, so accept either range.
             title_rules=_widest(bounds_for(source), bounds_for(chosen)),
         )
-        if not fitted.used_all:
-            # Phrases were dropped to fit 140, so the title is as long as this shop's
-            # prefix allows. A slightly short title beats refusing the whole shop;
-            # the minimum only refuses a title that is short with every phrase in it.
+        if fitted.too_long:
+            # Over 140 only because of this shop's prefix: the draft job rewrites it once
+            # for this shop (title_fit), or stops before Etsy and flags the card.
+            errors = [e for e in errors if not e.startswith(TITLE_TOO_LONG)]
+        if stored and title == stored:
+            # The rewrite for this shop may sit a little under the minimum (title_fit.problems).
             errors = [e for e in errors if not e.startswith(TITLE_TOO_SHORT)]
-        if fitted.dropped:
-            logger.info(
-                "title for shop %s shortened to fit its prefix; dropped %d trailing phrase(s)",
-                connection.id,
-                len(fitted.dropped),
-            )
         if errors:
             return Target(connection, chosen, "with this profile's title prefix: " + "; ".join(errors), link=link, by_text=True)
+        return Target(connection, chosen, None, title, description, link=link, title_fit=fitted.too_long)
     return Target(connection, chosen, None, title, description, link=link)

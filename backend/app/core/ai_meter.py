@@ -52,6 +52,7 @@ PURPOSES = {
     "content": "Listing text",
     "content_retry": "Listing text, second attempt",
     "size_chart": "Size-chart check",
+    "title_fit": "Title rewritten for another shop's prefix",
     "eval": "Evaluation runs (ours)",
     "backfill": "Before metering (listings that still existed)",
     "other": "Other",

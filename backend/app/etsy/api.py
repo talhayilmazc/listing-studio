@@ -36,7 +36,7 @@ from redis.asyncio import Redis
 from app.etsy.client import ETSY_API_BASE, auth_headers
 from app.etsy.calllog import CallLog, current_job
 from app.etsy.categories import category_of
-from app.etsy.errors import raise_for_etsy_status
+from app.etsy.errors import EtsyError, raise_for_etsy_status, shape_of
 from app.etsy import guard
 from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
@@ -233,9 +233,15 @@ class EtsyApiClient:
             logger.warning(
                 "Etsy API %s %s -> %d: %s", method, path, resp.status_code, body
             )
-            raise_for_etsy_status(
-                resp.status_code, _retry_after(resp), body=body, path=path, method=method
-            )
+            try:
+                raise_for_etsy_status(
+                    resp.status_code, _retry_after(resp), body=body, path=path, method=method
+                )
+            except EtsyError as exc:
+                # What the refused request carried, as names and kinds only (errors.shape_of).
+                exc.sent = shape_of(json if json is not None else data) if (json is not None or data) else (
+                    {"files": sorted(files)} if isinstance(files, dict) else None)
+                raise
         # The seller's usage history is their own requests; upkeep is the app's.
         if self._usage is not None and tenant_id is not None and not self._upkeep:
             self._usage.record(tenant_id, date.today(), category=category_of(current_job.get()))

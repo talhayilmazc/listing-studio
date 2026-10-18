@@ -801,6 +801,9 @@ class MatrixCellOut(BaseModel):
     wanted: bool = False
     # What stops it is this shop's setup (the profile there), not the listing's text.
     by_shop: bool = False
+    # Something the seller should know before the draft is made (it does not stop it):
+    # the title is rewritten once for this shop's longer prefix (pipeline/title_fit.py).
+    note: str | None = None
 
 
 class MatrixRowOut(BaseModel):

@@ -9,15 +9,30 @@ supports a single ``text_input`` question.
 A profile copies the reference listing's question on refresh. The seller can
 override it on the profile card (turn it off, or change the question); the
 override wins until reset.
+
+What Etsy accepts (Open API v3 ``updateListingPersonalization`` and its
+personalization migration guide, read 2026-10-18): a JSON body
+``{"personalization_questions": [...]}``; each question needs ``question_text``,
+``question_type`` and ``required``, and a ``text_input`` question also needs
+``max_allowed_characters`` (1-1024). ``question_text`` is 1-45 characters and
+``instructions`` at most 120; both must start with a letter or digit and may not
+hold more than one word starting with three or more capital letters. A question
+that breaks one of these is refused here, before anything is sent, with a sentence
+the seller can act on; nothing is shortened for them.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 MAX_QUESTION_TEXT = 45  # Etsy: 1-45 characters
-MAX_INSTRUCTIONS = 256
-MAX_CHARACTERS = 1024
+MAX_INSTRUCTIONS = 120  # Etsy: at most 120 (the app allowed 256 before 2026-10-18)
+MAX_CHARACTERS = 1024  # Etsy: 1-1024
+#: Etsy requires a character limit on a text question and gives no default; when neither
+#: the seller nor the reference set one, this is sent (the app's choice, shown on the card).
+DEFAULT_MAX_CHARACTERS = 256
+_SHOUTED = re.compile(r"\b[A-Z]{3,}")
 
 
 def from_reference(resp: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -51,19 +66,38 @@ def effective(override: dict[str, Any] | None, payload: dict[str, Any] | None) -
     return {"enabled": True, **questions[0]}
 
 
+def etsy_problems(setting: dict[str, Any] | None) -> list[str]:
+    """Why Etsy would refuse this question, in the seller's words ([] when it can be sent)."""
+    if not setting or not setting.get("enabled"):
+        return []
+    out: list[str] = []
+    text = str(setting.get("question_text") or "").strip()
+    instructions = str(setting.get("instructions") or "").strip()
+    if not 1 <= len(text) <= MAX_QUESTION_TEXT:
+        out.append(f"the question must be 1 to {MAX_QUESTION_TEXT} characters")
+    if len(instructions) > MAX_INSTRUCTIONS:
+        out.append(f"instructions are limited to {MAX_INSTRUCTIONS} characters (yours are {len(instructions)})")
+    for name, value in (("question", text), ("instructions", instructions)):
+        if value and not value[0].isalnum():
+            out.append(f"the {name} must start with a letter or a number")
+        if len(_SHOUTED.findall(value)) > 1:
+            out.append(f"the {name} may have only one word in capitals")
+    limit = setting.get("max_allowed_characters")
+    if limit is not None and not 1 <= int(limit) <= MAX_CHARACTERS:
+        out.append(f"the character limit must be between 1 and {MAX_CHARACTERS}")
+    return out
+
+
 def validate(override: dict[str, Any]) -> dict[str, Any]:
     """A seller's override, cleaned; ValueError with the reason if it cannot be sent."""
     if not override.get("enabled"):
         return {"enabled": False}
+    problems = etsy_problems({**override, "enabled": True})
+    if problems:
+        raise ValueError(problems[0])
     text = str(override.get("question_text") or "").strip()
-    if not 1 <= len(text) <= MAX_QUESTION_TEXT:
-        raise ValueError(f"the question must be 1 to {MAX_QUESTION_TEXT} characters")
     instructions = str(override.get("instructions") or "").strip()
-    if len(instructions) > MAX_INSTRUCTIONS:
-        raise ValueError(f"instructions are limited to {MAX_INSTRUCTIONS} characters")
     limit = override.get("max_allowed_characters")
-    if limit is not None and not 1 <= int(limit) <= MAX_CHARACTERS:
-        raise ValueError(f"the character limit must be between 1 and {MAX_CHARACTERS}")
     return {
         "enabled": True,
         "question_text": text,
@@ -73,17 +107,23 @@ def validate(override: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def character_limit(setting: dict[str, Any]) -> int:
+    """The character limit a text question is sent with (Etsy requires one)."""
+    return int(setting.get("max_allowed_characters") or DEFAULT_MAX_CHARACTERS)
+
+
 def questions_for(setting: dict[str, Any]) -> list[dict[str, Any]]:
-    """The updateListingPersonalization body for an enabled setting."""
+    """The updateListingPersonalization body for an enabled setting. A text question
+    always carries ``max_allowed_characters``: Etsy requires it (before 2026-10-18 it was
+    sent only when one was set, which Etsy's schema calls invalid)."""
     q: dict[str, Any] = {
-        "question_text": setting["question_text"],
+        "question_text": str(setting["question_text"]).strip(),
         "question_type": "text_input",
         "required": bool(setting.get("required")),
+        "max_allowed_characters": character_limit(setting),
     }
     if setting.get("instructions"):
-        q["instructions"] = setting["instructions"]
-    if setting.get("max_allowed_characters"):
-        q["max_allowed_characters"] = int(setting["max_allowed_characters"])
+        q["instructions"] = str(setting["instructions"]).strip()
     return [q]
 
 
@@ -113,8 +153,8 @@ def differs(sent: dict[str, Any], back: dict[str, Any] | None) -> list[str]:
     out = []
     if bool(q.get("required")) != bool(sent.get("required")):
         out.append("required")
-    if sent.get("max_allowed_characters") and int(q.get("max_allowed_characters") or 0) != int(sent["max_allowed_characters"]):
+    if int(q.get("max_allowed_characters") or 0) != character_limit(sent):
         out.append("character limit")
-    if (sent.get("instructions") or "") != (q.get("instructions") or ""):
+    if (sent.get("instructions") or "").strip() != (q.get("instructions") or "").strip():
         out.append("instructions")
     return out

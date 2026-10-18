@@ -276,13 +276,13 @@ def test_the_title_prefix_follows_the_shop() -> None:
 PHRASES = BODY.split(", ")
 
 
-def test_a_longer_prefix_drops_trailing_phrases_until_the_title_fits() -> None:
+def test_a_longer_prefix_keeps_the_whole_title_and_marks_it_too_long() -> None:
+    # Never cut (it used to drop the last phrase and only log it): the draft job rewrites
+    # it once for that shop, else the card says why (tests/test_draft_failures.py).
     long_prefix = "Bella Canvas Unisex Jersey Tee"  # 15 characters longer than PREFIX_A
     fitted = retarget_title(f"{PREFIX_A}, {BODY}", PREFIX_A, long_prefix)
-    assert len(f"{long_prefix} {BODY}") > 140
-    assert len(fitted.title) <= 140
-    assert fitted.title == f"{long_prefix} " + ", ".join(PHRASES[:-1])  # the last phrase went
-    assert fitted.dropped == (PHRASES[-1],) and fitted.used_all is False
+    assert fitted.title == f"{long_prefix} {BODY}" and len(fitted.title) > 140
+    assert fitted.too_long is True and fitted.used_all is True and fitted.dropped == ()
 
 
 def test_a_shorter_prefix_keeps_every_phrase() -> None:
@@ -290,9 +290,9 @@ def test_a_shorter_prefix_keeps_every_phrase() -> None:
     assert fitted.title == BODY and fitted.used_all is True and fitted.dropped == ()
 
 
-async def test_a_shop_is_not_refused_because_trimming_left_the_title_short(world) -> None:
-    """Dropping a long last phrase can leave the title under 110. That is still a
-    draft in that shop, not a refused shop."""
+async def test_a_title_too_long_only_for_another_shops_prefix_goes_to_the_job_whole(world) -> None:
+    """The shop is not refused and the title is not cut: the target carries it whole and
+    ``title_fit``, and the draft job rewrites it once for that shop."""
     long_tail = (
         "Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck, "
         "Handmade Vintage Frog Graphic Top For Pond And Nature Lovers"
@@ -305,8 +305,7 @@ async def test_a_shop_is_not_refused_because_trimming_left_the_title_short(world
         assert len(content.title) <= 140
         target = await resolve_target(s, content, await s.get(EtsyConnection, world["a2"]))
     assert target.ok, target.reason
-    assert target.title == "Bella Canvas Unisex Jersey Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck"
-    assert len(target.title) < 110  # short, but a draft rather than a refusal
+    assert target.title == f"Bella Canvas Unisex Jersey {long_tail}" and target.title_fit is True
 
 
 async def test_a_title_still_short_with_every_phrase_refuses_that_shop(world) -> None:

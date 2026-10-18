@@ -62,8 +62,34 @@ def _detail(body: str | None) -> str | None:
     return " ".join(text.split())[:300]
 
 
+def shape_of(value: object) -> object:
+    """What a request carried, without its text: field names and the kind (and length) of
+    each value. ``{"personalization_questions": [{"question_text": "Your name", ...}]}``
+    becomes ``{"personalization_questions": {"list": 1, "item": {"question_text": "string(9)", ...}}}``.
+    Kept with a failed job for diagnosis (``python -m app.cli draft-failures``); never a
+    token (tokens ride headers) and never the seller's words."""
+    if isinstance(value, dict):
+        return {str(k): shape_of(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return {"list": len(value), "item": shape_of(value[0])} if value else "list(0)"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return f"string({len(value)})"
+    if value is None:
+        return "null"
+    return type(value).__name__
+
+
 class EtsyError(Exception):
-    """Base class for Etsy API errors."""
+    """Base class for Etsy API errors. ``sent``: the shape of what the refused request
+    carried (``shape_of``), set by the client."""
+
+    sent: object = None
 
 
 class EtsyRateLimited(EtsyError):
@@ -130,6 +156,20 @@ class EtsyClientError(EtsyError):
     @property
     def step(self) -> str | None:
         return step_of(self.method, self.path)
+
+
+def record(exc: "EtsyError") -> dict:
+    """What a failed job keeps about Etsy's refusal: status, step, method and path (ids
+    only), Etsy's own one-line reason and the shape of what was sent. No token, no buyer
+    data, none of the seller's words."""
+    return {
+        "status": getattr(exc, "status_code", 429 if isinstance(exc, EtsyRateLimited) else None),
+        "step": getattr(exc, "step", None),
+        "method": getattr(exc, "method", None),
+        "path": getattr(exc, "path", None),
+        "message": getattr(exc, "detail", None),
+        "sent": getattr(exc, "sent", None),
+    }
 
 
 def raise_for_etsy_status(

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Personalization, Profile } from "@/lib/types";
+import { DEFAULT_MAX_CHARACTERS, MAX_CHARACTERS, MAX_INSTRUCTIONS } from "@/lib/personalization";
 
 import { Txt } from "@/components/Txt";
 const SOURCE: Record<string, string> = {
@@ -103,7 +104,7 @@ export function PersonalizationEditor({
             Instructions (optional)
             <input
               className="field mt-0.5 py-1 text-xs"
-              maxLength={256}
+              maxLength={MAX_INSTRUCTIONS}
               value={draft.instructions ?? ""}
               onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
             />
@@ -122,7 +123,9 @@ export function PersonalizationEditor({
               <input
                 type="number"
                 min={1}
-                max={1024}
+                max={MAX_CHARACTERS}
+                placeholder={String(DEFAULT_MAX_CHARACTERS)}
+                title={`Etsy needs a limit: ${DEFAULT_MAX_CHARACTERS} is sent when this is empty`}
                 className="field w-20 py-0.5 text-xs"
                 value={draft.max_allowed_characters ?? ""}
                 onChange={(e) =>

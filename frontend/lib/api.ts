@@ -740,6 +740,8 @@ export const api = {
   /** Listings created on Etsy whose draft did not finish, and "Finish these drafts" (backend api/unfinished.py). */
   unfinishedDrafts: (batchId?: string) =>
     req<UnfinishedDraft[]>(`/drafts/unfinished${batchId ? `?batch_id=${batchId}` : ""}`),
+  /** Take a draft a newer one replaced off the list (only the app's record; Etsy is not touched). */
+  dismissReplacedDraft: (attemptId: string) => req<void>(`/drafts/unfinished/${attemptId}/dismiss`, { method: "POST" }),
   finishDrafts: (body: { attempt_ids?: string[] | null; batch_id?: string | null }) =>
     req<{ started: number; skipped: { attempt_id: string; reason: string }[] }>("/drafts/unfinished/finish", {
       method: "POST",
