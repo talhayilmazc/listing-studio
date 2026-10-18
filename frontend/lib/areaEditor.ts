@@ -293,6 +293,55 @@ export function copyToGarment(area: Quad, from: Quad, to: Quad): Quad {
   return area.map((p) => apply(h, p)) as Quad;
 }
 
+/** "Duplicate area": the area copied a little down and to the right (3% of the photo), its size and
+ *  angle kept; where that would leave the photo it goes up and to the left instead. */
+export function duplicateQuad(q: Quad, width: number, height: number): Quad {
+  const dx = width * 0.03;
+  const dy = height * 0.03;
+  const xs = q.map((p) => p[0]);
+  const ys = q.map((p) => p[1]);
+  const mx = Math.max(...xs) + dx <= width ? dx : -dx;
+  const my = Math.max(...ys) + dy <= height ? dy : -dy;
+  return move(q, mx, my);
+}
+
+/** A corner dragged with the proportions kept: the whole area scales about the opposite corner by
+ *  how far the pointer went along the diagonal (its angle and aspect stay; at least ``min`` px). */
+export function resizeKeep(q: Quad, corner: number, p: Pt, min = MIN_SIZE): Quad {
+  const o = q[(corner + 2) % 4];
+  const d: Pt = [q[corner][0] - o[0], q[corner][1] - o[1]];
+  const len2 = d[0] * d[0] + d[1] * d[1] || 1;
+  const { w, h } = { w: Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]), h: Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]) };
+  const smallest = Math.max(min / Math.max(1e-6, Math.min(w, h)), 1e-3);
+  const s = Math.max(smallest, ((p[0] - o[0]) * d[0] + (p[1] - o[1]) * d[1]) / len2);
+  return q.map(([x, y]) => [o[0] + (x - o[0]) * s, o[1] + (y - o[1]) * s]) as Quad;
+}
+
+/** The middle of each side (top, right, bottom, left): the edge handles. */
+export function edgeHandles(q: Quad): Pt[] {
+  return [0, 1, 2, 3].map((i) => [(q[i][0] + q[(i + 1) % 4][0]) / 2, (q[i][1] + q[(i + 1) % 4][1]) / 2] as Pt);
+}
+
+/** An edge dragged: that side moves along its own outward normal to the pointer; the opposite
+ *  side stays (one side only; at least ``min`` px between them). */
+export function resizeEdge(q: Quad, edge: number, p: Pt, min = MIN_SIZE): Quad {
+  const a = edge;
+  const b = (edge + 1) % 4;
+  const mid: Pt = [(q[a][0] + q[b][0]) / 2, (q[a][1] + q[b][1]) / 2];
+  const opp: Pt = [(q[(edge + 2) % 4][0] + q[(edge + 3) % 4][0]) / 2, (q[(edge + 2) % 4][1] + q[(edge + 3) % 4][1]) / 2];
+  const span = Math.hypot(mid[0] - opp[0], mid[1] - opp[1]) || 1;
+  const n: Pt = [(mid[0] - opp[0]) / span, (mid[1] - opp[1]) / span];
+  const moved = Math.max(min - span, (p[0] - mid[0]) * n[0] + (p[1] - mid[1]) * n[1]);
+  const out = q.map((c) => [...c]) as Quad;
+  out[a] = [q[a][0] + n[0] * moved, q[a][1] + n[1] * moved];
+  out[b] = [q[b][0] + n[0] * moved, q[b][1] + n[1] * moved];
+  return out;
+}
+
+/** A subgroup's colour (by its place in the template), for an area's label. */
+export const SUBGROUP_COLOURS = ["#2563eb", "#db2777", "#16a34a", "#ea580c", "#7c3aed", "#0891b2", "#ca8a04", "#dc2626", "#4f46e5", "#059669", "#9333ea", "#0d9488"];
+export const subgroupColour = (index: number) => (index < 0 ? "#475569" : SUBGROUP_COLOURS[index % SUBGROUP_COLOURS.length]);
+
 /** Whether ``p`` lies inside the convex quad ``q`` grown by ``grow`` around its centre. */
 export function inQuad(p: Pt, q: Quad, grow = 1): boolean {
   const c = centre(q);

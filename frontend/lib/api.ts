@@ -7,6 +7,7 @@ import type {
   MockupDesign,
   MockupEdits,
   MockupRecolourRow,
+  SubgroupPreset,
   MockupPhoto,
   MockupRun,
   MockupPlacement,
@@ -407,12 +408,22 @@ export const api = {
   // Mockup templates and their photos (backend api/mockups.py): no Etsy call, no AI call.
   mockupTemplates: () => req<MockupTemplate[]>("/mockup-templates"),
   mockupTemplate: (id: string) => req<MockupTemplate>(`/mockup-templates/${id}`),
-  createMockupTemplate: (name: string) =>
-    req<MockupTemplate>("/mockup-templates", { method: "POST", body: JSON.stringify({ name }) }),
+  createMockupTemplate: (name: string, presets = false) =>
+    req<MockupTemplate>("/mockup-templates", { method: "POST", body: JSON.stringify({ name, presets }) }),
+  /** The account's subgroup presets (backend api/mockups.py), used by any template. */
+  subgroupPresets: () => req<SubgroupPreset[]>("/mockup-subgroup-presets"),
+  addSubgroupPreset: (body: { name: string; use_on?: string; suffix?: string | null }) =>
+    req<SubgroupPreset>("/mockup-subgroup-presets", { method: "POST", body: JSON.stringify(body) }),
+  updateSubgroupPreset: (id: string, body: { name?: string; use_on?: string; suffix?: string | null }) =>
+    req<SubgroupPreset>(`/mockup-subgroup-presets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteSubgroupPreset: (id: string) => req<void>(`/mockup-subgroup-presets/${id}`, { method: "DELETE" }),
+  assignSubgroupPresets: (templateId: string, presetIds: string[]) =>
+    req<MockupTemplate>(`/mockup-templates/${templateId}/presets`, { method: "POST", body: JSON.stringify({ preset_ids: presetIds }) }),
+  saveSubgroupAsPreset: (subgroupId: string) => req<SubgroupPreset>(`/mockup-subgroups/${subgroupId}/preset`, { method: "POST" }),
   renameMockupTemplate: (id: string, name: string) =>
     req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   /** "This template has several garments in one photo". */
-  updateMockupTemplate: (id: string, body: { name?: string; back_without_design?: "front" | "plain" }) =>
+  updateMockupTemplate: (id: string, body: { name?: string; back_without_design?: "front" | "plain"; file_prefix?: string }) =>
     req<MockupTemplate>(`/mockup-templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMockupTemplate: (id: string) => req<void>(`/mockup-templates/${id}`, { method: "DELETE" }),
   /** A template's subgroups ("Comfort Colors White"): add, change, remove (its photos go to the first one). */
@@ -446,11 +457,12 @@ export const api = {
     id: string,
     areas: {
       print_area: [number, number][]; detected_area?: [number, number][]; source: string; kind?: string | null; role?: string;
-      subgroup_id?: string | null; tone?: string | null;
+      subgroup_id?: string | null; tone?: string | null; subgroup_any?: boolean;
     }[],
     confirm: boolean,
     size?: number,
-  ) => req<MockupPhoto>(`/mockup-photos/${id}/areas`, { method: "PUT", body: JSON.stringify({ areas, confirm, size }) }),
+    printAll?: boolean,
+  ) => req<MockupPhoto>(`/mockup-photos/${id}/areas`, { method: "PUT", body: JSON.stringify({ areas, confirm, size, print_all: printAll }) }),
   /** "Add area": the garment under the tap (shares of the photo), alone. Nothing is saved. */
   /** "Click a garment to add an area": the garment under the click; else a box of ``like``'s size and angle there. */
   findMockupGarment: (id: string, x: number, y: number, areas: [number, number][][], like?: [number, number][] | null) =>

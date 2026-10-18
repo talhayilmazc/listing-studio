@@ -506,6 +506,18 @@ async def _photos(session: AsyncSession, run: MockupRun) -> list[tuple[MockupPho
 _BACK_FALLBACK: dict[uuid.UUID, str] = {}
 
 
+def output_filename(design: MockupDesign, photo: MockupPhoto, template_name: str, prefixes: dict,
+                    numbered: dict[tuple[uuid.UUID, uuid.UUID], int], taken: set[str]) -> str:
+    """A mockup's file name: "<prefix>-<SKU>-<NN>.jpg" when its template has a prefix (NN: this
+    design's mockups of that template, in photo order), else "<SKU>_<template>_<photo>.jpg"."""
+    prefix = prefixes.get(photo.template_id)
+    if prefix:
+        key = (design.id, photo.template_id)
+        numbered[key] = numbered.get(key, 0) + 1
+        return mockups.prefixed_name(prefix, design_base(design), numbered[key], taken)
+    return mockups.output_name(design_base(design), template_name, taken, photo.name)
+
+
 def design_base(design: MockupDesign) -> str:
     """What a design's mockups are named after: its SKU, else its file name."""
     return design.parsed_sku or PurePosixPath(design.original_filename.replace("\\", "/")).stem or "design"
@@ -591,6 +603,17 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
     days = await upload_retention.policy(session)
     in_use = await asyncio.to_thread(storage_cap.used, storage, job.tenant_id)
     taken: set[str] = {o.filename.lower() for o in existing.values()}
+    # A template's file-name prefix: "<prefix>-<SKU>-<NN>.jpg", numbered per design and template
+    # in photo order (a re-render keeps each mockup's name and numbers new ones after them).
+    prefixes = dict((await session.execute(select(MockupTemplate.id, MockupTemplate.file_prefix).where(
+        MockupTemplate.id.in_({p.template_id for p, _ in all_photos} or {uuid.uuid4()})))).all())
+    numbered: dict[tuple[uuid.UUID, uuid.UUID], int] = {}
+    if refreshing:
+        for row in existing.values():
+            photo_row = next((p for p, _ in all_photos if p.id == row.photo_id), None)
+            if photo_row is not None:
+                key_ = (row.design_id, photo_row.template_id)
+                numbered[key_] = numbered.get(key_, 0) + 1
 
     try:
         areas = {p.id: photo_print_areas(p) for p, _ in photos}
@@ -668,7 +691,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
             # A front & back photo always shows one design, front and back.
-            if job.garment_mode == "order" and len(garments) > 1 and photo.layout != "front_back":
+            # "Print on all garments" on this photo: the same design on every area, whatever the run says.
+            if job.garment_mode == "order" and len(garments) > 1 and photo.layout != "front_back" and not photo.print_all:
                 filled = order_groups(usable, len(garments))
                 groups = [usable[i:i + len(garments)] for i in range(0, len(usable), len(garments))]
             else:
@@ -726,7 +750,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                         id=output_id if k == 0 else uuid.uuid4(), tenant_id=job.tenant_id, run_id=job.id,
                         batch_id=job.batch_id, design_id=design.id, photo_id=photo.id,
                         template_name=template_name, photo_name=photo.name, position=position,
-                        filename=mockups.output_name(design_base(design), template_name, taken, photo.name), key=key,
+                        filename=output_filename(design, photo, template_name, prefixes, numbered, taken), key=key,
                         width=maps.width, height=maps.height, byte_size=len(jpeg),
                     ))
                     job.done += 1

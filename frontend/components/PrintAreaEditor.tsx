@@ -28,7 +28,12 @@ import {
   record,
   rectOf,
   redo,
+  duplicateQuad,
+  edgeHandles,
+  resizeEdge,
+  resizeKeep,
   resizeRect,
+  subgroupColour,
   rotate,
   rotateHandle,
   snapAngle,
@@ -46,7 +51,7 @@ import {
 } from "@/lib/areaEditor";
 import {
   BRUSH_HINT, EDITOR_HINT, FOLD_RANGE, LAYOUT_HINT, LAYOUT_LABELS, LOOKS_RIGHT, OCCLUSION_LABEL, ROLE_LABELS, SAMPLE_DESIGN, SIZE_RANGE,
-  SUGGESTION_NOTE, areaSubgroup, percent, type PhotoLayout,
+  SUGGESTION_NOTE, ANY_SUBGROUP, areaSubgroup, percent, type PhotoLayout,
 } from "@/lib/mockups";
 
 /**
@@ -63,13 +68,16 @@ type Area = {
   quad: Quad; suggested: Quad; source: string; kind?: string | null; axis: number | null; role: "front" | "back";
   /** The subgroup the seller linked it to (null: by the garment's tone), and that tone. */
   subgroup?: string | null; tone?: string | null;
+  /** Linked to "Any": the design's own file, whatever the garment's tone. */
+  subgroupAny?: boolean;
   /** "Design goes behind hair and arms" here, and why the analysis turned it off. */
   occlusion: boolean; occlusionNote?: string | null;
 };
 type Drag =
   | { kind: "move"; index: number; start: Pt; quad: Quad }
   | { kind: "corner"; index: number; corner: number; start: Pt; quad: Quad }
-  | { kind: "rotate"; index: number; start: Pt; quad: Quad };
+  | { kind: "rotate"; index: number; start: Pt; quad: Quad }
+  | { kind: "edge"; index: number; edge: number; start: Pt; quad: Quad };
 
 const CORNERS = ["Top left", "Top right", "Bottom right", "Bottom left"];
 const GUIDE_COLOUR: Record<Guide["kind"], string> = { axis: "#db2777", collar: "#ea580c", area: "#2563eb", photo: "#16a34a" };
@@ -104,7 +112,7 @@ export function PrintAreaEditor({
       return {
         quad: toPx(a.print_area, W, H), suggested, source: a.source, kind: a.kind, axis: garmentAxis(a.axis_angle, suggested),
         role: (a.role === "back" ? "back" : "front") as "front" | "back",
-        subgroup: a.subgroup_id ?? null, tone: a.tone ?? null,
+        subgroup: a.subgroup_id ?? null, tone: a.tone ?? null, subgroupAny: !!a.subgroup_any,
         occlusion: a.occlusion !== false, occlusionNote: a.occlusion_note ?? null,
       };
     }),
@@ -114,6 +122,10 @@ export function PrintAreaEditor({
   const [live, setLive] = useState<Area[] | null>(null);
   const [selected, setSelected] = useState(0);
   const [free, setFree] = useState(() => initial.some((a) => !isRect(a.quad)));
+  // Corner handles keep the area's proportions (Shift switches it while dragging); edge handles move one side.
+  const [keepRatio, setKeepRatio] = useState(true);
+  // "Print on all garments": the same design on every area of this photo.
+  const [printAll, setPrintAll] = useState(!!photo.print_all);
   const [snapOn, setSnapOn] = useState(true);
   const [showDesign, setShowDesign] = useState(true);
   // What the analysis put in front of the garment, tinted over the photo.
@@ -223,7 +235,12 @@ export function PrintAreaEditor({
       shown = s.active;
     } else if (d.kind === "corner") {
       const s = snapPoint(p, guides, reach(e.altKey));
-      quad = free ? dragCorner(d.quad, d.corner, s.value) : resizeRect(d.quad, d.corner, s.value, MIN_SIZE);
+      quad = free ? dragCorner(d.quad, d.corner, s.value)
+        : keepRatio !== e.shiftKey ? resizeKeep(d.quad, d.corner, s.value, MIN_SIZE) : resizeRect(d.quad, d.corner, s.value, MIN_SIZE);
+      shown = s.active;
+    } else if (d.kind === "edge") {
+      const s = snapPoint(p, guides, reach(e.altKey));
+      quad = resizeEdge(d.quad, d.edge, s.value, MIN_SIZE);
       shown = s.active;
     } else {
       const start = rectOf(d.quad).angle;
@@ -404,7 +421,22 @@ export function PrintAreaEditor({
   }
 
   function setSubgroup(id: string | null) {
-    commit(areas.map((a, i) => (i === selected ? { ...a, subgroup: id } : a)));
+    // "Any": the design's own file; a subgroup: its file; null: by the garment's colour.
+    commit(areas.map((a, i) => (i === selected ? { ...a, subgroup: id === ANY_SUBGROUP.id ? null : id, subgroupAny: id === ANY_SUBGROUP.id } : a)));
+  }
+
+  /** "Duplicate area": the selected area copied a little aside, its size, angle and subgroup link kept. */
+  function duplicate() {
+    const a = areas[selected];
+    if (!a || areas.length >= 24) return;
+    const quad = duplicateQuad(a.quad, W, H);
+    commit([...areas, { ...a, quad, suggested: quad, source: "seller" }]);
+    setSelected(areas.length);
+  }
+
+  function labelColour(a: Area): string {
+    const g = areaSubgroup({ subgroup_id: a.subgroup, tone: a.tone, subgroup_any: a.subgroupAny }, photo.subgroup_id, subgroups);
+    return subgroupColour(g && g.id !== ANY_SUBGROUP.id ? subgroups.findIndex((x) => x.id === g.id) : -1);
   }
 
   function setRole(role: "front" | "back") {
@@ -452,7 +484,7 @@ export function PrintAreaEditor({
       const unchanged = JSON.stringify(shares) === JSON.stringify(suggested);
       return {
         print_area: shares, detected_area: suggested, source: unchanged ? a.source : "seller", kind: a.kind ?? null, role: a.role,
-        subgroup_id: a.subgroup ?? null, tone: a.tone ?? null, occlusion: a.occlusion,
+        subgroup_id: a.subgroup ?? null, tone: a.tone ?? null, occlusion: a.occlusion, subgroup_any: !!a.subgroupAny,
       };
     });
   }
@@ -461,7 +493,7 @@ export function PrintAreaEditor({
     setSaving(true);
     setError(null);
     try {
-      onConfirmed(await api.saveMockupAreas(photo.id, payload(), true, size));
+      onConfirmed(await api.saveMockupAreas(photo.id, payload(), true, size, printAll));
     } catch (err: any) {
       setError(String(err.message ?? err));
     } finally {
@@ -475,7 +507,7 @@ export function PrintAreaEditor({
     setError(null);
     try {
       // Copying says these areas are right: this photo is confirmed with them.
-      const saved = await api.saveMockupAreas(photo.id, payload(), true, size);
+      const saved = await api.saveMockupAreas(photo.id, payload(), true, size, printAll);
       const copied = await api.copyMockupAreas(photo.id, copyIds);
       onCopied(copied, saved);
     } catch (err: any) {
@@ -614,12 +646,13 @@ export function PrintAreaEditor({
               </svg>
               {areas.map((a, i) => (
                 <span key={`n${i}`} className="pointer-events-none absolute max-w-[45%] -translate-x-1/2 -translate-y-1/2 truncate whitespace-nowrap rounded bg-slate-900/70 px-1.5 text-xs font-semibold text-white"
-                  style={px([(a.quad[0][0] + a.quad[2][0]) / 2, (a.quad[0][1] + a.quad[2][1]) / 2])} translate="no"
+                  style={{ ...px([(a.quad[0][0] + a.quad[2][0]) / 2, (a.quad[0][1] + a.quad[2][1]) / 2]),
+                    ...(subgroups.length > 1 ? { background: labelColour(a) } : {}) }} translate="no"
                   data-testid="editor-area-label">
                   {[
                     `${i + 1}`,
                     photo.layout === "front_back" || a.role === "back" ? ROLE_LABELS[a.role] : "",
-                    subgroups.length > 1 ? areaSubgroup({ subgroup_id: a.subgroup, tone: a.tone }, photo.subgroup_id, subgroups)?.name ?? "" : "",
+                    subgroups.length > 1 ? areaSubgroup({ subgroup_id: a.subgroup, tone: a.tone, subgroup_any: a.subgroupAny }, photo.subgroup_id, subgroups)?.name ?? "" : "",
                   ].filter(Boolean).join(" · ")}
                 </span>
               ))}
@@ -640,6 +673,32 @@ export function PrintAreaEditor({
                   <span aria-hidden className={`h-4 w-4 border-2 border-white bg-brand-600 shadow ${free ? "rotate-45" : "rounded-full"}`} />
                 </button>
               ))}
+              {sel && !tapping && !brushing && !free && edgeHandles(sel.quad).map((p, k) => (
+                <button key={`e${k}`} type="button" aria-label={`${["Top", "Right", "Bottom", "Left"][k]} side`}
+                  className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  style={px(p)} onPointerDown={(e) => begin(e, { kind: "edge", index: selected, edge: k, start: at(e), quad: sel.quad })}
+                  data-testid="editor-edge">
+                  <span aria-hidden className={`border-2 border-white bg-brand-600 shadow ${k % 2 ? "h-4 w-2" : "h-2 w-4"} rounded-sm`} />
+                </button>
+              ))}
+              {sel && !tapping && !brushing && subgroups.length > 1 && (
+                <div key="chooser" role="radiogroup" aria-label="This area prints for"
+                  className="absolute z-10 flex max-w-[90%] -translate-x-1/2 flex-wrap justify-center gap-1 rounded-lg bg-white/95 p-1 shadow-lg"
+                  style={px([(sel.quad[2][0] + sel.quad[3][0]) / 2, Math.min(H - 1, Math.max(sel.quad[2][1], sel.quad[3][1]) + 8 / scale)])}
+                  onPointerDown={(e) => e.stopPropagation()} data-testid="editor-subgroup-chooser">
+                  {[...subgroups, ANY_SUBGROUP].map((g, k) => {
+                    const on = g.id === ANY_SUBGROUP.id ? !!sel.subgroupAny : !sel.subgroupAny && sel.subgroup === g.id;
+                    return (
+                      <button key={g.id} type="button" className={`min-h-11 min-w-11 rounded-md px-2 text-xs font-semibold ${on ? "text-white" : "text-slate-700 ring-1 ring-inset ring-slate-300"}`}
+                        role="radio" aria-checked={on} onClick={() => setSubgroup(on ? null : g.id)}
+                        style={on ? { background: g.id === ANY_SUBGROUP.id ? "#475569" : subgroupColour(k) } : undefined}
+                        data-testid="editor-subgroup-option">
+                        <span translate="no">{g.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {sel && !tapping && !brushing && (
                 <button key="rotate" type="button" aria-label="Turn the print area"
                   className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
@@ -684,6 +743,14 @@ export function PrintAreaEditor({
                   data-testid="editor-free">
                   Free corners
                 </button>
+                <button type="button" className="btn-secondary min-h-11 px-2" onClick={duplicate} disabled={!sel || areas.length >= 24}
+                  aria-label="Duplicate area" title="Duplicate area" data-testid="editor-duplicate">
+                  Duplicate
+                </button>
+                <button type="button" className={`col-span-2 min-h-11 px-2 ${keepRatio ? "btn-primary" : "btn-secondary"}`} aria-pressed={keepRatio}
+                  onClick={() => setKeepRatio(!keepRatio)} title="Shift switches it while you drag a corner" data-testid="editor-ratio">
+                  Keep proportions
+                </button>
                 <button type="button" className={`min-h-11 px-2 ${snapOn ? "btn-primary" : "btn-secondary"}`} aria-pressed={snapOn}
                   onClick={() => setSnapOn(!snapOn)} data-testid="editor-snap">
                   Snap
@@ -696,6 +763,12 @@ export function PrintAreaEditor({
                   data-testid="editor-fabric">
                   On fabric
                 </button>
+                {areas.length > 1 && (
+                  <button key="print-all" type="button" className={`col-span-3 min-h-11 px-2 ${printAll ? "btn-primary" : "btn-secondary"}`}
+                    aria-pressed={printAll} onClick={() => setPrintAll(!printAll)} data-testid="editor-print-all">
+                    Print on all garments
+                  </button>
+                )}
                 {areas.length > 1 && (
                   <button key="copy-all" type="button" className="col-span-3 min-h-11 px-2 btn-secondary" onClick={copyToAll}
                     data-testid="editor-copy-all">
@@ -710,12 +783,13 @@ export function PrintAreaEditor({
                 {sel && subgroups.length > 1 && (
                   <label key="subgroup" className="col-span-3 block">
                     <span className="label">This area prints for</span>
-                    <select className="field w-full" value={sel.subgroup ?? ""} onChange={(e) => setSubgroup(e.target.value || null)}
+                    <select className="field w-full" value={sel.subgroupAny ? ANY_SUBGROUP.id : sel.subgroup ?? ""} onChange={(e) => setSubgroup(e.target.value || null)}
                       data-testid="editor-area-subgroup">
                       <option value="">
                         {`${areaSubgroup({ tone: sel.tone, subgroup_id: null }, photo.subgroup_id, subgroups)?.name ?? ""} (by garment colour)`}
                       </option>
                       {subgroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      <option value={ANY_SUBGROUP.id}>Any (the design&apos;s own file)</option>
                     </select>
                   </label>
                 )}

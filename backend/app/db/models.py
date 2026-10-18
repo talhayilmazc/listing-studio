@@ -739,6 +739,9 @@ class MockupTemplate(Base):
     #: What a back area prints when a design has no back file: "front" (the front design) or
     #: "plain" (nothing).
     back_without_design: Mapped[str] = mapped_column(Text, nullable=False, server_default="front")
+    #: Downloaded mockups and listing photos are named "<prefix>-<SKU or design>-<NN>.jpg"
+    #: ("CC-BR100-01.jpg"); None: "<SKU>_<template>_<photo>.jpg" as before.
+    file_prefix: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -817,6 +820,9 @@ class MockupPhoto(Base):
     #: (``layout_source`` "auto") or by the seller ("seller").
     layout: Mapped[str] = mapped_column(Text, nullable=False, server_default="single")
     layout_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="auto")
+    #: "Print on all garments": the same design on every area of this photo, whatever the
+    #: run's "one design per garment" says (each area's subgroup still picks the file).
+    print_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     #: The template's subgroup the photo belongs to (``MockupSubgroup``; None: the template's first).
     subgroup_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mockup_subgroup.id", ondelete="SET NULL"), index=True)
     #: Every print area, in the seller's order (see the class docstring).
@@ -853,6 +859,24 @@ class MockupSubgroup(Base):
     template_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_template.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    use_on: Mapped[str] = mapped_column(Text, nullable=False, server_default="any")
+    suffix: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MockupSubgroupPreset(Base):
+    """An account's subgroup, defined once and used by any template ("White design", suffix
+    "-white", use on dark garments): "Assign subgroups to this template" makes template
+    subgroups from presets; "Save as preset" makes one from a template's subgroup."""
+
+    __tablename__ = "mockup_subgroup_preset"
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_mockup_subgroup_preset_name"),)
+    MAX_PER_ACCOUNT: ClassVar[int] = 60
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     use_on: Mapped[str] = mapped_column(Text, nullable=False, server_default="any")
     suffix: Mapped[str | None] = mapped_column(Text)

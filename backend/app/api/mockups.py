@@ -44,6 +44,7 @@ from app.db.models import (
     MockupPhoto,
     MockupRun,
     MockupSubgroup,
+    MockupSubgroupPreset,
     MockupTemplate,
     MockupZip,
     Tenant,
@@ -88,7 +89,8 @@ NONE_CONFIRMED = (
 TAP_MISSED = "No garment was found where you tapped, so a box was placed there: drag it onto the print area."
 _CACHE = {"Cache-Control": "private, max-age=3600"}
 #: Subgroups per template.
-MAX_SUBGROUPS = 12
+#: Subgroups per template: any number in practice (an 11-garment photo can use 11 versions).
+MAX_SUBGROUPS = 40
 Quad = list[list[float]]
 Source = Literal["default", "tap", "seller", "copied"]
 
@@ -110,6 +112,8 @@ class AreaOut(BaseModel):
     #: photo's), and the garment's tone ("light"/"dark") that default comes from.
     subgroup_id: uuid.UUID | None = None
     tone: str | None = None
+    #: Linked to "Any": it prints the design's own file whatever its garment's tone.
+    subgroup_any: bool = False
     #: "Design goes behind hair and arms" in this area, and why the analysis turned it off.
     occlusion: bool = True
     occlusion_note: str | None = None
@@ -159,6 +163,8 @@ class PhotoOut(BaseModel):
     #: all garments" puts copies only on these, by their own geometry, never where none was found.
     found_areas: list[Quad] = Field(default_factory=list)
     garments_found: int = 0
+    #: "Print on all garments": the same design on every area, whatever the run says.
+    print_all: bool = False
     #: The suggestion was built from the seller's own placement, learnt from this many of
     #: their confirmed photos (None: the template standard).
     own_placement: int | None = None
@@ -178,6 +184,8 @@ class TemplateOut(BaseModel):
     back_without_design: str = "front"
     #: Its subgroups, in order (at least one).
     subgroups: list[SubgroupOut] = Field(default_factory=list)
+    #: Downloaded mockups and listing photos are named "<prefix>-<SKU>-<NN>.jpg" (None: as before).
+    file_prefix: str | None = None
 
 
 class PlacementGroupOut(BaseModel):
@@ -223,12 +231,41 @@ class SubgroupUpdate(BaseModel):
 
 class TemplateIn(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_NAME)
+    #: Start with the account's subgroup presets (instead of one subgroup named after it).
+    presets: bool = False
 
 
 class TemplateUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
     #: "Back area without a back design": the front design, or nothing.
     back_without_design: Literal["front", "plain"] | None = None
+    #: The file-name prefix ("CC"); "" clears it (today's naming); left out: unchanged.
+    file_prefix: str | None = Field(default=None, max_length=60)
+
+
+class PresetIn(BaseModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME)
+    use_on: Literal["any", "dark", "light"] = "any"
+    suffix: str | None = Field(default=None, max_length=40)
+
+
+class PresetUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME)
+    use_on: Literal["any", "dark", "light"] | None = None
+    suffix: str | None = Field(default=None, max_length=40)
+    position: int | None = Field(default=None, ge=0, le=1000)
+
+
+class PresetOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    use_on: str = "any"
+    suffix: str | None = None
+    position: int = 0
+
+
+class AssignPresets(BaseModel):
+    preset_ids: list[uuid.UUID] = Field(min_length=1, max_length=60)
 
 
 class Order(BaseModel):
@@ -259,6 +296,8 @@ class AreaIn(BaseModel):
     subgroup_id: uuid.UUID | None = None
     #: "Design goes behind hair and arms" in this area.
     occlusion: bool = True
+    #: Linked to "Any": the design's own file whatever the garment's tone (wins over ``subgroup_id``).
+    subgroup_any: bool = False
 
 
 class AreasUpdate(BaseModel):
@@ -266,6 +305,8 @@ class AreasUpdate(BaseModel):
 
     areas: list[AreaIn] = Field(min_length=1, max_length=MAX_GARMENTS)
     confirm: bool = False
+    #: "Print on all garments" (several-garment photos); left out: unchanged.
+    print_all: bool | None = None
     size: float | None = Field(default=None, ge=mockups.SIZE_RANGE[0], le=mockups.SIZE_RANGE[1])
 
 
@@ -466,10 +507,11 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
                     axis_angle=(g.get("geometry") or {}).get("axis_estimate"),
                     role=g.get("role") if g.get("role") in ("front", "back") else ("back" if p.view == "back" else "front"),
                     subgroup_id=_uuid_or_none(g.get("subgroup_id")), tone=g.get("tone"),
+                    subgroup_any=g.get("subgroup_id") == subgroups.ANY,
                     occlusion=g.get("occlusion") is not False, occlusion_note=g.get("occlusion_note"))
             for g in photo_areas(p)
         ],
-        found_areas=(found := found_garments(p)), garments_found=len(found),
+        found_areas=(found := found_garments(p)), garments_found=len(found), print_all=bool(p.print_all),
     )
 
 
@@ -526,7 +568,7 @@ def _template_out(t: MockupTemplate, photos: list[MockupPhoto], groups: list[Moc
                        subgroups=[SubgroupOut(id=g.id, name=g.name, use_on=g.use_on, suffix=g.suffix, position=g.position)
                                   for g in (groups or [])],
                        needs_check=sum(p.needs_check for p in out), confirmed=sum(p.confirmed for p in out),
-                       own_placement=max(own) if own else None)
+                       own_placement=max(own) if own else None, file_prefix=t.file_prefix)
 
 
 def _same_quad(a: Any, b: Any) -> bool:
@@ -773,10 +815,13 @@ async def create_template(
     template = MockupTemplate(tenant_id=tenant.id, name=clean_name(body.name, "Template"), position=int(last or 0) + 1)
     session.add(template)
     await session.flush()
-    first = MockupSubgroup(tenant_id=tenant.id, template_id=template.id, name=template.name, use_on="any")
-    session.add(first)
+    presets = await _presets(session, tenant.id) if body.presets else []
+    groups = [MockupSubgroup(tenant_id=tenant.id, template_id=template.id, name=p.name, use_on=p.use_on, suffix=p.suffix,
+                             position=i) for i, p in enumerate(presets[:MAX_SUBGROUPS])] or [
+        MockupSubgroup(tenant_id=tenant.id, template_id=template.id, name=template.name, use_on="any")]
+    session.add_all(groups)
     await session.commit()
-    return _template_out(template, [], [first])
+    return _template_out(template, [], groups)
 
 
 @router.get("/mockup-templates/{template_id}", response_model=TemplateOut)
@@ -799,8 +844,122 @@ async def update_template(
         template.name = clean_name(body.name, template.name)
     if body.back_without_design is not None:
         template.back_without_design = body.back_without_design
+    if body.file_prefix is not None:
+        template.file_prefix = mockups.clean_prefix(body.file_prefix)
     await session.commit()
     return await _template_full(session, template)
+
+
+# --- subgroup presets (the account's, used by any template) ----------------------------------------
+
+
+async def _presets(session: AsyncSession, tenant_id: uuid.UUID) -> list[MockupSubgroupPreset]:
+    return list((await session.execute(select(MockupSubgroupPreset).where(MockupSubgroupPreset.tenant_id == tenant_id)
+                                       .order_by(MockupSubgroupPreset.position, MockupSubgroupPreset.created_at))).scalars())
+
+
+def _preset_out(p: MockupSubgroupPreset) -> PresetOut:
+    return PresetOut(id=p.id, name=p.name, use_on=p.use_on, suffix=p.suffix, position=p.position)
+
+
+async def _own_preset(session: AsyncSession, tenant: Tenant, preset_id: uuid.UUID) -> MockupSubgroupPreset:
+    preset = await session.get(MockupSubgroupPreset, preset_id)
+    if preset is None or preset.tenant_id != tenant.id:
+        raise HTTPException(status_code=404, detail="preset not found")
+    return preset
+
+
+@router.get("/mockup-subgroup-presets", response_model=list[PresetOut])
+async def list_presets(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> list[PresetOut]:
+    return [_preset_out(p) for p in await _presets(session, tenant.id)]
+
+
+@router.post("/mockup-subgroup-presets", response_model=PresetOut, status_code=201)
+async def add_preset(body: PresetIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> PresetOut:
+    """A subgroup defined once for the account ("White design", suffix "-white", use on dark garments)."""
+    presets = await _presets(session, tenant.id)
+    if len(presets) >= MockupSubgroupPreset.MAX_PER_ACCOUNT:
+        raise HTTPException(status_code=409, detail=f"An account keeps up to {MockupSubgroupPreset.MAX_PER_ACCOUNT} presets.")
+    if any(subgroups.same(p.name, body.name) for p in presets):
+        raise HTTPException(status_code=409, detail="You already have a preset of that name.")
+    preset = MockupSubgroupPreset(tenant_id=tenant.id, name=clean_name(body.name, "Subgroup"), use_on=body.use_on,
+                                  suffix=(body.suffix or "").strip() or None,
+                                  position=max((p.position for p in presets), default=0) + 1)
+    session.add(preset)
+    await session.commit()
+    return _preset_out(preset)
+
+
+@router.patch("/mockup-subgroup-presets/{preset_id}", response_model=PresetOut)
+async def update_preset(preset_id: uuid.UUID, body: PresetUpdate, session: AsyncSession = Depends(get_session),
+                        tenant: Tenant = Depends(active_tenant)) -> PresetOut:
+    preset = await _own_preset(session, tenant, preset_id)
+    if body.name is not None:
+        if any(subgroups.same(p.name, body.name) and p.id != preset.id for p in await _presets(session, tenant.id)):
+            raise HTTPException(status_code=409, detail="You already have a preset of that name.")
+        preset.name = clean_name(body.name, preset.name)
+    if body.use_on is not None:
+        preset.use_on = body.use_on
+    if body.suffix is not None:
+        preset.suffix = body.suffix.strip() or None
+    if body.position is not None:
+        preset.position = body.position
+    await session.commit()
+    return _preset_out(preset)
+
+
+@router.delete("/mockup-subgroup-presets/{preset_id}", status_code=204)
+async def delete_preset(preset_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                        tenant: Tenant = Depends(active_tenant)) -> None:
+    """Remove a preset (templates that took it keep their own subgroups)."""
+    preset = await _own_preset(session, tenant, preset_id)
+    await session.delete(preset)
+    await session.commit()
+
+
+@router.post("/mockup-templates/{template_id}/presets", response_model=TemplateOut)
+async def assign_presets(template_id: uuid.UUID, body: AssignPresets, session: AsyncSession = Depends(get_session),
+                         tenant: Tenant = Depends(active_tenant)) -> TemplateOut:
+    """"Assign subgroups to this template": each chosen preset becomes a subgroup of it (one of
+    the same name is updated, not doubled). A template still on its untouched default subgroup
+    (named after it, "any", no suffix) has that one become the first preset, its photos with it."""
+    template = await _own_template(session, tenant, template_id)
+    chosen = [await _own_preset(session, tenant, pid) for pid in dict.fromkeys(body.preset_ids)]
+    groups = await _subgroups_of(session, template.id)
+    untouched = (len(groups) == 1 and groups[0].name == template.name and groups[0].use_on == "any" and not groups[0].suffix)
+    for i, preset in enumerate(chosen):
+        same = next((g for g in groups if subgroups.same(g.name, preset.name)), None)
+        if same is None and i == 0 and untouched:
+            same = groups[0]
+        if same is not None:
+            same.name, same.use_on, same.suffix = preset.name, preset.use_on, preset.suffix
+            continue
+        if len(groups) >= MAX_SUBGROUPS:
+            raise HTTPException(status_code=409, detail=f"A template has up to {MAX_SUBGROUPS} subgroups.")
+        group = MockupSubgroup(tenant_id=tenant.id, template_id=template.id, name=preset.name, use_on=preset.use_on,
+                               suffix=preset.suffix, position=max((g.position for g in groups), default=0) + 1)
+        session.add(group)
+        groups.append(group)
+    await session.commit()
+    return await _template_full(session, template)
+
+
+@router.post("/mockup-subgroups/{subgroup_id}/preset", response_model=PresetOut, status_code=201)
+async def save_as_preset(subgroup_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                         tenant: Tenant = Depends(active_tenant)) -> PresetOut:
+    """"Save as preset": a template's subgroup kept for the account (one of the same name is updated)."""
+    group = await _own_subgroup(session, tenant, subgroup_id)
+    presets = await _presets(session, tenant.id)
+    preset = next((p for p in presets if subgroups.same(p.name, group.name)), None)
+    if preset is None:
+        if len(presets) >= MockupSubgroupPreset.MAX_PER_ACCOUNT:
+            raise HTTPException(status_code=409, detail=f"An account keeps up to {MockupSubgroupPreset.MAX_PER_ACCOUNT} presets.")
+        preset = MockupSubgroupPreset(tenant_id=tenant.id, name=group.name,
+                                      position=max((p.position for p in presets), default=0) + 1)
+        session.add(preset)
+    preset.use_on, preset.suffix = group.use_on, group.suffix
+    await session.commit()
+    return _preset_out(preset)
 
 
 def resuggest(photo: MockupPhoto, layout: str) -> bool:
@@ -995,7 +1154,8 @@ async def save_areas(
             "confidence": before.get("confidence") if area.source in ("default", "seller") else None,
             "kind": area.kind or before.get("kind"),
             "role": area.role or before.get("role") or ("back" if photo.view == "back" else "front"),
-            "subgroup_id": str(area.subgroup_id) if area.subgroup_id and str(area.subgroup_id) in valid else None,
+            "subgroup_id": subgroups.ANY if area.subgroup_any else (
+                str(area.subgroup_id) if area.subgroup_id and str(area.subgroup_id) in valid else None),
             "tone": before.get("tone"),
             "occlusion": area.occlusion,
             # The analysis's reason stays only while the seller leaves the switch as it set it.
@@ -1006,6 +1166,8 @@ async def save_areas(
     photo.print_area_source = "default" if all(r["source"] == "default" for r in rows) else "seller"
     if body.size is not None:
         photo.size = round(body.size, 3)
+    if body.print_all is not None:
+        photo.print_all = body.print_all
     photo.confirmed_at = datetime.now(timezone.utc) if body.confirm else None
     photo.version += 1
     await placement.record(session, photo)  # "Looks right" teaches the seller's placement

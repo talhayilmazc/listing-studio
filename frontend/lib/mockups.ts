@@ -282,11 +282,15 @@ const same = (a: string | null | undefined, b: string | null | undefined) =>
 
 /** The subgroup an area prints for, as the server decides (pipeline/subgroups.py area_subgroup):
  * the seller's link, else (several subgroups) the one whose "Use on" matches the garment's tone, else the photo's. */
+/** An area linked to "Any": the design's own file, whatever the garment's tone (backend subgroups.ANY). */
+export const ANY_SUBGROUP: MockupSubgroup = { id: "*any*", name: "Any", use_on: "any", suffix: null, position: -1 } as MockupSubgroup;
+
 export function areaSubgroup(
-  area: Pick<MockupArea, "subgroup_id" | "tone">,
+  area: Pick<MockupArea, "subgroup_id" | "tone"> & { subgroup_any?: boolean | null },
   photoSubgroupId: string | null | undefined,
   subgroups: MockupSubgroup[],
 ): MockupSubgroup | null {
+  if (area.subgroup_any) return ANY_SUBGROUP;
   const linked = subgroups.find((g) => g.id === area.subgroup_id);
   if (linked) return linked;
   if (subgroups.length > 1 && (area.tone === "light" || area.tone === "dark")) {

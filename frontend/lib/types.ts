@@ -230,6 +230,8 @@ export interface MockupArea {
   role?: "front" | "back" | string;
   /** The subgroup the seller linked this area to; null: by the garment's tone, else the photo's. */
   subgroup_id?: string | null;
+  /** Linked to "Any": the design's own file whatever the garment's tone. */
+  subgroup_any?: boolean;
   /** The garment's brightness ("light" or "dark"), read from the photo: the default link. */
   tone?: "light" | "dark" | string | null;
   /** "Design goes behind hair and arms" in this area, and why the analysis turned it off. */
@@ -273,6 +275,8 @@ export interface MockupPhoto {
   /** The garments the analysis really found (their suggested areas): copies go only onto these. */
   found_areas?: number[][][];
   garments_found?: number;
+  /** "Print on all garments": the same design on every area, whatever the run says. */
+  print_all?: boolean;
   /** Its suggestion came from the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
 }
@@ -291,6 +295,8 @@ export interface MockupTemplate {
   back_without_design?: "front" | "plain" | string;
   /** Its subgroups, in order (at least one, named after it at first). */
   subgroups?: MockupSubgroup[];
+  /** Downloads and listing photos named "<prefix>-<SKU>-<NN>.jpg"; null: "<SKU>_<template>_<photo>.jpg". */
+  file_prefix?: string | null;
 }
 
 /** An upload slot as the designs page sends it: a subgroup's name, file-name suffix and "Use on". */
@@ -301,6 +307,9 @@ export interface SlotIn {
 }
 
 /** A subgroup of a template ("Comfort Colors White"): which garments it is for and the file-name suffix of its designs. */
+/** An account's subgroup preset ("White design", suffix "-white", use on dark garments). */
+export interface SubgroupPreset { id: string; name: string; use_on: string; suffix: string | null; position: number }
+
 export interface MockupSubgroup {
   id: string;
   name: string;

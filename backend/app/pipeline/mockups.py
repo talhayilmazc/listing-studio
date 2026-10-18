@@ -417,6 +417,33 @@ def output_name(base: str, template_name: str, taken: set[str], photo_name: str 
     return name
 
 
+#: What a template's file-name prefix may hold: letters, digits, "-" and "_" (safe on every
+#: operating system and in every ZIP reader), at most ``PREFIX_MAX`` characters.
+_PREFIX_KEEP = re.compile(r"[^A-Za-z0-9_-]+")
+PREFIX_MAX = 20
+
+
+def clean_prefix(text: str | None) -> str | None:
+    """A template's file-name prefix as stored: spaces become "-", anything else unsafe goes;
+    None when nothing is left (today's naming)."""
+    cleaned = _PREFIX_KEEP.sub("", re.sub(r"\s+", "-", (text or "").strip())).strip("-_")[:PREFIX_MAX]
+    return cleaned or None
+
+
+def prefixed_name(prefix: str, base: str, number: int, taken: set[str]) -> str:
+    """"<prefix>-<SKU or design>-<NN>.jpg" ("CC-BR100-01.jpg"), made unique among ``taken``
+    (which it joins). The design's part keeps any language but loses what file systems
+    refuse; spaces become "-"."""
+    part = re.sub(r"\s+", "-", safe_name(base, 60)).strip("-") or "design"
+    stem = f"{prefix}-{part}-{number:02d}"
+    name, n = f"{stem}.jpg", 1
+    while name.lower() in taken:
+        n += 1
+        name = f"{stem}-{n}.jpg"
+    taken.add(name.lower())
+    return name
+
+
 def _background_mask(rgb):  # noqa: ANN001, ANN202
     """The garment, from a photo on a plain background: pixels unlike the border's
     colour, minus the background regions that touch the photo's edge. None when

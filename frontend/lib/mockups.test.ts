@@ -121,7 +121,7 @@ test("names up to 120 characters, shown in full on hover; from the file names by
 
 test("templates hold many photos: added together or later, reordered, moved, removed", () => {
   const page = read(PAGE);
-  assert.match(page, /api\.createMockupTemplate\(name\.trim\(\) \|\| "Template"\)/);
+  assert.match(page, /api\.createMockupTemplate\(name\.trim\(\) \|\| "Template", presets > 0 && usePresets\)/);
   assert.match(page, /<option value="new">A new template<\/option>/);
   assert.match(page, /<AddPhotos key="add" templates=\{\[\]\} into=\{template\}/); // more photos into a template, later
   assert.match(page, /api\.orderMockupPhotos\(template\.id, ids\)/);
@@ -181,7 +181,7 @@ test("the editor: large, a big Looks right, every control 44px, by pointer, keyb
   assert.match(editor, /className="fixed inset-0 z-50 /);
   assert.match(editor, /lg:min-w-\[900px\]/);
   // Saves with confirm = true: "Looks right" is what makes the photo usable.
-  assert.match(editor, /onConfirmed\(await api\.saveMockupAreas\(photo\.id, payload\(\), true, size\)\);/);
+  assert.match(editor, /onConfirmed\(await api\.saveMockupAreas\(photo\.id, payload\(\), true, size, printAll\)\);/);
   // Every button in the editor is at least 44 px (min-h-11, h-11 or min-h-12).
   for (const [tag] of editor.matchAll(/<button[\s\S]*?>/g)) {
     assert.match(tag, /min-h-11|h-11 w-11|min-h-12/, tag);

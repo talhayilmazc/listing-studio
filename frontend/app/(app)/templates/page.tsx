@@ -6,9 +6,10 @@ import { ConfirmGrid } from "@/components/ConfirmGrid";
 import { FileDrop } from "@/components/FileDrop";
 import { PhotoViewer } from "@/components/PhotoViewer";
 import { PrintAreaEditor } from "@/components/PrintAreaEditor";
+import { AssignPresets, FilePrefixField, PresetsManager, SaveAsPreset } from "@/components/SubgroupPresets";
 import { api } from "@/lib/api";
 import { pick } from "@/lib/fileDrop";
-import type { MockupPhoto, MockupSubgroup, MockupTemplate } from "@/lib/types";
+import type { MockupPhoto, MockupSubgroup, MockupTemplate, SubgroupPreset } from "@/lib/types";
 import {
   ACCURACY_NOTE,
   ALL_READY,
@@ -63,6 +64,11 @@ import {
  */
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<MockupTemplate[] | null>(null);
+  // The account's subgroup presets (Part C): any template takes them in one click.
+  const [presets, setPresets] = useState<SubgroupPreset[]>([]);
+  useEffect(() => {
+    api.subgroupPresets().then(setPresets).catch(() => setPresets([]));
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ queue: string[]; index: number } | null>(null);
   // Photos just uploaded: each opens in the editor once it is ready.
@@ -206,7 +212,8 @@ export default function TemplatesPage() {
         )}
       </div>
 
-      <AddPhotos templates={templates ?? []} onAdded={(ids) => { setPending((p) => [...p, ...ids]); load(); }} />
+      <AddPhotos templates={templates ?? []} presets={presets.length} onAdded={(ids) => { setPending((p) => [...p, ...ids]); load(); }} />
+      <PresetsManager presets={presets} onChange={setPresets} />
       {error && <p key="error" role="alert" className="card p-4 text-sm text-rose-700">{error}</p>}
       {preparing && polls.current > 90 && (
         <p key="slow" role="status" className="card p-4 text-sm text-amber-800">
@@ -283,8 +290,12 @@ export default function TemplatesPage() {
 type Row = { key: string; file: File; name: string; pct: number; state: "waiting" | "sending" | "done" | "error"; message?: string };
 
 /** Upload one or many photos: into a new template (named from them) or an existing one. */
-function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; onAdded: (ids: string[]) => void; into?: MockupTemplate }) {
+function AddPhotos({ templates, onAdded, into, presets = 0 }: {
+  templates: MockupTemplate[]; onAdded: (ids: string[]) => void; into?: MockupTemplate; presets?: number;
+}) {
   const [rows, setRows] = useState<Row[]>([]);
+  // A new template starts with the account's subgroup presets, in one click.
+  const [usePresets, setUsePresets] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
   const [target, setTarget] = useState<string>(into?.id ?? "new");
   const [name, setName] = useState("");
@@ -312,7 +323,7 @@ function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; 
     setError(null);
     const added: string[] = [];
     try {
-      const templateId = target === "new" ? (await api.createMockupTemplate(name.trim() || "Template")).id : target;
+      const templateId = target === "new" ? (await api.createMockupTemplate(name.trim() || "Template", presets > 0 && usePresets)).id : target;
       for (const row of sendable) {
         update(row.key, { state: "sending", pct: 0 });
         try {
@@ -359,6 +370,13 @@ function AddPhotos({ templates, onAdded, into }: { templates: MockupTemplate[]; 
               <span className="label">Template name</span>
               <input className="field w-full" value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)}
                 disabled={busy} data-testid="template-name" />
+            </label>
+          )}
+          {target === "new" && presets > 0 && (
+            <label key="presets" className="flex min-h-11 items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={usePresets} onChange={(e) => setUsePresets(e.target.checked)}
+                disabled={busy} data-testid="template-use-presets" />
+              <span translate="no">{`Use my ${presets} subgroup ${presets === 1 ? "preset" : "presets"}`}</span>
             </label>
           )}
         </div>
@@ -642,6 +660,7 @@ function TemplateCard({
         <input className="field w-full font-medium" value={name} maxLength={MAX_NAME} title={template.name}
           onChange={(e) => setName(e.target.value)} onBlur={rename} data-testid="template-rename" />
       </label>
+      <FilePrefixField template={template} onChange={onChange} />
       <SubgroupsEditor template={template} onChange={onChange} onError={setMessage} />
       {allReady && (
         <div key="all-ready" ref={readyBox} role="status"
@@ -915,6 +934,7 @@ function SubgroupsEditor({ template, onChange, onError }: {
       </summary>
       <div className="space-y-3 border-t border-slate-200 p-3">
         <p className="text-xs text-slate-500">{SUBGROUPS_HINT}</p>
+        <AssignPresets template={template} onChange={onChange} />
         <ul className="space-y-2">
           {groups.map((g) => (
             <SubgroupRow key={`${g.id}-${g.name}-${g.suffix ?? ""}`} group={g} removable={groups.length > 1} busy={busy}
@@ -955,7 +975,7 @@ function SubgroupRow({ group, removable, busy, onSave, onRemove }: {
   const [name, setName] = useState(group.name);
   const [suffix, setSuffix] = useState(group.suffix ?? "");
   return (
-    <li className="grid gap-2 sm:grid-cols-[1fr_11rem_8rem_auto]" data-testid="subgroup-row">
+    <li className="grid gap-2 sm:grid-cols-[1fr_11rem_8rem_auto_auto]" data-testid="subgroup-row">
       <input className="field min-w-0" value={name} maxLength={MAX_NAME} aria-label="Subgroup name"
         onChange={(e) => setName(e.target.value)} onBlur={() => { if (name.trim() && name !== group.name) onSave({ name: name.trim() }); }} />
       <select className="field min-w-0" value={group.use_on} aria-label={`Use ${group.name} on`} disabled={busy}
@@ -965,6 +985,7 @@ function SubgroupRow({ group, removable, busy, onSave, onRemove }: {
       <input className="field min-w-0" value={suffix} maxLength={40} placeholder="Suffix" aria-label={`File name suffix of ${group.name}`}
         onChange={(e) => setSuffix(e.target.value)}
         onBlur={() => { if (suffix !== (group.suffix ?? "")) onSave({ suffix: suffix.trim() || null }); }} />
+      <SaveAsPreset group={group} />
       <button type="button" className="btn-secondary min-h-11 px-3 text-rose-700" onClick={onRemove} disabled={busy || !removable}
         aria-label={`Remove ${group.name}`}>
         Remove

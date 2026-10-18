@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 from pathlib import PurePath
+from types import SimpleNamespace
 from typing import Any
 
 #: Ink: the mean lightness (0..255) of a design's opaque pixels above LIGHT_INK is light ink
@@ -68,10 +69,18 @@ def tone_of(lightness: float | None) -> str | None:
     return "light" if lightness > LIGHT_GARMENT else "dark"
 
 
+#: An area linked to "Any": it prints the design's own file, whatever its garment's tone.
+ANY = "*any*"
+ANY_GROUP = SimpleNamespace(id=ANY, name=ANY, use_on="any", suffix=None)
+
+
 def area_subgroup(row: dict[str, Any], photo_subgroup: Any, subgroups: list[Any]) -> Any:
-    """The subgroup an area prints for: the seller's link (``row["subgroup_id"]``), else (in a
-    template with several subgroups) the one whose "Use on" matches the garment's tone, else
-    the photo's subgroup. ``subgroups``: the template's (objects with ``id``, ``use_on``)."""
+    """The subgroup an area prints for: the seller's link (``row["subgroup_id"]``; "Any": the
+    design's own file), else (in a template with several subgroups) the one whose "Use on"
+    matches the garment's tone, else the photo's subgroup. ``subgroups``: the template's
+    (objects with ``id``, ``use_on``)."""
+    if row.get("subgroup_id") == ANY:
+        return ANY_GROUP
     ids = {str(g.id): g for g in subgroups}
     chosen = ids.get(str(row.get("subgroup_id") or ""))
     if chosen is not None:
@@ -87,7 +96,10 @@ def area_subgroup(row: dict[str, Any], photo_subgroup: Any, subgroups: list[Any]
 def file_for(design: Any, versions: list[Any], subgroup_name: str | None) -> Any | None:
     """The file (the design itself, or one of its versions) a subgroup's mockups print, or None
     when the design has nothing for that subgroup (a single-version design prints only its own
-    subgroup's mockups). A design file without a subgroup prints for every subgroup."""
+    subgroup's mockups). A design file without a subgroup prints for every subgroup. An area
+    linked to "Any" (``ANY``) prints the design's own file."""
+    if subgroup_name == ANY:
+        return design
     for v in versions:
         if same(v.subgroup, subgroup_name):
             return v
