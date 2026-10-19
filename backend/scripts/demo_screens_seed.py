@@ -196,6 +196,12 @@ async def mockup_templates(s, storage, t):
                                  ("Brick", samples.blank((150, 60, 50), size=(1200, 1400)))]),
         ("Matching tees", [("Red and blue", two_tees())]),
         ("Six tees", [("Three white, three black", six_tees())]),
+        # Ten colours, every photo confirmed: a design printed on all ten, to time "Apply this
+        # change to… this design on all photos" until the last mockup is made again.
+        ("Ten colours", [(name, samples.blank(rgb, size=(900, 1050))) for name, rgb in (
+            ("White", (238, 238, 236)), ("Black", (30, 30, 32)), ("Brick", (150, 60, 50)), ("Navy", (35, 45, 80)),
+            ("Sage", (150, 170, 140)), ("Sand", (215, 200, 170)), ("Pink", (235, 180, 190)), ("Grey", (130, 130, 135)),
+            ("Mustard", (210, 165, 50)), ("Teal", (40, 120, 120)))]),
     ]
     first = None
     for position, (name, photos) in enumerate(groups, start=1):
@@ -210,8 +216,8 @@ async def mockup_templates(s, storage, t):
                               source_key=key, rights_confirmed_at=now))
             await s.commit()
             done = await work.prepare(s, storage, pid)
-            if first is None:
-                first = done
+            if first is None or name == "Ten colours":
+                first = first or done
                 done.confirmed_at = now
                 await s.commit()
 

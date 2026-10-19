@@ -17,7 +17,9 @@ pipeline/design_edits.py, workers/mockups.py, components/DesignEditor.tsx).
                                                   every subgroup), optionally the same regions on
                                                   the batch's other designs; returns ``undo``.
 ``POST /api/mockup-recolours/restore``            undo a recolouring.
-``POST /api/mockup-runs/{run_id}/rerender``       make the edited mockups again (the worker).
+``POST /api/mockup-runs/{run_id}/rerender``       make the edited mockups again (the worker); a request
+                                                  while others are being made joins their queue
+                                                  (pipeline/mockup_refresh.py), never refused.
 ``GET  /api/mockup-designs/{design_id}/file``     a design file as uploaded and stored (the editor
                                                   previews the recolouring on it).
 
@@ -35,19 +37,22 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session, get_storage
-from app.api.mockups import WRITTEN, _active, _own_design, _own_photo, _own_run, _written
+from redis.asyncio import Redis
+
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
+from app.api.mockups import WRITTEN, RunOut, _active, _own_design, _own_photo, _own_run, _run_out, _written, output_stamp
 from app.db.models import (
     MockupAdjustment,
     MockupDesign,
     MockupDesignVersion,
+    MockupOutput,
     MockupPhoto,
     MockupRecolour,
     MockupRun,
     MockupSubgroup,
     Tenant,
 )
-from app.pipeline import design_edits
+from app.pipeline import design_edits, mockup_refresh
 from app.pipeline.storage import Storage
 from app.workers import mockups as work
 
@@ -386,15 +391,18 @@ async def restore_recolours(
 # --- making them again -----------------------------------------------------------------------------
 
 
-@router.post("/mockup-runs/{run_id}/rerender", status_code=202)
+@router.post("/mockup-runs/{run_id}/rerender", status_code=202, response_model=RunOut)
 async def rerender(
     run_id: uuid.UUID, body: RerenderIn, session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer),
-) -> dict[str, Any]:
-    """Make the chosen mockups again with the seller's edits (the worker; the run's progress
-    says when they are done)."""
+    redis: Redis = Depends(get_redis),
+) -> RunOut:
+    """Make the chosen mockups again with the seller's edits (the worker). Returns the run with
+    the pairs now being made again (``refreshing``): the tiles show a preview until each new file
+    is in. Pairs asked for while others are being made join the same queue; only the first
+    making of the run's mockups is waited for (409)."""
     run = await _own_run(session, tenant, run_id)
-    if _active(run):
+    if _active(run) and not await mockup_refresh.claimed(redis, run.id):
         raise HTTPException(status_code=409, detail="The mockups are still being made.")
     if await _written(session, run.batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
@@ -403,8 +411,11 @@ async def rerender(
     pairs = [(d, p) for d, p in dict.fromkeys(body.pairs) if d in design_ids and str(p) in photo_ids]
     if not pairs:
         raise HTTPException(status_code=422, detail="Nothing of this run to make again.")
-    run.status, run.error = "queued", None
-    await session.commit()
-    await enqueuer.enqueue("rerender_mockups", str(run.id), [[str(d), str(p)] for d, p in pairs],
-                           _job_id=f"rerender:{run.id}:{uuid.uuid4().hex[:8]}")
-    return {"queued": len(pairs)}
+    stamps = {(o.design_id, o.photo_id): output_stamp(o.key) for o in (await session.execute(
+        select(MockupOutput).where(MockupOutput.run_id == run.id))).scalars()}
+    if await mockup_refresh.add(redis, run.id, {pair: stamps.get(pair, "") for pair in pairs}):  # no worker has the run
+        run.status, run.error = "queued", None
+        await session.commit()
+        # The job takes the pairs from the run's queue (these and any asked for meanwhile).
+        await enqueuer.enqueue("rerender_mockups", str(run.id), _job_id=f"rerender:{run.id}:{uuid.uuid4().hex[:8]}")
+    return await _run_out(session, run, redis)

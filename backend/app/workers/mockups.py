@@ -55,7 +55,7 @@ from app.db.models import (
     UploadBatchStatus,
 )
 from app.pipeline import mockup_vision as vision
-from app.pipeline import mockups, placement, subgroups, upload_retention
+from app.pipeline import mockup_refresh, mockups, placement, subgroups, upload_retention
 from app.pipeline.images import ImageProcessingError
 from app.pipeline.ingest import _rerank
 from app.pipeline.storage import Storage
@@ -784,13 +784,69 @@ async def generate_mockups(ctx: dict[str, Any], run_id: str) -> str:
         return done.status if done is not None else "missing"
 
 
-async def rerender_mockups(ctx: dict[str, Any], run_id: str, pairs: list[list[str]]) -> str:
-    """arq entrypoint: make chosen mockups of a run again (the seller's edits)."""
-    from app.api.deps import get_storage
+async def rerender_mockups(ctx: dict[str, Any], run_id: str, pairs: list[list[str]] | None = None) -> str:
+    """arq entrypoint: make chosen mockups of a run again (the seller's edits).
 
+    One job per run takes the run's queue (pipeline/mockup_refresh.py) in turns until it is
+    empty: pairs asked for while it works are made in the next turn, never refused. A pair stays
+    in the queue (the tile says "Updating…") until its turn is over; a pair whose mockup did not
+    get a new file is recorded with the reason (the tile says so, with "Try again")."""
+    from app.api.deps import get_redis, get_storage
+
+    redis = ctx.get("redis") or get_redis()
+    rid = uuid.UUID(run_id)
+    if pairs:  # a job queued before the queue existed (before this release) carries its pairs
+        async with ctx["sessionmaker"]() as session:
+            keys = {(o.design_id, o.photo_id): o.key for o in (await session.execute(
+                select(MockupOutput).where(MockupOutput.run_id == rid))).scalars()}
+        await mockup_refresh.add(redis, rid, {
+            (uuid.UUID(str(d)), uuid.UUID(str(p))): (keys.get((uuid.UUID(str(d)), uuid.UUID(str(p)))) or "").rsplit("/", 1)[-1][:12]
+            for d, p in pairs})
+    status = "missing"
     async with ctx["sessionmaker"]() as session:
-        done = await run(session, get_storage(), uuid.UUID(run_id), refresh=[(d, p) for d, p in pairs])
-        return done.status if done is not None else "missing"
+        while True:
+            turn = await mockup_refresh.take(redis, rid)
+            if not turn:
+                if await mockup_refresh.finish(redis, rid):
+                    break
+                continue
+            status = await refresh_turn(session, get_storage(), rid, turn, redis)
+            if status == "missing":
+                await mockup_refresh.finish(redis, rid)
+                break
+    return status
+
+
+async def refresh_turn(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
+                       turn: list[tuple[uuid.UUID, uuid.UUID]], redis: Any) -> str:
+    """Make one turn of queued pairs again; record which got a new file and which did not."""
+    async def keys() -> dict[tuple[uuid.UUID, uuid.UUID], str | None]:
+        rows = (await session.execute(select(MockupOutput).where(MockupOutput.run_id == run_id))).scalars()
+        return {(o.design_id, o.photo_id): o.key for o in rows if o.photo_id is not None}
+
+    job = await session.get(MockupRun, run_id)
+    if job is None:
+        return "missing"
+    before = await keys()
+    job.status, job.error = "queued", None  # run() makes only a run that is waiting
+    await session.commit()
+    done = await run(session, storage, run_id, refresh=turn)
+    reason = (done.error if done is not None else None) or "This mockup could not be made again."
+    session.expire_all()
+    after = await keys()
+    failed: dict[tuple[uuid.UUID, uuid.UUID], str] = {}
+    for pair in turn:
+        if pair not in before and pair not in after:
+            continue  # this design does not print on this photo
+        if after.get(pair) is None or after.get(pair) == before.get(pair):
+            failed[pair] = reason
+    job = await session.get(MockupRun, run_id)
+    if job is not None and job.status == "failed":
+        # The run's mockups are there; only these updates failed (each tile says so).
+        job.status = "succeeded"
+        await session.commit()
+    await mockup_refresh.done(redis, run_id, turn, failed)
+    return job.status if job is not None else "missing"
 
 
 # --- use for listings -------------------------------------------------------------------------

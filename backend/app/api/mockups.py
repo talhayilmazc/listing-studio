@@ -29,10 +29,11 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
+from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session, get_storage
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
 from app.core import audit, storage_cap
 from app.core.config import get_settings
 from app.db.models import (
@@ -50,7 +51,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.pipeline import grouping, mockup_sample, mockups, placement, skus, subgroups, upload_retention
+from app.pipeline import grouping, mockup_refresh, mockup_sample, mockups, placement, skus, subgroups, upload_retention
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
@@ -88,6 +89,16 @@ NONE_CONFIRMED = (
 #: Said by "Add area" when nothing garment-shaped is under the tap: a box is placed there instead.
 TAP_MISSED = "No garment was found where you tapped, so a box was placed there: drag it onto the print area."
 _CACHE = {"Cache-Control": "private, max-age=3600"}
+#: A mockup asked for with its version (``?v=<stamp>``, the run's ``OutputOut.stamp``): a made
+#: again mockup has a new file and a new stamp, so a versioned URL never changes and is kept;
+#: one without the current version is checked every time (an old tile never shows a stale file).
+_VERSIONED = {"Cache-Control": "private, max-age=31536000, immutable"}
+_REVALIDATE = {"Cache-Control": "private, no-cache"}
+
+
+def output_stamp(key: str | None) -> str:
+    """A mockup's version: the start of its file's name (a new file on every making)."""
+    return (key or "").rsplit("/", 1)[-1].removesuffix(".jpg")[:12]
 #: Subgroups per template.
 #: Subgroups per template: any number in practice (an 11-garment photo can use 11 versions).
 MAX_SUBGROUPS = 40
@@ -442,6 +453,20 @@ class ZipOut(BaseModel):
     expires_at: datetime | None = None
 
 
+class PairOut(BaseModel):
+    design_id: uuid.UUID
+    photo_id: uuid.UUID
+
+
+class RefreshingOut(PairOut):
+    #: The mockup's version when it was asked for: its tile updates as soon as the version changes.
+    from_stamp: str = ""
+
+
+class RefreshFailedOut(PairOut):
+    reason: str
+
+
 class RunOut(BaseModel):
     id: uuid.UUID
     batch_id: uuid.UUID
@@ -459,6 +484,11 @@ class RunOut(BaseModel):
     skipped_photos: list[str] = Field(default_factory=list)
     designs: list[RunDesignOut] = Field(default_factory=list)
     zips: list[ZipOut] = Field(default_factory=list)
+    #: Mockups being made again after the seller's edits (pipeline/mockup_refresh.py): each
+    #: tile shows a preview and "Updating…" until its new file is in.
+    refreshing: list[RefreshingOut] = Field(default_factory=list)
+    #: Mockups that could not be made again, with the reason ("Try again" on the tile).
+    refresh_failed: list[RefreshFailedOut] = Field(default_factory=list)
 
 
 class ListingsRequest(BaseModel):
@@ -1751,7 +1781,7 @@ def _zip_out(z: MockupZip) -> ZipOut:
                   error=z.error, expires_at=z.expires_at)
 
 
-async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
+async def _run_out(session: AsyncSession, run: MockupRun, redis: Any = None) -> RunOut:
     names: list[str] = []
     for raw in run.template_ids:
         template = await session.get(MockupTemplate, uuid.UUID(str(raw)))
@@ -1784,6 +1814,7 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
                     run.sides == "both" or (photo.view or "front") == run.sides):
                 skipped_photos.append(photo.name)
     zips = (await session.execute(select(MockupZip).where(MockupZip.run_id == run.id).order_by(MockupZip.created_at))).scalars()
+    waiting, failed = await mockup_refresh.state(redis, run.id) if redis is not None else ({}, {})
     return RunOut(
         id=run.id, batch_id=run.batch_id, status=run.status, total=run.total, done=run.done, failed=run.failed,
         error=run.error, templates=names, template_ids=[uuid.UUID(str(t)) for t in run.template_ids],
@@ -1796,13 +1827,15 @@ async def _run_out(session: AsyncSession, run: MockupRun) -> RunOut:
                 outputs=[
                     OutputOut(id=o.id, photo_id=o.photo_id, template_name=o.template_name, photo_name=o.photo_name,
                               filename=o.filename, available=bool(o.key) and o.files_removed_at is None,
-                              stamp=(o.key or "").rsplit("/", 1)[-1].removesuffix(".jpg")[:12])
+                              stamp=output_stamp(o.key))
                     for o in outputs.get(d.id, [])
                 ],
             )
             for d in designs
         ],
         zips=[_zip_out(z) for z in zips],
+        refreshing=[RefreshingOut(design_id=d, photo_id=p, from_stamp=stamp) for (d, p), stamp in waiting.items()],
+        refresh_failed=[RefreshFailedOut(design_id=d, photo_id=p, reason=why) for (d, p), why in failed.items()],
     )
 
 
@@ -2002,9 +2035,10 @@ async def start_run(
 
 @router.get("/mockup-runs/{run_id}", response_model=RunOut)
 async def get_run(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    redis: Redis = Depends(get_redis),
 ) -> RunOut:
-    return await _run_out(session, await _own_run(session, tenant, run_id))
+    return await _run_out(session, await _own_run(session, tenant, run_id), redis)
 
 
 @router.get("/mockup-runs/{run_id}/outputs/{output_id}/image")
@@ -2012,25 +2046,29 @@ async def output_image(
     run_id: uuid.UUID,
     output_id: uuid.UUID,
     w: int | None = Query(None),
+    v: str | None = Query(None, max_length=40),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
-    """A mockup, or a small preview of it (to pick a cover)."""
+    """A mockup, or a small preview of it (to pick a cover). With its current version (``v``)
+    the answer is kept by the browser; without it, checked every time (``ETag``)."""
     run = await _own_run(session, tenant, run_id)
     output = await session.get(MockupOutput, output_id)
     if output is None or output.run_id != run.id or output.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="mockup not found")
     if not output.key:
         raise HTTPException(status_code=410, detail="this mockup's file has been removed")
+    stamp = output_stamp(output.key)
+    headers = {**(_VERSIONED if v and v == stamp else _REVALIDATE), "ETag": f'"{stamp}-{w or 0}"'}
     if w is None:
-        return Response(storage.get(output.key), media_type="image/jpeg", headers=_CACHE)
+        return Response(storage.get(output.key), media_type="image/jpeg", headers=headers)
     if w not in PREVIEW_WIDTHS:
         raise HTTPException(status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}")
     key = f"{output.key}.w{w}.jpg"
     if not storage.exists(key):
         storage.put(key, await asyncio.to_thread(resize_preview, storage.get(output.key), w), "image/jpeg")
-    return Response(storage.get(key), media_type="image/jpeg", headers=_CACHE)
+    return Response(storage.get(key), media_type="image/jpeg", headers=headers)
 
 
 @router.post("/mockup-runs/{run_id}/listings", response_model=ListingsOut)

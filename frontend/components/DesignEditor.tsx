@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import type { MockupAdjustmentRow, MockupEdits, MockupRecolourRow } from "@/lib/types";
+import type { MockupAdjustmentRow, MockupEdits, MockupRecolourRow, MockupRun } from "@/lib/types";
 import { apply as applyH, homography as homographyOf, matrix3d, type Pt, type Quad } from "@/lib/areaEditor";
 import {
   APPLY_SCOPES,
@@ -14,11 +14,12 @@ import {
   type ApplyScope,
   type Region,
   clean,
+  fileFor,
   full,
-  lookPixels,
   photoPoints,
-  recolourPixels,
+  printPixels,
   toUnit,
+  trimOn,
 } from "@/lib/designEdits";
 
 /**
@@ -34,7 +35,11 @@ import {
  * template, each on top of its own fit, and can be undone.
  *
  * The preview uses the same arithmetic as the renderer (lib/designEdits.ts). Every edit is a
- * render-time layer: the uploaded file never changes. Nothing here calls Etsy or an AI model.
+ * render-time layer: the uploaded file never changes. Every save, apply, undo and reset goes the
+ * same way (``remake``): the page first reloads the edits and marks the mockups as updating (each
+ * tile, here in the strip and in the results behind, previews the change at once), then asks for
+ * them to be made again and swaps each new file in as it is ready, the editor staying open.
+ * Nothing here calls Etsy or an AI model.
  */
 type Tool = "move" | "rect" | "lasso" | "wand";
 type Drag =
@@ -47,14 +52,19 @@ type Drag =
 const COLOURS = [{ label: "Black", value: "#000000" }, { label: "White", value: "#ffffff" }];
 const STEP = { small: 0.005, big: 0.05 };
 
-export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved }: {
+export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip }: {
   runId: string;
   edits: MockupEdits;
   designId: string;
   photoId: string;
   onClose: () => void;
-  /** After a save or an apply: the mockups named are being made again. */
-  onSaved: (pairs: [string, string][]) => void;
+  /** The edits of these mockups changed: reload the edits and show them as updating at once. */
+  onEdited: (pairs: [string, string][]) => Promise<void>;
+  /** The run as the server returned it once they were asked to be made again (null: the request
+   * failed, nothing is being made again). */
+  onRun: (run: MockupRun | null) => void;
+  /** The mockups of this design (and every other one touched here), updating live. */
+  strip?: ReactNode;
 }) {
   const photo = edits.photos.find((p) => p.id === photoId)!;
   const design = edits.designs.find((d) => d.id === designId)!;
@@ -64,9 +74,8 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
   const area = photo.areas[areaIndex] ?? photo.areas[0];
   const areaPx = useMemo(() => area.print_area.map(([x, y]) => [x * W, y * H]) as Quad, [area, W, H]);
   // The file this area prints: its subgroup's, else the design's own (as the renderer chooses).
-  const file = design.files.find((f) => f.subgroup && area.subgroup && f.subgroup.toLowerCase() === area.subgroup.toLowerCase())
-    ?? design.files.find((f) => !f.version_id) ?? design.files[0];
-  const trim = file.trim && file.trim_size ? scaleTrim(file.trim, file.trim_size, file.width, file.height) : [0, 0, file.width, file.height];
+  const file = fileFor(design.files, area.subgroup);
+  const trim = trimOn(file, file.width, file.height);
   const tw = Math.max(1, trim[2] - trim[0]);
   const th = Math.max(1, trim[3] - trim[1]);
 
@@ -142,15 +151,10 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
     const src = source.current;
     const out = canvas.current;
     if (!src || !out) return;
-    const px = new Uint8ClampedArray(src.data);
-    recolourPixels(px, src.width, src.height, previewRegions);
-    const [x0, y0] = trim;
-    const crop = new Uint8ClampedArray(tw * th * 4);
-    for (let y = 0; y < th; y++) crop.set(px.subarray(((y0 + y) * src.width + x0) * 4, ((y0 + y) * src.width + x0 + tw) * 4), y * tw * 4);
-    lookPixels(crop, adjust);
-    out.width = tw;
-    out.height = th;
-    out.getContext("2d")!.putImageData(new ImageData(crop, tw, th), 0, 0);
+    const printed = printPixels(src, trim, previewRegions, adjust);
+    out.width = printed.width;
+    out.height = printed.height;
+    out.getContext("2d")!.putImageData(new ImageData(printed.data, printed.width, printed.height), 0, 0);
   }, [loaded, previewRegions, adjust.opacity, adjust.brightness, adjust.contrast, tw, th]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const points = photoPoints(areaPx, tw, th, photo.size, adjust);
@@ -274,14 +278,23 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
       setRegionsDirty(false);
     }
   }
+  /** The one way a change reaches the mockups: shown as updating at once, then made again. */
+  async function remake(pairs: [string, string][]): Promise<void> {
+    await onEdited(pairs);
+    try {
+      onRun(await api.rerenderMockups(runId, pairs));
+    } catch (e) {
+      onRun(null);
+      throw e;
+    }
+  }
   async function save() {
     setBusy(true);
     setError(null);
     try {
       await persist();
       setSaved(clean(adjust));
-      await api.rerenderMockups(runId, [[designId, photoId]]);
-      onSaved([[designId, photoId]]);
+      await remake([[designId, photoId]]);
       setNote("Saved. The mockup is being made again.");
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -304,8 +317,7 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
         ...(recolour ?? []).flatMap((r) => edits.photos.map((p) => [r.design_id, p.id] as [string, string]))]);
       setSaved(clean(adjust));
       setLastApply({ adjust: res.undo, recolour, pairs });
-      await api.rerenderMockups(runId, pairs);
-      onSaved(pairs);
+      await remake(pairs);
       setNote(`Applied to ${res.changed} more ${res.changed === 1 ? "placement" : "placements"}; the mockups are being made again.`);
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -320,8 +332,7 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
     try {
       if (lastApply.adjust?.length) await api.restoreAdjustments(lastApply.adjust);
       if (lastApply.recolour?.length) await api.restoreRecolours(lastApply.recolour.filter((r) => r.design_id !== designId));
-      await api.rerenderMockups(runId, lastApply.pairs);
-      onSaved(lastApply.pairs);
+      await remake(lastApply.pairs);
       setLastApply(null);
       setNote("Undone: the other mockups are back as they were.");
     } catch (e: any) {
@@ -350,6 +361,7 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
           <button type="button" className="btn-secondary min-h-11 px-4" onClick={onClose} data-testid="design-editor-close">Close</button>
         </header>
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
           <div ref={stage} className="relative flex min-h-[45vh] min-w-0 flex-1 items-center justify-center overflow-hidden bg-slate-100 p-2 lg:min-h-0">
             <div ref={frame} className={`relative touch-none select-none ${tool === "move" ? "" : "cursor-crosshair"}`}
               style={{ width: box.w, height: box.h }}
@@ -392,6 +404,9 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onSaved
                 </button>
               )}
             </div>
+          </div>
+          {/* Under the photo, never scrolled away: the mockups updating live while the editor stays open. */}
+          {strip && <div key="strip" className="shrink-0 border-t border-slate-200 bg-white px-3 py-2">{strip}</div>}
           </div>
 
           <aside className="min-h-0 w-full space-y-4 overflow-y-auto border-t border-slate-200 p-3 text-sm lg:w-80 lg:border-l lg:border-t-0">
@@ -538,13 +553,6 @@ const fmt = (k: string, v: number) => (k === "opacity" ? `${Math.round(v * 100)}
 function dedupe(pairs: [string, string][]): [string, string][] {
   const seen = new Set<string>();
   return pairs.filter(([a, b]) => (seen.has(`${a}|${b}`) ? false : (seen.add(`${a}|${b}`), true)));
-}
-
-/** The trim box measured on one size of the file, on the file the browser loads. */
-function scaleTrim(box: number[], size: number[], w: number, h: number): [number, number, number, number] {
-  const sx = w / (size[0] || w);
-  const sy = h / (size[1] || h);
-  return [Math.floor(box[0] * sx), Math.floor(box[1] * sy), Math.ceil(box[2] * sx), Math.ceil(box[3] * sy)];
 }
 
 /** Lasso points thinned to one every ``d`` photo pixels (a long drag stays a short region). */

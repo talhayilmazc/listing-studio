@@ -250,6 +250,42 @@ export function recolourPixels(px: Uint8ClampedArray | Uint8Array, w: number, h:
   }
 }
 
+/** The file an area prints: its subgroup's, else the design's own (as the renderer chooses). */
+export function fileFor<F extends { version_id: string | null; subgroup: string | null }>(files: F[], subgroup: string | null | undefined): F {
+  return files.find((f) => f.subgroup && subgroup && f.subgroup.toLowerCase() === subgroup.toLowerCase())
+    ?? files.find((f) => !f.version_id) ?? files[0];
+}
+
+/** The trim box (measured on one size of the file) on the pixels the browser has (w × h). */
+export function scaleTrim(box: number[], size: number[], w: number, h: number): [number, number, number, number] {
+  const sx = w / (size[0] || w);
+  const sy = h / (size[1] || h);
+  return [Math.floor(box[0] * sx), Math.floor(box[1] * sy), Math.ceil(box[2] * sx), Math.ceil(box[3] * sy)];
+}
+
+/** Where the printed part of a file sits on w × h pixels of it (the whole file when it has no trim). */
+export function trimOn(file: { trim: number[] | null; trim_size: number[] | null }, w: number, h: number): [number, number, number, number] {
+  return file.trim && file.trim_size ? scaleTrim(file.trim, file.trim_size, w, h) : [0, 0, w, h];
+}
+
+/**
+ * The design's pixels as the renderer prints them: recoloured (on the whole file, as the
+ * renderer does), cut to the trim box, with its look. The editor and the result tiles' preview
+ * both draw this (the same arithmetic as pipeline/design_edits.py).
+ */
+export function printPixels(src: { data: Uint8ClampedArray; width: number; height: number }, trim: number[],
+  regions: Region[] | null | undefined, adjust: Partial<Adjust> | null): { data: Uint8ClampedArray; width: number; height: number } {
+  const px = new Uint8ClampedArray(src.data);
+  recolourPixels(px, src.width, src.height, regions);
+  const [x0, y0] = trim;
+  const tw = Math.max(1, trim[2] - trim[0]);
+  const th = Math.max(1, trim[3] - trim[1]);
+  const crop = new Uint8ClampedArray(tw * th * 4);
+  for (let y = 0; y < th; y++) crop.set(px.subarray(((y0 + y) * src.width + x0) * 4, ((y0 + y) * src.width + x0 + tw) * 4), y * tw * 4);
+  lookPixels(crop, adjust);
+  return { data: crop, width: tw, height: th };
+}
+
 /** "Apply this change to…": the three scopes, in the seller's words. */
 export const APPLY_SCOPES = {
   design_photos: "This design on all photos",

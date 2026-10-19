@@ -422,6 +422,11 @@ export interface MockupRun {
   skipped_photos?: string[];
   designs: MockupRunDesign[];
   zips: MockupZip[];
+  /** Mockups being made again after the seller's edits (backend pipeline/mockup_refresh.py), each
+   * with the version it had when asked for: its tile updates as soon as the version changes. */
+  refreshing?: { design_id: string; photo_id: string; from_stamp?: string }[];
+  /** Mockups that could not be made again, with the reason. */
+  refresh_failed?: { design_id: string; photo_id: string; reason: string }[];
 }
 
 /** One check of the search-readiness checklist: what the server found, and why. */

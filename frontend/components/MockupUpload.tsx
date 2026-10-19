@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { MockupDesign, MockupEdits, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
+import type { MockupDesign, MockupEdits, MockupOutput, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
 import { DesignEditor } from "@/components/DesignEditor";
+import { MockupTile } from "@/components/MockupTile";
+import { editorTiles, keepPolling, pairKey, stampsOf, tileState, updatingLine, type Optimistic, type TileState } from "@/lib/mockupTiles";
 import { announceRun } from "@/components/MockupRunWatcher";
 import { designAnchor } from "@/lib/mockupRuns";
 import { FileDrop } from "@/components/FileDrop";
@@ -116,9 +118,9 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
     };
   }, [initialRun]);
 
-  // The run's progress, until it is finished; said when it seems stuck.
+  // The run's progress, until it is finished and no mockup is being made again; said when it seems stuck.
   useEffect(() => {
-    if (!run || run.status === "succeeded" || run.status === "failed") return;
+    if (!run || !keepPolling(run)) return;
     const t = setTimeout(async () => {
       try {
         const next = await api.mockupRun(run.id);
@@ -628,6 +630,8 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
     return () => clearTimeout(t);
   }, [focus, run.designs.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const finished = run.status === "succeeded" || run.status === "failed";
+  // Mockups can be opened in the editor once the run was made, also while some are being made again.
+  const editable = finished || (run.refreshing ?? []).length > 0;
   const [selected, setSelected] = useState<string[]>(run.designs.map((d) => d.design_id));
   const [covers, setCovers] = useState<Record<string, string>>({});
   const [layout, setLayout] = useState<"folders" | "flat">("folders");
@@ -635,18 +639,50 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zip, setZip] = useState<MockupZip | null>(null);
-  // "Adjust": one design on one photo, in the design editor (Part B).
+  // "Adjust": one design on one photo, in the design editor (Part B). The run (from the page),
+  // the edits and the mockups just asked for are the one state the tiles here and the editor's
+  // strip both read (lib/mockupTiles.ts): whatever is open shows the latest.
   const [edits, setEdits] = useState<MockupEdits | null>(null);
   const [editing, setEditing] = useState<{ designId: string; photoId: string } | null>(null);
+  const [optimistic, setOptimistic] = useState<Optimistic>({});
+  const [touched, setTouched] = useState<string[]>([]);
   async function adjust(designId: string, photoId: string) {
     setError(null);
     try {
       setEdits(await api.mockupEdits(run.id));
+      setTouched([]);
       setEditing({ designId, photoId });
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
   }
+  /** Edits of these mockups changed: reload the edits (the previews draw them) and show the
+   * tiles as updating until the server answers. */
+  async function edited(pairs: [string, string][]) {
+    setOptimistic((now) => ({ ...now, ...stampsOf(run, pairs) }));
+    setTouched((now) => Array.from(new Set([...now, ...pairs.map(([d, p]) => pairKey(d, p))])));
+    try {
+      setEdits(await api.mockupEdits(run.id));
+    } catch {
+      // the tiles show "Updating…" over the earlier image
+    }
+  }
+  /** The server's answer (or null when the request failed): its run is the state from now on. */
+  function ran(next: MockupRun | null) {
+    setOptimistic({});
+    if (next) onRun(next);
+  }
+  async function retry(designId: string, photoId: string) {
+    setError(null);
+    setOptimistic((now) => ({ ...now, ...stampsOf(run, [[designId, photoId]]) }));
+    try {
+      ran(await api.rerenderMockups(run.id, [[designId, photoId]]));
+    } catch (e: any) {
+      ran(null);
+      setError(String(e.message ?? e));
+    }
+  }
+  const stateOf = (designId: string, o: MockupOutput): TileState => tileState(run, designId, o, optimistic);
 
   useEffect(() => {
     if (!zip || zip.status === "ready" || zip.status === "failed" || zip.status === "expired") return;
@@ -709,15 +745,11 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
               <ul key="thumbs" className="mt-2 flex gap-2 overflow-x-auto pb-1" data-testid="mockup-thumbs">
                 {d.outputs.map((o) => (
                   <li key={o.id} className="shrink-0">
-                    <button type="button" className="group block w-28 rounded-md border border-slate-200 p-1 text-left disabled:opacity-60"
-                      disabled={!finished || !o.photo_id || !o.available} onClick={() => o.photo_id && adjust(d.design_id, o.photo_id)}
-                      aria-label={`Adjust ${d.sku ?? d.original_filename} on ${o.photo_name ?? o.template_name}`} data-testid="mockup-adjust">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`${api.mockupOutputImageUrl(run.id, o.id, 224)}&v=${o.stamp ?? ""}`} alt="" loading="lazy"
-                        className="aspect-square w-full rounded object-cover" />
-                      <span className="mt-1 block truncate text-xs text-slate-600" translate="no">{o.photo_name ?? o.template_name}</span>
-                      <span className="block text-xs font-medium text-brand-700">Adjust</span>
-                    </button>
+                    <MockupTile runId={run.id} designId={d.design_id} output={o} state={stateOf(d.design_id, o)} edits={edits}
+                      label={`${d.sku ?? d.original_filename} on ${o.photo_name ?? o.template_name}`}
+                      disabled={!editable || !o.photo_id || !o.available}
+                      onOpen={() => o.photo_id && adjust(d.design_id, o.photo_id)}
+                      onRetry={() => o.photo_id && retry(d.design_id, o.photo_id)} />
                   </li>
                 ))}
               </ul>
@@ -780,9 +812,41 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
       {error && <p key="error" role="alert" className="text-sm text-rose-700">{error}</p>}
       {editing && edits && (
         <DesignEditor key={`${editing.designId}-${editing.photoId}`} runId={run.id} edits={edits} designId={editing.designId} photoId={editing.photoId}
-          onClose={() => { setEditing(null); setEdits(null); }}
-          onSaved={() => onRun({ ...run, status: "queued" })} />
+          onClose={() => setEditing(null)} onEdited={edited} onRun={ran}
+          strip={<EditorStrip run={run} edits={edits} designId={editing.designId} touched={touched} stateOf={stateOf} onRetry={retry} />} />
       )}
     </div>
+  );
+}
+
+/** In the design editor: this design's mockups and every other one changed here, each updating
+ * live (a preview at once, then the new file) while the editor stays open. */
+function EditorStrip({ run, edits, designId, touched, stateOf, onRetry }: {
+  run: MockupRun;
+  edits: MockupEdits | null;
+  designId: string;
+  touched: string[];
+  stateOf: (designId: string, o: MockupOutput) => TileState;
+  onRetry: (designId: string, photoId: string) => void;
+}) {
+  const tiles = editorTiles(run, designId, touched);
+  const states = tiles.map((t) => stateOf(t.designId, t.output));
+  if (!tiles.length) return null;
+  return (
+    <section className="space-y-2" aria-label="Mockups" data-testid="design-editor-tiles">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="label">Mockups</p>
+        <p className="min-w-0 truncate text-xs text-slate-500" translate="no" data-testid="design-editor-tiles-line">{updatingLine(states)}</p>
+      </div>
+      <ul className="flex gap-2 overflow-x-auto pb-1">
+        {tiles.map((t, i) => (
+          <li key={`${t.designId}-${t.output.id}`} className="shrink-0">
+            <MockupTile runId={run.id} designId={t.designId} output={t.output} state={states[i]} edits={edits} small
+              label={`${run.designs.find((d) => d.design_id === t.designId)?.sku ?? ""} on ${t.output.photo_name ?? t.output.template_name}`}
+              onRetry={() => t.output.photo_id && onRetry(t.designId, t.output.photo_id)} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

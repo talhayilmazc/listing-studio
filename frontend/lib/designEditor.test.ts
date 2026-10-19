@@ -21,8 +21,8 @@ test("move, scale with proportions kept by default (Shift switches), turn, free 
 
 test("the preview is drawn with the renderer's own rules (points, look, recolouring)", () => {
   assert.match(editor, /photoPoints\(areaPx, tw, th, photo\.size, adjust\)/);
-  assert.match(editor, /recolourPixels\(px, src\.width, src\.height, previewRegions\)/);
-  assert.match(editor, /lookPixels\(crop, adjust\)/);
+  // Recolouring, the trim and the look: the one pipeline the result tiles' preview draws too.
+  assert.match(editor, /printPixels\(src, trim, previewRegions, adjust\)/);
   assert.match(editor, /matrix3d\(tw, th, screen\)/);
 });
 
@@ -37,12 +37,16 @@ test("look sliders, recolour tools, apply scopes with undo, and saving re-render
   assert.match(editor, /\(\["move", "rect", "lasso", "wand"\] as Tool\[\]\)/);
   assert.match(editor, /api\.applyAdjustment\(/);
   assert.match(editor, /api\.restoreAdjustments\(lastApply\.adjust\)/);
-  assert.match(editor, /api\.rerenderMockups\(runId, \[\[designId, photoId\]\]\)/);
+  assert.match(editor, /await remake\(\[\[designId, photoId\]\]\)/);
+  assert.match(editor, /onRun\(await api\.rerenderMockups\(runId, pairs\)\)/);
   assert.match(editor, /Your file is never changed/);
 });
 
 test("every mockup in the results opens the editor", () => {
-  assert.match(upload, /data-testid="mockup-adjust"/);
+  const tile = fs.readFileSync(path.join(FRONTEND, "components", "MockupTile.tsx"), "utf8");
+  assert.match(tile, /data-testid="mockup-adjust"/);
+  assert.match(upload, /<MockupTile /);
   assert.match(upload, /api\.mockupEdits\(run\.id\)/);
-  assert.match(upload, /&v=\$\{o\.stamp \?\? ""\}/); // a re-made mockup's image is never a stale copy
+  // A re-made mockup's image is never a stale copy: its URL carries its version.
+  assert.match(tile, /api\.mockupOutputImageUrl\(runId, output\.id, 224, output\.stamp \?\? ""\)/);
 });

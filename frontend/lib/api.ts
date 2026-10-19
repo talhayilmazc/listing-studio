@@ -539,8 +539,10 @@ export const api = {
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ subgroup }) }),
   moveMockupDesignVersion: (id: string, subgroup: string) =>
     req<MockupDesign>(`/mockup-design-versions/${id}`, { method: "PATCH", body: JSON.stringify({ subgroup }) }),
-  mockupOutputImageUrl: (runId: string, outputId: string, w?: number) =>
-    `${BASE}/mockup-runs/${runId}/outputs/${outputId}/image${w ? `?w=${w}` : ""}`,
+  /** A mockup's image; with its version (``stamp``) the browser keeps it, and a mockup made
+   * again has a new version, so an earlier file is never shown. */
+  mockupOutputImageUrl: (runId: string, outputId: string, w?: number, stamp?: string) =>
+    `${BASE}/mockup-runs/${runId}/outputs/${outputId}/image?${[w ? `w=${w}` : "", stamp !== undefined ? `v=${encodeURIComponent(stamp)}` : ""].filter(Boolean).join("&")}`,
   /** "Use for listings": a listing group per design, the chosen cover first. */
   useMockupsForListings: (runId: string, designIds: string[] | null, covers: Record<string, string>) =>
     req<{ groups: number; photos: number }>(`/mockup-runs/${runId}/listings`, {
@@ -578,8 +580,10 @@ export const api = {
     req<{ changed: number; undo: MockupRecolourRow[] }>(`/mockup-designs/${designId}/recolour`, { method: "PUT", body: JSON.stringify(body) }),
   restoreRecolours: (rows: MockupRecolourRow[]) =>
     req<{ changed: number }>("/mockup-recolours/restore", { method: "POST", body: JSON.stringify({ rows }) }),
+  /** Make these mockups again: the run comes back with them in ``refreshing`` (asked for while
+   * others are being made, they join the same queue). */
   rerenderMockups: (runId: string, pairs: [string, string][]) =>
-    req<{ queued: number }>(`/mockup-runs/${runId}/rerender`, { method: "POST", body: JSON.stringify({ pairs }) }),
+    req<MockupRun>(`/mockup-runs/${runId}/rerender`, { method: "POST", body: JSON.stringify({ pairs }) }),
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */
   previewChecklist: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
     req<Checklist>(`/content/${id}/checklist`, { method: "POST", body: JSON.stringify(body) }),
