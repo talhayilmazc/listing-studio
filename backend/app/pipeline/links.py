@@ -147,6 +147,12 @@ class Outcome:
     create: dict[str, Any] | None = None  # what would be created, when creatable
     requests: int = 0  # Etsy requests creating it costs
     options: list[dict[str, Any]] = field(default_factory=list)  # to choose from
+    #: How it was linked, as the seller reads it: "same name", "same terms", "your choice", "created".
+    how: str | None = None
+    #: The linked setting(s) as the seller recognises them in that shop.
+    label: str | None = None
+    #: The main shop's own setting it stands for ("create a copy of …").
+    source_label: str | None = None
 
     @property
     def done(self) -> bool:
@@ -208,20 +214,25 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
 
     if resource == PARTNERS:
         ids: list[int] = []
+        names: list[str] = []
         for partner_id in wanted:
             row = source.find(PARTNERS, int(partner_id))
             if row is None:
                 return Outcome(resource, reason=NOT_FOUND, options=options)
             name = row.get("partner_name")
+            names.append(label_of(PARTNERS, row))
             found, why = _match(target.partners, PARTNERS, lambda r, name=name: name and r.get("partner_name") == name)
             if found is None:
-                return Outcome(resource, reason=why if why == AMBIGUOUS else NOT_CREATABLE, options=options)
+                return Outcome(resource, reason=why if why == AMBIGUOUS else NOT_CREATABLE, options=options,
+                               source_label=", ".join(names))
             ids.append(found)
-        return Outcome(resource, linked=sorted(ids))
+        return Outcome(resource, linked=sorted(ids), how="same name", options=options, source_label=", ".join(names),
+                       label=", ".join(label_of(PARTNERS, target.find(PARTNERS, i) or {}) for i in sorted(ids)))
 
     row = source.find(resource, int(wanted))
     if row is None:  # the main shop's own list no longer has it
         return Outcome(resource, reason="the main shop no longer has it; refresh the profile", options=options)
+    source_label = label_of(resource, row)
 
     if resource == SHIPPING:
         found, why = _match(target.shipping, SHIPPING, lambda r: r.get("title") == row.get("title"))
@@ -230,23 +241,25 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
     else:
         found, why = _match(target.readiness, READINESS, lambda r: readiness_terms(r) == readiness_terms(row))
     if found is not None:
-        return Outcome(resource, linked=found)
+        return Outcome(resource, linked=found, how="same name" if resource == SHIPPING else "same terms",
+                       label=label_of(resource, target.find(resource, found) or {}), options=options,
+                       source_label=source_label)
     if why == AMBIGUOUS:
-        return Outcome(resource, reason=AMBIGUOUS, options=options)
+        return Outcome(resource, reason=AMBIGUOUS, options=options, source_label=source_label)
 
     if resource == SHIPPING:
         if row.get("profile_type") == "calculated":
-            return Outcome(resource, reason=CALCULATED, options=options)
+            return Outcome(resource, reason=CALCULATED, options=options, source_label=source_label)
         profile, destinations, upgrades = shipping_copy(row)
-        return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options,
+        return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, source_label=source_label,
                        create={"profile": profile, "destinations": destinations, "upgrades": upgrades},
                        requests=1 + len(destinations) + len(upgrades))
     if resource == RETURNS:
         returns, exchanges, deadline = return_terms(row)
-        return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, requests=1,
+        return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, requests=1, source_label=source_label,
                        create={"accepts_returns": returns, "accepts_exchanges": exchanges, "return_deadline": deadline})
     state, low, high = readiness_terms(row)
-    return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, requests=1,
+    return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, requests=1, source_label=source_label,
                    create={"readiness_state": state, "min_processing_time": low, "max_processing_time": high,
                            "processing_time_unit": "days"})
 

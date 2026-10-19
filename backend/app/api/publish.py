@@ -43,12 +43,13 @@ from app.db.models import (
     JobType,
     ListingProfile,
     ListingPublication,
+    ShopGroup,
     Tenant,
     UploadBatch,
 )
 from app.etsy.publisher import link_for, publication_for
 from app.etsy.rate_limiter import DailyQuota
-from app.etsy.shops import active_shops, owned_shop
+from app.etsy.shops import active_shops, group_shops, owned_shop
 from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
 from app.pipeline import links as L
@@ -613,24 +614,36 @@ async def tick_shop(
     matches link at once, and what is left is shown per shop on the review page.
     Nothing is created on Etsy by this."""
     contents = await _batch_contents(session, tenant, batch_id, body.content_ids)
-    shop = await owned_shop(session, tenant.id, body.connection_id)
-    if shop is None:
-        raise HTTPException(status_code=404, detail="shop not found")
+    if (body.connection_id is None) == (body.group_id is None):
+        raise HTTPException(status_code=422, detail="tick one shop or one shop group")
     connected = await active_shops(session, tenant.id)
+    if body.group_id is not None:
+        group = await session.get(ShopGroup, body.group_id)
+        if group is None or group.tenant_id != tenant.id:
+            raise HTTPException(status_code=404, detail="group not found")
+        shops = (await group_shops(session, tenant.id, connected)).get(group.id, [])
+    else:
+        shop = await owned_shop(session, tenant.id, body.connection_id)
+        if shop is None:
+            raise HTTPException(status_code=404, detail="shop not found")
+        shops = [shop]
     changed = 0
-    to_set_up: dict[uuid.UUID, ListingProfile] = {}
-    for content in contents:
-        if await shop_targets.set_shop(session, content, connected, shop.id, body.on):
-            changed += 1
-        if not body.on or content.listing_profile_id is None or content.listing_profile_id in to_set_up:
-            continue
-        target = await resolve_target(session, content, shop)
-        retry = target.link is not None and target.link.status == "error"  # a failed setup is tried again
-        if target.profile is not None and target.setup and (target.link is None or retry) and target.profile.confirmed:
-            to_set_up[target.profile.id] = target.profile
+    to_set_up: dict[uuid.UUID, tuple[ListingProfile, list[uuid.UUID]]] = {}
+    for shop in shops:
+        for content in contents:
+            if await shop_targets.set_shop(session, content, connected, shop.id, body.on):
+                changed += 1
+            if not body.on or content.listing_profile_id is None:
+                continue
+            target = await resolve_target(session, content, shop)
+            retry = target.link is not None and target.link.status == "error"  # a failed setup is tried again
+            if target.profile is not None and target.setup and (target.link is None or retry) and target.profile.confirmed:
+                entry = to_set_up.setdefault(target.profile.id, (target.profile, []))
+                if shop.id not in entry[1]:
+                    entry[1].append(shop.id)
     started: list[schemas.ProfileChoiceOut] = []
-    for profile in to_set_up.values():
-        if await profile_shops.start_links(session, profile, [shop.id]):
+    for profile, shop_ids in to_set_up.values():
+        if await profile_shops.start_links(session, profile, shop_ids):
             started.append(schemas.ProfileChoiceOut(
                 id=profile.id, name=profile.name, content_template=profile.content_template, is_fresh=is_fresh(profile)))
     await session.commit()

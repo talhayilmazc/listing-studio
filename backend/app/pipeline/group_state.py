@@ -42,6 +42,7 @@ from app.db.models import (
     ListingGroupSetting,
     ListingPublication,
     PlannedSlot,
+    ShopGroupMember,
     UploadBatch,
 )
 
@@ -167,8 +168,10 @@ async def group_states(
         if sent:
             members: dict[uuid.UUID, set[uuid.UUID]] = {}
             for shop_id, gid in (await session.execute(
-                select(EtsyConnection.id, EtsyConnection.group_id).where(
-                    EtsyConnection.group_id.in_({gid for _, gid in sent}),
+                select(EtsyConnection.id, ShopGroupMember.group_id)
+                .join(ShopGroupMember, ShopGroupMember.connection_id == EtsyConnection.id)
+                .where(
+                    ShopGroupMember.group_id.in_({gid for _, gid in sent}),
                     EtsyConnection.status == ConnectionStatus.active,
                 )
             )).all():

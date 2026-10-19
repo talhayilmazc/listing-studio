@@ -115,7 +115,7 @@ export interface ProfileSetupNote {
   connection_id: string;
   shop_name: string | null;
   reason: string;
-  /** One click sets it up there; otherwise it is finished on the Profiles page. */
+  /** Not set up there (or failed); either way the setup dialog on the batch page settles it. */
   setup: boolean;
   checking: boolean;
 }
@@ -590,8 +590,8 @@ export interface Shop {
   connected_at: string;
   /** Permissions added since this shop connected; reconnect once to grant them. */
   missing_scopes?: string[];
-  /** Its shop group (v8 §B); null = in no group. */
-  group_id?: string | null;
+  /** The shop groups it is in (a shop may be in several); [] = in none. */
+  group_ids?: string[];
 }
 
 export interface ShopsOut {
@@ -711,6 +711,48 @@ export interface ShopListing {
 }
 
 /** Cached listing counts. Reading this never triggers a shop sync. */
+export interface ShopOverviewRow {
+  id: string;
+  name: string;
+  groups: string[];
+  profiles: number;
+  summary: ShopSummary;
+}
+
+export interface ShopsOverview {
+  shops: ShopOverviewRow[];
+  total: ShopSummary;
+}
+
+export interface ShopMonthFigure {
+  minor: number | null;
+  note?: string | null;
+}
+
+/** Analytics' "All shops": one month for each shop, and a total per currency. */
+export interface AnalyticsShops {
+  month: string;
+  months: string[];
+  shops: {
+    id: string;
+    name: string;
+    currency: string | null;
+    source: "statement" | "ledger" | "sales" | "none";
+    revenue: ShopMonthFigure;
+    net_etsy: ShopMonthFigure;
+    profit: ShopMonthFigure;
+    units: number | null;
+  }[];
+  totals: {
+    currency: string | null;
+    shops: number;
+    revenue: ShopMonthFigure;
+    net_etsy: ShopMonthFigure;
+    profit: ShopMonthFigure;
+    units: number | null;
+  }[];
+}
+
 export interface ShopSummary {
   /** Published through the app, from its own records: always known. */
   app_published_this_month: number;
@@ -1785,12 +1827,41 @@ export interface ResourceSetup {
   options: { id: number; label: string }[];
 }
 
+/** One shop-specific setting of a profile in one shop: what is used, or what will be. */
+export interface SettingUse {
+  resource: "shipping_profile" | "return_policy" | "readiness_state" | "production_partners" | string;
+  /** "Shipping profile" */
+  label: string;
+  /** The main shop's own setting it stands for. */
+  source_label: string | null;
+  /** The shop's own setting in use now; [] = nothing yet. */
+  linked_ids: number[];
+  linked_label: string | null;
+  /** "same name" | "same terms" | "your choice" | "created" */
+  how: string | null;
+  /** What the setup dialog preselects. */
+  default: "keep" | "copy" | "choose";
+  reason: string | null;
+  creatable: boolean;
+  create_summary: string | null;
+  requests: number;
+  options: { id: number; label: string }[];
+}
+
 export interface ShopSetup {
   connection_id: string;
   shop_name: string | null;
   link: ProfileLink;
   open: ResourceSetup[];
+  settings: SettingUse[];
   choices_expired: boolean;
+}
+
+export interface SetupChoice {
+  connection_id: string;
+  resource: string;
+  use: "pick" | "copy";
+  ids: number[];
 }
 
 export interface ProfileSetup {
@@ -1823,10 +1894,26 @@ export interface DistributionRow {
   content_id: string;
   title: string;
   sku: string | null;
-  group_id: string;
+  /** The group it goes to, or the single shop chosen in place of one. */
+  group_id: string | null;
+  connection_id: string | null;
   group_name: string;
-  shops: { shop_id: string; shop_name: string; ok: boolean; reason: string | null }[];
+  shops: {
+    shop_id: string;
+    shop_name: string;
+    ok: boolean;
+    reason: string | null;
+    /** The listing's profile is not set up there yet: the setup dialog can do it. */
+    setup_profile_id?: string | null;
+    setup_profile_name?: string | null;
+  }[];
   warning: string | null;
+}
+
+export interface DistributionAssignment {
+  content_id: string;
+  group_id: string | null;
+  connection_id: string | null;
 }
 
 export interface DistributionPreview {

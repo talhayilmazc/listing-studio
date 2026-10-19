@@ -19,7 +19,7 @@ from app.core.config import get_settings
 from app.api.deps import active_tenant, get_connection_service, get_session
 from app.db.models import EtsyConnection, Tenant
 from app.etsy.connection import ConnectionService
-from app.etsy.shops import active_shops, owned_shop, shop_slots
+from app.etsy.shops import active_shops, owned_shop, shop_groups_of, shop_slots
 
 router = APIRouter(prefix="/api/shops", tags=["shops"])
 
@@ -30,7 +30,7 @@ def shop_label(connection: EtsyConnection) -> str:
     return connection.display_name or connection.shop_name or "Etsy shop (loading name)"
 
 
-def shop_out(connection: EtsyConnection) -> schemas.ShopOut:
+def shop_out(connection: EtsyConnection, group_ids: list[uuid.UUID] | None = None) -> schemas.ShopOut:
     return schemas.ShopOut(
         id=connection.id,
         name=shop_label(connection),
@@ -40,7 +40,7 @@ def shop_out(connection: EtsyConnection) -> schemas.ShopOut:
         position=connection.position,
         connected_at=connection.connected_at,
         missing_scopes=missing_scopes(connection),
-        group_id=connection.group_id,
+        group_ids=group_ids or [],
     )
 
 
@@ -71,8 +71,9 @@ async def _shops_out(
     session: AsyncSession, tenant: Tenant, disconnected: schemas.DisconnectedOut | None = None
 ) -> schemas.ShopsOut:
     slots = await shop_slots(session, tenant)
+    groups = await shop_groups_of(session, tenant.id)
     return schemas.ShopsOut(
-        shops=[shop_out(c) for c in await active_shops(session, tenant.id)],
+        shops=[shop_out(c, groups.get(c.id)) for c in await active_shops(session, tenant.id)],
         slots=schemas.ShopSlotsOut(
             used=slots.used,
             limit=slots.limit,
@@ -106,7 +107,7 @@ async def rename_shop(
         raise _NOT_FOUND
     connection.display_name = (body.display_name or "").strip() or None
     await session.commit()
-    return shop_out(connection)
+    return shop_out(connection, (await shop_groups_of(session, tenant.id)).get(connection.id))
 
 
 @router.post("/order", response_model=schemas.ShopsOut)

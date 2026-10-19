@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { shopSections, supportsAll } from "@/lib/shopScope";
 import { useSession } from "./SessionProvider";
 import type { Profile, Shop, ShopGroups } from "@/lib/types";
 import { useShops } from "./ShopProvider";
@@ -247,7 +248,10 @@ function ProfileChildren({
 function RailFooter() {
   const pathname = usePathname();
   const { account, signOut } = useSession();
-  const { shops, slots, selected, select } = useShops();
+  const { shops, slots, selected, select, allShops, selectAll } = useShops();
+  // "All shops" where the page can show every shop (Overview, Analytics, Batches, Scheduled).
+  const showAll = allShops && supportsAll(pathname) && (shops?.length ?? 0) > 1;
+  const label = showAll ? "All shops" : selected?.name ?? null;
   const [open, setOpen] = useState(false);
   const [groups, setGroups] = useState<ShopGroups | null>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
@@ -321,16 +325,16 @@ function RailFooter() {
                 ? "border-white/25 bg-white/[0.1]"
                 : "border-white/15 bg-white/[0.05] hover:border-white/25 hover:bg-white/[0.09]")
             }
-            title={selected ? `Showing ${selected.name}` : "Your shops"}
+            title={label ? `Showing ${label}` : "Your shops"}
           >
-            <ShopBadge name={selected?.name ?? null} active />
+            <ShopBadge name={label} active />
             <span className="min-w-0 flex-1">
-              {selected === null ? (
+              {label === null ? (
                 <span className="block h-4 w-28 animate-pulse rounded bg-white/[0.08]" />
               ) : (
                 <>
-                  <span className="block truncate text-sm font-semibold text-[var(--rail-active)]">
-                    {selected.name}
+                  <span translate="no" className="block truncate text-sm font-semibold text-[var(--rail-active)]">
+                    {label}
                   </span>
                   <span className="block text-[11px] text-white/70">
                     {shops && shops.length > 1 ? (
@@ -360,18 +364,44 @@ function RailFooter() {
             <div key="shop-list"
               role="listbox"
               aria-label="Your shops"
-              className="absolute inset-x-0 bottom-full z-10 mb-2 overflow-hidden rounded-xl border border-white/15 bg-[#26221f] shadow-2xl"
+              className="absolute inset-x-0 bottom-full z-10 mb-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/15 bg-[#26221f] shadow-2xl"
             >
               <p className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]">
                 Your shops
               </p>
-              {sections(shops, groups).map(([title, members]) => (
+              {shops.length > 1 && supportsAll(pathname) && (
+                <button
+                  key="all"
+                  type="button"
+                  role="option"
+                  aria-selected={showAll}
+                  data-testid="switcher-all-shops"
+                  onClick={() => {
+                    selectAll();
+                    setOpen(false);
+                  }}
+                  className={
+                    "relative flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors " +
+                    (showAll
+                      ? "bg-white/[0.08] font-semibold text-[var(--rail-active)]"
+                      : "text-white/85 hover:bg-white/[0.06] hover:text-[var(--rail-active)]")
+                  }
+                >
+                  {showAll && <span key="bar" aria-hidden className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-brand-500" />}
+                  <ShopBadge name="All shops" active={showAll} />
+                  <span className="min-w-0 flex-1 truncate">
+                    <span>All shops</span>
+                    <span translate="no" className="text-white/60">{` · ${shops.length}`}</span>
+                  </span>
+                </button>
+              )}
+              {shopSections(shops, groups?.groups ?? null).map(([title, members]) => (
                 <div key={title || "none"}>
                   {title && (
                     <p key="group" translate="no" className="px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-[0.1em] text-stone-400/80">{title}</p>
                   )}
                   {members.map((shop) => {
-                const current = shop.id === selected?.id;
+                const current = !showAll && shop.id === selected?.id;
                 return (
                   <button
                     key={shop.id}
@@ -553,15 +583,4 @@ function IconShirt({ active }: { active: boolean }) {
   );
 }
 
-/** The shops under their group names (groups first, then shops in no group). */
-function sections(shops: Shop[], groups: ShopGroups | null): [string, Shop[]][] {
-  if (!groups || groups.groups.length === 0) return [["", shops]];
-  const out: [string, Shop[]][] = [];
-  for (const g of groups.groups) {
-    const members = shops.filter((s) => s.group_id === g.id);
-    if (members.length) out.push([g.name, members]);
-  }
-  const rest = shops.filter((s) => !s.group_id || !groups.groups.some((g) => g.id === s.group_id));
-  if (rest.length) out.push([out.length ? "No group" : "", rest]);
-  return out;
-}
+

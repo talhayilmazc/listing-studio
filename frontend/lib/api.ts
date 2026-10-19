@@ -23,6 +23,10 @@ import type {
   ProfileSetup,
   ShopGroups,
   UseInScope,
+  SetupChoice,
+  ShopsOverview,
+  AnalyticsShops,
+  DistributionAssignment,
   Account,
   Allowance,
   AllowanceDefault,
@@ -357,7 +361,7 @@ export const api = {
   /** The title and tags of the listing's profile's reference listing (the seller's own). */
   referenceText: (contentId: string) => req<ReferenceText>(`/content/${contentId}/reference-text`),
   /** Tick or untick one shop for the batch's listings (all, or the ones named); kept on each listing. */
-  tickShop: (id: string, body: { connection_id: string; on: boolean; content_ids?: string[] }) =>
+  tickShop: (id: string, body: ({ connection_id: string } | { group_id: string }) & { on: boolean; content_ids?: string[] }) =>
     req<ShopTickResult>(`/batches/${id}/targets`, { method: "PUT", body: JSON.stringify(body) }),
   // Occasion, Holiday and Section per shop on the review card (Etsy's own values).
   itemOptions: (contentId: string) => req<ItemOptions>(`/content/${contentId}/options`),
@@ -793,6 +797,8 @@ export const api = {
   useProfileIn: (id: string, scope: UseInScope) =>
     req<{ profile: Profile; started: string[] }>(`/profiles/${id}/use-in`, { method: "POST", body: JSON.stringify(scope) }),
   profileSetup: (id: string) => req<ProfileSetup>(`/profiles/${id}/setup`),
+  applySetup: (id: string, choices: SetupChoice[]) =>
+    req<{ profile: Profile; requests: number }>(`/profiles/${id}/setup/apply`, { method: "POST", body: JSON.stringify({ choices }) }),
   createInShops: (id: string, items: { connection_id: string; resource: string }[]) =>
     req<{ profile: Profile; requests: number }>(`/profiles/${id}/setup/create`, { method: "POST", body: JSON.stringify({ items }) }),
   pickInShop: (id: string, shop: string, resource: string, ids: number[]) =>
@@ -817,11 +823,11 @@ export const api = {
     }),
   deleteShopGroup: (id: string) => req<ShopGroups>(`/shop-groups/${id}`, { method: "DELETE" }),
   // --- Distribution and group scheduling (v8 §B) ---
-  previewDistribution: (batch: string, body: { mode: "assign" | "split"; group_ids: string[]; content_ids?: string[] }) =>
+  previewDistribution: (batch: string, body: { mode: "assign" | "split"; group_ids: string[]; connection_ids?: string[]; content_ids?: string[] }) =>
     req<DistributionPreview>(`/batches/${batch}/distribution/preview`, { method: "POST", body: JSON.stringify(body) }),
-  planDistribution: (batch: string, assignments: { content_id: string; group_id: string }[], schedule: GroupSchedule) =>
+  planDistribution: (batch: string, assignments: DistributionAssignment[], schedule: GroupSchedule) =>
     req<GroupPlanPreview>(`/batches/${batch}/distribution/plan`, { method: "POST", body: JSON.stringify({ assignments, schedule }) }),
-  confirmDistribution: (batch: string, assignments: { content_id: string; group_id: string }[], schedule: GroupSchedule) =>
+  confirmDistribution: (batch: string, assignments: DistributionAssignment[], schedule: GroupSchedule) =>
     req<{ plan_id: string; plan: GroupPlanPreview }>(`/batches/${batch}/distribution/confirm`, {
       method: "POST",
       body: JSON.stringify({ assignments, schedule }),
@@ -832,7 +838,11 @@ export const api = {
     req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),
   shopListings: (shop?: string | null) => req<ShopListings>(`/shop/listings${shopQuery(shop)}`),
   /** Cached counts only — unlike shopListings this never triggers a sync. */
-  shopSummary: (shop?: string | null) => req<ShopSummary>(`/shop/summary${shopQuery(shop)}`),
+  /** One shop's counts; no shop = every shop added up (the switcher's "All shops"). */
+  shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),
+  shopsOverview: () => req<ShopsOverview>("/shop/overview"),
+  analyticsShops: (month?: string | null) =>
+    req<AnalyticsShops>(`/analytics/shops${month ? `?month=${encodeURIComponent(month)}` : ""}`),
   useListingAsProfile: (listingId: number, shop?: string | null) =>
     req<Profile>(`/shop/listings/${listingId}/use-as-profile${shopQuery(shop)}`, {
       method: "POST",

@@ -10,6 +10,9 @@
                                          and what to choose from.
 ``POST /api/profiles/{id}/setup/create`` creates only what the seller confirmed.
 ``PUT  /api/profiles/{id}/setup/{shop}`` the seller picks one of that shop's own.
+``POST /api/profiles/{id}/setup/apply``  every choice of a setup dialog in one confirm:
+                                         picks of the shops' own settings, and copies
+                                         of the main shop's (created only now).
 ``DELETE /api/profiles/{id}/links/{shop}`` stop using the profile in a shop.
 ``GET  /api/profiles/link-suggestions``  same-named profiles that stayed apart.
 ``POST /api/profiles/{id}/link-profile`` "Link these": the other becomes this one's.
@@ -35,7 +38,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_s
 from app.api.profiles import _get, _out, shop_names
 from app.core import audit
 from app.db.models import ListingProfile, ProfileShopLink, ShopGroup, Tenant
-from app.etsy.shops import active_shops, owned_shop
+from app.etsy.shops import active_shops, group_shops, owned_shop
 from app.pipeline import links as L
 from app.pipeline import profile_shops
 from app.workers.links import PLAN_KEY
@@ -73,11 +76,36 @@ class ResourceSetup(BaseModel):
     options: list[Choice] = Field(default_factory=list)
 
 
+class SettingUse(BaseModel):
+    """One shop-specific setting in one shop: what is used, or what will be."""
+
+    resource: str
+    label: str  # "Shipping profile"
+    #: The main shop's own setting this stands for.
+    source_label: str | None = None
+    #: The shop's own setting in use now, and how it was chosen
+    #: ("same name", "same terms", "your choice", "created"); empty = nothing yet.
+    linked_ids: list[int] = Field(default_factory=list)
+    linked_label: str | None = None
+    how: str | None = None
+    #: What the dialog preselects: "keep" what is linked, "copy" the main shop's
+    #: setting into this shop (created only after the seller confirms), or
+    #: "choose" (no match and no copy possible: the seller picks one).
+    default: Literal["keep", "copy", "choose"] = "keep"
+    reason: str | None = None
+    creatable: bool = False
+    create_summary: str | None = None
+    requests: int = 0
+    options: list[Choice] = Field(default_factory=list)
+
+
 class ShopSetup(BaseModel):
     connection_id: uuid.UUID
     shop_name: str | None
     link: schemas.ProfileLinkOut
     open: list[ResourceSetup] = Field(default_factory=list)
+    #: Every setting the profile needs in this shop: matched, chosen, or to settle.
+    settings: list[SettingUse] = Field(default_factory=list)
     #: The choices are read from Etsy and kept a few hours; past that, check again.
     choices_expired: bool = False
 
@@ -100,6 +128,18 @@ class CreateOut(BaseModel):
     profile: schemas.ProfileOut
     #: Etsy requests the confirmed creations take (counted against your daily Etsy requests).
     requests: int
+
+
+class ApplyChoice(BaseModel):
+    connection_id: uuid.UUID
+    resource: Literal["shipping_profile", "return_policy", "readiness_state", "production_partners"]
+    #: "pick": one of the shop's own (``ids``); "copy": create the main shop's there.
+    use: Literal["pick", "copy"]
+    ids: list[int] = Field(default_factory=list)
+
+
+class ApplyIn(BaseModel):
+    choices: list[ApplyChoice] = Field(min_length=1)
 
 
 class PickIn(BaseModel):
@@ -165,7 +205,7 @@ async def _scope_shops(session: AsyncSession, tenant: Tenant, body: UseIn) -> li
         group = await session.get(ShopGroup, body.group_id) if body.group_id else None
         if group is None or group.tenant_id != tenant.id:
             raise HTTPException(status_code=404, detail="group not found")
-        return [c.id for c in shops if c.group_id == group.id]
+        return [c.id for c in (await group_shops(session, tenant.id, shops)).get(group.id, [])]
     mine = {c.id for c in shops}
     if not body.connection_ids or not set(body.connection_ids) <= mine:
         raise HTTPException(status_code=404, detail="shop not found")
@@ -203,11 +243,15 @@ async def setup(
     out = await _out(session, tenant, profile)
     plan = await _plan(redis, profile.id)
     names = await shop_names(session, tenant)
+    rows = {r.connection_id: r for r in (await session.execute(
+        select(ProfileShopLink).where(ProfileShopLink.profile_id == profile.id))).scalars()}
     shops: list[ShopSetup] = []
     for link in out.links:
         if link.main:
             continue
         left = plan.get(str(link.connection_id))
+        row = rows.get(link.connection_id)
+        settings = _settings_of(profile, row, left or {}) if row is not None and link.status != "checking" else []
         open_items: list[ResourceSetup] = []
         for miss in link.missing:
             entry = (left or {}).get(miss.resource) or {}
@@ -219,9 +263,67 @@ async def setup(
             ))
         shops.append(ShopSetup(
             connection_id=link.connection_id, shop_name=names.get(link.connection_id), link=link, open=open_items,
-            choices_expired=bool(link.missing) and left is None,
+            settings=settings, choices_expired=bool(link.missing) and left is None,
         ))
     return SetupOut(profile=out, shops=shops)
+
+
+def _settings_of(profile: ListingProfile, link: ProfileShopLink, left: dict[str, Any]) -> list[SettingUse]:
+    """Per setting: the shop's matching one (same name or same terms) when there is
+    one; else a copy of the main shop's, preselected (created only after the seller
+    confirms); else the seller chooses. Every choice can be changed."""
+    values = L.link_values(link)
+    notes = link.notes or {}
+    out: list[SettingUse] = []
+    for resource in L.RESOURCES:
+        if L.wanted(profile.cached_payload, resource) in (None, "", []):
+            continue
+        entry = left.get(resource) or {}
+        value = values[L.PAYLOAD_KEY[resource]]
+        ids = [int(i) for i in (value if isinstance(value, list) else [value])] if value not in (None, []) else []
+        options = [Choice(**o) for o in entry.get("options") or [] if o.get("id") is not None]
+        if ids:
+            by_id = {o.id: o.label for o in options}
+            same = entry.get("linked") == value
+            out.append(SettingUse(
+                resource=resource, label=L.LABEL[resource], source_label=entry.get("source_label"), linked_ids=ids,
+                linked_label=(entry.get("label") if same else None) or ", ".join(by_id.get(i, f"#{i}") for i in ids),
+                how=entry.get("how") if same else "your choice", default="keep", options=options,
+                creatable=bool(entry.get("creatable")) and entry.get("how") == "your choice",
+                create_summary=_summary(resource, entry.get("create")), requests=int(entry.get("requests") or 0),
+            ))
+            continue
+        creatable = bool(entry.get("creatable"))
+        out.append(SettingUse(
+            resource=resource, label=L.LABEL[resource], source_label=entry.get("source_label"),
+            default="copy" if creatable else "choose", reason=entry.get("reason") or notes.get(resource) or L.NOT_FOUND,
+            creatable=creatable, create_summary=_summary(resource, entry.get("create")),
+            requests=int(entry.get("requests") or 0), options=options,
+        ))
+    return out
+
+
+def _pick(link: ProfileShopLink, shop_plan: dict[str, Any], resource: str, ids: list[int]) -> None:
+    """The seller's choice of one of the shop's own settings (only ids Etsy listed for it)."""
+    entry = shop_plan.get(resource)
+    allowed = {int(o["id"]) for o in (entry or {}).get("options") or [] if o.get("id") is not None}
+    if not entry or not ids or not set(ids) <= allowed:
+        raise HTTPException(status_code=409, detail="choose from the shop's current list; check the shop again first")
+    if resource != L.PARTNERS and len(ids) != 1:
+        raise HTTPException(status_code=422, detail="choose one")
+    value: Any = sorted(ids) if resource == L.PARTNERS else ids[0]
+    setattr(link, L.PAYLOAD_KEY[resource], value)
+    notes = dict(link.notes or {})
+    notes.pop(resource, None)
+    link.notes = notes or None
+    link.status = "incomplete" if notes else "ready"
+    names = {int(o["id"]): o.get("label") for o in entry.get("options") or [] if o.get("id") is not None}
+    shop_plan[resource] = {
+        "linked": value, "how": "your choice", "label": ", ".join(str(names.get(i)) for i in sorted(ids)),
+        "options": entry.get("options") or [], "source_label": entry.get("source_label"),
+        # A copy stays possible while the shop has no match of its own.
+        "creatable": bool(entry.get("creatable")), "requests": entry.get("requests"), "create": entry.get("create"),
+    }
 
 
 async def _link(session: AsyncSession, profile: ListingProfile, shop_id: uuid.UUID) -> ProfileShopLink:
@@ -282,23 +384,64 @@ async def pick_in_shop(
     link = await _link(session, profile, connection_id)
     plan = await _plan(redis, profile.id)
     shop_plan = plan.get(str(connection_id)) or {}
-    entry = shop_plan.get(body.resource)
-    allowed = {int(o["id"]) for o in (entry or {}).get("options") or [] if o.get("id") is not None}
-    if not entry or not set(body.ids) <= allowed:
-        raise HTTPException(status_code=409, detail="choose from the shop's current list; check the shop again first")
-    if body.resource != L.PARTNERS and len(body.ids) != 1:
-        raise HTTPException(status_code=422, detail="choose one")
-    value: Any = sorted(body.ids) if body.resource == L.PARTNERS else body.ids[0]
-    setattr(link, L.PAYLOAD_KEY[body.resource], value)
-    notes = dict(link.notes or {})
-    notes.pop(body.resource, None)
-    link.notes = notes or None
-    link.status = "incomplete" if notes else "ready"
-    shop_plan.pop(body.resource, None)
+    _pick(link, shop_plan, body.resource, body.ids)
     plan[str(connection_id)] = shop_plan
     await session.commit()
     await _save_plan(redis, profile.id, plan)
     return await _out(session, tenant, profile)
+
+
+@router.post("/{profile_id}/setup/apply", response_model=CreateOut)
+async def apply_setup(
+    profile_id: uuid.UUID,
+    body: ApplyIn,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Any = Depends(get_redis),
+) -> CreateOut:
+    """The setup dialog's one confirm: every pick of a shop's own setting, and every
+    copy of the main shop's setting to create (the only time anything is created).
+    Every choice is checked before any is written: one wrong choice changes nothing."""
+    profile = await _get(session, tenant, profile_id)
+    plan = await _plan(redis, profile.id)
+    copies: dict[uuid.UUID, set[str]] = {}
+    requests = 0
+    links: dict[uuid.UUID, ProfileShopLink] = {}
+    for choice in body.choices:
+        if await owned_shop(session, tenant.id, choice.connection_id) is None:
+            raise HTTPException(status_code=404, detail="shop not found")
+        if choice.connection_id not in links:
+            links[choice.connection_id] = await _link(session, profile, choice.connection_id)
+        entry = (plan.get(str(choice.connection_id)) or {}).get(choice.resource) or {}
+        if choice.use == "copy":
+            current = getattr(links[choice.connection_id], L.PAYLOAD_KEY[choice.resource])
+            matched = current not in (None, []) and entry.get("how") != "your choice"
+            if not entry.get("creatable") or choice.resource not in L.CREATABLE or matched:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{L.LABEL[choice.resource]} cannot be copied to that shop now; check the shop again first",
+                )
+            requests += int(entry.get("requests") or 0)
+            copies.setdefault(choice.connection_id, set()).add(choice.resource)
+        else:
+            allowed = {int(o["id"]) for o in entry.get("options") or [] if o.get("id") is not None}
+            if not choice.ids or not set(choice.ids) <= allowed:
+                raise HTTPException(status_code=409, detail="choose from the shop's current list; check the shop again first")
+    for choice in body.choices:
+        if choice.use == "pick":
+            _pick(links[choice.connection_id], plan.setdefault(str(choice.connection_id), {}), choice.resource, choice.ids)
+    for shop_id, resources in copies.items():
+        link = links[shop_id]
+        for resource in resources:  # the copy replaces an earlier pick
+            setattr(link, L.PAYLOAD_KEY[resource], None)
+        link.pending_create = sorted(resources)
+        link.status = "checking"
+    await session.commit()
+    await _save_plan(redis, profile.id, plan)
+    if copies:
+        await enqueuer.enqueue("create_link_resources", str(profile.id))
+    return CreateOut(profile=await _out(session, tenant, profile), requests=requests)
 
 
 @router.post("/{profile_id}/setup/{connection_id}/check", response_model=schemas.ProfileOut)

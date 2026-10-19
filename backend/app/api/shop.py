@@ -13,14 +13,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from redis.asyncio import Redis
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_connection_service, get_enqueuer, get_redis, get_session
-from app.api.shops import selected_shop
+from app.api.shops import selected_shop, shop_label
 from app.core import allowance
 from app.db.models import (
     Asset,
@@ -31,12 +31,15 @@ from app.db.models import (
     JobType,
     ListingProfile,
     ListingPublication,
+    ProfileShopLink,
     SalesDaily,
+    ShopGroup,
     ShopListingCache,
     Tenant,
     UploadBatch,
 )
 from app.etsy.connection import ConnectionService
+from app.etsy.shops import active_shops, shop_groups_of
 from app.pipeline import upload_retention
 from app.pipeline.reference import decode_etsy_text
 
@@ -235,18 +238,84 @@ async def sync_shop_listings_now(
 @router.get("/summary", response_model=schemas.ShopSummaryOut)
 async def shop_summary(
     shop: uuid.UUID | None = None,
+    all_shops: bool = Query(False, alias="all"),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Redis = Depends(get_redis),
 ) -> schemas.ShopSummaryOut:
-    """One shop's headline counts (see :class:`ShopSummaryOut`).
+    """One shop's headline counts (see :class:`ShopSummaryOut`), or with ``?all=1``
+    every shop's added up (the shop switcher's "All shops").
 
     "Published this month" is the app's own record of what was published
     through it. It used to be counted from the listing cache, which is empty
     whenever it has expired, so it read 0 for a seller who published every day.
     """
-    connection = await selected_shop(session, tenant, shop)
+    if all_shops:
+        rows = [await summary_of(session, tenant, c, enqueuer, redis) for c in await active_shops(session, tenant.id)]
+        return add_up(rows)
+    return await summary_of(session, tenant, await selected_shop(session, tenant, shop), enqueuer, redis)
+
+
+def add_up(rows: list[schemas.ShopSummaryOut]) -> schemas.ShopSummaryOut:
+    """Every shop's counts added up. A shop whose counts are unknown is left out of
+    the shop-wide numbers and makes the total "syncing", never a smaller number shown as complete."""
+    known = [r for r in rows if r.shop_counts_known]
+    fetched = [r.fetched_at for r in rows if r.fetched_at is not None]
+    return schemas.ShopSummaryOut(
+        app_published_this_month=sum(r.app_published_this_month for r in rows),
+        app_published_last_month=sum(r.app_published_last_month for r in rows),
+        shop_counts_known=bool(rows) and len(known) == len(rows),
+        published_known=bool(rows) and all(r.published_known for r in rows),
+        syncing=any(r.syncing for r in rows),
+        total=sum(r.total for r in known),
+        active=sum(r.active for r in known),
+        draft=sum(r.draft for r in known),
+        published_this_month=sum(r.published_this_month for r in known),
+        published_last_month=sum(r.published_last_month for r in known),
+        fetched_at=min(fetched) if fetched else None,
+        stale=any(r.stale for r in rows),
+    )
+
+
+@router.get("/overview", response_model=schemas.ShopsOverviewOut)
+async def shops_overview(
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
+) -> schemas.ShopsOverviewOut:
+    """Overview's "All shops": a row per shop of the account and their total.
+    The same counts the strip shows for one shop; nothing extra is read from Etsy."""
+    shops = await active_shops(session, tenant.id)
+    groups = await shop_groups_of(session, tenant.id)
+    names = {g.id: g.name for g in (await session.execute(
+        select(ShopGroup).where(ShopGroup.tenant_id == tenant.id))).scalars()}
+    usable: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for pid, main in (await session.execute(
+        select(ListingProfile.id, ListingProfile.connection_id).where(
+            ListingProfile.tenant_id == tenant.id, ListingProfile.confirmed.is_(True))
+    )).all():
+        usable.setdefault(main, set()).add(pid)
+    for pid, cid, status in (await session.execute(
+        select(ProfileShopLink.profile_id, ProfileShopLink.connection_id, ProfileShopLink.status)
+        .where(ProfileShopLink.tenant_id == tenant.id)
+    )).all():
+        if status == "ready":
+            usable.setdefault(cid, set()).add(pid)
+    rows: list[schemas.ShopOverviewRow] = []
+    for c in shops:
+        summary = await summary_of(session, tenant, c, enqueuer, redis)
+        rows.append(schemas.ShopOverviewRow(
+            id=c.id, name=shop_label(c), groups=[names[g] for g in groups.get(c.id, []) if g in names],
+            profiles=len(usable.get(c.id, set())), summary=summary,
+        ))
+    return schemas.ShopsOverviewOut(shops=rows, total=add_up([r.summary for r in rows]))
+
+
+async def summary_of(
+    session: AsyncSession, tenant: Tenant, connection: EtsyConnection | None, enqueuer: Enqueuer, redis: Redis
+) -> schemas.ShopSummaryOut:
     everything = await _shop_rows(session, tenant, connection) if connection else []
     newest = max((c.fetched_at for c in everything), default=None)
     # Counts are derived from listing content, so expired rows do not count.

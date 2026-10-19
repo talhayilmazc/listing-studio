@@ -71,6 +71,7 @@ OPENING = {
 REF = "Thanks for visiting the shop.\n\nSIZING\nUnisex fit. Order your usual size; size up one for a relaxed look.\n\nCARE\nWash inside out in cold water. Tumble dry low.\n\nPRODUCTION\nPrinted to order. Ships in 2-4 business days."
 IMAGES = [{"listing_image_id": 900 + i, "rank": i + 1, "url": None, "display_url": None, "kind": "size_chart" if i == 2 else "artwork"} for i in range(3)]
 PAYLOAD = {"payload_version": 2, "description": REF, "images": IMAGES, "price": 24.0, "images_classified": True, "taxonomy_id": 482,
+           "shipping_profile_id": 5101, "return_policy_id": 5201, "readiness_state_id": 5301,
            "category_attributes": {"Holiday": ["Christmas", "Mother's Day", "Father's Day"], "Occasion": ["Birthday", "Graduation"], "Primary color": ["Red", "Blue", "Green", "Black", "Pink", "Orange"]},
            "category_names": ["Clothing", "T-shirts"]}
 
@@ -84,16 +85,22 @@ async def main():
     sm = get_sessionmaker(); storage = get_storage()
     now = datetime.now(timezone.utc); today = now.date()
     async with sm() as s:
-        t = Tenant(email="demo-shots@example.test", password_hash="!", status=TenantStatus.active,
+        t = Tenant(email="demo-shots@example.test", password_hash="!", status=TenantStatus.active, max_shops=12,
                    time_zone="America/Chicago", cost_settings={"product_cost": "9.20"})
         s.add(t); await s.flush()
         shops = []
-        for i, name in enumerate(("Northwind Tees", "Juniper Print Co.")):
+        for i, name in enumerate(SHOPS):
             c = EtsyConnection(tenant_id=t.id, status=ConnectionStatus.active, etsy_user_id=999001100 + i, shop_id=999001100 + i,
                                shop_name=name, position=i, sales_synced_at=now - timedelta(hours=3),
                                scopes=["listings_r", "listings_w", "shops_r", "shops_w", "transactions_r"])
             s.add(c); shops.append(c)
         await s.flush()
+        # Two shop groups (4 and 5 shops): the multi-shop screens.
+        for pos, (gname, members) in enumerate((("Group A", shops[:4]), ("Group B", shops[4:]))):
+            g = ShopGroup(tenant_id=t.id, name=gname, position=pos)
+            s.add(g); await s.flush()
+            for c in members:
+                s.add(ShopGroupMember(group_id=g.id, connection_id=c.id))
         profs = {}
         for shop, names in ((shops[0], ("Standard Tee", "Crewneck Sweatshirt")), (shops[1], ("Standard Tee",))):
             for name in names:
@@ -101,6 +108,7 @@ async def main():
                                    confirmed=True, updated_at=now, images_updated_at=now, cached_payload=PAYLOAD, fixed_image_ids=[902],
                                    listing_style="search", title_prefix="")
                 s.add(p); profs[(shop.shop_name, name)] = p
+        plan = await profile_links(s, t, profs[("Northwind Tees", "Standard Tee")], shops, now)
         b = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=18, connection_id=shops[0].id, name="Summer drop")
         s.add(b); await s.flush()
         for i, (sku, art, title, tags) in enumerate(DESIGNS):
@@ -118,7 +126,9 @@ async def main():
             attrs = {"vision": {"theme": art}, "search": {"opening": opening}, "listing": {"Primary color": ["Orange", "Blue", "Green", "Black", "Green", "Black"][i]}}
             if sku == "NW1044":
                 attrs["listing"]["Holiday"] = "Mother's Day"
-            c = GeneratedContent(tenant_id=t.id, batch_id=b.id, asset_id=covers[0].id, approved=i < 3, listing_profile_id=prof.id,
+            targets = [str(x.id) for x in (shops[0], shops[2], shops[3], shops[4])] if i in (2, 3) else None
+            c = GeneratedContent(tenant_id=t.id, batch_id=b.id, asset_id=covers[0].id, approved=i < 4, listing_profile_id=prof.id,
+                                 target_shops=targets,
                                  title=title, tags=tags, description=opening + "\n\n" + REF.split("\n\n", 1)[1], attributes=attrs,
                                  model_used="claude-sonnet-5", input_tokens=4200, output_tokens=520)
             s.add(c); await s.flush()
@@ -153,9 +163,81 @@ async def main():
         s.add(LedgerSync(connection_id=shops[0].id, tenant_id=t.id, state="complete", window_start=mid - 90 * 86400, window_end=end,
                          total_count=900, next_offset=900, read_count=900, synced_until=end, requests_used=10, backfill_state="complete",
                          backfill_target=mid - 395 * 86400, covered_from=mid - 395 * 86400, backfill_requests=40))
+        for k, shop in enumerate(shops[1:], start=1):  # every shop has figures on Overview
+            for back in range(30):
+                if random.random() < 0.5:
+                    s.add(SalesDaily(connection_id=shop.id, listing_id=8000 + k, day=today - timedelta(days=back), tenant_id=t.id,
+                                     units=1, orders=1, revenue_minor=2200 + 100 * k, currency="USD"))
+            shop.listing_counts, shop.listing_counts_at = {"active": 20 + 7 * k, "draft": k % 3, "inactive": 1, "expired": 0, "sold_out": 0}, now
+        shops[0].listing_counts, shops[0].listing_counts_at = {"active": 12, "draft": 1, "inactive": 0, "expired": 0, "sold_out": 0}, now
         await s.commit()
         await mockup_templates(s, storage, t)
-        print(b.id, await SessionStore(Redis.from_url(get_settings().redis_url)).create(t.id))
+        redis = Redis.from_url(get_settings().redis_url)
+        await redis.set(f"link-plan:{plan[0]}", json.dumps(plan[1]), ex=6 * 3600)
+        print(b.id, await SessionStore(redis).create(t.id))
+
+
+#: Synthetic shop names (no real seller's): Group A is the first four, Group B the other five.
+SHOPS = ("Northwind Tees", "Juniper Print Co.", "Harbor Thread", "Maple & Ink",
+         "Copperline Goods", "Lantern Lane", "Pinecrest Apparel", "Saltmarsh Studio", "Willow Row Tees")
+
+#: The main shop's own settings (what the Standard Tee profile's reference listing uses).
+SRC = {"shipping_profile": "Standard US shipping", "return_policy": "returns, exchanges, 30 days",
+       "readiness_state": "Made to order, 2-4 days"}
+
+
+async def profile_links(s, t, prof, shops, now):
+    """The Standard Tee profile in the other shops, as if "Use in" had read them:
+    Juniper matched everything; Harbor Thread and Maple & Ink have no shipping
+    profile of that name (a copy is preselected), the same return terms, and two
+    processing profiles with the same days (the seller chooses); Copperline Goods
+    and Lantern Lane match nothing (copies); the other Group B shops are not set up."""
+    await s.flush()
+    shipping = lambda sid, title: {"id": sid, "label": title}
+    plan = {}
+
+    def matched(sid):
+        return {
+            "shipping_profile": {"linked": sid * 10 + 1, "how": "same name", "label": SRC["shipping_profile"], "source_label": SRC["shipping_profile"],
+                                 "options": [shipping(sid * 10 + 1, SRC["shipping_profile"]), shipping(sid * 10 + 2, "Free shipping over $35")]},
+            "return_policy": {"linked": sid * 10 + 3, "how": "same terms", "label": SRC["return_policy"], "source_label": SRC["return_policy"],
+                              "options": [shipping(sid * 10 + 3, SRC["return_policy"]), shipping(sid * 10 + 4, "no returns, no exchanges")]},
+            "readiness_state": {"linked": sid * 10 + 5, "how": "same terms", "label": SRC["readiness_state"], "source_label": SRC["readiness_state"],
+                                "options": [shipping(sid * 10 + 5, SRC["readiness_state"]), shipping(sid * 10 + 6, "Ready to ship, 1-2 days")]},
+        }
+
+    copy_shipping = {"profile": {"title": SRC["shipping_profile"]}, "destinations": [{}], "upgrades": [{}]}
+    copy_returns = {"accepts_returns": True, "accepts_exchanges": True, "return_deadline": 30}
+    copy_ready = {"readiness_state": "made_to_order", "min_processing_time": 2, "max_processing_time": 4, "processing_time_unit": "days"}
+    for k, shop in enumerate(shops[1:6], start=1):
+        sid = 600 + k
+        entries = matched(sid)
+        link = ProfileShopLink(tenant_id=t.id, profile_id=prof.id, connection_id=shop.id, checked_at=now)
+        if k == 1:
+            link.status, link.shipping_profile_id, link.return_policy_id, link.readiness_state_id = "ready", sid * 10 + 1, sid * 10 + 3, sid * 10 + 5
+        elif k in (2, 3):
+            entries["shipping_profile"] = {"reason": "no match in this shop", "creatable": True, "requests": 3, "create": copy_shipping,
+                                           "source_label": SRC["shipping_profile"], "options": [shipping(sid * 10 + 2, "Free shipping over $35")]}
+            entries["readiness_state"] = {"reason": "several in this shop match; choose one", "creatable": False, "requests": 0,
+                                          "source_label": SRC["readiness_state"],
+                                          "options": [shipping(sid * 10 + 5, "Made to order, 2-4 days (tees)"), shipping(sid * 10 + 7, "Made to order, 2-4 days (hoodies)")]}
+            link.return_policy_id = sid * 10 + 3
+            link.status, link.notes = "incomplete", {"shipping_profile": "no match in this shop", "readiness_state": "several in this shop match; choose one"}
+        else:
+            entries = {
+                "shipping_profile": {"reason": "no match in this shop", "creatable": True, "requests": 3, "create": copy_shipping,
+                                     "source_label": SRC["shipping_profile"], "options": [shipping(sid * 10 + 2, "Free shipping over $35")]},
+                "return_policy": {"reason": "no match in this shop", "creatable": True, "requests": 1, "create": copy_returns,
+                                  "source_label": SRC["return_policy"], "options": [shipping(sid * 10 + 4, "no returns, no exchanges")]},
+                "readiness_state": {"reason": "no match in this shop", "creatable": True, "requests": 1, "create": copy_ready,
+                                    "source_label": SRC["readiness_state"], "options": [shipping(sid * 10 + 6, "Ready to ship, 1-2 days")]},
+            }
+            link.status = "incomplete"
+            link.notes = {r: "no match in this shop" for r in entries}
+        s.add(link)
+        plan[str(shop.id)] = entries
+    await s.flush()
+    return str(prof.id), plan
 
 
 async def mockup_templates(s, storage, t):

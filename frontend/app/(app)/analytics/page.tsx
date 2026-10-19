@@ -11,6 +11,7 @@ import { MonthListings } from "@/components/analytics/MonthListings";
 import { TitleStyles } from "@/components/analytics/TitleStyles";
 import { ProductCosts } from "@/components/analytics/ProductCosts";
 import { SalesReread } from "@/components/analytics/SalesReread";
+import { AllShops } from "@/components/analytics/AllShops";
 import { StatusBar } from "@/components/analytics/Shared";
 import { SOURCES } from "@/lib/analyticsDefinitions";
 
@@ -31,7 +32,10 @@ const TABS: { key: Tab; label: string }[] = [
  * estimated (lib/analyticsDefinitions.ts, docs/analytics.md).
  */
 export default function AnalyticsPage() {
-  const { selected } = useShops();
+  // "All shops" (the default with several shops) shows every shop's month side by side;
+  // picking a shop (here or in the switcher) opens its full report.
+  const { scope: selected, shops, select } = useShops();
+  const allShops = shops !== null && shops.length > 1 && selected === null;
   const shopId = selected?.id ?? null;
   const [tab, setTab] = useState<Tab>("month");
   // The month picked belongs to the shop it was picked in: another shop opens on its own newest month.
@@ -45,6 +49,7 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
+    if (allShops || shops === null) return;
     const call = ++latest.current;
     setLoading(true);
     try {
@@ -59,7 +64,7 @@ export default function AnalyticsPage() {
     } finally {
       if (call === latest.current) setLoading(false);
     }
-  }, [shopId, month]);
+  }, [shopId, month, allShops, shops]);
 
   useEffect(() => {
     load();
@@ -71,6 +76,19 @@ export default function AnalyticsPage() {
 
   const connected = view?.connected ?? false;
   const report = tab === "month" || tab === "listings";
+
+  if (allShops) {
+    return (
+      <div className="space-y-5">
+        <p className="max-w-3xl text-sm text-slate-500">
+          What each of your shops earned in a month, after Etsy&apos;s fees, your ads and your product costs, side by
+          side. Every number comes from that shop&apos;s own report; nothing on Etsy is changed from here.
+        </p>
+        <SalesReread onProgress={() => {}} />
+        <AllShops onPick={select} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

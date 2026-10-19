@@ -60,7 +60,9 @@ test("finish these drafts, set up in the shop, and where the list is shown", () 
   const panel = read("components/UnfinishedDrafts.tsx");
   assert.match(panel, /api\.finishDrafts\(\{ record_ids: \(only \? \[only\] : ready\)\.map\(\(i\) => i\.record_id\) \}\)/);
   assert.match(panel, /`Finish these drafts \(\$\{ready\.length\}\)`/);
-  assert.match(panel, /api\.useProfileIn\(item\.profile_id, \{ scope: "shops", connection_ids: \[item\.connection_id\] \}\)/);
+  // Set up opens the same setup dialog as the Profiles page, for this shop.
+  assert.match(panel, /setSetupItems\(\[\{ profileId: item\.profile_id, profileName: item\.profile_name \?\? null, shopIds: \[item\.connection_id\] \}\]\)/);
+  assert.match(panel, /<ShopSetupDialog key="setup-dialog"/);
   assert.match(panel, /<span>Set up in <\/span><span translate="no">\{i\.shop_name\}<\/span>/);
   assert.match(panel, /nothing new\s+is created and nothing is deleted on Etsy/);
   assert.match(read("app/(app)/batches/[id]/review/page.tsx"), /<UnfinishedDrafts batchId=\{id\} \/>/);

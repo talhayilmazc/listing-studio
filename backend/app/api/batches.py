@@ -622,7 +622,7 @@ async def _batch_groups(
         return schemas.ProfileSetupNote(
             profile_id=profile.id, profile_name=profile.name, connection_id=shop.id, shop_name=shop_label(shop),
             reason=state.reason or "not ready in this shop",
-            # A setup that failed is tried again in one click; what is missing is chosen on the Profiles page.
+            # A failed setup is tried again; what is missing is chosen in the setup dialog the group card opens.
             setup=state.status == "error", checking=state.status == "checking",
         )
 

@@ -10,7 +10,9 @@ import type {
   Group,
   Profile,
   Quota,
+  Shop,
   ShopListing,
+  ShopsOverview,
 } from "@/lib/types";
 import { showable } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
@@ -23,6 +25,12 @@ type Thumbs = Record<string, Asset[]>;
 
 const RECENT = 3;
 
+/** Counts not read (the overview could not load): shown as unknown, never as zero. */
+const UNKNOWN: ShopsOverview["total"] = {
+  app_published_this_month: 0, app_published_last_month: 0, shop_counts_known: false, syncing: false, total: 0,
+  active: 0, draft: 0, published_this_month: 0, published_last_month: 0, fetched_at: null, stale: false,
+};
+
 export default function Dashboard() {
   const [connection, setConnection] = useState<Connection | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
@@ -31,9 +39,12 @@ export default function Dashboard() {
   const [thumbs, setThumbs] = useState<Thumbs>({});
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [usage, setUsage] = useState<Record<string, number> | null>(null);
-  // Shop figures follow the shop selected in the rail (v5 §E).
-  const { selected } = useShops();
-  const shopId = selected?.id ?? null;
+  const [overview, setOverview] = useState<ShopsOverview | null>(null);
+  // "All shops" (the default with several shops): a total and a row per shop. The
+  // shop switcher narrows it to one shop (v5 §E).
+  const { scope, shops, select } = useShops();
+  const shopId = scope?.id ?? null;
+  const allShops = shops !== null && shops.length > 1 && scope === null;
 
   useEffect(() => {
     let cancelled = false;
@@ -43,10 +54,16 @@ export default function Dashboard() {
 
     api.connection().then(set(setConnection)).catch(() => setConnection(null));
     api.quota(shopId).then(set(setQuota)).catch(() => {});
-    api
-      .shopListings(shopId)
-      .then(set<{ listings: ShopListing[] }>((r) => setListings(r.listings)))
-      .catch(() => setListings([]));
+    if (allShops) {
+      setListings(null);
+      api.shopsOverview().then(set(setOverview)).catch(() => setOverview({ shops: [], total: UNKNOWN }));
+    } else if (shops !== null) {
+      setOverview(null);
+      api
+        .shopListings(shopId)
+        .then(set<{ listings: ShopListing[] }>((r) => setListings(r.listings)))
+        .catch(() => setListings([]));
+    }
 
     api
       .listProfiles(shopId)
@@ -96,13 +113,17 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [shopId]);
+  }, [shopId, allShops, shops]);
 
   return (
     <div className="space-y-6">
       <UnfinishedDrafts />
       <div className="grid gap-4 lg:grid-cols-3">
-        <ShopCard connection={connection} listings={listings} />
+        {allShops ? (
+          <AllShopsCard key="all" overview={overview} onPick={select} />
+        ) : (
+          <ShopCard key="one" connection={connection} shop={scope} listings={listings} />
+        )}
         <QuotaCard quota={quota} />
       </div>
 
@@ -116,11 +137,83 @@ export default function Dashboard() {
 
 /* ---------------------------------------------------------------- shop ---- */
 
+/** Overview's "All shops": every shop's counts added up, then a row per shop. */
+function AllShopsCard({ overview, onPick }: { overview: ShopsOverview | null; onPick: (id: string) => void }) {
+  const total = overview?.total ?? null;
+  const known = total?.shop_counts_known ?? false;
+  const count = (n: number | undefined, ok: boolean) => (overview === null ? null : ok ? n ?? 0 : null);
+  return (
+    <section className="card min-w-0 p-6 lg:col-span-2" data-testid="all-shops">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold text-slate-900">All shops</h2>
+        <p translate="no" className="text-xs text-slate-500">
+          {overview === null ? "" : `${overview.shops.length} shops${total?.syncing ? " · some are syncing" : ""}`}
+        </p>
+      </div>
+      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2" data-testid="all-shops-total">
+        <Metric label="Listings" value={count(total?.total, known)} />
+        <Metric label="Active" value={count(total?.active, known)} />
+        <Metric label="Drafts" value={count(total?.draft, known)} />
+        <Metric label="Published with the app this month" value={count(total?.app_published_this_month, (overview?.shops.length ?? 0) > 0)} />
+      </dl>
+      {overview !== null && !known && overview.shops.length > 0 && (
+        <p key="syncing" className="mt-1 text-xs text-slate-500">
+          Shop-wide totals appear once every shop&apos;s counts are read; the rows show each shop that is ready.
+        </p>
+      )}
+      <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs text-slate-500">
+            <tr>
+              <th className="px-3 py-2 font-medium">Shop</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Active</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Drafts</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Published with the app</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Profiles</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {overview === null
+              ? [0, 1, 2].map((i) => (
+                  <tr key={i}><td colSpan={5} className="px-3 py-2"><span className="block h-4 w-full animate-pulse rounded bg-slate-100" /></td></tr>
+                ))
+              : overview.shops.map((row) => (
+                  <tr key={row.id} data-testid="all-shops-row">
+                    <td className="max-w-[16rem] px-3 py-2">
+                      <button type="button" className="tap block max-w-full truncate text-left font-medium text-brand-700 underline"
+                        title={`Show only ${row.name}`} onClick={() => onPick(row.id)}>
+                        <span translate="no">{row.name}</span>
+                      </button>
+                      {row.groups.length > 0 && (
+                        <span key="groups" translate="no" className="block truncate text-[11px] text-slate-500">{row.groups.join(", ")}</span>
+                      )}
+                    </td>
+                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                      {row.summary.shop_counts_known ? row.summary.active : row.summary.syncing ? "syncing" : "—"}
+                    </td>
+                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                      {row.summary.shop_counts_known ? row.summary.draft : row.summary.syncing ? "syncing" : "—"}
+                    </td>
+                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.summary.app_published_this_month}</td>
+                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.profiles}</td>
+                  </tr>
+                ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Pick a shop here or in the shop switcher to see only that shop.</p>
+    </section>
+  );
+}
+
 function ShopCard({
   connection,
+  shop,
   listings,
 }: {
   connection: Connection | null;
+  /** The shop picked in the switcher (its name; the connection status is the account's). */
+  shop: Shop | null;
   listings: ShopListing[] | null;
 }) {
   if (connection && !connection.connected) {
@@ -137,7 +230,7 @@ function ShopCard({
     );
   }
 
-  const name = connection?.shop_name ?? null;
+  const name = shop?.name ?? connection?.shop_name ?? null;
   const active = listings?.filter((l) => l.state === "active").length ?? 0;
   const drafts = listings?.filter((l) => l.state === "draft").length ?? 0;
   const tiles = (listings ?? []).filter((l) => l.thumbnail_url).slice(0, 8);
@@ -157,11 +250,11 @@ function ShopCard({
             )}
             {connection?.connected && <StatusPill key="statuspill-155-12" status="ready" />}
           </div>
-          {connection?.connected_at && (
+          {(shop?.connected_at ?? connection?.connected_at) && (
             <p key="p-157-10" className="mt-1 text-xs text-slate-500">
               Connected{" "}
-              <span title={new Date(connection.connected_at).toLocaleString()}>
-                {relativeTime(connection.connected_at)}
+              <span title={new Date((shop?.connected_at ?? connection?.connected_at)!).toLocaleString()}>
+                {relativeTime((shop?.connected_at ?? connection?.connected_at)!)}
               </span>
             </p>
           )}

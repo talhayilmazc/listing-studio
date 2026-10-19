@@ -130,7 +130,7 @@ class ProfileSetupNote(BaseModel):
     connection_id: uuid.UUID
     shop_name: str | None = None
     reason: str
-    #: One click sets it up there ("Use in"); otherwise it is finished on the Profiles page.
+    #: Not set up there, or failed: the setup dialog starts it. Either way the dialog (on the batch page) settles what is left.
     setup: bool = False
     checking: bool = False
 
@@ -750,9 +750,11 @@ class ProfileChoiceOut(BaseModel):
 
 
 class ShopTick(BaseModel):
-    """Tick (or untick) one shop for the batch's listings on the review page."""
+    """Tick (or untick) one shop, or every shop of one shop group, for the batch's
+    listings on the review page. Exactly one of the two."""
 
-    connection_id: uuid.UUID
+    connection_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
     on: bool
     #: Only these listings; omitted = every listing of the batch.
     content_ids: list[uuid.UUID] | None = None
@@ -779,7 +781,7 @@ class ShopNeedOut(BaseModel):
     blocking: bool = True
     profile_id: uuid.UUID | None = None
     profile_name: str | None = None
-    #: One click sets the profile up in this shop; what is then left is chosen on the Profiles page.
+    #: The profile is not set up there yet; the setup dialog on the review page does it (one dialog for every shop).
     setup: bool = False
     checking: bool = False
 
@@ -1057,6 +1059,24 @@ class ShopSummaryOut(BaseModel):
     stale: bool = False  # cache is older than its 6h window (no refresh triggered)
 
 
+class ShopOverviewRow(BaseModel):
+    """One shop on Overview's "All shops"."""
+
+    id: uuid.UUID
+    name: str
+    #: The shop groups it is in.
+    groups: list[str] = Field(default_factory=list)
+    #: Confirmed profiles that can build a draft there (its own and those set up there).
+    profiles: int = 0
+    summary: ShopSummaryOut
+
+
+class ShopsOverviewOut(BaseModel):
+    shops: list[ShopOverviewRow]
+    #: Every shop added up; a shop whose counts are unknown makes the shop-wide total "syncing".
+    total: ShopSummaryOut
+
+
 class ReplaceImagesRequest(BaseModel):
     batch_id: uuid.UUID  # the uploaded batch of new product photos
     #: Only this listing group's photos, in the order the seller set ("" = the
@@ -1099,8 +1119,8 @@ class ShopOut(BaseModel):
     # Permissions the app now asks for that this shop has not granted (connected
     # before they were added): the seller reconnects once to grant them.
     missing_scopes: list[str] = Field(default_factory=list)
-    #: Its shop group (v8 §B); None = in no group.
-    group_id: uuid.UUID | None = None
+    #: The shop groups it is in (v8 §B; a shop may be in several); [] = in none.
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 #: The notice Etsy's API Terms of Use ask every application to show, word for word.

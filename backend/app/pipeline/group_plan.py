@@ -8,7 +8,9 @@ queued here (api/distribution.py confirms; workers/plans.py releases).
 * Each shop takes up to ``per_shop_per_day`` listings a day, inside the daily
   window (the seller's wall clock), ``spacing`` minutes apart.
 * Shops of one group are staggered by ``stagger`` minutes each, so the same
-  design never goes live in two of them in the same minute.
+  design never goes live in two of them in the same minute. A shop may be in
+  several groups: it takes the listings of each chosen group it is in, on one
+  calendar, and its stagger never equals that of any shop it shares a group with.
 * A listing costs ~``DRAFT_REQUESTS`` Etsy requests when its draft is made
   (``DRAFT_LEAD`` before it goes live) and ``PUBLISH_REQUESTS`` when it goes
   live. Requests are counted on the UTC day they are made (Etsy's and our daily
@@ -22,6 +24,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT
@@ -65,16 +68,19 @@ class Settings:
 
 @dataclass(frozen=True)
 class Shop:
+    """One shop in one group. A shop in two of the chosen groups is passed twice.
+    ``group_id`` is any key naming the group (a single shop chosen alone is a group of one)."""
+
     id: uuid.UUID
     name: str
-    group_id: uuid.UUID
+    group_id: Any
 
 
 @dataclass(frozen=True)
 class Listing:
     content_id: uuid.UUID
     title: str
-    group_id: uuid.UUID
+    group_id: Any
     #: Shops of its group it cannot go to (no profile set up, a draft there...), with why.
     skip: dict[uuid.UUID, str] = field(default_factory=dict)
 
@@ -85,7 +91,7 @@ class Slot:
     title: str
     shop_id: uuid.UUID
     shop_name: str
-    group_id: uuid.UUID
+    group_id: Any
     draft_at: datetime
     publish_at: datetime
     local_day: date
@@ -138,23 +144,27 @@ def plan(
     now: datetime,
     draft_requests: int = DRAFT_REQUESTS,
 ) -> Plan:
-    groups: dict[uuid.UUID, list[Shop]] = {}
+    groups: dict[Any, list[Shop]] = {}
     for shop in shops:
         groups.setdefault(shop.group_id, []).append(shop)
     settings.check(max((len(v) for v in groups.values()), default=0))
+    # Each shop once, in the order given (a shop in two groups keeps its first place).
+    unique: dict[uuid.UUID, Shop] = {}
+    for shop in shops:
+        unique.setdefault(shop.id, shop)
 
-    # Each shop's queue: its group's listings, in order, less the ones it cannot take.
-    queues: dict[uuid.UUID, list[Listing]] = {s.id: [] for s in shops}
+    # Each shop's queue: its groups' listings, in order, less the ones it cannot take.
+    queues: dict[uuid.UUID, list[Listing]] = {s: [] for s in unique}
     skipped: list[tuple[uuid.UUID, uuid.UUID, str]] = []
     for listing in listings:
         for shop in groups.get(listing.group_id, []):
             if shop.id in listing.skip:
                 skipped.append((listing.content_id, shop.id, listing.skip[shop.id]))
-            else:
+            elif listing not in queues[shop.id]:
                 queues[shop.id].append(listing)
 
-    index = {s.id: [g.id for g in groups[s.group_id]].index(s.id) for s in shops}
-    fits = min((len(_times(settings, index[s.id])) for s in shops), default=settings.per_shop_per_day)
+    index = _stagger_index(list(unique), groups)
+    fits = min((len(_times(settings, index[s])) for s in unique), default=settings.per_shop_per_day)
     spent: dict[date, int] = {}
     room: dict[date, int] = {}
 
@@ -168,7 +178,7 @@ def plan(
     for _ in range(MAX_DAYS):
         if not any(queues.values()):
             break
-        for shop in shops:  # in group order: the stagger follows it
+        for shop in unique.values():  # in group order: the stagger follows it
             queue = queues[shop.id]
             for at in _times(settings, index[shop.id]):
                 if not queue:
@@ -187,7 +197,7 @@ def plan(
                 listing = queue.pop(0)
                 slots.append(Slot(
                     content_id=listing.content_id, title=listing.title, shop_id=shop.id, shop_name=shop.name,
-                    group_id=shop.group_id, draft_at=draft_at, publish_at=publish_at, local_day=day,
+                    group_id=listing.group_id, draft_at=draft_at, publish_at=publish_at, local_day=day,
                     local_time=at.strftime("%H:%M"),
                 ))
         day += timedelta(days=1)
@@ -213,14 +223,29 @@ def plan(
     )
 
 
-def split_evenly(content_ids: list[uuid.UUID], group_ids: list[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
+def _stagger_index(shop_ids: list[uuid.UUID], groups: dict[Any, list[Shop]]) -> dict[uuid.UUID, int]:
+    """Each shop's stagger step: the smallest one no shop it shares a group with
+    has taken. Groups that do not overlap get 0, 1, 2... in each group, as before."""
+    peers: dict[uuid.UUID, set[uuid.UUID]] = {s: set() for s in shop_ids}
+    for members in groups.values():
+        ids = {m.id for m in members}
+        for m in ids:
+            peers[m] |= ids - {m}
+    index: dict[uuid.UUID, int] = {}
+    for shop in shop_ids:
+        taken = {index[p] for p in peers[shop] if p in index}
+        index[shop] = next(i for i in range(len(shop_ids) + 1) if i not in taken)
+    return index
+
+
+def split_evenly(content_ids: list[uuid.UUID], group_ids: list[Any]) -> dict[uuid.UUID, Any]:
     """Approved listings divided across the chosen groups, in order: the first
     ``n / groups`` to the first group, and so on (60 over 4 = 15 each; any
     remainder goes one each to the first groups)."""
     if not group_ids:
         raise PlanRefused("choose at least one group")
     base, extra = divmod(len(content_ids), len(group_ids))
-    out: dict[uuid.UUID, uuid.UUID] = {}
+    out: dict[uuid.UUID, Any] = {}
     i = 0
     for n, group in enumerate(group_ids):
         take = base + (1 if n < extra else 0)

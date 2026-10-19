@@ -8,6 +8,7 @@ import type { BatchSummary, Profile, ShopSummary } from "@/lib/types";
 import { periodWord, useAllowance, writtenAndPublished } from "./Allowance";
 import { useSession } from "./SessionProvider";
 import { useShops } from "./ShopProvider";
+import { supportsAll } from "@/lib/shopScope";
 
 /**
  * Metric strip (docs/ui-direction-v2.md §3): a band of real figures above the
@@ -29,8 +30,11 @@ export function MetricStrip() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
 
   const { account } = useSession();
-  // Shop figures follow the shop selected in the rail (v5 §E); batches are the account's.
-  const { selected } = useShops();
+  // Shop figures follow the shop switcher (v5 §E): "All shops" adds every shop up on the
+  // pages that show every shop; a page that works on one shop shows that shop's.
+  // Batches are the account's.
+  const { selected: one, scope } = useShops();
+  const selected = supportsAll(pathname) ? scope : one;
   const shopId = selected?.id ?? null;
   // /admin carries its own app-wide figures. For anyone else it is an ordinary
   // 404, so it keeps the strip every unknown route has.
@@ -76,7 +80,7 @@ export function MetricStrip() {
             the cached copy of the shop: "syncing" when that copy is missing, never 0. */}
         <Cell
           label="Published with the app"
-          period={selected ? `this month · ${selected.name}` : "this month"}
+          period={selected ? `this month · ${selected.name}` : "this month · all shops"}
           value={shop?.app_published_this_month ?? null}
           delta={shop ? changePct(shop.app_published_this_month, shop.app_published_last_month) : null}
           deltaNote="vs last month"
@@ -96,7 +100,7 @@ export function MetricStrip() {
         />
         <Cell
           label="Draft listings"
-          period={selected ? `awaiting publish · ${selected.name}` : "awaiting publish"}
+          period={selected ? `awaiting publish · ${selected.name}` : "awaiting publish · all shops"}
           value={shop ? (shop.shop_counts_known ? shop.draft : null) : null}
           secondary={shop && shop.shop_counts_known ? `${shop.active.toLocaleString()} live` : null}
           unavailable={

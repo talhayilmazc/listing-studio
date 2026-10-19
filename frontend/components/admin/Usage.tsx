@@ -143,7 +143,9 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
             label="App-wide Etsy requests used today"
           />
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        {/* Its length depends on the numbers (placeholder ones while loading): on a phone it wraps to a
+            different number of lines, so its height is reserved there and the tab bar below never moves. */}
+        <p className="mt-2 text-xs text-slate-500 max-sm:min-h-[7.5rem]">
           <span><span>{u.used >= u.pauseAt
             ? `New jobs wait for the reset; the last ${(u.limit - u.pauseAt).toLocaleString()} are held for work already running`
             : `${Math.max(0, u.pauseAt - u.used).toLocaleString()} until new work pauses at ${u.pauseAt.toLocaleString()}`}</span>

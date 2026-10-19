@@ -102,20 +102,38 @@ async def _plan_save(ctx: dict[str, Any], profile_id: uuid.UUID, plan: dict[str,
         await redis.set(PLAN_KEY.format(profile_id=profile_id), json.dumps(plan), ex=PLAN_TTL_SECONDS)
 
 
+def _label(outcome: L.Outcome, value: Any) -> str | None:
+    ids = value if isinstance(value, list) else [value]
+    names = {int(o["id"]): o["label"] for o in outcome.options if o.get("id") is not None}
+    found = [names.get(int(i)) for i in ids]
+    return ", ".join(n for n in found if n) or None
+
+
 def _apply(link: ProfileShopLink, outcomes: dict[str, L.Outcome], currency_note: str | None) -> dict[str, Any]:
-    """Write what was linked onto the link; return what is left for the seller."""
+    """Write what was linked onto the link; return, per resource, what the shop
+    uses and how (same name, same terms, your choice, created) or what is left
+    for the seller, with the shop's own list so any choice can be changed."""
     notes: dict[str, str] = {}
     left: dict[str, Any] = {}
     for resource, outcome in outcomes.items():
         key = L.PAYLOAD_KEY[resource]
-        if outcome.linked not in (None, []):
-            setattr(link, key, outcome.linked)
-            continue
         if not outcome.needed:
             setattr(link, key, [] if resource == L.PARTNERS else None)
             continue
         current = getattr(link, key)
-        if current not in (None, []):  # chosen or created earlier: kept
+        known = {int(o["id"]) for o in outcome.options if o.get("id") is not None}
+        current_ids = (current if isinstance(current, list) else [current]) if current not in (None, []) else []
+        # The seller's own choice (or a copy made earlier) stays while that shop still has it.
+        kept = bool(current_ids) and all(int(i) in known for i in current_ids) and current != outcome.linked
+        if kept or outcome.linked in (None, []) and current not in (None, []):
+            left[resource] = {"linked": current, "how": "created" if outcome.how == "created" else "your choice",
+                              "label": _label(outcome, current) or outcome.label, "options": outcome.options,
+                              "source_label": outcome.source_label}
+            continue
+        if outcome.linked not in (None, []):
+            setattr(link, key, outcome.linked)
+            left[resource] = {"linked": outcome.linked, "how": outcome.how, "label": outcome.label or _label(outcome, outcome.linked),
+                              "options": outcome.options, "source_label": outcome.source_label}
             continue
         notes[resource] = outcome.reason or L.NOT_FOUND
         left[resource] = {
@@ -124,6 +142,7 @@ def _apply(link: ProfileShopLink, outcomes: dict[str, L.Outcome], currency_note:
             "requests": outcome.requests,
             "create": outcome.create,
             "options": outcome.options,
+            "source_label": outcome.source_label,
         }
     if currency_note:
         notes["currency"] = currency_note
@@ -311,7 +330,9 @@ async def _create_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                     outcome = outcomes[resource]
                     if resource in confirmed and outcome.creatable and outcome.linked is None:
                         new_id = await _create(client, shop_id, outcome, tkw)
-                        outcome.linked, outcome.reason = new_id, None
+                        outcome.linked, outcome.reason, outcome.how = new_id, None, "created"
+                        outcome.label = outcome.source_label
+                        outcome.options = [*outcome.options, {"id": new_id, "label": outcome.source_label or str(new_id)}]
                 link.pending_create = None
                 plan[str(shop.id)] = _apply(link, outcomes, L.currency_problem(payload.get("currency"), target.currency))
                 await session.commit()  # each shop's ids as soon as they exist

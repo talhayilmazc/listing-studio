@@ -445,14 +445,17 @@ async def test_another_account_gets_404_everywhere(world) -> None:  # noqa: F811
     assert groups["groups"] == [] and [s["name"] for s in groups["ungrouped"]] == ["Bob Shop"]
 
 
-async def test_a_shop_is_in_at_most_one_group(world) -> None:  # noqa: F811
+async def test_a_shop_may_be_in_several_groups(world) -> None:  # noqa: F811
     extra = await _setup_world(world)
     res = await world["a"].post("/api/shop-groups", json={"name": "Group B", "connection_ids": [str(world["a2"])]})
     groups = {g["name"]: [s["name"] for s in g["shops"]] for g in res.json()["groups"]}
-    assert groups == {"Group A": ["Frost Caps"], "Group B": ["Frost Mugs"]}
+    # Frost Mugs is now in both groups: joining Group B did not take it out of Group A.
+    assert groups == {"Group A": ["Frost Mugs", "Frost Caps"], "Group B": ["Frost Mugs"]}
     assert (await world["a"].post("/api/shop-groups", json={"name": "group b"})).status_code == 409
     res = await world["a"].delete(f"/api/shop-groups/{extra['group']}")
-    assert "Frost Caps" in [s["name"] for s in res.json()["ungrouped"]]
+    # Frost Caps was only in Group A: in no group now. Frost Mugs stays in Group B.
+    assert [s["name"] for s in res.json()["ungrouped"]] == ["Frost Tees", "Frost Caps"]
+    assert {g["name"]: [s["name"] for s in g["shops"]] for g in res.json()["groups"]} == {"Group B": ["Frost Mugs"]}
 
 
 def test_shared_settings_compare_without_shop_ids() -> None:

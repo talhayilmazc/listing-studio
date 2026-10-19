@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import ConnectionStatus, EtsyConnection, Tenant
+from app.db.models import ConnectionStatus, EtsyConnection, ShopGroup, ShopGroupMember, Tenant
 
 
 class ShopLimitReached(Exception):
@@ -62,6 +62,40 @@ async def active_shops(session: AsyncSession, tenant_id: uuid.UUID) -> list[Etsy
         .order_by(EtsyConnection.position, EtsyConnection.connected_at)
     )
     return list(rows.scalars())
+
+
+async def group_shops(
+    session: AsyncSession, tenant_id: uuid.UUID, shops: list[EtsyConnection] | None = None
+) -> dict[uuid.UUID, list[EtsyConnection]]:
+    """Every group of the account -> its connected shops, in shop order. A shop
+    may be in several groups; a group with no connected shop maps to []."""
+    shops = shops if shops is not None else await active_shops(session, tenant_id)
+    by_id = {c.id: c for c in shops}
+    out: dict[uuid.UUID, list[EtsyConnection]] = {
+        gid: [] for gid in (await session.execute(
+            select(ShopGroup.id).where(ShopGroup.tenant_id == tenant_id)
+            .order_by(ShopGroup.position, ShopGroup.name))).scalars()
+    }
+    rows = (await session.execute(
+        select(ShopGroupMember.group_id, ShopGroupMember.connection_id)
+        .join(ShopGroup, ShopGroup.id == ShopGroupMember.group_id)
+        .where(ShopGroup.tenant_id == tenant_id)
+    )).all()
+    members: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for gid, cid in rows:
+        members.setdefault(gid, set()).add(cid)
+    for gid in out:
+        out[gid] = [c for c in shops if c.id in members.get(gid, set()) and c.id in by_id]
+    return out
+
+
+async def shop_groups_of(session: AsyncSession, tenant_id: uuid.UUID) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """Every shop of the account -> the groups it is in (group order)."""
+    out: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for gid, shops in (await group_shops(session, tenant_id)).items():
+        for shop in shops:
+            out.setdefault(shop.id, []).append(gid)
+    return out
 
 
 async def app_shop_count(session: AsyncSession) -> int:

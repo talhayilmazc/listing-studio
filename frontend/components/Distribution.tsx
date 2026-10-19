@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { Content, DistributionPreview, GroupPlanPreview, GroupSchedule, ShopGroups } from "@/lib/types";
+import { ShopSetupDialog, type SetupItem } from "./ShopSetupDialog";
+import { useShops } from "./ShopProvider";
 import { Txt } from "./Txt";
 
 function tomorrow(): string {
@@ -15,18 +17,38 @@ function tomorrow(): string {
 const day = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
 
+/** The setup dialog's items from a distribution preview: every shop whose profile is not set up yet. */
+export function distributionSetup(preview: DistributionPreview | null): SetupItem[] {
+  const out: SetupItem[] = [];
+  for (const row of preview?.rows ?? []) {
+    for (const cell of row.shops) {
+      if (!cell.setup_profile_id) continue;
+      let item = out.find((i) => i.profileId === cell.setup_profile_id);
+      if (!item) out.push((item = { profileId: cell.setup_profile_id, profileName: cell.setup_profile_name ?? null, shopIds: [] }));
+      if (!item.shopIds.includes(cell.shop_id)) item.shopIds.push(cell.shop_id);
+    }
+  }
+  return out;
+}
+
 /**
- * Send listings to shop groups and schedule them (v8 §B). Pick groups, then send
- * the chosen listings to one group, or split the approved listings evenly across
- * the groups in order. Every shop of a group gets the group's listings and no
- * other group's. Then the schedule: start date, listings per shop per day, the
- * daily window, spacing, and a stagger between the shops of a group. Nothing is
- * queued before the calendar and the Etsy requests per day are shown and
- * confirmed; a day that is full spills to the next.
+ * Send listings to shop groups (or single shops) and schedule them (v8 §B). Pick
+ * groups or shops, then send the chosen listings to one of them, or split the
+ * approved listings evenly across them in order. Every shop of a group gets the
+ * group's listings and no other group's; a single shop chosen here is a group of
+ * one. A shop in two chosen groups gets each group's listings. Shops a listing's
+ * profile is not set up in are set up right here, in one dialog. Then the
+ * schedule: start date, listings per shop per day, the daily window, spacing, and
+ * a stagger between the shops of a group. Nothing is queued before the calendar
+ * and the Etsy requests per day are shown and confirmed; a day that is full
+ * spills to the next.
  */
 export function Distribution({ batchId, items, onDone }: { batchId: string; items: Content[]; onDone: () => void }) {
+  const { shops } = useShops();
   const [groups, setGroups] = useState<ShopGroups | null>(null);
   const [chosen, setChosen] = useState<string[]>([]);
+  const [chosenShops, setChosenShops] = useState<string[]>([]);
+  const [setup, setSetup] = useState<SetupItem[] | null>(null);
   const [mode, setMode] = useState<"split" | "assign">("split");
   const [selected, setSelected] = useState<string[]>([]);
   const [preview, setPreview] = useState<DistributionPreview | null>(null);
@@ -48,7 +70,14 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
   }, []);
 
   const approved = useMemo(() => items.filter((c) => c.approved), [items]);
-  const assignments = (preview?.rows ?? []).map((r) => ({ content_id: r.content_id, group_id: r.group_id }));
+  const assignments = (preview?.rows ?? []).map((r) => ({ content_id: r.content_id, group_id: r.group_id, connection_id: r.connection_id }));
+  const targets = chosen.length + chosenShops.length;
+  const toSetUp = distributionSetup(preview);
+  const askPreview = () =>
+    run(
+      () => api.previewDistribution(batchId, { mode, group_ids: chosen, connection_ids: chosenShops, content_ids: mode === "assign" ? selected : [] }),
+      (p) => { setPreview(p); setPlan(null); },
+    );
 
   async function run<T>(fn: () => Promise<T>, then: (v: T) => void) {
     setBusy(true);
@@ -64,27 +93,25 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
 
   if (groups === null) return null;
   const usable = groups.groups.filter((g) => g.shops.length > 0);
-  if (usable.length === 0) {
-    return (
-      <section className="card p-4 text-sm text-slate-600">
-        <span>Group your shops to send listings to a whole group at once and schedule them per shop. </span>
-        <Link href="/connect" className="text-brand-700 underline">Create shop groups</Link>
-      </section>
-    );
-  }
 
   return (
     <section className="card space-y-4 p-4 sm:p-5" aria-labelledby="distribution-heading">
       <div>
-        <h2 id="distribution-heading" className="text-sm font-medium text-slate-800">Send to shop groups</h2>
+        <h2 id="distribution-heading" className="text-sm font-medium text-slate-800">Send to shop groups and schedule</h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          A listing goes to the shops of one group, with each shop&apos;s own settings, and to no other group. Only
-          approved listings are sent. Each of your shops should have its own listings: Etsy does not allow duplicate
-          shops.
+          A listing goes to the shops of one group (or to one shop you choose), with each shop&apos;s own settings, and
+          to no other group. Only approved listings are sent. Each of your shops should have its own listings: Etsy does
+          not allow duplicate shops.
         </p>
+        {usable.length === 0 && (
+          <p key="nogroups" className="mt-1 text-xs text-slate-500">
+            <span>Group your shops to send listings to a whole group at once. </span>
+            <Link href="/connect" className="text-brand-700 underline">Create shop groups</Link>
+          </p>
+        )}
       </div>
 
-      <fieldset className="space-y-1">
+      <fieldset key="groups" className={usable.length ? "space-y-1" : "hidden"}>
         <legend className="text-xs font-medium text-slate-600">Groups</legend>
         <div className="flex flex-wrap gap-x-4">
           {usable.map((g) => (
@@ -100,16 +127,32 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
           ))}
         </div>
       </fieldset>
+      <fieldset className="space-y-1">
+        <legend className="text-xs font-medium text-slate-600">{usable.length ? "…or single shops" : "Shops"}</legend>
+        <div className="flex flex-wrap gap-x-4">
+          {(shops ?? []).map((s) => (
+            <label key={s.id} className="flex min-h-[2.75rem] items-center gap-2 text-sm sm:min-h-0">
+              <input type="checkbox" className="h-4 w-4" checked={chosenShops.includes(s.id)} data-testid="distribution-shop"
+                onChange={(e) => {
+                  setChosenShops((c) => (e.target.checked ? [...c, s.id] : c.filter((x) => x !== s.id)));
+                  setPreview(null);
+                  setPlan(null);
+                }} />
+              <span translate="no">{s.name}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <fieldset className="space-y-1">
         <legend className="text-xs font-medium text-slate-600">How</legend>
         <label className="flex min-h-[2.75rem] items-center gap-2 text-sm sm:min-h-0">
           <input type="radio" name="mode" checked={mode === "split"} onChange={() => { setMode("split"); setPreview(null); setPlan(null); }} />
-          <span translate="no">{`Split evenly: ${approved.length} approved listing${approved.length === 1 ? "" : "s"} divided across the groups, in order`}</span>
+          <span translate="no">{`Split evenly: ${approved.length} approved listing${approved.length === 1 ? "" : "s"} divided across what you chose, in order`}</span>
         </label>
         <label className="flex min-h-[2.75rem] items-center gap-2 text-sm sm:min-h-0">
           <input type="radio" name="mode" checked={mode === "assign"} onChange={() => { setMode("assign"); setPreview(null); setPlan(null); }} />
-          <span>Send the listings I choose to one group</span>
+          <span>Send the listings I choose to one group or shop</span>
         </label>
         {mode === "assign" && (
           <div key="pick" className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-slate-200 p-2">
@@ -124,11 +167,11 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
         )}
       </fieldset>
 
-      <button type="button" className="btn-secondary" disabled={busy || chosen.length === 0 || (mode === "assign" && (selected.length === 0 || chosen.length !== 1))}
-        onClick={() => run(() => api.previewDistribution(batchId, { mode, group_ids: chosen, content_ids: mode === "assign" ? selected : [] }), (p) => { setPreview(p); setPlan(null); })}>
+      <button type="button" className="btn-secondary" disabled={busy || targets === 0 || (mode === "assign" && (selected.length === 0 || targets !== 1))}
+        onClick={askPreview}>
         Preview who gets what
       </button>
-      {mode === "assign" && chosen.length > 1 && <p key="one" className="text-xs text-amber-800">Choose one group for the listings you pick.</p>}
+      {mode === "assign" && targets > 1 && <p key="one" className="text-xs text-amber-800">Choose one group or shop for the listings you pick.</p>}
 
       {preview && (
         <div key="preview" className="space-y-2">
@@ -151,6 +194,14 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
               </li>
             ))}
           </ul>
+          {toSetUp.length > 0 && (
+            <div key="setup" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+              <span translate="no">{`${new Set(toSetUp.flatMap((i) => i.shopIds)).size} shop${new Set(toSetUp.flatMap((i) => i.shopIds)).size === 1 ? "" : "s"} need the listings' profile set up first.`}</span>
+              <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => setSetup(toSetUp)} data-testid="distribution-setup">
+                Set them up here
+              </button>
+            </div>
+          )}
           {preview.left_out.length > 0 && (
             <p key="left" translate="no" className="text-xs text-slate-500">
               {`Not sent: ${preview.left_out.map((l) => `${l.title || "a listing"} (${l.reason})`).join("; ")}`}
@@ -252,6 +303,12 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
         </p>
       )}
       {error && <p key="error" className="text-sm text-rose-700">{error}</p>}
+      {setup && (
+        <ShopSetupDialog key="setup-dialog" items={setup} onClose={() => {
+          setSetup(null);
+          askPreview();
+        }} />
+      )}
     </section>
   );
 }

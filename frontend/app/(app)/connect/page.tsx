@@ -190,9 +190,10 @@ export default function ConnectPage() {
           <div>
             <h2 id="groups-heading" className="text-lg font-semibold text-slate-900">Shop groups</h2>
             <p className="mt-1 text-sm text-slate-500">
-              A group is a set of your shops that you manage together. On the review page you choose the group a
-              listing goes to, or divide your approved listings between groups so that each group gets different
-              ones, and you schedule them per shop. A shop is in at most one group.
+              A group is a set of your shops that you manage together. Wherever you choose where listings or a
+              profile go, a group picks every shop in it at once; on the review page you can also divide your approved
+              listings between groups so that each group gets different ones, and schedule them per shop. A shop can be
+              in more than one group. Each shop keeps its own settings, and listings go only where you send them.
             </p>
           </div>
           <ShopGroupsEditor />

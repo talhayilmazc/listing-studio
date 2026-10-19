@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import type { MatrixCell, MatrixColumn, MatrixRow, PublishPreview, ShopNeed } from "@/lib/types";
-import { needAction, needsHeading } from "@/lib/shopNeeds";
+import type { MatrixCell, MatrixColumn, MatrixRow, PublishPreview, ShopGroup, ShopNeed } from "@/lib/types";
+import { needAction, needsHeading, setupItems } from "@/lib/shopNeeds";
+import type { SetupItem } from "./ShopSetupDialog";
 import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
@@ -35,7 +36,8 @@ function cellText(cell: MatrixCell): { text: string; tone: string } {
  * builds the draft in every ticked shop with that shop's own shipping, return
  * and processing settings. Ticking a shop the profile is not set up in sets it
  * up there as "Use in" does; what a shop still needs is listed under it before
- * anything is approved or created.
+ * anything is approved or created, and is set up right here in one dialog for
+ * every shop that needs it. A shop group ticks every shop in it at once.
  */
 export function PublishMatrix({
   preview,
@@ -43,6 +45,8 @@ export function PublishMatrix({
   onToggle,
   onColumn,
   onSetup,
+  groups,
+  onGroup,
   disabled,
   busyShop,
 }: {
@@ -51,8 +55,11 @@ export function PublishMatrix({
   onToggle: (row: MatrixRow, cell: MatrixCell, on: boolean) => void;
   /** Tick or untick a shop for every listing. */
   onColumn: (column: MatrixColumn, on: boolean) => void;
-  /** Set the listing's profile up in a shop, from a need that offers it. */
-  onSetup?: (profileId: string, shopId: string) => void;
+  /** Set profiles up in shops, in one dialog (from one need, or every shop's at once). */
+  onSetup?: (items: SetupItem[]) => void;
+  /** The account's shop groups: ticking one ticks every shop in it, for every listing. */
+  groups?: ShopGroup[];
+  onGroup?: (group: ShopGroup, on: boolean) => void;
   disabled?: boolean;
   /** The shop whose ticks are being saved. */
   busyShop?: string | null;
@@ -72,13 +79,10 @@ export function PublishMatrix({
         <span>{n.message}</span>
         <span translate="no" className="text-slate-500">{` (${n.listings} listing${n.listings === 1 ? "" : "s"})`}</span>
         {action === "setup" && n.profile_id && onSetup && (
-          <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={disabled}
-            onClick={() => onSetup(n.profile_id!, col.connection_id)}>
+          <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={disabled} data-testid="need-setup"
+            onClick={() => onSetup([{ profileId: n.profile_id!, profileName: n.profile_name ?? null, shopIds: [col.connection_id] }])}>
             <span>Set up in </span><span translate="no">{col.shop_name ?? "this shop"}</span>
           </button>
-        )}
-        {action === "profiles" && (
-          <Link key="profiles" href="/profiles" className="tap ml-1 text-brand-700 underline">Finish on the Profiles page</Link>
         )}
         {action === "wait" && <span key="wait" className="ml-1 text-slate-500">This updates by itself.</span>}
       </li>
@@ -148,6 +152,14 @@ export function PublishMatrix({
   );
 
   const waiting = columns.filter((c) => c.needs.length > 0);
+  const toSetUp = setupItems(waiting);
+  const setUpShops = new Set(toSetUp.flatMap((i) => i.shopIds)).size;
+  const inColumns = (g: ShopGroup) => g.shops.filter((s) => columns.some((c) => c.connection_id === s.id));
+  const groupTicked = (g: ShopGroup) => {
+    const shops = inColumns(g);
+    return shops.length > 0 && shops.every((s) => open(s.id).length > 0 && tickedIn(s.id) === open(s.id).length);
+  };
+  const usableGroups = (groups ?? []).filter((g) => inColumns(g).length > 0);
 
   return (
     <section className="card space-y-3 p-4 sm:p-5" aria-labelledby="matrix-heading">
@@ -162,9 +174,37 @@ export function PublishMatrix({
         </p>
       </div>
 
+      {usableGroups.length > 0 && onGroup && (
+        <div key="groups" className="flex flex-wrap items-center gap-2 text-xs" data-testid="matrix-groups">
+          <span className="text-slate-600">Tick a group for every listing:</span>
+          {usableGroups.map((g) => {
+            const on = groupTicked(g);
+            return (
+              <button key={g.id} type="button" aria-pressed={on} disabled={disabled} onClick={() => onGroup(g, !on)}
+                data-testid="matrix-group"
+                className={
+                  "inline-flex min-h-[2.75rem] items-center gap-1.5 rounded-full border px-3 sm:min-h-[2rem] " +
+                  (on ? "border-brand-600 bg-brand-50 font-medium text-brand-800" : "border-slate-300 bg-white text-slate-700 hover:border-slate-400")
+                }>
+                <span translate="no">{g.name}</span>
+                <span translate="no" className="text-slate-500">{`${inColumns(g).length} shop${inColumns(g).length === 1 ? "" : "s"}`}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {waiting.length > 0 && (
         <div key="needs" role="status" className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs" data-testid="shop-needs">
-          <p className="font-medium text-amber-900">Before these go to every ticked shop</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium text-amber-900">Before these go to every ticked shop</p>
+            {toSetUp.length > 0 && onSetup && (
+              <button key="all" type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={disabled} data-testid="setup-all"
+                onClick={() => onSetup(toSetUp)}>
+                <span translate="no">{setUpShops === 1 ? "Set up this shop" : `Set up all ${setUpShops} shops`}</span>
+              </button>
+            )}
+          </div>
           {waiting.map((col) => (
             <div key={col.connection_id}>
               <p className="flex flex-wrap items-center gap-1.5 text-slate-700">

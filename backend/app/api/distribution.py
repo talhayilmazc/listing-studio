@@ -4,7 +4,9 @@
     assign the chosen listings to one group, or "Split evenly" the approved
     listings across the chosen groups in order. Every shop of a group gets the
     group's listings; a listing goes to no other group. A design sent to another
-    group before is warned about, never blocked.
+    group before is warned about, never blocked. A single shop can be chosen in
+    place of a group (it is then a group of one); a shop in two chosen groups
+    gets each group's listings, on one calendar.
 ``POST /api/batches/{id}/distribution/plan``     the schedule for those listings,
     before anything is queued: a calendar per shop, Etsy requests per day
     against the account's daily ceiling, and the day it finishes.
@@ -49,7 +51,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.rate_limiter import DailyQuota
-from app.etsy.shops import active_shops
+from app.etsy.shops import active_shops, group_shops
 from app.pipeline import group_plan as G
 from app.pipeline.batch_names import names_by_id
 from app.pipeline.targets import resolve_target
@@ -59,14 +61,19 @@ router = APIRouter(prefix="/api", tags=["distribution"])
 
 class DistributionIn(BaseModel):
     mode: Literal["assign", "split"]
-    group_ids: list[uuid.UUID] = Field(min_length=1)
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
+    #: Single shops chosen in place of a group (each a group of one), after the groups.
+    connection_ids: list[uuid.UUID] = Field(default_factory=list)
     #: "assign": the listings to send (all to the one group chosen). "split": none = every approved listing.
     content_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class Assignment(BaseModel):
+    """One listing to one group, or to one single shop."""
+
     content_id: uuid.UUID
-    group_id: uuid.UUID
+    group_id: uuid.UUID | None = None
+    connection_id: uuid.UUID | None = None
 
 
 class ScheduleIn(BaseModel):
@@ -88,13 +95,18 @@ class ShopCell(BaseModel):
     shop_name: str
     ok: bool
     reason: str | None = None
+    #: The listing's profile is not (fully) set up in this shop: the setup dialog can do it here.
+    setup_profile_id: uuid.UUID | None = None
+    setup_profile_name: str | None = None
 
 
 class DistributionRow(BaseModel):
     content_id: uuid.UUID
     title: str
     sku: str | None
-    group_id: uuid.UUID
+    #: The group it goes to, or the single shop (``connection_id``) chosen in place of one.
+    group_id: uuid.UUID | None = None
+    connection_id: uuid.UUID | None = None
     group_name: str
     shops: list[ShopCell]
     #: Sent to another group before (a warning, never a block).
@@ -173,18 +185,50 @@ async def _batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID) -> 
     return batch
 
 
-async def _groups(session: AsyncSession, tenant: Tenant, ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[ShopGroup, list[EtsyConnection]]]:
-    shops = await active_shops(session, tenant.id)
-    out: dict[uuid.UUID, tuple[ShopGroup, list[EtsyConnection]]] = {}
-    for gid in dict.fromkeys(ids):
-        group = await session.get(ShopGroup, gid)
-        if group is None or group.tenant_id != tenant.id:
-            raise HTTPException(status_code=404, detail="group not found")
-        members = [c for c in shops if c.group_id == gid]
-        if not members:
-            raise HTTPException(status_code=422, detail=f'group "{group.name}" has no connected shops')
-        out[gid] = (group, members)
+class Target:
+    """Where a listing goes: a shop group, or one single shop (a group of one)."""
+
+    def __init__(self, key: str, name: str, members: list[EtsyConnection], group_id: uuid.UUID | None,
+                 connection_id: uuid.UUID | None) -> None:
+        self.key, self.name, self.members = key, name, members
+        self.group_id, self.connection_id = group_id, connection_id
+
+
+def target_key(group_id: uuid.UUID | None, connection_id: uuid.UUID | None) -> str:
+    if (group_id is None) == (connection_id is None):
+        raise HTTPException(status_code=422, detail="send each listing to one group or one shop")
+    return f"g:{group_id}" if group_id else f"s:{connection_id}"
+
+
+async def _targets(session: AsyncSession, tenant: Tenant, keys: list[str]) -> dict[str, Target]:
+    """The caller's own groups and shops (404 otherwise), each with its connected shops."""
+    by_group = await group_shops(session, tenant.id)
+    shops = {c.id: c for c in await active_shops(session, tenant.id)}
+    out: dict[str, Target] = {}
+    for key in dict.fromkeys(keys):
+        kind, raw = key.split(":", 1)
+        tid = uuid.UUID(raw)
+        if kind == "g":
+            group = await session.get(ShopGroup, tid)
+            if group is None or group.tenant_id != tenant.id:
+                raise HTTPException(status_code=404, detail="group not found")
+            members = by_group.get(tid, [])
+            if not members:
+                raise HTTPException(status_code=422, detail=f'group "{group.name}" has no connected shops')
+            out[key] = Target(key, group.name, members, tid, None)
+        else:
+            shop = shops.get(tid)
+            if shop is None:
+                raise HTTPException(status_code=404, detail="shop not found")
+            out[key] = Target(key, shop_label(shop), [shop], None, tid)
     return out
+
+
+def _chosen_keys(body: DistributionIn) -> list[str]:
+    keys = [f"g:{g}" for g in dict.fromkeys(body.group_ids)] + [f"s:{c}" for c in dict.fromkeys(body.connection_ids)]
+    if not keys:
+        raise HTTPException(status_code=422, detail="choose at least one group or shop")
+    return keys
 
 
 async def _contents(session: AsyncSession, tenant: Tenant, batch: UploadBatch, ids: list[uuid.UUID] | None) -> list[GeneratedContent]:
@@ -223,40 +267,48 @@ async def _shop_cell(session: AsyncSession, content: GeneratedContent, shop: Ets
         return ShopCell(shop_id=shop.id, shop_name=shop_label(shop), ok=False, reason="it already has a draft there")
     target = await resolve_target(session, content, shop)
     if not target.ok and not target.stale:
-        return ShopCell(shop_id=shop.id, shop_name=shop_label(shop), ok=False, reason=target.reason)
+        settable = target.profile is not None and not target.by_text and (
+            target.setup or (target.link is not None and target.link.status in ("incomplete", "error")))
+        return ShopCell(shop_id=shop.id, shop_name=shop_label(shop), ok=False, reason=target.reason,
+                        setup_profile_id=target.profile.id if settable else None,
+                        setup_profile_name=target.profile.name if settable else None)
     return ShopCell(shop_id=shop.id, shop_name=shop_label(shop), ok=True)
 
 
-async def _warning(session: AsyncSession, tenant: Tenant, content: GeneratedContent, sku: str | None, group_id: uuid.UUID) -> str | None:
-    """Sent to another group before: by this listing, or the same design (SKU) in another batch."""
+async def _warning(session: AsyncSession, tenant: Tenant, content: GeneratedContent, sku: str | None, target: Target) -> str | None:
+    """Sent to another group before: by this listing, or the same design (SKU) in another batch.
+    A single shop chosen in place of a group is recorded by its name (no group id)."""
     query = select(DesignDistribution).where(DesignDistribution.tenant_id == tenant.id)
     query = query.where((DesignDistribution.content_id == content.id) | (DesignDistribution.sku == sku)) if sku else \
         query.where(DesignDistribution.content_id == content.id)
+    same = (lambda d: d.group_id == target.group_id) if target.group_id else \
+        (lambda d: d.group_id is None and d.group_name == target.name)
     earlier = [d for d in (await session.execute(query.order_by(DesignDistribution.created_at))).scalars()
-               if d.group_id != group_id]
+               if not same(d)]
     if not earlier:
         return None
     names = ", ".join(dict.fromkeys(d.group_name for d in earlier))
     return f"this design was sent to {names} before; it will now be in this group's shops too"
 
 
-async def _rows(session: AsyncSession, tenant: Tenant, batch: UploadBatch, assignments: dict[uuid.UUID, uuid.UUID]) -> tuple[list[DistributionRow], dict[uuid.UUID, tuple[ShopGroup, list[EtsyConnection]]]]:
-    groups = await _groups(session, tenant, list(assignments.values()))
+async def _rows(session: AsyncSession, tenant: Tenant, batch: UploadBatch, assignments: dict[uuid.UUID, str]) -> tuple[list[DistributionRow], dict[str, Target]]:
+    targets = await _targets(session, tenant, list(assignments.values()))
     contents = {c.id: c for c in await _contents(session, tenant, batch, list(assignments))}
     rows: list[DistributionRow] = []
-    for cid, gid in assignments.items():
+    for cid, key in assignments.items():
         content = contents[cid]
         why = await _why_not(session, content)
         if why:
             raise HTTPException(status_code=422, detail=f'"{content.title or "a listing"}": {why}')
-        group, members = groups[gid]
+        target = targets[key]
         sku = await _sku(session, content)
         rows.append(DistributionRow(
-            content_id=cid, title=content.title or "", sku=sku, group_id=gid, group_name=group.name,
-            shops=[await _shop_cell(session, content, shop) for shop in members],
-            warning=await _warning(session, tenant, content, sku, gid),
+            content_id=cid, title=content.title or "", sku=sku, group_id=target.group_id,
+            connection_id=target.connection_id, group_name=target.name,
+            shops=[await _shop_cell(session, content, shop) for shop in target.members],
+            warning=await _warning(session, tenant, content, sku, target),
         ))
-    return rows, groups
+    return rows, targets
 
 
 async def _capacity(session: AsyncSession, tenant: Tenant, quota: DailyQuota, now: datetime, per_draft: int) -> Any:
@@ -292,13 +344,13 @@ async def _capacity(session: AsyncSession, tenant: Tenant, quota: DailyQuota, no
 
 async def _plan(session: AsyncSession, tenant: Tenant, batch: UploadBatch, body: PlanIn, quota: DailyQuota) -> tuple[G.Plan, list[DistributionRow], dict, PlanOut]:
     zone = tenant.time_zone if valid_zone(tenant.time_zone) else "UTC"
-    assignments = {a.content_id: a.group_id for a in body.assignments}
+    assignments = {a.content_id: target_key(a.group_id, a.connection_id) for a in body.assignments}
     rows, groups = await _rows(session, tenant, batch, assignments)
     shops: list[G.Shop] = []
-    for gid, (group, members) in groups.items():
-        shops += [G.Shop(id=c.id, name=shop_label(c), group_id=gid) for c in members]
+    for key, target in groups.items():
+        shops += [G.Shop(id=c.id, name=shop_label(c), group_id=key) for c in target.members]
     listings = [
-        G.Listing(content_id=r.content_id, title=r.title, group_id=r.group_id,
+        G.Listing(content_id=r.content_id, title=r.title, group_id=assignments[r.content_id],
                   skip={c.shop_id: c.reason or "cannot go there" for c in r.shops if not c.ok})
         for r in rows
     ]
@@ -315,15 +367,21 @@ async def _plan(session: AsyncSession, tenant: Tenant, batch: UploadBatch, body:
     except G.PlanRefused as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     names = {s.id: s.name for s in shops}
-    group_name = {gid: g.name for gid, (g, _) in groups.items()}
+    group_name = {key: t.name for key, t in groups.items()}
+    # A shop in two of the chosen groups has one calendar, naming both.
+    in_groups: dict[uuid.UUID, list[str]] = {}
+    first: dict[uuid.UUID, G.Shop] = {}
+    for s in shops:
+        in_groups.setdefault(s.id, []).append(group_name[s.group_id])
+        first.setdefault(s.id, s)
     calendars: list[ShopCalendar] = []
-    for shop in shops:
+    for shop in first.values():
         mine = [x for x in result.slots if x.shop_id == shop.id]
         by_day: dict[date, list[SlotOut]] = defaultdict(list)
         for x in mine:
             by_day[x.local_day].append(SlotOut(time=x.local_time, zone=zone_abbreviation(x.publish_at, zone),
                                                content_id=x.content_id, title=x.title))
-        calendars.append(ShopCalendar(shop_id=shop.id, shop_name=shop.name, group_name=group_name[shop.group_id],
+        calendars.append(ShopCalendar(shop_id=shop.id, shop_name=shop.name, group_name=", ".join(in_groups[shop.id]),
                                       listings=len(mine), days=[DayOut(date=d, slots=v) for d, v in sorted(by_day.items())]))
     out = PlanOut(
         shops=calendars,
@@ -346,15 +404,16 @@ async def preview_distribution(
     tenant: Tenant = Depends(active_tenant),
 ) -> DistributionOut:
     batch = await _batch(session, tenant, batch_id)
-    await _groups(session, tenant, body.group_ids)
+    keys = _chosen_keys(body)
+    await _targets(session, tenant, keys)
     left_out: list[dict[str, str]] = []
     if body.mode == "assign":
-        if len(body.group_ids) != 1:
-            raise HTTPException(status_code=422, detail="choose one group to send the selected listings to")
+        if len(keys) != 1:
+            raise HTTPException(status_code=422, detail="choose one group or shop to send the selected listings to")
         if not body.content_ids:
             raise HTTPException(status_code=422, detail="choose the listings to send")
         chosen = await _contents(session, tenant, batch, body.content_ids)
-        assignments = {c.id: body.group_ids[0] for c in chosen}
+        assignments = {c.id: keys[0] for c in chosen}
     else:
         approved: list[uuid.UUID] = []
         for content in await _contents(session, tenant, batch, body.content_ids or None):
@@ -364,7 +423,7 @@ async def preview_distribution(
             else:
                 approved.append(content.id)
         try:
-            assignments = G.split_evenly(approved, list(dict.fromkeys(body.group_ids)))
+            assignments = G.split_evenly(approved, keys)
         except G.PlanRefused as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
     if not assignments:
@@ -408,7 +467,7 @@ async def confirm_distribution(
         "start_date": s.start_date.isoformat(), "per_shop_per_day": s.per_shop_per_day,
         "window_start": s.window_start.strftime("%H:%M"), "window_end": s.window_end.strftime("%H:%M"),
         "spacing_minutes": s.spacing_minutes, "stagger_minutes": s.stagger_minutes, "time_zone": out.time_zone,
-        "groups": {str(gid): g.name for gid, (g, _) in groups.items()},
+        "groups": {key: t.name for key, t in groups.items()},
     })
     session.add(plan)
     await session.flush()

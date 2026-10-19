@@ -22,6 +22,7 @@ import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
 
 import { Txt } from "@/components/Txt";
+import { ShopSetupDialog, type SetupItem } from "@/components/ShopSetupDialog";
 interface AssetGroup {
   key: string;
   label: string;
@@ -158,14 +159,12 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   }
 
   // "Set up <profile> in <shop>" on a group whose profile is not usable in its shop yet.
-  async function setUpProfile(profileId: string, shopId: string) {
-    try {
-      setProblem(null);
-      await api.useProfileIn(profileId, { scope: "shops", connection_ids: [shopId] });
-      for (const wait of [1500, 6000, 15000]) setTimeout(loadGroups, wait);
-    } catch (e: any) {
-      setProblem(e.message ?? String(e));
-    }
+  // The group's profile in the group's shop: the setup dialog opens here (the same
+  // flow as the Profiles page); the groups are read again when it closes.
+  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
+  function setUpProfile(profileId: string, profileName: string | null, shopId: string) {
+    setProblem(null);
+    setSetupItems([{ profileId, profileName, shopIds: [shopId] }]);
   }
 
   // "Write title and tags myself": an empty listing with everything else from the
@@ -364,6 +363,12 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-6">
+      {setupItems && (
+        <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
+          setSetupItems(null);
+          loadGroups();
+        }} />
+      )}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/batches" className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
@@ -807,14 +812,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   <span>{s.profile_setup.checking ? " is being set up in " : " cannot build a draft in "}</span>
                   <span translate="no">{s.profile_setup.shop_name ?? "this shop"}</span>
                   <span>{s.profile_setup.checking ? " now." : ` yet: ${s.profile_setup.reason}.`}</span>
-                  {s.profile_setup.setup && (
-                    <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={anyBusy}
-                      onClick={() => setUpProfile(s.profile_setup!.profile_id, s.profile_setup!.connection_id)}>
-                      <span>Set it up there</span>
+                  {!s.profile_setup.checking && (
+                    <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={anyBusy} data-testid="group-setup"
+                      onClick={() => setUpProfile(s.profile_setup!.profile_id, s.profile_setup!.profile_name, s.profile_setup!.connection_id)}>
+                      <span>{s.profile_setup.setup ? "Set it up there" : "Finish the setup here"}</span>
                     </button>
-                  )}
-                  {!s.profile_setup.setup && !s.profile_setup.checking && (
-                    <Link key="profiles" href="/profiles" className="tap ml-1 text-brand-700 underline">Finish on the Profiles page</Link>
                   )}
                 </p>
               )}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { UnfinishedDraft } from "@/lib/types";
+import { ShopSetupDialog, type SetupItem } from "./ShopSetupDialog";
 import {
   DELETE_NOTE,
   deleteHeading,
@@ -93,16 +94,12 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
     }
   }
 
-  async function setUp(item: UnfinishedDraft) {
+  // The shop's setup opens here, in the same dialog the Profiles page uses.
+  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
+  function setUp(item: UnfinishedDraft) {
     if (!item.profile_id) return;
     setError(null);
-    try {
-      await api.useProfileIn(item.profile_id, { scope: "shops", connection_ids: [item.connection_id] });
-      setNote(`Setting up ${item.profile_name ?? "the profile"} in ${item.shop_name}. Same-named settings link at once; anything else waits for you on the Profiles page.`);
-      for (const wait of [4000, 12000, 25000]) setTimeout(load, wait);
-    } catch (e: any) {
-      setError(String(e.message ?? e));
-    }
+    setSetupItems([{ profileId: item.profile_id, profileName: item.profile_name ?? null, shopIds: [item.connection_id] }]);
   }
 
   const head = (i: UnfinishedDraft) => (
@@ -117,6 +114,12 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
 
   return (
     <section className="card space-y-3 border-amber-200 bg-amber-50/60 p-4" data-testid="unfinished-drafts">
+      {setupItems && (
+        <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
+          setSetupItems(null);
+          load();
+        }} />
+      )}
       {open.length > 0 && (
       <div key="open" className="space-y-3">
       <div className="flex flex-wrap items-start gap-3">

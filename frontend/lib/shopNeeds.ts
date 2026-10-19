@@ -4,25 +4,41 @@
 
 import type { ShopNeed } from "./types";
 
+const SETTINGS = ["shipping_profile", "return_policy", "readiness_state", "production_partners"];
+
 /**
  * The one thing to do about a need:
  *  - "setup": the profile is not set up in the shop, or that shop lacks one of its own
- *    settings (a processing profile, a shipping profile, a return policy, ...): one
- *    click sets it up there ("Use in"): what matches links at once, anything to
- *    choose or create waits on the Profiles page.
+ *    settings (a processing profile, a shipping profile, a return policy, ...): the
+ *    setup dialog opens right here (components/ShopSetupDialog.tsx): what matches is
+ *    used, a copy is offered where the shop has none, one confirm for every shop.
  *  - "wait": it is being set up now; the page looks again by itself.
- *  - "profiles": the same, when the server offers no setup for it.
  *  - "card": a section the shop does not have; picked on the listing's card.
  *  - null: nothing to press (the message says what to do).
  */
-export function needAction(need: ShopNeed): "setup" | "wait" | "profiles" | "card" | null {
+export function needAction(need: ShopNeed): "setup" | "wait" | "card" | null {
   if (need.checking || need.kind === "checking") return "wait";
-  if (need.kind === "profile") return need.setup && need.profile_id ? "setup" : null;
   if (need.kind === "section") return "card";
-  if (["shipping_profile", "return_policy", "readiness_state", "production_partners"].includes(need.kind)) {
-    return need.setup && need.profile_id ? "setup" : "profiles";
-  }
+  if ((need.kind === "profile" || SETTINGS.includes(need.kind)) && need.profile_id) return "setup";
   return null;
+}
+
+/** Every profile x shop the dialog can set up, from the shops' needs: one dialog for all of them. */
+export function setupItems(
+  columns: { connection_id: string; needs: ShopNeed[] }[],
+  only?: string[],
+): { profileId: string; profileName: string | null; shopIds: string[] }[] {
+  const out: { profileId: string; profileName: string | null; shopIds: string[] }[] = [];
+  for (const col of columns) {
+    if (only && !only.includes(col.connection_id)) continue;
+    for (const n of col.needs) {
+      if (needAction(n) !== "setup" || !n.profile_id) continue;
+      let item = out.find((i) => i.profileId === n.profile_id);
+      if (!item) out.push((item = { profileId: n.profile_id, profileName: n.profile_name ?? null, shopIds: [] }));
+      if (!item.shopIds.includes(col.connection_id)) item.shopIds.push(col.connection_id);
+    }
+  }
+  return out;
 }
 
 /** One line over a shop's needs: whether drafts are held back, or only made without something. */

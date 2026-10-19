@@ -6,15 +6,19 @@ import type { ShopGroups } from "@/lib/types";
 import { useShops } from "./ShopProvider";
 
 /**
- * Shop groups (v8 §B): named groups of your shops; every shop of a group gets
- * the same listings. A shop is in at most one group. The same groups are edited
- * here, on the Shops page and on the Profiles page.
+ * Shop groups (v8 §B): named groups of your shops (Group A = 4 shops, Group B = 5).
+ * A shop may be in several groups. Wherever listings or a profile go somewhere
+ * (a profile's "Use in", the review page, distribution and scheduling), a group
+ * picks every shop in it at once. The same groups are edited here, on the Shops
+ * page and on the Profiles page.
  */
 export function ShopGroupsEditor({ onChange }: { onChange?: (g: ShopGroups) => void }) {
-  const { refresh } = useShops();
+  const { shops, refresh } = useShops();
   const [data, setData] = useState<ShopGroups | null>(null);
   const [name, setName] = useState("");
+  const [members, setMembers] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<Record<string, string>>({});
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -36,98 +40,101 @@ export function ShopGroupsEditor({ onChange }: { onChange?: (g: ShopGroups) => v
     try {
       take(await fn());
       await refresh();
+      return true;
     } catch (e: any) {
       setError(String(e.message ?? e));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   if (!data) return <p className="text-sm text-slate-400">{error ?? "Loading groups…"}</p>;
-  const allShops = [...data.groups.flatMap((g) => g.shops), ...data.ungrouped];
-  const groupOf = (shopId: string) => data.groups.find((g) => g.shops.some((s) => s.id === shopId))?.id ?? "";
+  const allShops = shops ?? [];
 
-  function move(shopId: string, to: string) {
-    const from = groupOf(shopId);
-    if (from === to) return;
-    run(async () => {
-      let out: ShopGroups | null = null;
-      if (from) {
-        const g = data!.groups.find((x) => x.id === from)!;
-        out = await api.updateShopGroup(from, { connection_ids: g.shops.map((s) => s.id).filter((id) => id !== shopId) });
-      }
-      if (to) {
-        const current = (out ?? data!).groups.find((x) => x.id === to)!;
-        out = await api.updateShopGroup(to, { connection_ids: [...current.shops.map((s) => s.id), shopId] });
-      }
-      return out ?? data!;
-    });
+  function rename(id: string, current: string) {
+    const next = (renaming[id] ?? current).trim();
+    if (next && next !== current) run(() => api.updateShopGroup(id, { name: next }));
   }
 
   return (
     <div className="space-y-4">
-      <ul className="space-y-2">
-        {data.groups.map((g) => (
-          <li key={g.id} className="rounded-lg border border-slate-200 p-3 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                className="field max-w-[14rem] py-1 text-sm font-medium"
-                value={renaming[g.id] ?? g.name}
-                onChange={(e) => setRenaming((r) => ({ ...r, [g.id]: e.target.value }))}
-                onBlur={() => {
-                  const next = (renaming[g.id] ?? g.name).trim();
-                  if (next && next !== g.name) run(() => api.updateShopGroup(g.id, { name: next }));
-                }}
-                aria-label={`Name of group ${g.name}`}
-              />
-              <span translate="no" className="text-xs text-slate-500">{`${g.shops.length} shop${g.shops.length === 1 ? "" : "s"}`}</span>
-              <button type="button" className="tap ml-auto text-xs text-rose-600" disabled={busy}
-                onClick={() => run(() => api.deleteShopGroup(g.id))}>
-                Delete group
-              </button>
-            </div>
-            <p translate="no" className="mt-1 text-xs text-slate-500">{g.shops.map((s) => s.name).join(", ") || "No shops yet"}</p>
-          </li>
-        ))}
+      {data.groups.length === 0 && (
+        <p key="none" className="text-sm text-slate-500">No groups yet. Name a group and tick its shops below.</p>
+      )}
+      <ul className="space-y-3">
+        {data.groups.map((g) => {
+          const ids = g.shops.map((s) => s.id);
+          return (
+            <li key={g.id} className="rounded-lg border border-slate-200 p-3 text-sm" data-testid="shop-group">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  className="field min-w-0 max-w-[14rem] flex-1 py-1 text-sm font-medium"
+                  value={renaming[g.id] ?? g.name}
+                  onChange={(e) => setRenaming((r) => ({ ...r, [g.id]: e.target.value }))}
+                  onBlur={() => rename(g.id, g.name)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  aria-label={`Name of group ${g.name}`}
+                  maxLength={40}
+                />
+                <span translate="no" className="text-xs text-slate-500">{`${ids.length} shop${ids.length === 1 ? "" : "s"}`}</span>
+                {deleting === g.id ? (
+                  <span key="confirm" className="ml-auto flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-slate-600">Delete this group? Its shops stay connected and in their other groups.</span>
+                    <button type="button" className="btn-secondary px-2 py-1 text-xs" disabled={busy} onClick={() => setDeleting(null)}>Keep it</button>
+                    <button type="button" className="btn-primary bg-rose-600 px-2 py-1 text-xs hover:bg-rose-700" disabled={busy}
+                      data-testid="delete-group-confirm"
+                      onClick={async () => { if (await run(() => api.deleteShopGroup(g.id))) setDeleting(null); }}>
+                      Delete group
+                    </button>
+                  </span>
+                ) : (
+                  <button key="delete" type="button" className="tap ml-auto text-xs text-rose-600" disabled={busy} onClick={() => setDeleting(g.id)}>
+                    Delete group
+                  </button>
+                )}
+              </div>
+              <div className="mt-2 grid gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+                {allShops.map((s) => (
+                  <label key={s.id} className="flex min-h-[2.75rem] min-w-0 items-center gap-2 sm:min-h-[2rem]">
+                    <input type="checkbox" className="h-4 w-4 shrink-0" checked={ids.includes(s.id)} disabled={busy}
+                      data-testid="group-member"
+                      onChange={(e) => run(() => api.updateShopGroup(g.id, {
+                        connection_ids: e.target.checked ? [...ids, s.id] : ids.filter((x) => x !== s.id),
+                      }))}
+                      aria-label={`${s.name} in ${g.name}`} />
+                    <span translate="no" className="min-w-0 truncate" title={s.name}>{s.name}</span>
+                  </label>
+                ))}
+              </div>
+            </li>
+          );
+        })}
       </ul>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input className="field max-w-[14rem] py-1.5 text-sm" placeholder="New group name (e.g. Group A)" value={name}
-          onChange={(e) => setName(e.target.value)} aria-label="New group name" />
-        <button type="button" className="btn-secondary" disabled={busy || !name.trim()}
-          onClick={() => run(async () => {
-            const out = await api.createShopGroup(name.trim(), []);
-            setName("");
-            return out;
-          })}>
-          Add group
+      <div className="space-y-2 rounded-lg border border-dashed border-slate-300 p-3 text-sm">
+        <p className="text-xs font-medium text-slate-600">New group</p>
+        <input className="field max-w-[14rem] py-1.5 text-sm" placeholder="Group name (e.g. Group A)" value={name} maxLength={40}
+          onChange={(e) => setName(e.target.value)} aria-label="New group name" data-testid="new-group-name" />
+        <div className="grid gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+          {allShops.map((s) => (
+            <label key={s.id} className="flex min-h-[2.75rem] min-w-0 items-center gap-2 sm:min-h-[2rem]">
+              <input type="checkbox" className="h-4 w-4 shrink-0" checked={members.includes(s.id)}
+                onChange={(e) => setMembers((m) => (e.target.checked ? [...m, s.id] : m.filter((x) => x !== s.id)))} />
+              <span translate="no" className="min-w-0 truncate" title={s.name}>{s.name}</span>
+            </label>
+          ))}
+        </div>
+        <button type="button" className="btn-secondary" disabled={busy || !name.trim()} data-testid="add-group"
+          onClick={async () => {
+            if (await run(() => api.createShopGroup(name.trim(), members))) {
+              setName("");
+              setMembers([]);
+            }
+          }}>
+          <span translate="no">{members.length ? `Add group with ${members.length} shop${members.length === 1 ? "" : "s"}` : "Add group"}</span>
         </button>
       </div>
-
-      {data.groups.length > 0 && (
-        <table key="members" className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate-500">
-              <th className="py-1 font-medium">Shop</th>
-              <th className="py-1 font-medium">Group</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {allShops.map((s) => (
-              <tr key={s.id}>
-                <td translate="no" className="py-1.5 pr-2">{s.name}</td>
-                <td className="py-1.5">
-                  <select className="field py-1 text-sm" value={groupOf(s.id)} disabled={busy}
-                    onChange={(e) => move(s.id, e.target.value)} aria-label={`Group of ${s.name}`}>
-                    <option value="">No group</option>
-                    {data.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
       {error && <p key="error" className="text-sm text-rose-600">{error}</p>}
     </div>
   );

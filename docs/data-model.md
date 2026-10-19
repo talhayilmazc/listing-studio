@@ -158,6 +158,13 @@ Yayın öncesi tarama sonucu.
 
 **Kural:** `blocking` bulgusu olan içerik Etsy'ye gönderilemez.
 
+### shop_group_member (migration 0080)
+
+A shop in a shop group: `group_id` (shop_group, cascade) + `connection_id` (etsy_connection, cascade), the pair is
+the primary key. A shop may be in several groups. Replaces `etsy_connection.group_id` (dropped; each shop's group
+became its row). The seller's own setting, not Etsy content: kept when a shop's Etsy data is wiped, gone with the
+group, the shop row or the account.
+
 ---
 
 ## 2. Rate limit kuyruğu

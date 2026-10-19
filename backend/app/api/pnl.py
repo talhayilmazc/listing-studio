@@ -156,6 +156,52 @@ def _row_out(row: pnl.ListingRow, shop: finance.Shop, cls: tuple[str, str], tren
     }
 
 
+@router.get("/shops")
+async def shops_view(
+    month: str | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> dict[str, Any]:
+    """Analytics' "All shops": one month for every shop of the account, a row per
+    shop and a total per currency. Each shop's figures are the ones its own report
+    shows (same sources, same rules); a figure with nothing behind it is blank, and
+    a total with a blank shop in it is blank too, with the reason, never a smaller
+    number shown as the whole."""
+    from app.etsy.shops import active_shops
+
+    today = datetime.now(timezone.utc).date()
+    newest = _first(today)
+    choices = [_shift(newest, -i) for i in range(MONTHS)]
+    chosen = imports_api._parse_month(month) if month else _shift(newest, -1)
+    if chosen not in choices:
+        raise HTTPException(status_code=422, detail="that month is outside the 13 months kept")
+    shops: list[dict[str, Any]] = []
+    for connection in await active_shops(session, tenant.id):
+        loaded = await analytics_api._load(session, tenant, connection, enqueuer)
+        profile_of = {lid: i.profile_id for lid, i in loaded.shop.info.items() if i.profile_id}
+        data = await load_month(session, tenant, connection, chosen, profile_of)
+        rows, _ = pnl.listing_rows(data)
+        sheet = pnl.receipt(data, rows)
+        shops.append({
+            "id": str(connection.id), "name": shop_label(connection), "currency": loaded.shop.currency,
+            "source": sheet["source"], "revenue": sheet["revenue"], "net_etsy": sheet["net_etsy"],
+            "profit": sheet["profit"], "units": sheet["units"],
+        })
+    totals: dict[str, dict[str, Any]] = {}
+    for currency in dict.fromkeys(s["currency"] for s in shops):
+        members = [s for s in shops if s["currency"] == currency]
+        total: dict[str, Any] = {"currency": currency, "shops": len(members)}
+        for key in ("revenue", "net_etsy", "profit"):
+            missing = [s["name"] for s in members if s[key]["minor"] is None]
+            total[key] = {"minor": None if missing else sum(s[key]["minor"] for s in members),
+                          "note": f"No figure for {', '.join(missing)}" if missing else None}
+        units = [s["units"] for s in members]
+        total["units"] = None if any(u is None for u in units) else sum(units)
+        totals[currency or ""] = total
+    return {"month": chosen, "months": choices, "shops": shops, "totals": list(totals.values())}
+
+
 @router.get("/month")
 async def month_view(
     shop: uuid.UUID | None = None,

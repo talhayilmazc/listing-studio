@@ -417,11 +417,6 @@ class EtsyConnection(Base):
     connected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    #: The seller's shop group (v8 §B/§C), at most one; None = in no group.
-    group_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("shop_group.id", ondelete="SET NULL"), index=True
-    )
-
     def __repr__(self) -> str:
         # Token columns are deliberately excluded so they cannot leak via repr/logs.
         return (
@@ -1386,7 +1381,7 @@ class ListingProfile(Base):
 
 class ShopGroup(Base):
     """A named group of the account's shops (v8 §B): every shop of a group gets
-    the same listings. A shop is in at most one group (``etsy_connection.group_id``)."""
+    the same listings. A shop may be in several groups (``shop_group_member``)."""
 
     __tablename__ = "shop_group"
     __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_shop_group_name"),)
@@ -1399,6 +1394,21 @@ class ShopGroup(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ShopGroupMember(Base):
+    """One shop in one group (migration 0080). A shop may be in several groups
+    (Group A = 4 shops, Group B = 5, one shop in both). The seller's own setting,
+    not Etsy content: it goes with the group or the account."""
+
+    __tablename__ = "shop_group_member"
+
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("shop_group.id", ondelete="CASCADE"), primary_key=True
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True, index=True
     )
 
 

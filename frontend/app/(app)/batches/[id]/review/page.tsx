@@ -14,8 +14,11 @@ import type {
   PublishJob,
   PublishPreview,
   PublishSkipped,
+  ShopGroup,
+  ShopGroups,
 } from "@/lib/types";
 import { PublishMatrix } from "@/components/PublishMatrix";
+import { ShopSetupDialog, type SetupItem } from "@/components/ShopSetupDialog";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { anyChecking } from "@/lib/shopNeeds";
 import { Distribution } from "@/components/Distribution";
@@ -145,17 +148,27 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     return () => clearTimeout(t);
   }, [settingUp, preview]);
 
-  // "Set up NORMAL in TEETIME…" from a cell (v8 §C): exact matches link at once;
-  // anything that needs the seller is finished on the Profiles page.
+  // "Set up in BCT" (one shop) or "Set up all 4 shops" (v8 §C): the setup dialog opens
+  // here, one dialog for every shop; when it closes the shops are read again and the
+  // batch carries on, without leaving the page.
   const [setupNote, setSetupNote] = useState<string | null>(null);
-  async function setUpProfile(profileId: string, shopId: string) {
+  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
+  const [shopGroups, setShopGroups] = useState<ShopGroups | null>(null);
+  useEffect(() => {
+    api.shopGroups().then(setShopGroups).catch(() => setShopGroups(null));
+  }, []);
+
+  // A group ticked or unticked for every listing: each of its shops, at once.
+  async function tickGroup(group: ShopGroup, on: boolean) {
+    setError(null);
     try {
-      const res = await api.useProfileIn(profileId, { scope: "shops", connection_ids: [shopId] });
-      const shop = res.profile.links.find((l) => l.connection_id === shopId)?.shop_name ?? "that shop";
-      setSetupNote(`Setting up ${res.profile.name} in ${shop}. Same-named settings link at once; anything else is waiting for you on the Profiles page.`);
-      for (const wait of [4000, 10000, 20000]) setTimeout(() => setPreviewTick((t) => t + 1), wait);
+      const res = await api.tickShop(id, { group_id: group.id, on });
+      if (res.setting_up.length) {
+        setSetupNote(`Setting up ${res.setting_up.map((p) => p.name).join(", ")} in ${group.name}. What each shop still needs is listed below.`);
+      }
+      setPreviewTick((n) => n + 1);
     } catch (e: any) {
-      setSetupNote(String(e.message ?? e));
+      setError(e.message ?? String(e));
     }
   }
 
@@ -353,7 +366,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           batchId={id}
           onToggle={toggleCell}
           onColumn={toggleColumn}
-          onSetup={setUpProfile}
+          onSetup={setSetupItems}
+          groups={shopGroups?.groups}
+          onGroup={tickGroup}
           disabled={busy}
           busyShop={tickingShop}
         />
@@ -400,9 +415,16 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       )}
       {setupNote && (
         <p key="setup-note" role="status" translate="no" className="card p-3 text-xs text-slate-700">
-          <span>{setupNote}</span>{" "}
-          <Link href="/profiles" className="text-brand-700 underline">Profiles</Link>
+          <span>{setupNote}</span>
         </p>
+      )}
+      {setupItems && (
+        <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
+          setSetupItems(null);
+          setSetupNote(null);
+          setPreviewTick((n) => n + 1);
+          load();
+        }} />
       )}
       {items && items.length > 0 && shops && shops.length === 1 && (
         <p key="oneshop" className="flex flex-wrap items-center gap-2 text-xs text-slate-500">

@@ -643,7 +643,7 @@ DEMO_REQUESTS = "%@example.test"
 
 
 async def seed_demo(sm: async_sessionmaker, *, admin: bool = False) -> str:
-    """Fill a non-production database with one synthetic demo account: two shops,
+    """Fill a non-production database with one synthetic demo account: nine shops in two groups,
     profiles, a batch of drawn sample designs, listings, drafts and sales figures.
     Nothing in it is a real seller's. Refuses to run when APP_ENV=production.
 
