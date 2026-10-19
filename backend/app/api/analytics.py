@@ -45,7 +45,8 @@ from app.db.models import (
     ShopListingCache,
     Tenant,
 )
-from app.pipeline import finance, profit
+from app.core import audit
+from app.pipeline import finance, profit, sales_history
 from app.pipeline.reference import decode_etsy_text
 from app.workers import ledger as ledger_worker
 from app.workers import sales as sales_worker
@@ -221,14 +222,42 @@ class SalesSyncOut(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     synced_at: datetime | None = None
+    #: When the figures were last brought up to date (the earlier of the sales and the ledger
+    #: reads; each re-reads its last 30 days every night): "Updated <time>" on the profit report.
+    updated_at: datetime | None = None
+    #: "Delete my sales history": the first day the seller still wants shown (None: all kept).
+    history_from: date | None = None
     #: The ledger read runs beside the sales read (same scope, same start).
     ledger: LedgerOut = LedgerOut(state="none")
+
+
+class HistoryDeleteIn(BaseModel):
+    #: The seller confirmed, after reading what is deleted (the request is refused without it).
+    confirm: bool = False
+
+
+class HistoryDeletedOut(BaseModel):
+    #: Rows deleted, by what the seller calls them (pipeline/sales_history.py TABLES).
+    deleted: dict[str, int]
+    history_from: date
+    status: SalesSyncOut
+
+
+def updated_at(connection: EtsyConnection, ledger: LedgerSync | None) -> datetime | None:
+    """When the shop's figures were last brought up to date: the sales read, and the ledger read
+    when there is one (the earlier of the two: the report is as fresh as its older half)."""
+    times = [t for t in (connection.sales_synced_at,) if t is not None]
+    if ledger is not None and ledger.state == "complete" and ledger.synced_until is not None:
+        times.append(datetime.fromtimestamp(ledger.synced_until, tz=timezone.utc))
+    times = [t if t.tzinfo else t.replace(tzinfo=timezone.utc) for t in times]
+    return min(times) if times else None
 
 
 def _sync_out(connection: EtsyConnection, sync: SalesSync | None, ledger: LedgerSync | None = None) -> SalesSyncOut:
     can = SALES_SCOPE not in missing_scopes(connection)
     if sync is None:
-        return SalesSyncOut(can_read=can, state="none", synced_at=connection.sales_synced_at, ledger=_ledger_out(ledger))
+        return SalesSyncOut(can_read=can, state="none", synced_at=connection.sales_synced_at, ledger=_ledger_out(ledger),
+                            updated_at=updated_at(connection, ledger), history_from=connection.sales_history_from)
     today = _today()
     used_today = sync.requests_today if sync.requests_day == today else 0
     # Requests still to go: the whole estimate before starting, else what is unread.
@@ -254,6 +283,8 @@ def _sync_out(connection: EtsyConnection, sync: SalesSync | None, ledger: Ledger
         started_at=sync.started_at,
         finished_at=sync.finished_at,
         synced_at=connection.sales_synced_at,
+        updated_at=updated_at(connection, ledger),
+        history_from=connection.sales_history_from,
         ledger=_ledger_out(ledger),
     )
 
@@ -420,6 +451,32 @@ def _now_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
 
 
+@router.post("/sales/history/delete", response_model=HistoryDeletedOut)
+async def delete_sales_history(
+    body: HistoryDeleteIn,
+    shop: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> HistoryDeletedOut:
+    """"Delete my sales history" for one of the seller's own shops: its order lines, daily sales
+    and fee totals, and the imported statement and Ads report figures (pipeline/sales_history.py).
+    Later reads store nothing older than today. Refused without ``confirm``; another account's
+    shop is 404 (``selected_shop``). Nothing on Etsy changes."""
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirm that you want this shop's sales history deleted.")
+    connection = await selected_shop(session, tenant, shop)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="connect your Etsy shop first")
+    done = await sales_history.delete_history(session, connection)
+    audit.destructive(session, "sales_history.deleted", actor=tenant, tenant_id=tenant.id, shop_id=connection.id,
+                      object_id=connection.id, counts=done.counts)
+    await session.commit()
+    return HistoryDeletedOut(
+        deleted=done.counts, history_from=done.history_from,
+        status=_sync_out(connection, await session.get(SalesSync, connection.id), await session.get(LedgerSync, connection.id)),
+    )
+
+
 @router.post("/sales/refresh", status_code=202)
 async def refresh_sales(
     shop: uuid.UUID | None = None,
@@ -564,6 +621,11 @@ async def _load(session: AsyncSession, tenant: Tenant, connection: EtsyConnectio
         # Back to wherever the history has reached; periods before it stay estimates.
         ledger_from = _first_whole_day(ledger_worker.covered_from(ledger_sync))
         ledger_to = _stamp_day(ledger_sync.synced_until)
+    # "Delete my sales history": nothing before that day is held, so nothing before it is shown as real.
+    floor = connection.sales_history_from
+    if floor is not None:
+        sales_from = max(sales_from, floor) if sales_from is not None else None
+        ledger_from = max(ledger_from, floor) if ledger_from is not None else None
 
     shop = finance.Shop(
         sales=sales, ads=ads, ledger=ledger, info=info,

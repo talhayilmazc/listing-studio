@@ -40,6 +40,7 @@ from app.core.config import get_settings
 from app.db.models import ConnectionStatus, EtsyConnection, LedgerDaily, LedgerSync, SalesDaily, SalesSync
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.ledger import aggregate
+from app.pipeline.sales import REFRESH_DAYS
 from app.workers import gate
 from app.workers.profiles import ShopAccessLost, _active_shop, _enqueue_job, _run_gated
 from app.workers.sales import SCOPE, _open
@@ -50,6 +51,8 @@ PAGE_SIZE = 100
 CHUNK_PAGES = 20
 UPDATE_PAGES = 20
 LOCK_SECONDS = 15 * 60
+#: Pages the nightly re-read of the last REFRESH_DAYS days may take (3,000 entries).
+REFRESH_PAGES = 30
 #: The backfill waits for tomorrow once the app has used this much of Etsy's daily budget.
 BACKFILL_GLOBAL_PERCENT = 50
 #: The backfill starts a little after whatever queued it, so that work's lock is free.
@@ -119,7 +122,12 @@ class _Reader:
 
 
 async def _add(session: AsyncSession, connection: EtsyConnection, entries: list[dict[str, Any]]) -> None:
+    """Add these entries to the daily totals per type. Nothing before the day the seller deleted
+    the shop's sales history is stored (pipeline/sales_history.py), whatever read brought it in."""
+    floor = connection.sales_history_from
     for (day, kind), t in aggregate(entries).items():
+        if floor is not None and day < floor:
+            continue
         row = await session.get(LedgerDaily, (connection.id, day, kind))
         if row is None:
             session.add(LedgerDaily(
@@ -251,13 +259,42 @@ async def _first_read(
     return f"reading:{sync.read_count}"
 
 
+async def _reread_recent(session: AsyncSession, connection: EtsyConnection, sync: LedgerSync, reader: _Reader) -> int | None:
+    """The last REFRESH_DAYS days of the ledger read again (from midnight, or from the day the
+    seller deleted the history) and their daily totals replaced, so a refund or a late fee shows
+    within a day. None when they take more than tonight's pages: the caller reads only what is
+    new since the last read."""
+    now = int(_now().timestamp())
+    since = _midnight(now - REFRESH_DAYS * 86400)
+    if connection.sales_history_from is not None:
+        floor = connection.sales_history_from
+        since = max(since, int(datetime(floor.year, floor.month, floor.day, tzinfo=timezone.utc).timestamp()))
+    read: list[dict[str, Any]] = []
+    for _ in range(min(REFRESH_PAGES, _left_today(sync))):
+        rows = await reader.page(since, now, len(read))
+        read += rows
+        if len(rows) < PAGE_SIZE:
+            first_day = datetime.fromtimestamp(since, tz=timezone.utc).date()
+            await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection.id, LedgerDaily.day >= first_day)
+                                  .execution_options(synchronize_session="fetch"))
+            await session.flush()
+            await _add(session, connection, read)
+            sync.synced_until, sync.update_end, sync.next_offset = now, None, 0
+            sync.updated_at = _now()
+            await session.commit()
+            return len(read)
+    return None
+
+
 async def _update(
     ctx: dict[str, Any], session: AsyncSession, connection: EtsyConnection, sync: LedgerSync, reader: _Reader
 ) -> str:
-    """Entries created since the last read, in a window fixed when the update
-    starts. The window's end and the position in it are kept with each page, so
-    an update cut short (or longer than one run) carries on instead of
-    counting its first pages twice."""
+    """Every night the last REFRESH_DAYS days again (:func:`_reread_recent`). When those take more
+    than tonight's pages: entries created since the last read, in a window fixed when the update
+    starts. The window's end and the position in it are kept with each page, so an update cut
+    short (or longer than one run) carries on instead of counting its first pages twice."""
+    if sync.update_end is None and (refreshed := await _reread_recent(session, connection, sync, reader)) is not None:
+        return f"refreshed:{refreshed}"
     start = (sync.synced_until or int(_now().timestamp())) + 1
     if sync.update_end is None:
         sync.update_end, sync.next_offset = int(_now().timestamp()), 0

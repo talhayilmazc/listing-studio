@@ -1103,12 +1103,13 @@ class ShopOut(BaseModel):
     group_id: uuid.UUID | None = None
 
 
-#: The notice Etsy asks every application to show, in the words of its Commercial
-#: Access review criteria (developers.etsy.com/documentation). One copy for the
-#: API; the pages use the same text (frontend/lib/legal.ts, checked by a test).
+#: The notice Etsy's API Terms of Use ask every application to show, word for word.
+#: It also meets the Commercial Access review criterion (developers.etsy.com/documentation):
+#: it carries the trademark sentence and the not-endorsed-or-certified statement. One copy for
+#: the API; the pages use the same text (frontend/lib/legal.ts, checked by a test).
 TRADEMARK_NOTICE = (
-    "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API "
-    "but is not endorsed or certified by Etsy, Inc."
+    "The term 'Etsy' is a trademark of Etsy, Inc. This Application uses Etsy's API, "
+    "but is not endorsed or certified by Etsy."
 )
 PROVIDER_DISCLAIMER = (
     "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."

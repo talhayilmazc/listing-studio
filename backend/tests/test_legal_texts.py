@@ -25,6 +25,7 @@ from app.db.models import (
     AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, ShopListingCache,
 )
 from app.etsy import oauth
+from app.pipeline import sales as sales_pipeline
 from app.workers import accounts as account_jobs
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,7 +35,7 @@ TERMS = ROOT / "frontend" / "app" / "(marketing)" / "terms" / "page.tsx"
 
 pytestmark = pytest.mark.skipif(not LEGAL.exists(), reason="frontend/ is not here (the dev container mounts only backend/)")
 
-NOTICE = "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc."
+NOTICE = "The term 'Etsy' is a trademark of Etsy, Inc. This Application uses Etsy's API, but is not endorsed or certified by Etsy."
 DISCLAIMER = "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."
 
 
@@ -69,9 +70,9 @@ def test_the_trademark_notice_and_the_disclaimer_are_the_exact_texts_everywhere(
     assert _const("TRADEMARK_NOTICE") == schemas.TRADEMARK_NOTICE == NOTICE
     assert _const("PROVIDER_DISCLAIMER") == schemas.PROVIDER_DISCLAIMER == DISCLAIMER
     # One copy: no page or component types the notice out for itself (or keeps the old wording).
-    # (The API Terms' own wording, used until 18 October 2026; Etsy's Commercial Access
-    # review criteria ask for the wording above, and a reviewer looks for that one.)
-    old = "uses Etsy's API, but is not endorsed"
+    # (The documentation's wording, used on 18 October 2026; the API Terms' wording above also
+    # meets that criterion: the trademark sentence and the not-endorsed-or-certified statement.)
+    old = "uses the Etsy API but is not endorsed"
     for path in (ROOT / "frontend").rglob("*.ts*"):
         if "node_modules" in path.parts or ".next" in path.parts or path == LEGAL or path.name.endswith(".test.ts"):
             continue  # (a test pins the exact text on purpose)
@@ -96,6 +97,10 @@ def test_the_notice_is_in_every_footer_beside_connect_and_in_the_terms() -> None
     assert uses("app/(marketing)/page.tsx")
     hero = home[home.index('aria-labelledby="hero-title"'): home.index("<Apart />")]
     assert 'data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>' in hero
+    # Once in each place, never twice (e2e/layout.spec.ts checks the rendered pages too).
+    for place in ("components/marketing/Site.tsx", "components/Footer.tsx", "components/AuthShell.tsx",
+                  "app/(app)/connect/page.tsx", "app/(marketing)/terms/page.tsx", "app/(marketing)/page.tsx"):
+        assert (ROOT / "frontend" / place).read_text(encoding="utf-8").count("{TRADEMARK_NOTICE}") == 1, place
     # The frames that carry those footers are the ones every page is rendered in.
     assert "<SiteFooter />" in (ROOT / "frontend/app/(marketing)/layout.tsx").read_text(encoding="utf-8")
     assert "<Footer />" in (ROOT / "frontend/components/AppShell.tsx").read_text(encoding="utf-8")
@@ -110,8 +115,14 @@ def test_the_terms_version_is_one_date_in_both_places() -> None:
     months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     assert _const("LAST_UPDATED") == f"{int(day)} {months[int(month) - 1]} {year}"
     assert _const("CONSENT_STATEMENT") == terms.STATEMENT == "I agree to the Terms of Service and Privacy Policy"
-    for page in (PRIVACY, TERMS):
-        assert "updated={LAST_UPDATED}" in page.read_text(encoding="utf-8")
+    assert "updated={LAST_UPDATED}" in TERMS.read_text(encoding="utf-8")
+    # The Privacy Policy has its own date: it may tell sellers more without asking them to agree
+    # again (the version stays), and it is never earlier than the version.
+    assert "updated={PRIVACY_UPDATED}" in PRIVACY.read_text(encoding="utf-8")
+    from datetime import datetime as _dt
+
+    privacy_day = _dt.strptime(_const("PRIVACY_UPDATED"), "%d %B %Y").date()
+    assert privacy_day >= _dt.strptime(terms.TERMS_VERSION, "%Y-%m-%d").date()
 
 
 def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() -> None:
@@ -126,6 +137,7 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "listingSnapshotDays": ListingSnapshot.RETENTION_DAYS,
         "draftAttemptDays": DraftAttempt.RETENTION_DAYS,
         "draftDismissalDays": DraftDismissal.RETENTION_DAYS,
+        "salesRefreshDays": sales_pipeline.REFRESH_DAYS,
         "inviteRequestDays": InviteRequest.PENDING_RETENTION_DAYS,
         "backupDays": _backup_days(),
         "sessionDays": settings.session_ttl_days,
@@ -146,7 +158,7 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
 
 def test_the_policy_prints_every_period_from_the_constants_and_types_none() -> None:
     text = PRIVACY.read_text(encoding="utf-8")
-    assert 'import { LAST_UPDATED, PROVIDER_DISCLAIMER, RETENTION as R } from "@/lib/legal";' in text
+    assert 'import { PRIVACY_UPDATED, PROVIDER_DISCLAIMER, RETENTION as R } from "@/lib/legal";' in text
     for key in _retention():
         assert f"R.{key}" in text, f"the Privacy Policy does not state {key}"
     # No period typed into the prose: "6 hours", "24 hours", "13 months", "30 days", ...

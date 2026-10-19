@@ -8,7 +8,7 @@ import {
   SupportEmail,
   WhenErrorTracking,
 } from "@/components/LegalShell";
-import { LAST_UPDATED, PROVIDER_DISCLAIMER, RETENTION as R } from "@/lib/legal";
+import { PRIVACY_UPDATED, PROVIDER_DISCLAIMER, RETENTION as R } from "@/lib/legal";
 
 export const metadata = {
   title: "Privacy Policy",
@@ -78,7 +78,7 @@ function Table({ head, children }: { head: string[]; children: React.ReactNode }
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated={LAST_UPDATED} sections={SECTIONS}>
+    <LegalShell title="Privacy Policy" updated={PRIVACY_UPDATED} sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
           Listyro (&ldquo;the Service&rdquo;) is provided by <Fact field="operator_name" />,{" "}
@@ -209,12 +209,12 @@ export default function PrivacyPage() {
           <Row
             data="Your shop's sales, line by line: the order number, which listing sold, the quantity, the price, the shipping paid and the date"
             why="For your profit, cost and ads reporting: which of your listings sell and what they earn"
-            period={<span><span>Daily totals per listing and the order lines, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months. Everything else in Etsy&rsquo;s answer, including anything about the buyer, is discarded as soon as those fields are read, and is written nowhere</span></span>}
+            period={<span><span>Daily totals per listing and the order lines, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months. Everything else in Etsy&rsquo;s answer, including anything about the buyer, is discarded as soon as those fields are read, and is written nowhere. </span><span>{`The last ${R.salesRefreshDays} days are read again every day, so a refund or a change shows within a day; the report says when it was last updated. `}</span><span>Deleted at once when you disconnect the shop or delete your account, and whenever you press <em>Delete my sales history</em> on the shop&rsquo;s profit report (later reads then store nothing from before that day)</span></span>}
           />
           <Row
             data="Your shop's payment account ledger: for each entry its type (for example a transaction fee, a listing fee or an Etsy Ads charge), its amount and its date"
             why="So your profit is worked out from what Etsy actually charged, not from an estimate"
-            period={<span><span>One total per type per day, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months. The entries themselves, their descriptions and their references are not stored</span></span>}
+            period={<span><span>One total per type per day, for </span><AnalyticsMonths fallback={R.analyticsMonths} /><span> months. The entries themselves, their descriptions and their references are not stored. </span><span>{`The last ${R.salesRefreshDays} days are read again every day. `}</span><span>Deleted at once when you disconnect the shop or delete your account, and by <em>Delete my sales history</em></span></span>}
           />
           <Row
             data="How many listings your shop has in each state (five counts)"

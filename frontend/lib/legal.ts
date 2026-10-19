@@ -7,7 +7,7 @@
 
 /** The notice Etsy's API terms ask every application to show. Never altered or shortened. */
 export const TRADEMARK_NOTICE =
-  "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
+  "The term 'Etsy' is a trademark of Etsy, Inc. This Application uses Etsy's API, but is not endorsed or certified by Etsy.";
 
 /** Who provides the application, in the words Etsy's API terms ask for. */
 export const PROVIDER_DISCLAIMER =
@@ -20,8 +20,14 @@ export const PROVIDER_DISCLAIMER =
  * account is then asked again.
  */
 export const TERMS_VERSION = "2026-10-14";
-/** The same date as the pages show it. */
+/** The same date as the pages show it (the Terms; and the acceptance screen). */
 export const LAST_UPDATED = "14 October 2026";
+/**
+ * The Privacy Policy's own "Last updated": it changed since TERMS_VERSION in ways that tell sellers
+ * more (how long draft records are kept; what happens to sales records) without asking them to
+ * agree again, so the version above stays. Never earlier than LAST_UPDATED.
+ */
+export const PRIVACY_UPDATED = "19 October 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
@@ -46,6 +52,8 @@ export const RETENTION = {
   analyticsMonths: 24,
   /** Copies of listings taken before the app changes them: ListingSnapshot.RETENTION_DAYS */
   listingSnapshotDays: 90,
+  /** The recent days of sales and fees read again every night: pipeline/sales.py REFRESH_DAYS */
+  salesRefreshDays: 30,
   /** The record of a draft started and never finished: DraftAttempt.RETENTION_DAYS */
   draftAttemptDays: 30,
   /** A half-made draft the seller took off the list: DraftDismissal.RETENTION_DAYS */

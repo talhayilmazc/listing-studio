@@ -1551,6 +1551,10 @@ export interface SalesSync {
   started_at: string | null;
   finished_at: string | null;
   synced_at: string | null;
+  /** When the figures were last brought up to date ("Updated <time>"). */
+  updated_at?: string | null;
+  /** "Delete my sales history": the first day still shown (null: all kept). */
+  history_from?: string | null;
   ledger: LedgerRead;
 }
 

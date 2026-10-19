@@ -20,6 +20,17 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 
+#: The recent days read again every night and replaced (sales and Etsy's ledger), so a refund,
+#: a cancellation or a change shows within a day (the 24-hour rule for figures on screen).
+REFRESH_DAYS = 30
+
+
+def history_floor(since: date, floor: date | None) -> date:
+    """The first day to store: the read's own start, or the day the seller deleted the history
+    before ("Delete my sales history", pipeline/sales_history.py), whichever is later."""
+    return max(since, floor) if floor is not None else since
+
+
 @dataclass
 class DayTotal:
     units: int = 0

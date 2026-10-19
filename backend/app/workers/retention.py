@@ -229,6 +229,7 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     if connection is not None:
         connection.sections, connection.sections_at = None, None
         connection.listing_counts, connection.listing_counts_at = None, None
+        connection.sales_history_from = None  # everything is deleted: a reconnected shop starts fresh
     sales = await session.execute(delete(SalesDaily).where(SalesDaily.connection_id == connection_id))
     await session.execute(delete(SalesSync).where(SalesSync.connection_id == connection_id))
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))

@@ -73,8 +73,9 @@ async def _account(sm, shops: int, email: str | None = None) -> tuple[uuid.UUID,
                 started_at=datetime.now(timezone.utc) - timedelta(days=30), finished_at=datetime.now(timezone.utc) - timedelta(days=30),
                 updated_at=datetime.now(timezone.utc),
             ))
-            # The figures the earlier read left: they stay until the shop's turn.
-            s.add(SalesDaily(connection_id=c.id, listing_id=1, day=TODAY - timedelta(days=2), tenant_id=tenant.id,
+            # The figures the earlier read left: they stay until the shop's turn (on a day older than the
+            # last 30, which the nightly update reads again and replaces with Etsy's own figures).
+            s.add(SalesDaily(connection_id=c.id, listing_id=1, day=TODAY - timedelta(days=200), tenant_id=tenant.id,
                              units=1200, orders=1200, revenue_minor=3_000_000, currency="USD"))
             fakes[c.id] = fake
             ids.append(c.id)
@@ -141,17 +142,23 @@ async def test_rereads_keep_to_the_nightly_share_one_shop_at_a_time_and_carry_on
     rows = await _state(async_sm)
     # Two shops fit in tonight's 30 (13 each). The third would need 13 of the 2 left: it is not begun.
     assert [rows[s].reread for s in shops] == ["done", "done", None, None]
-    # 13 for the read; the shop's ordinary nightly update (one request) ran after it and is counted too.
-    assert (rows[a].requests_used, rows[b].requests_used) == (PAGES + 1, PAGES + 1)
-    assert await _used(async_sm) == 2 * (PAGES + 1) <= 30
-    # The shops still waiting were not touched: their figures stand and they took only tonight's new sales.
+    # 13 for the read; the shop's ordinary nightly update ran after it and is counted too: the last
+    # 30 days read again, one request per 100 of their sales (pipeline/sales.py REFRESH_DAYS).
+    nightly = rows[a].last_update_requests
+    assert nightly and nightly <= 2 and rows[b].last_update_requests == nightly
+    assert (rows[a].requests_used, rows[b].requests_used) == (PAGES + nightly, PAGES + nightly)
+    assert await _used(async_sm) == 2 * (PAGES + nightly) <= 30
+    # The shops still waiting were not read again: their figures stand and they took only tonight's update.
     assert (rows[c].state, rows[c].has_lines, rows[c].read_count) == ("complete", False, 1200)
-    assert _reads(fakes[c]) == _reads(fakes[d]) == 1
+    assert _reads(fakes[c]) == _reads(fakes[d]) == nightly
     async with async_sm() as s:
-        kept = (await s.execute(select(SalesDaily.units).where(SalesDaily.connection_id == c))).scalars().all()
+        kept = (await s.execute(select(SalesDaily.units).where(SalesDaily.connection_id == c, SalesDaily.day == TODAY - timedelta(days=200),
+                                                               SalesDaily.listing_id == 1))).scalars().all()
         assert kept == [1200]
         lines = dict((await s.execute(select(SaleLine.connection_id, func.count()).group_by(SaleLine.connection_id))).all())
-        assert lines == {a: 1200, b: 1200}  # every order line of the 13 months, for the shops that are done
+        assert lines[a] == lines[b] == 1200  # every order line of the 13 months, for the shops that are done
+        # The shops waiting have only the lines of their last 30 days (the nightly update's), until their turn.
+        assert 0 < lines[c] == lines[d] < 1200
 
     # Asking again the same night changes nothing: no request, nothing begun.
     before = sum(_reads(f) for f in fakes.values())
@@ -164,16 +171,18 @@ async def test_rereads_keep_to_the_nightly_share_one_shop_at_a_time_and_carry_on
     rows = await _state(async_sm)
     assert [rows[s].reread for s in shops] == ["done"] * 4
     assert all(rows[s].state == "complete" and rows[s].has_lines for s in shops)
-    assert await _used(async_sm) <= 30
+    # The re-reads themselves stay inside the night's share; reread_used also counts each of these
+    # shops' ordinary nightly update (their last 30 days), which is not a re-read.
+    assert await _used(async_sm) - sum(rows[s].last_update_requests or 0 for s in shops) <= 30
     async with async_sm() as s:
         assert await s.scalar(select(func.count()).select_from(SaleLine)) == 4 * 1200
 
-    # Finished: the next night is the ordinary one request per shop, and nothing is read again.
+    # Finished: the next night is the ordinary update per shop (its last 30 days), and nothing is read again.
     await _next_day(async_sm)
     for f in fakes.values():
         f.calls.clear()
     await _night(async_sm, ctx)
-    assert [_reads(fakes[s]) for s in shops] == [1, 1, 1, 1]
+    assert [_reads(fakes[s]) for s in shops] == [nightly] * 4
     assert [r.reread for r in (await _state(async_sm)).values()] == ["done"] * 4
 
 

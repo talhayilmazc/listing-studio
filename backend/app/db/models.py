@@ -405,6 +405,10 @@ class EtsyConnection(Base):
     #: 24 hours (other Etsy content); deleted with the shop.
     sections: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
     sections_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: "Delete my sales history" (pipeline/sales_history.py): the first day the seller still wants
+    #: in the profit report. Nothing older is stored again, whatever read brings it in. NULL:
+    #: everything the Analytics history setting keeps. Cleared when the shop is disconnected.
+    sales_history_from: Mapped[date | None] = mapped_column(Date)
     status: Mapped[ConnectionStatus] = mapped_column(
         _enum(ConnectionStatus, "connection_status"),
         nullable=False,

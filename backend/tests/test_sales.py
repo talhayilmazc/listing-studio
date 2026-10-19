@@ -197,10 +197,12 @@ async def test_the_first_read_runs_in_chunks_adds_as_it_goes_and_keeps_to_the_da
     sync = await _sync_row(async_sm, shop)
     assert sync.state == "complete" and sync.read_count == 2400
 
-    # After that, only what's new: one request.
+    # After that, every night the last 30 days again (replaced, never added twice): a few
+    # requests, one per 100 sales of those days.
     fake.add([_sale(5, 0, hour=23) for _ in range(3)])
-    assert await sales_worker.sync_sales(ctx, str(shop)) == "updated:10"
-    assert (await _sync_row(async_sm, shop)).last_update_requests == 1
+    fake.calls.clear()
+    assert (await sales_worker.sync_sales(ctx, str(shop))).startswith("refreshed:")
+    assert (await _sync_row(async_sm, shop)).last_update_requests == len(fake.calls) <= 3
     assert await _units(async_sm) == 2410
 
 

@@ -131,8 +131,8 @@ async def test_quota_and_meta(client: AsyncClient) -> None:
     meta = (await client.get("/api/meta")).json()
     assert meta["support_email"]
     assert meta["trademark_notice"] == (
-        "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API "
-        "but is not endorsed or certified by Etsy, Inc."
+        "The term 'Etsy' is a trademark of Etsy, Inc. This Application uses Etsy's API, "
+        "but is not endorsed or certified by Etsy."
     )
     assert meta["provider_disclaimer"] == (
         "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."

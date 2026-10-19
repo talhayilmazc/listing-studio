@@ -661,6 +661,10 @@ export const api = {
     req<SalesSync>(`/analytics/ledger/estimate${shopQuery(shop)}`, { method: "POST" }),
   startLedger: (shop: string | null) =>
     req<SalesSync>(`/analytics/ledger/start${shopQuery(shop)}`, { method: "POST" }),
+  /** "Delete my sales history" for the shop (the server refuses it without the confirmation). */
+  deleteSalesHistory: (shop: string | null) =>
+    req<{ deleted: Record<string, number>; history_from: string; status: SalesSync }>(
+      `/analytics/sales/history/delete${shopQuery(shop)}`, { method: "POST", body: JSON.stringify({ confirm: true }) }),
   /** Read the shop's latest sales now (upkeep, not the seller's quota). */
   refreshSales: (shop: string | null) =>
     req<{ queued: boolean }>(`/analytics/sales/refresh${shopQuery(shop)}`, { method: "POST" }),

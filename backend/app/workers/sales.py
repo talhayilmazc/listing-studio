@@ -17,8 +17,13 @@ number of listings, and everything here is built around that:
   new sales shifting the pages during a long read. At
   :attr:`SalesSync.DAILY_REQUESTS` a day it stops and carries on after the
   reset, so a big shop doesn't crowd out everyone else's work.
-* **Then only what's new** (``sync_sales`` once ``complete``): sales newer than
-  the newest one counted; usually a single request.
+* **Then every night, the last 30 days again** (``sync_sales`` once ``complete``,
+  :data:`~app.pipeline.sales.REFRESH_DAYS`): newest first, page by page until a sale older than
+  that, and the days read are replaced, so a cancellation or a change shows within a day; about
+  one request per 100 sales of the last 30 days (usually one). A shop with more of them than
+  :data:`REFRESH_PAGES` pages takes only its new sales that night (and an oldest-first shop always).
+* **Never before the seller's "Delete my sales history"** (``etsy_connection.sales_history_from``):
+  :func:`_add_totals` drops anything older, whatever read brought it in.
 
 * **Once more, for shops read before order lines were kept** (the re-read).
   The same read as the first one, over the same 13 months, but started by the
@@ -50,7 +55,7 @@ from app.core import limits
 from app.core.config import get_settings
 from app.db.models import ConnectionStatus, EtsyConnection, SaleLine, SalesDaily, SalesSync, Tenant
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline.sales import aggregate, lines as order_lines, sale_day, sale_key
+from app.pipeline.sales import REFRESH_DAYS, aggregate, history_floor, lines as order_lines, sale_day, sale_key
 from app.workers import gate
 from app.workers.profiles import (
     ShopAccessLost,
@@ -77,6 +82,8 @@ LOCK_SECONDS = 15 * 60
 #: The one-time re-reads, all shops together, may use this share of the app's
 #: daily Etsy budget per UTC day (5,000 a day: 1,000).
 REREAD_BUDGET_PERCENT = 20
+#: Pages the nightly re-read of the last REFRESH_DAYS days may take (3,000 sales).
+REFRESH_PAGES = 30
 REREAD_NOTE = "reading the sales again, to tie each order to its listings"
 REREAD_NIGHT_FULL = "tonight's share of the budget for reading sales again is used"
 REREAD_TURN = "waiting for its turn: shops are read again one at a time"
@@ -163,7 +170,9 @@ async def _open(ctx: dict[str, Any], session: AsyncSession, connection: EtsyConn
 
 
 async def _add_totals(session: AsyncSession, connection: EtsyConnection, sales: list[dict[str, Any]], since: date) -> int:
-    """Add these sales to the daily totals (additive: pages of one day may come apart)."""
+    """Add these sales to the daily totals (additive: pages of one day may come apart). Nothing
+    before the day the seller deleted the shop's sales history is stored."""
+    since = history_floor(since, connection.sales_history_from)
     totals = aggregate(sales, since)
     for (listing_id, day), t in totals.items():
         row = await session.get(SalesDaily, (connection.id, listing_id, day))
@@ -575,11 +584,58 @@ async def _first_read(
     return f"reading:{sync.read_count}"
 
 
+async def _reread_recent(
+    session: AsyncSession, connection: EtsyConnection, sync: SalesSync, reader: _Reader, start: date, today: date
+) -> tuple[str, int, int]:
+    """The last REFRESH_DAYS days read again, newest first, and their totals and order lines
+    replaced. Returns (outcome, orders, offset read to): "refreshed"; "new-only" when the days
+    took more than tonight's pages (only the new sales among them were added); "behind" when even
+    those were all new (the caller carries on from the offset)."""
+    cutoff = history_floor(today - timedelta(days=REFRESH_DAYS), max(start, connection.sales_history_from or start))
+    read: list[dict[str, Any]] = []
+    offset = 0
+    reached = False
+    for _ in range(min(REFRESH_PAGES, _left_today(sync))):
+        rows = await reader.page(offset)
+        read += rows
+        offset += len(rows)
+        if len(rows) < PAGE_SIZE or any((sale_day(r) or today) < cutoff for r in rows):
+            reached = True
+            break
+    if reached:
+        recent = [r for r in read if (sale_day(r) or today) >= cutoff]
+        for table in (SalesDaily, SaleLine):
+            await session.execute(delete(table).where(table.connection_id == connection.id, table.day >= cutoff)
+                                  .execution_options(synchronize_session="fetch"))
+        await session.flush()
+        orders = await _add_totals(session, connection, recent, cutoff)
+        _keep_cursors(sync, recent)
+        return "refreshed", orders, offset
+    new = [r for r in read if _after(sale_key(r), (sync.newest_ts, sync.newest_id))]
+    added = await _add_totals(session, connection, [r for r in new if (sale_day(r) or start) >= start], start)
+    _keep_cursors(sync, new)
+    return ("behind" if read and len(new) == len(read) else "new-only"), added, offset
+
+
 async def _update(
     ctx: dict[str, Any], session: AsyncSession, connection: EtsyConnection, sync: SalesSync, reader: _Reader
 ) -> str:
-    """Only the sales newer than the newest one counted."""
-    start = window_start(_now().date())
+    """Every night: the last REFRESH_DAYS days again (:func:`_reread_recent`); only the sales newer
+    than the newest one counted when that can't be done tonight."""
+    today = _now().date()
+    start = window_start(today)
+    if sync.direction != "asc" and _left_today(sync) > 0:
+        outcome, orders, offset = await _reread_recent(session, connection, sync, reader, start, today)
+        if reader.count is not None:
+            sync.total_count = reader.count
+        sync.last_update_requests = reader.requests
+        sync.updated_at = _now()
+        if outcome == "behind":  # far behind: carry on with the new sales in the next run
+            await _enqueue_job(ctx, "sync_sales", str(connection.id), _job_id=f"sales-update:{connection.id}:{offset}")
+        else:
+            connection.sales_synced_at = _now()
+        await session.commit()
+        return f"{outcome}:{orders}"
     added = 0
     if sync.direction == "asc":
         # Oldest first: new sales are at the end.

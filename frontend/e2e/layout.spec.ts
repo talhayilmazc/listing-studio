@@ -13,10 +13,14 @@
  *   - the Admin tab bar moved while the page loaded: the summary above it grew, and
  *     each tab grew when its count arrived.
  *
+ * The trademark notice is in its places (the box under the home page's call to action, above the fold
+ * at 375 and 1366; every footer; beside "Connect a shop"; the Terms) and once in each, never twice.
+ *
  * How to run them: playwright.config.ts. Without LAYOUT_EMAIL and LAYOUT_PASSWORD
  * (the synthetic demo admin) the signed-in tests are skipped, not failed.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { TRADEMARK_NOTICE } from "../lib/legal";
 
 const PUBLIC = ["/", "/pricing", "/terms", "/privacy", "/request-invite", "/contact"];
 const SIGN_IN = ["/login", "/register"];
@@ -141,6 +145,44 @@ for (const path of [...PUBLIC, ...SIGN_IN]) {
   });
 }
 
+/** The API Terms of Use statement, word for word (one copy: lib/legal.ts). */
+const NOTICE = TRADEMARK_NOTICE;
+
+/** Where the notice shows on the page: each element showing it, and how often the page's text has it. */
+async function notices(page: Page): Promise<{ places: string[]; inText: number; each: number[] }> {
+  return page.evaluate((notice) => {
+    const flat = (t: string) => t.replace(/\s+/g, " ").trim();
+    const shown = [...document.querySelectorAll("p, div, span, li")].filter((el) => flat(el.textContent ?? "").includes(notice)
+      && ![...el.children].some((c) => flat(c.textContent ?? "").includes(notice)));
+    const text = flat(document.body.innerText);
+    return {
+      places: shown.map((el) => el.closest("footer") ? "footer" : (el.getAttribute("data-testid") ?? el.tagName.toLowerCase())),
+      inText: text.split(notice).length - 1,
+      each: shown.map((el) => flat(el.textContent ?? "").split(notice).length - 1),
+    };
+  }, NOTICE);
+}
+
+for (const path of ["/", "/terms", "/pricing"]) {
+  test(`${path}: the trademark notice is in its places, once in each`, async ({ page }) => {
+    await page.goto(path);
+    await settle(page);
+    const found = await notices(page);
+    expect(found.each.every((n) => n === 1), `${path}: a place shows the notice more than once`).toBe(true);
+    const expected = path === "/" ? ["home-trademark-notice", "footer"] : path === "/terms" ? ["terms-trademark-notice", "footer"] : ["footer"];
+    expect(found.places.sort(), `${path}: where the notice is`).toEqual(expected.sort());
+    expect(found.inText, `${path}: the notice on the page`).toBe(expected.length);
+    if (path === "/") {
+      // Above the fold: the whole box in the first screen, at this width.
+      const box = await page.getByTestId("home-trademark-notice").boundingBox();
+      const { height } = page.viewportSize()!;
+      expect(box, "the home page has the notice box").not.toBeNull();
+      expect(box!.y + box!.height, "the notice box is above the fold").toBeLessThanOrEqual(height);
+      await expect(page.getByTestId("home-trademark-notice")).toHaveText(NOTICE);
+    }
+  });
+}
+
 test.describe("signed in", () => {
   test.skip(!EMAIL || !PASSWORD, "set LAYOUT_EMAIL and LAYOUT_PASSWORD (the demo admin from `seed-demo --admin`) to run these");
 
@@ -151,6 +193,15 @@ test.describe("signed in", () => {
     await page.locator('button[type="submit"]').click();
     await page.waitForURL(/\/(dashboard|accept-terms|password)/, { timeout: 30_000 });
     expect(new URL(page.url()).pathname, "the demo account signs straight in").toBe("/dashboard");
+  });
+
+  test("the trademark notice is beside Connect a shop and in the footer, once in each", async ({ page }) => {
+    await page.goto("/connect");
+    await settle(page);
+    const found = await notices(page);
+    expect(found.each.every((n) => n === 1)).toBe(true);
+    expect(found.places.sort()).toEqual(["connect-trademark-notice", "footer"].sort());
+    expect(found.inText).toBe(2);
   });
 
   test("every signed-in page ends at its footer and does not scroll sideways", async ({ page }) => {

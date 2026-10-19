@@ -78,15 +78,16 @@ async def test_the_estimate_costs_one_request_and_the_read_totals_each_type(asyn
     sync = await _row(async_sm, shop)
     assert sync.state == "complete" and sync.synced_until == sync.window_end
 
-    # After that, only what's new since the last read.
+    # After that, every night the last 30 days again (the first read's entries are older).
     fake.entries += _entries(3, "offsite_ads_fee", -40, start=sync.window_end + 5)
     fake.calls.clear()
     import app.workers.ledger as lw
 
     monkeypatch.setattr(lw, "_now", lambda: datetime.fromtimestamp(sync.window_end + 2000, tz=timezone.utc))
-    assert await ledger_worker.sync_ledger(ctx, str(shop)) == "updated:3"
-    assert len(fake.calls) == 1 and fake.calls[0][0] == sync.window_end + 1
+    assert await ledger_worker.sync_ledger(ctx, str(shop)) == "refreshed:3"
+    assert len(fake.calls) == 1 and fake.calls[0][0] == ledger_worker._midnight(sync.window_end + 2000 - 30 * 86400)
     assert await _total(async_sm, "offsite_ads_fee") == -120
+    assert await _total(async_sm, "prolist") == -25000  # days before the 30 kept as they were
 
 
 async def test_an_update_longer_than_one_run_carries_on_without_counting_twice(async_sm, monkeypatch) -> None:
@@ -109,6 +110,7 @@ async def test_an_update_longer_than_one_run_carries_on_without_counting_twice(a
     fake.entries = [dict(e, created_timestamp=min(e["created_timestamp"], sync.window_end + 900)) if e["ledger_type"] == "transaction" else e
                     for e in fake.entries]
     monkeypatch.setattr(ledger_worker, "UPDATE_PAGES", 2)
+    monkeypatch.setattr(ledger_worker, "REFRESH_PAGES", 0)  # the 30-day re-read can't fit: the update path
     monkeypatch.setattr(ledger_worker, "_now", lambda: datetime.fromtimestamp(sync.window_end + 2000, tz=timezone.utc))
     assert await ledger_worker.sync_ledger(ctx, str(shop)) == "updated:200"
     mid = await _row(async_sm, shop)

@@ -112,7 +112,7 @@ A listing is one design written by AI or by the seller, with all its photos. Rew
 
 ## Branding
 
-The product is named Listyro, on listyro.com. "Etsy" does not appear in the product name, logo, domain or page titles, and no Etsy logo is used. The notice "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc." is shown prominently on the home page under the first call to action, in the footer of every page, beside "Connect a shop", and in the Terms. The Terms state who provides the application: "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."
+The product is named Listyro, on listyro.com. "Etsy" does not appear in the product name, logo, domain or page titles, and no Etsy logo is used. The notice "The term 'Etsy' is a trademark of Etsy, Inc. This Application uses Etsy's API, but is not endorsed or certified by Etsy." is shown prominently on the home page under the first call to action, in the footer of every page, beside "Connect a shop", and in the Terms. The Terms state who provides the application: "THIS APPLICATION IS SOLELY PROVIDED BY TALHA YILMAZ AND AHMET DÜZGÜN, OPERATING AS LISTYRO."
 
 ## What Listyro does not do
 

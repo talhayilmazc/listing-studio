@@ -6,6 +6,8 @@ import { relativeTime } from "@/lib/format";
 import { formatWhen } from "@/lib/schedule";
 import type { LedgerRead, SalesSync } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
+import { AFTER_DELETE, CONFIRM_QUESTION, DELETE_LABEL, WHAT_IS_DELETED, deletedLine, updatedLine } from "@/lib/salesHistory";
+import { RETENTION } from "@/lib/legal";
 
 import { Txt } from "@/components/Txt";
 const n = (v: number | null | undefined) => (v ?? 0).toLocaleString();
@@ -22,6 +24,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null); // synced_at before "Read now"
+  const [confirming, setConfirming] = useState(false); // "Delete my sales history" asked, not yet confirmed
   const reloads = useRef(0);
   const seen = useRef<string | null>(null);
 
@@ -91,6 +94,13 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
     act(async () => {
       setUpdating(sync.synced_at ?? "");
       await api.refreshSales(shopId);
+    });
+
+  const deleteHistory = () =>
+    act(async () => {
+      await api.deleteSalesHistory(shopId);
+      setConfirming(false);
+      onProgress(); // the figures go with it
     });
 
   const pct = sync.window_count ? Math.min(100, (sync.read_count / sync.window_count) * 100) : 0;
@@ -173,10 +183,10 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
 
       {sync.state === "complete" && (
         <div key="complete" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-          <span>
+          <span data-testid="sales-updated">
             {updating !== null
               ? "Reading new sales…"
-              : `Sales read ${sync.synced_at ? relativeTime(sync.synced_at) : ""} · updated every night`}
+              : updatedLine(sync.updated_at ?? sync.synced_at, (iso) => `${formatWhen(iso, timeZone)} (${relativeTime(iso)})`, RETENTION.salesRefreshDays)}
           </span>
           <span>
             <span><span>{`· first read: ${n(sync.read_count)} sales in ${n(sync.requests_used)} requests`}</span>
@@ -208,6 +218,35 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
           onStart={() => act(() => api.startLedger(shopId))}
           onResume={() => act(() => api.resumeSales(shopId))}
         />
+      )}
+
+      {sync.history_from && (
+        <p key="deleted" className="text-xs text-slate-500" data-testid="sales-history-deleted">{deletedLine(sync.history_from)}</p>
+      )}
+
+      {sync.state !== "none" && sync.state !== "estimating" && !confirming && (
+        <div key="delete" className="border-t border-slate-100 pt-2">
+          <button type="button" className="btn-secondary min-h-11 text-rose-700" onClick={() => setConfirming(true)} disabled={busy}
+            data-testid="sales-history-delete">
+            {DELETE_LABEL}
+          </button>
+        </div>
+      )}
+      {confirming && (
+        <div key="confirm" role="alertdialog" aria-labelledby="sales-history-question"
+          className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 p-3" data-testid="sales-history-confirm">
+          <p id="sales-history-question" className="font-medium text-rose-900">{CONFIRM_QUESTION}</p>
+          <p className="text-rose-900">{WHAT_IS_DELETED}</p>
+          <p className="text-xs text-rose-800">{AFTER_DELETE}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary min-h-11 bg-rose-600 hover:bg-rose-700" onClick={deleteHistory} disabled={busy} data-testid="sales-history-confirm-delete">
+              {busy ? "Deleting…" : DELETE_LABEL}
+            </button>
+            <button type="button" className="btn-secondary min-h-11" onClick={() => setConfirming(false)} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {error && <p key="error" className="text-xs text-rose-700">{error}</p>}
