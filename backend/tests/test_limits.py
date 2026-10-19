@@ -23,8 +23,8 @@ DAY = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d")  # noqa: E731
 
 
 def _quota(world) -> DailyQuota:  # noqa: F811
-    """The production shape: 5,000 a day for the app, new work pausing at 90%."""
-    quota = DailyQuota(world["redis"], global_daily_limit=5000, pause_percent=90)
+    """The production shape (Commercial Access): 100,000 a day for the app, new work pausing at 90%."""
+    quota = DailyQuota(world["redis"], global_daily_limit=100000, pause_percent=90)
     world["app"].dependency_overrides[deps.get_quota] = lambda: quota
     return quota
 
@@ -85,7 +85,7 @@ async def test_every_screen_shows_the_same_numbers_for_an_account_with_its_own_l
     assert (a["amount"], a["period"], a["used"], a["remaining"], a["custom"]) == (1500, "daily", 1, 1499, True)
     assert a["resets_label"].endswith("12:00 AM CDT") or a["resets_label"].endswith("12:00 AM CST")  # the seller's midnight
     c = seen["quota"]["ceiling"]
-    assert (c["limit"], c["used"], c["remaining"], c["follows_default"], c["default"], c["upkeep"]) == (1500, 21, 1479, False, 4500, 189)
+    assert (c["limit"], c["used"], c["remaining"], c["follows_default"], c["default"], c["upkeep"]) == (1500, 21, 1479, False, 20000, 189)
     # 00:00 UTC, said in the seller's own time.
     assert c["resets_at"].endswith("T00:00:00Z") and c["resets_label"] in ("7:00 PM CDT", "6:00 PM CST")
     # The review page's "left" is the account's own remaining: its ceiling is the smaller here.
@@ -93,15 +93,15 @@ async def test_every_screen_shows_the_same_numbers_for_an_account_with_its_own_l
     # The shop's part of the account's requests; upkeep is in neither.
     assert seen["quota"]["shop_used"] == 21
     # The app's budget is the admin's to see, and holds everything.
-    assert (seen["usage"]["global_used"], seen["usage"]["global_limit"], seen["usage"]["pause_at"], seen["usage"]["until_pause"]) == (264, 5000, 4500, 4236)
-    assert seen["usage"]["ceiling_default"] == 4500
+    assert (seen["usage"]["global_used"], seen["usage"]["global_limit"], seen["usage"]["pause_at"], seen["usage"]["until_pause"]) == (264, 100000, 90000, 89736)
+    assert seen["usage"]["ceiling_default"] == 20000
     assert not any(key.startswith("global") for key in seen["quota"])
 
 
 async def test_every_screen_shows_the_same_numbers_for_an_account_on_the_defaults(world) -> None:  # noqa: F811
     _quota(world)
     await _account(world, etsy_ceiling_override=None, allowance_amount=None, allowance_period=None)
-    await _spend(world, own=21, upkeep=189, everyone=264)
+    await _spend(world, own=21, upkeep=189, everyone=80000)
     async with world["sm"]() as s:
         allowance.record(s, world["bob"].tenant_id, allowance.GENERATION)
         await s.commit()
@@ -111,11 +111,11 @@ async def test_every_screen_shows_the_same_numbers_for_an_account_on_the_default
     a = seen["allowance"]
     assert (a["amount"], a["period"], a["used"], a["remaining"], a["custom"]) == (500, "monthly", 1, 499, False)
     c = seen["quota"]["ceiling"]
-    assert (c["limit"], c["used"], c["remaining"], c["follows_default"]) == (4500, 21, 4479, True)
-    # Here the app's budget is the smaller (4,500 - 264 used by everyone, upkeep included):
-    # the review page may spend 4,236, says which number that is, and still shows the same ceiling.
-    assert (seen["review"]["budget_remaining"], seen["review"]["limited_by"]) == (4236, "app")
-    assert seen["review"]["ceiling"]["remaining"] == 4479
+    assert (c["limit"], c["used"], c["remaining"], c["follows_default"]) == (20000, 21, 19979, True)
+    # Here the app's budget is the smaller (90,000 - 80,000 used by everyone, upkeep included):
+    # the review page may spend 10,000, says which number that is, and still shows the same ceiling.
+    assert (seen["review"]["budget_remaining"], seen["review"]["limited_by"]) == (10000, "app")
+    assert seen["review"]["ceiling"]["remaining"] == 19979
 
 
 async def test_accounts_on_the_default_pick_up_a_change_of_it_and_overrides_do_not(world, test_settings) -> None:  # noqa: F811
@@ -127,7 +127,7 @@ async def test_accounts_on_the_default_pick_up_a_change_of_it_and_overrides_do_n
     limit = lambda rows, email: next(u["etsy"]["limit"] for u in rows if u["email"] == email)  # noqa: E731
 
     rows = (await world["a"].get("/api/admin/users")).json()
-    assert (limit(rows, "bob@example.com"), limit(rows, "admin@example.com")) == (4500, 1500)
+    assert (limit(rows, "bob@example.com"), limit(rows, "admin@example.com")) == (20000, 1500)
     set_settings_override(test_settings.model_copy(update={"account_daily_ceiling": 3000}))
     rows = (await world["a"].get("/api/admin/users")).json()
     assert (limit(rows, "bob@example.com"), limit(rows, "admin@example.com")) == (3000, 1500)
@@ -178,7 +178,7 @@ async def test_a_listing_sent_to_four_shops_is_one_generation_and_four_drafts_of
         assert [u.kind for u in (await s.execute(select(AllowanceUse))).scalars()] == ["generation"]
     etsy = (await world["b"].get(f"/api/quota?shop={shops[1]}")).json()
     # Four drafts' requests against the account's ceiling; this shop made a quarter of them.
-    assert (etsy["ceiling"]["used"], etsy["ceiling"]["remaining"], etsy["shop_used"]) == (4 * PER_DRAFT, 4500 - 4 * PER_DRAFT, PER_DRAFT)
+    assert (etsy["ceiling"]["used"], etsy["ceiling"]["remaining"], etsy["shop_used"]) == (4 * PER_DRAFT, 20000 - 4 * PER_DRAFT, PER_DRAFT)
     row = next(u for u in (await world["a"].get("/api/admin/users")).json() if u["email"] == "bob@example.com")
     assert row["etsy"] == etsy["ceiling"] and row["allowance"] == mine
 
@@ -190,7 +190,7 @@ async def test_upkeep_is_in_the_apps_budget_and_in_neither_the_ceiling_nor_a_sho
     for _ in range(72):  # a shop sync
         assert await quota.reserve_upkeep(bob.tenant_id, shop=bob.connection_id, category="shop_sync")
     for _ in range(21):  # the seller's own drafts
-        assert await quota.reserve(bob.tenant_id, 4500, shop=bob.connection_id, category="drafts")
+        assert await quota.reserve(bob.tenant_id, 20000, shop=bob.connection_id, category="drafts")
     seen = (await world["b"].get(f"/api/quota?shop={bob.connection_id}")).json()
     # "21 used" and "this shop: 21": the sidebar no longer says 72 for the shop beside 21 for the account.
     assert (seen["ceiling"]["used"], seen["shop_used"], seen["ceiling"]["upkeep"]) == (21, 21, 72)
@@ -200,12 +200,12 @@ async def test_upkeep_is_in_the_apps_budget_and_in_neither_the_ceiling_nor_a_sho
 async def test_when_the_apps_budget_stops_the_work_the_seller_is_told_exactly_that(world) -> None:  # noqa: F811
     _quota(world)
     await _account(world, etsy_ceiling_override=None)
-    await _spend(world, own=21, upkeep=0, everyone=4500)
+    await _spend(world, own=21, upkeep=0, everyone=90000)
     seen = (await world["b"].get("/api/quota")).json()
     assert seen["pause"]["reason"] == "global_quota"
     message = seen["pause"]["message"]
     assert message.startswith("The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit:")
-    assert "you have 4,479 of your 4,500 Etsy requests left today" in message
+    assert "you have 19,979 of your 20,000 Etsy requests left today" in message
     assert ("7:00 PM CDT" in message or "6:00 PM CST" in message) and "(00:00 UTC)" in message
     refused = await world["b"].post(f"/api/batches/{world['bob'].batch_id}/publish/preview", json={})
     assert (refused.json()["budget_remaining"], refused.json()["limited_by"]) == (0, "app")

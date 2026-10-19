@@ -7,7 +7,7 @@ shop's owner. Two ceilings apply:
 * per account: ``tenant.max_shops`` if an admin set one (any positive number, no
   upper cap), else the default MAX_SHOPS_PER_TENANT;
 * app-wide: MAX_SHOPS_APP_WIDE, because every connected shop spends part of the
-  one shared 5,000-request daily budget just to stay in sync.
+  one shared daily request budget (100,000) just to stay in sync.
 """
 
 from __future__ import annotations

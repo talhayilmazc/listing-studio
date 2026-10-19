@@ -153,7 +153,7 @@ export default function AdminPage() {
             <UsersTab key="userstab-113-10"
               users={users}
               selfId={account!.id}
-              globalLimit={usage?.global_limit ?? 5000}
+              globalLimit={usage?.global_limit ?? 100000}
               onError={setError}
               onChanged={(u) => {
                 setUsers((prev) => prev?.map((x) => (x.id === u.id ? u : x)) ?? prev);

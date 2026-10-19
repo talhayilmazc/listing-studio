@@ -2,8 +2,8 @@
 
 Every method makes exactly one HTTP request through :meth:`_request`, which:
 
-1. reserves the per-tenant + global **daily quota** (5.000/day),
-2. paces via the global **3 req/s token bucket** (no bursts; see rate_limiter),
+1. reserves the per-tenant + global **daily quota** (100,000/day),
+2. paces via the global **token bucket** (10 req/s, no bursts; see rate_limiter),
 3. sends with the correct headers -- ``x-api-key: {keystring}:{shared_secret}``
    (verified: keystring alone -> 403) plus the OAuth ``Authorization: Bearer``,
 4. maps non-2xx responses onto the :mod:`app.etsy.errors` hierarchy,

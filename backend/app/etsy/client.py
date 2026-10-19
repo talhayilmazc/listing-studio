@@ -20,7 +20,7 @@ ETSY_API_BASE = "https://api.etsy.com/v3"
 def api_key_header(client_id: str, shared_secret: str) -> str:
     """Value for the ``x-api-key`` header on Etsy API v3 requests.
 
-    VERIFIED against a live Personal App: the header must be
+    VERIFIED against the live app (then a Personal App): the header must be
     ``{keystring}:{shared_secret}`` -- sending the keystring alone makes
     ``/application/openapi-ping`` return 403. Both come from ``.env``
     (``ETSY_CLIENT_ID`` = keystring, ``ETSY_CLIENT_SECRET`` = shared secret) and

@@ -60,3 +60,29 @@ def test_the_real_production_files_do_not_turn_it_on() -> None:
     assert "ETSY_CALLS_BLOCKED" not in (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
     example = (ROOT / "deploy" / "env.production.example").read_text(encoding="utf-8")
     assert "ETSY_CALLS_BLOCKED=true" not in example.replace(" ", "")
+
+
+# --- Etsy's limits under Commercial Access (approved 19 October 2026) ------------------------------
+
+
+@pytest.mark.parametrize("env_text", ["APP_ENV=production\n", "APP_ENV=production\nGLOBAL_DAILY_LIMIT=100000\n"])
+def test_the_commercial_access_daily_ceiling_passes(tmp_path, env_text: str) -> None:
+    out = _run(tmp_path, env_text)
+    assert "  ok    GLOBAL_DAILY_LIMIT is Etsy's ceiling (100000)" in out.stdout, out.stdout + out.stderr
+
+
+def test_a_daily_limit_above_etsys_ceiling_warns_and_does_not_fail(tmp_path) -> None:
+    out = _run(tmp_path, "APP_ENV=production\nGLOBAL_DAILY_LIMIT=150000\n")
+    assert "warn  GLOBAL_DAILY_LIMIT is 150000, above Etsy's 100000/day" in out.stdout, out.stdout + out.stderr
+    assert "FAIL  GLOBAL_DAILY_LIMIT" not in out.stdout
+    # The old Personal-access figure is a warning too (the margin belongs in GLOBAL_PAUSE_PERCENT), not a pass.
+    old = _run(tmp_path, "APP_ENV=production\nGLOBAL_DAILY_LIMIT=5000\n")
+    assert "warn  GLOBAL_DAILY_LIMIT is 5000, not 100000" in old.stdout, old.stdout + old.stderr
+    assert "FAIL  GLOBAL_DAILY_LIMIT must be a number" in _run(tmp_path, "APP_ENV=production\nGLOBAL_DAILY_LIMIT=lots\n").stdout
+
+
+def test_requests_per_second_above_etsys_150_warns(tmp_path) -> None:
+    fine = _run(tmp_path, "APP_ENV=production\nETSY_REQUESTS_PER_SECOND=10\n")
+    assert "  ok    ETSY_REQUESTS_PER_SECOND is 10 (Etsy allows 150)" in fine.stdout, fine.stdout + fine.stderr
+    high = _run(tmp_path, "APP_ENV=production\nETSY_REQUESTS_PER_SECOND=200\n")
+    assert "warn  ETSY_REQUESTS_PER_SECOND above Etsy's 150/s" in high.stdout, high.stdout + high.stderr

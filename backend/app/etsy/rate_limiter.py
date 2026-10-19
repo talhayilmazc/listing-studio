@@ -3,11 +3,13 @@
 Two independent guards, applied in this order by the worker:
 
 1. :class:`DailyQuota` -- per-tenant and global daily request budgets
-   (Personal App allows 5.000/day per *app*). Two thresholds: new jobs pause at
-   ``pause_percent`` of the global limit (production-spec C, 90% = 4.500), and
+   (Commercial Access allows 100,000/day per *app*). Two thresholds: new jobs pause at
+   ``pause_percent`` of the global limit (production-spec C, 90% = 90,000), and
    every single request still stops hard at the limit itself.
-2. :class:`TokenBucket` -- a global 3 req/s pacer shared by all workers,
-   refilled atomically in Redis via a Lua script. Etsy's per-second limit is 5
+2. :class:`TokenBucket` -- a global req/s pacer shared by all workers
+   (ETSY_REQUESTS_PER_SECOND, 10 by default; Etsy allows 150 under Commercial
+   Access), refilled atomically in Redis via a Lua script. Under Personal access
+   Etsy's per-second limit was 5
    and it counts bursts: the old 4 req/s bucket held 4 tokens, so after an idle
    moment it released 4 at once *plus* the refill, up to 7 in one second under
    concurrent jobs (docs/duzeltmeler-v5.md §A). Capacity is now 1 -- no stored
@@ -170,7 +172,7 @@ class DailyQuota:
         self,
         redis: Redis,
         *,
-        global_daily_limit: int = 5000,
+        global_daily_limit: int = 100000,
         pause_percent: int = 100,
         ttl_seconds: int = 48 * 3600,
         now_func: Callable[[], datetime] | None = None,

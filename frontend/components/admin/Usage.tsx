@@ -4,7 +4,7 @@ import type { AdminUsage } from "@/lib/types";
 
 import { Txt } from "@/components/Txt";
 /**
- * The scarce resource: Etsy's app-wide budget of 5,000 requests a day, shared by
+ * The scarce resource: Etsy's app-wide budget of 100,000 requests a day, shared by
  * every tenant. Colour carries one job only — severity on the meters (accent,
  * then amber, then red as the budget runs out). Tenants are told apart by their
  * row label, never by colour, so no categorical palette is involved.
@@ -96,10 +96,10 @@ export function UsageSummary({ usage }: { usage: AdminUsage | null }) {
   const loading = !usage;
   const u = {
     used: usage?.global_used ?? 0,
-    limit: usage?.global_limit ?? 5000,
-    pauseAt: usage?.pause_at ?? 4500,
-    remaining: usage?.global_remaining ?? 5000,
-    ceiling: usage?.ceiling_default ?? 4500,
+    limit: usage?.global_limit ?? 100000,
+    pauseAt: usage?.pause_at ?? 90000,
+    remaining: usage?.global_remaining ?? 100000,
+    ceiling: usage?.ceiling_default ?? 20000,
     shopsUsed: usage?.shops_used ?? 0,
     shopsLimit: usage?.shops_limit ?? 20,
     date: usage?.usage_date ?? "0000-00-00",

@@ -240,8 +240,8 @@ async def test_quota_ceiling_can_be_changed_within_the_app_budget(world) -> None
     assert (await world["b"].get("/api/quota")).json()["ceiling"]["limit"] == 1500
     # "Follow default": the account's own number goes, and the default applies.
     back = await a.put(f"/api/admin/users/{bob.tenant_id}/quota", json={"daily_quota": None})
-    assert back.status_code == 200 and (back.json()["etsy"]["limit"], back.json()["etsy"]["follows_default"]) == (4500, True)
-    assert (await world["b"].get("/api/quota")).json()["ceiling"]["limit"] == 4500
+    assert back.status_code == 200 and (back.json()["etsy"]["limit"], back.json()["etsy"]["follows_default"]) == (20000, True)
+    assert (await world["b"].get("/api/quota")).json()["ceiling"]["limit"] == 20000
 
 
 async def test_an_accounts_shop_limit_has_a_default_and_no_upper_cap(world, test_settings: Settings) -> None:

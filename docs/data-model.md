@@ -163,8 +163,8 @@ Yayın öncesi tarama sonucu.
 ## 2. Rate limit kuyruğu
 
 ### Kısıt
-- Global: **5.000 istek / 24 saat**, **5 istek / saniye** — uygulama bazında (Personal App)
-- Güvenlik payı: saniyede 4 hedefle, günlük bütçe 5.000
+- Global: **100.000 istek / 24 saat**, **150 istek / saniye** — uygulama bazında (Commercial Access, 19 Ekim 2026; kişisel erişimde 5.000 / 5)
+- Güvenlik payı: saniyede 10, burst yok (`ETSY_REQUESTS_PER_SECOND`); günlük bütçe 100.000, yeni işler %90'da bekler
 
 ### Katmanlar
 

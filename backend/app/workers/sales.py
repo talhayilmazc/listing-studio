@@ -80,7 +80,7 @@ UPDATE_PAGES = 20
 RESUME_OVERLAP = 10
 LOCK_SECONDS = 15 * 60
 #: The one-time re-reads, all shops together, may use this share of the app's
-#: daily Etsy budget per UTC day (5,000 a day: 1,000).
+#: daily Etsy budget per UTC day (100,000 a day: 20,000).
 REREAD_BUDGET_PERCENT = 20
 #: Pages the nightly re-read of the last REFRESH_DAYS days may take (3,000 sales).
 REFRESH_PAGES = 30

@@ -2,6 +2,8 @@
 
 Hedef: 4 beta kullanıcısı, her biri kendi Etsy mağazasıyla, birbirlerinin verisini göremeden.
 
+> **Durum (19 Ekim 2026):** Commercial Access onaylandı; aşağıdaki kapasite ve ücret notları o zamanın kaydıdır (güncel sınırlar `CLAUDE.md`).
+>
 > **Kapasite:** Personal App en fazla 5 mağazaya bağlanabilir. 4 beta kullanıcısı + kuzenin = 5. Bu tavan. Altıncı kullanıcı için Commercial Access şart.
 
 > **Ücret alınmayacak.** ToU Bölüm 4 gereği Commercial Access onayı olmadan ücretlendirme yapılamaz. Bu beta ücretsizdir.

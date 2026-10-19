@@ -12,12 +12,12 @@ moment.
 2. **Etsy requests today** (the account's ceiling): :func:`etsy_ceiling`.
    Requests made for the seller's own work in all their shops: creating
    drafts, publishing, replacing images. An account follows the default
-   (``ACCOUNT_DAILY_CEILING``, 4,500) unless an admin sets its own number.
+   (``ACCOUNT_DAILY_CEILING``, 20,000) unless an admin sets its own number.
    The app's upkeep (shop sync, profile refresh, sales and ledger reads) is
    not counted against it. Resets at 00:00 UTC, because Etsy's day does.
 
 3. **The app's Etsy budget** (admin only): :func:`app_budget`. Every request by
-   everyone, upkeep included, against Etsy's 5,000 a day; new work pauses at
+   everyone, upkeep included, against Etsy's 100,000 a day; new work pauses at
    90% so work already running can finish. Resets at 00:00 UTC. A seller never
    sees its figures, only, when it is what stops their work, that it did.
 
@@ -117,7 +117,7 @@ async def etsy_ceiling(quota: Any, tenant: Tenant, now: datetime | None = None) 
 
 @dataclass
 class AppBudget:
-    limit: int  # Etsy's own: 5,000 a day for the whole app
+    limit: int  # Etsy's own: 100,000 a day for the whole app (Commercial Access)
     pause_at: int  # new work waits from here (90%)
     used: int  # everyone's requests today, upkeep included
     resets_at: datetime

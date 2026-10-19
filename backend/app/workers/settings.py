@@ -89,9 +89,9 @@ async def startup(ctx: dict[str, Any]) -> None:
     redis = ctx["redis"]  # arq provides the pool
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["usage"] = UsageRecorder()
-    # 3 req/s, no bursts (docs/duzeltmeler-v5.md §A); Redis clock shared by all workers.
+    # ETSY_REQUESTS_PER_SECOND (10), no bursts (docs/duzeltmeler-v5.md §A); Redis clock shared by all workers.
     ctx["bucket"] = TokenBucket(redis, rate=settings.etsy_requests_per_second)
-    # 5000/day; new jobs pause at global_pause_percent of it (production-spec C).
+    # GLOBAL_DAILY_LIMIT (100,000/day); new jobs pause at global_pause_percent of it (production-spec C).
     ctx["quota"] = DailyQuota(
         redis,
         global_daily_limit=settings.global_daily_limit,

@@ -312,7 +312,7 @@ async def test_new_shop_connections_can_be_paused_and_the_shops_page_says_so(wor
     shops = (await world["b"].get("/api/shops")).json()
     assert shops["connections_paused"] is True and shops["slots"]["can_add"] is False
     assert shops["pause_notice"] == (
-        "New shop connections are paused until Etsy approves our commercial access. Your existing shops keep working."
+        "New shop connections are paused for now. Your existing shops keep working."
     )
     assert len(shops["shops"]) == 1  # the existing shop keeps working
 

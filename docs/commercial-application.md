@@ -1,5 +1,7 @@
 # Commercial Access application: answers
 
+> **Approved by Etsy on 19 October 2026.** Listyro's limits are now 150 requests a second and 100,000 a day, and the personal-access limit of 5 users no longer applies. This file is kept unchanged below as the record of what was submitted and approved: the figures in it (5,000 a day, 3 a second, 4,500 per account, 20 shops, "5 users") describe the app at the time. Today's settings are in `docs/etsy-compliance.md` and `CLAUDE.md`.
+
 Final answers for Etsy's Commercial Access form. Each answer is a statement about what the app does today; the evidence for each is in `docs/etsy-compliance.md`. Paste the text under each heading into the matching field. Fields Etsy words differently take the nearest answer.
 
 ## Application

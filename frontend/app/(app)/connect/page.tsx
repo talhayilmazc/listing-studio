@@ -35,7 +35,7 @@ const BANNERS: Record<string, { cls: string; text: string }> = {
   },
   limit_paused: {
     cls: WARN,
-    text: "New shop connections are paused until Etsy approves our commercial access. Your existing shops keep working.",
+    text: "New shop connections are paused for now. Your existing shops keep working.",
   },
 };
 

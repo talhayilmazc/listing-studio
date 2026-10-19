@@ -13,7 +13,7 @@ Etsy's OAuth callback and the uptime check.
 - A fresh Ubuntu 24.04 server **located in Türkiye**. Log in as a sudo-capable
   user with an SSH key.
 - The domain `listyro.com` with DNS on Cloudflare.
-- The Etsy app keystring and shared secret (Personal App).
+- The Etsy app keystring and shared secret (Commercial Access, approved 19 October 2026).
 - An Anthropic API key.
 - The operator details that the Terms and Privacy Policy print: legal name,
   location, governing law, dispute venue and a support address. **The app will
@@ -299,9 +299,9 @@ over: no database, no uploads, no Redis, no `.env`.
     Etsy-sourced content.
   - Or wipe development entirely with `docker compose down -v`.
 
-**Five shops, total.** The Personal App can connect at most five shops,
-including your own if your admin account connects one. A sixth seller, or any
-charge, needs Commercial Access first (CLAUDE.md).
+**Shops.** Commercial Access (approved 19 October 2026) has no five-user limit.
+The app's own caps apply: `MAX_SHOPS_PER_TENANT` (8 by default, per account in
+Admin) and `MAX_SHOPS_APP_WIDE` (200), both bounded by the daily request budget.
 
 ## Updating
 

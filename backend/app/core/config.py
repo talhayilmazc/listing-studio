@@ -39,13 +39,12 @@ class Settings(BaseSettings):
     # Send the session cookie only over HTTPS. Must be true in production.
     session_cookie_secure: bool = False
 
-    # Per-tenant daily Etsy budget (production-spec C: 5 tenants x 1000 = 5000).
     # Etsy requests a day for one account's own work (drafts, publishing,
     # Replace images) in all its shops: what every account follows unless an
-    # admin gives it its own number (core/limits.py). 4,500 is also where the
-    # app-wide budget pauses new work, so by default one account may use all
-    # that is free; the app's budget is the hard guard.
-    account_daily_ceiling: int = Field(default=4500, ge=0)
+    # admin gives it its own number (core/limits.py). 20,000 of the app's
+    # 100,000 (Commercial Access, approved 19 October 2026): one account cannot
+    # take the whole day from everyone else; the app's budget stays the hard guard.
+    account_daily_ceiling: int = Field(default=20000, ge=0)
 
     # --- Hardening (production-spec D) --------------------------------------
     # Header carrying the real client IP. Empty = the socket peer. Behind
@@ -167,28 +166,33 @@ class Settings(BaseSettings):
     # this way, because local storage holds real accounts' designs.
     upload_retention_apply: bool = True
 
-    # Global daily API budget (app-wide, Personal App = 5.000/day). Tenant budget is per-tenant.
-    global_daily_limit: int = 5000
-    # arq's limit on one job. Jobs share Etsy's 3 requests a second, so with ten
+    # Etsy's app-wide daily ceiling under Commercial Access (approved 19 October 2026):
+    # 100,000 requests a day. The margin is GLOBAL_PAUSE_PERCENT, not a smaller limit.
+    global_daily_limit: int = 100000
+    # arq's limit on one job. Jobs share the app's requests a second, so with ten
     # running at once a 30-request draft already takes minutes; a 429 pause adds
     # up to a minute each. arq's default (300 s) cut such jobs off mid-draft.
     worker_job_timeout: int = 900
     # Jobs a worker runs at once. Etsy work is paced by the bucket whatever this
-    # is; listing generation (LLM calls) is what benefits from it.
+    # is; listing generation (LLM calls) is what benefits from it. One Etsy request
+    # takes ~0.2-0.5 s, so one job sends 2-5 a second: ten jobs can reach the bucket's
+    # 10/s, and memory stays bounded (mockup analysis runs one at a time per process).
     worker_max_jobs: int = 10
-    # Etsy allows 5 requests/second and refuses bursts. 3, spaced evenly, leaves the
-    # margin that 4 (with a 4-token burst) did not (docs/duzeltmeler-v5.md §A).
-    etsy_requests_per_second: float = Field(default=3.0, gt=0, le=5)
+    # Etsy allows 150 requests/second under Commercial Access. 10, spaced evenly with
+    # no burst (the bucket holds one token), stays far below it; Etsy counts bursts
+    # (a 4-token burst once made 429s, docs/duzeltmeler-v5.md §A). Never above Etsy's 150.
+    etsy_requests_per_second: float = Field(default=10.0, gt=0, le=150)
     # New jobs pause once app-wide usage reaches this share of the limit (production-spec C).
     # The rest is held back so jobs already running finish instead of dying at the wall.
     global_pause_percent: int = Field(default=90, ge=1, le=100)
 
     # Connected Etsy shops (docs/duzeltmeler-v5.md §E). Every shop costs daily
-    # budget just to keep in sync (~18 requests a day idle), and the 5,000/day is
-    # shared by all of them, so the app-wide ceiling is set by the budget, not by
-    # how many shops Etsy would allow. Per account, an admin can override the default.
+    # budget just to keep in sync (~36 requests a day when used), and the 100,000/day
+    # is shared by all of them, so the app-wide ceiling is set by the budget, not by
+    # how many shops Etsy would allow (200 used shops ~ 7,200 a day, ~7%). Per
+    # account, an admin can override the default.
     max_shops_per_tenant: int = Field(default=8, ge=1)
-    max_shops_app_wide: int = Field(default=20, ge=1)
+    max_shops_app_wide: int = Field(default=200, ge=1)
 
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"

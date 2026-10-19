@@ -33,10 +33,7 @@ DAYS_PER_MONTH = 30.4375
 
 PAUSE_KEY = "connections_paused"
 #: Shown on the Shops page while new connections are paused.
-PAUSE_NOTICE = (
-    "New shop connections are paused until Etsy approves our commercial access. "
-    "Your existing shops keep working."
-)
+PAUSE_NOTICE = "New shop connections are paused for now. Your existing shops keep working."
 
 
 def validate_months(value: Any) -> int:

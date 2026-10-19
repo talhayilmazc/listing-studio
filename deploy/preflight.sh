@@ -107,15 +107,22 @@ case "$(get ETSY_REDIRECT_URI)" in
   *) fail "ETSY_REDIRECT_URI must end in /api/auth/etsy/callback" ;;
 esac
 
+# Etsy's ceiling under Commercial Access (approved 19 October 2026): 100,000 a day.
+ETSY_DAILY_CEILING=100000
 limit="$(get GLOBAL_DAILY_LIMIT)"
-case "${limit:-5000}" in
-  5000) pass "GLOBAL_DAILY_LIMIT is Etsy's ceiling (5000)" ;;
+case "${limit:-$ETSY_DAILY_CEILING}" in
+  "$ETSY_DAILY_CEILING") pass "GLOBAL_DAILY_LIMIT is Etsy's ceiling ($ETSY_DAILY_CEILING)" ;;
   *[!0-9]*) fail "GLOBAL_DAILY_LIMIT must be a number" ;;
-  *) if [ "$limit" -gt 5000 ]; then
-       fail "GLOBAL_DAILY_LIMIT above Etsy's 5000/day would send requests Etsy refuses"
+  *) if [ "$limit" -gt "$ETSY_DAILY_CEILING" ]; then
+       warn "GLOBAL_DAILY_LIMIT is $limit, above Etsy's $ETSY_DAILY_CEILING/day: requests past it would be refused"
      else
-       warn "GLOBAL_DAILY_LIMIT is $limit, not 5000; the margin belongs in GLOBAL_PAUSE_PERCENT"
+       warn "GLOBAL_DAILY_LIMIT is $limit, not $ETSY_DAILY_CEILING; the margin belongs in GLOBAL_PAUSE_PERCENT"
      fi ;;
+esac
+rps="$(get ETSY_REQUESTS_PER_SECOND)"
+case "${rps:-10}" in
+  *[!0-9.]*) fail "ETSY_REQUESTS_PER_SECOND must be a number" ;;
+  *) awk "BEGIN { exit !(${rps:-10} > 150) }" && warn "ETSY_REQUESTS_PER_SECOND above Etsy's 150/s" || pass "ETSY_REQUESTS_PER_SECOND is ${rps:-10} (Etsy allows 150)" ;;
 esac
 
 echo "== models"
