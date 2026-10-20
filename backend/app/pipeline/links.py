@@ -60,6 +60,14 @@ NO_SCOPE = ("creating it needs Etsy's permission to change shop settings (\"{sco
             "given Listyro; reconnect the shop on the Connect page to give it, or choose one of this shop's")
 
 # Why a resource is not linked yet, as the seller reads it.
+#: ``profile_shop_link.pending_create`` when the seller set the profile up in that shop
+#: (Use in, ticking the shop, Finish setup, "Use all reference listings here", Refresh in
+#: the setup dialog): that click is the confirmation, so any setting the shop has no
+#: counterpart for may be copied there. Without it (the background check, a reconnected
+#: shop, the one-time job after deploy) a shop is only matched; a copy the app made that
+#: was deleted on Etsy is the one thing made again.
+COPY_ALL = "all"
+
 NO_SOURCE = "the main shop's reference has none, so this shop needs none"
 NOT_FOUND = "no match in this shop"
 AMBIGUOUS = "several in this shop match; choose one"
@@ -165,6 +173,29 @@ def _match(rows: list[dict[str, Any]], resource: str, same: Any) -> tuple[int | 
     if len(hits) == 1:
         return id_of(resource, hits[0]), None
     return None, AMBIGUOUS if hits else NOT_FOUND
+
+
+def plain_name(value: Any) -> str:
+    """A name as Etsy shows it: spacing and case do not matter ("MemoPaid " = "memopaid")."""
+    return " ".join(str(value or "").split()).casefold()
+
+
+def same_name(a: Any, b: Any) -> bool:
+    return bool(plain_name(a)) and plain_name(a) == plain_name(b)
+
+
+def match_in(resource: str, source_row: dict[str, Any], rows: list[dict[str, Any]],
+             skip: set[int] | None = None) -> tuple[int | None, str | None]:
+    """The one setting among ``rows`` (another shop's list) that stands for ``source_row``:
+    the same name for a shipping profile, the same terms for a return policy or a
+    processing profile (Etsy gives those no name). Never a guess: two candidates are
+    "choose one". ``skip``: ids not to use (a copy Etsy left half made)."""
+    usable = [r for r in rows if id_of(resource, r) not in (skip or set())]
+    if resource == SHIPPING:
+        return _match(usable, SHIPPING, lambda r: same_name(r.get("title"), source_row.get("title")))
+    if resource == RETURNS:
+        return _match(usable, RETURNS, lambda r: return_terms(r) == return_terms(source_row))
+    return _match(usable, READINESS, lambda r: readiness_terms(r) == readiness_terms(source_row))
 
 
 #: Etsy's regions (createShopShippingProfile, createShopShippingProfileDestination:
@@ -422,7 +453,7 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
                 return Outcome(resource, reason=NOT_FOUND, options=options)
             name = row.get("partner_name")
             names.append(label_of(PARTNERS, row))
-            found, why = _match(target.partners, PARTNERS, lambda r, name=name: name and r.get("partner_name") == name)
+            found, why = _match(target.partners, PARTNERS, lambda r, name=name: same_name(r.get("partner_name"), name))
             if found is None:
                 return Outcome(resource, reason=why if why == AMBIGUOUS else NOT_CREATABLE, options=options,
                                source_label=", ".join(names))
@@ -435,12 +466,7 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
         return Outcome(resource, reason="the main shop no longer has it; refresh the profile", options=options)
     source_label = label_of(resource, row)
 
-    if resource == SHIPPING:
-        found, why = _match(target.shipping, SHIPPING, lambda r: r.get("title") == row.get("title"))
-    elif resource == RETURNS:
-        found, why = _match(target.returns, RETURNS, lambda r: return_terms(r) == return_terms(row))
-    else:
-        found, why = _match(target.readiness, READINESS, lambda r: readiness_terms(r) == readiness_terms(row))
+    found, why = match_in(resource, row, target.rows(resource))
     if found is not None:
         return Outcome(resource, linked=found, how="same name" if resource == SHIPPING else "same terms",
                        label=label_of(resource, target.find(resource, found) or {}), options=options,

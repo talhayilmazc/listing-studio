@@ -60,6 +60,7 @@ from app.db.models import (
     SalesDaily,
     SalesSync,
     ShopListingCache,
+    ShopSettingMap,
     StatementImport,
     StatementListingFee,
     StatementOrder,
@@ -91,6 +92,7 @@ ETSY_TABLES: tuple[type, ...] = (
     DraftDismissal,
     ListingPublication,
     ProfileShopLink,
+    ShopSettingMap,
     ListingProfile,
 )
 

@@ -86,6 +86,7 @@ import type {
   ShopTickResult,
   AccountDeleted,
   ShopListings,
+  ShopProfiles,
   ShopSummary,
   ItemOptions,
   SectionCreateResult,
@@ -817,6 +818,10 @@ export const api = {
   pickInShop: (id: string, shop: string, resource: string, ids: number[]) =>
     req<Profile>(`/profiles/${id}/setup/${shop}`, { method: "PUT", body: JSON.stringify({ resource, ids }) }),
   checkShopAgain: (id: string, shop: string) => req<Profile>(`/profiles/${id}/setup/${shop}/check`, { method: "POST" }),
+  /** The account's reference listings in one shop: set up, being set up, waiting for the seller. */
+  shopProfiles: (shop: string) => req<ShopProfiles>(`/profiles/shop/${shop}`),
+  /** "Use all reference listings here": every profile set up in this shop in one click. */
+  useAllProfilesHere: (shop: string) => req<ShopProfiles>(`/profiles/shop/${shop}/use-all`, { method: "POST" }),
   stopUsingInShop: (id: string, shop: string) => req<Profile>(`/profiles/${id}/links/${shop}`, { method: "DELETE" }),
   setProfileReference: (id: string, listingId: number) =>
     req<Profile>(`/profiles/${id}/reference`, { method: "PUT", body: JSON.stringify({ reference_listing_id: listingId }) }),

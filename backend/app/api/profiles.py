@@ -152,6 +152,7 @@ def links_out(profile: ListingProfile, links: list[ProfileShopLink], names: dict
             reason=state.reason, checked_at=link.checked_at,
             missing=[schemas.LinkMissingOut(resource=r, label=links_mod.LABEL[r], reason=why)
                      for r, why in state.missing.items()],
+            notice=(link.notes or {}).get("notice"),
         ))
     return out
 

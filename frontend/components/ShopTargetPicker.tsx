@@ -25,6 +25,7 @@ export function ShopTargetPicker({
   onChange,
   disabled,
   label = "Where",
+  allShops,
 }: {
   shops: TargetShop[];
   groups: ShopGroup[];
@@ -32,12 +33,22 @@ export function ShopTargetPicker({
   onChange: (ids: string[]) => void;
   disabled?: boolean;
   label?: string;
+  /** Offer one "All shops" tick: every shop that can be chosen, in one click. */
+  allShops?: boolean;
 }) {
   const available = shops.filter((s) => !s.disabled).map((s) => s.id);
   const order = shops.map((s) => s.id);
   const usable = groups.filter((g) => g.shops.some((s) => available.includes(s.id)));
+  const everyShop = available.length > 0 && available.every((id) => value.includes(id));
   return (
     <div className="space-y-2" data-testid="shop-target-picker">
+      {allShops && available.length > 1 && (
+        <label key="all" className="flex min-h-[2.75rem] items-center gap-2 text-sm font-medium text-slate-800 sm:min-h-[2rem]">
+          <input type="checkbox" className="h-4 w-4 shrink-0" checked={everyShop} disabled={disabled}
+            onChange={(e) => onChange(e.target.checked ? inOrder(available, order) : [])} data-testid="target-all" />
+          <span translate="no">{`All shops (${available.length})`}</span>
+        </label>
+      )}
       {usable.length > 0 && (
         <fieldset key="groups" className="space-y-1">
           <legend className="text-xs font-medium text-slate-600">{`${label}: a group`}</legend>

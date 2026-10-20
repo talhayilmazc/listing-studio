@@ -946,6 +946,9 @@ class ProfileLinkOut(BaseModel):
     reason: str | None = None
     missing: list[LinkMissingOut] = Field(default_factory=list)
     checked_at: datetime | None = None
+    #: One line about what the app did on its own there: "Shipping profile "MemoPaid" was
+    #: created in PCS, a copy of the main shop's." / "… is no longer in PCS: a new copy was made."
+    notice: str | None = None
 
 
 class ProfileOut(BaseModel):

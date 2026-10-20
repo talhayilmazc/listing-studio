@@ -189,6 +189,12 @@ async def callback(
     # The per-state counts on their own as well (one request per state): they arrive in
     # seconds even when the full read of a large shop takes longer or is cut short.
     await enqueuer.enqueue("sync_shop_counts", str(connection.id))
+    # A shop connected again: the profiles already set up there are resolved again (the
+    # account's map first, so nothing is asked twice). A new shop has none.
+    from app.pipeline.profile_shops import recheck_shop
+
+    for profile_id in await recheck_shop(session, connection.id):
+        await enqueuer.enqueue("link_profile", str(profile_id))
     marker, now = mark_reading(connection.id)
     await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
     return _redirect(f"{back}?status=connected&shop={connection.id}")

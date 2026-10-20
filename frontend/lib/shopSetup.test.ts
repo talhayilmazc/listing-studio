@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  COPY, anyFailure, choiceKey, choiceOptions, confirmLabel, defaultChoice, failureActions, pickValue, shopChoices, toStart,
-  totals, useInShops, willUse,
+  COPY, anyFailure, choiceKey, choiceOptions, confirmLabel, defaultChoice, failureActions, nothingToAsk, pickValue,
+  shopChoices, shopProfilesLine, toStart, totals, useInShops, willUse,
 } from "./shopSetup.ts";
 import type { SettingUse, ShopSetup } from "./types.ts";
 
@@ -130,4 +130,41 @@ test("the dialog has a Refresh for each shop and shows the refusal on its settin
   assert.ok(dialog.includes('data-testid="setup-refresh"') && dialog.includes("api.checkShopAgain("));
   assert.ok(dialog.includes('data-testid="setup-failure"') && dialog.includes("failureActions("));
   assert.ok(!dialog.includes("failed; try again"), "the refusal is Etsy's reason, not a fixed sentence");
+});
+
+// --- Copies made on the seller's action; the dialog only when something needs the seller ----
+
+test("the dialog closes by itself when every shop is set up", () => {
+  const ready = { connection_id: "s1", settings: [], link: { ready: true, status: "ready" } } as unknown as ShopSetup;
+  const waiting = { connection_id: "s2", settings: [], link: { ready: false, status: "incomplete" } } as unknown as ShopSetup;
+  const reading = { connection_id: "s3", settings: [], link: { ready: false, status: "checking" } } as unknown as ShopSetup;
+  assert.equal(nothingToAsk([ready], 1), true);
+  assert.equal(nothingToAsk([ready, waiting], 2), false);
+  assert.equal(nothingToAsk([ready, reading], 2), false);
+  assert.equal(nothingToAsk([ready], 2), false); // a shop not read yet
+  assert.equal(nothingToAsk([], 0), false);
+});
+
+test("the Shops page offers one button while reference listings are not set up in a shop", () => {
+  const base = { total: 4, set_up: 0, checking: 0, not_set_up: 4, waiting: [] as unknown[] };
+  assert.deepEqual(shopProfilesLine(base), { text: "0 of 4 reference listings set up here.", offer: true });
+  assert.deepEqual(shopProfilesLine({ ...base, checking: 4, not_set_up: 0 }), {
+    text: "Setting up 4 of 4 reference listings here…", offer: false });
+  assert.deepEqual(shopProfilesLine({ ...base, set_up: 3, not_set_up: 0, waiting: [{}] }), {
+    text: "3 of 4 reference listings set up here. 1 needs you.", offer: false });
+  assert.deepEqual(shopProfilesLine({ ...base, set_up: 4, not_set_up: 0 }), { text: "All 4 reference listings are set up here.", offer: false });
+  assert.deepEqual(shopProfilesLine({ ...base, total: 0, not_set_up: 0 }), { text: "", offer: false });
+});
+
+test("the Shops page has the one button, and nothing promises a confirm before each copy", async () => {
+  const { readFileSync } = await import("node:fs");
+  const shops = readFileSync(new URL("../app/(app)/connect/page.tsx", import.meta.url), "utf8");
+  assert.ok(shops.includes("<ShopProfilesSetup shopId={shop.id}"), "on every shop row");
+  const button = readFileSync(new URL("../components/ShopProfilesSetup.tsx", import.meta.url), "utf8");
+  assert.ok(button.includes("Use all reference listings here") && button.includes("api.useAllProfilesHere("));
+  const card = readFileSync(new URL("../components/ProfileShops.tsx", import.meta.url), "utf8");
+  assert.ok(!card.includes("Nothing is created without your confirmation"));
+  assert.ok(card.includes("announceProfilesChanged("));
+  const page = readFileSync(new URL("../app/(app)/profiles/page.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("PROFILES_CHANGED"), "the Profiles page reloads every card when one changes");
 });

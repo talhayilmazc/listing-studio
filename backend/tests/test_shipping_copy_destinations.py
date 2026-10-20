@@ -150,10 +150,13 @@ def test_the_old_copy_is_what_etsy_refused() -> None:
 # --- the setup job against Etsy's rule -----------------------------------------------------------
 
 
-async def _copy(world, fake_etsy, *destinations: dict[str, Any]) -> tuple[str, Any]:  # noqa: F811
+async def _copy(world, fake_etsy, *destinations: dict[str, Any], refusal: Exception | None = None) -> tuple[str, Any]:  # noqa: F811
+    """Set the profile up in Frost Caps (103): the copy is made there by the setup job itself."""
     extra = await _setup_world(world)
     fake_etsy.lists[101].shipping = [{**profile(*destinations), "shipping_profile_id": 501}]
     fake_etsy.check = etsy_rule
+    if refusal is not None:
+        fake_etsy.fail[(103, "shipping")] = refusal
     shop = str(extra["a3"])
     await world["a"].post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [shop]})
     await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
@@ -170,12 +173,7 @@ async def _setting(world, shop: str) -> dict:  # noqa: F811
 async def test_each_shape_is_created_and_linked(world, fake_etsy, name: str) -> None:  # noqa: F811
     destinations, create, added = SHAPES[name]
     shop, extra = await _copy(world, fake_etsy, *destinations)
-    assert (await _setting(world, shop))["default"] == "copy"
-    res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/apply",
-                                json={"choices": [{"connection_id": shop, "resource": "shipping_profile", "use": "copy"}]})
-    assert res.status_code == 200, res.text
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
-    sent = [(what, data) for sid, what, data in fake_etsy.created if sid == 103]
+    sent = [(what, data) for sid, what, data in fake_etsy.created if sid == 103 and what in ("shipping", "destination")]
     assert [what for what, _ in sent] == ["shipping", *["destination"] * len(added)]
     assert targets(sent[0][1]) == create and [targets(d) for _, d in sent[1:]] == added
     setting = await _setting(world, shop)
@@ -197,11 +195,7 @@ async def test_only_everywhere_else_offers_no_copy_and_sends_nothing(world, fake
 async def test_etsys_exact_refusal_reaches_the_seller_in_plain_words(world, fake_etsy) -> None:  # noqa: F811
     """The production 400, replayed: the seller reads what happened and what to do, not
     "creating it in this shop failed; try again", and is not told to change a field."""
-    shop, extra = await _copy(world, fake_etsy, US, EVERYWHERE)
-    fake_etsy.fail[(103, "shipping")] = etsy_400()
-    await world["a"].post(f"/api/profiles/{world['pa1']}/setup/apply",
-                          json={"choices": [{"connection_id": shop, "resource": "shipping_profile", "use": "copy"}]})
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, extra = await _copy(world, fake_etsy, US, EVERYWHERE, refusal=etsy_400())
     failure = (await _setting(world, shop))["failure"]
     assert failure == {
         "action": "manual", "field": None,

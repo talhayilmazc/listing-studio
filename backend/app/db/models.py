@@ -1480,6 +1480,52 @@ class ProfileShopLink(Base):
     )
 
 
+class ShopSettingMap(Base):
+    """One account's map of a shop setting to its counterpart in another shop (v8 §C):
+    (source shop, its shipping profile / return policy / processing profile id) ->
+    (target shop, that shop's own id).
+
+    Every profile whose reference uses the source setting reads this, so one setting is
+    set up once per shop however many reference listings use it (``pipeline/setting_map``).
+    Written the moment a copy is created, a setting matches by name or terms, or the seller
+    picks one; the profile links (``profile_shop_link``) are filled from it. The seller's
+    own settings' ids, not listing content; deleted with either shop on disconnect, and with
+    the account. One row per source setting and target shop (unique), so two setups at
+    once cannot record two copies.
+    """
+
+    __tablename__ = "shop_setting_map"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "resource", "source_connection_id", "source_id", "target_connection_id",
+                         name="uq_shop_setting_map"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: "shipping_profile" | "return_policy" | "readiness_state"
+    resource: Mapped[str] = mapped_column(Text, nullable=False)
+    source_connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    target_connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: How it was found: "created", "same name", "same terms", "your choice", "earlier choice".
+    how: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The target setting as the seller recognises it ("MemoPaid").
+    label: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class DesignDistribution(Base):
     """Which group a design was sent to (v8 §B), remembered so sending it to
     another group later can be warned about (never blocked). The seller's own

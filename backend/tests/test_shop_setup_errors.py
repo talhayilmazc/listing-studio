@@ -143,19 +143,16 @@ def test_no_token_or_address_reaches_the_seller_through_etsys_reason() -> None:
 
 
 # --- the job and the dialog, with Etsy faked -----------------------------------------------------
+# A setting the shop has no counterpart for is copied automatically by the setup job itself
+# (``link_profile``); the dialog appears only when Etsy refuses, with the reason.
 
 
-async def _offer_copy(world, fake_etsy) -> tuple[str, Any]:  # noqa: F811
-    """Frost Caps (103) has no shipping profile: the dialog preselects a copy; the seller confirms."""
+async def _set_up(world, fake_etsy) -> tuple[str, Any]:  # noqa: F811
+    """Frost Caps (103) has no shipping profile: setting the profile up there copies one."""
     extra = await _setup_world(world)
     shop = str(extra["a3"])
     await world["a"].post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [shop]})
     await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
-    setting = await _setting(world, shop, "shipping_profile")
-    assert setting["default"] == "copy" and setting["failure"] is None
-    res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/apply",
-                                json={"choices": [{"connection_id": shop, "resource": "shipping_profile", "use": "copy"}]})
-    assert res.status_code == 200, res.text
     return shop, extra
 
 
@@ -165,10 +162,13 @@ async def _setting(world, shop: str, resource: str) -> dict:  # noqa: F811
     return next(s for s in card["settings"] if s["resource"] == resource)
 
 
+def _shipping_creates(fake_etsy, sid: int = 103) -> list[str]:  # noqa: F811
+    return [what for s, what, _ in fake_etsy.created if s == sid and what in ("shipping", "destination", "upgrade")]
+
+
 async def test_a_permission_refusal_says_reconnect_and_is_not_preselected_again(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "shipping")] = refused(403, "insufficient_scope: shops_w")
-    shop, extra = await _offer_copy(world, fake_etsy)
-    assert await link_jobs._create_link_resources(_ctx(world), str(world["pa1"])) == "created"
+    shop, extra = await _set_up(world, fake_etsy)
     link = (await _links(world, world["pa1"]))[extra["a3"]]
     # Waiting for the seller (a choice, a reconnect, a Refresh), not "error": the dialog shows every setting.
     assert link.status == "incomplete" and link.shipping_profile_id is None and link.pending_create is None
@@ -180,13 +180,12 @@ async def test_a_permission_refusal_says_reconnect_and_is_not_preselected_again(
     profile = (await world["a"].get("/api/profiles")).json()[0]
     caps = next(link for link in profile["links"] if link["shop_name"] == "Frost Caps")
     assert "Reconnect Frost Caps" in caps["reason"]
-    assert not any(what == "shipping" for _, what, _ in fake_etsy.created)
+    assert _shipping_creates(fake_etsy) == []
 
 
 async def test_a_field_refusal_names_the_field_and_the_main_shop(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "shipping")] = refused(400, "origin_postal_code is required for origin_country_iso US")
-    shop, _ = await _offer_copy(world, fake_etsy)
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, _ = await _set_up(world, fake_etsy)
     failure = (await _setting(world, shop, "shipping_profile"))["failure"]
     assert (failure["action"], failure["field"]) == ("fix", "origin_postal_code")
     assert "the ship-from postal code" in failure["reason"] and "Frost Tees's Shop Manager" in failure["reason"]
@@ -194,8 +193,7 @@ async def test_a_field_refusal_names_the_field_and_the_main_shop(world, fake_ets
 
 async def test_an_unexplained_refusal_says_make_it_by_hand_then_refresh(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "shipping")] = refused(400, "Unable to create shipping profile")
-    shop, _ = await _offer_copy(world, fake_etsy)
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, _ = await _set_up(world, fake_etsy)
     failure = (await _setting(world, shop, "shipping_profile"))["failure"]
     assert failure["action"] == "manual"
     assert "Create it in Frost Caps's Shop Manager (Settings → Shipping settings), then press Refresh and pick it" in failure["reason"]
@@ -203,21 +201,24 @@ async def test_an_unexplained_refusal_says_make_it_by_hand_then_refresh(world, f
 
 async def test_no_answer_says_refresh(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "shipping")] = EtsyServerError(502, body="", path="/x", method="POST")
-    shop, _ = await _offer_copy(world, fake_etsy)
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, _ = await _set_up(world, fake_etsy)
     assert (await _setting(world, shop, "shipping_profile"))["failure"]["action"] == "refresh"
 
 
 async def test_a_refused_destination_leaves_the_made_profile_and_refresh_links_it(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "destination")] = refused(400, "Invalid destination_region")
-    shop, extra = await _offer_copy(world, fake_etsy)
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, extra = await _set_up(world, fake_etsy)
     failure = (await _setting(world, shop, "shipping_profile"))["failure"]
     assert failure["action"] == "finish"
     assert failure["reason"].startswith('"Standard US" was created in Frost Caps, but Etsy refused the destination the EU')
-    # Nothing is deleted in the shop; nothing else is sent after the refused part.
-    assert [what for sid, what, _ in fake_etsy.created if sid == 103] == ["shipping"]
+    # Nothing is deleted in the shop; nothing else of that profile is sent after the refused part.
+    assert _shipping_creates(fake_etsy) == ["shipping"]
     assert (await _links(world, world["pa1"]))[extra["a3"]].shipping_profile_id is None
+    # Set up again before the seller finishes it: the half-made copy is neither used nor copied again.
+    await world["a"].post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [shop]})
+    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    assert _shipping_creates(fake_etsy) == ["shipping"]
+    assert (await _setting(world, shop, "shipping_profile"))["failure"]["action"] == "finish"
     # The seller finishes it in Shop Manager and presses Refresh: matched by its name.
     del fake_etsy.fail[(103, "destination")]
     res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/{shop}/check")
@@ -225,29 +226,34 @@ async def test_a_refused_destination_leaves_the_made_profile_and_refresh_links_i
     assert await link_jobs._link_profile(_ctx(world), str(world["pa1"])) == "linked"
     setting = await _setting(world, shop, "shipping_profile")
     assert setting["failure"] is None and setting["how"] == "same name" and setting["linked_ids"]
+    assert _shipping_creates(fake_etsy) == ["shipping"]  # never a second copy
 
 
 async def test_refresh_offers_a_profile_the_seller_made_by_hand(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "shipping")] = refused(400, "Unable to create shipping profile")
-    shop, extra = await _offer_copy(world, fake_etsy)
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, extra = await _set_up(world, fake_etsy)
     # Made by hand in Frost Caps's Shop Manager, under another name.
     fake_etsy.lists[103].shipping.append({"shipping_profile_id": 3999, "title": "Caps shipping"})
     assert (await world["a"].post(f"/api/profiles/{world['pa1']}/setup/{shop}/check")).status_code == 200
     await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
     setting = await _setting(world, shop, "shipping_profile")
-    assert setting["failure"] is None and {"id": 3999, "label": "Caps shipping"} in setting["options"]
+    assert {"id": 3999, "label": "Caps shipping"} in setting["options"]  # read fresh: offered to pick
     res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/apply",
                                 json={"choices": [{"connection_id": shop, "resource": "shipping_profile", "use": "pick",
                                                    "ids": [3999]}]})
     assert res.status_code == 200
     assert (await _links(world, world["pa1"]))[extra["a3"]].shipping_profile_id == 3999
+    # The choice is the account's: set up again, no copy is tried any more.
+    attempts = len(fake_etsy.created)
+    await world["a"].post(f"/api/profiles/{world['pa1']}/setup/{shop}/check")
+    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    assert (await _setting(world, shop, "shipping_profile"))["linked_ids"] == [3999]
+    assert len(fake_etsy.created) == attempts
 
 
 async def test_confirming_the_copy_again_after_the_fix_creates_it(world, fake_etsy) -> None:  # noqa: F811
     fake_etsy.fail[(103, "shipping")] = refused(403, "insufficient_scope")
-    shop, extra = await _offer_copy(world, fake_etsy)
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
+    shop, extra = await _set_up(world, fake_etsy)
     del fake_etsy.fail[(103, "shipping")]  # reconnected
     res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/apply",
                                 json={"choices": [{"connection_id": shop, "resource": "shipping_profile", "use": "copy"}]})
@@ -255,6 +261,7 @@ async def test_confirming_the_copy_again_after_the_fix_creates_it(world, fake_et
     await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
     assert (await _links(world, world["pa1"]))[extra["a3"]].shipping_profile_id is not None
     assert (await _setting(world, shop, "shipping_profile"))["failure"] is None
+    assert _shipping_creates(fake_etsy) == ["shipping", "destination", "upgrade"]
 
 
 async def test_a_shop_whose_lists_cannot_be_read_says_why_and_the_others_carry_on(world, fake_etsy) -> None:  # noqa: F811

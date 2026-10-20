@@ -55,7 +55,7 @@ SCOPE_REASONS: dict[str, str] = {
     "listings_r": "Read the seller's own listings: the reference listing of a profile, the shop's listing cache, and views and favourites of listings made with the app.",
     "listings_w": "Create draft listings, upload their images, set inventory, attributes and personalization, publish a draft on the seller's instruction, replace a listing's images.",
     "shops_r": "Read the shop's name, sections, shipping profiles, return policies, processing profiles and production partners, so a draft uses the shop's own settings.",
-    "shops_w": "Create a shop section, shipping profile, return policy or processing profile in the seller's shop, only when the seller confirms it.",
+    "shops_w": "Create a shop section, shipping profile, return policy or processing profile in the seller's shop, only when the seller asks for it: a section they confirm, or the settings a profile needs when they set that profile up in that shop (a copy of their main shop's, only where the shop has none).",
     "transactions_r": "Read the seller's own sales lines and payment account ledger for profit, cost and ads reporting. No buyer field is stored.",
 }
 

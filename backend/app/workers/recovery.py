@@ -158,12 +158,23 @@ async def after_failure(
     job.paused_reason = None
     shop = await session.get(EtsyConnection, job.connection_id) if job.connection_id else None
     job.last_error = public_error(exc, shop.shop_name if shop is not None else None)
+    again = None
     if isinstance(exc, EtsyError):
         # Etsy's status, step and reason, and the shape of what was sent (no text, no token):
         # what ``python -m app.cli draft-failures`` shows the operator.
         job.payload = {**(job.payload or {}), "etsy_error": etsy_record(exc)}
+        if job.type is JobType.create_draft:
+            # A shop setting the link holds was deleted on Etsy: it is resolved again at once
+            # (matched, or copied again), so "Finish draft" works afterwards.
+            from app.workers.links import setting_gone
+
+            again = await setting_gone(session, ctx.get("redis"), job, exc)
     job.finished_at = _now()
     await session.commit()
+    if again is not None:
+        from app.workers.profiles import _enqueue_job
+
+        await _enqueue_job(ctx, "link_profile", str(again))
     logger.exception("%s failed for job %s", function, job.id, exc_info=exc)
     return "failed"
 

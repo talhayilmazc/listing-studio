@@ -3,11 +3,11 @@
 // the seller's one confirm sends. Pure (components/ShopSetupDialog.tsx draws it;
 // lib/shopSetup.test.ts checks it).
 //
-// For each setting the server says what the shop uses now and how it was chosen
-// (the shop's own setting with the same name or the same terms), or, when the shop
-// has none, preselects a copy of the main shop's setting. A copy is only created
-// after the seller confirms; every choice can be changed to another of the shop's
-// own settings.
+// For each setting the server says what the shop uses now and how it was chosen (the
+// account's map, the shop's own setting with the same name or the same terms, or a copy
+// made when the seller set the profile up there). The dialog asks only what needs the
+// seller (a copy Etsy refused, two settings that match); every choice can be changed to
+// another of the shop's own settings, and the choice is the account's for that setting.
 
 import type { SettingUse, SetupChoice, SetupFailure, ShopSetup } from "./types";
 
@@ -47,6 +47,35 @@ export function failureActions(f: SetupFailure, shopName: string): FailureAction
 /** Any refused copy among these shops: the dialog stays open on the choices, not "done". */
 export function anyFailure(shops: ShopSetup[]): boolean {
   return shops.some((s) => s.settings.some((x) => Boolean(x.failure)));
+}
+
+/** Every shop asked for is set up: the dialog has nothing to ask and closes by itself.
+ * (A setting a shop lacks is copied there when the seller sets the profile up; the
+ * dialog is for what Etsy refused, what matches twice, or what cannot be copied.) */
+export function nothingToAsk(shops: ShopSetup[], wanted: number): boolean {
+  return shops.length >= wanted && shops.length > 0 && shops.every((s) => s.link.ready && s.link.status !== "checking");
+}
+
+/** Fired when a profile's setup in a shop changed: every profile card on the page reloads,
+ * since one setting is shared by every reference listing that uses it (the account's map). */
+export const PROFILES_CHANGED = "listyro:profiles-changed";
+
+export function announceProfilesChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(PROFILES_CHANGED));
+}
+
+/** The Shops page line for one shop's reference listings, and whether to offer the button. */
+export function shopProfilesLine(s: { total: number; set_up: number; checking: number; not_set_up: number;
+  waiting: unknown[] }): { text: string; offer: boolean } {
+  if (s.total === 0) return { text: "", offer: false };
+  if (s.checking > 0) return { text: `Setting up ${s.checking} of ${s.total} reference listings here…`, offer: false };
+  const left = s.not_set_up + s.waiting.length;
+  if (left === 0) return { text: `All ${s.total} reference listing${s.total === 1 ? " is" : "s are"} set up here.`, offer: false };
+  return {
+    text: `${s.set_up} of ${s.total} reference listing${s.total === 1 ? "" : "s"} set up here.`
+      + (s.waiting.length ? ` ${s.waiting.length} need${s.waiting.length === 1 ? "s" : ""} you.` : ""),
+    offer: s.not_set_up > 0,
+  };
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

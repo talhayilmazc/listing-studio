@@ -657,6 +657,20 @@ export interface ProfileLink {
   reason: string | null;
   missing: { resource: string; label: string; reason: string }[];
   checked_at: string | null;
+  /** One line about what the app did there on its own ("… was created in PCS, a copy of the main shop's"). */
+  notice?: string | null;
+}
+
+/** The account's reference listings in one shop (Shops page: "Use all reference listings here"). */
+export interface ShopProfiles {
+  connection_id: string;
+  total: number;
+  set_up: number;
+  checking: number;
+  not_set_up: number;
+  /** Set up, but waiting for the seller (Etsy refused a copy, two settings match, …). */
+  waiting: { id: string; name: string; reason: string | null }[];
+  started: number;
 }
 
 export interface Profile {

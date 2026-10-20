@@ -89,13 +89,14 @@ async def test_another_accounts_groups_and_shops_are_404(world) -> None:  # noqa
 
 async def test_chosen_shops_single_shops_group_and_an_unfinished_shop_again(world, fake_etsy) -> None:  # noqa: F811
     extra = await _setup_world(world)
+    await _no_shops_w(world, extra["a3"])
     a = world["a"]
     # Single shops.
     res = await a.post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [str(extra["a3"])]})
     assert res.status_code == 200 and res.json()["started"] == [str(extra["a3"])]
     assert await link_jobs._link_profile(_ctx(world), str(world["pa1"])) == "linked"
     caps = (await _links(world, world["pa1"]))[extra["a3"]]
-    assert caps.status == "incomplete"  # no shipping/return/processing match in Caps
+    assert caps.status == "incomplete"  # no match in Caps, and Caps cannot be written to
     # Bug 1: the unfinished shop can be chosen again from "Chosen shops" (it was hidden):
     # choosing it reads it again; nothing is created.
     res = await a.post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [str(extra["a3"])]})
@@ -106,10 +107,18 @@ async def test_chosen_shops_single_shops_group_and_an_unfinished_shop_again(worl
     assert fake_etsy.created == []
 
 
-# --- point 4: the default per shop, and copies only after the seller confirms --------------------
+async def _no_shops_w(world, shop_id) -> None:  # noqa: ANN001
+    """A shop that has not given the app permission to change its settings: nothing can be
+    copied there, so the seller is asked."""
+    async with world["sm"]() as s:
+        (await s.get(EtsyConnection, shop_id)).scopes = ["listings_r", "listings_w", "shops_r"]
+        await s.commit()
 
 
-async def test_matching_settings_by_default_copy_preselected_created_only_on_confirm(world, fake_etsy) -> None:  # noqa: F811
+# --- point 4: the default per shop; a missing setting is copied automatically ---------------------
+
+
+async def test_matching_settings_by_default_and_a_missing_one_copied_automatically(world, fake_etsy) -> None:  # noqa: F811
     extra = await _setup_world(world)
     a = world["a"]
     fake_etsy.lists[102].shipping.append({"shipping_profile_id": 2502, "title": "Free shipping"})
@@ -128,12 +137,13 @@ async def test_matching_settings_by_default_copy_preselected_created_only_on_con
     }
     assert mugs["shipping_profile"]["linked_label"] == "Standard US"
     assert [o["label"] for o in mugs["shipping_profile"]["options"]] == ["Standard US", "Free shipping"]  # changeable
-    # Caps: no match, so a copy of the main shop's is preselected (nothing created yet).
+    # Caps: no match, so the main shop's was copied there automatically, once each; no question.
     for r in ("shipping_profile", "return_policy", "readiness_state"):
-        assert caps[r]["default"] == "copy" and caps[r]["creatable"] and caps[r]["source_label"]
-    assert caps["shipping_profile"]["requests"] == 3  # the profile, its second destination, its upgrade
+        assert caps[r]["default"] == "keep" and caps[r]["how"] == "created" and caps[r]["linked_ids"]
     assert caps["production_partners"]["how"] == "same name"
-    assert fake_etsy.created == []
+    assert sorted(what for _, what, _ in fake_etsy.created) == [
+        "destination", "readiness", "return_policy", "shipping", "upgrade"]
+    made = len(fake_etsy.created)
 
     # A wrong choice changes nothing: a pick Etsy did not list, a copy over a match.
     bad = [{"connection_id": str(world["a2"]), "resource": "shipping_profile", "use": "pick", "ids": [999]}]
@@ -142,23 +152,16 @@ async def test_matching_settings_by_default_copy_preselected_created_only_on_con
     assert (await a.post(f"/api/profiles/{world['pa1']}/setup/apply", json={"choices": over})).status_code == 409
     assert (await _links(world, world["pa1"]))[world["a2"]].shipping_profile_id == 2501
 
-    # One confirm: Mugs uses another of its own; Caps gets the three copies.
-    choices = [{"connection_id": str(world["a2"]), "resource": "shipping_profile", "use": "pick", "ids": [2502]}] + [
-        {"connection_id": str(extra["a3"]), "resource": r, "use": "copy"}
-        for r in ("shipping_profile", "return_policy", "readiness_state")]
+    # The seller changes one: Mugs uses another of its own. Nothing is created or queued.
+    choices = [{"connection_id": str(world["a2"]), "resource": "shipping_profile", "use": "pick", "ids": [2502]}]
     world["queue"].calls.clear()
     res = await a.post(f"/api/profiles/{world['pa1']}/setup/apply", json={"choices": choices})
     assert res.status_code == 200, res.text
-    assert res.json()["requests"] == caps["shipping_profile"]["requests"] + 2
-    assert ("create_link_resources", (str(world["pa1"]),)) in world["queue"].calls
-    assert fake_etsy.created == []  # only queued: the job creates
+    assert res.json()["requests"] == 0
+    assert ("create_link_resources", (str(world["pa1"]),)) not in world["queue"].calls
+    assert len(fake_etsy.created) == made
     links = await _links(world, world["pa1"])
     assert links[world["a2"]].shipping_profile_id == 2502
-    assert sorted(links[extra["a3"]].pending_create) == ["readiness_state", "return_policy", "shipping_profile"]
-
-    assert await link_jobs._create_link_resources(_ctx(world), str(world["pa1"])) == "created"
-    assert {kind for _, kind, _ in fake_etsy.created} >= {"shipping", "return_policy", "readiness"}
-    links = await _links(world, world["pa1"])
     assert links[extra["a3"]].status == "ready"
     setup = (await a.get(f"/api/profiles/{world['pa1']}/setup")).json()
     by_shop = {s["connection_id"]: {x["resource"]: x for x in s["settings"]} for s in setup["shops"]}
@@ -172,6 +175,7 @@ async def test_matching_settings_by_default_copy_preselected_created_only_on_con
 
 async def test_review_ticks_a_group_and_sets_the_profile_up_in_each_of_its_shops(world, fake_etsy) -> None:  # noqa: F811
     extra = await _setup_world(world)
+    await _no_shops_w(world, extra["a3"])  # Caps keeps a need to show
     async with world["sm"]() as s:
         for link in (await s.execute(select(ProfileShopLink).where(ProfileShopLink.profile_id == world["pa1"],
                                                                    ProfileShopLink.connection_id != world["a1"]))).scalars():

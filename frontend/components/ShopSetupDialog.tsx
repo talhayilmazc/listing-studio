@@ -5,8 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import {
-  anyFailure, choiceKey, choiceOptions, confirmLabel, defaultChoice, failureActions, shopChoices, toStart, totals,
-  willUse, type Choice,
+  anyFailure, announceProfilesChanged, choiceKey, choiceOptions, confirmLabel, defaultChoice, failureActions,
+  nothingToAsk, shopChoices, toStart, totals, willUse, type Choice,
 } from "@/lib/shopSetup";
 import type { ProfileSetup, ShopSetup } from "@/lib/types";
 import { ShopBadge } from "./ShopPicker";
@@ -28,12 +28,13 @@ const GIVE_UP_MS = 3 * 60_000;
  * a batch, the review page), for one shop or many in one dialog.
  *
  * Opening it starts the setup in every shop asked for (the same "Use in" the
- * Profiles page uses: each shop's own settings are read, and the ones with the
- * same name or the same terms are matched at once). Then, per shop, every
- * shop-specific setting shows what that shop will use: its matching setting, or,
- * where it has none, a copy of the main shop's, preselected. The seller can
- * change any of them; one confirm sends all the choices, and only then is any
- * copy created. Nothing is created in a shop without that confirm.
+ * Profiles page uses). That is the seller's own action, so each shop setting is
+ * resolved without a question: the account's map (one counterpart per setting and
+ * shop, shared by every reference listing), the same name or terms, else a copy of
+ * the main shop's made there. When every shop is set up the dialog closes by
+ * itself. It stays only for what needs the seller: a copy Etsy refused, two
+ * settings that match, or a shop that cannot be written to. The seller can change
+ * any setting a shop uses; the choice is the account's, for every reference listing.
  *
  * When Etsy refuses a copy, the setting says why in plain words (Etsy's own reason)
  * with the action that fixes it: reconnect the shop, change a named field on the
@@ -107,8 +108,15 @@ export function ShopSetupDialog({
   useEffect(() => {
     if (!started.current) return;
     if (!checking) {
+      const all = items.flatMap((i) => shopsOf(i.profileId));
+      // Nothing needs the seller: every shop is set up (copies made on this click). Close.
+      if ((phase === "reading" || phase === "saving") && nothingToAsk(all, items.reduce((n, i) => n + i.shopIds.length, 0))) {
+        announceProfilesChanged();
+        onClose(true);
+        return;
+      }
       // A refused copy keeps the dialog on the choices: the seller picks one, or fixes and refreshes.
-      const refused = anyFailure(items.flatMap((i) => shopsOf(i.profileId)));
+      const refused = anyFailure(all);
       setPhase((p) => (p === "reading" ? "choosing" : p === "saving" ? (refused ? "choosing" : "done") : p));
       return;
     }
@@ -118,7 +126,7 @@ export function ShopSetupDialog({
     }
     const t = setTimeout(() => load().catch((e) => setError(String(e.message ?? e))), POLL_MS);
     return () => clearTimeout(t);
-  }, [checking, setups, load, items, shopsOf]);
+  }, [checking, setups, load, items, shopsOf, phase, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && phase !== "saving" && onClose(changed);
@@ -197,8 +205,8 @@ export function ShopSetupDialog({
             <h2 id="shop-setup-title" translate="no" className="text-base font-medium text-slate-900">{title}</h2>
             <p className="mt-0.5 text-xs text-slate-500">
               Each shop keeps its own shipping, return and processing settings. A setting with the same name (or the same
-              terms) in a shop is used automatically. Where a shop has none, a copy of your main shop&apos;s is
-              preselected; it is created only when you confirm. You can change any choice.
+              terms) is used; where a shop has none, a copy of your main shop&apos;s is made there once, and every
+              reference listing uses it. This asks only what needs you; you can change any choice.
             </p>
           </div>
           <button type="button" className="tap -mr-2 shrink-0 rounded p-2 text-slate-500" aria-label="Close"

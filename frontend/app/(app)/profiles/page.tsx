@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
 import { matchesProfile } from "@/lib/profileSearch";
+import { PROFILES_CHANGED } from "@/lib/shopSetup";
 import type { LinkSuggestion, Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
@@ -44,6 +45,13 @@ export default function ProfilesPage() {
       setError(String(e.message ?? e));
     }
   }, []);
+
+  // One shop setting is shared by every reference listing that uses it: when one card's
+  // setup changes (a copy made, a choice changed), every card reads itself again.
+  useEffect(() => {
+    window.addEventListener(PROFILES_CHANGED, loadProfiles);
+    return () => window.removeEventListener(PROFILES_CHANGED, loadProfiles);
+  }, [loadProfiles]);
 
   // Opening the page refreshes what it shows: profiles not used in two weeks are
   // not kept warm in the background. Look again once the refreshes have landed.

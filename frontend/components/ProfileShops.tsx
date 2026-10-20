@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { useInShops } from "@/lib/shopSetup";
+import { announceProfilesChanged, useInShops } from "@/lib/shopSetup";
 import type { Profile, ShopGroups } from "@/lib/types";
 import { ShopSetupDialog, type SetupItem } from "./ShopSetupDialog";
 import { ShopTargetPicker } from "./ShopTargetPicker";
@@ -12,10 +12,11 @@ import { Txt } from "./Txt";
 /**
  * Where a profile is used (v8 §C): its main shop (the reference listing is
  * there) and every shop it is set up in, each with what is missing and why.
- * "Use in" sets it up in all shops, in a group, or in the shops chosen: the setup
- * dialog reads each shop's own settings, matches the ones with the same name or
- * the same terms, preselects a copy where a shop has none, and creates nothing
- * until the seller confirms.
+ * "Use in" sets it up in all shops, in a group, or in the shops chosen. That click
+ * is the seller's confirmation: each shop setting is matched (the account's map,
+ * the same name or terms) or copied from the main shop, once per shop, and every
+ * reference listing using it uses it there too. The dialog appears only for what
+ * needs the seller (a copy Etsy refused, two settings that match).
  */
 export function ProfileShops({ profile, onChange }: { profile: Profile; onChange: (p: Profile) => void }) {
   const { shops } = useShops();
@@ -49,6 +50,14 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
     };
   }, [checking, reload, links, dialog]);
 
+  // A setup that finished here may have set up other reference listings too (a copy made,
+  // a choice changed): every card on the page reads itself again.
+  const wasChecking = useRef(checking);
+  useEffect(() => {
+    if (wasChecking.current && !checking) announceProfilesChanged();
+    wasChecking.current = checking;
+  }, [checking]);
+
   useEffect(() => {
     if (open && groups === null) api.shopGroups().then(setGroups).catch(() => setGroups({ groups: [], ungrouped: [] }));
   }, [open, groups]);
@@ -62,6 +71,7 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
     setError(null);
     try {
       onChange(await api.stopUsingInShop(profile.id, shop));
+      announceProfilesChanged();
     } catch (e: any) {
       setError(String(e.message ?? e));
     } finally {
@@ -96,6 +106,9 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
                 stop using here
               </button>
             )}
+            {l.notice && (
+              <span key="notice" className="basis-full text-slate-600" data-testid="link-notice"><Txt>{l.notice}</Txt></span>
+            )}
           </li>
         ))}
       </ul>
@@ -116,15 +129,16 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
             </button>
             <span className="text-slate-500">or choose a group or shops:</span>
           </div>
-          <ShopTargetPicker shops={candidates} groups={groups?.groups ?? []} value={picked} onChange={setPicked} label="Use in" />
+          <ShopTargetPicker shops={candidates} groups={groups?.groups ?? []} value={picked} onChange={setPicked} label="Use in"
+            allShops />
           <button type="button" className="btn-primary px-2 py-1 text-xs" disabled={busy || picked.length === 0}
             onClick={() => setUp(picked)} data-testid="use-in-chosen">
             <span translate="no">{picked.length ? `Set up in ${picked.length} shop${picked.length === 1 ? "" : "s"}` : "Set up"}</span>
           </button>
           <p className="text-slate-500">
             Each shop keeps its own shipping, return and processing settings: the ones with the same name (or the same
-            terms) are used automatically; where a shop has none, a copy of this profile&apos;s main shop&apos;s is
-            offered. Nothing is created without your confirmation.
+            terms) are used; where a shop has none, setting up makes a copy of this profile&apos;s main shop&apos;s
+            there, once, and every reference listing uses it. You are asked only if Etsy refuses or two settings match.
           </p>
         </div>
       )}
@@ -134,6 +148,7 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
           setDialog(null);
           setPicked([]);
           reload();
+          announceProfilesChanged();
         }} />
       )}
     </div>

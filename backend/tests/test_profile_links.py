@@ -1,9 +1,10 @@
 """One profile across shops (v8 §C).
 
-* matching: exact name / identical terms link at once; anything else waits for
-  the seller (create on confirmation, or pick once); nothing is guessed;
+* matching: the account's map, the same name or identical terms link at once; a
+  setting a shop has no counterpart for is copied there automatically (once); the
+  seller is asked only when that cannot be done; nothing is guessed;
 * "Use in: Group A" sets the profile up in every shop of the group;
-* nothing is created in a shop without the seller's confirmation;
+* a shop that has not given the app permission to change its settings is never written to;
 * a draft in a linked shop uses that shop's ids and a copy of the main shop's
   size charts (uploaded as images, never re-used by another shop's id);
 * disconnecting a shop removes only its link; the profile moves or goes;
@@ -13,7 +14,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
@@ -80,7 +83,7 @@ def test_exact_names_and_identical_terms_link_without_asking() -> None:
 
 def test_no_match_offers_a_copy_only_where_etsys_api_can_create_it() -> None:
     target = L.ShopSettings(
-        shipping=[{"shipping_profile_id": 1, "title": "Standard us"}],  # not the exact name
+        shipping=[{"shipping_profile_id": 1, "title": "Standard UK"}],  # another name ("standard us" would match: case)
         returns=[{"return_policy_id": 2, "accepts_returns": True, "accepts_exchanges": False, "return_deadline": 14}],
         partners=[{"production_partner_id": 3, "partner_name": "Other Printer"}],
     )
@@ -129,24 +132,33 @@ class FakeShops:
         #: Called with (what, data) before a create: tests/test_shop_setup_errors.py checks
         #: each request against Etsy's rules there.
         self.check: Any = None
+        #: (shop id, list) -> how many times Etsy was asked for it.
+        self.reads: Counter = Counter()
+        #: Seconds each create takes (two setups at once overlap).
+        self.delay = 0.0
 
     def for_shop(self, shop_id: int) -> Any:
         fake = self
 
         class Client:
             async def get_shop_shipping_profiles(self, sid: int, **_: Any) -> dict:
-                return {"results": fake.lists[sid].shipping}
+                fake.reads[(sid, "shipping")] += 1
+                return {"results": list(fake.lists[sid].shipping)}
 
             async def get_shop_return_policies(self, sid: int, **_: Any) -> dict:
-                return {"results": fake.lists[sid].returns}
+                fake.reads[(sid, "returns")] += 1
+                return {"results": list(fake.lists[sid].returns)}
 
             async def get_shop_readiness_state_definitions(self, sid: int, **_: Any) -> dict:
-                return {"results": fake.lists[sid].readiness}
+                fake.reads[(sid, "readiness")] += 1
+                return {"results": list(fake.lists[sid].readiness)}
 
             async def get_shop_production_partners(self, sid: int, **_: Any) -> dict:
-                return {"results": fake.lists[sid].partners}
+                fake.reads[(sid, "partners")] += 1
+                return {"results": list(fake.lists[sid].partners)}
 
             async def get_shop(self, sid: int, **_: Any) -> dict:
+                fake.reads[(sid, "shop")] += 1
                 return {"shop_id": sid, "currency_code": fake.lists[sid].currency or "USD"}
 
             async def _make(self, sid: int, what: str, data: dict, key: str, into: list | None) -> dict:
@@ -155,6 +167,8 @@ class FakeShops:
                     raise refusal
                 if fake.check is not None:
                     fake.check(what, data)
+                if fake.delay:
+                    await asyncio.sleep(fake.delay)
                 fake.next_id += 1
                 fake.created.append((sid, what, data))
                 row = {key: fake.next_id, **data}
@@ -260,46 +274,43 @@ async def test_use_in_a_group_links_every_shop_and_name_matches_ask_nothing(worl
     assert await link_jobs._link_profile(_ctx(world), str(world["pa1"])) == "linked"
     links = await _links(world, world["pa1"])
     mugs, caps = links[world["a2"]], links[extra["a3"]]
-    # Frost Mugs has the same names and terms: linked, no question.
+    # Frost Mugs has the same names and terms: linked, no question, nothing created there.
     assert (mugs.status, mugs.shipping_profile_id, mugs.return_policy_id, mugs.readiness_state_id,
             mugs.production_partner_ids) == ("ready", 2501, 2601, 2701, [2801])
-    # Nothing was created anywhere: only reads.
-    assert fake_etsy.created == []
+    assert not [c for c in fake_etsy.created if c[0] == 102]
+    # Frost Caps has none of them: each is copied there automatically, once; no question.
+    assert [(sid, what) for sid, what, _ in fake_etsy.created] == [
+        (103, "shipping"), (103, "destination"), (103, "upgrade"), (103, "return_policy"), (103, "readiness")]
+    assert caps.status == "ready" and caps.production_partner_ids == [3801]  # Print Co matched by name
 
     setup = (await world["a"].get(f"/api/profiles/{world['pa1']}/setup")).json()
     by_shop = {s["connection_id"]: s for s in setup["shops"]}
-    caps_open = {o["resource"]: o for o in by_shop[str(extra["a3"])]["open"]}
-    assert caps_open["shipping_profile"]["creatable"] is True and caps_open["shipping_profile"]["requests"] == 3
-    assert caps_open["shipping_profile"]["create_summary"] == 'Shipping profile "Standard US" with 2 destinations, 1 upgrade'
-    assert "production_partners" not in caps_open  # Print Co matched by name in Frost Caps too
-    assert caps.production_partner_ids == [3801]
+    assert by_shop[str(extra["a3"])]["open"] == []
+    assert {s["resource"]: s["how"] for s in by_shop[str(extra["a3"])]["settings"]} == {
+        "shipping_profile": "created", "return_policy": "created", "readiness_state": "created",
+        "production_partners": "same name"}
 
     profile = (await world["a"].get("/api/profiles")).json()[0]
     shops = {link["shop_name"]: link for link in profile["links"]}
     assert shops["Frost Tees"]["main"] is True
-    assert shops["Frost Caps"]["ready"] is False and "Shipping profile" in shops["Frost Caps"]["reason"]
+    assert shops["Frost Caps"]["ready"] is True
+    assert shops["Frost Caps"]["notice"].startswith('Shipping profile "Standard US" was created in Frost Caps')
 
 
-async def test_nothing_is_created_in_a_shop_without_the_sellers_confirmation(world, fake_etsy) -> None:  # noqa: F811
+async def test_a_shop_without_permission_to_change_its_settings_is_never_written_to(world, fake_etsy) -> None:  # noqa: F811
     extra = await _setup_world(world)
+    async with world["sm"]() as s:
+        (await s.get(EtsyConnection, extra["a3"])).scopes = ["listings_r", "listings_w", "shops_r"]  # no shops_w
+        await s.commit()
     await world["a"].post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [str(extra["a3"])]})
     await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
     assert fake_etsy.created == []
-    # The create job itself does nothing unless the seller confirmed something.
+    caps = (await _links(world, world["pa1"]))[extra["a3"]]
+    assert caps.status == "incomplete" and caps.shipping_profile_id is None
+    assert "reconnect the shop on the Connect page" in caps.notes["shipping_profile"]
+    # The job run again creates nothing either.
     assert await link_jobs._create_link_resources(_ctx(world), str(world["pa1"])) == "nothing"
     assert fake_etsy.created == []
-
-    # The seller confirms the shipping profile only.
-    res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/create",
-                                json={"items": [{"connection_id": str(extra["a3"]), "resource": "shipping_profile"}]})
-    assert res.status_code == 200 and res.json()["requests"] == 3
-    assert ("create_link_resources", (str(world["pa1"]),)) in world["queue"].calls
-    await link_jobs._create_link_resources(_ctx(world), str(world["pa1"]))
-    made = [(sid, what) for sid, what, _ in fake_etsy.created]
-    assert made == [(103, "shipping"), (103, "destination"), (103, "upgrade")]  # nothing else, nowhere else
-    caps = (await _links(world, world["pa1"]))[extra["a3"]]
-    assert caps.shipping_profile_id is not None and caps.return_policy_id is None
-    assert caps.status == "incomplete"
 
     # A partner cannot be created through the API: asking is refused.
     res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/create",

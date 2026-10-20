@@ -63,7 +63,8 @@ async def test_setting_a_profile_up_in_other_shops_is_not_charged_to_the_sellers
     assert not {"create_shop_section", "update_sku_on_etsy", "run_publish_job", "run_publish_live_job", "run_replace_images_job"} & gate.UPKEEP
     # The jobs build their Etsy client as upkeep: no client of theirs draws on the ceiling.
     source = inspect.getsource(links)
-    assert "upkeep=False" not in source and source.count("upkeep=True)") >= 5
+    built = source.count("_client(ctx, http, ")
+    assert "upkeep=False" not in source and built >= 3 and source.count("upkeep=True)") == built  # every one of them
 
     redis = FakeAsyncRedis()
     quota, tenant = _quota(redis), uuid.uuid4()

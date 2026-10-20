@@ -226,8 +226,11 @@ export default function PrivacyPage() {
           We write to your shop only to do what you asked: create drafts, upload their images, set
           their variations, attributes, personalization and SKUs, publish a draft when you press{" "}
           <em>Publish now</em> or at a time you scheduled for a listing you approved, replace a
-          listing&rsquo;s images when you ask for that, and create a section, shipping profile or
-          return policy only when you confirm it.
+          listing&rsquo;s images when you ask for that, create a section when you confirm it, and,
+          when you set a profile up in one of your shops, create there the shipping profile, return
+          policy or processing profile it needs: a copy of your main shop&rsquo;s, only where that
+          shop has none, made once and used by every profile that needs it. A copy we made that is
+          later deleted on Etsy is made again, and we tell you; we never delete anything in your shop.
         </p>
         <p>
           Reading sales is a permission added on 26 September 2026. A shop connected before then is

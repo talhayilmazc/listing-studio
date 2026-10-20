@@ -788,6 +788,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     colours.add_argument("--apply", action="store_true", help="measure them (default: only count)")
     colours.add_argument("--email", default=None, help="only this account's photos")
+    settings_map = sub.add_parser(
+        "resolve-shop-settings",
+        help="profile links filled from the shop setting map; what is still missing resolved again; --apply",
+    )
+    settings_map.add_argument("--apply", action="store_true", help="write and queue (default: only count)")
+    settings_map.add_argument("--email", default=None, help="only this account")
     single = sub.add_parser(
         "mockup-single-area",
         help="waiting template photos with several suggested areas: keep the main garment's (confirmed untouched); --apply",
@@ -893,6 +899,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.mockup_colours import run as colours_run
 
         print(asyncio.run(colours_run(sm, get_storage(), apply=args.apply, email=args.email)))
+    elif args.command == "resolve-shop-settings":
+        from app.ops.shop_settings import run as settings_run
+
+        print(asyncio.run(settings_run(sm, apply=args.apply, email=args.email)))
     elif args.command == "mockup-single-area":
         from app.ops.mockup_single_area import run as single_run
 

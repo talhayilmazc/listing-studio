@@ -24,10 +24,11 @@ export const TERMS_VERSION = "2026-10-14";
 export const LAST_UPDATED = "14 October 2026";
 /**
  * The Privacy Policy's own "Last updated": it changed since TERMS_VERSION in ways that tell sellers
- * more (how long draft records are kept; what happens to sales records) without asking them to
- * agree again, so the version above stays. Never earlier than LAST_UPDATED.
+ * more (how long draft records are kept; what happens to sales records; 20 October 2026: setting
+ * a profile up in a shop copies the shop settings it lacks there) without asking them to agree
+ * again, so the version above stays. Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "19 October 2026";
+export const PRIVACY_UPDATED = "20 October 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
@@ -81,6 +82,6 @@ export const SCOPE_REASONS: { scope: string; reason: string }[] = [
   { scope: "listings_r", reason: "Read your own listings: to choose a reference listing for a profile, show your shop's listings, and read the views and favourites of listings made with Listyro." },
   { scope: "listings_w", reason: "Create draft listings from your designs, upload their images, set their variations and SKUs, and publish a draft when you approve it." },
   { scope: "shops_r", reason: "Read your shop's name, sections, shipping profiles, return policies and production partners, so drafts use your shop's own settings." },
-  { scope: "shops_w", reason: "Create a shop section, shipping profile or return policy in your shop, only when you confirm it (to use a profile in another of your shops)." },
+  { scope: "shops_w", reason: "Create a shop section, shipping profile, return policy or processing profile in your shop, only when you ask for it: a section you confirm, or what a profile needs when you set it up in that shop (a copy of your main shop's, only where the shop has none)." },
   { scope: "transactions_r", reason: "Read your own shop's sales and its payment account ledger for your profit, cost and ads reporting. Nothing about buyers is stored." },
 ];

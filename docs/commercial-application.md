@@ -58,6 +58,14 @@ When a seller disconnects a shop, its tokens are deleted at once, its queued and
 
 Every scope requested is used; none is requested for future use.
 
+> **Changed after approval (20 October 2026), `shops_w`:** the table above is the text Etsy approved. Since 20
+> October 2026 setting a profile up in a shop (the seller's own click: "Use in", "Finish setup", "Use all
+> reference listings here") creates there, without a second confirmation, the shipping profile, return policy or
+> processing profile it lacks: a copy of the seller's main shop's, only where that shop has none, once per
+> setting and shop. A copy Listyro made that is deleted on Etsy is made again; nothing is ever deleted in a shop.
+> Background work never creates a new setting. The current wording is in `docs/etsy-compliance.md` and
+> `backend/app/etsy/oauth.py::SCOPE_REASONS`; tell Etsy if it asks about scope use.
+
 ## AI use
 
 AI suggests a title, 13 tags and a description from the seller's own images and the reference listing they chose. The seller reviews and edits every listing; nothing is generated or published without the seller.

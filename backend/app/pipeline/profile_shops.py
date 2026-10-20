@@ -98,10 +98,10 @@ async def start_links(
 
     A shop it is fully linked to, or being linked to, is left as it is; a link that
     failed, or that still lacks one of the shop's own settings (its processing profile,
-    say), is checked again: what was linked, chosen or created before is kept
-    (workers/links.py ``_apply``). Returns the shops started: the caller commits and
-    queues one ``link_profile`` job, which reads the shops, links every exact
-    match at once and keeps what is left for the seller (workers/links.py).
+    say), is checked again. Every caller is the seller's own action (that click is the
+    confirmation, ``links.COPY_ALL``): the account's map, the same name or terms, else a
+    copy made there. Returns the shops started: the caller commits and queues one
+    ``link_profile`` job (workers/links.py).
     """
     links = {link.connection_id: link for link in (await links_of(session, [profile.id]))[profile.id]}
     started: list[uuid.UUID] = []
@@ -114,10 +114,26 @@ async def start_links(
         if link is None:
             link = ProfileShopLink(tenant_id=profile.tenant_id, profile_id=profile.id, connection_id=shop_id)
             session.add(link)
-        link.status, link.notes, link.pending_create = "checking", None, None
+        # The seller asked for this shop: what it has no counterpart for may be copied there.
+        link.status, link.notes, link.pending_create = "checking", None, [L.COPY_ALL]
         started.append(shop_id)
     await ensure_main_link(session, profile)
     return started
+
+
+async def recheck_shop(session: AsyncSession, connection_id: uuid.UUID) -> list[uuid.UUID]:
+    """A shop connected again: its links that are not ready are checked again (status
+    "checking"); returns their profiles, for one ``link_profile`` each. Commits."""
+    rows = list((await session.execute(
+        select(ProfileShopLink).join(ListingProfile, ListingProfile.id == ProfileShopLink.profile_id).where(
+            ProfileShopLink.connection_id == connection_id, ListingProfile.connection_id != connection_id,
+            ProfileShopLink.status.in_(("incomplete", "error")),
+        )
+    )).scalars())
+    for link in rows:
+        link.status, link.pending_create = "checking", None
+    await session.commit()
+    return list(dict.fromkeys(link.profile_id for link in rows))
 
 
 async def shop_profiles(
@@ -144,6 +160,12 @@ async def detach_shop(session: AsyncSession, connection_id: uuid.UUID) -> dict[s
     shared data can be read again. A profile with no other shop is deleted.
     """
     links = await session.execute(delete(ProfileShopLink).where(ProfileShopLink.connection_id == connection_id))
+    # The account's map of settings from and to this shop goes with it (pipeline/setting_map.py).
+    from app.db.models import ShopSettingMap
+
+    await session.execute(delete(ShopSettingMap).where(
+        (ShopSettingMap.source_connection_id == connection_id) | (ShopSettingMap.target_connection_id == connection_id)
+    ))
     owned = list((await session.execute(
         select(ListingProfile).where(ListingProfile.connection_id == connection_id)
     )).scalars())

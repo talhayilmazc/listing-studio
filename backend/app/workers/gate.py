@@ -51,11 +51,13 @@ JOB_COST: dict[str, int] = {
     "refresh_profile": 9,
     # the reference's images; when they changed, the full refresh as well (v6 §H)
     "refresh_profile_images": 10,
-    # Setting a profile up in other shops (v8 §C): the main shop's four lists and,
-    # for each other shop, its four lists and the shop itself; up to 20 shops.
-    "link_profile": 110,
-    # The same reads again, then what the seller confirmed: a shipping profile with
-    # its destinations and upgrades, a return policy, a processing profile; per shop.
+    # Setting a profile up in other shops (v8 §C): the main shop's four lists and, for
+    # each other shop, its four lists and the shop itself (each shop's lists are kept an
+    # hour, so a second reference listing reads none), and per setting the shop has no
+    # counterpart for: its list read fresh and the copy (a shipping profile with its
+    # destinations and upgrades, a return policy, a processing profile).
+    "link_profile": 200,
+    # A copy the seller chose in the setup dialog: the same resolution.
     "create_link_resources": 200,
     # One shop's four lists, checked for every profile linked to it (upkeep).
     "refresh_shop_links": 4,
