@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import type { MockupPhoto, MockupSubgroup } from "@/lib/types";
+import { ColourToggle } from "./ColourToggle";
 import { trimmedDesign } from "@/lib/designTrim";
 import {
   MIN_SIZE,
@@ -727,6 +728,7 @@ export function PrintAreaEditor({
                 </select>
                 <span className="mt-1 block text-xs text-slate-500">{dirty ? "Save or reset your changes to change the layout." : LAYOUT_HINT}</span>
               </label>
+              <ColourToggle photo={photo} onChoose={(colour) => setting({ colour })} />
               <div className="grid grid-cols-3 gap-2" role="toolbar" aria-label="Edit the print area">
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => undo(n))} disabled={!h.past.length} data-testid="editor-undo">Undo</button>
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => redo(n))} disabled={!h.future.length} data-testid="editor-redo">Redo</button>

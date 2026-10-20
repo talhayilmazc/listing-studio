@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { MockupDesign, MockupEdits, MockupOutput, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
+import type { MockupDesign, MockupEdits, MockupOutput, MockupPlan, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
+import { DesignVariants } from "@/components/DesignVariants";
+import { variantMockups } from "@/lib/variants";
 import { DesignEditor } from "@/components/DesignEditor";
 import { MockupTile } from "@/components/MockupTile";
 import { editorTiles, keepPolling, pairKey, stampsOf, tileState, updatingLine, type Optimistic, type TileState } from "@/lib/mockupTiles";
@@ -206,6 +208,23 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
     }
   }
 
+  // Which file goes on which photos, asked again whenever the designs, templates or sides change.
+  const [plan, setPlan] = useState<MockupPlan | null>(null);
+  const [planTick, setPlanTick] = useState(0);
+  const designKey = designs.map((d) => `${d.id}:${d.versions?.length ?? 0}:${d.fill_other ? 1 : 0}`).join(",");
+  useEffect(() => {
+    if (!batchId || !chosen.length || !designs.length) {
+      setPlan(null);
+      return;
+    }
+    let cancelled = false;
+    api.mockupPlan(batchId, chosen, sides).then((p) => !cancelled && setPlan(p)).catch(() => !cancelled && setPlan(null));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchId, chosen.join(","), sides, designKey, planTick]);
+
   async function make() {
     if (!batchId || !designs.length || !chosen.length) return;
     setError(null);
@@ -234,7 +253,10 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
       const base = now ?? designs.map((d) => d.id);
       return on ? Array.from(new Set([...base, id])) : base.filter((x) => x !== id);
     });
-  const mockups = mockupCount(ticked, printed, templates ?? []);
+  // Designs with light/dark variants: the server's plan says which photos each file goes on.
+  const variantOf = new Map((plan?.designs ?? []).filter((d) => d.variants).map((d) => [d.design_id, d]));
+  const mockups = mockupCount(ticked.filter((d) => !variantOf.has(d.id)), printed, templates ?? [])
+    + ticked.reduce((n, d) => n + (variantOf.has(d.id) ? variantMockups(variantOf.get(d.id)!) : 0), 0);
 
   if (templates === null) return <section className="card h-[11rem] animate-pulse" aria-hidden />;
   const busy = phase === "uploading" || phase === "making";
@@ -330,6 +352,9 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
                   disabled={busy || phase === "done" || !ticked.length} data-testid="mockup-select-none">Select none</button>
               </div>
             )}
+            <DesignVariants key="variants" plan={plan} designs={designs} disabled={busy || phase === "done"}
+              onMeaning={() => setPlanTick((n) => n + 1)}
+              onDesign={(next) => setDesigns((all) => all.map((x) => (x.id === next.id ? next : x)))} />
             {designs.length > 0 && (
               <ul key="designs" className="divide-y divide-slate-100 rounded-md border border-slate-200" data-testid="mockup-design-list">
                 {designs.map((d) => (
@@ -408,6 +433,16 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
   );
 }
 
+/** "CDM290-white.png (light) + CDM290-dark.png (dark)": a design's variant files, or null. */
+function variantFiles(design: MockupDesign): string | null {
+  const files = [
+    { name: design.original_filename, variant: design.variant ?? null },
+    ...(design.versions ?? []).filter((v) => !v.subgroup).map((v) => ({ name: v.original_filename, variant: v.variant ?? null })),
+  ];
+  if (!files.some((f) => f.variant)) return null;
+  return files.map((f) => `${f.name} (${f.variant ?? "plain"})`).join(" + ");
+}
+
 function DesignRow({ design, disabled, split, removing, picked = true, onPick, onChange, onRemoved }: {
   design: MockupDesign; disabled: boolean; split?: boolean; removing?: boolean; onChange: (d: MockupDesign) => void;
   onRemoved: () => void;
@@ -466,6 +501,13 @@ function DesignRow({ design, disabled, split, removing, picked = true, onPick, o
       {split && (
         <span key="slots" className="min-w-0 max-w-full truncate text-xs text-slate-500" translate="no" title={designSlotsLine(design)}>
           {`Files: ${designSlotsLine(design)}`}
+        </span>
+      )}
+      {!split && variantFiles(design) && (
+        // Light and dark variants of one design: one listing (backend pipeline/variants.py).
+        <span key="variants" className="min-w-0 max-w-full truncate text-xs text-slate-600" translate="no"
+          title={variantFiles(design)!} data-testid="design-variant-files">
+          {`One listing: ${variantFiles(design)}`}
         </span>
       )}
       {designNote(design) && <span key="note" className="w-full text-xs text-amber-800 sm:order-last">{designNote(design)}</span>}

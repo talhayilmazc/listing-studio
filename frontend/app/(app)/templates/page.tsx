@@ -10,6 +10,7 @@ import { AssignPresets, FilePrefixField, PresetsManager, SaveAsPreset } from "@/
 import { api } from "@/lib/api";
 import { pick } from "@/lib/fileDrop";
 import type { MockupPhoto, MockupSubgroup, MockupTemplate, SubgroupPreset } from "@/lib/types";
+import { ColourToggle } from "@/components/ColourToggle";
 import {
   ACCURACY_NOTE,
   ALL_READY,
@@ -518,6 +519,16 @@ function TemplateCard({
     }
   }
 
+  // The photo's colour group for light/dark design variants: one click (backend pipeline/variants.py).
+  async function setColour(photo: MockupPhoto, colour: "light" | "dark") {
+    try {
+      await api.updateMockupPhoto(photo.id, { colour });
+      onReload();
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
   async function setLayout(photo: MockupPhoto, layout: PhotoLayout) {
     try {
       await api.updateMockupPhoto(photo.id, { layout });
@@ -755,7 +766,7 @@ function TemplateCard({
               <PhotoTile photo={p} first={i === 0} last={i === template.photos.length - 1}
                 selected={selected.includes(p.id)} onSelect={(on) => toggle(p.id, on)}
                 onView={() => onView(i)} onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)}
-                onLayout={(layout) => setLayout(p, layout)}
+                onLayout={(layout) => setLayout(p, layout)} onColour={(c) => setColour(p, c)}
                 subgroups={template.subgroups ?? []} onSubgroup={(id) => setPhotoSubgroup(p, id)} />
             </li>
           ))}
@@ -795,6 +806,7 @@ function PhotoTile({
   onMove,
   onRemove,
   onLayout,
+  onColour,
   subgroups,
   onSubgroup,
 }: {
@@ -810,6 +822,7 @@ function PhotoTile({
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
   onLayout: (layout: PhotoLayout) => void;
+  onColour: (colour: "light" | "dark") => void;
   subgroups: MockupSubgroup[];
   onSubgroup: (id: string) => void;
 }) {
@@ -862,6 +875,7 @@ function PhotoTile({
             </select>
           </label>
         )}
+        {ready && <ColourToggle key="colour" photo={photo} onChoose={onColour} compact />}
         {ready && subgroups.length > 1 && (
           <label key="subgroup" className="block">
             <span className="sr-only">{`Subgroup of ${photo.name}`}</span>

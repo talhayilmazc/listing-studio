@@ -55,7 +55,7 @@ from app.db.models import (
     UploadBatchStatus,
 )
 from app.pipeline import mockup_vision as vision
-from app.pipeline import mockup_refresh, mockups, placement, subgroups, upload_retention
+from app.pipeline import mockup_refresh, mockups, placement, subgroups, upload_retention, variants
 from app.pipeline.images import ImageProcessingError
 from app.pipeline.ingest import _rerank
 from app.pipeline.storage import Storage
@@ -146,6 +146,7 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
     photo.garments = rows
     photo.print_area = rows[0]["print_area"]
     photo.print_area_source = "default" if all(r.get("source") == "default" for r in rows) else "seller"
+    measure_colour(photo, prepared.image)  # light or dark, for design variants
     if prepared.view in ("front", "back"):
         photo.view = prepared.view
     photo.status, photo.error, photo.source_key = "ready", None, None
@@ -270,6 +271,11 @@ def area_subgroup_names(photo: MockupPhoto, groups: list[MockupSubgroup],
 def measured_tones(blank: bytes, areas: list[list[list[float]]]) -> list[str | None]:
     """Each area's garment tone, read from the photo under it (the middle half of the area,
     CIELAB L*): what the analysis would have said for a garment it did not find."""
+    return [subgroups.tone_of(x) for x in measured_lightness(blank, areas)]
+
+
+def measured_lightness(blank: bytes, areas: list[list[list[float]]]) -> list[float | None]:
+    """Each area's garment lightness (CIELAB L*, median over the middle half of the area)."""
     import numpy as np
     from PIL import Image
 
@@ -277,7 +283,7 @@ def measured_tones(blank: bytes, areas: list[list[list[float]]]) -> list[str | N
     image.thumbnail((600, 600))
     rgb = np.asarray(image, dtype=np.float32) / 255
     h, w = rgb.shape[:2]
-    out: list[str | None] = []
+    out: list[float | None] = []
     for quad in areas:
         xs, ys = [p[0] for p in quad], [p[1] for p in quad]
         cx, cy, hw, hh = sum(xs) / 4 * w, sum(ys) / 4 * h, (max(xs) - min(xs)) * w / 4, (max(ys) - min(ys)) * h / 4
@@ -287,20 +293,57 @@ def measured_tones(blank: bytes, areas: list[list[list[float]]]) -> list[str | N
             continue
         lin = np.where(patch <= 0.04045, patch / 12.92, ((patch + 0.055) / 1.055) ** 2.4)
         y = float(np.median(lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722))
-        lightness = 116 * (y ** (1 / 3) if y > 0.008856 else 7.787 * y + 16 / 116) - 16
-        out.append(subgroups.tone_of(lightness))
+        out.append(round(116 * (y ** (1 / 3) if y > 0.008856 else 7.787 * y + 16 / 116) - 16, 1))
     return out
 
 
-def files_for_areas(design: MockupDesign, versions: list[MockupDesignVersion], names: list[str | None]) -> list[Any]:
-    """The file each area of one photo prints for ``design``: its subgroup's file; when the
-    design prints anywhere on the photo, an area whose subgroup has no file of it prints the
-    design's own file (every area the seller set renders: on a photo of three white and three
-    black tees a design made only for dark garments used to print on three areas of six).
-    A design with nothing for any area of the photo: None for each (it does not print there)."""
-    own = [subgroups.file_for(design, versions, n) for n in names]
+def measure_colour(photo: MockupPhoto, blank: bytes) -> None:
+    """The photo's colour group for design variants, from its main garment's lightness under
+    its first print area; a seller's choice is never changed (pipeline/variants.py)."""
+    if photo.colour_source == "seller":
+        return
+    areas = photo_print_areas(photo)
+    if not areas:
+        return
+    lightness = measured_lightness(blank, areas[:1])[0]
+    colour, uncertain = variants.classify(lightness)
+    photo.colour, photo.colour_lightness = colour, lightness
+    photo.colour_source = None if colour is None else ("uncertain" if uncertain else "auto")
+
+
+async def ensure_colours(session: AsyncSession, storage: Storage, photos: list[MockupPhoto]) -> None:
+    """Measure the colour of photos prepared before colour groups existed (once each; the
+    caller commits)."""
+    for photo in photos:
+        if photo.colour is None and photo.colour_source is None and photo.image_key and photo.status == "ready":
+            try:
+                blank = await asyncio.to_thread(storage.get, photo.image_key)
+            except FileNotFoundError:
+                continue
+            await asyncio.to_thread(measure_colour, photo, blank)
+
+
+def photo_colours(photo: MockupPhoto, tones: list[str | None] | None = None) -> list[str | None]:
+    """Each print area's colour group (pipeline/variants.py::area_colours)."""
+    return variants.area_colours(photo, photo_area_rows(photo), tones)
+
+
+def files_for_areas(design: MockupDesign, versions: list[MockupDesignVersion], names: list[str | None],
+                    colours: list[str | None] | None = None, meaning: str = variants.SHIRT) -> list[Any]:
+    """The file each area of one photo prints for ``design``. A design with light/dark
+    variants: the variant for the area's colour group (``colours``; pipeline/variants.py::pick).
+    Otherwise its subgroup's file. When the design prints anywhere on the photo, an area with no
+    file of it prints the design's first file there (every area the seller set renders: on a
+    photo of three white and three black tees a design made only for dark garments used to print
+    on three areas of six). A design with nothing for any area: None for each."""
+    if colours is not None and variants.has_variants(design, versions):
+        own = [variants.pick(design, versions, c, meaning) for c in colours]
+        fallback = next((f for f in own if f is not None), None)
+    else:
+        own = [subgroups.file_for(design, versions, n) for n in names]
+        fallback = design
     if any(f is not None for f in own):
-        return [f if f is not None else design for f in own]
+        return [f if f is not None else fallback for f in own]
     return own
 
 
@@ -328,10 +371,11 @@ async def template_subgroups(session: AsyncSession, template_ids: Any) -> dict[u
     return out
 
 
-def prints_on(design: MockupDesign, versions: list[MockupDesignVersion], names: list[str | None]) -> bool:
-    """Whether a design has a file for any area of a photo (a design made only for one subgroup
-    prints only on that subgroup's photos)."""
-    return any(subgroups.file_for(design, versions, n) is not None for n in names)
+def prints_on(design: MockupDesign, versions: list[MockupDesignVersion], names: list[str | None],
+              colours: list[str | None] | None = None, meaning: str = variants.SHIRT) -> bool:
+    """Whether a design has a file for any area of a photo (a design made only for one subgroup,
+    or only one variant of it, prints only on those photos)."""
+    return any(f is not None for f in files_for_areas(design, versions, names, colours, meaning))
 
 
 def photo_area_roles(photo: MockupPhoto) -> list[str]:
@@ -672,9 +716,14 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             fallback = _BACK_FALLBACK.get(photo.template_id, "front")
             # Each area's subgroup: the seller's link, the garment's tone (measured from the
             # photo for an area the analysis did not find), else the photo's.
-            area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []),
-                                             await asyncio.to_thread(measured_tones, blank, garments))
-            if not any(prints_on(d, versions.get(d.id, []), area_names) for d in usable):
+            tones = await asyncio.to_thread(measured_tones, blank, garments)
+            area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []), tones)
+            # Each area's colour group: a design's light/dark variant goes on its own group only.
+            if photo.colour is None and photo.colour_source is None:
+                await asyncio.to_thread(measure_colour, photo, blank)
+            colours = photo_colours(photo, tones)
+            meaning = job.variant_suffix or variants.SHIRT
+            if not any(prints_on(d, versions.get(d.id, []), area_names, colours, meaning) for d in usable):
                 if not refreshing:
                     job.total = max(0, job.total - len(usable))  # no design has a file for this photo's subgroup
                 continue
@@ -705,7 +754,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     continue
                 chosen = list(zip(shown, garments, roles, area_names, behind))
                 # Each area's file: its subgroup's, else the design's own (every area renders).
-                files = {d.id: files_for_areas(d, versions.get(d.id, []), area_names) for d in dict.fromkeys(shown)}
+                files = {d.id: files_for_areas(d, versions.get(d.id, []), area_names, colours, meaning)
+                         for d in dict.fromkeys(shown)}
                 placements = []
                 for k, (d, a, r, n, o) in enumerate(chosen):
                     f = files[d.id][k]

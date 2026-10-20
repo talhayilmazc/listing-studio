@@ -158,6 +158,10 @@ class Tenant(Base):
     trademark_filter_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Admin override: None = the seller's own choice.
     trademark_filter: Mapped[bool | None] = mapped_column(Boolean)
+    #: What a design file's variant suffix ("-white", "-dark") names: "shirt" (the default,
+    #: "-white" goes on light shirts) or "ink" ("-white" ink goes on dark shirts). The upload
+    #: page's setting, remembered for the account (pipeline/variants.py).
+    variant_suffix: Mapped[str] = mapped_column(Text, nullable=False, server_default="shirt")
     # The seller's own costs for profit figures (v7 §C2): Etsy fee rates, product,
     # shipping and fixed costs. Editable, since fee rates change.
     cost_settings: Mapped[dict[str, Any]] = mapped_column(
@@ -822,6 +826,13 @@ class MockupPhoto(Base):
     #: "Print on all garments": the same design on every area of this photo, whatever the
     #: run's "one design per garment" says (each area's subgroup still picks the file).
     print_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: The photo's colour group for design variants: "light" or "dark" (pipeline/variants.py),
+    #: measured from the garment (``colour_lightness``, CIELAB L*) or set by the seller.
+    #: ``colour_source``: "auto", "uncertain" (measured close to the line: the seller is asked)
+    #: or "seller". None: not measured yet.
+    colour: Mapped[str | None] = mapped_column(Text)
+    colour_lightness: Mapped[float | None] = mapped_column(Float)
+    colour_source: Mapped[str | None] = mapped_column(Text)
     #: The template's subgroup the photo belongs to (``MockupSubgroup``; None: the template's first).
     subgroup_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mockup_subgroup.id", ondelete="SET NULL"), index=True)
     #: Every print area, in the seller's order (see the class docstring).
@@ -894,7 +905,11 @@ class MockupDesignVersion(Base):
     design_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    subgroup: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The seller-defined subgroup this file is for; None: a light/dark variant (``variant``)
+    #: or the design's plain file uploaded after one of its variants.
+    subgroup: Mapped[str | None] = mapped_column(Text)
+    #: "light" or "dark" when the file is that variant of the design (pipeline/variants.py).
+    variant: Mapped[str | None] = mapped_column(Text)
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     design_key: Mapped[str | None] = mapped_column(Text)
     back_key: Mapped[str | None] = mapped_column(Text)
@@ -971,6 +986,11 @@ class MockupDesign(Base):
     pair_base: Mapped[str | None] = mapped_column(Text)
     #: "light", "dark" or "mixed": the colour of its opaque pixels.
     ink: Mapped[str | None] = mapped_column(Text)
+    #: "light" or "dark" when its own file is that variant (its file name's suffix); its other
+    #: variants are versions with ``variant`` set: one design, one listing (pipeline/variants.py).
+    variant: Mapped[str | None] = mapped_column(Text)
+    #: Only one variant uploaded: use it on the other colour group too (the seller's one click).
+    fill_other: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -1005,6 +1025,8 @@ class MockupRun(Base):
     sides: Mapped[str] = mapped_column(Text, nullable=False, server_default="both")
     #: "same": the same design on every garment of a photo; "order": one design per garment.
     garment_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="same")
+    #: What a variant suffix named when the run started ("shirt" / "ink"): re-renders keep it.
+    variant_suffix: Mapped[str] = mapped_column(Text, nullable=False, server_default="shirt")
     #: The designs the seller ticked for this run (None: every design of the batch).
     design_ids: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(

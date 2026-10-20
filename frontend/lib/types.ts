@@ -281,6 +281,11 @@ export interface MockupPhoto {
   print_all?: boolean;
   /** Its suggestion came from the seller's own placement, learnt from this many photos. */
   own_placement?: number | null;
+  /** Its colour group for light/dark design variants (null: not measured yet), the measured
+   *  garment lightness (CIELAB L*), and where it came from ("uncertain": the seller is asked). */
+  colour?: "light" | "dark" | null;
+  colour_lightness?: number | null;
+  colour_source?: "auto" | "uncertain" | "seller" | null;
 }
 
 /** A named group of blank photos (the same tee in ten colours, or several shots of one product). */
@@ -352,8 +357,28 @@ export interface MockupDesign {
   subgroup?: string | null;
   /** The colour of its ink: "light", "dark" or "mixed". */
   ink?: string | null;
-  /** Its files for other subgroups: one design, one listing. */
-  versions?: { id: string; subgroup: string; original_filename: string; has_alpha?: boolean }[];
+  /** Its own file's light/dark variant (from its name's suffix); null: a plain file. */
+  variant?: "light" | "dark" | null;
+  /** Only one variant uploaded: use it on the other colour group too. */
+  fill_other?: boolean;
+  /** Its files for other subgroups and its other variants: one design, one listing. */
+  versions?: { id: string; subgroup: string | null; variant?: "light" | "dark" | null; original_filename: string; has_alpha?: boolean }[];
+}
+
+/** Before any mockup is made: which design file goes on which photos (backend pipeline/variants.py). */
+export interface MockupPlan {
+  variant_suffix: "shirt" | "ink";
+  photos: { id: string; name: string; template: string; colour: "light" | "dark" | null; colour_source: string | null }[];
+  designs: {
+    design_id: string;
+    variants: boolean;
+    files: { file_id: string; filename: string; variant: "light" | "dark" | null; photos: string[] }[];
+    missing: string[];
+    missing_colours: string[];
+    lacking: ("light" | "dark")[];
+    uncertain: string[];
+    fill_other: boolean;
+  }[];
 }
 
 export interface MockupOutput {

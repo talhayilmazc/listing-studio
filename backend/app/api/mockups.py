@@ -51,7 +51,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.pipeline import grouping, mockup_refresh, mockup_sample, mockups, placement, skus, subgroups, upload_retention
+from app.pipeline import grouping, mockup_refresh, mockup_sample, mockups, placement, skus, subgroups, upload_retention, variants
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
@@ -176,6 +176,12 @@ class PhotoOut(BaseModel):
     garments_found: int = 0
     #: "Print on all garments": the same design on every area, whatever the run says.
     print_all: bool = False
+    #: Its colour group for design variants ("light" / "dark"; None: not measured yet), the
+    #: measured garment lightness (CIELAB L*), and where it came from ("auto", "uncertain": the
+    #: seller is asked to choose, "seller").
+    colour: str | None = None
+    colour_lightness: float | None = None
+    colour_source: str | None = None
     #: The suggestion was built from the seller's own placement, learnt from this many of
     #: their confirmed photos (None: the template standard).
     own_placement: int | None = None
@@ -295,6 +301,8 @@ class PhotoUpdate(BaseModel):
     subgroup_id: uuid.UUID | None = None
     #: Move the photo to another of the seller's templates (at its end).
     template_id: uuid.UUID | None = None
+    #: Its colour group for design variants, set by the seller (one click on the photo).
+    colour: Literal["light", "dark"] | None = None
 
 
 class AreaIn(BaseModel):
@@ -384,8 +392,12 @@ class DesignOut(BaseModel):
     has_alpha: bool
     #: It has a back file (printed on back areas).
     has_back: bool = False
+    #: Its own file's light/dark variant (from its name's suffix; None: plain), and "use the one
+    #: variant there is on the other colour group too".
+    variant: str | None = None
+    fill_other: bool = False
     #: The subgroup (by name) its file is for (None: every subgroup), the colour of its ink, and
-    #: its files for other subgroups (one design, one listing).
+    #: its files for other subgroups and its other variants (one design, one listing).
     subgroup: str | None = None
     ink: str | None = None
     versions: list[DesignVersionOut] = Field(default_factory=list)
@@ -393,7 +405,9 @@ class DesignOut(BaseModel):
 
 class DesignVersionOut(BaseModel):
     id: uuid.UUID
-    subgroup: str
+    subgroup: str | None = None
+    #: "light" / "dark" for a variant file; None with no subgroup: the design's plain file.
+    variant: str | None = None
     original_filename: str
     has_alpha: bool = True
 
@@ -407,6 +421,58 @@ class DesignUpdate(BaseModel):
     sku: str | None = Field(default=None, max_length=200)
     #: The subgroup (by name) its file is for (moved between upload slots); null = every subgroup.
     subgroup: str | None = Field(default=None, max_length=MAX_NAME)
+    #: Only one variant uploaded: use it on the other colour group too.
+    fill_other: bool | None = None
+
+
+class MockupSettingsIn(BaseModel):
+    #: What a design's variant suffix names: "shirt" ("-white" goes on light shirts, the
+    #: default) or "ink" ("-white" ink goes on dark shirts).
+    variant_suffix: Literal["shirt", "ink"]
+
+
+class MockupSettingsOut(BaseModel):
+    variant_suffix: str = "shirt"
+
+
+class PlanPhoto(BaseModel):
+    id: uuid.UUID
+    name: str
+    template: str
+    colour: str | None = None
+    colour_source: str | None = None
+
+
+class PlanFile(BaseModel):
+    file_id: uuid.UUID
+    filename: str
+    variant: str | None = None
+    photos: list[uuid.UUID]
+
+
+class PlanDesign(BaseModel):
+    design_id: uuid.UUID
+    #: False: no variants, printed on every photo as before.
+    variants: bool = False
+    files: list[PlanFile] = Field(default_factory=list)
+    #: Photos that get no mockup of this design (no variant for their colour group), and why.
+    missing: list[uuid.UUID] = Field(default_factory=list)
+    missing_colours: list[str] = Field(default_factory=list)
+    lacking: list[str] = Field(default_factory=list)
+    uncertain: list[uuid.UUID] = Field(default_factory=list)
+    fill_other: bool = False
+
+
+class PlanOut(BaseModel):
+    variant_suffix: str
+    photos: list[PlanPhoto]
+    designs: list[PlanDesign]
+
+
+class PlanRequest(BaseModel):
+    template_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TEMPLATES_PER_ACCOUNT)
+    sides: Literal["front", "back", "both"] = "both"
+    design_ids: list[uuid.UUID] | None = None
 
 
 class RunRequest(BaseModel):
@@ -546,6 +612,7 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
             for g in photo_areas(p)
         ],
         found_areas=(found := found_garments(p)), garments_found=len(found), print_all=bool(p.print_all),
+        colour=p.colour, colour_lightness=p.colour_lightness, colour_source=p.colour_source,
     )
 
 
@@ -1134,6 +1201,8 @@ async def update_photo(
     photo = await _own_photo(session, tenant, photo_id)
     if body.name is not None:
         photo.name = clean_name(body.name, photo.name)
+    if body.colour is not None:
+        photo.colour, photo.colour_source = body.colour, "seller"  # never measured over again
     if body.occlusion is not None:
         photo.occlusion = body.occlusion
     if body.view is not None:
@@ -1488,8 +1557,10 @@ def design_group(filename: str, sku: str | None, taken: set[str]) -> str:
 
 def _design_out(d: MockupDesign, versions: list[MockupDesignVersion] | None = None) -> DesignOut:
     return DesignOut(id=d.id, original_filename=d.original_filename, group_key=d.group_key, parsed_sku=d.parsed_sku,
-                     has_back=bool(d.back_key), subgroup=d.subgroup, ink=d.ink,
-                     versions=[DesignVersionOut(id=v.id, subgroup=v.subgroup, original_filename=v.original_filename,
+                     has_back=bool(d.back_key), subgroup=d.subgroup, ink=d.ink, variant=d.variant,
+                     fill_other=bool(d.fill_other),
+                     versions=[DesignVersionOut(id=v.id, subgroup=v.subgroup, variant=v.variant,
+                                                original_filename=v.original_filename,
                                                 has_alpha=v.has_alpha) for v in versions or []],
                      width=d.width, height=d.height, has_alpha=d.has_alpha)
 
@@ -1638,7 +1709,21 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     chosen = None
     if slots:
         named = next((g["name"] for g in slots if subgroups.same(g["name"], subgroup)), None) if subgroup else None
-        chosen = named or by_suffix or subgroups.by_ink(ink, slots)
+        chosen = named or by_suffix
+        if not chosen and variants.parse(filename)[1] is None:
+            chosen = subgroups.by_ink(ink, slots)
+    # One upload at a time per batch: two variants sent together must pair, not both start a design.
+    await session.execute(select(UploadBatch.id).where(UploadBatch.id == batch_id).with_for_update())
+    variant = None
+    if not chosen:
+        # A light/dark variant by its name's suffix ("CDM290-white"): the variant of the design
+        # with the same base name; several variants are one design, one listing.
+        vbase, variant = variants.parse(filename)
+        paired = await _pair_variant(session, storage, tenant, batch_id, filename, prepared, ink, trim, vbase, variant)
+        if paired is not None:
+            return paired
+        if variant is not None:
+            base = vbase
     if chosen:
         for other in (await session.execute(
             select(MockupDesign).where(MockupDesign.batch_id == batch_id, MockupDesign.design_key.is_not(None))
@@ -1659,20 +1744,54 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
             await session.flush()
             return other
     taken = set((await session.execute(select(MockupDesign.group_key).where(MockupDesign.batch_id == batch_id))).scalars())
-    sku = grouping.sku_of(base if slots else filename, SkuParser())
+    sku = grouping.sku_of(base if slots or variant else filename, SkuParser())
     design_id = uuid.uuid4()
     key = f"{tenant.id}/{batch_id}/designs/{design_id}.png"
     storage.put(key, prepared.image, "image/png")
     storage_cap.added(tenant.id, len(prepared.image))
     design = MockupDesign(
-        id=design_id, tenant_id=tenant.id, batch_id=batch_id, group_key=design_group(filename, sku, taken),
+        id=design_id, tenant_id=tenant.id, batch_id=batch_id,
+        group_key=design_group(f"{base}.png" if variant else filename, sku, taken),
         original_filename=filename, parsed_sku=sku, design_key=key, width=prepared.width, height=prepared.height,
-        has_alpha=prepared.has_alpha, subgroup=chosen, pair_base=base, ink=ink, trims={"front": trim},
+        has_alpha=prepared.has_alpha, subgroup=chosen, pair_base=base, ink=ink, trims={"front": trim}, variant=variant,
     )
     session.add(design)
     batch.grouping_mode = batch.grouping_mode or "folder"
     await session.flush()
     return design
+
+
+async def _pair_variant(session: AsyncSession, storage: Storage, tenant: Tenant, batch_id: uuid.UUID, filename: str,
+                        prepared: Any, ink: str, trim: Any, base: str, variant: str | None) -> MockupDesign | None:
+    """A file that is another variant of a design of the batch (same base name; one of them
+    suffixed): stored as that design's version, so one design, one listing (pipeline/variants.py).
+    A plain file joins a design made from a variant; a variant joins a plain or other-variant
+    design. Two files of the same variant (or two plain files) stay apart."""
+    for other in (await session.execute(
+        select(MockupDesign).where(MockupDesign.batch_id == batch_id, MockupDesign.design_key.is_not(None),
+                                   MockupDesign.subgroup.is_(None)).order_by(MockupDesign.created_at)
+    )).scalars():
+        if not subgroups.same(other.pair_base, base):
+            continue
+        have = (await _versions_of(session, [other.id])).get(other.id, [])
+        files = variants.files_of(other, have)
+        if variant is None and other.variant is None and not variants.has_variants(other, have):
+            continue  # two plain files of one name: two designs, as before
+        if any(getattr(f, "variant", None) == variant for f in files):
+            continue  # this variant (or the plain file) is there already
+        version_id = uuid.uuid4()
+        vkey = f"{tenant.id}/{batch_id}/designs/{other.id}-v-{version_id.hex[:8]}.png"
+        storage.put(vkey, prepared.image, "image/png")
+        storage_cap.added(tenant.id, len(prepared.image))
+        session.add(MockupDesignVersion(id=version_id, tenant_id=tenant.id, design_id=other.id, subgroup=None,
+                                        variant=variant, original_filename=filename, design_key=vkey,
+                                        width=prepared.width, height=prepared.height, has_alpha=prepared.has_alpha,
+                                        ink=ink, trims={"front": trim}))
+        if other.variant is not None and variant is None and other.parsed_sku is None:
+            other.parsed_sku = grouping.sku_of(filename, SkuParser())
+        await session.flush()
+        return other
+    return None
 
 
 async def _own_design(session: AsyncSession, tenant: Tenant, design_id: uuid.UUID) -> MockupDesign:
@@ -1748,7 +1867,9 @@ async def update_design(
         if wanted and any(subgroups.same(v.subgroup, wanted) for v in versions):
             raise HTTPException(status_code=409, detail="This design already has a file for that subgroup.")
         design.subgroup = wanted
-    if "sku" in body.model_fields_set or "subgroup" not in body.model_fields_set:
+    if body.fill_other is not None:
+        design.fill_other = body.fill_other
+    if "sku" in body.model_fields_set or not body.model_fields_set & {"subgroup", "fill_other"}:
         sku = None
         if body.sku is not None and body.sku.strip():
             try:
@@ -1759,7 +1880,8 @@ async def update_design(
             select(MockupDesign.group_key).where(MockupDesign.batch_id == design.batch_id, MockupDesign.id != design.id)
         )).scalars())
         design.parsed_sku = sku
-        design.group_key = design_group(design.original_filename, sku, taken)
+        named = f"{design.pair_base}.png" if variants.has_variants(design, versions) and design.pair_base else design.original_filename
+        design.group_key = design_group(named, sku, taken)
     await session.commit()
     return _design_out(design, versions)
 
@@ -1803,8 +1925,10 @@ async def _run_out(session: AsyncSession, run: MockupRun, redis: Any = None) -> 
     run_photos = [p for raw in run.photo_ids if (p := await session.get(MockupPhoto, uuid.UUID(str(raw)))) is not None]
     groups = await work.template_subgroups(session, {p.template_id for p in run_photos})
     photo_names = [work.area_subgroup_names(p, groups.get(p.template_id, [])) for p in run_photos]
+    photo_colours = [work.photo_colours(p) for p in run_photos]
     versions = await _versions_of(session, [d.id for d in designs])
-    per_design = {d.id: sum(work.prints_on(d, versions.get(d.id, []), n) for n in photo_names) if run_photos else len(run.photo_ids)
+    per_design = {d.id: sum(work.prints_on(d, versions.get(d.id, []), n, c, run.variant_suffix or variants.SHIRT)
+                            for n, c in zip(photo_names, photo_colours)) if run_photos else len(run.photo_ids)
                   for d in designs}
     used_photos = {str(p) for p in run.photo_ids}
     skipped_photos: list[str] = []
@@ -1905,7 +2029,7 @@ async def delete_design(
         design.design_key, design.back_key = first.design_key, first.back_key
         design.subgroup, design.original_filename = first.subgroup, first.original_filename
         design.width, design.height, design.has_alpha = first.width, first.height, first.has_alpha
-        design.ink, design.trims = first.ink, first.trims
+        design.ink, design.trims, design.variant = first.ink, first.trims, first.variant
         await session.delete(first)
         audit.destructive(session, "mockup_design.deleted", actor=tenant, tenant_id=tenant.id, shop_id=None,
                           object_id=design.id)
@@ -1973,6 +2097,58 @@ async def update_design_version(
     return _design_out(design, versions)
 
 
+@router.get("/mockup-settings", response_model=MockupSettingsOut)
+async def mockup_settings(tenant: Tenant = Depends(active_tenant)) -> MockupSettingsOut:
+    return MockupSettingsOut(variant_suffix=tenant.variant_suffix or variants.SHIRT)
+
+
+@router.put("/mockup-settings", response_model=MockupSettingsOut)
+async def set_mockup_settings(
+    body: MockupSettingsIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+) -> MockupSettingsOut:
+    """What a variant suffix names, remembered for the account (the upload page's setting)."""
+    tenant.variant_suffix = body.variant_suffix
+    await session.commit()
+    return MockupSettingsOut(variant_suffix=tenant.variant_suffix)
+
+
+@router.post("/batches/{batch_id}/mockups/plan", response_model=PlanOut)
+async def mockup_plan(
+    batch_id: uuid.UUID,
+    body: PlanRequest,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> PlanOut:
+    """Before any mockup is made: which design file goes on which photo of the chosen
+    templates (its light or dark variant by the photo's colour group), and which photos get no
+    mockup of a design and why. The same rule the run uses (pipeline/variants.py)."""
+    await _own_batch(session, tenant, batch_id)
+    photos: list[tuple[MockupPhoto, str]] = []
+    for raw in dict.fromkeys(body.template_ids):
+        template = await _own_template(session, tenant, raw)
+        for photo in await _photos_of(session, template.id):
+            if body.sides != "both" and (photo.view or "front") != body.sides:
+                continue
+            if photo.status == "ready" and photo.confirmed_at is not None:
+                photos.append((photo, template.name))
+    await work.ensure_colours(session, storage, [p for p, _ in photos])
+    await session.commit()
+    designs = list((await session.execute(select(MockupDesign).where(
+        MockupDesign.batch_id == batch_id, MockupDesign.design_key.is_not(None)).order_by(MockupDesign.group_key))).scalars())
+    if body.design_ids is not None:
+        designs = [d for d in designs if d.id in set(body.design_ids)]
+    versions = await _versions_of(session, [d.id for d in designs])
+    meaning = tenant.variant_suffix or variants.SHIRT
+    rows = variants.plan(designs, versions, [p for p, _ in photos], meaning)
+    return PlanOut(
+        variant_suffix=meaning,
+        photos=[PlanPhoto(id=p.id, name=p.name, template=name, colour=p.colour, colour_source=p.colour_source)
+                for p, name in photos],
+        designs=[PlanDesign(**r) for r in rows],
+    )
+
+
 @router.post("/batches/{batch_id}/mockups", response_model=RunOut, status_code=202)
 async def start_run(
     batch_id: uuid.UUID,
@@ -1980,6 +2156,7 @@ async def start_run(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
+    storage: Storage = Depends(get_storage),
 ) -> RunOut:
     """Print every design of the batch on every confirmed photo of the chosen templates
     (template order, then each template's photo order). Photos the seller has not
@@ -2018,13 +2195,17 @@ async def start_run(
     runs = (await session.execute(select(MockupRun).where(MockupRun.batch_id == batch_id))).scalars()
     if any(_active(r) for r in runs):
         raise HTTPException(status_code=409, detail="Mockups for this batch are already being made.")
-    # Each design counts the photos it prints on (a design made for one subgroup prints only there).
+    # Each design counts the photos it prints on (a design made for one subgroup, or one variant of
+    # it, prints only there).
+    await work.ensure_colours(session, storage, photos)
+    meaning = tenant.variant_suffix or variants.SHIRT
     groups = await work.template_subgroups(session, {p.template_id for p in photos})
     names = [work.area_subgroup_names(p, groups.get(p.template_id, [])) for p in photos]
+    colours = [work.photo_colours(p) for p in photos]
     versions = await _versions_of(session, [d.id for d in chosen])
-    total = sum(sum(work.prints_on(d, versions.get(d.id, []), n) for n in names) for d in chosen)
+    total = sum(sum(work.prints_on(d, versions.get(d.id, []), n, c, meaning) for n, c in zip(names, colours)) for d in chosen)
     run = MockupRun(tenant_id=tenant.id, batch_id=batch_id, template_ids=[str(t.id) for t in templates],
-                    photo_ids=[str(p.id) for p in photos], skipped=skipped,
+                    photo_ids=[str(p.id) for p in photos], skipped=skipped, variant_suffix=meaning,
                     total=total, sides=body.sides, garment_mode=body.garment_mode,
                     design_ids=[str(d.id) for d in chosen] if body.design_ids is not None else None)
     session.add(run)

@@ -101,7 +101,7 @@ def file_for(design: Any, versions: list[Any], subgroup_name: str | None) -> Any
     if subgroup_name == ANY:
         return design
     for v in versions:
-        if same(v.subgroup, subgroup_name):
+        if v.subgroup is not None and same(v.subgroup, subgroup_name):  # a variant file is not a subgroup's
             return v
     if design.subgroup is None or same(design.subgroup, subgroup_name):
         return design

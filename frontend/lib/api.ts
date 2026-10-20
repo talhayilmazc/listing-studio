@@ -5,6 +5,7 @@ import type {
   UnfinishedDraft,
   MockupAdjustmentRow,
   MockupDesign,
+  MockupPlan,
   MockupEdits,
   MockupRecolourRow,
   SubgroupPreset,
@@ -453,7 +454,7 @@ export const api = {
     id: string,
     body: {
       name?: string; size?: number; fold_strength?: number; occlusion?: boolean; view?: "front" | "back"; template_id?: string;
-      layout?: "single" | "front_back" | "several"; subgroup_id?: string;
+      layout?: "single" | "front_back" | "several"; subgroup_id?: string; colour?: "light" | "dark";
     },
   ) => req<MockupPhoto>(`/mockup-photos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   /** The editor's print areas; confirm = "Looks right". */
@@ -533,6 +534,17 @@ export const api = {
   removeDesignBack: (id: string) => req<MockupDesign>(`/mockup-designs/${id}/back`, { method: "DELETE" }),
   updateMockupDesign: (id: string, sku: string | null) =>
     req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ sku }) }),
+  /** "Use this design on the other group too" (only one light/dark variant uploaded). */
+  setDesignFillOther: (id: string, fill_other: boolean) =>
+    req<MockupDesign>(`/mockup-designs/${id}`, { method: "PATCH", body: JSON.stringify({ fill_other }) }),
+  variantSetting: () => req<{ variant_suffix: "shirt" | "ink" }>("/mockup-settings"),
+  setVariantSetting: (variant_suffix: "shirt" | "ink") =>
+    req<{ variant_suffix: "shirt" | "ink" }>("/mockup-settings", { method: "PUT", body: JSON.stringify({ variant_suffix }) }),
+  /** Which design file goes on which photos of the chosen templates, before anything is made. */
+  mockupPlan: (batchId: string, templateIds: string[], sides: "front" | "back" | "both", designIds?: string[] | null) =>
+    req<MockupPlan>(`/batches/${batchId}/mockups/plan`, {
+      method: "POST", body: JSON.stringify({ template_ids: templateIds, sides, design_ids: designIds ?? null }),
+    }),
   /** Delete a design and its files ("onlyFile": just its own file; a version then takes its place). */
   deleteMockupDesign: (id: string, onlyFile = false) =>
     req<{ deleted: boolean; design: MockupDesign | null }>(`/mockup-designs/${id}${onlyFile ? "?only_file=true" : ""}`, { method: "DELETE" }),

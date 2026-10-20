@@ -782,6 +782,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     redetect.add_argument("--apply", action="store_true", help="analyse them (default: only count)")
     redetect.add_argument("--email", default=None, help="only this account's photos")
+    colours = sub.add_parser(
+        "mockup-colours",
+        help="template photos without a light/dark colour group (design variants): measure them; --apply",
+    )
+    colours.add_argument("--apply", action="store_true", help="measure them (default: only count)")
+    colours.add_argument("--email", default=None, help="only this account's photos")
     single = sub.add_parser(
         "mockup-single-area",
         help="waiting template photos with several suggested areas: keep the main garment's (confirmed untouched); --apply",
@@ -882,6 +888,11 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.mockup_redetect import run as redetect_run
 
         print(asyncio.run(redetect_run(sm, get_storage(), apply=args.apply, email=args.email)))
+    elif args.command == "mockup-colours":
+        from app.api.deps import get_storage
+        from app.ops.mockup_colours import run as colours_run
+
+        print(asyncio.run(colours_run(sm, get_storage(), apply=args.apply, email=args.email)))
     elif args.command == "mockup-single-area":
         from app.ops.mockup_single_area import run as single_run
 
