@@ -56,6 +56,9 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
     return () => clearTimeout(t);
   }, [moving, items, load]);
 
+  // Every hook before the early return below (a hook after it crashed the page once a seller had
+  // unfinished drafts: React saw more hooks than on the render before).
+  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
   if (!items || items.length === 0) return null;
   const { finish: open, fix, remove } = sections(items);
   const ready = open.filter((i) => i.can_finish);
@@ -95,7 +98,6 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
   }
 
   // The shop's setup opens here, in the same dialog the Profiles page uses.
-  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
   function setUp(item: UnfinishedDraft) {
     if (!item.profile_id) return;
     setError(null);
