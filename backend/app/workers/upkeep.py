@@ -71,7 +71,8 @@ async def daily_upkeep(ctx: dict[str, Any]) -> dict[str, Any] | None:
             await upload_retention.remember(session, result)
             snapshot = await disk.snapshot(session, storage, redis, fresh=True)
             # One reading a day: the "days until the disk is full" rate (Admin > Usage).
-            growth = disk.forecast(await disk.record_history(session, snapshot, day), snapshot.free_bytes)
+            growth = disk.forecast(await disk.record_history(session, snapshot, day), snapshot.free_bytes,
+                                   (snapshot.docker_parts or {}).get("build_cache"))
     except Exception:
         # Let a later start today try again, and say that today's did not finish.
         await redis.delete(_DONE.format(day=day))

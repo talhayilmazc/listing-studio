@@ -1,7 +1,7 @@
 // Run with: npm test (node's built-in runner; Node 22.6+ strips the types).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DISK_COLORS, FREE_COLOR, percent, segments, size } from "./disk.ts";
+import { DISK_COLORS, FREE_COLOR, percent, segments, size, dockerLine, reclaimNote } from "./disk.ts";
 import type { AdminDisk } from "./types.ts";
 
 const GB = 1024 ** 3;
@@ -47,4 +47,18 @@ test("until the host reports, what cannot be attributed is one segment that says
   // A category measured as empty is left out of the bar; the table still lists it.
   assert.deepEqual(segments(disk({ uploads: 0, derivatives: 2 * GB, database: 0, backups: 0, docker: 8 * GB, other: 11 * GB })).map((s) => s.key), ["derivatives", "docker", "other", "free"]);
   assert.deepEqual(segments(disk({}, { total_bytes: null })), []);
+});
+
+test("days until full says it counts the build cache a deploy gives back, and the figure without", () => {
+  const GB = 1024 ** 3;
+  assert.equal(reclaimNote({ reclaimable_bytes: 6 * GB, reclaim_below_gb: 12, days_until_full_without_reclaim: 3.6 }),
+    "Counts the 6.0 GB build cache as space a deploy gives back: deploy/update.sh clears it whenever less than 12 GB is free. Without a deploy: 3 days.");
+  assert.equal(reclaimNote({ reclaimable_bytes: null }), null);
+});
+
+test("Docker's parts, as docker system df counts them", () => {
+  const GB = 1024 ** 3;
+  assert.equal(dockerLine({ images: 3.3 * GB, build_cache: 6 * GB, containers: 52 * 1024 ** 2, logs: 4 * 1024 ** 2 }),
+    "Docker: images 3.3 GB · build cache 6.0 GB · containers 52 MB · logs 4 MB (as docker system df counts them; not the volumes).");
+  assert.equal(dockerLine(null), null);
 });

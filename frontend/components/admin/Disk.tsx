@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { DISK_COLORS, percent, segments, size } from "@/lib/disk";
+import { DISK_COLORS, dockerLine, percent, reclaimNote, segments, size } from "@/lib/disk";
 import type { AdminDisk } from "@/lib/types";
 
 import { Txt } from "@/components/Txt";
@@ -64,10 +64,13 @@ export function DiskPanel({ disk, onChanged, onError }: { disk: AdminDisk | null
               ? "Needs two daily readings (taken by the daily cleanup)"
               : disk.growth_per_day <= 0
                 ? `Not filling over the last ${disk.growth_basis_days} days`
-                : `At ${size(disk.growth_per_day)} a day (last ${disk.growth_basis_days} days; uploads ${size(Math.max(0, disk.storage_growth_per_day ?? 0))} a day)`
+                : `At ${size(disk.growth_per_day)} a day that stays (last ${disk.growth_basis_days} days; uploads ${size(Math.max(0, disk.storage_growth_per_day ?? 0))} a day)`
           }
         />
       </dl>
+      {reclaimNote(disk) && (
+        <p key="reclaim" className="mt-2 text-xs text-slate-600" data-testid="disk-reclaim">{reclaimNote(disk)}</p>
+      )}
 
       <AccountsTable disk={disk} />
 
@@ -145,6 +148,9 @@ export function DiskPanel({ disk, onChanged, onError }: { disk: AdminDisk | null
           </tfoot>
         </table>
       </div>
+      {dockerLine(disk.docker_parts) && (
+        <p key="docker" className="mt-2 text-xs text-slate-600" data-testid="disk-docker">{dockerLine(disk.docker_parts)}</p>
+      )}
 
       <p className={"mt-3 text-xs " + (disk.host_fresh ? "text-slate-500" : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800")}>
         {disk.host_fresh && disk.host_reported_at ? (

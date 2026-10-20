@@ -237,13 +237,18 @@ refuses to run without `--i-understand-this-replaces-production`.
   refuses at 90%. Build cache older than a week is pruned by cron every Sunday.
   The same hourly run measures what the app cannot see from inside its
   containers (the backups, and Docker's images, build cache, container layers
-  and logs) and leaves the two sizes in Redis for the admin panel. It also
+  and logs, the way `docker system df` counts them: `deploy/docker-usage.sh`;
+  with the containerd image store the images live under /var/lib/containerd, so
+  measuring /var/lib/docker alone saw almost nothing) and leaves the sizes in
+  Redis for the admin panel. It also
   measures the uploads volume (`STORAGE_VOLUME`, `listyro_storage_data`) and
   alerts, at most once a day, when it grew more than `STORAGE_GROWTH_ALERT_GB`
   (1) since the reading a day earlier (`deploy/storage-growth.sh`; readings in
   `STORAGE_STATE`, `/var/lib/listyro/storage-size.log`, three days kept).
 - **How fast it fills.** Admin → Usage → Disk shows "days until the disk is
-  full" at the last seven days' rate (one reading a day, taken by the daily
+  full" (counting the build cache as space a deploy gives back: `update.sh`
+  clears it below `DEPLOY_RECLAIM_BELOW_GB` free; the figure without that is
+  shown too) at the last seven days' rate (one reading a day, taken by the daily
   cleanup) and the stored image files of each account against its cap (5 GB by
   default; an admin sets an account's own cap on the Users tab). The daily
   summary says the same.

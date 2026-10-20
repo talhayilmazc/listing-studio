@@ -7,10 +7,11 @@
 # which ntfy.sh, healthchecks.io and most chat webhooks accept.
 #
 # It also measures what the app's containers cannot see: how much the backups and
-# Docker itself (images, build cache, container layers and logs; not the
-# volumes) take. The two sizes are left in Redis under "ops:disk" for four hours,
-# where Admin > Usage and the daily summary read them (backend/app/core/disk.py).
-# Sizes only.
+# Docker itself take: images (with the containerd image store their snapshots live under
+# /var/lib/containerd, not Docker's root directory), build cache, container layers and logs,
+# the way `docker system df` counts them (deploy/docker-usage.sh); not the volumes. The sizes
+# are left in Redis under "ops:disk" for four hours, where Admin > Usage and the daily summary
+# read them (backend/app/core/disk.py). Sizes only.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,21 +29,22 @@ STORAGE_VOLUME="${STORAGE_VOLUME:-listyro_storage_data}"
 STORAGE_STATE="${STORAGE_STATE:-/var/lib/listyro/storage-size.log}"
 # shellcheck source=deploy/storage-growth.sh
 . "$(dirname "$0")/storage-growth.sh"
+# shellcheck source=deploy/docker-usage.sh
+. "$(dirname "$0")/docker-usage.sh"
 
 report_usage() {
-  local root backups all volumes docker_bytes
-  root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)"
-  [ -n "$root" ] && [ -d "$root" ] || return 1
+  local backups df parts logs docker_bytes
+  df="$(docker system df --format '{{.Type}}	{{.Size}}' 2>/dev/null)" || return 1
+  [ -n "$df" ] || return 1
   backups="$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1)"
-  # -x: the containers' merged views are mounts of their own, not more data.
-  all="$(du -sxb "$root" 2>/dev/null | cut -f1)"
-  volumes="$(du -sxb "$root/volumes" 2>/dev/null | cut -f1)"
   backups="${backups:-0}"
-  docker_bytes=$(( ${all:-0} - ${volumes:-0} ))
-  [ "$docker_bytes" -ge 0 ] || docker_bytes=0
-  printf '{"at":%s,"backups_bytes":%s,"docker_bytes":%s}' "$(date +%s)" "$backups" "$docker_bytes" \
+  parts="$(printf '%s\n' "$df" | docker_df_json)"
+  logs="$(docker_logs_bytes)"
+  docker_bytes="$(docker_total "$parts" "$logs")"
+  printf '{"at":%s,"backups_bytes":%s,"docker_bytes":%s,"docker":%s}' "$(date +%s)" "$backups" "$docker_bytes" \
+    "$(docker_parts_json "$parts" "$logs")" \
     | docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli -x SETEX ops:disk 14400 >/dev/null
-  echo "in use: backups $(( backups / 1048576 )) MB, Docker without its volumes $(( docker_bytes / 1048576 )) MB"
+  echo "in use: backups $(( backups / 1048576 )) MB, Docker $(( docker_bytes / 1048576 )) MB ($parts, logs $logs bytes)"
 }
 # Before the alert below: a webhook that cannot be reached must not cost the report.
 report_usage || echo "disk report could not be written: Admin > Usage will show backups and Docker as unknown" >&2

@@ -944,6 +944,12 @@ export interface AdminDisk {
   growth_per_day: number | null;
   storage_growth_per_day: number | null;
   days_until_full: number | null;
+  /** Without the deploy clearing the build cache; the build cache counted as space a deploy gives
+   *  back (deploy/update.sh clears it below ``reclaim_below_gb`` free); Docker's parts. */
+  days_until_full_without_reclaim?: number | null;
+  reclaimable_bytes?: number | null;
+  reclaim_below_gb?: number;
+  docker_parts?: { images?: number; containers?: number; build_cache?: number; logs?: number } | null;
   growth_basis_days: number;
 }
 

@@ -1224,6 +1224,13 @@ class DiskOut(BaseModel):
     storage_growth_per_day: float | None = None
     days_until_full: float | None = None
     growth_basis_days: int = 0
+    #: Days until full if no deploy cleared the build cache, the build cache counted as space a
+    #: deploy gives back (deploy/update.sh clears it below ``reclaim_below_gb`` free), and
+    #: Docker's parts as measured (images, containers, build_cache, logs).
+    days_until_full_without_reclaim: float | None = None
+    reclaimable_bytes: int | None = None
+    reclaim_below_gb: int = disk.RECLAIM_BELOW_GB
+    docker_parts: dict[str, int] | None = None
 
 
 class AccountStorage(BaseModel):
@@ -1257,7 +1264,7 @@ async def disk_usage(
     """What is using the server's disk, by category, and what upload retention
     last freed. Sizes and counts only: no file, no name, no seller."""
     snapshot = await disk.snapshot(session, storage, redis)
-    growth = disk.forecast(await disk.history(session), snapshot.free_bytes)
+    growth = disk.forecast(await disk.history(session), snapshot.free_bytes, (snapshot.docker_parts or {}).get("build_cache"))
     last = await upload_retention.last(session)
     run = None
     if last:
@@ -1284,6 +1291,9 @@ async def disk_usage(
         storage_growth_per_day=growth.storage_per_day,
         days_until_full=growth.days_left,
         growth_basis_days=growth.basis_days,
+        days_until_full_without_reclaim=growth.days_left_without_reclaim,
+        reclaimable_bytes=growth.reclaimable,
+        docker_parts=snapshot.docker_parts,
     )
 
 

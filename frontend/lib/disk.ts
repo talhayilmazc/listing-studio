@@ -6,6 +6,25 @@ import type { AdminDisk } from "./types";
  */
 
 /** Bytes as a person reads them: "412 MB", "6.1 GB"; unknown is a dash. */
+/** What "days until the disk is full" counts, in one sentence (null: nothing to say). */
+export function reclaimNote(disk: {
+  reclaimable_bytes?: number | null; reclaim_below_gb?: number; days_until_full_without_reclaim?: number | null;
+}): string | null {
+  if (!disk.reclaimable_bytes) return null;
+  const without = disk.days_until_full_without_reclaim;
+  return `Counts the ${size(disk.reclaimable_bytes)} build cache as space a deploy gives back: deploy/update.sh clears it whenever less than ${disk.reclaim_below_gb ?? 12} GB is free.` +
+    (without !== null && without !== undefined ? ` Without a deploy: ${Math.floor(without)} days.` : "");
+}
+
+/** Docker's parts as docker system df counts them, in one line (null: not measured). */
+export function dockerLine(parts: { images?: number; containers?: number; build_cache?: number; logs?: number } | null | undefined): string | null {
+  if (!parts) return null;
+  const bits = [
+    ["images", parts.images], ["build cache", parts.build_cache], ["containers", parts.containers], ["logs", parts.logs],
+  ].filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${size(v as number)}`);
+  return bits.length ? `Docker: ${bits.join(" · ")} (as docker system df counts them; not the volumes).` : null;
+}
+
 export function size(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return "—";
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
