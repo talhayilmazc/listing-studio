@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { BATCH_STATUSES, counts, matches, parseStatuses, statusParam, withStatuses } from "./batchStatus.ts";
+import { BATCH_STATUSES, HEADLINE, counts, headline, matches, parseStatuses, statusParam, withStatuses } from "./batchStatus.ts";
 import { STORE_KEY, designAnchor, readRuns, readyLine, resultsHref, watch, writeRuns } from "./mockupRuns.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
@@ -16,6 +16,19 @@ test("every status the server knows is offered, in the same order", () => {
   const server = /STATUSES: tuple\[str, \.\.\.\] = \(([^)]*)\)/s.exec(BACKEND_STATUSES)![1].match(/"([a-z_]+)"/g)!.map((s) => s.slice(1, -1));
   assert.deepEqual(BATCH_STATUSES.map((s) => s.key), server);
   for (const k of ["published", "scheduled", "drafted", "deleted", "failed", "half_made"]) assert.ok(server.includes(k), k);
+});
+
+test("every batch badge shows the same headline status as the server, in the same priority", () => {
+  const server = /HEADLINE: tuple\[str, \.\.\.\] = \(([^)]*)\)/s.exec(BACKEND_STATUSES)![1].match(/"([a-z_]+)"/g)!.map((s) => s.slice(1, -1));
+  assert.deepEqual([...HEADLINE], server);
+  assert.equal(headline(["drafted", "partly_published", "half_made"])?.label, "Half-made"); // what needs the seller first
+  assert.equal(headline(["published"])?.label, "Published");
+  assert.equal(headline([]), null);
+  // The three places a batch's status is shown use the one badge, not the upload's own state.
+  for (const page of ["app/(app)/batches/page.tsx", "app/(app)/batches/[id]/page.tsx", "app/(app)/dashboard/page.tsx"]) {
+    assert.match(read(page), /<BatchStatusBadge statuses=\{batch\.statuses\} \/>/, page);
+    assert.doesNotMatch(read(page), /<StatusPill status=\{batch\.status\} \/>/, page);
+  }
 });
 
 test("several statuses at once, kept in the URL, unknown ones ignored", () => {

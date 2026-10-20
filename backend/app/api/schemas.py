@@ -47,8 +47,10 @@ class AssetOut(BaseModel):
 class BatchSummary(BaseModel):
     id: uuid.UUID
     status: str
-    #: Every status the batch is in, for the Batches page's filter (pipeline/batch_status.py).
+    #: Every status the batch is in (pipeline/batch_status.py, the one definition): the Batches
+    #: filter, and ``headline``, the one every badge shows (Batches, the batch page, Overview).
     statuses: list[str] = Field(default_factory=list)
+    headline: str | None = None
     file_count: int
     created_at: datetime
     asset_count: int

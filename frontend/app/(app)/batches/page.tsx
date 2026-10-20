@@ -7,7 +7,7 @@ import { ShopBadge } from "@/components/ShopPicker";
 import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
 import { showable } from "@/lib/types";
-import { StatusPill } from "@/components/StatusPill";
+import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { relativeTime } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
 import { DeleteBatches } from "@/components/DeleteBatches";
@@ -350,7 +350,7 @@ function BatchCard({
           <h2 translate="no" className="min-w-0 flex-1 truncate font-display text-lg leading-tight text-slate-900" title={batch.name}>
             {batch.name || title}
           </h2>
-          <StatusPill status={batch.status} />
+          <BatchStatusBadge statuses={batch.statuses} />
         </div>
 
         {(batch.shop_names ?? []).length > 0 && (

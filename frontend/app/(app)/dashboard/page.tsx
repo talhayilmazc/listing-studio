@@ -18,6 +18,7 @@ import { showable } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
 import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
+import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
@@ -504,7 +505,7 @@ function ActivityRow({
             <span className="truncate font-medium text-slate-900 group-hover:text-brand-700">
               {title}
             </span>
-            <StatusPill status={batch.status} />
+            <BatchStatusBadge statuses={batch.statuses} />
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
             <span translate="no" className="tabular-nums">{batch.asset_count}</span> files ·{" "}

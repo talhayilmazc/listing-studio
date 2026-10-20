@@ -9,7 +9,7 @@ import { GroupingBoard } from "@/components/GroupingBoard";
 import { SkuEditor } from "@/components/SkuEditor";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
-import { StatusPill } from "@/components/StatusPill";
+import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { ProfilePicker } from "@/components/ProfilePicker";
 import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
 import { BatchName } from "@/components/BatchName";
@@ -378,7 +378,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             <BatchName batch={batch} onRenamed={(updated) => setBatch((cur) => (cur ? { ...cur, ...updated } : cur))} />
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <StatusPill status={batch.status} />
+            <BatchStatusBadge statuses={batch.statuses} />
             {(batch.shop_names ?? []).map((name) => (
               <ShopBadge key={name} name={name} />
             ))}

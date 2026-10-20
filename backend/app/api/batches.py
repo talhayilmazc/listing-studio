@@ -407,8 +407,9 @@ async def batch_summary(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchSummary:
-    """The batch without its files: its name, shop and counts (page headers)."""
-    return await _summary(session, await _get_batch(session, tenant, batch_id))
+    """The batch without its files: its name, shop, counts and statuses (page headers)."""
+    batch = await _get_batch(session, tenant, batch_id)
+    return await _with_statuses(session, tenant, batch, await _summary(session, batch))
 
 
 # --- Reading batches --------------------------------------------------------
@@ -417,7 +418,7 @@ async def list_batches(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.BatchSummary]:
-    from app.pipeline.batch_status import batch_statuses
+    from app.pipeline.batch_status import batch_statuses, headline
 
     batches = list((await session.execute(
         select(UploadBatch)
@@ -429,8 +430,18 @@ async def list_batches(
     for b in batches:
         summary = await _summary(session, b)
         summary.statuses = statuses.get(b.id, [])
+        summary.headline = headline(summary.statuses)
         out.append(summary)
     return out
+
+
+async def _with_statuses(session: AsyncSession, tenant: Tenant, batch: UploadBatch, summary: Any) -> Any:
+    """The batch's statuses and badge, the same as on the Batches page."""
+    from app.pipeline.batch_status import batch_statuses, headline
+
+    summary.statuses = (await batch_statuses(session, tenant.id, [batch])).get(batch.id, [])
+    summary.headline = headline(summary.statuses)
+    return summary
 
 
 @router.get("/batches/{batch_id}", response_model=schemas.BatchDetail)
@@ -440,7 +451,7 @@ async def get_batch(
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     batch = await _get_batch(session, tenant, batch_id)
-    summary = await _summary(session, batch)
+    summary = await _with_statuses(session, tenant, batch, await _summary(session, batch))
     with_content = await _content_asset_ids(session, batch_id)
     rows = await session.execute(
         select(Asset).where(Asset.batch_id == batch_id).order_by(Asset.rank)

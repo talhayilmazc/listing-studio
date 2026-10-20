@@ -90,19 +90,21 @@ async def test_every_status_a_batch_can_be_in_several_at_once(world) -> None:  #
                       payload={"content_id": str(c.id)}, last_error=err, finished_at=NOW))
         await s.commit()
         got = await batch_statuses(s, alice, [live, later, draft, empty, uploading, designs, broken, half])
-    assert got[live.id] == ["in_review", "published"]
-    # (S2's draft was deleted on Etsy and it has no other: it is back in review.)
-    assert got[later.id] == ["in_review", "scheduled", "deleted"]
+    # One listing of two live: partly published (pipeline/batch_status.py; tests/test_batch_statuses.py
+    # has every status in two shops), the other approved with nothing on Etsy.
+    assert got[live.id] == ["approved", "partly_published"]
+    # (S2's draft was deleted on Etsy and it has no other: it is back to approved, not drafted.)
+    assert got[later.id] == ["approved", "scheduled", "deleted"]
     assert got[draft.id] == ["drafted"]
     assert got[empty.id] == ["not_written"]
     assert got[uploading.id] == ["uploading"]
     assert got[designs.id] == ["not_written"]  # a mockup batch with its designs in is not "uploading"
     assert got[broken.id] == ["failed"]
-    assert set(got[half.id]) >= {"half_made", "failed", "in_review"}
-    assert set().union(*got.values()) == set(STATUSES)  # every status the app has shows up somewhere
+    assert set(got[half.id]) == {"half_made", "failed"}
+    assert set().union(*got.values()) <= set(STATUSES)
     # The list endpoint carries them; another account sees none of these batches.
     listed = {b["id"]: b["statuses"] for b in (await world["a"].get("/api/batches")).json()}
-    assert listed[str(live.id)] == ["in_review", "published"]
+    assert listed[str(live.id)] == ["approved", "partly_published"]
     theirs = {x["id"] for x in (await world["b"].get("/api/batches")).json()}
     assert str(live.id) not in theirs and str(half.id) not in theirs
 

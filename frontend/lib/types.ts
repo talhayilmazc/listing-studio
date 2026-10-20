@@ -34,6 +34,8 @@ export interface BatchSummary {
   status: BatchStatus;
   /** Every status the batch is in (lib/batchStatus.ts; backend pipeline/batch_status.py). */
   statuses?: string[];
+  /** The one status every badge shows (backend pipeline/batch_status.py::headline). */
+  headline?: string | null;
   file_count: number;
   created_at: string;
   asset_count: number;
