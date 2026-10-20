@@ -167,13 +167,34 @@ def _match(rows: list[dict[str, Any]], resource: str, same: Any) -> tuple[int | 
     return None, AMBIGUOUS if hits else NOT_FOUND
 
 
-REGIONS = {"eu": "the EU", "non_eu": "Europe outside the EU", "none": "everywhere else"}
+#: Etsy's regions (createShopShippingProfile, createShopShippingProfileDestination:
+#: ``destination_region`` enum ``eu``, ``non_eu``, ``none``). ``none`` is *not* a region: it
+#: means "use destination_country_iso". A create call carrying ``destination_region=none``
+#: without a country is refused with "You must provide either a destination_country_iso code
+#: or a destination_region." (production, OPA -> PCS: Etsy lists "everywhere else" as country
+#: "" + region "none", and that destination went first into the create call).
+REGIONS = {"eu": "the EU", "non_eu": "Europe outside the EU"}
+EVERYWHERE = "everywhere else"
+#: A profile Etsy's create call cannot express: it needs a country or a region, and
+#: "everywhere else" is neither (it can only be added afterwards, by naming neither).
+EVERYWHERE_ONLY = ("Etsy's API cannot create a shipping profile whose only destination is \"everywhere else\" "
+                   "(its create call needs a country, the EU or Europe outside the EU); create it in this shop's "
+                   "Shop Manager, then press Refresh and pick it")
+NO_DESTINATION = ("the main shop's shipping profile has no destination to copy; create it in this shop's Shop "
+                  "Manager, then press Refresh and pick it")
+
+
+def is_everywhere(d: dict[str, Any]) -> bool:
+    """Etsy's "everywhere else" destination: no country and no region (region "none")."""
+    return not (d.get("destination_country_iso") or None) and str(d.get("destination_region") or "").lower() not in REGIONS
 
 
 def where_of(d: dict[str, Any]) -> str:
     """A destination as the seller knows it: "US", "the EU", "everywhere else"."""
     country = d.get("destination_country_iso") or None
-    return str(country) if country else REGIONS.get(str(d.get("destination_region") or "none"), "everywhere else")
+    if country:
+        return str(country)
+    return REGIONS.get(str(d.get("destination_region") or "").lower(), EVERYWHERE)
 
 
 def delivery(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -197,24 +218,49 @@ def delivery(row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def destination_target(d: dict[str, Any]) -> dict[str, Any]:
-    """A country *or* a region, never both (Etsy: one of the two)."""
+    """A country *or* a region (``eu``/``non_eu``), never both, never ``none``; for
+    "everywhere else", neither: createShopShippingProfileDestination reads a destination
+    with neither as "everywhere" (Etsy's spec). Only a destination with a country or a
+    region can go in the create call (``create_order``)."""
     country = d.get("destination_country_iso") or None
     if country:
-        return {"destination_country_iso": str(country)}
-    region = str(d.get("destination_region") or "none")
-    return {"destination_region": region if region in REGIONS else "none"}
+        return {"destination_country_iso": str(country).upper()}
+    region = str(d.get("destination_region") or "").lower()
+    return {"destination_region": region} if region in REGIONS else {}
+
+
+def create_order(origin: str | None) -> Any:
+    """The order destinations are sent in: the ship-from country first (it goes in the create
+    call), then other countries, then the EU / Europe outside the EU, "everywhere else" last."""
+    def key(d: dict[str, Any]) -> int:
+        country = d.get("destination_country_iso") or None
+        if country:
+            return 0 if origin and str(country).upper() == str(origin).upper() else 1
+        return 3 if is_everywhere(d) else 2
+    return key
+
+
+def copy_problem(source: dict[str, Any]) -> str | None:
+    """Why Etsy's create call cannot take a copy of this shipping profile, if it cannot."""
+    destinations = source.get("shipping_profile_destinations") or []
+    if not destinations:
+        return NO_DESTINATION
+    if all(is_everywhere(d) for d in destinations):
+        return EVERYWHERE_ONLY
+    return None
 
 
 def shipping_copy(source: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     """createShopShippingProfile's payload for a copy, plus the destinations and
-    upgrades to add after it. The first destination goes in the create call: a
-    country's (the ship-from country's first) when there is one, so the create
-    call never carries the "everywhere else" region on its own."""
+    upgrades to add after it. The first destination goes in the create call, and it
+    always names a country or a region (``create_order``); "everywhere else" is added
+    afterwards, naming neither. A profile ``copy_problem`` refuses raises ValueError
+    (``plan_resource`` never offers such a copy)."""
+    problem = copy_problem(source)
+    if problem:
+        raise ValueError(problem)
     origin = source.get("origin_country_iso")
-    destinations = sorted(
-        source.get("shipping_profile_destinations") or [],
-        key=lambda d: (not d.get("destination_country_iso"), d.get("destination_country_iso") != origin),
-    )
+    destinations = sorted(source.get("shipping_profile_destinations") or [], key=create_order(origin))
 
     def dest(d: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -225,9 +271,9 @@ def shipping_copy(source: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str
             "label": where_of(d),
         }
 
-    first = dest(destinations[0]) if destinations else {"primary_cost": 0.0, "secondary_cost": 0.0,
-                                                         "destination_region": "none", "label": "everywhere else"}
+    first = dest(destinations[0])
     first.pop("label")
+    assert "destination_country_iso" in first or "destination_region" in first  # copy_problem guarantees it
     profile = {
         "title": source.get("title"),
         "origin_country_iso": origin,
@@ -287,6 +333,11 @@ FIELD_WORDS: dict[str, str] = {
 }
 _FIELD = re.compile(r"\b(" + "|".join(sorted(FIELD_WORDS, key=len, reverse=True)) + r")\b")
 _PERMISSION = re.compile(r"scope|permission|not allowed|forbidden|unauthori[sz]ed", re.IGNORECASE)
+#: Etsy's refusal of a destination naming neither a country nor a region ("You must provide
+#: either a destination_country_iso code or a destination_region."): the request's shape, not
+#: anything on the seller's profile, so the seller is not asked to change a field.
+_NO_TARGET = re.compile(r"destination_country_iso.*destination_region|destination_region.*destination_country_iso",
+                        re.IGNORECASE)
 #: Where each setting lives in Shop Manager.
 WHERE = {SHIPPING: "Settings → Shipping settings", RETURNS: "Settings → Policies",
          READINESS: "Settings → Shipping settings → Processing profiles"}
@@ -338,6 +389,10 @@ def create_failure(
                 "reason": f"Etsy did not answer properly{f' (it answered {status})' if status else ''}; it may have "
                           f"made the copy anyway. Press Refresh: if it is in {here} it is picked up, otherwise "
                           f"confirm the copy again."}
+    if detail and _NO_TARGET.search(detail):
+        return {"action": "manual", "field": None, "status": status,
+                "reason": f"Etsy refused the copy of {what} because the copy did not name a destination country or "
+                          f"region{said}. {then_pick[0].upper()}{then_pick[1:]}."}
     if status in (401, 403) or (detail and _PERMISSION.search(detail) and not field):
         return {"action": "reconnect", "field": None, "status": status,
                 "reason": f"Etsy refused it{said}. {here} has not given Listyro permission to change its shop "
@@ -396,6 +451,9 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
     if resource == SHIPPING:
         if row.get("profile_type") == "calculated":
             return Outcome(resource, reason=CALCULATED, options=options, source_label=source_label)
+        problem = copy_problem(row)
+        if problem:  # Etsy's create call cannot take it: the seller picks one of this shop's
+            return Outcome(resource, reason=problem, options=options, source_label=source_label)
         profile, destinations, upgrades = shipping_copy(row)
         return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, source_label=source_label,
                        create={"profile": profile, "destinations": destinations, "upgrades": upgrades},

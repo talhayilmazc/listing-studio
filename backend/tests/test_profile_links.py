@@ -126,6 +126,9 @@ class FakeShops:
         self.next_id = 50_000
         #: (shop id, what) -> the refusal Etsy answers that create with (tests/test_shop_setup_errors.py).
         self.fail: dict[tuple[int, str], BaseException] = {}
+        #: Called with (what, data) before a create: tests/test_shop_setup_errors.py checks
+        #: each request against Etsy's rules there.
+        self.check: Any = None
 
     def for_shop(self, shop_id: int) -> Any:
         fake = self
@@ -150,6 +153,8 @@ class FakeShops:
                 refusal = fake.fail.get((sid, what))
                 if refusal is not None:
                     raise refusal
+                if fake.check is not None:
+                    fake.check(what, data)
                 fake.next_id += 1
                 fake.created.append((sid, what, data))
                 row = {key: fake.next_id, **data}

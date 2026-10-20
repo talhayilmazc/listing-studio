@@ -186,6 +186,9 @@ async def callback(
     from app.api.shop import SUMMARY_SYNC_EVERY_SECONDS, mark_reading
 
     await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+    # The per-state counts on their own as well (one request per state): they arrive in
+    # seconds even when the full read of a large shop takes longer or is cut short.
+    await enqueuer.enqueue("sync_shop_counts", str(connection.id))
     marker, now = mark_reading(connection.id)
     await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
     return _redirect(f"{back}?status=connected&shop={connection.id}")

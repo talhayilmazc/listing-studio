@@ -328,6 +328,7 @@ async def test_a_shop_just_connected_is_read_at_once_and_its_counts_say_reading_
     cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
     shop = parse_qs(urlparse(cb.headers["location"]).query)["shop"][0]
     assert ("sync_shop_listings", (shop,)) in auth_client.queued  # type: ignore[attr-defined]
+    assert ("sync_shop_counts", (shop,)) in auth_client.queued  # type: ignore[attr-defined]
     assert await auth_client.redis.get(f"summary-sync:{shop}") is not None  # type: ignore[attr-defined]
 
     summary = (await auth_client.get(f"/api/shop/summary?shop={shop}")).json()
@@ -335,7 +336,8 @@ async def test_a_shop_just_connected_is_read_at_once_and_its_counts_say_reading_
     overview = (await auth_client.get("/api/shop/overview")).json()
     assert overview["shops"][0]["summary"]["syncing"] is True and overview["total"]["shop_counts_known"] is False
     # The read already queued is the one: the summary queues no second.
-    assert [c[0] for c in auth_client.queued] == ["sync_shop_listings"]  # type: ignore[attr-defined]
+    assert [c for c in auth_client.queued] == [  # type: ignore[attr-defined]
+        ("sync_shop_listings", (shop,)), ("sync_shop_counts", (shop,))]
 
 
 async def test_callback_rejects_unknown_state(auth_client: httpx.AsyncClient) -> None:

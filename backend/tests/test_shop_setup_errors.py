@@ -69,10 +69,11 @@ def test_the_copy_never_sends_both_forms_and_never_both_destination_targets() ->
     assert profile["shipping_carrier_id"] == 1 and profile["mail_class"] == "usps_ground"
     assert "min_delivery_days" not in profile and "max_delivery_days" not in profile
     sent = [L.send(d) for d in destinations]
-    assert [d.get("destination_country_iso") or d.get("destination_region") for d in sent] == ["none", "eu"]
-    assert all(not ("destination_country_iso" in d and "destination_region" in d) for d in sent)
+    # The EU names its region; "everywhere else" names neither (never region "none"), and goes last.
+    assert [{k: v for k, v in d.items() if k.startswith("destination_")} for d in sent] == [
+        {"destination_region": "eu"}, {}]
     assert all(not ("mail_class" in d and "min_delivery_days" in d) for d in sent)
-    assert [d["label"] for d in destinations] == ["everywhere else", "the EU"]
+    assert [d["label"] for d in destinations] == ["the EU", "everywhere else"]
     assert L.send(upgrades[0]) == {"type": 1, "upgrade_name": "Express", "price": 9.0, "secondary_price": 0.0,
                                    "shipping_carrier_id": 1, "mail_class": "usps_priority"}
 
