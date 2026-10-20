@@ -226,7 +226,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
 
       {sync.state !== "none" && sync.state !== "estimating" && !confirming && (
         <div key="delete" className="border-t border-slate-100 pt-2">
-          <button type="button" className="btn-secondary min-h-11 text-rose-700" onClick={() => setConfirming(true)} disabled={busy}
+          <button type="button" className="btn-danger min-h-11" onClick={() => setConfirming(true)} disabled={busy}
             data-testid="sales-history-delete">
             {DELETE_LABEL}
           </button>

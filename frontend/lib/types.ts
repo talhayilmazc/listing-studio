@@ -738,6 +738,14 @@ export interface ShopListing {
 }
 
 /** Cached listing counts. Reading this never triggers a shop sync. */
+/** What needs the seller now (backend api/attention.py): Overview's block and the sidebar badges. */
+export interface Attention {
+  items: { key: string; label: string; count: number; href: string; nav: string }[];
+  total: number;
+  /** Sidebar entry (its href) -> the count on its badge. */
+  nav: Record<string, number>;
+}
+
 export interface ShopOverviewRow {
   id: string;
   name: string;

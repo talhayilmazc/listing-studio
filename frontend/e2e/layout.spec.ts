@@ -13,6 +13,9 @@
  *   - the Admin tab bar moved while the page loaded: the summary above it grew, and
  *     each tab grew when its count arrived.
  *
+ * Text reads: the sidebar's entries and headings, the body's paragraphs, labels and tables, and
+ * every enabled primary button are at least 4.5:1 against their own background (lowContrast).
+ *
  * The trademark notice is in its places (the box under the home page's call to action, above the fold
  * at 375 and 1366; every footer; beside "Connect a shop"; the Terms) and once in each, never twice.
  *
@@ -242,7 +245,10 @@ test.describe("signed in", () => {
     const { width, height } = page.viewportSize()!;
     const panel = (await editor.locator(":scope > div").boundingBox())!;
     // Full screen on a phone; at least 900 px wide on a desktop, inside the window.
-    if (width < 1024) expect(Math.round(panel.width), "the editor is full width on a phone").toBe(width);
+    // Full width below 1024 px: the whole window on a phone; at 768 px with a desktop scrollbar, the window
+    // less the scrollbar's gutter (html keeps it: scrollbar-gutter: stable), at most 17 px.
+    if (width < 1024) expect(width - Math.round(panel.width), "the editor is full width on a phone or tablet").toBeLessThanOrEqual(17);
+    if (width < 1024) expect(width - Math.round(panel.width)).toBeGreaterThanOrEqual(0);
     else expect(panel.width, "the editor is at least 900 px wide on a desktop").toBeGreaterThanOrEqual(900);
     expect(panel.x).toBeGreaterThanOrEqual(0);
     expect(panel.x + panel.width).toBeLessThanOrEqual(width + 1);
@@ -297,4 +303,79 @@ test.describe("signed in", () => {
     expect((await slot.boundingBox())!.width, "the slot of the pending-requests badge").toBe(width);
     expect(await boxes()).toEqual(loaded);
   });
+  test("the sidebar, body text and primary buttons read at 4.5:1 or more", async ({ page }) => {
+    for (const path of ["/dashboard", "/batches", "/templates", "/profiles"]) {
+      await page.goto(path);
+      await settle(page);
+      const low = await page.evaluate(lowContrast);
+      expect(low, `${path}: text under 4.5:1 (3:1 for large text)`).toEqual([]);
+    }
+  });
 });
+
+/**
+ * Text that reads under WCAG AA on its own background: the sidebar's entries and headings, the
+ * body's paragraphs, labels and table text, and every enabled primary button. Colours are the
+ * computed ones; a background is found by walking up to the first one painted, translucent
+ * washes blended over what is under them. Large text (24 px, or 18.7 px bold) needs 3:1.
+ * Runs in the page; returns "ratio  text  (selector)" for each one that fails.
+ */
+function lowContrast(): string[] {
+  type RGBA = [number, number, number, number];
+  const parse = (c: string): RGBA => {
+    const m = c.match(/rgba?\(([^)]+)\)/);
+    if (!m) return [0, 0, 0, 0];
+    const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
+  };
+  const over = (top: RGBA, under: RGBA): RGBA => {
+    const a = top[3] + under[3] * (1 - top[3]);
+    if (a === 0) return [0, 0, 0, 0];
+    const mix = (i: number) => (top[i] * top[3] + under[i] * under[3] * (1 - top[3])) / a;
+    return [mix(0), mix(1), mix(2), a];
+  };
+  const background = (el: Element | null): RGBA => {
+    const layers: RGBA[] = [];
+    for (let node = el; node; node = node.parentElement) {
+      const bg = parse(getComputedStyle(node).backgroundColor);
+      if (bg[3] > 0) {
+        layers.push(bg);
+        if (bg[3] >= 1) break;
+      }
+    }
+    return layers.reduceRight<RGBA>((under, top) => over(top, under), [255, 255, 255, 1]);
+  };
+  const lum = ([r, g, b]: RGBA) => {
+    const f = (v: number) => {
+      const c = v / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const ratio = (a: RGBA, b: RGBA) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const own = (el: Element) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? "").trim().length > 1);
+  const hidden = (el: Element) => !!el.closest('[aria-hidden="true"], .sr-only, .animate-pulse, [hidden], svg');
+  const targets = [
+    ...document.querySelectorAll("aside nav a, aside nav a *, aside nav p"),
+    ...document.querySelectorAll("main p, main p *, main label, main label *, main td, main th, main dt, main dd, main li"),
+    ...document.querySelectorAll(".btn-primary:not(:disabled), .btn-primary:not(:disabled) *"),
+  ];
+  const out: string[] = [];
+  for (const el of new Set(targets)) {
+    if (!own(el) || hidden(el)) continue;
+    const style = getComputedStyle(el);
+    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+    const bg = background(el);
+    const fg = over(parse(style.color), bg);
+    const size = parseFloat(style.fontSize);
+    const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+    const r = ratio(fg, bg);
+    if (r < (large ? 3 : 4.5)) {
+      out.push(`${r.toFixed(2)}  ${(el.textContent ?? "").trim().slice(0, 40)}  (${el.tagName.toLowerCase()}.${String(el.className).slice(0, 50)})`);
+    }
+  }
+  return out.slice(0, 25);
+}

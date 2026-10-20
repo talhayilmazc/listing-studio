@@ -733,15 +733,15 @@ export function PrintAreaEditor({
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => undo(n))} disabled={!h.past.length} data-testid="editor-undo">Undo</button>
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => redo(n))} disabled={!h.future.length} data-testid="editor-redo">Redo</button>
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={reset} data-testid="editor-reset">Reset</button>
-                <button type="button" className={`min-h-11 px-2 ${tapping ? "btn-primary" : "btn-secondary"}`} aria-pressed={tapping}
+                <button type="button" className={`min-h-11 px-2 ${tapping ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={tapping}
                   onClick={() => { setTapping(!tapping); setNote(null); }} disabled={finding || areas.length >= 24} data-testid="editor-add">
                   Add area
                 </button>
-                <button type="button" className="btn-secondary min-h-11 px-2 text-rose-700" onClick={() => remove(selected)}
+                <button type="button" className="btn-danger min-h-11 px-2" onClick={() => remove(selected)}
                   disabled={areas.length <= 1} data-testid="editor-delete">
                   Delete area
                 </button>
-                <button type="button" className={`min-h-11 px-2 ${free ? "btn-primary" : "btn-secondary"}`} aria-pressed={free} onClick={toggleFree}
+                <button type="button" className={`min-h-11 px-2 ${free ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={free} onClick={toggleFree}
                   data-testid="editor-free">
                   Free corners
                 </button>
@@ -749,24 +749,24 @@ export function PrintAreaEditor({
                   aria-label="Duplicate area" title="Duplicate area" data-testid="editor-duplicate">
                   Duplicate
                 </button>
-                <button type="button" className={`col-span-2 min-h-11 px-2 ${keepRatio ? "btn-primary" : "btn-secondary"}`} aria-pressed={keepRatio}
+                <button type="button" className={`col-span-2 min-h-11 px-2 ${keepRatio ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={keepRatio}
                   onClick={() => setKeepRatio(!keepRatio)} title="Shift switches it while you drag a corner" data-testid="editor-ratio">
                   Keep proportions
                 </button>
-                <button type="button" className={`min-h-11 px-2 ${snapOn ? "btn-primary" : "btn-secondary"}`} aria-pressed={snapOn}
+                <button type="button" className={`min-h-11 px-2 ${snapOn ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={snapOn}
                   onClick={() => setSnapOn(!snapOn)} data-testid="editor-snap">
                   Snap
                 </button>
-                <button type="button" className={`min-h-11 px-2 ${showDesign ? "btn-primary" : "btn-secondary"}`} aria-pressed={showDesign}
+                <button type="button" className={`min-h-11 px-2 ${showDesign ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={showDesign}
                   onClick={() => setShowDesign(!showDesign)} data-testid="editor-preview">
                   Preview
                 </button>
-                <button type="button" className={`min-h-11 px-2 ${fabric ? "btn-primary" : "btn-secondary"}`} aria-pressed={!!fabric} onClick={showFabric}
+                <button type="button" className={`min-h-11 px-2 ${fabric ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={!!fabric} onClick={showFabric}
                   data-testid="editor-fabric">
                   On fabric
                 </button>
                 {areas.length > 1 && (
-                  <button key="print-all" type="button" className={`col-span-3 min-h-11 px-2 ${printAll ? "btn-primary" : "btn-secondary"}`}
+                  <button key="print-all" type="button" className={`col-span-3 min-h-11 px-2 ${printAll ? "btn-secondary btn-on" : "btn-secondary"}`}
                     aria-pressed={printAll} onClick={() => setPrintAll(!printAll)} data-testid="editor-print-all">
                     Print on all garments
                   </button>
@@ -799,7 +799,7 @@ export function PrintAreaEditor({
                   <div key="role" className="col-span-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="This area prints the">
                     {(["front", "back"] as const).map((r) => (
                       <button key={r} type="button" role="radio" aria-checked={sel.role === r}
-                        className={`min-h-11 px-2 ${sel.role === r ? "btn-primary" : "btn-secondary"}`} onClick={() => setRole(r)}
+                        className={`min-h-11 px-2 ${sel.role === r ? "btn-secondary btn-on" : "btn-secondary"}`} onClick={() => setRole(r)}
                         data-testid={`editor-role-${r}`}>
                         {`${ROLE_LABELS[r]} design`}
                       </button>
@@ -825,7 +825,7 @@ export function PrintAreaEditor({
                 )}
                 {photo.has_occluder && (
                   <button key="show-front" type="button" aria-pressed={showFront}
-                    className={`col-span-3 min-h-11 px-2 ${showFront ? "btn-primary" : "btn-secondary"}`}
+                    className={`col-span-3 min-h-11 px-2 ${showFront ? "btn-secondary btn-on" : "btn-secondary"}`}
                     onClick={() => setShowFront(!showFront)} data-testid="editor-show-front">
                     {showFront ? "Hide what is in front" : "Show what is in front"}
                   </button>
@@ -835,7 +835,7 @@ export function PrintAreaEditor({
                   title="Turn the print area to the garment's own angle" data-testid="editor-match-angle">
                   Match garment angle
                 </button>
-                <button type="button" className={`col-span-3 min-h-11 px-2 ${brushing ? "btn-primary" : "btn-secondary"}`} aria-pressed={brushing}
+                <button type="button" className={`col-span-3 min-h-11 px-2 ${brushing ? "btn-secondary btn-on" : "btn-secondary"}`} aria-pressed={brushing}
                   onClick={() => { setBrushing(!brushing); setBrushDirty(false); setTapping(false); }} data-testid="editor-brush">
                   Keep in front
                 </button>
@@ -845,12 +845,12 @@ export function PrintAreaEditor({
                   <p className="text-xs text-slate-600">{BRUSH_HINT}</p>
                   <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Brush">
                     <button type="button" role="radio" aria-checked={brushMode === "front"}
-                      className={`min-h-11 px-2 ${brushMode === "front" ? "btn-primary" : "btn-secondary"}`} onClick={() => setBrushMode("front")}
+                      className={`min-h-11 px-2 ${brushMode === "front" ? "btn-secondary btn-on" : "btn-secondary"}`} onClick={() => setBrushMode("front")}
                       data-testid="editor-brush-paint">
                       Paint
                     </button>
                     <button type="button" role="radio" aria-checked={brushMode === "behind"}
-                      className={`min-h-11 px-2 ${brushMode === "behind" ? "btn-primary" : "btn-secondary"}`} onClick={() => setBrushMode("behind")}
+                      className={`min-h-11 px-2 ${brushMode === "behind" ? "btn-secondary btn-on" : "btn-secondary"}`} onClick={() => setBrushMode("behind")}
                       data-testid="editor-brush-erase">
                       Erase
                     </button>

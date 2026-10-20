@@ -57,7 +57,7 @@ export function PresetsManager({ presets, onChange }: { presets: SubgroupPreset[
                 <span className="text-xs text-slate-500" translate="no">
                   {[USE_ON_LABELS[p.use_on as keyof typeof USE_ON_LABELS] ?? "", p.suffix ? `suffix ${p.suffix}` : ""].filter(Boolean).join(" · ")}
                 </span>
-                <button type="button" className="btn-secondary min-h-11 px-3 text-xs text-rose-700" onClick={() => remove(p)}>Remove</button>
+                <button type="button" className="btn-danger min-h-11 px-3 text-xs" onClick={() => remove(p)}>Remove</button>
               </li>
             ))}
           </ul>

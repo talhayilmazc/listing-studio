@@ -215,7 +215,7 @@ export function GroupingBoard({
               </form>
               <button
                 type="button"
-                className="btn-secondary border-rose-200 px-3 py-1.5 text-xs text-rose-700"
+                className="btn-danger px-3 py-1.5 text-xs"
                 onClick={() => setDeleting(true)}
                 disabled={busy}
               >

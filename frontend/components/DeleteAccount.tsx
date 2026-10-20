@@ -49,7 +49,7 @@ export function DeleteAccount() {
         </p>
       </div>
       {!open ? (
-        <button key="open" type="button" className="btn-secondary border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-50" onClick={() => setOpen(true)}>
+        <button key="open" type="button" className="btn-danger" onClick={() => setOpen(true)}>
           Delete my account…
         </button>
       ) : (

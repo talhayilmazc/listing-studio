@@ -391,7 +391,7 @@ export function GroupImages({
         <div key="only" className="mt-1 text-xs">
           <button
             type="button"
-            className="btn-secondary border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:border-rose-300 hover:bg-rose-50"
+            className="btn-danger px-3 py-1.5 text-xs"
             onClick={() => setDeleting(order[0])}
             disabled={saving}
           >
@@ -460,7 +460,7 @@ export function GroupImages({
               </button>
               <button
                 type="button"
-                className="btn-secondary border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:border-rose-300 hover:bg-rose-50"
+                className="btn-danger px-3 py-1.5 text-xs"
                 onClick={() => setDeleting(picked)}
                 disabled={saving}
               >

@@ -28,6 +28,7 @@ from app.api import (
     schedules,
     shop,
     shop_groups,
+    attention,
     shops,
     skus,
     unfinished,
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     application.include_router(profile_links.router)
     application.include_router(profiles.router)
     application.include_router(shop_groups.router)
+    application.include_router(attention.router)
     application.include_router(mockups.router)
     application.include_router(mockup_edits.router)
     application.include_router(distribution.router)

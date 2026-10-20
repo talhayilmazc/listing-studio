@@ -20,6 +20,7 @@ import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
+import { NeedsAttention } from "@/components/NeedsAttention";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
 type Thumbs = Record<string, Asset[]>;
@@ -118,6 +119,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <NeedsAttention />
       <UnfinishedDrafts />
       <div className="grid gap-4 lg:grid-cols-3">
         {allShops ? (

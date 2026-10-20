@@ -115,7 +115,7 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
   );
 
   return (
-    <section className="card space-y-3 border-amber-200 bg-amber-50/60 p-4" data-testid="unfinished-drafts">
+    <section id="unfinished-drafts" className="card space-y-3 border-amber-200 bg-amber-50/60 p-4" data-testid="unfinished-drafts">
       {setupItems && (
         <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
           setSetupItems(null);

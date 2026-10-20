@@ -323,15 +323,16 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               <span className="font-medium text-slate-700">{actions.approved}</span><span> of{" "}
               <span>{items.length}</span> approved</span>
             </span>
-            {/* Each action appears when it has work, from the listings as they are now. */}
+            {/* Each action appears when it has work, from the listings as they are now; the next
+                step is the one primary action (approve, then draft, then publish). */}
             {actions.approved < items.length && (
-              <button key="button-225-12" className="btn-primary" onClick={approveAll} disabled={busy}>
+              <button key="button-225-12" className="btn-primary" onClick={approveAll} disabled={busy} data-testid="review-next">
                 <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
               </button>
             )}
             {actions.toDraft > 0 && (
               <button key="button-230-12"
-                className="btn-secondary"
+                className={actions.approved < items.length ? "btn-secondary" : "btn-primary"}
                 onClick={createDraftsAll}
                 disabled={busy || overBudget}
                 title={overBudget ? preview?.message ?? undefined : undefined}
@@ -340,7 +341,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               </button>
             )}
             {actions.toPublish > 0 && (
-              <button key="button-240-12" className="btn-primary" onClick={publishAll} disabled={busy}>
+              <button key="button-240-12" className={actions.approved < items.length || actions.toDraft > 0 ? "btn-secondary" : "btn-primary"}
+                onClick={publishAll} disabled={busy}>
                 <span>Publish all (<span>{actions.toPublish}</span>)</span>
               </button>
             )}

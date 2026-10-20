@@ -786,7 +786,7 @@ function TemplateCard({
         <span className="text-xs text-slate-500">Template order:</span>
         <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => onMove(-1)} disabled={first}>Earlier</button>
         <button type="button" className="btn-secondary min-h-11 px-3 text-xs" onClick={() => onMove(1)} disabled={last}>Later</button>
-        <button type="button" className="btn-secondary ml-auto min-h-11 px-3 text-xs text-rose-700" onClick={remove}>Delete template</button>
+        <button type="button" className="btn-danger ml-auto min-h-11 px-3 text-xs" onClick={remove}>Delete template</button>
       </div>
       </div>
       )}
@@ -899,7 +899,7 @@ function PhotoTile({
             aria-label={`Move ${photo.name} later`}>
             Later
           </button>
-          <button type="button" className="btn-secondary min-h-11 min-w-11 px-2 text-xs text-rose-700" onClick={onRemove}
+          <button type="button" className="btn-danger min-h-11 min-w-11 px-2 text-xs" onClick={onRemove}
             aria-label={`Remove ${photo.name}`}>
             Remove
           </button>
@@ -1000,7 +1000,7 @@ function SubgroupRow({ group, removable, busy, onSave, onRemove }: {
         onChange={(e) => setSuffix(e.target.value)}
         onBlur={() => { if (suffix !== (group.suffix ?? "")) onSave({ suffix: suffix.trim() || null }); }} />
       <SaveAsPreset group={group} />
-      <button type="button" className="btn-secondary min-h-11 px-3 text-rose-700" onClick={onRemove} disabled={busy || !removable}
+      <button type="button" className="btn-danger min-h-11 px-3" onClick={onRemove} disabled={busy || !removable}
         aria-label={`Remove ${group.name}`}>
         Remove
       </button>

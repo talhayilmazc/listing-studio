@@ -26,6 +26,7 @@ import type {
   UseInScope,
   SetupChoice,
   ShopsOverview,
+  Attention,
   AnalyticsShops,
   DistributionAssignment,
   Account,
@@ -853,6 +854,7 @@ export const api = {
   /** One shop's counts; no shop = every shop added up (the switcher's "All shops"). */
   shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),
   shopsOverview: () => req<ShopsOverview>("/shop/overview"),
+  attention: () => req<Attention>("/attention"),
   analyticsShops: (month?: string | null) =>
     req<AnalyticsShops>(`/analytics/shops${month ? `?month=${encodeURIComponent(month)}` : ""}`),
   useListingAsProfile: (listingId: number, shop?: string | null) =>

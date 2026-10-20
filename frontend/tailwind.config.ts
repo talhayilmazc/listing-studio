@@ -19,8 +19,10 @@ const config: Config = {
           100: "#f5f5f4", // --surface-sunken
           200: "#e7e5e4", // --border
           300: "#d6d3d1", // --border-strong
-          400: "#a8a29e", // --text-muted
-          500: "#78716c",
+          // Text the seller reads is never fainter than 4.5:1 (WCAG AA) on any light surface:
+          // 400 was #a8a29e (2.5:1 on white) and 500 #78716c (4.4:1 on the sunken grey).
+          400: "#706963", // --text-muted: 5.4:1 on white, 4.9:1 on the sunken grey
+          500: "#625b56", // 6.7:1 on white
           600: "#57534e", // --text-secondary
           700: "#44403c",
           800: "#292524",

@@ -530,7 +530,7 @@ function DesignRow({ design, disabled, split, removing, picked = true, onPick, o
           </label>
         )}
       </span>
-      <button type="button" className="btn-secondary min-h-11 px-3 text-xs text-rose-700" onClick={remove} disabled={removing}
+      <button type="button" className="btn-danger min-h-11 px-3 text-xs" onClick={remove} disabled={removing}
         aria-label={`Remove ${design.original_filename}`} data-testid="design-remove">
         Remove
       </button>
@@ -635,7 +635,7 @@ function SlotBoard({ slots, designs, disabled, removing, onFiles, onChange, onRe
                         {!f.versionId && <option key="~every" value="">Every subgroup</option>}
                       </select>
                     </label>
-                    <button type="button" className="btn-secondary min-h-11 shrink-0 px-2 text-xs text-rose-700" onClick={() => removeFile(f)}
+                    <button type="button" className="btn-danger min-h-11 shrink-0 px-2 text-xs" onClick={() => removeFile(f)}
                       disabled={removing} aria-label={`Remove ${f.filename}`} data-testid="mockup-slot-remove">
                       Remove
                     </button>

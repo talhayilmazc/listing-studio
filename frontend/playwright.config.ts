@@ -38,6 +38,7 @@ export default defineConfig({
   use: { baseURL: BASE, trace: "off", video: "off", screenshot: "off" },
   projects: [
     { name: "phone-375", use: { browserName: "chromium", viewport: { width: 375, height: 800 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } },
+    { name: "tablet-768", use: { browserName: "chromium", viewport: { width: 768, height: 1000 }, hasTouch: true } },
     { name: "desktop-1366", use: { browserName: "chromium", viewport: { width: 1366, height: 900 } } },
   ],
 });

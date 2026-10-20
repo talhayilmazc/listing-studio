@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { shopSections, supportsAll } from "@/lib/shopScope";
 import { useSession } from "./SessionProvider";
-import type { Profile, Shop, ShopGroups } from "@/lib/types";
+import type { Attention, Profile, ShopGroups } from "@/lib/types";
 import { useShops } from "./ShopProvider";
 import { RailAllowance } from "./Allowance";
 
@@ -60,6 +60,19 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const { selected } = useShops();
   const shopId = selected?.id ?? null;
+  // What needs the seller, as a count on each entry (GET /api/attention; the same counts as
+  // Overview's "Needs your attention"). Read again on every page and once a minute.
+  const [attention, setAttention] = useState<Attention | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => api.attention().then((a) => !cancelled && setAttention(a)).catch(() => {});
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [pathname]);
 
   // The selected shop's profiles: each shop has its own (v5 §E).
   useEffect(() => {
@@ -116,7 +129,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
           {/* The entry is a convenience only; the server re-checks the role on every admin call. */}
           {(account?.is_admin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS).map((section) => (
             <div key={section.title} className="mb-5">
-              <p className="px-5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-stone-400/70">
+              <p className="px-5 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--rail-heading)]">
                 {section.title}
               </p>
               {section.items.map((item) => (
@@ -127,6 +140,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
                     icon={item.icon}
                     active={isActive(pathname, item.href)}
                     onClose={onClose}
+                    badge={attention?.nav?.[item.href] ?? 0}
                   />
                   {item.href === "/profiles" && (
                     <ProfileChildren key="profilechildren-125-18" profiles={profiles} pathname={pathname} onClose={onClose} />
@@ -153,28 +167,42 @@ function RailLink({
   icon: Icon,
   active,
   onClose,
+  badge = 0,
 }: {
   href: string;
   label: string;
   icon: Icon;
   active: boolean;
   onClose: () => void;
+  /** Things on this page that need the seller (a count; 0: none). */
+  badge?: number;
 }) {
   return (
     <Link
       href={href}
       onClick={onClose}
       aria-current={active ? "page" : undefined}
+      aria-label={badge ? `${label}, ${badge} need${badge === 1 ? "s" : ""} your attention` : undefined}
+      data-testid="rail-link"
       className={
-        "relative flex items-center gap-2.5 px-5 py-[7px] text-sm transition-colors max-lg:min-h-[2.75rem] " +
+        "relative flex items-center gap-2.5 px-5 py-2 text-sm transition-colors max-lg:min-h-[2.75rem] " +
         (active
-          ? "bg-white/[0.07] font-medium text-[var(--rail-active)]"
-          : "text-[var(--rail-text)] hover:bg-white/[0.03] hover:text-[var(--rail-active)]")
+          ? "bg-white/[0.12] font-semibold text-white"
+          : "text-[var(--rail-text)] hover:bg-white/[0.06] hover:text-white")
       }
     >
-      {active && <span key="span-169-6" aria-hidden className="absolute inset-y-0 left-0 w-[2px] bg-brand-500" />}
+      {active && <span key="bar" aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-brand-500" />}
       <Icon active={active} />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {/* A fixed slot so a count arriving never moves the label. */}
+      <span className="flex h-5 min-w-[1.5rem] shrink-0 items-center justify-end" aria-hidden={!badge}>
+        {badge > 0 && (
+          <span key="badge" translate="no" data-testid="rail-badge"
+            className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold leading-5 text-stone-900 tabular-nums">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+      </span>
     </Link>
   );
 }
@@ -494,7 +522,7 @@ function svg(children: React.ReactNode, active: boolean) {
       strokeWidth="1.7"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={"shrink-0 transition-opacity " + (active ? "opacity-100" : "opacity-70")}
+      className="shrink-0"
       aria-hidden
     >
       {children}
