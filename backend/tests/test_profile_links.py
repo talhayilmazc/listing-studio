@@ -124,6 +124,8 @@ class FakeShops:
         self.lists = lists
         self.created: list[tuple[int, str, dict[str, Any]]] = []
         self.next_id = 50_000
+        #: (shop id, what) -> the refusal Etsy answers that create with (tests/test_shop_setup_errors.py).
+        self.fail: dict[tuple[int, str], BaseException] = {}
 
     def for_shop(self, shop_id: int) -> Any:
         fake = self
@@ -145,6 +147,9 @@ class FakeShops:
                 return {"shop_id": sid, "currency_code": fake.lists[sid].currency or "USD"}
 
             async def _make(self, sid: int, what: str, data: dict, key: str, into: list | None) -> dict:
+                refusal = fake.fail.get((sid, what))
+                if refusal is not None:
+                    raise refusal
                 fake.next_id += 1
                 fake.created.append((sid, what, data))
                 row = {key: fake.next_id, **data}

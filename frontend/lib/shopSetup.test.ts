@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  COPY, choiceKey, choiceOptions, confirmLabel, defaultChoice, pickValue, shopChoices, toStart, totals, useInShops, willUse,
+  COPY, anyFailure, choiceKey, choiceOptions, confirmLabel, defaultChoice, failureActions, pickValue, shopChoices, toStart,
+  totals, useInShops, willUse,
 } from "./shopSetup.ts";
 import type { SettingUse, ShopSetup } from "./types.ts";
 
@@ -97,4 +98,36 @@ test("bug 1: Chosen shops offers every shop but the main one, whatever its setup
     { id: "Maple", name: "Maple", note: "failed: try again" },
     { id: "Pinecrest", name: "Pinecrest", note: null },
   ]);
+});
+
+
+// --- A copy Etsy refused ---------------------------------------------------------------------
+
+test("a refused copy is not preselected again, and says why with the action that fixes it", () => {
+  const failure = { reason: 'Etsy refused it: "Insufficient scope". Reconnect PCS on the Connect page…', action: "reconnect" as const };
+  const s = setting({ default: "choose", creatable: true, requests: 3, failure });
+  assert.equal(defaultChoice(s), ""); // the seller picks, or copies again on purpose
+  assert.ok(choiceOptions(s).some((o) => o.value === COPY)); // still possible after a fix
+  assert.deepEqual(failureActions(failure, "PCS"), [
+    { kind: "reconnect", href: "/connect", label: "Reconnect PCS" },
+    { kind: "refresh", label: "Refresh PCS's settings" },
+  ]);
+  for (const action of ["fix", "finish", "refresh", "manual"] as const) {
+    assert.deepEqual(failureActions({ reason: "x", action }, "PCS"), [{ kind: "refresh", label: "Refresh PCS's settings" }]);
+  }
+});
+
+test("a refused copy keeps the dialog on the choices", () => {
+  const ok = { connection_id: "s1", settings: [setting({ default: "copy", creatable: true })] } as unknown as ShopSetup;
+  const refused = { connection_id: "s2", settings: [setting({ failure: { reason: "r", action: "manual" } })] } as unknown as ShopSetup;
+  assert.equal(anyFailure([ok]), false);
+  assert.equal(anyFailure([ok, refused]), true);
+});
+
+test("the dialog has a Refresh for each shop and shows the refusal on its setting", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dialog = readFileSync(new URL("../components/ShopSetupDialog.tsx", import.meta.url), "utf8");
+  assert.ok(dialog.includes('data-testid="setup-refresh"') && dialog.includes("api.checkShopAgain("));
+  assert.ok(dialog.includes('data-testid="setup-failure"') && dialog.includes("failureActions("));
+  assert.ok(!dialog.includes("failed; try again"), "the refusal is Etsy's reason, not a fixed sentence");
 });

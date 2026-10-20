@@ -13,6 +13,10 @@
 ``POST /api/profiles/{id}/setup/apply``  every choice of a setup dialog in one confirm:
                                          picks of the shops' own settings, and copies
                                          of the main shop's (created only now).
+``POST /api/profiles/{id}/setup/{shop}/check``  Refresh: read that shop's shipping,
+                                         return and processing lists again (a setting
+                                         the seller made by hand in Shop Manager can
+                                         then be picked, or is matched by its name).
 ``DELETE /api/profiles/{id}/links/{shop}`` stop using the profile in a shop.
 ``GET  /api/profiles/link-suggestions``  same-named profiles that stayed apart.
 ``POST /api/profiles/{id}/link-profile`` "Link these": the other becomes this one's.
@@ -76,6 +80,17 @@ class ResourceSetup(BaseModel):
     options: list[Choice] = Field(default_factory=list)
 
 
+class SetupFailure(BaseModel):
+    """Etsy refused (or did not answer) the copy of this setting: why, in plain words
+    with Etsy's own reason, and the one action that fixes it (pipeline/links.py
+    ``create_failure``): "reconnect", "fix" (``field`` names what to change on the main
+    shop's setting), "finish" (made, but a part was refused), "refresh", "manual"."""
+
+    reason: str
+    action: Literal["reconnect", "fix", "finish", "refresh", "manual"]
+    field: str | None = None
+
+
 class SettingUse(BaseModel):
     """One shop-specific setting in one shop: what is used, or what will be."""
 
@@ -97,6 +112,8 @@ class SettingUse(BaseModel):
     create_summary: str | None = None
     requests: int = 0
     options: list[Choice] = Field(default_factory=list)
+    #: The last copy of it was refused: the dialog says why, and preselects nothing.
+    failure: SetupFailure | None = None
 
 
 class ShopSetup(BaseModel):
@@ -294,11 +311,15 @@ def _settings_of(profile: ListingProfile, link: ProfileShopLink, left: dict[str,
             ))
             continue
         creatable = bool(entry.get("creatable"))
+        failed = entry.get("failure")
+        failure = SetupFailure(**{k: failed.get(k) for k in ("reason", "action", "field")}) if failed else None
         out.append(SettingUse(
             resource=resource, label=L.LABEL[resource], source_label=entry.get("source_label"),
-            default="copy" if creatable else "choose", reason=entry.get("reason") or notes.get(resource) or L.NOT_FOUND,
+            # A copy Etsy just refused is not preselected again: the same request would be refused.
+            default="copy" if creatable and failure is None else "choose",
+            reason=(failure.reason if failure else None) or entry.get("reason") or notes.get(resource) or L.NOT_FOUND,
             creatable=creatable, create_summary=_summary(resource, entry.get("create")),
-            requests=int(entry.get("requests") or 0), options=options,
+            requests=int(entry.get("requests") or 0), options=options, failure=failure,
         ))
     return out
 

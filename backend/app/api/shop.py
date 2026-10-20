@@ -262,6 +262,7 @@ def add_up(rows: list[schemas.ShopSummaryOut]) -> schemas.ShopSummaryOut:
     the shop-wide numbers and makes the total "syncing", never a smaller number shown as complete."""
     known = [r for r in rows if r.shop_counts_known]
     fetched = [r.fetched_at for r in rows if r.fetched_at is not None]
+    read = [r.counts_read_at for r in rows]
     return schemas.ShopSummaryOut(
         app_published_this_month=sum(r.app_published_this_month for r in rows),
         app_published_last_month=sum(r.app_published_last_month for r in rows),
@@ -275,6 +276,8 @@ def add_up(rows: list[schemas.ShopSummaryOut]) -> schemas.ShopSummaryOut:
         published_last_month=sum(r.published_last_month for r in known),
         fetched_at=min(fetched) if fetched else None,
         stale=any(r.stale for r in rows),
+        # The oldest read: the total is only as recent as its least recent shop.
+        counts_read_at=min(read) if read and all(r is not None for r in read) else None,
     )
 
 
@@ -389,6 +392,12 @@ async def summary_of(
             queued_at = _as_int(await redis.get(marker))
             syncing = queued_at is not None and now.timestamp() - queued_at < SUMMARY_SYNCING_SECONDS
 
+    counts_at = connection.listing_counts_at if connection is not None else None
+    if counts_at is not None and counts_at.tzinfo is None:  # SQLite hands back naive datetimes
+        counts_at = counts_at.replace(tzinfo=timezone.utc)
+    newest_at = newest.replace(tzinfo=timezone.utc) if newest is not None and newest.tzinfo is None else newest
+    read_at = max((t for t in (counts_at, newest_at) if t is not None), default=None)
+
     return schemas.ShopSummaryOut(
         app_published_this_month=app_this,
         app_published_last_month=app_last,
@@ -402,7 +411,15 @@ async def summary_of(
         published_last_month=last_count,
         fetched_at=newest,
         stale=_is_stale(newest),
+        counts_read_at=read_at,
     )
+
+
+def mark_reading(connection_id: uuid.UUID) -> tuple[str, int]:
+    """The summary's "a read is under way" marker for a shop, and its value (now): set
+    where a read is queued outside the summary (a shop just connected), so every page
+    says "reading…" at once and the summary does not queue a second read."""
+    return f"summary-sync:{connection_id}", int(datetime.now(timezone.utc).timestamp())
 
 
 @router.post("/detect-profiles", status_code=202)

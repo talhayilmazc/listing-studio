@@ -9,7 +9,7 @@
 // after the seller confirms; every choice can be changed to another of the shop's
 // own settings.
 
-import type { SettingUse, SetupChoice, ShopSetup } from "./types";
+import type { SettingUse, SetupChoice, SetupFailure, ShopSetup } from "./types";
 
 /** A choice in the dialog: "copy", "pick:<id>[,<id>]", or "" (still to choose). */
 export type Choice = string;
@@ -24,11 +24,29 @@ export function idsOf(choice: Choice): number[] {
 
 export const choiceKey = (shopId: string, resource: string) => `${shopId}:${resource}`;
 
-/** What the dialog preselects: the matched (or earlier chosen) setting, a copy, or nothing. */
+/** What the dialog preselects: the matched (or earlier chosen) setting, a copy, or nothing.
+ * A copy Etsy just refused is never preselected again: the same request would be refused. */
 export function defaultChoice(s: SettingUse): Choice {
   if (s.default === "keep" && s.linked_ids.length > 0) return pickValue(s.linked_ids);
-  if (s.default === "copy" && s.creatable) return COPY;
+  if (s.default === "copy" && s.creatable && !s.failure) return COPY;
   return "";
+}
+
+/** What the seller can do about a refused copy, in order: the fix first, then Refresh
+ * (re-read the shop's lists, so a setting made by hand in Shop Manager can be picked). */
+export type FailureAction =
+  | { kind: "reconnect"; href: string; label: string }
+  | { kind: "refresh"; label: string };
+
+export function failureActions(f: SetupFailure, shopName: string): FailureAction[] {
+  const refresh: FailureAction = { kind: "refresh", label: `Refresh ${shopName}'s settings` };
+  if (f.action === "reconnect") return [{ kind: "reconnect", href: "/connect", label: `Reconnect ${shopName}` }, refresh];
+  return [refresh];
+}
+
+/** Any refused copy among these shops: the dialog stays open on the choices, not "done". */
+export function anyFailure(shops: ShopSetup[]): boolean {
+  return shops.some((s) => s.settings.some((x) => Boolean(x.failure)));
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

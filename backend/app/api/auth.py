@@ -181,8 +181,13 @@ async def callback(
         # by the operator and this was not one of the account's connected shops.
         return _redirect(f"{back}?status=limit_{exc.scope}")
 
-    # Fetch the shop's name and listings straight away, through the queue.
+    # Fetch the shop's name, listings and per-state counts straight away, through the
+    # queue, and say so: until that read lands the shop's counts are "reading…", never 0.
+    from app.api.shop import SUMMARY_SYNC_EVERY_SECONDS, mark_reading
+
     await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+    marker, now = mark_reading(connection.id)
+    await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
     return _redirect(f"{back}?status=connected&shop={connection.id}")
 
 

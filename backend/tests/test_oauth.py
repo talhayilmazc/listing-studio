@@ -279,6 +279,8 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
     ) as ac:
         ac.sm = sm  # type: ignore[attr-defined]
         ac.tenant_id = tenant_id  # type: ignore[attr-defined]
+        ac.redis = fake_redis  # type: ignore[attr-defined]
+        ac.queued = _Queue.calls  # type: ignore[attr-defined]
         authenticate(ac, await open_session(fake_redis, tenant_id))
         yield ac
 
@@ -313,6 +315,27 @@ async def test_full_oauth_flow(auth_client: httpx.AsyncClient) -> None:
     async with auth_client.sm() as s:  # type: ignore[attr-defined]
         row = (await s.execute(select(EtsyConnection))).scalars().first()
         assert b"555.acc" not in row.access_token_enc
+
+
+async def test_a_shop_just_connected_is_read_at_once_and_its_counts_say_reading_not_zero(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    """Right after connecting, the shop's listings and counts are queued for reading, and every
+    page says "reading…" for its counts at once (never 0), without queueing a second read."""
+    start = await auth_client.get("/api/auth/etsy/start")
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    del auth_client.queued[:]  # type: ignore[attr-defined]
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    shop = parse_qs(urlparse(cb.headers["location"]).query)["shop"][0]
+    assert ("sync_shop_listings", (shop,)) in auth_client.queued  # type: ignore[attr-defined]
+    assert await auth_client.redis.get(f"summary-sync:{shop}") is not None  # type: ignore[attr-defined]
+
+    summary = (await auth_client.get(f"/api/shop/summary?shop={shop}")).json()
+    assert (summary["shop_counts_known"], summary["syncing"], summary["counts_read_at"]) == (False, True, None)
+    overview = (await auth_client.get("/api/shop/overview")).json()
+    assert overview["shops"][0]["summary"]["syncing"] is True and overview["total"]["shop_counts_known"] is False
+    # The read already queued is the one: the summary queues no second.
+    assert [c[0] for c in auth_client.queued] == ["sync_shop_listings"]  # type: ignore[attr-defined]
 
 
 async def test_callback_rejects_unknown_state(auth_client: httpx.AsyncClient) -> None:

@@ -805,6 +805,9 @@ export interface ShopSummary {
   published_last_month: number;
   fetched_at: string | null;
   stale: boolean;
+  /** When the shop's counts were last read from Etsy, even past the time they may be
+   *  shown; null: never read (a shop just connected, before its first read). */
+  counts_read_at?: string | null;
 }
 
 export interface ShopListings {
@@ -1887,6 +1890,16 @@ export interface SettingUse {
   create_summary: string | null;
   requests: number;
   options: { id: number; label: string }[];
+  /** The last copy of it was refused (or not answered): why, and what fixes it. */
+  failure?: SetupFailure | null;
+}
+
+/** Etsy refused a copy: Etsy's own reason in plain words, and the one action that fixes it. */
+export interface SetupFailure {
+  reason: string;
+  action: "reconnect" | "fix" | "finish" | "refresh" | "manual";
+  /** For "fix": the request field Etsy named (shown in words in ``reason``). */
+  field?: string | null;
 }
 
 export interface ShopSetup {

@@ -12,20 +12,26 @@ import type {
   Quota,
   Shop,
   ShopListing,
+  ShopSummary,
   ShopsOverview,
 } from "@/lib/types";
 import { showable } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
+import { countsNote, shouldPoll, shownCount } from "@/lib/shopCounts";
 import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { NeedsAttention } from "@/components/NeedsAttention";
+import { Txt } from "@/components/Txt";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
 type Thumbs = Record<string, Asset[]>;
 
 const RECENT = 3;
+/** While a shop's counts are being read: look again every 10 s, about two minutes at most. */
+const POLL_MS = 10_000;
+const POLL_TRIES = 12;
 
 /** Counts not read (the overview could not load): shown as unknown, never as zero. */
 const UNKNOWN: ShopsOverview["total"] = {
@@ -37,6 +43,9 @@ export default function Dashboard() {
   const [connection, setConnection] = useState<Connection | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [listings, setListings] = useState<ShopListing[] | null>(null);
+  // The picked shop's counts: Etsy's per-state counts (or its fresh listing copy), with
+  // "reading…" / "not read yet" when unread; never the number of cached rows.
+  const [summary, setSummary] = useState<ShopSummary | null>(null);
   const [batches, setBatches] = useState<BatchSummary[] | null>(null);
   const [thumbs, setThumbs] = useState<Thumbs>({});
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -56,15 +65,42 @@ export default function Dashboard() {
 
     api.connection().then(set(setConnection)).catch(() => setConnection(null));
     api.quota(shopId).then(set(setQuota)).catch(() => {});
-    if (allShops) {
-      setListings(null);
-      api.shopsOverview().then(set(setOverview)).catch(() => setOverview({ shops: [], total: UNKNOWN }));
-    } else if (shops !== null) {
-      setOverview(null);
+    // While a shop is being read (just connected, or its copy expired), look again so
+    // "reading…" turns into numbers without a reload. Bounded: about two minutes.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const loadListings = () =>
       api
         .shopListings(shopId)
         .then(set<{ listings: ShopListing[] }>((r) => setListings(r.listings)))
         .catch(() => setListings([]));
+    if (allShops) {
+      setListings(null);
+      setSummary(null);
+      const loadOverview = (triesLeft: number) =>
+        api
+          .shopsOverview()
+          .then((o) => {
+            if (cancelled) return;
+            setOverview(o);
+            if (shouldPoll(o.total) && triesLeft > 0) timer = setTimeout(() => loadOverview(triesLeft - 1), POLL_MS);
+          })
+          .catch(() => !cancelled && setOverview({ shops: [], total: UNKNOWN }));
+      loadOverview(POLL_TRIES);
+    } else if (shops !== null) {
+      setOverview(null);
+      setSummary(null);
+      loadListings();
+      const loadSummary = (triesLeft: number, wasReading: boolean) =>
+        api
+          .shopSummary(shopId)
+          .then((s) => {
+            if (cancelled) return;
+            setSummary(s);
+            if (shouldPoll(s) && triesLeft > 0) timer = setTimeout(() => loadSummary(triesLeft - 1, true), POLL_MS);
+            else if (wasReading) loadListings(); // the read landed: its listings too
+          })
+          .catch(() => {});
+      loadSummary(POLL_TRIES, false);
     }
 
     api
@@ -114,6 +150,7 @@ export default function Dashboard() {
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [shopId, allShops, shops]);
 
@@ -125,7 +162,7 @@ export default function Dashboard() {
         {allShops ? (
           <AllShopsCard key="all" overview={overview} onPick={select} />
         ) : (
-          <ShopCard key="one" connection={connection} shop={scope} listings={listings} />
+          <ShopCard key="one" connection={connection} shop={scope} listings={listings} summary={summary} />
         )}
         <QuotaCard quota={quota} />
       </div>
@@ -144,7 +181,6 @@ export default function Dashboard() {
 function AllShopsCard({ overview, onPick }: { overview: ShopsOverview | null; onPick: (id: string) => void }) {
   const total = overview?.total ?? null;
   const known = total?.shop_counts_known ?? false;
-  const count = (n: number | undefined, ok: boolean) => (overview === null ? null : ok ? n ?? 0 : null);
   return (
     <section className="card min-w-0 p-6 lg:col-span-2" data-testid="all-shops">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -154,10 +190,11 @@ function AllShopsCard({ overview, onPick }: { overview: ShopsOverview | null; on
         </p>
       </div>
       <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2" data-testid="all-shops-total">
-        <Metric label="Listings" value={count(total?.total, known)} />
-        <Metric label="Active" value={count(total?.active, known)} />
-        <Metric label="Drafts" value={count(total?.draft, known)} />
-        <Metric label="Published with the app this month" value={count(total?.app_published_this_month, (overview?.shops.length ?? 0) > 0)} />
+        <Metric label="Listings" value={shownCount(total, total?.total ?? 0)} />
+        <Metric label="Active" value={shownCount(total, total?.active ?? 0)} />
+        <Metric label="Drafts" value={shownCount(total, total?.draft ?? 0)} />
+        <Metric label="Published with the app this month"
+          value={overview === null ? null : (overview.shops.length > 0 ? total?.app_published_this_month ?? 0 : null)} />
       </dl>
       {overview !== null && !known && overview.shops.length > 0 && (
         <p key="syncing" className="mt-1 text-xs text-slate-500">
@@ -191,11 +228,13 @@ function AllShopsCard({ overview, onPick }: { overview: ShopsOverview | null; on
                         <span key="groups" translate="no" className="block truncate text-[11px] text-slate-500">{row.groups.join(", ")}</span>
                       )}
                     </td>
-                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                      {row.summary.shop_counts_known ? row.summary.active : row.summary.syncing ? "syncing" : "—"}
+                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums"
+                      title={countsNote(row.summary) ?? undefined}>
+                      {shownCount(row.summary, row.summary.active)}
                     </td>
-                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                      {row.summary.shop_counts_known ? row.summary.draft : row.summary.syncing ? "syncing" : "—"}
+                    <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums"
+                      title={countsNote(row.summary) ?? undefined}>
+                      {shownCount(row.summary, row.summary.draft)}
                     </td>
                     <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.summary.app_published_this_month}</td>
                     <td translate="no" className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.profiles}</td>
@@ -213,11 +252,14 @@ function ShopCard({
   connection,
   shop,
   listings,
+  summary,
 }: {
   connection: Connection | null;
   /** The shop picked in the switcher (its name; the connection status is the account's). */
   shop: Shop | null;
   listings: ShopListing[] | null;
+  /** Its counts (lib/shopCounts.ts): never the number of rows in the listing copy. */
+  summary: ShopSummary | null;
 }) {
   if (connection && !connection.connected) {
     return (
@@ -234,8 +276,7 @@ function ShopCard({
   }
 
   const name = shop?.name ?? connection?.shop_name ?? null;
-  const active = listings?.filter((l) => l.state === "active").length ?? 0;
-  const drafts = listings?.filter((l) => l.state === "draft").length ?? 0;
+  const note = countsNote(summary);
   const tiles = (listings ?? []).filter((l) => l.thumbnail_url).slice(0, 8);
 
   return (
@@ -261,11 +302,15 @@ function ShopCard({
               </span>
             </p>
           )}
-          <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
-            <Metric label="Listings" value={listings?.length ?? null} />
-            <Metric label="Active" value={listings === null ? null : active} />
-            <Metric label="Drafts" value={listings === null ? null : drafts} />
+          <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2" data-testid="shop-counts">
+            <Metric label="Listings" value={shownCount(summary, summary?.total ?? 0)} />
+            <Metric label="Active" value={shownCount(summary, summary?.active ?? 0)} />
+            <Metric label="Drafts" value={shownCount(summary, summary?.draft ?? 0)} />
           </dl>
+          {/* Fixed height: the line appears without moving anything. */}
+          <p translate="no" className="mt-1 min-h-[1rem] text-xs text-slate-600" data-testid="shop-counts-note">
+            <Txt>{note}</Txt>
+          </p>
         </div>
       </div>
 
@@ -323,12 +368,19 @@ function Avatar({ name }: { name: string | null }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number | null }) {
+function Metric({ label, value }: { label: string; value: number | string | null }) {
   return (
     <div>
       <dt className="text-xs text-slate-500">{label}</dt>
       <dd translate="no" className="text-lg font-semibold tabular-nums text-slate-900">
-        {value === null ? <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-100" /> : value}
+        {value === null ? (
+          <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-100" />
+        ) : typeof value === "string" ? (
+          // Not read from Etsy: words, never 0 (lib/shopCounts.ts).
+          <span key="words" className="text-sm font-medium text-slate-600">{value}</span>
+        ) : (
+          <span key="n">{value}</span>
+        )}
       </dd>
     </div>
   );

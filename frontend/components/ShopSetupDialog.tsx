@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import {
-  choiceKey, choiceOptions, confirmLabel, defaultChoice, shopChoices, toStart, totals, willUse,
-  type Choice,
+  anyFailure, choiceKey, choiceOptions, confirmLabel, defaultChoice, failureActions, shopChoices, toStart, totals,
+  willUse, type Choice,
 } from "@/lib/shopSetup";
 import type { ProfileSetup, ShopSetup } from "@/lib/types";
 import { ShopBadge } from "./ShopPicker";
@@ -33,6 +34,12 @@ const GIVE_UP_MS = 3 * 60_000;
  * where it has none, a copy of the main shop's, preselected. The seller can
  * change any of them; one confirm sends all the choices, and only then is any
  * copy created. Nothing is created in a shop without that confirm.
+ *
+ * When Etsy refuses a copy, the setting says why in plain words (Etsy's own reason)
+ * with the action that fixes it: reconnect the shop, change a named field on the
+ * main shop's setting, or make it in Shop Manager. "Refresh" reads that shop's
+ * shipping, return and processing lists again, so a setting the seller made by hand
+ * on Etsy can be picked (or is matched by its name).
  */
 export function ShopSetupDialog({
   items,
@@ -100,7 +107,9 @@ export function ShopSetupDialog({
   useEffect(() => {
     if (!started.current) return;
     if (!checking) {
-      setPhase((p) => (p === "reading" ? "choosing" : p === "saving" ? "done" : p));
+      // A refused copy keeps the dialog on the choices: the seller picks one, or fixes and refreshes.
+      const refused = anyFailure(items.flatMap((i) => shopsOf(i.profileId)));
+      setPhase((p) => (p === "reading" ? "choosing" : p === "saving" ? (refused ? "choosing" : "done") : p));
       return;
     }
     if (Date.now() - since.current > GIVE_UP_MS) {
@@ -109,7 +118,7 @@ export function ShopSetupDialog({
     }
     const t = setTimeout(() => load().catch((e) => setError(String(e.message ?? e))), POLL_MS);
     return () => clearTimeout(t);
-  }, [checking, setups, load]);
+  }, [checking, setups, load, items, shopsOf]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && phase !== "saving" && onClose(changed);
@@ -140,6 +149,23 @@ export function ShopSetupDialog({
     }
   }
 
+  async function refresh(pid: string, shopId: string) {
+    setError(null);
+    try {
+      await api.checkShopAgain(pid, shopId);
+      setChoices((c) => {
+        const mine = Object.fromEntries(Object.entries(c[pid] ?? {}).filter(([k]) => !k.startsWith(`${shopId}:`)));
+        return { ...c, [pid]: mine };
+      });
+      since.current = Date.now();
+      setSlow(false);
+      setPhase("reading");
+      await load();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+
   async function confirm() {
     setPhase("saving");
     setError(null);
@@ -148,6 +174,7 @@ export function ShopSetupDialog({
         const send = shopsOf(item.profileId).flatMap((s) => shopChoices(s, choices[item.profileId] ?? {}));
         if (send.length) await api.applySetup(item.profileId, send);
       }
+      setChoices({}); // what the shops now hold (or why a copy was refused) comes from the server
       setChanged(true);
       since.current = Date.now();
       await load();
@@ -189,7 +216,8 @@ export function ShopSetupDialog({
                     choices={choices[item.profileId] ?? {}}
                     disabled={phase === "saving"}
                     onChoose={(key, value) => setChoices((c) => ({ ...c, [item.profileId]: { ...(c[item.profileId] ?? {}), [key]: value } }))}
-                    onRetry={() => retry(item.profileId, shopId)} />
+                    onRetry={() => retry(item.profileId, shopId)}
+                    onRefresh={() => refresh(item.profileId, shopId)} />
                 );
               })}
             </section>
@@ -239,7 +267,7 @@ export function ShopSetupDialog({
 }
 
 function ShopCard({
-  shop, shopId, choices, disabled, onChoose, onRetry,
+  shop, shopId, choices, disabled, onChoose, onRetry, onRefresh,
 }: {
   shop: ShopSetup | undefined;
   shopId: string;
@@ -247,6 +275,7 @@ function ShopCard({
   disabled: boolean;
   onChoose: (key: string, value: Choice) => void;
   onRetry: () => void;
+  onRefresh: () => void;
 }) {
   const name = shop?.shop_name ?? "this shop";
   const status = shop?.link.status;
@@ -261,6 +290,13 @@ function ShopCard({
         ) : status === "error" ? (
           <span key="error" className="text-xs text-rose-700"><Txt>{shop.link.reason}</Txt></span>
         ) : null}
+        {shop && status !== "checking" && (
+          <button key="refresh" type="button" className="btn-secondary ml-auto px-2.5 py-1 text-xs" disabled={disabled}
+            onClick={onRefresh} data-testid="setup-refresh"
+            title={`Read ${name}'s shipping profiles, return policies and processing profiles again from Etsy`}>
+            Refresh
+          </button>
+        )}
       </div>
       {status === "error" && (
         <button key="retry" type="button" className="tap mt-1 text-xs text-brand-700 underline" disabled={disabled} onClick={onRetry}>
@@ -290,6 +326,26 @@ function ShopCard({
                   <p className={"text-xs " + (value === "" ? "text-amber-800" : "text-slate-500")} data-testid="setup-will-use">
                     <Txt>{willUse(s, value, name)}</Txt>
                   </p>
+                  {s.failure && (
+                    <div key="failure" role="alert" className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900"
+                      data-testid="setup-failure">
+                      <p><Txt>{s.failure.reason}</Txt></p>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        {failureActions(s.failure, name).map((a) =>
+                          a.kind === "reconnect" ? (
+                            <Link key="reconnect" href={a.href} className="btn-secondary px-2.5 py-1 text-xs">
+                              <span>{a.label}</span>
+                            </Link>
+                          ) : (
+                            <button key="refresh" type="button" className="btn-secondary px-2.5 py-1 text-xs"
+                              disabled={disabled} onClick={onRefresh}>
+                              <span>{a.label}</span>
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </li>
             );

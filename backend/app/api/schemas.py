@@ -1059,6 +1059,10 @@ class ShopSummaryOut(BaseModel):
     published_last_month: int = 0
     fetched_at: datetime | None = None
     stale: bool = False  # cache is older than its 6h window (no refresh triggered)
+    #: When the shop's counts were last read from Etsy (its listings or its per-state
+    #: counts, whichever is newer), even past the time they may be shown: "not read since
+    #: 2:10 PM". None: never read (a shop just connected, before its first read).
+    counts_read_at: datetime | None = None
 
 
 class ShopOverviewRow(BaseModel):

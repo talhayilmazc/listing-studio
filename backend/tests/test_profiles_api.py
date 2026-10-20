@@ -282,6 +282,32 @@ async def test_shop_summary_with_no_usable_cache_says_syncing_and_queues_one_ref
     assert [c[0] for c in ctx["enqueuer"].calls] == ["sync_shop_counts"]
 
 
+async def test_shop_counts_say_when_they_were_read_and_unread_counts_are_never_known(ctx) -> None:
+    """A shop's counts carry when they were read. Read 17 hours ago with its listing copy
+    expired: the counts (a day's life) are shown, with that time. Read 30 hours ago: not
+    shown, not zero, and the time of the last read is still said."""
+    now = datetime.now(timezone.utc)
+    async with ctx["sm"]() as s:
+        shop = await s.get(EtsyConnection, ctx["shop"])
+        shop.listing_counts = {"active": 41, "draft": 3, "inactive": 0, "sold_out": 0, "expired": 0}
+        shop.listing_counts_at = now - timedelta(hours=17)
+        s.add(ShopListingCache(tenant_id=ctx["tenant_id"], connection_id=ctx["shop"], listing_id=9,
+                               payload={"listing_id": 9, "state": "active"}, fetched_at=now - timedelta(hours=17)))
+        await s.commit()
+    body = (await ctx["client"].get("/api/shop/summary")).json()
+    assert (body["shop_counts_known"], body["total"], body["active"], body["draft"]) == (True, 44, 41, 3)
+    assert body["published_known"] is False  # the listing copy expired: that one figure is unknown
+    assert datetime.fromisoformat(body["counts_read_at"].replace("Z", "+00:00")) == now - timedelta(hours=17)
+
+    async with ctx["sm"]() as s:
+        shop = await s.get(EtsyConnection, ctx["shop"])
+        shop.listing_counts_at = now - timedelta(hours=30)
+        await s.commit()
+    body = (await ctx["client"].get("/api/shop/summary")).json()
+    assert (body["shop_counts_known"], body["syncing"]) == (False, True)
+    assert body["counts_read_at"] is not None
+
+
 async def test_shop_listing_carries_state_timestamp(ctx) -> None:
     stamp = int(datetime.now(timezone.utc).timestamp())
     async with ctx["sm"]() as s:

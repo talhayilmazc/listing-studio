@@ -27,6 +27,7 @@ Pure functions over Etsy's own responses. No I/O.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,8 +56,8 @@ CREATABLE = frozenset({SHIPPING, RETURNS, READINESS})
 #: granted it; the app never asks for a new scope to get it (every seller would
 #: have to reconnect).
 CREATE_SCOPE: dict[str, str] = {SHIPPING: "shops_w", RETURNS: "shops_w", READINESS: "shops_w"}
-NO_SCOPE = ("creating it needs Etsy's \"{scope}\" permission, which this shop has not granted the app; "
-            "choose one of this shop's")
+NO_SCOPE = ("creating it needs Etsy's permission to change shop settings (\"{scope}\"), which this shop has not "
+            "given Listyro; reconnect the shop on the Connect page to give it, or choose one of this shop's")
 
 # Why a resource is not linked yet, as the seller reads it.
 NO_SOURCE = "the main shop's reference has none, so this shop needs none"
@@ -166,44 +167,189 @@ def _match(rows: list[dict[str, Any]], resource: str, same: Any) -> tuple[int | 
     return None, AMBIGUOUS if hits else NOT_FOUND
 
 
+REGIONS = {"eu": "the EU", "non_eu": "Europe outside the EU", "none": "everywhere else"}
+
+
+def where_of(d: dict[str, Any]) -> str:
+    """A destination as the seller knows it: "US", "the EU", "everywhere else"."""
+    country = d.get("destination_country_iso") or None
+    return str(country) if country else REGIONS.get(str(d.get("destination_region") or "none"), "everywhere else")
+
+
+def delivery(row: dict[str, Any]) -> dict[str, Any] | None:
+    """The delivery time of a destination or upgrade in the one form Etsy takes.
+
+    Etsy's schema: ``shipping_carrier_id`` *with* ``mail_class`` (Etsy works the days out), or
+    ``min_delivery_days`` *with* ``max_delivery_days``. Its answers can hold both (days it
+    worked out from the mail class) or a carrier without a mail class; sending those back
+    as they came made Etsy refuse the copy. None: neither form is complete, and nothing
+    is invented (an older profile may have none; if Etsy then refuses the copy, its
+    reason names the delivery time and the seller is told so, ``create_failure``)."""
+    carrier, mail = row.get("shipping_carrier_id"), row.get("mail_class") or None
+    low, high = row.get("min_delivery_days"), row.get("max_delivery_days")
+    if carrier not in (None, "", 0, "0") and mail:
+        return {"shipping_carrier_id": int(carrier), "mail_class": str(mail)}
+    if low not in (None, "") and high not in (None, ""):
+        return {"min_delivery_days": int(low), "max_delivery_days": int(high)}
+    if carrier not in (None, "") and mail:
+        return {"shipping_carrier_id": int(carrier), "mail_class": str(mail)}
+    return None
+
+
+def destination_target(d: dict[str, Any]) -> dict[str, Any]:
+    """A country *or* a region, never both (Etsy: one of the two)."""
+    country = d.get("destination_country_iso") or None
+    if country:
+        return {"destination_country_iso": str(country)}
+    region = str(d.get("destination_region") or "none")
+    return {"destination_region": region if region in REGIONS else "none"}
+
+
 def shipping_copy(source: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     """createShopShippingProfile's payload for a copy, plus the destinations and
-    upgrades to add after it. The first destination goes in the create call."""
-    destinations = [d for d in source.get("shipping_profile_destinations") or []]
+    upgrades to add after it. The first destination goes in the create call: a
+    country's (the ship-from country's first) when there is one, so the create
+    call never carries the "everywhere else" region on its own."""
+    origin = source.get("origin_country_iso")
+    destinations = sorted(
+        source.get("shipping_profile_destinations") or [],
+        key=lambda d: (not d.get("destination_country_iso"), d.get("destination_country_iso") != origin),
+    )
 
     def dest(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "primary_cost": _money_to_float(d.get("primary_cost")),
             "secondary_cost": _money_to_float(d.get("secondary_cost")),
-            "destination_country_iso": d.get("destination_country_iso") or None,
-            "destination_region": None if d.get("destination_country_iso") else (d.get("destination_region") or "none"),
-            "shipping_carrier_id": d.get("shipping_carrier_id") or None,
-            "mail_class": d.get("mail_class") or None,
-            "min_delivery_days": d.get("min_delivery_days"),
-            "max_delivery_days": d.get("max_delivery_days"),
+            **destination_target(d),
+            **(delivery(d) or {}),
+            "label": where_of(d),
         }
 
-    first = dest(destinations[0]) if destinations else {"primary_cost": 0.0, "secondary_cost": 0.0, "destination_region": "none"}
+    first = dest(destinations[0]) if destinations else {"primary_cost": 0.0, "secondary_cost": 0.0,
+                                                         "destination_region": "none", "label": "everywhere else"}
+    first.pop("label")
     profile = {
         "title": source.get("title"),
-        "origin_country_iso": source.get("origin_country_iso"),
-        "origin_postal_code": source.get("origin_postal_code"),
+        "origin_country_iso": origin,
+        "origin_postal_code": source.get("origin_postal_code") or None,
         **first,
     }
+
+    def kind(u: dict[str, Any]) -> int:
+        try:
+            return 1 if int(u.get("type") or 0) == 1 else 0
+        except (TypeError, ValueError):
+            return 1 if str(u.get("type")).lower() == "international" else 0
+
     upgrades = [
         {
-            "type": u.get("type", 0),
+            "type": kind(u),
             "upgrade_name": u.get("upgrade_name"),
             "price": _money_to_float(u.get("price")),
             "secondary_price": _money_to_float(u.get("secondary_price")),
-            "shipping_carrier_id": u.get("shipping_carrier_id") or None,
-            "mail_class": u.get("mail_class") or None,
-            "min_delivery_days": u.get("min_delivery_days"),
-            "max_delivery_days": u.get("max_delivery_days"),
+            **(delivery(u) or {}),
+            "label": f"the upgrade \"{u.get('upgrade_name') or 'upgrade'}\"",
         }
         for u in source.get("shipping_profile_upgrades") or []
     ]
     return profile, [dest(d) for d in destinations[1:]], upgrades
+
+
+def send(row: dict[str, Any]) -> dict[str, Any]:
+    """What goes to Etsy from a planned destination or upgrade (its label stays here)."""
+    return {k: v for k, v in row.items() if k != "label"}
+
+
+# --- When Etsy refuses a copy: its reason in plain words, and what fixes it ----------------------
+
+#: Etsy's request fields, as the seller knows them on the main shop's setting.
+FIELD_WORDS: dict[str, str] = {
+    "origin_postal_code": "the ship-from postal code",
+    "origin_country_iso": "the ship-from country",
+    "destination_country_iso": "a destination country",
+    "destination_region": "a destination region",
+    "shipping_carrier_id": "the carrier",
+    "mail_class": "the mail class",
+    "min_delivery_days": "the delivery time",
+    "max_delivery_days": "the delivery time",
+    "primary_cost": "a shipping price",
+    "secondary_cost": "the price for each additional item",
+    "upgrade_name": "an upgrade's name",
+    "secondary_price": "an upgrade's price for each additional item",
+    "price": "an upgrade's price",
+    "title": "the profile's name",
+    "return_deadline": "the return deadline",
+    "accepts_returns": "whether returns are accepted",
+    "accepts_exchanges": "whether exchanges are accepted",
+    "readiness_state": "ready to ship or made to order",
+    "min_processing_time": "the processing time",
+    "max_processing_time": "the processing time",
+}
+_FIELD = re.compile(r"\b(" + "|".join(sorted(FIELD_WORDS, key=len, reverse=True)) + r")\b")
+_PERMISSION = re.compile(r"scope|permission|not allowed|forbidden|unauthori[sz]ed", re.IGNORECASE)
+#: Where each setting lives in Shop Manager.
+WHERE = {SHIPPING: "Settings → Shipping settings", RETURNS: "Settings → Policies",
+         READINESS: "Settings → Shipping settings → Processing profiles"}
+
+
+def field_of(detail: str | None) -> str | None:
+    """The request field Etsy's reason names, if it names one."""
+    match = _FIELD.search(detail or "")
+    return match.group(1) if match else None
+
+
+def create_failure(
+    exc: BaseException,
+    resource: str,
+    *,
+    shop: str | None,
+    main: str | None,
+    source_label: str | None,
+    made: str | None = None,
+) -> dict[str, Any]:
+    """What the seller reads when Etsy refused (or did not answer) a copy, and the one
+    action that fixes it: ``reconnect`` (the shop's permission), ``fix`` (a field of the
+    main shop's setting, named), ``finish`` (made, but a part was refused), ``refresh``
+    (Etsy may have made it anyway), or ``manual`` (make it in Shop Manager, then Refresh).
+
+    ``made``: the copy was created but this part of it ("the destination US") was refused.
+    Etsy's own one-line reason is shown to the shop's owner only, through the log
+    redaction (no token or address can reach it)."""
+    from app.core.logsafety import redact
+    from app.etsy.errors import EtsyRateLimited, EtsyServerError
+
+    here = shop or "this shop"
+    what = f"\"{source_label}\"" if source_label else f"the {LABEL[resource].lower()}"
+    place = WHERE.get(resource, "Settings")
+    status = getattr(exc, "status_code", None)
+    detail = getattr(exc, "detail", None)
+    said = f": \"{redact(detail)}\"" if detail else (f" (it answered {status}) without saying why" if status else "")
+    then_pick = f"create it in {here}'s Shop Manager ({place}), then press Refresh and pick it"
+    field = field_of(detail)
+    if made:
+        return {"action": "finish", "field": field, "status": status,
+                "reason": f"{what} was created in {here}, but Etsy refused {made}{said}. Finish it in {here}'s Shop "
+                          f"Manager ({place}), then press Refresh."}
+    if isinstance(exc, EtsyRateLimited):
+        return {"action": "refresh", "field": None, "status": 429,
+                "reason": "Etsy said requests were coming too fast. Wait a few minutes, press Refresh, then confirm again."}
+    if isinstance(exc, EtsyServerError) or status is None:
+        return {"action": "refresh", "field": None, "status": status,
+                "reason": f"Etsy did not answer properly{f' (it answered {status})' if status else ''}; it may have "
+                          f"made the copy anyway. Press Refresh: if it is in {here} it is picked up, otherwise "
+                          f"confirm the copy again."}
+    if status in (401, 403) or (detail and _PERMISSION.search(detail) and not field):
+        return {"action": "reconnect", "field": None, "status": status,
+                "reason": f"Etsy refused it{said}. {here} has not given Listyro permission to change its shop "
+                          f"settings, or its connection has lapsed. Reconnect {here} on the Connect page, then "
+                          f"confirm again; or {then_pick}."}
+    if field:
+        words = FIELD_WORDS[field]
+        return {"action": "fix", "field": field, "status": status,
+                "reason": f"Etsy refused the copy of {what} because of {words}{said}. Change {words} on {what} in "
+                          f"{main or 'the main shop'}'s Shop Manager and press Refresh; or {then_pick}."}
+    return {"action": "manual", "field": None, "status": status,
+            "reason": f"Etsy refused the copy of {what}{said}. {then_pick[0].upper()}{then_pick[1:]}."}
 
 
 def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: ShopSettings) -> Outcome:

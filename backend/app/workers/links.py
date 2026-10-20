@@ -18,8 +18,12 @@ drafting in those shops: they count toward the app-wide daily budget and not
 toward the seller's own ceiling (``gate.UPKEEP``).
 
 Every request goes through the queue, the gate and the client (CLAUDE.md).
-Etsy's own text never reaches the seller; the dropdown choices are kept in
-Redis for a few hours only (the shop's own settings, shown to the seller).
+When Etsy refuses a copy, its own one-line reason is shown to that shop's owner
+only, in plain words with the action that fixes it (``links.create_failure``):
+"creating it in this shop failed; try again" alone gave the seller nothing to
+act on, and retrying sent the same refused request again. The dropdown choices
+are kept in Redis for a few hours only (the shop's own settings, shown to the
+seller).
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from app.core import limits
 from app.core.config import get_settings
 from app.db.models import ConnectionStatus, EtsyConnection, ListingProfile, ProfileShopLink, Tenant
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
+from app.etsy.errors import EtsyError
 from app.pipeline import links as L
 
 logger = logging.getLogger(__name__)
@@ -46,6 +51,25 @@ PLAN_KEY = "link-plan:{profile_id}"
 PLAN_TTL_SECONDS = 6 * 3600
 
 FAILED = "setting it up in this shop failed; try again"
+
+
+def shop_name(connection: EtsyConnection | None) -> str | None:
+    if connection is None:
+        return None
+    return connection.display_name or connection.shop_name
+
+
+def read_failure(exc: BaseException, shop: str | None) -> str:
+    """Why a shop's lists could not be read, as the seller reads it."""
+    here = shop or "this shop"
+    status = getattr(exc, "status_code", None)
+    if status in (401, 403):
+        return f"Etsy refused to show {here}'s settings; reconnect {here} on the Connect page, then try again"
+    if isinstance(exc, EtsyError):
+        from app.etsy.errors import explain
+
+        return f"{here}'s settings could not be read: {explain(exc, here)}"
+    return FAILED
 
 
 def _client(ctx: dict[str, Any], http: httpx.AsyncClient, shop: uuid.UUID, *, upkeep: bool) -> EtsyApiClient:
@@ -228,15 +252,30 @@ async def _link_profile_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
             source_client = _client(ctx, http, main.id, upkeep=True)
             kw = {"access_token": await _token(session, main), "tenant_id": profile.tenant_id,
                   "tenant_limit": limits.ceiling_limit(tenant) if tenant else None}
-            source = await _settings(source_client, await _shop_id(session, source_client, main, kw), kw, currency=False)
+            try:
+                source = await _settings(source_client, await _shop_id(session, source_client, main, kw), kw,
+                                         currency=False)
+            except EtsyError as exc:
+                logger.warning("profile %s: reading the main shop's settings failed (%s)", pid, exc)
+                why = read_failure(exc, shop_name(main))
+                for link in pending:
+                    link.status, link.notes = "error", {"error": why}
+                await session.commit()
+                return "failed"
             for link in pending:
                 shop = await session.get(EtsyConnection, link.connection_id)
                 if shop is None or shop.status is not ConnectionStatus.active or shop.tenant_id != profile.tenant_id:
                     link.status, link.notes = "error", {"error": "this shop is not connected"}
                     continue
                 client = _client(ctx, http, shop.id, upkeep=True)
-                tkw = {**kw, "access_token": await _token(session, shop)}
-                target = await _settings(client, await _shop_id(session, client, shop, tkw), tkw, currency=True)
+                try:
+                    tkw = {**kw, "access_token": await _token(session, shop)}
+                    target = await _settings(client, await _shop_id(session, client, shop, tkw), tkw, currency=True)
+                except EtsyError as exc:
+                    # One shop's refusal does not stop the others.
+                    logger.warning("profile %s: reading shop %s failed (%s)", pid, shop.id, exc)
+                    link.status, link.notes = "error", {"error": read_failure(exc, shop_name(shop))}
+                    continue
                 outcomes = L.plan_shop(payload, source, target, set(shop.scopes) if shop.scopes is not None else None)
                 left = _apply(link, outcomes, L.currency_problem(payload.get("currency"), target.currency))
                 plan[str(shop.id)] = left
@@ -263,28 +302,47 @@ async def _create_link_resources(ctx: dict[str, Any], profile_id: str) -> str:
         return await _create_body(ctx, pid)
     except RateLimitExceeded:
         raise
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - a refused copy is handled per setting in _create_body
         logger.warning("profile %s: creating shop settings failed", profile_id, exc_info=True)
         async with ctx["sessionmaker"]() as session:
             for link in (await session.execute(select(ProfileShopLink).where(
                 ProfileShopLink.profile_id == pid, ProfileShopLink.pending_create.is_not(None)
             ))).scalars():
+                shop = await session.get(EtsyConnection, link.connection_id)
+                why = (read_failure(exc, shop_name(shop)) if isinstance(exc, EtsyError)
+                       else "creating it in this shop failed; try again")
                 link.pending_create = None
                 link.status = "error"
-                link.notes = {**(link.notes or {}), "error": "creating it in this shop failed; try again"}
+                link.notes = {**(link.notes or {}), "error": why}
             await session.commit()
         return "failed"
+
+
+class PartialCreate(Exception):
+    """The shipping profile was created, but Etsy refused one of its destinations or
+    upgrades (``what``: "the destination US"). The profile is left as it is in the shop:
+    the app deletes nothing there; the seller finishes it in Shop Manager."""
+
+    def __init__(self, new_id: int, what: str, cause: BaseException) -> None:
+        super().__init__(f"created {new_id}, then {what} failed")
+        self.new_id, self.what, self.cause = new_id, what, cause
 
 
 async def _create(client: EtsyApiClient, shop_id: int, outcome: L.Outcome, kw: dict[str, Any]) -> int | None:
     plan = outcome.create or {}
     if outcome.resource == L.SHIPPING:
-        made = await client.create_shop_shipping_profile(shop_id, data=plan["profile"], **kw)
+        made = await client.create_shop_shipping_profile(shop_id, data=L.send(plan["profile"]), **kw)
         new_id = int(made["shipping_profile_id"])
         for destination in plan.get("destinations") or []:
-            await client.create_shop_shipping_profile_destination(shop_id, new_id, data=destination, **kw)
+            try:
+                await client.create_shop_shipping_profile_destination(shop_id, new_id, data=L.send(destination), **kw)
+            except (EtsyError, httpx.TransportError) as exc:
+                raise PartialCreate(new_id, f"the destination {destination.get('label') or ''}".strip(), exc) from exc
         for upgrade in plan.get("upgrades") or []:
-            await client.create_shop_shipping_profile_upgrade(shop_id, new_id, data=upgrade, **kw)
+            try:
+                await client.create_shop_shipping_profile_upgrade(shop_id, new_id, data=L.send(upgrade), **kw)
+            except (EtsyError, httpx.TransportError) as exc:
+                raise PartialCreate(new_id, upgrade.get("label") or "an upgrade", exc) from exc
         return new_id
     if outcome.resource == L.RETURNS:
         made = await client.create_shop_return_policy(shop_id, data=plan, **kw)
@@ -326,15 +384,42 @@ async def _create_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                 target = await _settings(client, shop_id, tkw, currency=True)
                 outcomes = L.plan_shop(payload, source, target, set(shop.scopes) if shop.scopes is not None else None)
                 confirmed = set(link.pending_create or [])
+                failures: dict[str, dict[str, Any]] = {}
                 for resource in L.RESOURCES:
                     outcome = outcomes[resource]
                     if resource in confirmed and outcome.creatable and outcome.linked is None:
-                        new_id = await _create(client, shop_id, outcome, tkw)
+                        try:
+                            new_id = await _create(client, shop_id, outcome, tkw)
+                        except RateLimitExceeded:
+                            raise
+                        except PartialCreate as part:
+                            logger.warning("profile %s: %s in shop %s (%s)", pid, part, shop.id, part.cause)
+                            failures[resource] = L.create_failure(
+                                part.cause, resource, shop=shop_name(shop), main=shop_name(main),
+                                source_label=outcome.source_label, made=part.what)
+                            continue
+                        except (EtsyError, httpx.TransportError) as exc:
+                            # Etsy's body is in the client's own log line; the shape of what was sent here.
+                            logger.warning("profile %s: creating %s in shop %s refused (%s); sent %s", pid, resource,
+                                           shop.id, exc, getattr(exc, "sent", None))
+                            failures[resource] = L.create_failure(
+                                exc, resource, shop=shop_name(shop), main=shop_name(main),
+                                source_label=outcome.source_label)
+                            continue
                         outcome.linked, outcome.reason, outcome.how = new_id, None, "created"
                         outcome.label = outcome.source_label
                         outcome.options = [*outcome.options, {"id": new_id, "label": outcome.source_label or str(new_id)}]
                 link.pending_create = None
-                plan[str(shop.id)] = _apply(link, outcomes, L.currency_problem(payload.get("currency"), target.currency))
+                left = _apply(link, outcomes, L.currency_problem(payload.get("currency"), target.currency))
+                if failures:
+                    # Each refused copy says why, on its own setting; the shop is waiting for a
+                    # choice (or a Refresh), not broken: the dialog shows every setting again.
+                    notes = dict(link.notes or {})
+                    for resource, failure in failures.items():
+                        left.setdefault(resource, {})["failure"] = failure
+                        notes[resource] = failure["reason"]
+                    link.notes, link.status = notes, "incomplete"
+                plan[str(shop.id)] = left
                 await session.commit()  # each shop's ids as soon as they exist
         await session.commit()
     await _plan_save(ctx, pid, plan)
