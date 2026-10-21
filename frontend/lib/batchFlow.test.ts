@@ -24,9 +24,10 @@ test("every batch badge shows the same headline status as the server, in the sam
   assert.equal(headline(["drafted", "partly_published", "half_made"])?.label, "Half-made"); // what needs the seller first
   assert.equal(headline(["published"])?.label, "Published");
   assert.equal(headline([]), null);
-  // The three places a batch's status is shown use the one badge, not the upload's own state.
+  // The three places a batch's status is shown use the one badge, with the server's headline
+  // (what most listings are, A4) and its notes, not the upload's own state.
   for (const page of ["app/(app)/batches/page.tsx", "app/(app)/batches/[id]/page.tsx", "app/(app)/dashboard/page.tsx"]) {
-    assert.match(read(page), /<BatchStatusBadge statuses=\{batch\.statuses\} \/>/, page);
+    assert.match(read(page), /<BatchStatusBadge statuses=\{batch\.statuses\} main=\{batch\.headline\} notes=\{batch\.status_notes\} \/>/, page);
     assert.doesNotMatch(read(page), /<StatusPill status=\{batch\.status\} \/>/, page);
   }
 });
