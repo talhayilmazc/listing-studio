@@ -80,3 +80,22 @@ export function pendingManualSteps(
   }
   return Array.from(byKey.values());
 }
+
+/**
+ * "Generate the empty ones": the groups of hand-written listings nothing was typed
+ * into yet (no title, no tags). The server checks each again (its description must
+ * still be the profile's) and never writes over one the seller started.
+ */
+export function emptyHandWritten(items: Content[]): string[] {
+  const keys = items
+    .filter((c) => c.source === "manual" && !(c.title ?? "").trim() && (c.tags ?? []).length === 0 && c.publications.length === 0)
+    .map((c) => c.group_key ?? "");
+  return [...new Set(keys)];
+}
+
+/** Each listing "Approve all" skipped, with what it needs (short, as its card says it). */
+export function needsById(result: { skipped: { content_id: string; reasons?: string[]; reason: string }[] } | null): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const s of result?.skipped ?? []) out[s.content_id] = s.reasons?.length ? s.reasons : [s.reason];
+  return out;
+}

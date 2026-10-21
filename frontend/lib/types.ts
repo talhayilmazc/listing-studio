@@ -211,6 +211,8 @@ export interface Content {
   production_note?: string | null;
   /** Short-title style: the app's title still broke Etsy's title guidance after one rewrite (kept, never cut). */
   title_warnings?: string[];
+  /** A listing the seller wrote: Etsy's refusals (errors) and the app's notes (warnings) on its saved text. */
+  validation?: Validation | null;
   /** The search-readiness checklist, worked out by the server (pipeline/checklist.py). */
   checklist?: Checklist | null;
   /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */
@@ -861,6 +863,8 @@ export interface JobStatus {
 export interface Validation {
   valid: boolean;
   errors: string[];
+  /** A listing the seller wrote: the app's quality rules it does not meet (never blocking). */
+  warnings?: string[];
 }
 
 export interface ContentUpdateResult {
@@ -1266,10 +1270,23 @@ export interface AdminUsage {
 }
 
 /** "Approve all" (docs/duzeltmeler-v6.md §D): listings that fail validation stay unapproved. */
+/** One reason, counted: "14 listings have no title yet: write them, or press Generate". */
+export interface ApproveGroup {
+  line: string;
+  count: number;
+  content_ids: string[];
+}
+
 export interface ApproveAllResult {
   approved: number;
   already_approved: number;
-  skipped: { content_id: string; original_filename: string; reason: string }[];
+  /** ``reasons``: the same, short, as the card shows it ("needs a title"). */
+  skipped: { content_id: string; original_filename: string; reason: string; reasons?: string[] }[];
+  /** One line for the whole result; null when nothing was skipped. */
+  summary?: string | null;
+  problems?: ApproveGroup[];
+  /** Hand-written listings approved with notes (the app's quality rules), counted. */
+  notes?: ApproveGroup[];
 }
 
 /** What one uploaded ZIP became (docs/duzeltmeler-v6.md §F). */

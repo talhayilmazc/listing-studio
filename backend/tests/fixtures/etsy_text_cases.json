@@ -1,0 +1,111 @@
+{
+  "_about": "Etsy's own rules for a draft's title and tags (createDraftListing, OpenAPI spec). Read by tests/test_hand_written.py and frontend/lib/etsyText.test.ts; ok = Etsy takes it.",
+  "titles": [
+    {
+      "text": "Frog Reading Club Shirt, Book Lover Tee",
+      "ok": true
+    },
+    {
+      "text": "Café Crème T-Shirt – Women's Größe (S/M) ™ © ®",
+      "ok": true
+    },
+    {
+      "text": "50% Off: Mom & Dad + Kids Tee",
+      "ok": true
+    },
+    {
+      "text": "100%% Cotton Tee",
+      "ok": false
+    },
+    {
+      "text": "Tee: Mom: Dad",
+      "ok": false
+    },
+    {
+      "text": "Rock & Roll & Blues Tee",
+      "ok": false
+    },
+    {
+      "text": "Love Tee <3",
+      "ok": true
+    },
+    {
+      "text": "Love Tee ❤",
+      "ok": false
+    },
+    {
+      "text": "Price $20 Tee",
+      "ok": false
+    },
+    {
+      "text": "Tee\twith tab",
+      "ok": false
+    },
+    {
+      "text": "",
+      "ok": false
+    },
+    {
+      "text": "   ",
+      "ok": false
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ok": true
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ok": false
+    }
+  ],
+  "tags": [
+    {
+      "text": "frog shirt",
+      "ok": true
+    },
+    {
+      "text": "mom's tee",
+      "ok": true
+    },
+    {
+      "text": "t-shirt gift",
+      "ok": true
+    },
+    {
+      "text": "café crème",
+      "ok": true
+    },
+    {
+      "text": "brand™",
+      "ok": true
+    },
+    {
+      "text": "mom’s tee",
+      "ok": false
+    },
+    {
+      "text": "best tee!",
+      "ok": false
+    },
+    {
+      "text": "tee, shirt",
+      "ok": false
+    },
+    {
+      "text": "50% off",
+      "ok": false
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaa",
+      "ok": true
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaa",
+      "ok": false
+    },
+    {
+      "text": " ",
+      "ok": false
+    }
+  ]
+}

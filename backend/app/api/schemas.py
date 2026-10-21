@@ -247,6 +247,13 @@ class BatchDetail(BatchSummary):
     assets: list[AssetOut]
 
 
+class ValidationInfo(BaseModel):
+    valid: bool
+    errors: list[str]
+    #: Not blocking: the app's quality rules on a listing the seller wrote (content.check_listing).
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ContentOut(BaseModel):
     id: uuid.UUID
     asset_id: uuid.UUID
@@ -303,6 +310,9 @@ class ContentOut(BaseModel):
     # after one rewrite (kept as written, never cut); one sentence each. Cleared
     # when the seller edits the title.
     title_warnings: list[str] = Field(default_factory=list)
+    #: A listing the seller wrote: what Etsy would refuse (``errors``, blocking) and the
+    #: app's quality rules it does not meet (``warnings``, not blocking), for its saved text.
+    validation: ValidationInfo | None = None
 
 
 class CheckOut(BaseModel):
@@ -463,10 +473,21 @@ class ScheduleResult(BaseModel):
     skipped: list[ScheduleSkipped] = []
 
 
+class ContentText(BaseModel):
+    """A listing's text as a card last read it from the server (only the fields sent)."""
+
+    title: str | None = None
+    tags: list[str] | None = None
+    description: str | None = None
+
+
 class ContentUpdate(BaseModel):
     title: str | None = None
     tags: list[str] | None = None
     description: str | None = None
+    #: What the card last read for the fields it sends. A field changed elsewhere since
+    #: (another tab or window) is refused with 409 instead of being overwritten.
+    base: ContentText | None = None
     #: This listing's personalization (v8 §D); sending null follows the profile again.
     personalization: dict[str, Any] | None = None
 
@@ -486,17 +507,28 @@ class ApproveSkipped(BaseModel):
     content_id: uuid.UUID
     original_filename: str
     reason: str
+    #: The same, short, as the card shows it ("needs a title"), each once.
+    reasons: list[str] = Field(default_factory=list)
+
+
+class ApproveGroup(BaseModel):
+    """One reason, counted: "14 listings have no title yet: write them, or press Generate"."""
+
+    line: str
+    count: int
+    content_ids: list[uuid.UUID]
 
 
 class ApproveAllResult(BaseModel):
     approved: int = 0  # newly approved now
     already_approved: int = 0
     skipped: list[ApproveSkipped] = Field(default_factory=list)  # failed validation
-
-
-class ValidationInfo(BaseModel):
-    valid: bool
-    errors: list[str]
+    #: One line for the whole result (pipeline/approval.py); None when nothing was skipped.
+    summary: str | None = None
+    #: Why listings were not approved, one line per reason with how many.
+    problems: list[ApproveGroup] = Field(default_factory=list)
+    #: Listings the seller wrote that were approved with notes (quality rules), counted.
+    notes: list[ApproveGroup] = Field(default_factory=list)
 
 
 class ContentUpdateResult(BaseModel):
@@ -614,6 +646,10 @@ class GenerateRequest(BaseModel):
     replace: bool = False
     #: The seller confirmed replacing content they had already approved.
     replace_approved: bool = False
+    #: "Generate the empty ones": write groups with no listing and the seller's own
+    #: listings nothing was typed into yet (no title, no tags, the profile's
+    #: description untouched); every listing with anything typed is left as it is.
+    only_empty: bool = False
 
 
 class ManualRequest(BaseModel):

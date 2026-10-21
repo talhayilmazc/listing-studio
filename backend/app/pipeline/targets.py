@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile, ProfileShopLink
 from app.compliance.trademarks import tenant_blocklist
-from app.pipeline import profile_shops, title_fit
+from app.pipeline import manual, profile_shops, title_fit
 from app.pipeline.content import (
     bounds_for,
     MAX_TITLE_LENGTH,
@@ -31,8 +31,8 @@ from app.pipeline.content import (
     TITLE_TOO_LONG,
     TITLE_TOO_SHORT,
     GeneratedListing,
+    check_listing,
     policy_for,
-    validate_listing,
 )
 from app.pipeline.reference import PAYLOAD_VERSION, replace_title_block
 from app.pipeline.reference import with_opening
@@ -239,9 +239,11 @@ async def resolve_target(
             # Rewritten once for this shop already, from this very title.
             description = description.replace(title, stored, 1) if title and description.startswith(title) else description
             title, fitted = stored, FittedTitle(stored, True)
-        errors = validate_listing(
+        errors = check_listing(
             GeneratedListing(title=title, tags=list(content.tags or []), description=description),
             policy_for(chosen.content_template),
+            # A listing the seller wrote: only what Etsy refuses (and the trademark filter).
+            hand_written=manual.is_manual(content),
             # The account's own trademark decision, the same in every shop (v8 §E):
             # never the app's default, which would block in one shop what another allows.
             trademarks=await tenant_blocklist(session, content.tenant_id),
@@ -249,11 +251,11 @@ async def resolve_target(
             # The title was written to its own profile's bounds; this shop's
             # profile may use the other style, so accept either range.
             title_rules=_widest(bounds_for(source), bounds_for(chosen)),
-        )
+        ).errors
         if fitted.too_long:
             # Over 140 only because of this shop's prefix: the draft job rewrites it once
             # for this shop (title_fit), or stops before Etsy and flags the card.
-            errors = [e for e in errors if not e.startswith(TITLE_TOO_LONG)]
+            errors = [e for e in errors if not e.startswith((TITLE_TOO_LONG, "title is over Etsy's"))]
         if stored and title == stored:
             # The rewrite for this shop may sit a little under the minimum (title_fit.problems).
             errors = [e for e in errors if not e.startswith(TITLE_TOO_SHORT)]

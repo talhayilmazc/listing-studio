@@ -99,17 +99,18 @@ async def test_a_manual_listing_is_checked_like_any_other_and_its_description_fo
     await world["a"].post(f"/api/batches/{batch}/manual", json={"group_key": "g1"})
     [card] = (await world["a"].get(f"/api/batches/{batch}/content")).json()
 
-    # Empty: it cannot be approved, and the reasons are the same rules as an AI listing's.
+    # Empty: it cannot be approved: Etsy needs a title (tests/test_hand_written.py: the
+    # app's own quality rules are only warnings on a listing the seller writes).
     refused = await world["a"].post(f"/api/content/{card['id']}/approve", json={"approved": True})
     assert refused.status_code == 422
-    errors = " ".join(refused.json()["detail"]["errors"]).lower()
-    assert "title" in errors and "13" in errors
+    assert refused.json()["detail"]["errors"] == ["title is empty"]
 
-    # A tag over 20 characters and a duplicate are refused too.
+    # A tag over 20 characters is refused (Etsy's limit); a duplicate is a warning.
     bad = await world["a"].patch(f"/api/content/{card['id']}", json={
         "title": TITLE, "tags": ["this tag is far too long for etsy", "frog", "Frog", *TAGS[:10]]})
     said = " ".join(bad.json()["validation"]["errors"]).lower()
-    assert bad.json()["validation"]["valid"] is False and "20" in said and "duplicate" in said
+    assert bad.json()["validation"]["valid"] is False and "20" in said
+    assert any("duplicate" in w for w in bad.json()["validation"]["warnings"])
 
     # The long style opens the description with the title: it follows what the seller types.
     good = await world["a"].patch(f"/api/content/{card['id']}", json={"title": TITLE, "tags": TAGS, "description": card["description"]})

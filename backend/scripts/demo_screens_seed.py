@@ -138,6 +138,21 @@ async def main():
             if i == 1:
                 s.add(ListingPublication(tenant_id=t.id, content_id=c.id, connection_id=shops[0].id, etsy_listing_id=7101, state="active",
                                          profile_id=prof.id, title=title, sku=sku, published_at=now - timedelta(hours=20)))
+        # A batch written by hand, nothing typed yet (the layout test presses "Approve all"
+        # here: one summary line, the cards marked, "Generate the empty ones").
+        hand = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name="Hand-written")
+        s.add(hand); await s.flush()
+        for sku, art in (("HW2001", "mountain"), ("HW2002", "heart"), ("HW2003", "cup")):
+            key = f"demo-shots/{hand.id}/{sku}-front.jpg"
+            storage.put(key, jpg(art, "front"), "image/jpeg")
+            a = Asset(batch_id=hand.id, tenant_id=t.id, original_filename=f"{sku}/front.jpg", storage_key=key, processed_key=key,
+                      status=AssetStatus.processed, rank=1, group_key=sku, parsed_sku=sku, mime_type="image/jpeg", width=1000, height=1250)
+            s.add(a)
+            prof = profs[("Northwind Tees", "Standard Tee")]
+            s.add(ListingGroupSetting(tenant_id=t.id, batch_id=hand.id, group_key=sku, connection_id=shops[0].id, profile_id=prof.id, manual=True))
+            await s.flush()
+            s.add(GeneratedContent(tenant_id=t.id, batch_id=hand.id, asset_id=a.id, approved=False, listing_profile_id=prof.id,
+                                   title="", tags=[], description=REF.split("\n\n", 1)[1], source="manual"))
         for n in range(12):
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,

@@ -336,6 +336,60 @@ test.describe("signed in", () => {
     await expectSound(page, "/profiles after Use in");
   });
 
+  test("a hand-written batch: Approve all says one line, marks each card, and offers Generate the empty ones", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const link = page.locator('a[href^="/batches/"]', { hasText: "Hand-written" }).first();
+    await link.waitFor({ state: "visible", timeout: 30_000 });
+    const href = (await link.getAttribute("href"))!;
+    await page.goto(`${href.replace(/\/review$/, "")}/review`);
+    await settle(page);
+    const generate = page.getByTestId("generate-empty");
+    await expect(generate).toContainText("Generate the empty ones (3)");
+    await page.getByTestId("review-next").click();
+    const summary = page.getByTestId("approve-summary");
+    await expect(summary).toContainText("3 listings have no title yet: write them, or press Generate");
+    // Each card is marked once, in place; the long rule list is not repeated per listing.
+    await expect(page.getByTestId("card-needs")).toHaveCount(3);
+    await expect(page.getByText("expected exactly 13 tags")).toHaveCount(0);
+    await expect(page.getByText("must name the product type")).toHaveCount(0);
+    const { width } = page.viewportSize()!;
+    if (width < 640) {
+      const box = (await generate.boundingBox())!;
+      expect(box.height, "Generate the empty ones is 44 px on a phone").toBeGreaterThanOrEqual(44);
+    }
+    await expectSound(page, "/batches/<batch>/review after Approve all on a hand-written batch");
+  });
+
+  test("a hand-written title is saved as typed: it survives leaving the page and a reload", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const href = (await page.locator('a[href^="/batches/"]', { hasText: "Hand-written" }).first().getAttribute("href"))!;
+    const review = `${href.replace(/\/review$/, "")}/review`;
+    await page.goto(review);
+    await settle(page);
+    const title = () => page.getByTestId("review-card").first().getByRole("textbox", { name: "Listing title" });
+
+    // Typed, then the page is left at once: the card sends it on its way out.
+    await title().fill("Mountain Sunrise Hiking Tee");
+    await page.goto("/batches");
+    await settle(page);
+    await page.goto(review);
+    await settle(page);
+    await expect(title()).toHaveValue("Mountain Sunrise Hiking Tee", { timeout: 15_000 });
+
+    // Typed, saved by itself, then a reload.
+    await title().fill("Mountain Sunrise Trail Tee");
+    await expect(page.getByTestId("review-card").first().getByRole("button", { name: "Saved" })).toBeVisible({ timeout: 15_000 });
+    await page.reload();
+    await settle(page);
+    await expect(title()).toHaveValue("Mountain Sunrise Trail Tee");
+
+    // Back to empty, so the next run sees the same demo data.
+    await title().fill("");
+    await expect(page.getByTestId("review-card").first().getByRole("button", { name: "Saved" })).toBeVisible({ timeout: 15_000 });
+  });
+
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
     await page.goto("/admin", { waitUntil: "commit" });
     const bar = page.getByRole("tablist", { name: "Admin sections" });

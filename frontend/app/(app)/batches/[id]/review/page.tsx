@@ -27,7 +27,8 @@ import { ListingPersonalization } from "@/components/ListingPersonalization";
 import { ShopBadge } from "@/components/ShopPicker";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
-import { applyChange, cardKey, pendingManualSteps, reviewActions } from "@/lib/review";
+import { applyChange, cardKey, emptyHandWritten, needsById, pendingManualSteps, reviewActions } from "@/lib/review";
+import { anyUnsaved, flushAll } from "@/lib/cardSave";
 import { ReviewCard } from "@/components/ReviewCard";
 import { BulkSchedule, schedulableDrafts } from "@/components/BulkSchedule";
 import { useShops } from "@/components/ShopProvider";
@@ -257,6 +258,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     setBusy(true);
     setError(null);
     try {
+      await flushAll(); // drafts are made from what is typed on the cards, saved first
       const res = await call();
       setSkipped(res.skipped);
       await pollJobs(res.jobs, label, res.skipped.length);
@@ -280,6 +282,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     setBusy(true);
     setError(null);
     try {
+      // Every card saves what is typed on it first: approval reads the saved text.
+      await flushAll();
       setApproveResult(await api.approveAll(id));
       load();
     } catch (e: any) {
@@ -288,6 +292,60 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       setBusy(false);
     }
   }
+
+  // Leaving the page (a reload, closing the tab, another site): what is typed on a card
+  // is sent with keepalive, and the browser asks first while it is on its way.
+  useEffect(() => {
+    const leave = (e: BeforeUnloadEvent) => {
+      if (!anyUnsaved()) return;
+      flushAll(true);
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const hidden = () => {
+      if (document.visibilityState === "hidden" && anyUnsaved()) flushAll(true);
+    };
+    window.addEventListener("beforeunload", leave);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("beforeunload", leave);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, []);
+
+  // "Generate the empty ones": only hand-written listings nothing was typed into, one
+  // group at a time (as the batch page writes), counted as Generate counts.
+  const empties = emptyHandWritten(items ?? []);
+  const [writing, setWriting] = useState<{ done: number; total: number } | null>(null);
+  async function generateEmpty() {
+    setBusy(true);
+    setError(null);
+    try {
+      await flushAll(); // a card being typed into is not empty any more: the server sees it
+      const keys = emptyHandWritten(items ?? []);
+      setWriting({ done: 0, total: keys.length });
+      const failed: string[] = [];
+      for (const [n, key] of keys.entries()) {
+        const res = await api.generate(id, undefined, key, { onlyEmpty: true });
+        if (res.paused) {
+          failed.push(res.paused);
+          break;
+        }
+        for (const f of res.failures ?? []) failed.push(`${f.original_filename}: ${f.error}`);
+        setWriting({ done: n + 1, total: keys.length });
+      }
+      if (failed.length) setError(failed.join(" "));
+      setApproveResult(null);
+      load();
+    } catch (e: any) {
+      setError(e.message ?? String(e)); // the allowance ran out: its own message, with when it resets
+      load();
+    } finally {
+      setWriting(null);
+      setBusy(false);
+    }
+  }
+  const needs = needsById(approveResult);
 
   // What the bulk button will really create: the ticked cells that can be made (and drafts already there).
   const tickedShops: Record<string, string[]> | undefined = preview
@@ -334,6 +392,12 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             </span>
             {/* Each action appears when it has work, from the listings as they are now; the next
                 step is the one primary action (approve, then draft, then publish). */}
+            {empties.length > 0 && (
+              <button key="generate-empty" className="btn-secondary" onClick={generateEmpty} disabled={busy} data-testid="generate-empty"
+                title="Write the listings that have no title or tags yet with AI; listings you typed into are left as they are">
+                <span translate="no">{writing ? `Writing ${writing.done} of ${writing.total}…` : `Generate the empty ones (${empties.length})`}</span>
+              </button>
+            )}
             {actions.approved < items.length && (
               <button key="button-225-12" className="btn-primary" onClick={approveAll} disabled={busy} data-testid="review-next">
                 <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
@@ -459,7 +523,25 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               Dismiss
             </button>
           </div>
-          {approveResult.skipped.length > 0 && (
+          {approveResult.summary && (
+            // One line, then one line per reason with how many: never the same list for every listing.
+            <p key="summary" className="mt-1.5 font-medium text-amber-900" data-testid="approve-summary">
+              <span>{approveResult.summary}</span>
+              {approveResult.skipped[0] && (
+                <span key="show">
+                  <span> </span>
+                  <a href={`#${approveResult.skipped[0].content_id}`} className="tap font-normal text-brand-700 underline">show the first</a>
+                </span>
+              )}
+            </p>
+          )}
+          {(approveResult.problems ?? []).length > 1 && (
+            <ul key="problems" className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-amber-800" data-testid="approve-problems">
+              {(approveResult.problems ?? []).map((p) => <li key={p.line} className="break-words">{p.line}</li>)}
+            </ul>
+          )}
+          {!approveResult.summary && approveResult.skipped.length > 0 && (
+            // An older server: its own list, still each listing once.
             <ul key="ul-293-10" className="mt-1.5 space-y-1 text-xs text-amber-800">
               {approveResult.skipped.map((s) => (
                 <li key={s.content_id} className="break-words">
@@ -467,6 +549,19 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 </li>
               ))}
             </ul>
+          )}
+          {(approveResult.problems ?? []).some((p) => p.line.includes("no title yet")) && empties.length > 0 && (
+            <button key="generate-empty-here" type="button" className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={generateEmpty} disabled={busy}>
+              <span translate="no">{`Generate the empty ones (${empties.length})`}</span>
+            </button>
+          )}
+          {(approveResult.notes ?? []).length > 0 && (
+            <div key="notes" className="mt-2 text-xs text-slate-600" data-testid="approve-notes">
+              <p>Approved with notes (they do not stop a draft):</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-5">
+                {(approveResult.notes ?? []).map((p) => <li key={p.line}>{p.line}</li>)}
+              </ul>
+            </div>
           )}
         </div>
       )}
@@ -585,6 +680,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               selected={selectedIds.includes(c.id)}
               onSelect={items.length > 1 ? (on) => setSelectedIds((cur) => (on ? [...cur, c.id] : cur.filter((x) => x !== c.id))) : undefined}
               optionsVersion={optionsVersion}
+              needs={needs[c.id]}
             />
           ))}
         </div>

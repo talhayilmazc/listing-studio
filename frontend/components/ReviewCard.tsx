@@ -16,6 +16,9 @@ import type {
   Work,
 } from "@/lib/types";
 import { resumeTime } from "@/lib/format";
+import { afterSave, patchFor, registerCard, SAVE_AFTER_MS, type CardText } from "@/lib/cardSave";
+import { draftErrors } from "@/lib/etsyText";
+import { ApiError } from "@/lib/api";
 import { limitNotice } from "@/lib/chartOrder";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
@@ -71,7 +74,10 @@ export function ReviewCard({
   selected,
   onSelect,
   optionsVersion = 0,
+  needs,
 }: {
+  /** "Approve all" did not approve this listing: what it needs, short ("needs a title"). */
+  needs?: string[];
   /** Ticked for "Set for selected" on the review page. */
   selected?: boolean;
   onSelect?: (on: boolean) => void;
@@ -154,11 +160,14 @@ export function ReviewCard({
   const drafted = new Set(publications.map((p) => p.connection_id));
   const missing = wanted.filter((shop) => !drafted.has(shop));
 
+  // A listing the seller writes is stopped only by what Etsy itself refuses for a
+  // draft (lib/etsyText.ts); the app's quality rules are the server's notes on it.
   const errors = useMemo(
-    () => validate(title, tags, description, MIN_TITLE, MAX_TITLE),
-    [title, tags, description, MIN_TITLE, MAX_TITLE],
+    () => (manual ? draftErrors(title, tags, description) : validate(title, tags, description, MIN_TITLE, MAX_TITLE)),
+    [manual, title, tags, description, MIN_TITLE, MAX_TITLE],
   );
   const valid = errors.length === 0;
+  const [notes, setNotes] = useState<string[]>(initial.validation?.warnings ?? []);
 
   // The search-readiness checklist. The server works it out with the app's own
   // rules (pipeline/checklist.py); while the seller edits, the unsaved text is
@@ -196,30 +205,105 @@ export function ReviewCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingChecklist]);
 
-  async function save() {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const res = await api.updateContent(initial.id, { title, tags, description });
-      // A listing the seller writes: its description's title line follows the title.
-      if (manual && res.content.description != null) setDescription(res.content.description);
-      if (res.content.checklist) {
-        checkRun.current += 1; // the saved text's checklist wins over one still on its way
-        checkedText.current = JSON.stringify([title, tags, res.content.description ?? description]);
-        setChecklist(res.content.checklist);
-        setChecking(false);
-      }
+  // What is typed is saved as it is typed (lib/cardSave.ts): shortly after typing
+  // stops, before approving or drafting, before "Approve all" and the page's other
+  // bulk actions, and when the card or the page is left. Only the changed fields go,
+  // each with what the server had: another tab's edit is never overwritten.
+  const textRef = useRef<CardText>({ title, tags, description });
+  textRef.current = { title, tags, description };
+  const savedRef = useRef<CardText>({ title: initial.title ?? "", tags: initial.tags ?? [], description: initial.description ?? "" });
+  const inFlight = useRef<Promise<boolean> | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
+
+  async function saveNow(opts: { keepalive?: boolean; keepMine?: boolean } = {}): Promise<boolean> {
+    while (inFlight.current) await inFlight.current; // one save at a time, then what is left
+    const before = savedRef.current;
+    const patch = patchFor(textRef.current, before);
+    if (!patch) {
       setDirty(false);
-      setMessage("Saved");
+      return true;
+    }
+    const run = (async () => {
+      setSaving(true);
+      setMessage(null);
+      try {
+        const body = opts.keepMine ? { ...patch, base: undefined } : patch;
+        const res = await api.updateContent(initial.id, body, { keepalive: opts.keepalive });
+        const server = { title: res.content.title ?? "", tags: res.content.tags ?? [], description: res.content.description ?? "" };
+        savedRef.current = server;
+        // The server's text (a hand-written description follows its title); what was typed meanwhile stays.
+        const next = afterSave(patch, server, textRef.current, before);
+        textRef.current = next;
+        setTitle(next.title);
+        setTags(next.tags);
+        setDescription(next.description);
+        setNotes(res.validation.warnings ?? []);
+        if (res.content.checklist) {
+          checkRun.current += 1; // the saved text's checklist wins over one still on its way
+          checkedText.current = JSON.stringify([server.title, server.tags, server.description]);
+          setChecklist(res.content.checklist);
+          setChecking(false);
+        }
+        setDirty(patchFor(next, server) !== null);
+        setConflict(null);
+        setMessage("Saved");
+        return true;
+      } catch (e: any) {
+        if (e instanceof ApiError && e.status === 409) setConflict(e.message);
+        else setMessage(`Not saved: ${e.message ?? String(e)}`);
+        return false;
+      } finally {
+        setSaving(false);
+        inFlight.current = null;
+      }
+    })();
+    inFlight.current = run;
+    return run;
+  }
+  const save = () => saveNow();
+  const saveRef = useRef(saveNow);
+  saveRef.current = saveNow;
+
+  // Typing stopped: save by itself (not while another tab's edit waits for the seller).
+  useEffect(() => {
+    if (!dirty || conflict) return;
+    const t = setTimeout(() => saveRef.current(), SAVE_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [title, tags, description, dirty, conflict]);
+
+  // The page's bulk actions and leaving the page save every card first.
+  useEffect(() => {
+    const off = registerCard(initial.id, {
+      flush: (keepalive) => saveRef.current({ keepalive }),
+      unsaved: () => inFlight.current !== null || patchFor(textRef.current, savedRef.current) !== null,
+    });
+    return () => {
+      off();
+      // Left for another page of the app (or the card remounted): send what is typed.
+      if (patchFor(textRef.current, savedRef.current)) saveRef.current({ keepalive: true });
+    };
+  }, [initial.id]);
+
+  // "Use the saved one": the text another tab saved (an empty save returns it, changing nothing).
+  async function useSaved() {
+    try {
+      const res = await api.updateContent(initial.id, {});
+      const server = { title: res.content.title ?? "", tags: res.content.tags ?? [], description: res.content.description ?? "" };
+      savedRef.current = server;
+      textRef.current = server;
+      setTitle(server.title);
+      setTags(server.tags);
+      setDescription(server.description);
+      setNotes(res.validation.warnings ?? []);
+      setDirty(false);
+      setConflict(null);
     } catch (e: any) {
       setMessage(e.message ?? String(e));
-    } finally {
-      setSaving(false);
     }
   }
 
   async function toggleApprove() {
-    if (dirty) await save();
+    if (!(await saveNow())) return; // approving what is on the card, never older text
     try {
       const res = await api.approve(initial.id, !approved);
       setApproved(res.content.approved);
@@ -299,7 +383,7 @@ export function ReviewCard({
   }
 
   async function runJobs(start: () => Promise<BatchPublishResult>, kind: Work["kind"], timeoutMsg: string) {
-    if (dirty) await save();
+    if (!(await saveNow())) return;
     setPublishState("publishing");
     setPublishError(null);
     setPause(null);
@@ -376,8 +460,9 @@ export function ReviewCard({
 
   return (
     <div
-      className={"card overflow-hidden " + (approved ? "border-emerald-300" : "")}
+      className={"card overflow-hidden " + (approved ? "border-emerald-300" : needs?.length && !valid ? "border-amber-400 ring-2 ring-amber-200" : "")}
       id={initial.id}
+      data-testid="review-card"
     >
       <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
         {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
@@ -437,6 +522,21 @@ export function ReviewCard({
         {/* Editable fields */}
         <div className="flex flex-col">
           <div className="space-y-5 p-5">
+            {needs && needs.length > 0 && !approved && !valid && (
+              // "Approve all" skipped it: said here, on the card, once.
+              <p key="needs" role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" data-testid="card-needs">
+                <span>Not approved yet: </span><span>{needs.join(", ")}</span>
+              </p>
+            )}
+            {conflict && (
+              <div key="conflict" role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="card-conflict">
+                <p>{conflict}</p>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  <button type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={useSaved}>Use the saved one</button>
+                  <button type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => saveNow({ keepMine: true })}>Keep what I typed</button>
+                </div>
+              </div>
+            )}
             {(initial.findings ?? []).filter((f) => f.rule === "character_artwork").map((f, i) => (
               // The artwork, not the wording, is the risk: say so before anything is sent.
               <div
@@ -472,8 +572,9 @@ export function ReviewCard({
                 <p>
                   <span className="font-medium text-slate-900">You write this one. </span>
                   <span>
-                    No AI is used for its title and tags; everything else comes from its profile. The same checks apply:
-                    title length, 13 tags, 20 characters each, no duplicates.
+                    No AI is used for its title and tags; everything else comes from its profile. It is saved as you type.
+                    Only what Etsy itself refuses stops it: a title (140 characters at most, characters Etsy allows), up to
+                    13 tags of 20 characters. The app&apos;s other checks are notes below the description.
                   </span>
                 </p>
                 {(!title.trim() || tags.length === 0) && (
@@ -566,11 +667,20 @@ export function ReviewCard({
             />
 
             {!valid && (
-              <ul key="ul-288-12" className="space-y-0.5 text-xs text-rose-700">
+              <ul key="ul-288-12" className="space-y-0.5 text-xs text-rose-700" data-testid="card-errors">
                 {errors.map((e, i) => (
                   <li key={i}>{e}</li>
                 ))}
               </ul>
+            )}
+            {manual && notes.length > 0 && (
+              // The app's quality rules on a listing the seller writes: notes, never a reason it cannot be approved.
+              <div key="notes" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="card-notes">
+                <p className="font-medium">Notes (they do not stop approval)</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  {notes.map((n, i) => <li key={i}>{n}</li>)}
+                </ul>
+              </div>
             )}
           </div>
 
@@ -578,8 +688,8 @@ export function ReviewCard({
           <div className="sticky bottom-0 mt-auto border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <button className="btn-secondary" onClick={save} disabled={saving || !dirty}>
-                  {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
+                <button className="btn-secondary" onClick={save} disabled={saving || !dirty} translate="no">
+                  {saving ? "Saving…" : dirty ? "Save now" : "Saved"}
                 </button>
                 <label className="flex cursor-pointer items-center gap-2 text-sm max-sm:min-h-[2.75rem]">
                   <input

@@ -296,7 +296,7 @@ export const api = {
     id: string,
     profileId?: string,
     groupKey?: string,
-    opts: { replace?: boolean; replaceApproved?: boolean; ignoreUnsorted?: boolean } = {},
+    opts: { replace?: boolean; replaceApproved?: boolean; ignoreUnsorted?: boolean; onlyEmpty?: boolean } = {},
   ) =>
     req<GenerateResult>(`/batches/${id}/generate`, {
       method: "POST",
@@ -306,6 +306,8 @@ export const api = {
         ...(opts.replace ? { replace: true } : {}),
         ...(opts.replaceApproved ? { replace_approved: true } : {}),
         ...(opts.ignoreUnsorted ? { ignore_unsorted: true } : {}),
+        // "Generate the empty ones": only listings nothing was typed into.
+        ...(opts.onlyEmpty ? { only_empty: true } : {}),
       }),
     }),
   // Per-group profile selection (v4 §E): omit group_key to bulk-apply to all groups.
@@ -409,8 +411,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ title, content_ids: contentIds, confirm }),
     }),
-  updateContent: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">> & { personalization?: Personalization | null }) =>
-    req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  /** ``base``: what the card last read for the fields it sends (a field another tab changed
+   * since is refused, 409). ``keepalive``: sent even while the page is being left. */
+  updateContent: (
+    id: string,
+    body: Partial<Pick<Content, "title" | "tags" | "description">> & {
+      personalization?: Personalization | null;
+      base?: Partial<Pick<Content, "title" | "tags" | "description">>;
+    },
+    opts: { keepalive?: boolean } = {},
+  ) =>
+    req<ContentUpdateResult>(`/content/${id}`, { method: "PATCH", body: JSON.stringify(body), keepalive: opts.keepalive }),
   // Mockup templates and their photos (backend api/mockups.py): no Etsy call, no AI call.
   mockupTemplates: () => req<MockupTemplate[]>("/mockup-templates"),
   mockupTemplate: (id: string) => req<MockupTemplate>(`/mockup-templates/${id}`),

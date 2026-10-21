@@ -425,6 +425,76 @@ def validate_listing(
     return list(dict.fromkeys(errors))
 
 
+@dataclass
+class ListingCheck:
+    """What stops a listing (``errors``) and what is only pointed out (``warnings``)."""
+
+    errors: list[str]
+    warnings: list[str]
+
+    @property
+    def valid(self) -> bool:
+        return not self.errors
+
+
+def check_listing(
+    listing: GeneratedListing,
+    policy: ContentPolicy | None = None,
+    *,
+    hand_written: bool = False,
+    trademarks: Blocklist | None = None,
+    title_rules: TitleRules = LEGACY_TITLE,
+    category_names: list[str] | None = None,
+    for_seller: bool = True,
+    title_prefix: str | None = None,
+) -> ListingCheck:
+    """The one decision on a listing's own text, for approval and for every draft.
+
+    A listing the app wrote is held to every rule (:func:`validate_listing`), as
+    before. A listing the seller wrote themselves is stopped only by what Etsy
+    itself refuses for a draft (``pipeline/etsy_text.py``) and by the account's
+    trademark filter (a compliance rule, not a quality one); the app's quality
+    rules (exactly 13 tags, the title's length range, the product type named in
+    the title and a tag, words with no search value...) become warnings on it.
+    """
+    from app.pipeline import etsy_text
+
+    strict = validate_listing(
+        listing,
+        policy,
+        trademarks=trademarks,
+        title_rules=title_rules,
+        category_names=category_names,
+        for_seller=for_seller,
+        title_prefix=title_prefix,
+    )
+    if not hand_written:
+        return ListingCheck(strict, [])
+    blocklist = configured_blocklist() if trademarks is None else trademarks
+    searchable = " ".join([listing.description, *listing.attributes.values()])
+    if for_seller:
+        summary = trademark_summary(listing.title, list(listing.tags), searchable, blocklist)
+        marks = [summary] if summary else []
+    else:
+        marks = trademark_errors(listing.title, list(listing.tags), searchable, blocklist)
+    errors = list(dict.fromkeys(etsy_text.draft_errors(listing.title, list(listing.tags), listing.description) + marks))
+    blocked = set(errors)
+    title_empty = not listing.title.strip()
+    if title_empty and not [t for t in listing.tags if t.strip()]:
+        # Nothing written yet: it needs a title, and that is all there is to say.
+        return ListingCheck(errors, [])
+    warnings = [
+        e for e in strict
+        if e not in blocked
+        # Said once, by Etsy's own rule: more than 13 tags, a title over 140.
+        and not (e.startswith("expected exactly") and len(listing.tags) > etsy_text.MAX_TAGS)
+        and not (e.startswith(TITLE_TOO_LONG) and len(listing.title) > etsy_text.MAX_TITLE)
+        # No title yet: what a title should say is for when there is one.
+        and not (title_empty and "title" in e)
+    ]
+    return ListingCheck(errors, warnings)
+
+
 def title_length_errors(title: str, title_rules: TitleRules) -> list[str]:
     """The title is not empty and within ``title_rules``' length (Etsy: 140 at most)."""
     errors: list[str] = []

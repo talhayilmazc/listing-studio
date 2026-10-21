@@ -1556,8 +1556,17 @@ async def generate_content(
             key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename.lower()),
         )
         old = [c for m in members for c in content_by_asset.get(m.id, [])]
+        if body.only_empty and old:
+            # "Generate the empty ones": only the seller's listings nothing was typed into.
+            empty = True
+            for c in old:
+                own = await _profile(c.listing_profile_id) if c.listing_profile_id else None
+                empty = empty and manual.is_empty(c, own)
+            if not empty:
+                skipped += 1
+                continue
         if old:
-            if not body.replace:  # generating "for all": groups with content are done
+            if not (body.replace or body.only_empty):  # generating "for all": groups with content are done
                 skipped += 1
                 continue
             reason = None

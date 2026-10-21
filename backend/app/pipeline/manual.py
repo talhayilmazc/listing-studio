@@ -74,6 +74,15 @@ def follow_title(content: GeneratedContent, profile: ListingProfile | None, old_
     return changed
 
 
+def is_empty(content: Any, profile: ListingProfile | None) -> bool:
+    """A listing the seller writes that nothing was typed into yet: no title, no
+    tags, and the description still the profile's (or none). "Generate the empty
+    ones" writes only these, never one the seller started."""
+    if not is_manual(content) or (content.title or "").strip() or list(content.tags or []):
+        return False
+    return (content.description or "") in {"", description_for(profile, "")}
+
+
 def default_attributes(profile: ListingProfile) -> dict[str, Any]:
     """The profile's default Occasion / Holiday, each only if Etsy lists it for the category."""
     payload = profile.cached_payload or {}

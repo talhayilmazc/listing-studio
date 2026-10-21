@@ -30,8 +30,8 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline import creativity, manual, versions
-from app.pipeline.content import GeneratedListing, bounds_for, policy_for, validate_listing
+from app.pipeline import approval, creativity, manual, versions
+from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
 from app.pipeline.generation import TITLE_WARNINGS
 from app.pipeline.personalization import DEFAULT_QUESTION
 from app.pipeline.reference import decode_etsy_text
@@ -307,6 +307,21 @@ async def contents_out(
     for out in outs:
         out.findings = findings.get(out.id, [])
         out.work = work.get(out.id, [])
+    # A listing the seller writes: Etsy's own rules block, the app's are notes on it.
+    hand_written = [c for c, _ in pairs if manual.is_manual(c)]
+    if hand_written:
+        marks = await tenant_blocklist(session, hand_written[0].tenant_id)
+        by_id = {out.id: out for out in outs}
+        for c in hand_written:
+            profile = profiles.get(c.listing_profile_id)
+            check = check_listing(
+                GeneratedListing(title=c.title or "", tags=list(c.tags or []), description=c.description or ""),
+                policy_for(profile.content_template) if profile is not None else None,
+                hand_written=True,
+                trademarks=marks,
+                title_rules=bounds_for(profile),
+            )
+            by_id[c.id].validation = schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings)
     # The search-readiness checklist: from what is stored here; nothing read from Etsy.
     from app.api.checklist import checklists_for
 
@@ -414,14 +429,17 @@ async def _validation(
         tags=list(content.tags or []),
         description=content.description or "",
     )
-    errors = validate_listing(
+    # A listing the seller writes is stopped only by what Etsy refuses (and the
+    # trademark filter); the app's quality rules are warnings on it.
+    check = check_listing(
         listing,
         policy,
+        hand_written=manual.is_manual(content),
         trademarks=await tenant_blocklist(session, content.tenant_id),
         title_rules=bounds_for(profile),
         for_seller=True,
     )
-    return schemas.ValidationInfo(valid=not errors, errors=errors)
+    return schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings)
 
 
 async def _get(session: AsyncSession, tenant: Tenant, content_id: uuid.UUID) -> GeneratedContent:
@@ -469,6 +487,14 @@ async def update_content(
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
     before = (content.title, list(content.tags or []), content.description)
+    if body.base is not None:
+        stale = _changed_elsewhere(content, body)
+        if stale:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This listing's {' and '.join(stale)} changed in another tab or window. "
+                "Reload this listing to see it, or keep what you typed here.",
+            )
     if body.title is not None:
         if body.title != content.title and (content.attributes or {}).get(TITLE_WARNINGS):
             # The seller's own title: the warnings were about the app's.
@@ -494,6 +520,26 @@ async def update_content(
     return schemas.ContentUpdateResult(
         content=(await contents_out(session, [(content, asset)]))[0], validation=await _validation(session, content)
     )
+
+
+def _changed_elsewhere(content: GeneratedContent, body: schemas.ContentUpdate) -> list[str]:
+    """The fields this save would overwrite although they changed since the card read
+    them (another tab or window saved them). A field already holding what is sent is
+    not a conflict."""
+    assert body.base is not None
+    stale: list[str] = []
+    for name in ("title", "tags", "description"):
+        new = getattr(body, name)
+        if new is None or name not in body.base.model_fields_set:
+            continue
+        empty: object = [] if name == "tags" else ""
+        stored = getattr(content, name) or empty
+        base = getattr(body.base, name) or empty
+        if name == "tags":
+            stored, base, new = list(stored), list(base), list(new)  # type: ignore[arg-type]
+        if stored != base and stored != new:
+            stale.append(name)
+    return stale
 
 
 @router.post("/content/{content_id}/checklist", response_model=schemas.ChecklistOut)
@@ -596,22 +642,39 @@ async def approve_all(
         .order_by(Asset.rank, Asset.original_filename)
     )
     result = schemas.ApproveAllResult()
+    refused: list[tuple[uuid.UUID, bool, list[str]]] = []
+    noted: list[tuple[uuid.UUID, bool, list[str]]] = []
     for content, asset in rows.all():
         if content.approved:
             result.already_approved += 1
             continue
         await rescan(session, content)
         validation = await _validation(session, content)
+        hand_written = manual.is_manual(content)
         if not validation.valid:
             result.skipped.append(
                 schemas.ApproveSkipped(
                     content_id=content.id,
                     original_filename=asset.original_filename,
                     reason="; ".join(validation.errors),
+                    reasons=list(dict.fromkeys(approval.short(e) for e in validation.errors)),
                 )
             )
+            refused.append((content.id, hand_written, validation.errors))
             continue
+        if validation.warnings:
+            noted.append((content.id, hand_written, validation.warnings))
         content.approved = True
         result.approved += 1
     await session.commit()
+    # One line per reason with how many, not the same long list for every listing.
+    groups = approval.group(refused)
+    result.problems = [
+        schemas.ApproveGroup(line=g.line(), count=len(g.content_ids), content_ids=g.content_ids) for g in groups
+    ]
+    result.summary = approval.summary(len(result.skipped), groups)
+    result.notes = [
+        schemas.ApproveGroup(line=g.line(), count=len(g.content_ids), content_ids=g.content_ids)
+        for g in approval.group(noted)
+    ]
     return result
