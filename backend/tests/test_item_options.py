@@ -306,10 +306,10 @@ async def test_nothing_is_created_without_the_sellers_confirmation(client: Async
     assert (await client.post(f"/api/shops/{w['b']}/sections", json=body)).status_code == 409
     # Shop A already has it: chosen, nothing made.
     out = (await client.post(f"/api/shops/{w['a']}/sections", json=body)).json()
-    assert out["queued"] is False and out["requests"] == 0
+    assert out["queued"] is False and out["exists"] is True and "requests" not in out
     body = {"title": "Scrub Life", "content_ids": [str(w["nurse"])]}
     asked = (await client.post(f"/api/shops/{w['a']}/sections", json=body)).json()
-    assert asked["queued"] is False and "Create the section" in asked["message"] and asked["requests"] == 3
+    assert asked["queued"] is False and "Create the section" in asked["message"] and "requests" not in asked  # request counts are for admins only (A3)
     assert not any(c[0] == "create_shop_section" for c in w["queue"].calls)
     done = (await client.post(f"/api/shops/{w['a']}/sections", json={**body, "confirm": True})).json()
     assert done["queued"] is True

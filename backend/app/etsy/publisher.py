@@ -78,6 +78,27 @@ from app.pipeline.reference import (
 logger = logging.getLogger(__name__)
 
 
+def _has(answer: Any, key: str) -> bool:
+    """Etsy's answer to a write carries ``key`` (what it kept), so no read is needed."""
+    return isinstance(answer, dict) and answer.get(key) is not None
+
+
+#: A shop's sections, as kept on the shop for the review card (other Etsy content: 24 hours).
+SECTIONS_MAX_AGE_SECONDS = 24 * 3600
+
+
+async def _shop_sections(client: Any, connection: EtsyConnection, shop_id: int, ctx: dict[str, Any]) -> dict[str, Any]:
+    """The shop's sections: the list the review card offered (read through the queue, kept
+    24 hours on the shop) while it is fresh, else read from Etsy. One request fewer per draft."""
+    at = connection.sections_at
+    if connection.sections is not None and at is not None:
+        at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+        if (_now() - at).total_seconds() < SECTIONS_MAX_AGE_SECONDS:
+            return {"results": [{"shop_section_id": s.get("id"), "title": s.get("title")}
+                                for s in connection.sections if s.get("id") is not None]}
+    return await client.get_shop_sections(shop_id, **ctx)
+
+
 class PublishBlocked(Exception):
     """A blocking compliance finding prevents publishing this content."""
 
@@ -573,7 +594,7 @@ async def publish_content(
     # shop, else the title they chose in another shop when this shop has it, else
     # this shop's existing section that fits the design. Never a new one: creating
     # a section is the seller's confirmed action on the review card.
-    sections_resp = {"results": []} if resumed else await client.get_shop_sections(shop_id, **ctx)
+    sections_resp = {"results": []} if resumed else await _shop_sections(client, connection, shop_id, ctx)
     section_by_title = {
         str(s["title"]): int(s["shop_section_id"]) for s in sections_resp.get("results", [])
     }
@@ -777,10 +798,11 @@ async def publish_content(
 
     # 5a2) Personalization, as the profile says (v7 §D4), checked on read-back.
     if personalization and personalization.get("enabled"):
-        await client.update_listing_personalization(
+        answer = await client.update_listing_personalization(
             shop_id, listing_id, questions=questions_for(personalization), **ctx
         )
-        back = await client.get_listing_personalization(listing_id, **ctx)
+        # Etsy answers with what it kept: read again only when the answer does not say.
+        back = answer if _has(answer, "personalization_questions") else await client.get_listing_personalization(listing_id, **ctx)
         lost = personalization_differs(personalization, back)
         if lost:
             # Read back like the category: what was sent must be what Etsy kept (v8 §D).
@@ -827,8 +849,9 @@ async def publish_content(
         if unmatched:
             logger.info("draft %s: %d optional attribute(s) not offered by its category", listing_id, len(unmatched))
         written.update({a.property_name: ", ".join(a.values) for a in chosen})
+        answered: dict[int, list[int]] = {}
         for attr in chosen:
-            await client.update_listing_property(
+            answer = await client.update_listing_property(
                 shop_id,
                 listing_id,
                 attr.property_id,
@@ -837,10 +860,13 @@ async def publish_content(
                 scale_id=attr.scale_id,
                 **ctx,
             )
-        # Occasion and Holiday are read back: what the seller set must be what Etsy kept.
+            if _has(answer, "property_id"):
+                answered[int(answer["property_id"])] = sorted(int(v) for v in answer.get("value_ids") or [])
+        # Occasion and Holiday are checked: what the seller set must be what Etsy kept. Each
+        # write's answer says what Etsy kept; the properties are read only when one did not.
         checked = [a for a in chosen if a.property_name.strip().lower() in {p.lower() for p in item_options.PROPERTIES}]
         if checked:
-            kept = {
+            kept = answered if all(a.property_id in answered for a in checked) else {
                 int(p["property_id"]): sorted(int(v) for v in p.get("value_ids") or [])
                 for p in (await client.get_listing_properties(shop_id, listing_id, **ctx)).get("results") or []
                 if p.get("property_id") is not None
@@ -877,11 +903,13 @@ async def publish_content(
             reference.get("readiness_state_id")}
         if foreign:  # never another shop's id (pipeline/reference.py build_inventory_from_reference)
             raise ShopNotSetUp(f"{setup_message('readiness_state', connection.shop_name)}; set it up there, then try again")
-    await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
+    stored = await client.update_listing_inventory(listing_id, inventory=inventory, **ctx)
     has_variations = len(inventory["products"]) > 1
     if sku:
-        # The SKUs are read back: what was sent must be what Etsy kept, on every product.
-        kept = (await client.get_listing_inventory(listing_id, **ctx)).get("products") or []
+        # The SKUs are checked: what was sent must be what Etsy kept, on every product. Etsy
+        # answers with the inventory it kept; it is read again only when the answer does not say.
+        kept = (stored.get("products") if _has(stored, "products")
+                else (await client.get_listing_inventory(listing_id, **ctx)).get("products")) or []
         if sorted(str(p.get("sku") or "").strip() for p in kept) != sorted(p["sku"] for p in inventory["products"]):
             raise ValueError("the draft's SKU did not save as sent; check its inventory in Shop Manager")
 

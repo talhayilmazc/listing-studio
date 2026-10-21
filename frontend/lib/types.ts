@@ -583,7 +583,6 @@ export interface MatrixColumn {
   shop_name: string | null;
   profiles: { id: string; name: string; content_template: string; is_fresh: boolean }[];
   drafts: number;
-  estimated_calls: number;
   /** Listings ticked for this shop (drafted ones included). */
   ticked: number;
   /** What this shop still needs for the listings ticked for it. */
@@ -595,14 +594,8 @@ export interface PublishPreview {
   columns: MatrixColumn[];
   rows: MatrixRow[];
   drafts: number;
-  estimated_calls: number;
-  calls_per_draft: number;
-  /** What these drafts may still spend today. */
-  budget_remaining: number;
   /** "account": the seller's own ceiling is the limit; "app": the app's shared budget is. */
   limited_by: "account" | "app";
-  /** The account's ceiling: identical to the sidebar's. */
-  ceiling: EtsyCeiling | null;
   fits: boolean;
   listings_that_fit: number;
   message: string | null;
@@ -1350,7 +1343,6 @@ export interface BatchActionPreview {
   action: "drafts" | "publish";
   act: BatchActionItem[];
   skipped: BatchActionItem[];
-  estimated_calls: number;
   fits: boolean;
   message: string | null;
 }
@@ -1644,13 +1636,8 @@ export interface SalesSync {
   state: "none" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed";
   total_count: number | null;
   window_count: number | null;
-  pages_estimate: number | null;
   days_estimate: number | null;
-  daily_requests: number;
   read_count: number;
-  requests_used: number;
-  requests_today: number;
-  last_update_requests: number | null;
   resumes_at: string | null;
   note: string | null;
   /** The one-time second read that adds the order lines. */
@@ -1673,8 +1660,9 @@ export interface SalesRereadShop {
   status: "queued" | "reading" | "waiting" | "done" | "failed";
   read_count: number;
   window_count: number | null;
-  requests_used: number;
-  requests_left: number | null;
+  /** Admin only (sellers never receive request counts). */
+  requests_used?: number;
+  requests_left?: number | null;
   /** The UTC day it is expected to finish (an estimate). */
   finishes_on: string | null;
   finished_at: string | null;
@@ -1684,9 +1672,11 @@ export interface SalesRereadShop {
 export interface SalesReread {
   active: boolean;
   reads_back_to: string;
-  per_shop_daily: number;
+  /** Admin only. */
+  per_shop_daily?: number;
   resets_at: string;
-  requests_left: number;
+  /** Admin only. */
+  requests_left?: number;
   finishes_on: string | null;
   shops: SalesRereadShop[];
 }
@@ -1707,10 +1697,8 @@ export interface SalesRereadAdmin extends SalesReread {
 export interface LedgerRead {
   state: "none" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed";
   total_count: number | null;
-  pages_estimate: number | null;
   first_days: number;
   read_count: number;
-  requests_used: number;
   resumes_at: string | null;
   note: string | null;
   covers_from: string | null;
@@ -1718,8 +1706,6 @@ export interface LedgerRead {
   /** Filling in the 13 months before the first read, in the background. */
   history_state: "none" | "reading" | "waiting" | "complete" | "failed";
   history_target: string | null;
-  history_requests: number;
-  history_requests_left: number | null;
   history_note: string | null;
 }
 
@@ -1888,7 +1874,6 @@ export interface ResourceSetup {
   reason: string | null;
   creatable: boolean;
   create_summary: string | null;
-  requests: number;
   options: { id: number; label: string }[];
 }
 
@@ -1909,7 +1894,6 @@ export interface SettingUse {
   reason: string | null;
   creatable: boolean;
   create_summary: string | null;
-  requests: number;
   options: { id: number; label: string }[];
   /** The last copy of it was refused (or not answered): why, and what fixes it. */
   failure?: SetupFailure | null;
@@ -2016,15 +2000,11 @@ export interface GroupPlanPreview {
     listings: number;
     days: { date: string; slots: { time: string; zone: string; content_id: string; title: string }[] }[];
   }[];
-  budget: { date: string; requests: number; capacity: number }[];
-  ceiling: number;
   finishes_on: string | null;
   drafts: number;
   skipped: { content_id: string; shop: string; reason: string }[];
   notes: string[];
   time_zone: string;
-  requests_per_draft: number;
-  requests_per_publish: number;
 }
 
 export interface GroupPlanSummary {
@@ -2107,7 +2087,8 @@ export interface SectionCreateResult {
   queued: boolean;
   title: string;
   shop_name: string | null;
-  requests: number;
+  /** Already a section there: chosen, nothing to create. */
+  exists?: boolean;
   message: string;
 }
 

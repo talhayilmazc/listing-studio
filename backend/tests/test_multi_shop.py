@@ -384,7 +384,7 @@ async def test_the_estimate_is_shown_before_publishing(world) -> None:
     preview = (
         await world["a"].post(f"/api/batches/{world['batch']}/publish/preview", json={"targets": targets})
     ).json()
-    assert preview["drafts"] == 4 and preview["estimated_calls"] == 60 and preview["fits"] is True
+    assert preview["drafts"] == 4 and preview["fits"] is True and "estimated_calls" not in preview  # request counts are for admins only (A3)
 
 
 async def test_a_publish_that_would_pass_the_budget_is_refused_saying_what_fits(world) -> None:
@@ -398,7 +398,7 @@ async def test_a_publish_that_would_pass_the_budget_is_refused_saying_what_fits(
 
     res = await world["a"].post(f"/api/batches/{world['batch']}/publish", json={"targets": targets})
     assert res.status_code == 409
-    assert "2 shops × 2 listings ≈ 60 Etsy requests" in res.json()["detail"]
+    assert "Not all of these drafts fit today" in res.json()["detail"] and "requests" not in res.json()["detail"]  # request counts are for admins only (A3)
     assert "1 listing would fit" in res.json()["detail"]
     assert world["queue"].calls == []  # nothing queued
 
@@ -408,8 +408,8 @@ async def test_the_90_percent_pause_counts_as_the_budget(world) -> None:
     res = await world["a"].post(f"/api/batches/{world['batch']}/publish")
     detail = res.json()["detail"]
     # The app's budget is what stops it, and the message says exactly that.
-    assert res.status_code == 409 and "the app's shared Etsy budget has room for only 10 more today" in detail
-    assert "this is not your own limit" in detail
+    assert res.status_code == 409 and "the app's shared Etsy limit for today is nearly used" in detail
+    assert "it is not your own limit" in detail and "requests" not in detail  # request counts are for admins only (A3)
 
 
 # --- isolation at shop level (B6) ---------------------------------------------------------------
@@ -612,7 +612,7 @@ async def test_the_matrix_shows_every_listing_against_every_shop(world) -> None:
     assert _cell(preview, c0, world["a2"])["state"] == "draft"  # already there
     blocked = _cell(preview, c1, world["a1"])
     assert (blocked["state"], blocked["reason"], blocked["chosen"]) == ("unavailable", "not approved yet", False)
-    assert preview["drafts"] == 1 and preview["columns"][0]["estimated_calls"] == 15 and preview["columns"][1]["drafts"] == 0
+    assert preview["drafts"] == 1 and preview["columns"][0]["drafts"] == 1 and preview["columns"][1]["drafts"] == 0
 
 
 async def test_only_the_ticked_cells_are_created(world) -> None:
@@ -621,7 +621,7 @@ async def test_only_the_ticked_cells_are_created(world) -> None:
              {"content_id": str(c1), "connection_id": str(world["a1"])},
              {"content_id": str(c1), "connection_id": str(world["a2"])}]
     preview = await _matrix(world, {"pairs": pairs})
-    assert preview["drafts"] == 3 and preview["estimated_calls"] == 45
+    assert preview["drafts"] == 3 and "estimated_calls" not in preview  # request counts are for admins only (A3)
     assert [c["drafts"] for c in preview["columns"]] == [1, 2]
     assert _cell(preview, c0, world["a1"])["chosen"] is False and _cell(preview, c0, world["a2"])["chosen"] is True
 

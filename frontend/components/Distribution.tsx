@@ -243,24 +243,10 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
       {plan && (
         <div key="plan" className="space-y-3 text-xs">
           <p translate="no" className="text-sm text-slate-800">
-            {`${plan.drafts} draft${plan.drafts === 1 ? "" : "s"} · finishes on ${plan.finishes_on ? day(plan.finishes_on) : "—"} · each ≈ ${plan.requests_per_draft + plan.requests_per_publish} Etsy requests`}
+            {`${plan.drafts} draft${plan.drafts === 1 ? "" : "s"} · finishes on ${plan.finishes_on ? day(plan.finishes_on) : "—"}`}
           </p>
           {plan.notes.map((n) => <p key={n} className="text-amber-800">{n}</p>)}
-          <div>
-            <p className="font-medium text-slate-600">Etsy requests per day (UTC days), against what your account may spend</p>
-            <ul className="mt-1 space-y-1">
-              {plan.budget.map((b) => (
-                <li key={b.date} className="flex items-center gap-2">
-                  <span translate="no" className="w-24 shrink-0 tabular-nums">{day(b.date)}</span>
-                  <span className="h-2 flex-1 overflow-hidden rounded bg-slate-100" aria-hidden>
-                    <span className="block h-full bg-brand-500" style={{ width: `${Math.min(100, (100 * b.requests) / Math.max(1, b.capacity))}%` }} />
-                  </span>
-                  <span translate="no" className="w-28 shrink-0 text-right tabular-nums">{`${b.requests.toLocaleString()} of ${b.capacity.toLocaleString()}`}</span>
-                </li>
-              ))}
-            </ul>
-            <p translate="no" className="mt-1 text-slate-500">{`Your daily ceiling is ${plan.ceiling.toLocaleString()}; a day that is full moves to the next.`}</p>
-          </div>
+          <p className="text-slate-500">A day that is full moves to the next by itself.</p>
           <div className="space-y-2">
             {plan.shops.map((s) => (
               <details key={s.shop_id} className="rounded border border-slate-200 p-2">

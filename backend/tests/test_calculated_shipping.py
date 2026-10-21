@@ -247,3 +247,57 @@ async def test_try_again_after_the_refusal_makes_one_draft(async_sm) -> None:
         result = await publish_content(s, content=content, connection=connection, reference=CALCULATED, **args)
     # Etsy refused the first create, so nothing was made: the second is sent at once, and once.
     assert result.listing_id == 555 and fake.calls.count("create") == 1
+
+
+
+# --- A3: what a draft costs ------------------------------------------------------------------------
+
+
+class Answering(FakeEtsy):
+    """Etsy answers each write with what it kept, as its API does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads: list[str] = []
+
+    async def update_listing_inventory(self, listing_id, *, inventory, **kw):  # noqa: ANN001
+        await super().update_listing_inventory(listing_id, inventory=inventory, **kw)
+        return {"products": [{"sku": p["sku"]} for p in inventory["products"]]}
+
+    async def get_listing_inventory(self, listing_id, **kw):  # noqa: ANN001
+        self.reads.append("inventory")
+        return await super().get_listing_inventory(listing_id, **kw)
+
+
+async def test_a_draft_reads_nothing_etsys_answers_already_said(async_sm) -> None:
+    """A draft read back what each write had just answered and the shop's sections on every
+    draft. Each write's answer is used now, and the sections the review card offered."""
+    from datetime import datetime, timezone
+
+    ids = await publisher_seed(async_sm)
+    fake = Answering()
+    async with async_sm() as s:
+        content, connection = await s.get(GeneratedContent, ids[2]), await s.get(EtsyConnection, ids[1])
+        connection.sections, connection.sections_at = [{"id": 10, "title": "Tees"}], datetime.now(timezone.utc)
+        await s.commit()
+        await publish_content(
+            s, job_id=ids[3], content=content, connection=connection, sku="BR5475",
+            thumbnail=PublishImage(b"t", "cover.jpg"), extra_images=[], client=fake, access_token="tok", config=CONFIG,
+            reference=CALCULATED, theme="", occasion="", vision={}, tenant_limit=2000,
+        )
+    assert "sections" not in fake.calls  # the sections the card offered (kept 24 hours)
+    assert fake.reads == []  # the inventory's answer said what Etsy kept
+
+
+async def test_stale_sections_and_silent_answers_are_still_read(async_sm) -> None:
+    from datetime import datetime, timezone
+
+    from app.etsy.publisher import _shop_sections
+
+    ids = await publisher_seed(async_sm)
+    fake = FakeEtsy()  # answers {} to writes: the reads stay
+    async with async_sm() as s:
+        connection = await s.get(EtsyConnection, ids[1])
+        connection.sections, connection.sections_at = [{"id": 10, "title": "Tees"}], datetime(2020, 1, 1, tzinfo=timezone.utc)
+        await _shop_sections(fake, connection, 900, {})
+    assert "sections" in fake.calls

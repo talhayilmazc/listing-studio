@@ -735,7 +735,7 @@ class BatchActionPreview(BaseModel):
     act: list[BatchActionItem] = Field(default_factory=list)
     skipped: list[BatchActionItem] = Field(default_factory=list)
     #: Drafts only: the day's budget check, as the review page shows it.
-    estimated_calls: int = 0
+    estimated_calls: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     fits: bool = True
     message: str | None = None
 
@@ -868,7 +868,7 @@ class MatrixColumnOut(BaseModel):
     shop_name: str | None
     profiles: list["ProfileChoiceOut"] = Field(default_factory=list)
     drafts: int = 0  # drafts this request would create in this shop
-    estimated_calls: int = 0
+    estimated_calls: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     ticked: int = 0  # listings ticked for this shop (drafted ones included)
     # What this shop still needs for the listings ticked for it, before approving.
     needs: list[ShopNeedOut] = Field(default_factory=list)
@@ -883,14 +883,14 @@ class PublishPreviewOut(BaseModel):
     columns: list[MatrixColumnOut] = Field(default_factory=list)
     rows: list[MatrixRowOut] = Field(default_factory=list)
     drafts: int  # drafts that would be created
-    estimated_calls: int  # ~15 Etsy requests per draft
-    calls_per_draft: int
+    estimated_calls: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    calls_per_draft: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     # What these drafts may still spend today: the account's remaining requests,
     # or less when the app's shared budget is the smaller (``limited_by`` "app").
-    budget_remaining: int
+    budget_remaining: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     limited_by: str = "account"
     # The account's ceiling, identical to what the sidebar and batch page show.
-    ceiling: EtsyCeilingOut | None = None
+    ceiling: EtsyCeilingOut | None = Field(default=None, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     fits: bool
     listings_that_fit: int  # per the selected shops, if it does not all fit
     message: str | None = None
@@ -1326,7 +1326,9 @@ class SectionCreateOut(BaseModel):
     title: str
     shop_name: str | None = None
     #: Etsy requests it takes (its sections read again, then the create).
-    requests: int = 3
+    requests: int = Field(default=3, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    #: The section is already there (nothing to create): it is chosen for these listings.
+    exists: bool = False
     message: str
 
 
@@ -1351,7 +1353,7 @@ class EtsySkuUpdate(BaseModel):
     etsy_listing_id: int
     current_sku: str | None = None
     #: Etsy requests updating it there takes.
-    requests: int = 3
+    requests: int = Field(default=3, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
 
 
 class SkuResult(BaseModel):
@@ -1389,4 +1391,4 @@ class SkuEtsyOut(BaseModel):
     queued: bool
     sku: str
     shops: list[EtsySkuUpdate] = Field(default_factory=list)
-    requests: int = 0
+    requests: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it

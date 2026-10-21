@@ -145,7 +145,7 @@ export function document(): string {
     "",
     "## Views, favourites and title styles",
     "",
-    "For the listings published with the app, Etsy's lifetime views and favourites are read once a day and the day's increase is kept for 13 months (deleted with the shop). A listing's first reading is a starting point, not a day's views, unless it went live in the 48 hours before; a day that was not read is included in the next reading. The read costs one Etsy request per 100 listings per shop per day, and none for listings the shop sync already read that day.",
+    "For the listings published with the app, Etsy's lifetime views and favourites are read once a day and the day's increase is kept for 13 months (deleted with the shop). A listing's first reading is a starting point, not a day's views, unless it went live in the 48 hours before; a day that was not read is included in the next reading.",
     "",
     "These are **listing views on Etsy, not search impressions**. Etsy's API has no impressions, no search terms and no traffic sources, so how often a listing appeared in search, for which searches, and where its visitors came from cannot be measured here. Conversion is orders ÷ views; it is not a search click-through rate.",
     "",

@@ -253,7 +253,7 @@ function SectionRow({
         setAsking(null);
         setSent(res.message);
         onCreated();
-      } else if (res.requests === 0) {
+      } else if (res.exists) {
         setSent(res.message);
         onCreated();
       } else {

@@ -306,7 +306,7 @@ async def create_section(
             content = await _own_content(session, tenant, cid)
             await _apply(session, tenant, content, set(), None, None, {shop.id: existing["id"]})
         await session.commit()
-        return schemas.SectionCreateOut(queued=False, title=existing["title"], shop_name=name, requests=0,
+        return schemas.SectionCreateOut(queued=False, title=existing["title"], shop_name=name, requests=0, exists=True,
                                         message=f'"{existing["title"]}" is already a section in {name}; chosen.')
     if "shops_w" not in (shop.scopes or []):
         raise HTTPException(
@@ -316,7 +316,7 @@ async def create_section(
     if not body.confirm:
         return schemas.SectionCreateOut(
             queued=False, title=title, shop_name=name,
-            message=f'Create the section "{title}" in {name}? It takes about 3 Etsy requests from your daily limit.',
+            message=f'Create the section "{title}" in {name}?',
         )
     from app.workers.sections import create_spec
 

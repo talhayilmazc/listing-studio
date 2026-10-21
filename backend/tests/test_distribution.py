@@ -143,7 +143,7 @@ async def test_split_evenly_sends_each_listing_to_every_shop_of_its_group_only(w
     shops = {c["shop_name"]: c for c in plan["shops"]}
     assert shops["Frost Mugs"]["days"][0]["slots"][0]["time"] == "09:00"
     assert shops["Frost Caps"]["days"][0]["slots"][0]["time"] == "09:07"  # staggered within group B
-    assert all(day["requests"] <= day["capacity"] for day in plan["budget"])
+    assert "budget" not in plan and "requests_per_draft" not in plan  # request counts are for admins only (A3)
     async with world["sm"]() as s:  # a preview queues nothing
         assert (await s.execute(select(PlannedSlot))).first() is None
 

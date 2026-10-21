@@ -111,11 +111,10 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
       {sync.state === "none" && (
         <div key="none" className="flex flex-wrap items-center justify-between gap-3">
           <span>
-            Read your shop&apos;s sales to see what each listing earns. First we work out what reading them costs (a
-            few requests).
+            Read your shop&apos;s sales to see what each listing earns. First we count them, which takes a moment.
           </span>
           <button type="button" className="btn-primary" onClick={estimate} disabled={busy}>
-            See what it costs
+            Count my sales
           </button>
         </div>
       )}
@@ -129,21 +128,20 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
           <p>
             <span>{`Your shop has ${n(sync.window_count)} ${plural(sync.window_count ?? 0, "sale", "sales")} in the last 13 months`}</span>
             <span className="text-slate-500">{` (${n(sync.total_count)} in all)`}</span>
-            <span>{`. Etsy returns 100 per request, so reading them takes about ${n(sync.pages_estimate)} ${plural(sync.pages_estimate ?? 0, "request", "requests")} from the app's shared daily budget`}</span>
             <span>
               {days > 1
-                ? `, spread over ${days} days at up to ${sync.daily_requests} a day so other work isn't crowded out.`
-                : "; it finishes today."}
+                ? `. Reading them takes about ${days} days in the background, so other work isn't crowded out.`
+                : ". Reading them finishes today."}
             </span>
           </p>
           {sync.ledger.state === "estimated" && (
             <p key="ledger-cost">
-              {`Etsy's payment ledger (the fees and ad spend Etsy actually charged) has ${n(sync.ledger.total_count)} ${plural(sync.ledger.total_count ?? 0, "entry", "entries")} in the last ${sync.ledger.first_days} days: about ${n(sync.ledger.pages_estimate)} more ${plural(sync.ledger.pages_estimate ?? 0, "request", "requests")}. It is read alongside your sales.`}
+              {`Etsy's payment ledger (the fees and ad spend Etsy actually charged) has ${n(sync.ledger.total_count)} ${plural(sync.ledger.total_count ?? 0, "entry", "entries")} in the last ${sync.ledger.first_days} days. It is read alongside your sales.`}
             </p>
           )}
           <p className="text-xs text-slate-500">
             It runs in the background and can be left; the figures below fill in as it goes. After this, each night
-            reads only new sales (usually one request).
+            reads only new sales.
           </p>
           <div className="flex gap-2">
             <button type="button" className="btn-primary" onClick={start} disabled={busy}>
@@ -163,9 +161,6 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
               <span>{sync.state === "reading" ? (sync.reread === "reading" ? "Reading your sales once more: " : "Reading your sales: ") : "Paused at "}</span>
               <span className="font-medium tabular-nums">{n(sync.read_count)}</span>
               <span>{` of ${n(sync.window_count)} sales`}</span>
-            </span>
-            <span className="text-xs tabular-nums text-slate-500">
-              {`${n(sync.requests_used)} ${plural(sync.requests_used, "request", "requests")} so far`}
             </span>
           </div>
           <div className="progress">
@@ -189,8 +184,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
               : updatedLine(sync.updated_at ?? sync.synced_at, (iso) => `${formatWhen(iso, timeZone)} (${relativeTime(iso)})`, RETENTION.salesRefreshDays)}
           </span>
           <span>
-            <span><span>{`· first read: ${n(sync.read_count)} sales in ${n(sync.requests_used)} requests`}</span>
-            <Txt>{sync.last_update_requests != null ? ` · last update: ${sync.last_update_requests} ${plural(sync.last_update_requests, "request", "requests")}` : ""}</Txt></span>
+            <span>{`· first read: ${n(sync.read_count)} sales`}</span>
           </span>
           <button type="button" className="tap underline hover:text-slate-900 disabled:opacity-50" onClick={readNow} disabled={busy || updating !== null}>
             Read now
@@ -298,7 +292,7 @@ function LedgerLine({
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-2">
         <span>
-          {`Etsy's payment ledger has ${n(ledger.total_count)} ${plural(ledger.total_count ?? 0, "entry", "entries")} in the last ${ledger.first_days} days: about ${n(ledger.pages_estimate)} ${plural(ledger.pages_estimate ?? 0, "request", "requests")} from the app's shared daily budget. From there it is kept up to date every night; periods before those days keep using your fee rates.`}
+          {`Etsy's payment ledger has ${n(ledger.total_count)} ${plural(ledger.total_count ?? 0, "entry", "entries")} in the last ${ledger.first_days} days. From there it is kept up to date every night; periods before those days keep using your fee rates.`}
         </span>
         <button type="button" className="btn-primary" onClick={onStart} disabled={busy}>
           Read the ledger
@@ -334,7 +328,7 @@ function LedgerLine({
       <div className="space-y-1.5">
         <p className="text-xs text-slate-500">
           {ledger.covers_from && ledger.covers_to
-            ? `Fees and ad spend from Etsy's ledger: ${ledger.covers_from} to ${ledger.covers_to} · ${n(ledger.requests_used)} requests so far · updated every night`
+            ? `Fees and ad spend from Etsy's ledger: ${ledger.covers_from} to ${ledger.covers_to} · updated every night`
             : "Fees and ad spend come from Etsy's ledger · updated every night"}
         </p>
         {filling && ledger.history_state !== "failed" && (
@@ -346,7 +340,6 @@ function LedgerLine({
                   : "Reading 13 months of fee history in the background: "}
               </span>
               <span className="font-medium">{`back to ${ledger.covers_from} so far, going to ${ledger.history_target}`}</span>
-              <Txt>{ledger.history_requests_left != null ? ` · about ${n(ledger.history_requests_left)} ${plural(ledger.history_requests_left, "request", "requests")} to go` : ""}</Txt>
             </p>
             <div className="progress">
               <div className="progress-fill" style={{ width: histPct + "%" }} />

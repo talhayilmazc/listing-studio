@@ -309,7 +309,8 @@ async def test_reading_sales_needs_the_permission_an_estimate_and_a_start(ctx) -
         sync.state, sync.total_count, sync.window_count, sync.pages_estimate = "estimated", 60000, 52000, 521
         await s.commit()
     body = (await c.get("/api/analytics/sales/status")).json()
-    assert (body["window_count"], body["pages_estimate"], body["days_estimate"], body["daily_requests"]) == (52000, 521, 3, 250)
+    assert (body["window_count"], body["days_estimate"]) == (52000, 3)
+    assert "pages_estimate" not in body and "daily_requests" not in body  # request counts are for admins only (A3)
 
     r = await c.post("/api/analytics/sales/start")
     assert r.status_code == 202 and r.json()["state"] == "reading"
@@ -335,7 +336,7 @@ async def test_the_ledger_can_be_read_on_its_own_once_sales_are(ctx) -> None:  #
         led.state, led.total_count, led.window_start, led.window_end = "estimated", 1234, 1_780_000_000, 1_787_776_000
         await s.commit()
     body = (await c.get("/api/analytics/sales/status")).json()["ledger"]
-    assert (body["total_count"], body["pages_estimate"], body["first_days"]) == (1234, 13, 90)
+    assert (body["total_count"], body["first_days"]) == (1234, 90) and "pages_estimate" not in body  # request counts are for admins only (A3)
 
     r = await c.post("/api/analytics/ledger/start")
     assert r.status_code == 202 and r.json()["ledger"]["state"] == "reading" and r.json()["state"] == "complete"
@@ -360,10 +361,10 @@ async def test_older_periods_stay_estimates_until_the_ledger_history_reaches_the
 
     # Progress: how far back it reaches, where it is going, and what is left.
     led = (await c.get("/api/analytics/sales/status")).json()["ledger"]
-    assert led["history_state"] == "waiting" and led["history_requests"] == 12
+    assert led["history_state"] == "waiting" and "history_requests" not in led  # request counts are for admins only (A3)
     assert led["covers_from"] == (TODAY - timedelta(days=120)).isoformat()
     assert led["history_target"] == (TODAY - timedelta(days=395)).isoformat()
-    assert led["history_requests_left"] == 110  # 12 requests for 30 days; 275 days to go
+    assert "history_requests_left" not in led
 
     # Last 90 days: charged amounts. The 90 before reach past where the history has got to: estimates, and it says why.
     body = (await c.get("/api/analytics/summary?days=90")).json()

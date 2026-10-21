@@ -266,7 +266,7 @@ async def test_job_status_explains_a_pause(world) -> None:  # noqa: F811
 
     assert body["status"] == "queued"
     assert body["pause"]["reason"] == PAUSE_TENANT
-    assert body["pause"]["message"].startswith("Your account has used its 2,000 Etsy requests for today.")
+    assert body["pause"]["message"].startswith("Your account has used its Etsy limit for today.")  # no numbers (A3)
     assert body["pause"]["resumes_at"]
 
 
@@ -281,8 +281,8 @@ async def test_quota_reports_the_pause_before_any_job_runs(world) -> None:  # no
     paused = (await world["b"].get("/api/quota")).json()
     assert paused["pause"]["reason"] == PAUSE_GLOBAL
     message = paused["pause"]["message"]
-    assert message.startswith("The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit:")
-    assert "you have 2,000 of your 2,000 Etsy requests left today" in message and "(00:00 UTC)" in message
+    assert message.startswith("The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit.")
+    assert "2,000" not in message and "(00:00 UTC)" in message  # which limit, never its numbers (A3)
 
 
 async def test_admin_usage_shows_the_pause_line_and_who_is_waiting(world) -> None:  # noqa: F811

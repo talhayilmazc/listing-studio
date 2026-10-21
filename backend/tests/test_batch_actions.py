@@ -48,7 +48,7 @@ async def test_the_drafts_preview_names_what_it_will_do_and_skip(ctx) -> None:  
     assert reasons[str(ids["unapproved"])] == "not approved"
     assert "at least 110" in reasons[str(ids["invalid"])]
     assert reasons[str(ids["drafted"])] == "already has a draft in this shop"
-    assert preview["fits"] is True and preview["estimated_calls"] == 15
+    assert preview["fits"] is True and "estimated_calls" not in preview  # request counts are for admins only (A3)
     assert await _jobs(ctx) == [] and ctx["enqueuer"].calls == []  # a preview queues nothing
 
 

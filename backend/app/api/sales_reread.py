@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,8 +29,8 @@ class RereadShop(BaseModel):
     read_count: int = 0
     #: Sales in the 13 months, from the shop's last estimate (so "about").
     window_count: int | None = None
-    requests_used: int = 0
-    requests_left: int | None = None
+    requests_used: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    requests_left: int | None = Field(default=None, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     #: The UTC day it is expected to finish: an estimate, from the whole queue.
     finishes_on: date | None = None
     finished_at: datetime | None = None
@@ -42,22 +42,27 @@ class RereadReport(BaseModel):
     active: bool
     #: The read covers sales from this day on (13 months).
     reads_back_to: date
-    per_shop_daily: int = SalesSync.DAILY_REQUESTS
+    per_shop_daily: int = Field(default=SalesSync.DAILY_REQUESTS, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     #: When the next night's share opens (00:00 UTC).
     resets_at: datetime
-    requests_left: int = 0
+    requests_left: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     finishes_on: date | None = None
     shops: list[RereadShop] = []
 
 
 class RereadAdminShop(RereadShop):
     email: str | None = None
+    # Admins see the request counts sellers never receive.
+    requests_used: int = 0
+    requests_left: int | None = None
 
 
 class RereadAdminReport(RereadReport):
     """The same, for every account, with the nightly share. Admin only."""
 
     nightly_cap: int
+    per_shop_daily: int = SalesSync.DAILY_REQUESTS
+    requests_left: int = 0
     budget_percent: int = worker.REREAD_BUDGET_PERCENT
     used_tonight: int
     queued: int = 0

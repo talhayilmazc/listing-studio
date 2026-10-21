@@ -164,14 +164,9 @@ def app_budget_message(tenant: Tenant | None, ceiling: EtsyCeiling | None = None
     their work. It says exactly that, and when work resumes in their own time."""
     reset = utc_reset()
     when = time_label(reset, zone_of(tenant))
-    own = (
-        f" It is not your own limit: you have {ceiling.remaining:,} of your {ceiling.limit:,} Etsy requests left today."
-        if ceiling is not None
-        else " It is not your own limit."
-    )
+    # Which limit, never its numbers (A3: request counts are for admins only).
     return (
-        "The app's shared Etsy budget for today is used up, so new work waits."
-        + own
+        "The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit."
         + f" It resumes by itself at {when} (00:00 UTC)."
     )
 
@@ -179,6 +174,6 @@ def app_budget_message(tenant: Tenant | None, ceiling: EtsyCeiling | None = None
 def ceiling_message(tenant: Tenant | None, limit: int) -> str:
     when = time_label(utc_reset(), zone_of(tenant))
     return (
-        f"Your account has used its {limit:,} Etsy requests for today. "
+        "Your account has used its Etsy limit for today. "
         f"New work waits, then resumes by itself at {when} (00:00 UTC)."
     )

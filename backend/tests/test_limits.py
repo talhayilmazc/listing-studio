@@ -61,9 +61,9 @@ async def _screens(world) -> dict:  # noqa: F811
 def _assert_one_answer(seen: dict) -> None:
     # Listings generated: the seller's sidebar and the admin panel, the same object.
     assert seen["allowance"] == seen["admin"]["allowance"]
-    # Etsy requests today: sidebar and batch metric, the review page, the admin row.
+    # Etsy requests today: the Overview card and the admin row (the review page no longer shows it).
     ceiling = seen["quota"]["ceiling"]
-    assert seen["review"]["ceiling"] == ceiling == seen["admin"]["etsy"]
+    assert ceiling == seen["admin"]["etsy"] and "ceiling" not in seen["review"]  # request counts are for admins only (A3)
     assert (seen["usage_row"]["used_today"], seen["usage_row"]["limit"], seen["usage_row"]["follows_default"]) == (
         ceiling["used"], ceiling["limit"], ceiling["follows_default"],
     )
@@ -89,7 +89,7 @@ async def test_every_screen_shows_the_same_numbers_for_an_account_with_its_own_l
     # 00:00 UTC, said in the seller's own time.
     assert c["resets_at"].endswith("T00:00:00Z") and c["resets_label"] in ("7:00 PM CDT", "6:00 PM CST")
     # The review page's "left" is the account's own remaining: its ceiling is the smaller here.
-    assert (seen["review"]["budget_remaining"], seen["review"]["limited_by"]) == (1479, "account")
+    assert seen["review"]["limited_by"] == "account" and "budget_remaining" not in seen["review"]  # request counts are for admins only (A3)
     # The shop's part of the account's requests; upkeep is in neither.
     assert seen["quota"]["shop_used"] == 21
     # The app's budget is the admin's to see, and holds everything.
@@ -114,8 +114,7 @@ async def test_every_screen_shows_the_same_numbers_for_an_account_on_the_default
     assert (c["limit"], c["used"], c["remaining"], c["follows_default"]) == (20000, 21, 19979, True)
     # Here the app's budget is the smaller (90,000 - 80,000 used by everyone, upkeep included):
     # the review page may spend 10,000, says which number that is, and still shows the same ceiling.
-    assert (seen["review"]["budget_remaining"], seen["review"]["limited_by"]) == (10000, "app")
-    assert seen["review"]["ceiling"]["remaining"] == 19979
+    assert seen["review"]["limited_by"] == "app" and "budget_remaining" not in seen["review"]  # request counts are for admins only (A3)
 
 
 async def test_accounts_on_the_default_pick_up_a_change_of_it_and_overrides_do_not(world, test_settings) -> None:  # noqa: F811
@@ -204,17 +203,17 @@ async def test_when_the_apps_budget_stops_the_work_the_seller_is_told_exactly_th
     seen = (await world["b"].get("/api/quota")).json()
     assert seen["pause"]["reason"] == "global_quota"
     message = seen["pause"]["message"]
-    assert message.startswith("The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit:")
-    assert "you have 19,979 of your 20,000 Etsy requests left today" in message
+    assert message.startswith("The app's shared Etsy budget for today is used up, so new work waits. It is not your own limit.")
+    assert "19,979" not in message and "20,000" not in message  # request counts are for admins only (A3)
     assert ("7:00 PM CDT" in message or "6:00 PM CST" in message) and "(00:00 UTC)" in message
     refused = await world["b"].post(f"/api/batches/{world['bob'].batch_id}/publish/preview", json={})
-    assert (refused.json()["budget_remaining"], refused.json()["limited_by"]) == (0, "app")
+    assert refused.json()["limited_by"] == "app" and "budget_remaining" not in refused.json()  # request counts are for admins only (A3)
 
     # Their own ceiling: said as theirs, with its true reset in their own time.
     await _account(world, etsy_ceiling_override=20)
     await _spend(world, own=21, upkeep=0, everyone=100)
     own = (await world["b"].get("/api/quota")).json()["pause"]
-    assert own["reason"] == "tenant_quota" and own["message"].startswith("Your account has used its 20 Etsy requests for today.")
+    assert own["reason"] == "tenant_quota" and own["message"].startswith("Your account has used its Etsy limit for today.")  # no numbers (A3)
 
 
 async def test_the_top_strip_reads_counts_once_a_day_and_never_queues_a_full_sync(world, monkeypatch) -> None:  # noqa: F811

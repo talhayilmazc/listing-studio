@@ -142,21 +142,21 @@ class ShopCalendar(BaseModel):
 
 class BudgetDay(BaseModel):
     date: date  # UTC day
-    requests: int
-    capacity: int  # what the account may spend that day, less what is reserved already
+    requests: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    capacity: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
 
 
 class PlanOut(BaseModel):
     shops: list[ShopCalendar]
-    budget: list[BudgetDay]
-    ceiling: int
+    budget: list[BudgetDay] = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    ceiling: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     finishes_on: date | None
     drafts: int
     skipped: list[dict[str, str]]
     notes: list[str]
     time_zone: str
-    requests_per_draft: int = G.DRAFT_REQUESTS
-    requests_per_publish: int = G.PUBLISH_REQUESTS
+    requests_per_draft: int = Field(default=G.DRAFT_REQUESTS, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    requests_per_publish: int = Field(default=G.PUBLISH_REQUESTS, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
 
 
 class ConfirmOut(BaseModel):

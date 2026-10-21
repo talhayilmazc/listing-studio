@@ -248,7 +248,8 @@ async def test_progress_is_shown_per_shop_to_its_own_account_and_app_wide_to_the
     mine = (await world["b"].get("/api/analytics/sales/reread")).json()
     assert mine["active"] is True and [s["shop_name"] for s in mine["shops"]] == ["shop-2"]
     shop = mine["shops"][0]
-    assert (shop["status"], shop["read_count"], shop["window_count"], shop["requests_used"], shop["requests_left"]) == ("waiting", 500, 1200, 5, 8)
+    assert (shop["status"], shop["read_count"], shop["window_count"]) == ("waiting", 500, 1200)
+    assert "requests_used" not in shop and "requests_left" not in shop and "requests_left" not in mine  # request counts are for admins only (A3)
     today = datetime.now(timezone.utc).date()
     assert shop["finishes_on"] == today.isoformat() and mine["finishes_on"] == today.isoformat()
     assert mine["reads_back_to"] == (today - timedelta(days=SalesDaily.RETENTION_DAYS)).isoformat()
@@ -258,7 +259,7 @@ async def test_progress_is_shown_per_shop_to_its_own_account_and_app_wide_to_the
 
     # The other account's shop hasn't begun: 8 + 13 fits tonight's 25 left, so it is expected tonight too.
     theirs = (await world["a"].get("/api/analytics/sales/reread")).json()["shops"]
-    assert [(s["shop_name"], s["status"], s["read_count"], s["requests_used"], s["requests_left"]) for s in theirs] == [("shop-3", "queued", 0, 0, PAGES)]
+    assert [(s["shop_name"], s["status"], s["read_count"]) for s in theirs] == [("shop-3", "queued", 0)]
 
     assert (await world["b"].get("/api/admin/sales-reread")).status_code == 404
     assert (await world["anon"].get("/api/analytics/sales/reread")).status_code == 401

@@ -44,7 +44,8 @@ function statusText(s: SalesRereadShop): string {
   return WORDS[s.status] ?? s.status;
 }
 
-function Progress({ shop }: { shop: SalesRereadShop }) {
+/** ``admin``: the request counts too (sellers never receive them). */
+function Progress({ shop, admin = false }: { shop: SalesRereadShop; admin?: boolean }) {
   const total = shop.window_count ?? 0;
   const pct = shop.status === "done" ? 100 : total ? Math.min(100, (shop.read_count / total) * 100) : 0;
   return (
@@ -55,10 +56,10 @@ function Progress({ shop }: { shop: SalesRereadShop }) {
       <p className="mt-1 text-[11px] tabular-nums text-slate-500">
         <span>
           {shop.status === "queued"
-            ? `Not started · about ${n(shop.requests_left)} requests`
+            ? admin ? `Not started · about ${n(shop.requests_left)} requests` : "Not started"
             : shop.status === "done"
               ? `${n(shop.read_count)} sales read`
-              : `${n(shop.read_count)} of about ${n(total)} sales · ${n(shop.requests_used)} requests so far`}
+              : `${n(shop.read_count)} of about ${n(total)} sales` + (admin ? ` · ${n(shop.requests_used)} requests so far` : "")}
         </span>
       </p>
     </div>
@@ -74,7 +75,7 @@ function Rows({ shops, zone, withAccount }: { shops: (SalesRereadShop & { email?
             <ShopBadge name={s.shop_name} />
             {withAccount && <p key="email" className="mt-0.5 truncate text-[11px] text-slate-500">{s.email ?? "—"}</p>}
           </div>
-          <Progress shop={s} />
+          <Progress shop={s} admin={withAccount} />
           <div className="text-xs sm:text-right">
             <p className={s.status === "failed" ? "font-medium text-rose-700" : s.status === "done" ? "font-medium text-emerald-700" : "font-medium text-slate-700"}>
               {statusText(s)}

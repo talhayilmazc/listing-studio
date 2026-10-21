@@ -248,16 +248,14 @@ async def _budget(session: AsyncSession, quota: DailyQuota, tenant: Tenant, plan
     message = None
     if not fits:
         reset = f"{room.ceiling.resets_label} (00:00 UTC)"
-        # Say which number it is: the seller's own, or the app's shared budget.
+        # Say which limit it is (the seller's own, or the app's shared one), never its numbers.
         why = (
-            f"the app's shared Etsy budget has room for only {remaining:,} more today (this is not your own "
-            f"limit: you have {room.ceiling.remaining:,} of {room.ceiling.limit:,} left)"
+            "the app's shared Etsy limit for today is nearly used (it is not your own limit)"
             if room.limited_by == "app"
-            else f"you have {remaining:,} of your {room.ceiling.limit:,} Etsy requests left today"
+            else "your account's Etsy limit for today is nearly used"
         )
         message = (
-            f"{shops} shop{'s' if shops != 1 else ''} × {listings} listing"
-            f"{'s' if listings != 1 else ''} ≈ {estimated:,} Etsy requests, but {why}. "
+            f"Not all of these drafts fit today: {why}. "
             + (
                 f"{fit} listing{'s' if fit != 1 else ''} would fit; send fewer, or wait for the reset at {reset}."
                 if fit

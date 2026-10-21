@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,10 +141,10 @@ class LedgerOut(BaseModel):
     state: str
     #: Entries in the first window (the last LedgerSync.FIRST_DAYS days) and the requests they take.
     total_count: int | None = None
-    pages_estimate: int | None = None
+    pages_estimate: int | None = Field(default=None, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     first_days: int = LedgerSync.FIRST_DAYS
     read_count: int = 0
-    requests_used: int = 0
+    requests_used: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     resumes_at: datetime | None = None
     note: str | None = None
     #: The day the figures reach back to, and the day they reach.
@@ -154,9 +154,9 @@ class LedgerOut(BaseModel):
     history_state: str = "none"
     #: The day the history is to reach back to, and the requests it has used.
     history_target: date | None = None
-    history_requests: int = 0
+    history_requests: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     #: Requests still to go, from what the days read so far have cost; None until there is something to go on.
-    history_requests_left: int | None = None
+    history_requests_left: int | None = Field(default=None, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     history_note: str | None = None
 
 
@@ -207,14 +207,14 @@ class SalesSyncOut(BaseModel):
     total_count: int | None = None
     #: Sales in the 13 months read, and the requests reading them takes.
     window_count: int | None = None
-    pages_estimate: int | None = None
+    pages_estimate: int | None = Field(default=None, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     #: Days the first read takes at the daily pace (from today's remaining share).
     days_estimate: int | None = None
-    daily_requests: int = SalesSync.DAILY_REQUESTS
+    daily_requests: int = Field(default=SalesSync.DAILY_REQUESTS, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     read_count: int = 0
-    requests_used: int = 0
-    requests_today: int = 0
-    last_update_requests: int | None = None
+    requests_used: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    requests_today: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
+    last_update_requests: int | None = Field(default=None, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     resumes_at: datetime | None = None
     note: str | None = None
     #: The one-time second read (order lines): None | "reading" | "done".

@@ -157,7 +157,7 @@ async def test_matching_settings_by_default_and_a_missing_one_copied_automatical
     world["queue"].calls.clear()
     res = await a.post(f"/api/profiles/{world['pa1']}/setup/apply", json={"choices": choices})
     assert res.status_code == 200, res.text
-    assert res.json()["requests"] == 0
+    assert "requests" not in res.json()  # request counts are for admins only (A3)
     assert ("create_link_resources", (str(world["pa1"]),)) not in world["queue"].calls
     assert len(fake_etsy.created) == made
     links = await _links(world, world["pa1"])

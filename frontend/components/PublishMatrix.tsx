@@ -110,7 +110,7 @@ export function PublishMatrix({
           <ShopBadge name={col.shop_name} className="text-xs" />
         </label>
         <p translate="no" className="text-[11px] font-normal tabular-nums text-slate-500">
-          {`${col.ticked} of ${rows.length} listings · ${col.drafts} draft${col.drafts === 1 ? "" : "s"} to create ≈ ${col.estimated_calls.toLocaleString()} requests`}
+          {`${col.ticked} of ${rows.length} listings · ${col.drafts} draft${col.drafts === 1 ? "" : "s"} to create`}
         </p>
       </div>
     );
@@ -274,11 +274,8 @@ export function PublishMatrix({
 
       <p translate="no" className={"text-xs " + (preview.fits ? "text-slate-600" : "font-medium text-amber-800")}>
         {preview.fits
-          ? `${preview.drafts} draft${preview.drafts === 1 ? "" : "s"} in all ≈ ${preview.estimated_calls.toLocaleString()} Etsy requests (about ${preview.calls_per_draft} each). ` +
-            (preview.ceiling
-              ? `Etsy requests today: ${preview.ceiling.remaining.toLocaleString()} of your ${preview.ceiling.limit.toLocaleString()} left, resets ${preview.ceiling.resets_label}.`
-              : `${preview.budget_remaining.toLocaleString()} Etsy requests are left today.`)
-          : // Does not fit: the server's sentence says which number is in the way (their own, or the app's shared budget).
+          ? `${preview.drafts} draft${preview.drafts === 1 ? "" : "s"} in all.`
+          : // Does not fit: the server's sentence says which limit is in the way (their own, or the app's shared one).
             preview.message}
       </p>
     </section>

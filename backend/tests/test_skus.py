@@ -156,10 +156,11 @@ async def test_editing_on_the_group_card_validates_and_warns_about_duplicates(cl
 async def test_after_drafts_exist_nothing_goes_to_etsy_until_the_seller_presses_update(client: AsyncClient) -> None:  # noqa: F811
     w = await _world(client)
     res = (await client.put(f"/api/content/{w['content']}/sku", json={"sku": "CC7002"})).json()
-    assert {e["shop_name"]: e["requests"] for e in res["etsy"]} == {"Shop A": 3, "Shop B": 3}
+    assert sorted(e["shop_name"] for e in res["etsy"]) == ["Shop A", "Shop B"]
+    assert all("requests" not in e for e in res["etsy"])  # request counts are for admins only (A3)
     assert not w["queue"].calls  # nothing sent by editing
     plan = (await client.post(f"/api/content/{w['content']}/sku/etsy", json={})).json()
-    assert (plan["queued"], plan["requests"]) == (False, 6) and not w["queue"].calls
+    assert plan["queued"] is False and "requests" not in plan and not w["queue"].calls  # request counts are for admins only (A3)
     done = (await client.post(f"/api/content/{w['content']}/sku/etsy", json={"confirm": True})).json()
     assert done["queued"] is True
     jobs = [c for c in w["queue"].calls if c[0] == "update_sku_on_etsy"]

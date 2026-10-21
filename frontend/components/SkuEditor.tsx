@@ -91,7 +91,6 @@ export function SkuEditor({
   }
 
   const etsy = drafts;
-  const cost = etsy.reduce((n, s) => n + s.requests, 0);
   return (
     <div className={compact ? "inline-flex flex-wrap items-center gap-2" : "space-y-1.5"} data-testid="sku-editor">
       {editing ? (
@@ -142,21 +141,18 @@ export function SkuEditor({
           <p>
             <span>Its drafts on Etsy still have the old SKU: </span>
             <span translate="no">
-              {etsy.map((s) => `${s.shop_name ?? "shop"} (${s.current_sku || "no SKU"}, ${s.requests} requests)`).join("; ")}
+              {etsy.map((s) => `${s.shop_name ?? "shop"} (${s.current_sku || "no SKU"})`).join("; ")}
             </span>
             <span>.</span>
           </p>
           {!asking ? (
             <button key="ask" type="button" className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={() => setAsking(true)} disabled={busy}>
               <span>Update SKU on Etsy</span>
-              <span translate="no">{` (${cost} requests)`}</span>
             </button>
           ) : (
             <div key="confirm" role="alertdialog" aria-label="Update SKU on Etsy" className="mt-2 space-y-2">
               <p>
-                <span>Only the SKU on each draft&apos;s inventory changes; prices, quantities and variations stay. It uses about </span>
-                <span translate="no">{cost}</span>
-                <span> Etsy requests from your daily limit.</span>
+                <span>Only the SKU on each draft&apos;s inventory changes; prices, quantities and variations stay.</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn-primary px-3 py-1.5 text-xs" onClick={updateOnEtsy} disabled={busy}>

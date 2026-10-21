@@ -76,7 +76,7 @@ class ResourceSetup(BaseModel):
     creatable: bool = False
     #: What creating it would make, in the seller's words, and its Etsy requests.
     create_summary: str | None = None
-    requests: int = 0
+    requests: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     options: list[Choice] = Field(default_factory=list)
 
 
@@ -110,7 +110,7 @@ class SettingUse(BaseModel):
     reason: str | None = None
     creatable: bool = False
     create_summary: str | None = None
-    requests: int = 0
+    requests: int = Field(default=0, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
     options: list[Choice] = Field(default_factory=list)
     #: The last copy of it was refused: the dialog says why, and preselects nothing.
     failure: SetupFailure | None = None
@@ -147,7 +147,7 @@ class CreateIn(BaseModel):
 class CreateOut(BaseModel):
     profile: schemas.ProfileOut
     #: Etsy requests the confirmed creations take (counted against your daily Etsy requests).
-    requests: int
+    requests: int = Field(exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
 
 
 class ApplyChoice(BaseModel):
