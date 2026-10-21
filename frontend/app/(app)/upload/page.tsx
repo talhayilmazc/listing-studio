@@ -11,11 +11,10 @@ import { relativeTime } from "@/lib/format";
 import type { ArchiveResult, BatchSummary } from "@/lib/types";
 import {
   groupKeyOf,
-  mergePending,
   removeGroup,
-  skipPending,
   stage,
   stageArchives,
+  type StagedFile,
   type StagedGroup,
 } from "@/lib/staging";
 import { smallPreview } from "@/lib/thumbs";
@@ -62,6 +61,22 @@ export default function UploadPage() {
   const router = useRouter();
   // Chosen but not yet sent (staging): folders and ZIPs, each removable.
   const [staged, setStaged] = useState<StagedGroup<File>[]>([]);
+  // Files are staged one add at a time (identical content is compared, which takes a
+  // moment), so two quick adds never race; one line says what a re-added folder became.
+  const stagedRef = useRef<StagedGroup<File>[]>([]);
+  useEffect(() => {
+    stagedRef.current = staged;
+  }, [staged]);
+  const staging = useRef<Promise<void>>(Promise.resolve());
+  const [stageNote, setStageNote] = useState<string | null>(null);
+  const addStaged = useCallback((incoming: StagedFile<File>[], fresh: boolean) => {
+    staging.current = staging.current.then(async () => {
+      const result = await stage(fresh ? [] : stagedRef.current, incoming);
+      stagedRef.current = result.groups;
+      setStaged(result.groups);
+      setStageNote(result.notes.length ? result.notes.join("; ") : null);
+    }).catch(() => undefined);
+  }, []);
   const [archives, setArchives] = useState<File[]>([]);
   // Up to five small previews per staged folder, by folder key.
   const [thumbs, setThumbs] = useState<Record<string, (string | null)[]>>({});
@@ -185,7 +200,7 @@ export default function UploadPage() {
         setThumbs({});
         setAppending(true);
         setPhase("staging");
-        setStaged(stage([], incoming));
+        addStaged(incoming, true);
         setArchives(stageArchives([], zips));
         setIgnored(others);
         return;
@@ -200,17 +215,17 @@ export default function UploadPage() {
         setModeChoice(null);
         setBatchId(null);
         setPhase("staging");
-        setStaged(stage([], incoming));
+        addStaged(incoming, true);
         setArchives(stageArchives([], zips));
         setIgnored(others);
         return;
       }
-      // Added to what is already staged, never in place of it.
-      setStaged((g) => stage(g, incoming));
+      // Added to what is already staged, never in place of it; the same folder again is merged.
+      addStaged(incoming, false);
       setArchives((a) => stageArchives(a, zips));
       setIgnored((n) => n + others);
     },
-    [phase, releaseAll, batchId, summary],
+    [phase, releaseAll, batchId, summary, addStaged],
   );
 
   /** Make what is staged a separate upload instead of joining the last one. */
@@ -233,6 +248,7 @@ export default function UploadPage() {
     if (appending) {
       // Back to the finished upload; nothing new is added.
       setStaged([]);
+      setStageNote(null);
       setArchives([]);
       setIgnored(0);
       setPhase("done");
@@ -242,11 +258,11 @@ export default function UploadPage() {
     releaseAll();
     setModeChoice(null);
     setStaged([]);
+    setStageNote(null);
     setArchives([]);
     setIgnored(0);
   }
 
-  const undecided = staged.filter((g) => g.pending.length > 0);
   const imageCount = staged.reduce((n, g) => n + g.files.length, 0);
   const folderCount = staged.filter((g) => g.key !== "").length;
   const stagedFiles: PreviewFile[] = useMemo(
@@ -298,7 +314,7 @@ export default function UploadPage() {
   }
 
   async function upload() {
-    if (undecided.length || (imageCount === 0 && archives.length === 0)) return;
+    if (imageCount === 0 && archives.length === 0) return;
     setPhase("uploading");
     setNotes([]);
     const chosen = mode;
@@ -410,6 +426,7 @@ export default function UploadPage() {
     }
     setAppending(false);
     setStaged([]);
+    setStageNote(null);
     setArchives([]);
     setPhase("done");
   }
@@ -609,8 +626,6 @@ export default function UploadPage() {
               type="button"
               className="btn-primary"
               onClick={upload}
-              disabled={undecided.length > 0}
-              title={undecided.length ? "Merge or skip the folders added twice first" : undefined}
             >
               <span><span>{appending ? "Add" : "Upload"}</span> <span>{staged.length + archives.length}</span> <span>{staged.length + archives.length === 1 ? "item" : "items"}</span></span>
             </button>
@@ -631,10 +646,9 @@ export default function UploadPage() {
           </div>
         )}
 
-        {undecided.length > 0 && (
-          <p key="p-396-8" role="status" translate="no" className="text-xs text-amber-800">
-            <span><span>{undecided.length === 1 ? "A folder was" : `${undecided.length} folders were`}</span> added twice.
-            Merge or skip <span>{undecided.length === 1 ? "it" : "each"}</span> before uploading.</span>
+        {stageNote && (
+          <p key="stage-note" role="status" translate="no" className="text-xs text-slate-600" data-testid="stage-note">
+            {stageNote}
           </p>
         )}
 
@@ -645,8 +659,6 @@ export default function UploadPage() {
               group={g}
               previews={thumbs[g.key] ?? []}
               onRemove={() => removeFolder(g.key)}
-              onMerge={() => setStaged((s) => mergePending(s, g.key))}
-              onSkip={() => setStaged((s) => skipPending(s, g.key))}
             />
           ))}
           {archives.map((z) => (
@@ -770,14 +782,10 @@ function StagedCard({
   group,
   previews,
   onRemove,
-  onMerge,
-  onSkip,
 }: {
   group: StagedGroup<File>;
   previews: (string | null)[];
   onRemove: () => void;
-  onMerge: () => void;
-  onSkip: () => void;
 }) {
   const label = group.key === "" ? "Photos without a folder" : group.key;
   const n = group.files.length;
@@ -795,22 +803,6 @@ function StagedCard({
         <span className="text-xs text-slate-400">
           <span translate="no" className="tabular-nums">{n}</span> <span><span>{n === 1 ? "image" : "images"}</span> · SKU read on upload</span>
         </span>
-        {group.pending.length > 0 && (
-          <div key="div-540-8" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            <p>
-              <span><span>Added again: a folder with this name is already here. The new copy has</span>{" "}
-              <span>{group.pending.length}</span><span> image</span><Txt>{group.pending.length === 1 ? "" : "s"}</Txt><span> not in it.</span></span>
-            </p>
-            <div className="mt-1.5 flex gap-3">
-              <button type="button" className="font-medium underline" onClick={onMerge}>
-                Merge into this folder
-              </button>
-              <button type="button" className="underline" onClick={onSkip}>
-                Skip the new copy
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
