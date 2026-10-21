@@ -7,6 +7,7 @@ here is a real seller's work.
 """
 """Sample mockup images (the site's own SVG drawings) as an HTML page to screenshot."""
 import json
+import os
 
 G = {
     "mountain": ("#e9e2d3", "#3f3a33", "#c2542d", "#f3efe7"),
@@ -85,25 +86,36 @@ async def main():
     sm = get_sessionmaker(); storage = get_storage()
     now = datetime.now(timezone.utc); today = now.date()
     async with sm() as s:
-        t = Tenant(email="demo-shots@example.test", password_hash="!", status=TenantStatus.active, max_shops=12,
+        # How many shops and groups (seed-demo --shops N --groups M): the layout runs use
+        # 1, 4 and 15 shops with 6 groups; the default is the nine shops in two groups.
+        count = max(1, int(os.environ.get("DEMO_SHOPS") or len(SHOPS)))
+        group_count = int(os.environ.get("DEMO_GROUPS") or (2 if count > 1 else 0))
+        names = [SHOPS[i] if i < len(SHOPS) else f"Demo Shop {i + 1}" for i in range(count)]
+        t = Tenant(email="demo-shots@example.test", password_hash="!", status=TenantStatus.active, max_shops=max(12, count),
                    time_zone="America/Chicago", cost_settings={"product_cost": "9.20"})
         s.add(t); await s.flush()
         shops = []
-        for i, name in enumerate(SHOPS):
+        for i, name in enumerate(names):
             c = EtsyConnection(tenant_id=t.id, status=ConnectionStatus.active, etsy_user_id=999001100 + i, shop_id=999001100 + i,
                                shop_name=name, position=i, sales_synced_at=now - timedelta(hours=3),
                                scopes=["listings_r", "listings_w", "shops_r", "shops_w", "transactions_r"])
             s.add(c); shops.append(c)
         await s.flush()
-        # Two shop groups (4 and 5 shops): the multi-shop screens.
-        for pos, (gname, members) in enumerate((("Group A", shops[:4]), ("Group B", shops[4:]))):
+        # Shop groups for the multi-shop screens (by default two: 4 and 5 shops). With more
+        # groups the shops are dealt round, so some shops are in two groups.
+        if group_count == 2 and count == len(SHOPS):
+            layout = [("Group A", shops[:4]), ("Group B", shops[4:])]
+        else:
+            layout = [(f"Group {chr(65 + g)}", [sh for k, sh in enumerate(shops) if k % group_count == g or (g == 0 and k % 5 == 4)])
+                      for g in range(group_count if count > 1 else 0)]
+        for pos, (gname, members) in enumerate(layout):
             g = ShopGroup(tenant_id=t.id, name=gname, position=pos)
             s.add(g); await s.flush()
             for c in members:
                 s.add(ShopGroupMember(group_id=g.id, connection_id=c.id))
         profs = {}
-        for shop, names in ((shops[0], ("Standard Tee", "Crewneck Sweatshirt")), (shops[1], ("Standard Tee",))):
-            for name in names:
+        for shop, kinds in ((shops[0], ("Standard Tee", "Crewneck Sweatshirt")), *(((shops[1], ("Standard Tee",)),) if len(shops) > 1 else ())):
+            for name in kinds:
                 p = ListingProfile(tenant_id=t.id, connection_id=shop.id, name=name, reference_listing_id=7001, content_template="apparel",
                                    confirmed=True, updated_at=now, images_updated_at=now, cached_payload=PAYLOAD, fixed_image_ids=[902],
                                    listing_style="search", title_prefix="")
@@ -126,7 +138,7 @@ async def main():
             attrs = {"vision": {"theme": art}, "search": {"opening": opening}, "listing": {"Primary color": ["Orange", "Blue", "Green", "Black", "Green", "Black"][i]}}
             if sku == "NW1044":
                 attrs["listing"]["Holiday"] = "Mother's Day"
-            targets = [str(x.id) for x in (shops[0], shops[2], shops[3], shops[4])] if i in (2, 3) else None
+            targets = [str(x.id) for x in shops[:5] if x is not shops[1]] if i in (2, 3) and len(shops) >= 5 else None
             c = GeneratedContent(tenant_id=t.id, batch_id=b.id, asset_id=covers[0].id, approved=i < 4, listing_profile_id=prof.id,
                                  target_shops=targets,
                                  title=title, tags=tags, description=opening + "\n\n" + REF.split("\n\n", 1)[1], attributes=attrs,

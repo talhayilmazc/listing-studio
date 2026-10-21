@@ -642,10 +642,13 @@ DEMO_ACCOUNTS = "demo-%@example.test"
 DEMO_REQUESTS = "%@example.test"
 
 
-async def seed_demo(sm: async_sessionmaker, *, admin: bool = False) -> str:
+async def seed_demo(sm: async_sessionmaker, *, admin: bool = False, shops: int | None = None, groups: int | None = None) -> str:
     """Fill a non-production database with one synthetic demo account: nine shops in two groups,
     profiles, a batch of drawn sample designs, listings, drafts and sales figures.
     Nothing in it is a real seller's. Refuses to run when APP_ENV=production.
+
+    ``shops`` / ``groups``: how many shops and shop groups (default nine in two); the layout
+    runs use 1, 4 and 15 shops with 6 groups.
 
     ``admin`` makes the demo account an admin and adds what the Admin screens need
     to be laid out against: invite requests whose e-mail address, shop link and
@@ -673,7 +676,8 @@ async def seed_demo(sm: async_sessionmaker, *, admin: bool = False) -> str:
     root = str(script.parent.parent)  # so the script can import ``app``
     done = await asyncio.to_thread(
         subprocess.run, [sys.executable, str(script)], capture_output=True, text=True, cwd=root,
-        env={**os.environ, "PYTHONPATH": root},
+        env={**os.environ, "PYTHONPATH": root,
+             **({"DEMO_SHOPS": str(shops)} if shops else {}), **({"DEMO_GROUPS": str(groups)} if groups is not None else {})},
     )
     if done.returncode != 0:
         return "the seed script failed:\n" + (done.stderr or done.stdout)[-2000:]
@@ -855,6 +859,8 @@ def main(argv: list[str] | None = None) -> int:
     demo = sub.add_parser("seed-demo", help="NON-PRODUCTION only: add one synthetic demo account with sample data")
     demo.add_argument("--admin", action="store_true", help="make it an admin and add sample invite requests (for the layout test)")
     demo.add_argument("--remove", action="store_true", help="delete the demo accounts, their sample files and the sample invite requests")
+    demo.add_argument("--shops", type=int, default=None, help="how many shops (default 9)")
+    demo.add_argument("--groups", type=int, default=None, help="how many shop groups (default 2; none with one shop)")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
         print(oauth_check())
@@ -947,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 print(asyncio.run(remove_demo(sm, get_storage())))
             else:
-                print(asyncio.run(seed_demo(sm, admin=args.admin)))
+                print(asyncio.run(seed_demo(sm, admin=args.admin, shops=args.shops, groups=args.groups)))
         except Refused as exc:
             print(str(exc), file=sys.stderr)
             return 2
