@@ -158,7 +158,7 @@ test("a photo is not used until it is confirmed: marked on the card, left out of
 
 test("the upload section: templates, editable SKUs, per-design progress, both outcomes", () => {
   const upload = read(UPLOAD);
-  assert.match(read("app/(app)/upload/page.tsx"), /<MockupUpload shop=\{uploadShop\} \/>/);
+  assert.match(read("app/(app)/upload/page.tsx"), /<MockupUpload shop=\{null\} \/>/); // uploads are not tied to a shop (B1)
   assert.match(upload, /data-testid="mockup-template"/);
   assert.match(upload, /api\.updateMockupDesign\(design\.id, sku\.trim\(\) \|\| null\)/);
   assert.match(upload, /api\.startMockups\(batchId, chosen, \{ sides, garment_mode: garmentMode, design_ids: /);

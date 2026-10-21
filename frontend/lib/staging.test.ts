@@ -77,3 +77,58 @@ test("the upload page has no Merge/Skip prompt and nothing blocks the upload", (
   }
   assert.ok(page.includes('data-testid="stage-note"'), "one line says what was merged or skipped");
 });
+
+// --- B1: arranging photos into listings before the upload ------------------------------------
+
+import { arranged, listingsOf, movePhotos, newListingKey, underListing } from "./staging.ts";
+import { place } from "./grouping.ts";
+
+test("the cards are the listings the photos become in the chosen mode", async () => {
+  const { groups } = await stage([], [f("BR5229-1.png", "a"), f("BR5229 copy.png", "b"), f("BR7001.png", "c"), f("IMG_4411.jpg", "d")], hashOf);
+  const bySku = listingsOf(groups, "sku", place);
+  assert.deepEqual(bySku.map((l) => [l.key, l.files.length]), [["BR5229", 2], ["BR7001", 1], ["~unsorted", 1]]);
+  assert.deepEqual(listingsOf(groups, "one", place).map((l) => [l.key, l.files.length]), [["", 4]]);
+});
+
+test("dragging a photo onto another listing moves it there, exactly", async () => {
+  const { groups } = await stage([], [f("BR5229-1.png", "a"), f("BR5229-2.png", "b"), f("BR7001.png", "c")], hashOf);
+  const photo = groups[0].files.find((sf) => sf.relpath === "BR5229-2.png")!.file;
+  const moved = movePhotos(groups, "sku", place, [photo], "BR7001");
+  const after = listingsOf(moved.groups, "folder", place);
+  assert.deepEqual(after.map((l) => [l.key, l.files.map((x) => x.relpath)]), [
+    ["BR5229", ["BR5229/BR5229-1.png"]], ["BR7001", ["BR7001/BR7001.png", "BR7001/BR5229-2.png"]],
+  ]);
+});
+
+test("dropping on + New listing (or beside the cards) starts a listing; new files can go onto one", async () => {
+  const { groups } = await stage([], [f("BR5229-1.png", "a"), f("BR5229-2.png", "b")], hashOf);
+  const photo = groups[0].files[1].file;
+  const fresh = movePhotos(groups, "sku", place, [photo], null);
+  assert.equal(fresh.key, "New listing");
+  assert.deepEqual(listingsOf(fresh.groups, "folder", place).map((l) => l.key), ["BR5229", "New listing"]);
+  assert.equal(newListingKey(fresh.groups), "New listing 2");
+  // New photos dropped onto the BR5229 card (or its "+") join it.
+  const onto = underListing(fresh.groups, "folder", place, [f("extra.png", "e")], "BR5229");
+  const merged = await stage(onto.base, onto.incoming, hashOf);
+  assert.deepEqual(listingsOf(merged.groups, "folder", place).find((l) => l.key === "BR5229")!.files.map((x) => x.relpath),
+    ["BR5229/BR5229-1.png", "BR5229/extra.png"]);
+});
+
+test("mixed photos, folders and ZIPs stage together; arranging keeps the folders' listings", async () => {
+  const { groups } = await stage([], [f("Comfort/BR1/front.png", "1"), f("Comfort/BR1/back.png", "2"), f("BR7001.png", "3")], hashOf);
+  const base = arranged(groups, "folder", place);
+  assert.deepEqual(listingsOf(base, "folder", place).map((l) => [l.key, l.files.length]),
+    listingsOf(groups, "folder", place).map((l) => [l.key, l.files.length]));
+});
+
+test("the upload page: no shop, one Add files button, the listings arranged in place", () => {
+  const page = read("app/(app)/upload/page.tsx");
+  for (const gone of ["For shop", "ShopPicker", "Add photos", "Add folder", "Add ZIP files", "Choose ZIP files", "uploadShop"]) {
+    assert.ok(!page.includes(gone), gone);
+  }
+  assert.ok(page.includes('data-testid="add-files"') && page.includes("<StagingBoard") && page.includes("api.createBatch(null)"));
+  const board = read("components/StagingBoard.tsx");
+  for (const piece of ['data-testid="new-listing"', 'data-testid="add-to-listing"', 'data-testid="move-to"', "e.target === e.currentTarget"]) {
+    assert.ok(board.includes(piece), piece);
+  }
+});

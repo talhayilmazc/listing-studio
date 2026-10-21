@@ -143,3 +143,117 @@ export function stageArchives<F extends FileLike>(archives: F[], incoming: F[]):
   }
   return out;
 }
+
+// --- Arranging photos into listings before the upload (B1) -----------------------------------
+
+/** The grouping rule (lib/grouping.ts ``place``), passed in: this module imports nothing. */
+export type GroupingMode = "folder" | "sku" | "one";
+export type Place = (folder: string | null | undefined, filename: string, mode: GroupingMode | null) => [string, string | null];
+const ROOT_KEY = "";
+export const UNSORTED_KEY = "~unsorted";
+const isUnsorted = (key: string) => key === UNSORTED_KEY;
+
+export interface StagedListing<F extends FileLike = FileLike> {
+  /** The listing's group key as the server will make it ("" = the loose photos' listing,
+   * UNSORTED_KEY = photos no listing takes yet). */
+  key: string;
+  files: StagedFile<F>[];
+}
+
+function basename(relpath: string): string {
+  return relpath.slice(relpath.lastIndexOf("/") + 1);
+}
+
+/** The listings the staged photos become in this mode, in the order they appear;
+ * Unsorted last. The cards on the upload page are exactly these. */
+export function listingsOf<F extends FileLike>(groups: StagedGroup<F>[], mode: GroupingMode, place: Place): StagedListing<F>[] {
+  const out = new Map<string, StagedFile<F>[]>();
+  for (const g of groups) {
+    for (const sf of g.files) {
+      const [key] = place(groupKeyOf(sf.relpath), basename(sf.relpath), mode);
+      out.set(key, [...(out.get(key) ?? []), sf]);
+    }
+  }
+  const listings = [...out].map(([key, files]) => ({ key, files }));
+  return [...listings.filter((l) => !isUnsorted(l.key)), ...listings.filter((l) => isUnsorted(l.key))];
+}
+
+/** Arranged by hand: the listings of this mode written down as folders (one listing per
+ * folder from now on), so a move is exactly what the seller sees. Photos no listing takes
+ * stay loose. */
+export function arranged<F extends FileLike>(groups: StagedGroup<F>[], mode: GroupingMode, place: Place): StagedGroup<F>[] {
+  const next: StagedGroup<F>[] = [];
+  for (const listing of listingsOf(groups, mode, place)) {
+    const folder = listing.key === ROOT_KEY || isUnsorted(listing.key) ? "" : listing.key;
+    const taken = new Set<string>();
+    const files = listing.files.map((sf) => {
+      const relpath = freeName(folder ? `${folder}/${basename(sf.relpath)}` : basename(sf.relpath), taken);
+      taken.add(relpath);
+      return { file: sf.file, relpath };
+    });
+    const existing = next.find((g) => g.key === folder);
+    if (existing) existing.files.push(...files);
+    else next.push({ key: folder, files });
+  }
+  return next;
+}
+
+/** A name for a new listing that no card has yet: "New listing", "New listing 2"... */
+export function newListingKey<F extends FileLike>(groups: StagedGroup<F>[]): string {
+  const taken = new Set(groups.map((g) => g.key));
+  for (let n = 1; ; n += 1) {
+    const key = n === 1 ? "New listing" : `New listing ${n}`;
+    if (!taken.has(key)) return key;
+  }
+}
+
+/** Move photos onto a listing (``to``: its key; null = a new listing), as arranged by hand.
+ * Returns the new groups and the key the photos went to. */
+export function movePhotos<F extends FileLike>(
+  groups: StagedGroup<F>[], mode: GroupingMode, place: Place, files: F[], to: string | null,
+): { groups: StagedGroup<F>[]; key: string } {
+  const base = arranged(groups, mode, place);
+  const moving = new Set(files);
+  const target = to === null ? newListingKey(base) : to === ROOT_KEY || isUnsorted(to) ? "" : to;
+  const picked: StagedFile<F>[] = [];
+  let next = base.map((g) => {
+    const keep = g.files.filter((sf) => !moving.has(sf.file));
+    picked.push(...g.files.filter((sf) => moving.has(sf.file)));
+    return { ...g, files: keep };
+  });
+  let group = next.find((g) => g.key === target);
+  if (!group) {
+    group = { key: target, files: [] };
+    next.push(group);
+  }
+  const taken = new Set(group.files.map((sf) => sf.relpath));
+  for (const sf of picked) {
+    const relpath = freeName(target ? `${target}/${basename(sf.relpath)}` : basename(sf.relpath), taken);
+    taken.add(relpath);
+    group.files.push({ file: sf.file, relpath });
+  }
+  next = next.filter((g) => g.files.length > 0);
+  return { groups: next, key: target };
+}
+
+/** New files dropped on a listing (or on "+ New listing" with ``to`` null): their paths
+ * are put under that listing's folder, then staged as usual (identical content skipped). */
+export function underListing<F extends FileLike>(
+  groups: StagedGroup<F>[], mode: GroupingMode, place: Place, incoming: StagedFile<F>[], to: string | null,
+): { base: StagedGroup<F>[]; incoming: StagedFile<F>[]; key: string } {
+  const base = arranged(groups, mode, place);
+  const key = to === null ? newListingKey(base) : to === ROOT_KEY || isUnsorted(to) ? "" : to;
+  return {
+    base,
+    key,
+    incoming: incoming.map((sf) => ({ file: sf.file, relpath: key ? `${key}/${basename(sf.relpath)}` : basename(sf.relpath) })),
+  };
+}
+
+
+/** The photos of one listing card taken out (nothing else rearranged). */
+export function withoutListing<F extends FileLike>(groups: StagedGroup<F>[], mode: GroupingMode, place: Place, key: string): StagedGroup<F>[] {
+  const out = listingsOf(groups, mode, place).find((l) => l.key === key);
+  const gone = new Set((out?.files ?? []).map((sf) => sf.file));
+  return groups.map((g) => ({ ...g, files: g.files.filter((sf) => !gone.has(sf.file)) })).filter((g) => g.files.length > 0);
+}

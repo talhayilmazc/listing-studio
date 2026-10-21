@@ -5,18 +5,20 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadArchive, uploadAsset } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
-import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
-import { useShops } from "@/components/ShopProvider";
 import { relativeTime } from "@/lib/format";
 import type { ArchiveResult, BatchSummary } from "@/lib/types";
 import {
   groupKeyOf,
-  removeGroup,
+  movePhotos,
   stage,
   stageArchives,
+  underListing,
+  withoutListing,
   type StagedFile,
   type StagedGroup,
 } from "@/lib/staging";
+import { place } from "@/lib/grouping";
+import { StagingBoard } from "@/components/StagingBoard";
 import { smallPreview } from "@/lib/thumbs";
 import {
   autoMode,
@@ -78,25 +80,33 @@ export default function UploadPage() {
     }).catch(() => undefined);
   }, []);
   const [archives, setArchives] = useState<File[]>([]);
-  // Up to five small previews per staged folder, by folder key.
-  const [thumbs, setThumbs] = useState<Record<string, (string | null)[]>>({});
+  // A small preview per staged photo, made a few at a time in the background so a
+  // 200-photo upload never blocks the page (undefined: not made yet; null: none).
+  const [previews, setPreviews] = useState<Map<File, string | null>>(new Map());
+  const ids = useRef(new WeakMap<File, string>());
+  const nextId = useRef(0);
+  const idOf = useCallback((file: File) => {
+    let id = ids.current.get(file);
+    if (!id) {
+      id = `p${(nextId.current += 1)}`;
+      ids.current.set(file, id);
+    }
+    return id;
+  }, []);
+  // Arranged by hand: one listing per card from then on.
+  const [arrangedByHand, setArrangedByHand] = useState(false);
   // Files in chosen folders that are not images or ZIPs, left out.
   const [ignored, setIgnored] = useState(0);
   const [phase, setPhase] = useState<"staging" | "uploading" | "done">("staging");
-  // The shop this upload is for. It starts on the switcher's shop, is shown
-  // before anything is sent, and can be changed here without touching the switcher.
-  const { shops, selected: switcherShop } = useShops();
-  const [shopChoice, setShopChoice] = useState<string | null>(null);
-  const uploadShop = shopChoice ?? switcherShop?.id ?? null;
-  const shopChoices = (shops ?? []).map((sh) => ({ id: sh.id, name: sh.name }));
+  // Uploads are not tied to a shop (B1): where a listing goes is chosen on the review page.
   // The upload itself: one row per file.
   const [rows, setRows] = useState<Row[]>([]);
   const [dragging, setDragging] = useState(false);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [recent, setRecent] = useState<BatchSummary[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const zipRef = useRef<HTMLInputElement>(null);
-  const photosRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   // What each ZIP skipped or refused, so nothing disappears without a word (v6 §F).
   const [notes, setNotes] = useState<string[]>([]);
   // How the photos become listings: the seller's pick, else a default from the files.
@@ -110,15 +120,13 @@ export default function UploadPage() {
   const [appending, setAppending] = useState(false);
   // Upload rounds into one batch, so each round's row keys are unique.
   const round = useRef(0);
-  // Object URLs this page made, by folder key, so removing a folder frees its
-  // previews: adding and removing folders over and over must not leak memory.
-  const owned = useRef<Map<string, string[]>>(new Map());
+  // Object URLs this page made, by file, so removing photos frees their previews:
+  // adding and removing over and over must not leak memory.
+  const owned = useRef<Map<File, string>>(new Map());
   // Previews still shown on rows of an earlier round of the same upload.
   const kept = useRef<string[]>([]);
-  // The preview run each folder is on: a run started before a Clear or removal
-  // must not put its (revoked) previews back on a newer card.
-  const making = useRef<Map<string, number>>(new Map());
-  const runs = useRef(0);
+  // Previews being made now (one queue, two at a time).
+  const making = useRef<Set<File>>(new Set());
   const busy = phase === "uploading";
 
   // The last few uploads, so an empty page is not a single box in a void.
@@ -133,57 +141,46 @@ export default function UploadPage() {
     };
   }, []);
 
-  const release = useCallback((key: string) => {
-    for (const u of owned.current.get(key) ?? []) URL.revokeObjectURL(u);
-    owned.current.delete(key);
-    making.current.delete(key);
-    setThumbs((t) => {
-      const next = { ...t };
-      delete next[key];
-      return next;
-    });
+  // Previews of photos no longer staged are freed.
+  const releaseGone = useCallback((still: StagedGroup<File>[]) => {
+    const keep = new Set(still.flatMap((g) => g.files.map((sf) => sf.file)));
+    for (const [file, url] of owned.current) {
+      if (!keep.has(file)) {
+        URL.revokeObjectURL(url);
+        owned.current.delete(file);
+      }
+    }
+    setPreviews((m) => new Map([...m].filter(([file]) => keep.has(file))));
   }, []);
 
   const releaseAll = useCallback(() => {
-    for (const urls of owned.current.values()) urls.forEach((u) => URL.revokeObjectURL(u));
+    for (const url of owned.current.values()) URL.revokeObjectURL(url);
     kept.current.forEach((u) => URL.revokeObjectURL(u));
     kept.current = [];
     owned.current.clear();
     making.current.clear();
-    setThumbs({});
+    setPreviews(new Map());
   }, []);
 
   // Object URLs are owned by this page; release them when it goes away.
   useEffect(() => releaseAll, [releaseAll]);
 
-  // Make the previews each staged folder still lacks (the first five files).
+  // Make the previews the staged photos still lack, two at a time, in the order shown.
   useEffect(() => {
-    for (const g of staged) {
-      const want = Math.min(5, g.files.length);
-      if ((thumbs[g.key]?.length ?? 0) >= want || making.current.has(g.key)) continue;
-      const run = ++runs.current;
-      making.current.set(g.key, run);
-      (async () => {
-        const have = thumbs[g.key] ?? [];
-        const made: (string | null)[] = [...have];
-        for (const sf of g.files.slice(have.length, want)) {
-          const url = await smallPreview(sf.file);
-          if (making.current.get(g.key) !== run) {
-            if (url) URL.revokeObjectURL(url); // removed meanwhile
-            return;
-          }
-          if (url) owned.current.set(g.key, [...(owned.current.get(g.key) ?? []), url]);
-          made.push(url);
-        }
-        if (making.current.get(g.key) !== run) {
-          made.forEach((u) => u && URL.revokeObjectURL(u));
+    const waiting = staged.flatMap((g) => g.files.map((sf) => sf.file)).filter((f) => !previews.has(f) && !making.current.has(f));
+    const slots = Math.max(0, 2 - making.current.size);
+    for (const file of waiting.slice(0, slots)) {
+      making.current.add(file);
+      smallPreview(file).then((url) => {
+        if (!making.current.delete(file)) {
+          if (url) URL.revokeObjectURL(url); // cleared meanwhile
           return;
         }
-        making.current.delete(g.key);
-        setThumbs((t) => ({ ...t, [g.key]: made }));
-      })();
+        if (url) owned.current.set(file, url);
+        setPreviews((m) => new Map(m).set(file, url));
+      });
     }
-  }, [staged, thumbs]);
+  }, [staged, previews]);
 
   const addItems = useCallback(
     (items: Item[]) => {
@@ -194,10 +191,10 @@ export default function UploadPage() {
       if (phase === "done" && batchId && summary && summary.regroupable !== false) {
         // The last upload is finished but nothing is written from it yet: these join
         // it. The rows already shown keep their previews; new folders make their own.
-        for (const urls of owned.current.values()) kept.current.push(...urls);
+        kept.current.push(...owned.current.values());
         owned.current.clear();
         making.current.clear();
-        setThumbs({});
+        setPreviews(new Map());
         setAppending(true);
         setPhase("staging");
         addStaged(incoming, true);
@@ -239,9 +236,32 @@ export default function UploadPage() {
     setModeChoice(null);
   }
 
-  function removeFolder(key: string) {
-    release(key);
-    setStaged((g) => removeGroup(g, key));
+  // The cards are the listings the photos become (lib/staging.ts listingsOf): moving a
+  // photo, starting a listing or adding photos to a card arranges them by hand, so from
+  // then on each card is one listing (the "one listing per folder" choice).
+  function arrange(next: StagedGroup<File>[]) {
+    stagedRef.current = next;
+    setStaged(next);
+    releaseGone(next);
+    if (mode !== "folder") setModeChoice("folder");
+    setArrangedByHand(true);
+  }
+  function moveTo(files: File[], to: string | null) {
+    arrange(movePhotos(stagedRef.current, mode, place, files, to).groups);
+  }
+  function addTo(incoming: StagedFile<File>[], to: string | null) {
+    const placed = underListing(stagedRef.current, mode, place, incoming, to);
+    staging.current = staging.current.then(async () => {
+      const result = await stage(placed.base, placed.incoming);
+      arrange(result.groups);
+      setStageNote(result.notes.length ? result.notes.join("; ") : null);
+    }).catch(() => undefined);
+  }
+  function removeListing(key: string) {
+    const next = withoutListing(stagedRef.current, mode, place, key);
+    stagedRef.current = next;
+    setStaged(next);
+    releaseGone(next);
   }
 
   function clearAll() {
@@ -256,6 +276,7 @@ export default function UploadPage() {
       return;
     }
     releaseAll();
+    setArrangedByHand(false);
     setModeChoice(null);
     setStaged([]);
     setStageNote(null);
@@ -322,7 +343,7 @@ export default function UploadPage() {
     const before = joining ? (summary?.grouping_mode ?? null) : null;
     const r0 = (round.current += 1);
     const files = staged.flatMap((g) =>
-      g.files.map((sf, i) => ({ sf, key: `r${r0}-f-${g.key}-${i}`, preview: i < 5 ? thumbs[g.key]?.[i] ?? undefined : undefined })),
+      g.files.map((sf, i) => ({ sf, key: `r${r0}-f-${g.key}-${i}`, preview: previews.get(sf.file) ?? undefined })),
     );
     setRows((earlier) => [
       ...(joining ? earlier : []),
@@ -351,7 +372,7 @@ export default function UploadPage() {
       batch = { id: joining };
     } else {
       try {
-        batch = await api.createBatch(uploadShop);
+        batch = await api.createBatch(null);
       } catch (e: any) {
         setNotes([String(e.message ?? e)]);
         setPhase("staging");
@@ -424,7 +445,11 @@ export default function UploadPage() {
         /* the groups shown stay as each upload answered */
       }
     }
+    // The rows keep the previews they show; nothing is staged any more.
+    kept.current.push(...owned.current.values());
+    owned.current.clear();
     setAppending(false);
+    setArrangedByHand(false);
     setStaged([]);
     setStageNote(null);
     setArchives([]);
@@ -483,13 +508,15 @@ export default function UploadPage() {
     />
   );
 
-  const zipInput = (
+  // Photos and ZIP files, together, in one dialog (folders: the drop zone, or "A folder…").
+  const filesInput = (
     <input
-      ref={zipRef}
+      ref={filesRef}
       type="file"
       multiple
-      accept=".zip,application/zip"
+      accept="image/png,image/jpeg,image/webp,image/gif,image/tiff,.zip,application/zip"
       className="hidden"
+      data-testid="files-input"
       onChange={(e) => {
         const files = Array.from(e.target.files ?? []);
         e.target.value = "";
@@ -498,35 +525,23 @@ export default function UploadPage() {
     />
   );
 
-  // Loose photos, no folder: grouped on the server by the SKU in each file name.
-  const photosInput = (
-    <input
-      ref={photosRef}
-      type="file"
-      multiple
-      accept="image/png,image/jpeg,image/webp,image/gif,image/tiff"
-      className="hidden"
-      data-testid="photos-input"
-      onChange={(e) => {
-        const files = Array.from(e.target.files ?? []);
-        e.target.value = "";
-        if (files.length) addItems(files.map((f) => ({ file: f, relpath: f.name })));
-      }}
-    />
-  );
-
+  // One "Add files" button. A browser's file dialog picks either files or one folder, never
+  // both at once, so the button offers the two; the drop zone takes anything mixed.
   const pickers = (
-    <>
-      <button type="button" disabled={busy} className="btn-secondary" onClick={() => photosRef.current?.click()}>
-        {empty ? "Choose photos" : "Add photos"}
+    <span className="relative inline-flex">
+      <button type="button" disabled={busy} className={empty ? "btn-primary" : "btn-secondary"} aria-haspopup="menu" aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((o) => !o)} data-testid="add-files">
+        Add files
       </button>
-      <button type="button" disabled={busy} className="btn-secondary" onClick={() => inputRef.current?.click()}>
-        {empty ? "Choose a folder" : "Add folder"}
-      </button>
-      <button type="button" disabled={busy} className="btn-secondary" onClick={() => zipRef.current?.click()}>
-        {empty ? "Choose ZIP files" : "Add ZIP files"}
-      </button>
-    </>
+      {menuOpen && (
+        <span key="menu" role="menu" className="absolute right-0 top-full z-20 mt-1 flex w-56 flex-col rounded-lg border border-slate-200 bg-white p-1 text-left shadow-lg">
+          <button type="button" role="menuitem" className="tap rounded px-3 py-2 text-left text-sm hover:bg-slate-50"
+            onClick={() => { setMenuOpen(false); filesRef.current?.click(); }}>Photos or ZIP files…</button>
+          <button type="button" role="menuitem" className="tap rounded px-3 py-2 text-left text-sm hover:bg-slate-50"
+            onClick={() => { setMenuOpen(false); inputRef.current?.click(); }}>A folder…</button>
+        </span>
+      )}
+    </span>
   );
 
   // Empty page: the drop zone leads, with recent uploads beneath it.
@@ -553,10 +568,8 @@ export default function UploadPage() {
           </div>
           <h2 className="mt-4 font-display text-3xl text-slate-900">Drop photos, folders or ZIPs of designs</h2>
           <p className="mt-1.5 max-w-md text-sm text-slate-500">
-            Drop everything at once. Before uploading you choose how the photos become listings: one
-            per folder, grouped by the SKU in their file names (BR5229-1.png and BR5229 copy.png go
-            together), or all as one listing. PNG, JPG, WebP, GIF and TIFF are accepted. A ZIP keeps
-            its folders. Nothing is uploaded until you press Upload.
+            Drop everything at once, mixed. You see the listings they become and can move photos between
+            them before anything is uploaded.
           </p>
           <p className="mt-2 max-w-md text-xs text-slate-500">
             Keep your own copies: image files are stored here for a limited time after a listing is
@@ -564,11 +577,10 @@ export default function UploadPage() {
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">{pickers}</div>
           {folderInput}
-          {zipInput}
-          {photosInput}
+          {filesInput}
         </div>
 
-        <MockupUpload shop={uploadShop} />
+        <MockupUpload shop={null} />
 
         <RecentUploads batches={recent} />
       </div>
@@ -611,13 +623,6 @@ export default function UploadPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {shopChoices.length > 1 && (
-              <label key="shop" className="flex items-center gap-1.5 text-xs text-slate-600">
-                <span>For shop</span>
-                <ShopPicker shops={shopChoices} value={uploadShop} onChange={setShopChoice} label="Shop this upload is for" />
-              </label>
-            )}
-            {shopChoices.length === 1 && <ShopBadge key="oneshop" name={shopChoices[0].name} />}
             {pickers}
             <button type="button" className="text-xs text-slate-500 underline hover:text-slate-800" onClick={clearAll}>
               Clear
@@ -631,8 +636,7 @@ export default function UploadPage() {
             </button>
           </div>
           {folderInput}
-          {zipInput}
-          {photosInput}
+          {filesInput}
         </div>
 
         {imageCount > 0 && (
@@ -652,15 +656,13 @@ export default function UploadPage() {
           </p>
         )}
 
+        {arrangedByHand && (
+          <p key="arranged" className="text-xs text-slate-600" data-testid="arranged-note">Arranged by hand: each card is one listing.</p>
+        )}
+
+        <StagingBoard staged={staged} mode={mode} previews={previews} idOf={idOf} onMove={moveTo} onAdd={addTo} onRemove={removeListing} />
+
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {staged.map((g) => (
-            <StagedCard
-              key={g.key}
-              group={g}
-              previews={thumbs[g.key] ?? []}
-              onRemove={() => removeFolder(g.key)}
-            />
-          ))}
           {archives.map((z) => (
             <div key={`${z.name}-${z.size}-${z.lastModified}`} className="card relative flex items-center gap-3 p-5">
               <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium uppercase text-slate-500">zip</span>
@@ -712,8 +714,7 @@ export default function UploadPage() {
           )}
         </div>
         {folderInput}
-        {zipInput}
-        {photosInput}
+        {filesInput}
       </div>
 
       {!busy && summary && (
@@ -778,36 +779,6 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
 }
 
 /** A staged folder: its first images, how many, and × to leave it out. */
-function StagedCard({
-  group,
-  previews,
-  onRemove,
-}: {
-  group: StagedGroup<File>;
-  previews: (string | null)[];
-  onRemove: () => void;
-}) {
-  const label = group.key === "" ? "Photos without a folder" : group.key;
-  const n = group.files.length;
-  return (
-    <div className="card relative flex flex-col overflow-hidden">
-      <RemoveButton label={label} onClick={onRemove} />
-      <Tiles
-        tiles={group.files.slice(0, 5).map((sf, i) => ({ name: sf.file.name, preview: previews[i], loading: i >= previews.length }))}
-        more={n - Math.min(5, n)}
-      />
-      <div className="flex flex-col gap-2 p-5">
-        <h2 className="truncate font-display text-lg leading-tight text-slate-900" title={group.key}>
-          {label}
-        </h2>
-        <span className="text-xs text-slate-400">
-          <span translate="no" className="tabular-nums">{n}</span> <span><span>{n === 1 ? "image" : "images"}</span> · SKU read on upload</span>
-        </span>
-      </div>
-    </div>
-  );
-}
-
 interface Tile {
   name: string;
   preview?: string | null;

@@ -390,6 +390,31 @@ test.describe("signed in", () => {
     await expect(page.getByTestId("review-card").first().getByRole("button", { name: "Saved" })).toBeVisible({ timeout: 15_000 });
   });
 
+  test("upload: the photos show as the listings they become; a photo moves to a new listing", async ({ page }) => {
+    // A 1x1 PNG, three times under different names (each its own content, so none is skipped).
+    const png = (n: number) => Buffer.concat([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"), Buffer.from([n])]);
+    await page.goto("/upload");
+    await settle(page);
+    await page.getByTestId("files-input").setInputFiles([
+      { name: "BR5229-1.png", mimeType: "image/png", buffer: png(1) },
+      { name: "BR5229-2.png", mimeType: "image/png", buffer: png(2) },
+      { name: "BR7001.png", mimeType: "image/png", buffer: png(3) },
+    ]);
+    const cards = page.getByTestId("staged-listing");
+    await expect(cards).toHaveCount(2, { timeout: 15_000 }); // BR5229 (2 photos) and BR7001
+    await expect(page.getByTestId("new-listing")).toBeVisible();
+    await page.getByTestId("move-to").first().selectOption("+new");
+    await expect(cards).toHaveCount(3);
+    await expect(page.getByTestId("arranged-note")).toBeVisible();
+    await expect(page.getByText("For shop")).toHaveCount(0);
+    const { width } = page.viewportSize()!;
+    if (width < 640) {
+      const box = (await page.getByTestId("add-files").boundingBox())!;
+      expect(box.height, "Add files is 44 px on a phone").toBeGreaterThanOrEqual(44);
+    }
+    await expectSound(page, "/upload while arranging listings");
+  });
+
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
     await page.goto("/admin", { waitUntil: "commit" });
     const bar = page.getByRole("tablist", { name: "Admin sections" });
