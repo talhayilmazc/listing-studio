@@ -6,11 +6,16 @@ app can neither copy them from the reference listing nor check them. Each draft
 lists them for the seller, with a link to the draft, before "Publish now", so
 they are not first discovered when Etsy refuses to publish.
 
-The first is Etsy's Creativity Standards question, "How does your shop produce
-this item?". Checked against Etsy's published OpenAPI document (Open API v3,
-spec 3.0.0, fetched 2026-09-24 and again 2026-09-26): no request or response
-field carries it, and it is not among the category attributes for the apparel
-taxonomy either. It is not "who made it / when was it made" (who_made,
+Etsy's Creativity Standards questions "How does your shop produce this item?"
+(made from scratch / assembled from purchased parts / an item my shop alters / a
+curated set of purchased goods / a natural material) and "What tools are used to
+make this item?" (handheld or hand-guided tools / computerized tools or machines /
+an AI generator / none). Checked against Etsy's published OpenAPI document (Open
+API v3, spec 3.0.0, fetched 2026-09-24, 2026-09-26 and again 2026-10-22, when the
+owner asked for them): no request or response field of getListing,
+createDraftListing or updateListing carries either, and the first is not among
+the category attributes for the apparel taxonomy either. Nothing is guessed: each
+draft lists them, and the profile card says so in one line (``PROFILE_NOTE``). It is not "who made it / when was it made" (who_made,
 when_made) or production partners: those are in the API, copied from the
 reference and verified on read-back (etsy/publisher.py), and recent drafts show
 them stored exactly as sent (v7 §E1).
@@ -48,6 +53,22 @@ MANUAL_FIELDS: tuple[ManualField, ...] = (
             "it, so choose it on the draft in Shop Manager."
         ),
     ),
+    ManualField(
+        key="creativity_tools",
+        label="What tools are used to make this item?",
+        detail=(
+            "Etsy's Creativity Standards question: handheld or hand-guided tools, computerized tools "
+            "or machines, an AI generator, or none. Etsy's API cannot read or set it, so choose it on "
+            "the draft in Shop Manager, as on your reference listing."
+        ),
+    ),
+)
+
+#: The one line a profile card shows about them (they belong to the item, not to a shop).
+PROFILE_NOTE = (
+    "Etsy's API cannot read or set \"How does your shop produce this item?\" or \"What tools are used to "
+    "make this item?\": set them on each draft in Shop Manager, as on the reference listing. "
+    "Each draft lists them to tick."
 )
 
 

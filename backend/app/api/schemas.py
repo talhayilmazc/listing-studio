@@ -1049,6 +1049,9 @@ class ProfileOut(BaseModel):
     #: Etsy's Creativity Standards: a print-on-demand profile whose reference names no
     #: production partner (pipeline/creativity.py). Shown once here, not on every listing.
     production_note: str | None = None
+    #: Settings Etsy's API cannot read or set (how the item is produced, the tools used):
+    #: one line saying to set them on each draft in Shop Manager (etsy/manual_fields.py).
+    shop_manager_note: str | None = None
     refresh_failed_at: datetime | None = None
     # Kept warm in the background: it wrote a listing or made a draft in the
     # last two weeks. Otherwise it refreshes when viewed or used.

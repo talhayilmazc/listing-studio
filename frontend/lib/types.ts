@@ -708,6 +708,8 @@ export interface Profile {
   shipping_note?: string | null;
   /** A print-on-demand profile whose reference names no production partner (shown once, here). */
   production_note?: string | null;
+  /** How the item is produced and the tools used: Etsy's API cannot set them; one line on the card. */
+  shop_manager_note?: string | null;
   refresh_failed_at: string | null;
   /** Wrote a listing or made a draft in the last two weeks: kept warm in the background. */
   in_use: boolean;

@@ -18,6 +18,7 @@ from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.core import audit
 from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Tenant
+from app.etsy import manual_fields
 from app.etsy.refresh import in_use, request_refresh
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline import chart_order
@@ -133,6 +134,7 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         refresh_error=profile.refresh_error,
         shipping_note=size_problem(profile.cached_payload),
         production_note=creativity.production_note(profile),
+        shop_manager_note=manual_fields.PROFILE_NOTE if manual_fields.manual_fields_for(profile.content_template) else None,
         refresh_failed_at=profile.refresh_failed_at,
     )
 

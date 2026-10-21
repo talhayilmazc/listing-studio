@@ -405,6 +405,12 @@ export function ProfileCard({
           </p>
         )}
 
+        {profile.shop_manager_note && (
+          <p key="shop-manager-note" className="text-xs text-slate-600" data-testid="profile-shop-manager-note">
+            {profile.shop_manager_note}
+          </p>
+        )}
+
         {profile.shipping_note && (
           // A calculated shipping profile and no weight or size on the reference: drafts are not sent until fixed.
           <p key="shipping-note" role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="shipping-note">

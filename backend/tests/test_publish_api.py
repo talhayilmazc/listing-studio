@@ -482,7 +482,7 @@ async def test_a_draft_lists_what_still_has_to_be_set_in_shop_manager(ctx) -> No
     [pub] = rows[0]["publications"]
     assert pub["state"] == "draft"
     assert pub["listing_link"].endswith("/listing-editor/edit/777")  # where to set it
-    assert [step["label"] for step in pub["manual_steps"]] == ["How does your shop produce this item?"]
+    assert [step["label"] for step in pub["manual_steps"]] == ["How does your shop produce this item?", "What tools are used to make this item?"]
     assert "Shop Manager" in pub["manual_steps"][0]["detail"]
 
 
@@ -496,7 +496,7 @@ async def test_the_finished_draft_job_carries_the_steps(ctx) -> None:
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
     job_id = await _job_for(ctx, content_id)
     body = (await ctx["client"].get(f"/api/jobs/{job_id}")).json()
-    assert [s["key"] for s in body["manual_steps"]] == ["creativity_production"]
+    assert [s["key"] for s in body["manual_steps"]] == ["creativity_production", "creativity_tools"]
 
 
 async def test_the_list_is_data_driven(ctx, monkeypatch) -> None:
@@ -516,7 +516,7 @@ async def test_the_list_is_data_driven(ctx, monkeypatch) -> None:
     draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)  # a digital_products profile
     rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, draft)}/content")).json()
     keys = [s["key"] for s in rows[0]["publications"][0]["manual_steps"]]
-    assert keys == ["creativity_production", "digital_only"]
+    assert keys == ["creativity_production", "creativity_tools", "digital_only"]
 
 
 # --- the seller's per-draft ticks ------------------------------------------------------
@@ -588,8 +588,8 @@ async def test_mark_all_as_done_covers_every_approved_draft_of_the_batch(ctx) ->
     assert res.json() == {"updated_drafts": 2}  # the two approved drafts
     rows = {r["id"]: r for r in (await ctx["client"].get(f"/api/batches/{batch}/content")).json()}
     done = lambda cid: [s["done"] for s in rows[str(cid)]["publications"][0]["manual_steps"]]  # noqa: E731
-    assert done(first) == [True] and done(ids[0]) == [True]
-    assert done(ids[1]) == [False]  # not approved: left alone
+    assert done(first) == [True, True] and done(ids[0]) == [True, True]
+    assert done(ids[1]) == [False, False]  # not approved: left alone
     assert rows[str(ids[2])]["publications"][0]["manual_steps"] == []  # live: nothing to do
     # Again: nothing left to update.
     assert (await ctx["client"].post(f"/api/batches/{batch}/manual-steps/done")).json() == {"updated_drafts": 0}
