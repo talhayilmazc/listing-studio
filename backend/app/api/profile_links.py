@@ -125,6 +125,9 @@ class ShopSetup(BaseModel):
     settings: list[SettingUse] = Field(default_factory=list)
     #: The choices are read from Etsy and kept a few hours; past that, check again.
     choices_expired: bool = False
+    #: The shop's own lists are not read yet (or no longer kept): the panel reads them and
+    #: says "reading…" meanwhile; a bare id is never shown.
+    lists_missing: bool = False
 
 
 class SetupOut(BaseModel):
@@ -206,6 +209,36 @@ async def _plan(redis: Any, profile_id: uuid.UUID) -> dict[str, Any]:
     return json.loads(raw) if raw else {}
 
 
+async def _shop_lists(redis: Any, connection_id: uuid.UUID) -> L.ShopSettings | None:
+    """The shop's own lists as last read (kept an hour, workers/links.py), or None."""
+    import json
+
+    from app.workers.links import LISTS_KEY
+
+    raw = await redis.get(LISTS_KEY.format(connection_id=connection_id))
+    if not raw:
+        return None
+    data = json.loads(raw)
+    return L.ShopSettings(shipping=data.get("shipping") or [], returns=data.get("returns") or [],
+                          readiness=data.get("readiness") or [], partners=data.get("partners") or [],
+                          currency=data.get("currency"))
+
+
+def _with_lists(shop_plan: dict[str, Any], lists: L.ShopSettings | None) -> dict[str, Any]:
+    """This profile's plan for a shop, with the shop's own lists wherever the plan has none
+    (a shop filled from the account map was never resolved for this profile): every
+    setting is shown by its name or terms, never as an id."""
+    if lists is None:
+        return shop_plan
+    out = dict(shop_plan)
+    for resource in L.RESOURCES:
+        entry = dict(out.get(resource) or {})
+        if not entry.get("options"):
+            entry["options"] = lists.options(resource)
+            out[resource] = entry
+    return out
+
+
 async def _save_plan(redis: Any, profile_id: uuid.UUID, plan: dict[str, Any]) -> None:
     import json
 
@@ -266,9 +299,12 @@ async def setup(
     for link in out.links:
         if link.main:
             continue
+        lists = await _shop_lists(redis, link.connection_id)
         left = plan.get(str(link.connection_id))
         row = rows.get(link.connection_id)
-        settings = _settings_of(profile, row, left or {}) if row is not None and link.status != "checking" else []
+        known = _with_lists(left or {}, lists)
+        settings = _settings_of(profile, row, known) if row is not None and link.status != "checking" else []
+        unnamed = any(not s.options and (s.linked_ids or s.default == "choose") for s in settings)
         open_items: list[ResourceSetup] = []
         for miss in link.missing:
             entry = (left or {}).get(miss.resource) or {}
@@ -281,6 +317,7 @@ async def setup(
         shops.append(ShopSetup(
             connection_id=link.connection_id, shop_name=names.get(link.connection_id), link=link, open=open_items,
             settings=settings, choices_expired=bool(link.missing) and left is None,
+            lists_missing=link.status != "checking" and lists is None and (left is None or unnamed),
         ))
     return SetupOut(profile=out, shops=shops)
 
@@ -302,9 +339,11 @@ def _settings_of(profile: ListingProfile, link: ProfileShopLink, left: dict[str,
         if ids:
             by_id = {o.id: o.label for o in options}
             same = entry.get("linked") == value
+            named = [by_id[i] for i in ids if i in by_id]
             out.append(SettingUse(
                 resource=resource, label=L.LABEL[resource], source_label=entry.get("source_label"), linked_ids=ids,
-                linked_label=(entry.get("label") if same else None) or ", ".join(by_id.get(i, f"#{i}") for i in ids),
+                # Its name (or a return policy's terms); None until the shop's list is read, never an id.
+                linked_label=(entry.get("label") if same else None) or (", ".join(named) if len(named) == len(ids) else None),
                 how=entry.get("how") if same else "your choice", default="keep", options=options,
                 creatable=bool(entry.get("creatable")) and entry.get("how") == "your choice",
                 create_summary=_summary(resource, entry.get("create")), requests=int(entry.get("requests") or 0),
@@ -421,7 +460,8 @@ async def pick_in_shop(
         raise HTTPException(status_code=404, detail="shop not found")
     link = await _link(session, profile, connection_id)
     plan = await _plan(redis, profile.id)
-    shop_plan = plan.get(str(connection_id)) or {}
+    # The shop's own list where this profile's plan has none (filled from the account map).
+    shop_plan = _with_lists(plan.get(str(connection_id)) or {}, await _shop_lists(redis, connection_id))
     _pick(link, shop_plan, body.resource, body.ids)
     plan[str(connection_id)] = shop_plan
     await _remember_pick(session, profile, connection_id, body.resource, body.ids, shop_plan)

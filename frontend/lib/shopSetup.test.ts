@@ -40,9 +40,10 @@ test("change offers each shop's own shipping, return and processing settings, wi
   assert.deepEqual(panelSettings(shop), [
     { resource: "shipping_profile", label: "Shipping profile", value: 9001,
       options: [{ id: 9001, label: "MemoPaid" }, { id: 9002, label: "Express" }] },
-    // The one in use is offered even when the shop's list (kept a while) does not have it yet.
-    { resource: "return_policy", label: "Return policy", value: 7, options: [{ id: 7, label: "#7" }, { id: 8, label: "No returns" }] },
+    // The one in use is offered even when the shop's list (kept a while) does not have it yet: never as a bare id.
+    { resource: "return_policy", label: "Return policy", value: 7, options: [{ id: 7, label: "Reading this shop's list…" }, { id: 8, label: "No returns" }] },
   ]);
+  for (const row of panelSettings(shop)) for (const o of row.options) assert.ok(!/^#\d/.test(o.label), o.label);
   assert.deepEqual([...CHANGEABLE], ["shipping_profile", "return_policy", "readiness_state"]);
 });
 

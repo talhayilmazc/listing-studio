@@ -48,7 +48,8 @@ export function panelSettings(shop: ShopSetup): PanelSetting[] {
       const value = s.linked_ids.length === 1 ? s.linked_ids[0] : null;
       const options = [...s.options];
       if (value !== null && !options.some((o) => o.id === value)) {
-        options.unshift({ id: value, label: s.linked_label ?? `#${value}` });
+        // In use but not in the list as read: its name if known, never a bare id.
+        options.unshift({ id: value, label: s.linked_label ?? "Reading this shop's list…" });
       }
       return { resource: s.resource, label: s.label, value, options };
     });

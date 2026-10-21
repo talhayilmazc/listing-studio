@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { announceProfilesChanged, panelSettings } from "@/lib/shopSetup";
 import type { ProfileSetup } from "@/lib/types";
@@ -31,7 +31,19 @@ export function ShopSettingsPanel({ profileId, onChanged }: { profileId: string;
     load();
   }, [load]);
 
-  const reading = setup?.shops.some((s) => s.link.status === "checking") ?? false;
+  // A shop whose own lists are not read yet is read by itself (once per opening): its
+  // settings are shown by name, never as an id (meanwhile "reading…").
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    for (const shop of setup?.shops ?? []) {
+      if (shop.lists_missing && shop.link.status !== "checking" && !asked.current.has(shop.connection_id)) {
+        asked.current.add(shop.connection_id);
+        api.checkShopAgain(profileId, shop.connection_id).then(load).catch(() => undefined);
+      }
+    }
+  }, [setup, profileId, load]);
+
+  const reading = setup?.shops.some((s) => s.link.status === "checking" || s.lists_missing) ?? false;
   useEffect(() => {
     if (!reading) return;
     const t = setTimeout(load, POLL_MS);
@@ -77,8 +89,8 @@ export function ShopSettingsPanel({ profileId, onChanged }: { profileId: string;
           return (
             <div key={shop.connection_id} className="space-y-1.5" data-testid="settings-panel-shop">
               <p translate="no" className="font-medium text-slate-800">{name}</p>
-              {shop.link.status === "checking" ? (
-                <p key="reading" translate="no" className="text-slate-600">preparing…</p>
+              {shop.link.status === "checking" || shop.lists_missing ? (
+                <p key="reading" translate="no" className="text-slate-600" data-testid="settings-reading">reading…</p>
               ) : rows.length === 0 || rows.every((r) => r.options.length === 0) ? (
                 <button key="read" type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={busy}
                   onClick={() => readAgain(shop.connection_id)}>

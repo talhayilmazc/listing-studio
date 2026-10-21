@@ -1930,6 +1930,8 @@ export interface ShopSetup {
   open: ResourceSetup[];
   settings: SettingUse[];
   choices_expired: boolean;
+  /** The shop's own lists are not read yet: the panel reads them and says "reading…". */
+  lists_missing?: boolean;
 }
 
 export interface SetupChoice {

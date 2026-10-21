@@ -101,9 +101,16 @@ def label_of(resource: str, row: dict[str, Any]) -> str:
     if resource == SHIPPING:
         return str(row.get("title") or f"Shipping profile {row.get('shipping_profile_id')}")
     if resource == RETURNS:
+        # By its terms, as the seller reads them on Etsy (a return policy has no name).
         returns, exchanges, deadline = return_terms(row)
-        parts = ["returns" if returns else "no returns", "exchanges" if exchanges else "no exchanges"]
-        return ", ".join(parts) + (f", {deadline} days" if deadline else "")
+        within = f" within {deadline} days" if deadline else ""
+        if returns and exchanges:
+            return f"Returns and exchanges{within}"
+        if returns:
+            return f"Returns{within}, no exchanges"
+        if exchanges:
+            return f"Exchanges{within}, no returns"
+        return "No returns, no exchanges"
     if resource == READINESS:
         state, low, high = readiness_terms(row)
         kind = "Ready to ship" if state == "ready_to_ship" else "Made to order"
