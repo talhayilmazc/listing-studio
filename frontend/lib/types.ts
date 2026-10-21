@@ -36,6 +36,8 @@ export interface BatchSummary {
   statuses?: string[];
   /** The one status every badge shows (backend pipeline/batch_status.py::headline). */
   headline?: string | null;
+  /** Beside the badge: what went wrong with some listings ("1 draft failed"). */
+  status_notes?: string[];
   file_count: number;
   created_at: string;
   asset_count: number;

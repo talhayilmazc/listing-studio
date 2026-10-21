@@ -71,6 +71,62 @@ def headline(statuses: list[str]) -> str | None:
     return next((s for s in HEADLINE if s in statuses), None)
 
 
+#: How far one listing got, furthest first: each listing is in exactly one stage.
+STAGES: tuple[str, ...] = ("published", "partly_published", "scheduled", "drafted", "partly_drafted",
+                           "approved", "in_review")
+#: What can go wrong with one listing: said beside the badge, never the badge itself,
+#: unless nothing in the batch can go further.
+FLAGS: tuple[str, ...] = ("failed", "half_made", "deleted")
+
+
+@dataclass
+class Overview:
+    """A batch's badge and what is said beside it (A4): the stage most of its listings are in
+    ("In review"), with a note per thing gone wrong ("1 draft failed"). "Failed" is the badge
+    only when the batch itself failed or nothing in it can go further."""
+
+    statuses: list[str]
+    headline: str | None
+    notes: list[str] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+_NOTE = {
+    "failed": ("{n} draft failed", "{n} drafts failed"),
+    "half_made": ("{n} draft half-made on Etsy", "{n} drafts half-made on Etsy"),
+    "deleted": ("{n} draft deleted on Etsy", "{n} drafts deleted on Etsy"),
+}
+
+
+def _overview(statuses: list[str], stages: dict[str, int], flags: dict[str, int], *, uploading: bool,
+              batch_failed: bool, unwritten: int) -> Overview:
+    counts = {**{s: n for s, n in stages.items() if n}, **({"not_written": unwritten} if unwritten else {})}
+    notes = [(_NOTE[f][0] if n == 1 else _NOTE[f][1]).format(n=n) for f in FLAGS if (n := flags.get(f, 0))]
+    if uploading:
+        badge = "uploading"
+    elif batch_failed:
+        badge = "failed"
+    elif not counts:
+        # Nothing written and nothing moving: what went wrong is all there is to say.
+        badge = next((f for f in FLAGS if flags.get(f)), None) or headline(statuses)
+        notes = [] if badge == "failed" else notes
+    else:
+        order = ["not_written", *reversed(STAGES)]  # on a tie, the one that needs the seller first
+        badge = max(counts, key=lambda s: (counts[s], -order.index(s)))
+    return Overview(statuses=statuses, headline=badge, notes=notes, counts=counts)
+
+
+async def batch_overviews(session: AsyncSession, tenant_id: uuid.UUID, batches: list[UploadBatch]) -> dict[uuid.UUID, Overview]:
+    """Every batch's statuses, badge and notes (the Batches list, the batch page, Overview)."""
+    details: dict[uuid.UUID, dict] = {}
+    statuses = await batch_statuses(session, tenant_id, batches, details=details)
+    return {
+        b.id: _overview(statuses.get(b.id, []), **details.get(b.id, {"stages": {}, "flags": {}, "uploading": False,
+                                                                        "batch_failed": False, "unwritten": 0}))
+        for b in batches
+    }
+
+
 @dataclass
 class _Listing:
     content: GeneratedContent
@@ -87,7 +143,9 @@ class _Listing:
         return self.live | self.drafts
 
 
-async def batch_statuses(session: AsyncSession, tenant_id: uuid.UUID, batches: list[UploadBatch]) -> dict[uuid.UUID, list[str]]:
+async def batch_statuses(
+    session: AsyncSession, tenant_id: uuid.UUID, batches: list[UploadBatch], *, details: dict | None = None,
+) -> dict[uuid.UUID, list[str]]:
     """Each batch's statuses (in ``STATUSES`` order), from a handful of queries for all of them."""
     from app.pipeline import unfinished
 
@@ -189,8 +247,34 @@ async def batch_statuses(session: AsyncSession, tenant_id: uuid.UUID, batches: l
         if (unwritten or not items) and not uploading and b.status is not UploadBatchStatus.failed:
             mine.add("not_written")
         all_live = bool(items)
+        stages: dict[str, int] = defaultdict(int)
+        flags: dict[str, int] = defaultdict(int)
         for item in items:
             missing = item.shops - item.on_etsy - item.half - item.failed - item.scheduled
+            # This listing's one stage (how far it got) and what went wrong with it.
+            if item.shops and item.shops <= item.live:
+                stage = "published"
+            elif item.live:
+                stage = "partly_published"
+            elif item.scheduled:
+                stage = "scheduled"
+            elif item.shops and item.shops <= item.on_etsy:
+                stage = "drafted"
+            elif item.on_etsy:
+                stage = "partly_drafted"
+            elif item.content.approved:
+                stage = "approved"
+            else:
+                stage = "in_review"
+            if item.failed or item.half or (item.deleted - item.on_etsy):
+                # Gone wrong and gone no further: counted by what went wrong, not as a stage.
+                if not item.on_etsy and not item.scheduled:
+                    stage = None
+                for flag, hit in (("failed", item.failed), ("half_made", item.half), ("deleted", item.deleted - item.on_etsy)):
+                    if hit:
+                        flags[flag] += 1
+            if stage:
+                stages[stage] += 1
             if not item.content.approved and not item.on_etsy and not item.scheduled:
                 mine.add("in_review")
             elif item.content.approved and not item.on_etsy and (missing or not item.shops):
@@ -213,4 +297,7 @@ async def batch_statuses(session: AsyncSession, tenant_id: uuid.UUID, batches: l
             mine.add("published")
         elif any(item.live for item in items):
             mine.add("partly_published")
+        if details is not None:
+            details[b.id] = {"stages": dict(stages), "flags": dict(flags), "uploading": uploading,
+                             "batch_failed": b.status is UploadBatchStatus.failed, "unwritten": len(unwritten)}
     return {b: [s for s in STATUSES if s in found[b]] for b in found}

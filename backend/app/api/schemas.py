@@ -51,6 +51,8 @@ class BatchSummary(BaseModel):
     #: filter, and ``headline``, the one every badge shows (Batches, the batch page, Overview).
     statuses: list[str] = Field(default_factory=list)
     headline: str | None = None
+    #: Beside the badge: what went wrong with some of its listings ("1 draft failed"), A4.
+    status_notes: list[str] = Field(default_factory=list)
     file_count: int
     created_at: datetime
     asset_count: int

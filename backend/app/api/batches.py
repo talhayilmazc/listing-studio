@@ -418,29 +418,29 @@ async def list_batches(
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.BatchSummary]:
-    from app.pipeline.batch_status import batch_statuses, headline
+    from app.pipeline.batch_status import batch_overviews
 
     batches = list((await session.execute(
         select(UploadBatch)
         .where(UploadBatch.tenant_id == tenant.id)
         .order_by(UploadBatch.created_at.desc())
     )).scalars())
-    statuses = await batch_statuses(session, tenant.id, batches)
+    overviews = await batch_overviews(session, tenant.id, batches)
     out = []
     for b in batches:
         summary = await _summary(session, b)
-        summary.statuses = statuses.get(b.id, [])
-        summary.headline = headline(summary.statuses)
+        view = overviews[b.id]
+        summary.statuses, summary.headline, summary.status_notes = view.statuses, view.headline, view.notes
         out.append(summary)
     return out
 
 
 async def _with_statuses(session: AsyncSession, tenant: Tenant, batch: UploadBatch, summary: Any) -> Any:
     """The batch's statuses and badge, the same as on the Batches page."""
-    from app.pipeline.batch_status import batch_statuses, headline
+    from app.pipeline.batch_status import batch_overviews
 
-    summary.statuses = (await batch_statuses(session, tenant.id, [batch])).get(batch.id, [])
-    summary.headline = headline(summary.statuses)
+    view = (await batch_overviews(session, tenant.id, [batch]))[batch.id]
+    summary.statuses, summary.headline, summary.status_notes = view.statuses, view.headline, view.notes
     return summary
 
 

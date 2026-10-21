@@ -376,7 +376,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             <BatchName batch={batch} onRenamed={(updated) => setBatch((cur) => (cur ? { ...cur, ...updated } : cur))} />
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <BatchStatusBadge statuses={batch.statuses} />
+            <BatchStatusBadge statuses={batch.statuses} main={batch.headline} notes={batch.status_notes} />
             {(batch.shop_names ?? []).map((name) => (
               <ShopBadge key={name} name={name} />
             ))}

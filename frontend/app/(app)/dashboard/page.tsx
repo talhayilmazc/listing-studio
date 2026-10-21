@@ -559,7 +559,7 @@ function ActivityRow({
             <span className="truncate font-medium text-slate-900 group-hover:text-brand-700">
               {title}
             </span>
-            <BatchStatusBadge statuses={batch.statuses} />
+            <BatchStatusBadge statuses={batch.statuses} main={batch.headline} notes={batch.status_notes} />
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
             <span translate="no" className="tabular-nums">{batch.asset_count}</span> files ·{" "}

@@ -186,3 +186,37 @@ async def test_every_place_shows_the_same_statuses(world) -> None:  # noqa: F811
         assert row["statuses"] == ["approved", "partly_published"] and row["headline"] == "approved"
     assert (await world["b"].get(f"/api/batches/{live.id}/summary")).status_code == 404
     assert str(live.id) not in {x["id"] for x in (await world["b"].get("/api/batches")).json()}
+
+
+async def test_the_badge_is_what_most_listings_are_and_a_failure_is_a_note(world) -> None:  # noqa: F811
+    """A4: a batch of 14 written listings, 12 in review, 1 drafted and 1 whose draft failed,
+    showed "Failed" on the Batches list. Its badge is now what most of its listings are, with
+    a note for the failure; "Failed" is the badge only when nothing in it can go further."""
+    from app.pipeline.batch_status import batch_overviews
+
+    a1 = world["a1"]
+    async with world["sm"]() as s:
+        mixed = await _batch(s, world)
+        for n in range(12):
+            await _listing(s, world, mixed, f"R{n}", approved=False)
+        drafted = await _listing(s, world, mixed, "D1")
+        _pub(s, world, drafted, a1, "draft")
+        bad = await _listing(s, world, mixed, "F1")
+        s.add(Job(tenant_id=world["alice"], connection_id=a1, type=JobType.create_draft, status=JobStatus.failed,
+                  payload={"content_id": str(bad.id)}, batch_id=mixed.id, finished_at=NOW, last_error="x"))
+        only = await _batch(s, world)
+        lost = await _listing(s, world, only, "F2")
+        s.add(Job(tenant_id=world["alice"], connection_id=a1, type=JobType.create_draft, status=JobStatus.failed,
+                  payload={"content_id": str(lost.id)}, batch_id=only.id, finished_at=NOW, last_error="x"))
+        whole = await _batch(s, world, status=UploadBatchStatus.failed)
+        await s.commit()
+        views = await batch_overviews(s, world["alice"], [mixed, only, whole])
+
+    assert (views[mixed.id].headline, views[mixed.id].notes) == ("in_review", ["1 draft failed"])
+    assert "failed" in views[mixed.id].statuses  # the filter still finds it
+    assert views[mixed.id].counts == {"in_review": 12, "drafted": 1}
+    assert (views[only.id].headline, views[only.id].notes) == ("failed", [])  # nothing in it can go further
+    assert views[whole.id].headline == "failed"
+
+    listed = {b["id"]: b for b in (await world["a"].get("/api/batches")).json()}
+    assert (listed[str(mixed.id)]["headline"], listed[str(mixed.id)]["status_notes"]) == ("in_review", ["1 draft failed"])
