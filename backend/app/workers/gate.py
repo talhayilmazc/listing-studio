@@ -48,7 +48,9 @@ JOB_COST: dict[str, int] = {
     "run_replace_images_job": 30,
     # shop, listing, inventory, images, properties, personalization (v7 §D4),
     # and the category's attribute lists and names (each cached 24 h per category)
-    "refresh_profile": 9,
+    "refresh_profile": 10,
+    #: The shipping profile's kind, then the reference listing only when it is calculated.
+    "read_reference_size": 2,
     # the reference's images; when they changed, the full refresh as well (v6 §H)
     "refresh_profile_images": 10,
     # Setting a profile up in other shops (v8 §C): the main shop's four lists and, for
@@ -102,7 +104,7 @@ JOB_COST: dict[str, int] = {
 # listing work. Creating a shop section and updating a draft's SKU are the
 # seller's own changes on Etsy and still count toward their ceiling.
 UPKEEP = frozenset(
-    {"refresh_profile", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
+    {"refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "link_profile", "create_link_resources"}
 )
 

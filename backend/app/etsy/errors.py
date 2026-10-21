@@ -220,6 +220,11 @@ def explain(exc: EtsyError, shop: str | None = None) -> str:
     detail = getattr(exc, "detail", None)
     if isinstance(exc, EtsyServerError):
         return f"Etsy had a problem of its own{where} (it answered {status}); nothing is wrong with the listing"
+    if detail and "calculated shipping profile" in detail.lower():
+        # The reference has no weight or size for its calculated shipping profile.
+        from app.pipeline.reference import SIZE_FIX
+
+        return SIZE_FIX
     setting = foreign_setting(detail)
     if setting:
         name = shop or "This shop"

@@ -709,6 +709,8 @@ export interface Profile {
   images_updated_at: string | null;
   /** The last refresh failed, worded for the seller (v6 §H); null once one succeeds. */
   refresh_error: string | null;
+  /** Drafts would be refused (calculated shipping, no weight or size on the reference): what to do. */
+  shipping_note?: string | null;
   refresh_failed_at: string | null;
   /** Wrote a listing or made a draft in the last two weeks: kept warm in the background. */
   in_use: boolean;

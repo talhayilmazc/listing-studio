@@ -71,6 +71,8 @@ from app.pipeline.reference import (
     build_inventory_from_reference,
     clean_materials,
     production_partner_ids,
+    shipping_size,
+    size_problem,
 )
 
 logger = logging.getLogger(__name__)
@@ -656,6 +658,11 @@ async def publish_content(
             + "; refresh the profile before publishing"
         )
     taxonomy_id = required["taxonomy_id"]
+    # A calculated shipping profile needs the item's weight and size: refused here, before
+    # anything is sent, when the reference has none (Etsy would refuse the create).
+    size_issue = size_problem(reference)
+    if size_issue:
+        raise ValueError(size_issue)
     listing: dict[str, Any] = {
         "quantity": config.quantity,
         "title": (title if title is not None else content.title) or "",
@@ -666,6 +673,10 @@ async def publish_content(
         "tags": list(content.tags or []),
         **required,
     }
+    # The reference's weight and packed size, exactly as Etsy gave them (number and unit):
+    # sent whenever the reference has them, so a calculated shipping profile is accepted
+    # in every shop. Never 0, never converted.
+    listing.update(shipping_size(reference))
     # production_partner_ids: required only for made-by-someone-else; copy if present.
     if reference.get("production_partner_ids"):
         listing["production_partner_ids"] = reference["production_partner_ids"]
@@ -698,6 +709,12 @@ async def publish_content(
         try:
             created = await client.create_draft_listing(shop_id, listing=listing, **ctx)
             listing_id = int(created["listing_id"])
+        except EtsyClientError:
+            # Etsy refused it (4xx): no draft was made. The next try sends it again at
+            # once, without waiting to see whether a lost answer made one.
+            attempt.create_sent_at = None
+            await session.commit()
+            raise
         except UNCERTAIN as exc:
             # No answer, or a 5xx: Etsy may have made the draft anyway. Look for it.
             await asyncio.sleep(ADOPT_WAIT_SECONDS)

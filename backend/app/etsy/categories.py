@@ -16,6 +16,7 @@ _BY_JOB: dict[str, str] = {
     "create_shop_section": "sections",
     "update_sku_on_etsy": "sku_updates",
     "refresh_profile": "profiles",
+    "read_reference_size": "profiles",
     "refresh_profile_images": "profiles",
     "detect_profiles": "profiles",
     "refresh_shop_links": "profiles",

@@ -26,7 +26,7 @@ from app.pipeline import links as links_mod
 from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
 from app.pipeline.personalization import effective as effective_personalization
 from app.pipeline.personalization import validate as validate_personalization
-from app.pipeline.reference import decode_etsy_text
+from app.pipeline.reference import decode_etsy_text, size_problem
 from app.pipeline.search_rules import SEARCH_TITLE
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -131,6 +131,7 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
             else "unknown"
         ),
         refresh_error=profile.refresh_error,
+        shipping_note=size_problem(profile.cached_payload),
         refresh_failed_at=profile.refresh_failed_at,
     )
 

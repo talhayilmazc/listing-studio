@@ -198,6 +198,13 @@ def plain_error(error: str | None, shop: str) -> str | None:
     if not error:
         return error
     low = error.lower().strip()
+    if "calculated shipping profile" in low:
+        # Stored before the weight and size were read and sent (2026-10-22): the next try
+        # carries them; if the reference really has none, it says what to add.
+        from app.pipeline.reference import SIZE_FIX
+
+        return ("Etsy needed the item's weight and size for its calculated shipping profile. "
+                "They are read from the reference listing now: finish the draft. " + SIZE_FIX)
     if _OLD_INVENTORY_404.lower() in low:  # (compared in lower case: "SKU" never matched before)
         return (f"Etsy refused this draft's sizes, prices and SKU: they carried another shop's processing "
                 f"profile, which {shop} does not have. Set it up in {shop}, then finish the draft.")

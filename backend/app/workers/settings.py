@@ -35,6 +35,8 @@ from app.workers.processor import JobProcessor, ProcessResult
 from app.workers.profiles import (
     auto_refresh_profiles,
     detect_profiles,
+    read_reference_size,
+    read_reference_sizes_once,
     refresh_profile,
     refresh_profile_images,
     sync_shop_counts,
@@ -114,6 +116,7 @@ class WorkerSettings:
         run_publish_job,
         run_publish_live_job,
         refresh_profile,
+        read_reference_size,
         refresh_profile_images,
         sync_shop_listings,
         sync_shop_counts,
@@ -168,6 +171,8 @@ class WorkerSettings:
         # account's profile links filled from it, what is still missing resolved again. A
         # Redis marker keeps it to one run; later starts return at once.
         cron(resolve_shop_settings_once, hour={4}, minute={25}, second=0, run_at_startup=True),
+        # Once after the deploy that sends a reference's weight and size (calculated shipping).
+        cron(read_reference_sizes_once, hour={4}, minute={35}, second=0, run_at_startup=True),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

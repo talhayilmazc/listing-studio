@@ -34,7 +34,7 @@ from app.pipeline.content import (
     check_listing,
     policy_for,
 )
-from app.pipeline.reference import PAYLOAD_VERSION, replace_title_block
+from app.pipeline.reference import PAYLOAD_VERSION, replace_title_block, size_problem
 from app.pipeline.reference import with_opening
 from app.pipeline.search_rules import TitleRules
 
@@ -229,6 +229,12 @@ async def resolve_target(
     if state is not None and not state.ready:
         return Target(connection, chosen, f'profile "{chosen.name}" in this shop: {state.reason}', link=link,
                       setup=state.status != "checking")
+    if connection.id == chosen.connection_id:
+        # Certain to be refused (a calculated shipping profile, no weight or size on the
+        # reference): never sent; the listing says what to add instead.
+        size_issue = size_problem(chosen.cached_payload)
+        if size_issue:
+            return Target(connection, chosen, size_issue, link=link)
 
     if source is not None and chosen.id == source.id:
         title, description = content.title or "", content.description or ""

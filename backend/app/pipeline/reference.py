@@ -85,6 +85,57 @@ def clean_materials(raw: object) -> list[str]:
     return out
 
 
+#: The reference listing's item weight and packed size (createDraftListing in Etsy's
+#: OpenAPI spec): one number and one unit for the weight, three numbers and one unit
+#: for the size, each number greater than 0. Etsy's listing editor shows "0 lb 4 oz";
+#: the API gives one number with one unit (4 oz, or 0.25 lb). Stored and sent exactly
+#: as Etsy gives them: never 0, never rounded, never converted.
+SIZE_FIELDS = ("item_weight", "item_weight_unit", "item_length", "item_width", "item_height", "item_dimensions_unit")
+WEIGHT_UNITS = ("oz", "lb", "g", "kg")
+SIZE_UNITS = ("in", "ft", "mm", "cm", "m", "yd", "inches")
+#: The shipping profile kind (ShopShippingProfile.profile_type) that needs them.
+CALCULATED = "calculated"
+#: What the seller is told when a calculated shipping profile has no weight or size to go with.
+SIZE_FIX = (
+    "Its shipping profile is calculated, so Etsy needs the item's weight and size: add them to the "
+    "reference listing on Etsy, then press Refresh on the profile."
+)
+
+
+def _positive(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def shipping_size(source: dict[str, Any] | None) -> dict[str, Any]:
+    """The weight and packed size a draft carries, from a listing or a profile payload:
+    the weight with its unit, and the three sizes with theirs, each only when whole."""
+    source = source or {}
+    out: dict[str, Any] = {}
+    weight, weight_unit = _positive(source.get("item_weight")), source.get("item_weight_unit")
+    if weight is not None and weight_unit in WEIGHT_UNITS:
+        out["item_weight"], out["item_weight_unit"] = weight, weight_unit
+    sizes = [_positive(source.get(k)) for k in ("item_length", "item_width", "item_height")]
+    size_unit = source.get("item_dimensions_unit")
+    if all(s is not None for s in sizes) and size_unit in SIZE_UNITS:
+        out["item_length"], out["item_width"], out["item_height"] = sizes
+        out["item_dimensions_unit"] = size_unit
+    return out
+
+
+def size_problem(payload: dict[str, Any] | None) -> str | None:
+    """Why a draft from this profile is certain to be refused (a calculated shipping
+    profile with no whole weight and size on the reference), or None."""
+    payload = payload or {}
+    if payload.get("shipping_profile_type") != CALCULATED:
+        return None
+    have = shipping_size(payload)
+    return None if "item_weight" in have and "item_length" in have else SIZE_FIX
+
+
 def build_profile_payload(
     listing: dict[str, Any],
     inventory: dict[str, Any],
@@ -116,6 +167,9 @@ def build_profile_payload(
         "should_auto_renew": listing.get("should_auto_renew"),
         "processing_min": listing.get("processing_min"),
         "processing_max": listing.get("processing_max"),
+        # Weight and packed size, exactly as Etsy gives them (a calculated shipping
+        # profile refuses a draft without them).
+        **{key: listing.get(key) for key in SIZE_FIELDS},
         "description": decode_etsy_text(listing.get("description")),
         # Reference variation structure, reused (with the new SKU) at publish time.
         "inventory_products": list((inventory or {}).get("products") or []),

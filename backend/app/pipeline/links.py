@@ -639,6 +639,9 @@ def shop_reference(payload: dict[str, Any], link: Any | None) -> dict[str, Any]:
         products.append({**{k: v for k, v in product.items() if k != "product_id"}, "offerings": offerings})
     out["inventory_products"] = products
     out.pop("images", None)
+    # The main shop's shipping profile kind says nothing about this shop's own profile:
+    # never guessed (the weight and size are sent either way).
+    out.pop("shipping_profile_type", None)
     out["shop_scope"] = LINKED
     out["shop_missing"] = missing_here
     return out

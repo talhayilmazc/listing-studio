@@ -310,6 +310,9 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
             properties = await client.get_listing_properties(shop_id, ref_id, **kw)
             # Personalization is its own resource now (v7 §D4).
             personalization = await client.get_listing_personalization(ref_id, **kw)
+            # Is its shipping profile calculated? Then a draft needs the reference's weight
+            # and size, and a draft without them is refused (reference.size_problem).
+            shipping_type = await _shipping_type(client, shop_id, listing.get("shipping_profile_id"), kw)
 
             # The category's own attribute lists and names (not Member Content; the
             # client keeps each category's for 24 hours, so this is one request per
@@ -327,6 +330,7 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         payload["category_attribute_limits"] = attribute_limits((category_properties or {}).get("results"))
         payload["category_names"] = category_path(category_nodes, listing.get("taxonomy_id"))
         payload["personalization"] = personalization_from_reference(personalization)
+        payload["shipping_profile_type"] = shipping_type
 
         # Title prefix (docs/duzeltmeler-v5.md §B). Detection sets it from its cluster.
         # A profile made by hand starts with none (NULL), so fill it here, once, from
@@ -394,6 +398,93 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         profile.refresh_error = profile.refresh_failed_at = None
         await session.commit()
         return "refreshed"
+
+
+async def _shipping_type(client: Any, shop_id: int, shipping_profile_id: Any, kw: dict[str, Any]) -> str | None:
+    """"calculated" or "manual" (ShopShippingProfile.profile_type), or None when it
+    could not be read (the draft still carries the weight and size it has)."""
+    if not shipping_profile_id:
+        return None
+    try:
+        row = await client.get_shop_shipping_profile(shop_id, int(shipping_profile_id), **kw)
+    except EtsyClientError:
+        logger.warning("shipping profile %s: its type could not be read", shipping_profile_id)
+        return None
+    kind = (row or {}).get("profile_type")
+    return str(kind) if kind else None
+
+
+#: The one-time read of every profile's shipping kind (and, when calculated, the
+#: reference's weight and size) after the deploy that started sending them.
+SIZE_ONCE_KEY = "once:reference-size:v1"
+
+
+async def read_reference_size(ctx: dict[str, Any], profile_id: str) -> str:
+    """Upkeep, at most two requests: is the profile's shipping profile calculated, and if
+    so the reference listing's weight and packed size, stored exactly as Etsy gives them.
+    The rest of the profile is not touched (its usual refresh reads everything)."""
+    async with ctx["sessionmaker"]() as session:
+        profile = await session.get(ListingProfile, uuid.UUID(profile_id))
+        if profile is None:
+            return "missing"
+        tenant_id = profile.tenant_id
+    return await _run_gated(
+        ctx, "read_reference_size", profile_id, tenant_id,
+        lambda: _reported(ctx, profile_id, lambda: _read_reference_size(ctx, profile_id)),
+    )
+
+
+async def _read_reference_size(ctx: dict[str, Any], profile_id: str) -> str:
+    from app.pipeline.reference import CALCULATED, SIZE_FIELDS
+
+    settings = get_settings()
+    service = _connection_service(settings)
+    async with ctx["sessionmaker"]() as session:
+        profile = await session.get(ListingProfile, uuid.UUID(profile_id))
+        if profile is None or not profile.cached_payload or profile.reference_listing_id is None:
+            return "nothing-to-read"
+        connection = await _active_shop(session, profile.connection_id)
+        if connection is None or connection.tenant_id != profile.tenant_id:
+            return "no-connection"
+        tenant = await session.get(Tenant, profile.tenant_id)
+        token = await _token(service, session, connection)
+        payload = dict(profile.cached_payload)
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            client = _build_client(ctx, http, settings, shop=connection.id)
+            kw = {"access_token": token, "tenant_id": profile.tenant_id,
+                  "tenant_limit": limits.ceiling_limit(tenant) if tenant else None}
+            shop_id = await _resolve_shop_id(session, client, connection, kw)
+            kind = await _shipping_type(client, shop_id, payload.get("shipping_profile_id"), kw)
+            payload["shipping_profile_type"] = kind
+            if kind == CALCULATED:
+                listing = await client.get_listing(profile.reference_listing_id, **kw)
+                for key in SIZE_FIELDS:
+                    payload[key] = listing.get(key)
+        profile.cached_payload = payload
+        await session.commit()
+        return f"read:{kind or 'unknown'}"
+
+
+async def read_reference_sizes_once(ctx: dict[str, Any]) -> str:
+    """Cron, at worker start: once after the deploy that sends the weight and size, every
+    profile read before it (no shipping kind in its payload) is queued for
+    ``read_reference_size``: one request for the kind, one more only when calculated, as
+    upkeep within the app's daily budget. No seller action. Not run with ETSY_CALLS_BLOCKED."""
+    if get_settings().etsy_calls_blocked:
+        logger.info("read_reference_sizes_once: skipped (ETSY_CALLS_BLOCKED)")
+        return "skipped"
+    redis = ctx.get("redis")
+    if redis is not None and await redis.get(SIZE_ONCE_KEY):
+        return "done-before"
+    async with ctx["sessionmaker"]() as session:
+        rows = await session.execute(select(ListingProfile).where(ListingProfile.reference_listing_id.is_not(None)))
+        due = [str(p.id) for p in rows.scalars() if p.cached_payload and "shipping_profile_type" not in p.cached_payload]
+    for profile_id in due:
+        await _enqueue_job(ctx, "read_reference_size", profile_id)
+    if redis is not None:
+        await redis.set(SIZE_ONCE_KEY, datetime.now(timezone.utc).isoformat())
+    logger.info("read_reference_sizes_once: %s profiles queued", len(due))
+    return f"queued:{len(due)}"
 
 
 async def refresh_profile_images(ctx: dict[str, Any], profile_id: str) -> str:

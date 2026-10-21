@@ -1041,6 +1041,9 @@ class ProfileOut(BaseModel):
     personalization_source: str = "unknown"
     # The last refresh failed, and why (v6 §H); None once a refresh succeeds.
     refresh_error: str | None = None
+    #: One line when drafts would be refused: a calculated shipping profile and no weight
+    #: or size on the reference listing, with what to do (reference.size_problem).
+    shipping_note: str | None = None
     refresh_failed_at: datetime | None = None
     # Kept warm in the background: it wrote a listing or made a draft in the
     # last two weeks. Otherwise it refreshes when viewed or used.
