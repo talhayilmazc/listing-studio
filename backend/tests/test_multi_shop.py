@@ -516,22 +516,21 @@ def _by_key(groups: list[dict]) -> dict[str, dict]:
 
 
 async def test_a_batch_is_for_the_shop_the_seller_named_never_one_picked_for_them(world) -> None:
-    # Two shops connected and none named: the batch has no shop until the seller chooses.
+    # B3: an upload is not tied to a shop; a batch has no shop of its own.
     unnamed = (await world["a"].post("/api/batches")).json()
-    assert unnamed["connection_id"] is None and unnamed["shop_names"] == []
+    assert unnamed["shop_name"] is None and unnamed["shop_names"] == []
     named = (await world["a"].post("/api/batches", json={"connection_id": str(world["a2"])})).json()
-    assert named["connection_id"] == str(world["a2"]) and named["shop_name"] == "Frost Mugs"
+    assert named["shop_name"] is None  # an old client naming one decides nothing
     # Another account's shop is not a shop that exists, here as everywhere.
     assert (await world["a"].post("/api/batches", json={"connection_id": str(world["b1"])})).status_code == 404
-    # With one shop connected there is nothing to choose.
-    assert (await world["b"].post("/api/batches")).json()["shop_name"] == "Bob Shop"
+    assert (await world["b"].post("/api/batches")).json()["shop_name"] is None
 
 
 async def test_a_groups_profile_is_any_of_the_accounts_and_stays_when_the_group_moves(world) -> None:
     batch = await _grouped_batch(world, "a1")
     put = lambda body: world["a"].put(f"/api/batches/{batch}/groups", json=body)  # noqa: E731
     groups = _by_key((await world["a"].get(f"/api/batches/{batch}/groups")).json())
-    assert {g["shop_name"] for g in groups.values()} == {"Frost Tees"}  # the batch's shop, before anything is set
+    assert {g["shop_name"] for g in groups.values()} == {None}  # no profile yet: no shop (B3: no batch shop)
 
     # Profiles are the account's (v8 §C): one whose main shop is another is accepted.
     res = await put({"group_key": "g1", "profile_id": str(world["pa2"])})
@@ -543,10 +542,10 @@ async def test_a_groups_profile_is_any_of_the_accounts_and_stays_when_the_group_
     groups = _by_key((await put({"group_key": "g1", "profile_id": str(world["pa1"]), "size_chart_profile_id": str(world["pa1"])})).json())
     assert groups["g1"]["profile_id"] == str(world["pa1"]) and groups["g1"]["manual"] is True
 
-    # Moving a group to another shop keeps its profile and size charts.
+    # A group's old shop setting changes nothing (B3): it goes to its profile's main shop.
     groups = _by_key((await put({"group_key": "g1", "connection_id": str(world["a2"])})).json())
     assert (groups["g1"]["shop_name"], groups["g1"]["profile_id"], groups["g1"]["size_chart_profile_id"]) == (
-        "Frost Mugs", str(world["pa1"]), str(world["pa1"]))
+        "Frost Tees", str(world["pa1"]), str(world["pa1"]))
 
 
 async def test_a_groups_settings_carry_to_the_groups_after_it_until_one_set_by_hand(world) -> None:
@@ -556,19 +555,15 @@ async def test_a_groups_settings_carry_to_the_groups_after_it_until_one_set_by_h
     assert [groups[k]["profile_id"] for k in ("g1", "g2", "g3")] == [str(world["pa1"])] * 3
     assert [groups[k]["manual"] for k in ("g1", "g2", "g3")] == [True, False, False]
 
-    # g3 set by hand; then g1 changes shop: g2 follows, g3 keeps what the seller chose.
-    await put({"group_key": "g3", "size_chart_profile_id": str(world["pa1"])})
-    groups = _by_key((await put({"group_key": "g1", "connection_id": str(world["a2"])})).json())
-    assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Mugs", "Frost Mugs", "Frost Tees"]
-    assert groups["g2"]["profile_id"] == str(world["pa1"]) and groups["g3"]["profile_id"] == str(world["pa1"])
-
-    # Bulk-apply to a selection: exactly those groups, each set by hand from then on.
-    groups = _by_key((await put({"group_keys": ["g2", "g3"], "connection_id": str(world["a1"])})).json())
-    assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Mugs", "Frost Tees", "Frost Tees"]
-    assert groups["g2"]["profile_id"] == str(world["pa1"]) and groups["g2"]["manual"] is True
+    # Bulk-apply a profile to a selection: exactly those groups, each set by hand from then on.
+    groups = _by_key((await put({"group_keys": ["g2", "g3"], "profile_id": str(world["pa2"])})).json())
+    assert [groups[k]["profile_id"] for k in ("g1", "g2", "g3")] == [str(world["pa1"]), str(world["pa2"]), str(world["pa2"])]
+    assert groups["g2"]["manual"] is True
+    # Each group goes to its profile's main shop (B3).
+    assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Tees", "Frost Mugs", "Frost Mugs"]
 
     summary = (await world["a"].get(f"/api/batches/{batch}")).json()
-    assert summary["shop_names"] == ["Frost Tees", "Frost Mugs"]  # every shop the batch is in
+    assert sorted(summary["shop_names"]) == ["Frost Mugs", "Frost Tees"]  # every shop the batch's listings go to
 
 
 async def test_changing_the_batchs_shop_moves_only_the_groups_not_set_by_hand(world) -> None:
@@ -577,7 +572,8 @@ async def test_changing_the_batchs_shop_moves_only_the_groups_not_set_by_hand(wo
     await put({"profile_id": str(world["pa1"])})  # "for all"
     await put({"group_keys": ["g2"], "profile_id": str(world["pa1"])})  # g2 by hand
     groups = _by_key((await world["a"].put(f"/api/batches/{batch}/shop", json={"connection_id": str(world["a2"])})).json())
-    assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Mugs", "Frost Tees", "Frost Mugs"]
+    # B3: the batch's shop decides nothing; every group goes to its profile's main shop.
+    assert [groups[k]["shop_name"] for k in ("g1", "g2", "g3")] == ["Frost Tees", "Frost Tees", "Frost Tees"]
     assert groups["g1"]["profile_id"] == str(world["pa1"])  # the profile is the account's: it stays
     assert (await world["a"].put(f"/api/batches/{batch}/shop", json={"connection_id": str(world["b1"])})).status_code == 404
 

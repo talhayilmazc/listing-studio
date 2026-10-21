@@ -474,10 +474,10 @@ export function ReviewCard({
               <span>Select</span>
             </label>
           )}
-          {initial.connection_id && shopNames?.[initial.connection_id] && (
-            <p key="shop" className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
-              <span>Written for</span>
-              <ShopBadge name={shopNames[initial.connection_id]} />
+          {initial.profile_name && (
+            // The listing is written with its profile (B3); where it goes is chosen in "Where and when".
+            <p key="profile-top" className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500" data-testid="card-profile-name">
+              <span>Profile </span><span className="font-medium text-slate-800" translate="no">{initial.profile_name}</span>
             </p>
           )}
           <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">

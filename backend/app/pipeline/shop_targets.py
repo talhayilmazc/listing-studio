@@ -31,10 +31,14 @@ from app.db.models import (
 
 
 async def own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConnection | None:
-    """The shop the listing was written for: its group's shop, else its batch's,
-    else its profile's main shop (a profile is the account's since v8 §C)."""
-    asset = await session.get(Asset, content.asset_id)
+    """The shop a listing goes to unless the seller chose others: its profile's main shop
+    (B3, 2026-10-22: no batch or group shop decides it any more). Only a listing with no
+    profile falls back to its group's, else its batch's shop, as stored before."""
     shop_id = None
+    if content.listing_profile_id is not None:
+        profile = await session.get(ListingProfile, content.listing_profile_id)
+        shop_id = profile.connection_id if profile is not None else None
+    asset = await session.get(Asset, content.asset_id) if shop_id is None else None
     if asset is not None:
         setting = (await session.execute(select(ListingGroupSetting).where(
             ListingGroupSetting.batch_id == content.batch_id,
@@ -44,9 +48,6 @@ async def own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConn
     if shop_id is None:
         batch = await session.get(UploadBatch, content.batch_id)
         shop_id = batch.connection_id if batch is not None else None
-    if shop_id is None and content.listing_profile_id is not None:
-        profile = await session.get(ListingProfile, content.listing_profile_id)
-        shop_id = profile.connection_id if profile is not None else None
     if shop_id is None:
         return None
     connection = await session.get(EtsyConnection, shop_id)

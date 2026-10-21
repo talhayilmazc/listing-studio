@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BatchNameForm } from "@/components/BatchName";
-import { ShopBadge } from "@/components/ShopPicker";
 import { api } from "@/lib/api";
 import type { Asset, BatchSummary, Content, Group, Profile } from "@/lib/types";
 import { showable } from "@/lib/types";
@@ -353,13 +352,7 @@ function BatchCard({
           <BatchStatusBadge statuses={batch.statuses} main={batch.headline} notes={batch.status_notes} />
         </div>
 
-        {(batch.shop_names ?? []).length > 0 && (
-          <div key="shops" className="mt-2 flex flex-wrap gap-1.5">
-            {(batch.shop_names ?? []).map((n) => (
-              <ShopBadge key={n} name={n} />
-            ))}
-          </div>
-        )}
+        {/* No shop chip (B3): a batch is not a shop's; its listings' profiles are shown. */}
         {profileNames.length > 0 && (
           <div key="div-273-8" className="mt-2 flex flex-wrap gap-1.5">
             {profileNames.map((n) => (

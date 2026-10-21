@@ -46,6 +46,9 @@ function RemovedImages({ assets, listingsOnEtsy }: { assets: Asset[]; listingsOn
  * on hover: drag with a mouse; the arrows on hover; or tap an image and use
  * the buttons under the strip, which is what a phone gets.
  */
+/** A photo dragged out of a listing's strip: "<asset id>|<its group key>". */
+export const ASSET_DRAG = "application/x-listyro-asset";
+
 export function GroupImages({
   batchId,
   groupKey,
@@ -261,6 +264,8 @@ export function GroupImages({
                 setDragging(id);
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", id); // Firefox starts no drag without data
+                // Onto another listing's card (or "+ New listing"): moved there (B3).
+                e.dataTransfer.setData(ASSET_DRAG, `${id}|${groupKey}`);
               }}
               onDragEnd={() => {
                 setDragging(null);

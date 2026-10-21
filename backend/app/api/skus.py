@@ -93,11 +93,9 @@ async def apply_group_sku(
 
 async def _targets(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, key: str) -> list[uuid.UUID]:
     state = (await group_states(session, batch_ids={batch_id}, with_removed=True)).get((batch_id, key))
+    # The group's targets (its profile's main shop unless the seller chose others; B3: no
+    # batch shop decides it any more).
     targets = set(state.targets) if state is not None else set()
-    if not targets:
-        batch = await session.get(UploadBatch, batch_id)
-        if batch is not None and batch.connection_id is not None:
-            targets.add(batch.connection_id)
     return list(targets)
 
 

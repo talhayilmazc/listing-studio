@@ -421,35 +421,22 @@ async def test_the_group_card_says_when_its_profile_is_not_set_up_in_its_shop(wo
         assert res.status_code == 200, res.text
         return res.json()[0]
 
-    # In its own shop, or in a shop a same-named profile lives in: nothing to say.
-    assert (await card({"profile_id": str(hoodie_id)}))["profile_setup"] is None
-    assert (await card({"profile_id": str(world["pa1"]), "connection_id": str(world["a2"])}))["profile_setup"] is None
-    # A profile that lives in shop one, on a group that goes to shop two: said where it is chosen.
-    note = (await card({"profile_id": str(hoodie_id)}))["profile_setup"]
-    assert (note["profile_name"], note["shop_name"], note["setup"]) == ("Hoodie", "Frost Mugs", True)
-    assert "not set up in this shop" in note["reason"]
-    # Being set up, then missing something: the card follows.
-    async with world["sm"]() as s:
-        link = ProfileShopLink(tenant_id=world["alice"], profile_id=hoodie_id, connection_id=world["a2"], status="checking")
-        s.add(link)
-        await s.commit()
-    note = (await world["a"].get(f"/api/batches/{batch}/groups")).json()[0]["profile_setup"]
-    assert (note["checking"], note["setup"]) == (True, False)
-    async with world["sm"]() as s:
-        link = (await s.execute(select(ProfileShopLink).where(ProfileShopLink.profile_id == hoodie_id))).scalars().first()
-        link.status = "ready"
-        await s.commit()
-    assert (await world["a"].get(f"/api/batches/{batch}/groups")).json()[0]["profile_setup"] is None
+    # B3: a group goes to its profile's main shop (no batch or group shop decides it), where a
+    # profile is always set up: nothing to say, whatever shop the group once named.
+    shown = await card({"profile_id": str(hoodie_id), "connection_id": str(world["a2"])})
+    assert (shown["profile_setup"], shown["shop_name"]) == (None, "Frost Tees")
+    shown = await card({"profile_id": str(world["pa1"])})
+    assert (shown["profile_setup"], shown["shop_name"]) == (None, "Frost Tees")
 
 
 async def test_the_card_names_the_shop_the_listing_goes_to_not_its_profiles_shop(world) -> None:  # noqa: F811
-    """"Written for" on the review card and the matrix's own shop were two different
-    answers once a group was moved to another shop."""
-    batch = await _batch(world, groups=("g1",), shop="a2")  # the group is in shop two; its profile lives in shop one
+    """The review card and the matrix give one answer: the listing's profile's main shop (B3),
+    even when its batch and group once named another shop."""
+    batch = await _batch(world, groups=("g1",), shop="a2")  # the group once named shop two; its profile lives in shop one
     await world["a"].post(f"/api/batches/{batch}/manual", json={"group_key": "g1"})
     [card] = (await world["a"].get(f"/api/batches/{batch}/content")).json()
     preview = (await world["a"].post(f"/api/batches/{batch}/publish/preview", json={})).json()
-    assert card["connection_id"] == preview["rows"][0]["own_connection_id"] == str(world["a2"])
+    assert card["connection_id"] == preview["rows"][0]["own_connection_id"] == str(world["a1"])
 
 
 async def test_a_listings_own_text_is_not_listed_as_something_a_shop_needs(world) -> None:  # noqa: F811

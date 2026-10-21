@@ -415,6 +415,23 @@ test.describe("signed in", () => {
     await expectSound(page, "/upload while arranging listings");
   });
 
+  test("a batch: no shop asked; a photo dragged onto + New listing starts one", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const href = (await page.locator('a[href^="/batches/"]', { hasText: "Summer drop" }).first().getAttribute("href"))!;
+    await page.goto(href.replace(/\/review$/, ""));
+    await settle(page);
+    await expect(page.getByText("Shop for this batch")).toHaveCount(0);
+    await expect(page.getByTestId("batch-top-row")).toBeVisible();
+    const cards = page.getByTestId("group-card");
+    const before = await cards.count();
+    // A listing with three photos gives its last one to a new listing.
+    const tile = cards.last().locator("li[draggable='true']:not([data-testid='chart-tile'])").last();
+    await tile.dragTo(page.getByTestId("batch-new-listing"));
+    await expect(cards).toHaveCount(before + 1, { timeout: 15_000 });
+    await expectSound(page, "/batches/<batch> after arranging");
+  });
+
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
     await page.goto("/admin", { waitUntil: "commit" });
     const bar = page.getByRole("tablist", { name: "Admin sections" });

@@ -40,6 +40,7 @@ from app.db.models import (
     Job,
     JobStatus,
     ListingGroupSetting,
+    ListingProfile,
     ListingPublication,
     PlannedSlot,
     ShopGroupMember,
@@ -99,30 +100,41 @@ async def group_states(
         batch_shop[asset.batch_id] = shop
     batches = set(batch_shop)
 
-    # The shop each group was written for: its own choice, else its batch's.
-    chosen = {
-        (s.batch_id, s.group_key or ""): s.connection_id
-        for s in (await session.execute(
-            select(ListingGroupSetting).where(ListingGroupSetting.batch_id.in_(batches))
-        )).scalars()
-    }
+    # The shop a group goes to unless the seller chose others: its profile's main shop (B3:
+    # no batch or group shop decides it any more); a group with no profile keeps the shop
+    # stored before (its own, else its batch's).
+    settings = list((await session.execute(
+        select(ListingGroupSetting).where(ListingGroupSetting.batch_id.in_(batches))
+    )).scalars())
+    chosen = {(s.batch_id, s.group_key or ""): s.connection_id for s in settings}
+    group_profile = {(s.batch_id, s.group_key or ""): s.profile_id for s in settings}
+    content_rows = (await session.execute(
+        select(GeneratedContent.id, GeneratedContent.asset_id, GeneratedContent.created_at, GeneratedContent.target_shops,
+               GeneratedContent.listing_profile_id).where(GeneratedContent.batch_id.in_(batches))
+    )).all()
+    profile_ids = {p for p in group_profile.values() if p} | {row[4] for row in content_rows if row[4]}
+    main_shop = dict((await session.execute(
+        select(ListingProfile.id, ListingProfile.connection_id).where(ListingProfile.id.in_(profile_ids))
+    )).all()) if profile_ids else {}
     own: dict[GroupKey, uuid.UUID] = {}
     for key, g in groups.items():
-        shop = chosen.get(key) or batch_shop.get(g.batch_id)
+        shop = main_shop.get(group_profile.get(key)) or chosen.get(key) or batch_shop.get(g.batch_id)
         if shop is not None:
             g.targets.add(shop)
             own[key] = shop
 
     content_group: dict[uuid.UUID, GroupKey] = {}
-    for cid, asset_id, written, ticked in (await session.execute(
-        select(GeneratedContent.id, GeneratedContent.asset_id, GeneratedContent.created_at, GeneratedContent.target_shops).where(
-            GeneratedContent.batch_id.in_(batches)
-        )
-    )).all():
+    for cid, asset_id, written, ticked, listing_profile in content_rows:
         key = group_of.get(asset_id)
         if key is None:
             continue
         g = groups[key]
+        main = main_shop.get(listing_profile)
+        if main is not None and own.get(key) != main:
+            # Written with a profile: its main shop is the default.
+            g.targets.discard(own.get(key))  # type: ignore[arg-type]
+            g.targets.add(main)
+            own[key] = main
         if ticked is not None:
             # The seller chose its shops on the review page: those, not the default.
             g.targets.discard(own.get(key))  # type: ignore[arg-type]

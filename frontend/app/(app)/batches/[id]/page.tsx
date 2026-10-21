@@ -1,28 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, uploadAsset } from "@/lib/api";
 import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
 import { GroupingResult } from "@/components/GroupingChoice";
-import { GroupingBoard } from "@/components/GroupingBoard";
 import { SkuEditor } from "@/components/SkuEditor";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { ProfilePicker } from "@/components/ProfilePicker";
-import { ShopBadge, ShopPicker } from "@/components/ShopPicker";
 import { BatchName } from "@/components/BatchName";
-import { useShops } from "@/components/ShopProvider";
 import { PatternPicker, usePatternListings } from "@/components/PatternPicker";
 import { useSession } from "@/components/SessionProvider";
-import { GroupImages } from "@/components/GroupImages";
+import { ASSET_DRAG, GroupImages } from "@/components/GroupImages";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
 
 import { Txt } from "@/components/Txt";
-import { startSetup } from "@/lib/startSetup";
 interface AssetGroup {
   key: string;
   label: string;
@@ -37,10 +33,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [settings, setSettings] = useState<Record<string, Group>>({});
   const [bulkProfileId, setBulkProfileId] = useState<string>("");
-  // The account's shops, and the one the switcher is on (offered, never assumed).
-  const { shops, selected: switcherShop } = useShops();
-  const shopChoices = (shops ?? []).map((sh) => ({ id: sh.id, name: sh.name }));
-  const manyShops = shopChoices.length > 1;
+  // No batch or group shop (B3): a listing is written with its profile; where it goes is
+  // chosen on the review page ("Where and when").
   // Groups ticked for bulk-apply.
   const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -58,15 +52,10 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   // A group waiting for the seller to confirm replacing something.
   const [confirming, setConfirming] = useState<{ key: string; kind: "regenerate" | "replace" } | null>(null);
 
-  // The grouping board starts open until anything is written from the batch.
-  const [boardOpen, setBoardOpen] = useState<boolean | null>(null);
   const load = useCallback(async () => {
     try {
       setBatch(await api.getBatch(id));
-      const listed = await api.listContent(id);
-      setContents(listed);
-      // Open the board until anything is written; decided once, not on every reload.
-      setBoardOpen((cur) => cur ?? listed.length === 0);
+      setContents(await api.listContent(id));
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -158,18 +147,71 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     }
   }
 
-  // "Set up <profile> in <shop>" on a group whose profile is not usable in its shop yet:
-  // its main shop's shipping, return and processing settings are matched or copied there,
-  // with no question (no dialog); the groups are read again.
-  async function setUpProfile(profileId: string, profileName: string | null, shopId: string) {
+  // Arranged in place (B3): a photo dragged onto another listing's card moves there; onto
+  // "+ New listing", it starts one; photos from the computer go into the card they are
+  // dropped on (or its "+").
+  const [arranging, setArranging] = useState(false);
+  const [overCard, setOverCard] = useState<string | null>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
+  const [pickInto, setPickInto] = useState<string | null | undefined>(undefined);
+  function newListingName(): string {
+    const taken = new Set((batch?.assets ?? []).map((a) => a.group_key ?? ""));
+    for (let n = 1; ; n += 1) {
+      const name = n === 1 ? "New listing" : `New listing ${n}`;
+      if (!taken.has(name)) return name;
+    }
+  }
+  async function moveInto(assetIds: string[], to: string | null) {
+    if (!assetIds.length) return;
+    setArranging(true);
     setProblem(null);
     try {
-      await startSetup([{ profileId, profileName, shopIds: [shopId] }]);
+      const b = to === null ? await api.boardMove(id, assetIds, newListingName(), true) : await api.boardMove(id, assetIds, to);
+      setBatch(b);
+      await load();
+      await loadGroups();
     } catch (e: any) {
-      setProblem(String(e.message ?? e));
+      setProblem(e.message ?? String(e));
+    } finally {
+      setArranging(false);
     }
-    loadGroups();
   }
+  async function addFilesInto(files: File[], to: string | null) {
+    const images = files.filter((f) => /\.(png|jpe?g|webp|gif|tiff?)$/i.test(f.name));
+    if (!images.length) return;
+    setArranging(true);
+    setProblem(null);
+    try {
+      const made: string[] = [];
+      for (const file of images) made.push((await uploadAsset(id, file, () => {}, "")).id);
+      await moveInto(made, to);
+    } catch (e: any) {
+      setProblem(e.message ?? String(e));
+      setArranging(false);
+    }
+  }
+  const dropTarget = (to: string | null) => ({
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault();
+      setOverCard(to ?? "+new");
+    },
+    onDragLeave: () => setOverCard(null),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setOverCard(null);
+      const moved = e.dataTransfer.getData(ASSET_DRAG);
+      if (moved) {
+        const [assetId, from] = moved.split("|");
+        if (from !== to) moveInto([assetId], to); // within one card the strip reorders it
+        return;
+      }
+      if (e.dataTransfer.files.length) addFilesInto(Array.from(e.dataTransfer.files), to);
+    },
+  });
+  const pickFiles = (to: string | null) => {
+    setPickInto(to);
+    filePicker.current?.click();
+  };
 
   // "Write title and tags myself": an empty listing with everything else from the
   // group's profile. No AI is called; it counts as one listing, like any other.
@@ -198,19 +240,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
       setProblem(e.message ?? String(e));
     } finally {
       setBusy(null);
-    }
-  }
-
-  // The shop the batch is for. Groups not set by hand move with it.
-  async function chooseBatchShop(shop: string) {
-    try {
-      setProblem(null);
-      const gs = await api.setBatchShop(id, shop);
-      setSettings(Object.fromEntries(gs.map((g) => [g.group_key, g])));
-      setBulkProfileId("");
-      await load();
-    } catch (e: any) {
-      setProblem(e.message ?? String(e));
     }
   }
 
@@ -354,16 +383,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
   const withContent = batch.assets.filter((a) => a.has_content).length;
   const anyBusy = busy !== null;
   const noProfiles = profiles.length === 0;
-  // With one shop connected there is nothing to choose: it is that shop.
-  const batchShop = batch.connection_id ?? (manyShops ? null : shopChoices[0]?.id ?? null);
-  const batchShopName = shopChoices.find((sh) => sh.id === batchShop)?.name ?? batch.shop_name ?? null;
-  const shopOf = (key: string) => settings[key]?.connection_id ?? batchShop;
-  // The ticked groups' shop, when they share one: a profile can only be applied within one shop.
-  const pickedShops = new Set(picked.map((k) => shopOf(k)));
-  const pickedShop = pickedShops.size === 1 ? [...pickedShops][0] ?? null : null;
-
-  // A group's profile picks the shop it is written for (v5 §E); each picker
-  // searches by name, template and reference listing title (v7 §D1).
+  // Each picker searches by name, template and reference listing title (v7 §D1). Profiles
+  // are the account's: no shop is asked here (B3).
 
   return (
     <div className="space-y-6">
@@ -377,9 +398,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <BatchStatusBadge statuses={batch.statuses} main={batch.headline} notes={batch.status_notes} />
-            {(batch.shop_names ?? []).map((name) => (
-              <ShopBadge key={name} name={name} />
-            ))}
           </div>
           <p className="mt-1 text-sm text-slate-500">
             <span><span>{groups.length}</span><span> listing group</span><Txt>{groups.length === 1 ? "" : "s"}</Txt><span> · </span><span>{batch.processed_count}</span>{" "}
@@ -422,25 +440,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {batch.assets.length > 0 && boardOpen !== null && (
-        <GroupingBoard
-          key="board"
-          batchId={id}
-          assets={batch.assets}
-          contents={contents}
-          open={boardOpen}
-          onToggle={() => setBoardOpen(!boardOpen)}
-          onChanged={async (b) => {
-            setBatch(b);
-            setPicked((cur) => cur.filter((k) => b.assets.some((a) => (a.group_key ?? "") === k)));
-            await load();
-            await loadGroups();
-          }}
-        />
-      )}
-
-      {/* Step 1: the shop. Step 2: that shop's profile and size charts, for all groups. */}
-      <div className="card space-y-3 p-4">
+      {/* One row for every listing: the profile, size charts, and the two ways to write (B3). */}
+      <div className="card p-4" data-testid="batch-top-row">
         {noProfiles ? (
           <Link href="/profiles" className="text-sm text-brand-600 underline">
             Create a profile first →
@@ -448,39 +449,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span className="text-sm font-medium text-slate-800">
-                <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[11px] text-white">1</span>
-                Shop for this batch
-              </span>
-              {manyShops ? (
-                <ShopPicker shops={shopChoices} value={batchShop} onChange={chooseBatchShop} label="Shop for this batch" disabled={anyBusy} />
-              ) : (
-                <ShopBadge name={shopChoices[0]?.name ?? batch.shop_name} />
-              )}
-              {manyShops && !batchShop && switcherShop && (
-                <button key="use" type="button" className="text-sm text-brand-700 underline" onClick={() => chooseBatchShop(switcherShop.id)}>
-                  <span>Use <span translate="no">{switcherShop.name}</span></span>
-                </button>
-              )}
-              {manyShops && (
-                <span key="hint" className="text-xs text-slate-500">
-                  {batchShop
-                    ? "Groups start in this shop; any group can be given another below."
-                    : "Nothing is assigned to a shop until you choose one."}
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-              <span className="text-sm font-medium text-slate-800">
-                <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[11px] text-white">2</span>
-                For all groups
-              </span>
               <label className="flex items-center gap-2 text-sm text-slate-600">
-                <span>Profile</span>
+                <span>Profile for all</span>
                 <ProfilePicker
                   profiles={profiles}
-                  shopId={batchShop}
-                  shopName={batchShopName}
+                  shopId={null}
                   value={bulkProfileId || null}
                   emptyLabel="Choose…"
                   label="Profile for all groups"
@@ -494,23 +467,24 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 <span>Size charts</span>
                 <ProfilePicker
                   profiles={profiles}
-                  shopId={batchShop}
-                  shopName={batchShopName}
+                  shopId={null}
                   value={null}
-                  emptyLabel="Each group’s own"
+                  emptyLabel="Each listing’s own"
                   label="Size charts for all groups"
                   onChange={(pid) => pid && assign({ size_chart_profile_id: pid })}
                 />
               </label>
-              <button className="btn-secondary sm:ml-auto" onClick={generateAll} disabled={anyBusy || noProfiles}>
-                {busy === "__all__" ? "Generating all…" : "Generate content for all"}
-              </button>
-              {groups.some((g) => !g.done) && (
-                <button key="manual-all" className="tap text-sm text-brand-700 underline" onClick={() => writeMyself()} disabled={anyBusy || noProfiles}
-                  title="No AI: you type each title and its 13 tags; everything else comes from the group's profile" data-testid="manual-all">
-                  Write titles and tags myself
+              <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                <button className="btn-primary" onClick={generateAll} disabled={anyBusy || noProfiles} data-testid="generate-all">
+                  {busy === "__all__" ? "Generating all…" : "Generate all"}
                 </button>
-              )}
+                {groups.some((g) => !g.done) && (
+                  <button key="manual-all" className="btn-secondary" onClick={() => writeMyself()} disabled={anyBusy || noProfiles}
+                    title="No AI: you type each title and its tags; everything else comes from the listing's profile" data-testid="manual-all">
+                    Write them myself
+                  </button>
+                )}
+              </span>
             </div>
           </>
         )}
@@ -534,20 +508,9 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           {picked.length > 0 && (
             <>
               <span className="text-slate-400" aria-hidden>→</span>
-              {manyShops && (
-                <ShopPicker key="shop"
-                  shops={shopChoices}
-                  value={pickedShop}
-                  emptyLabel={pickedShops.size > 1 ? "Several shops…" : "Choose a shop…"}
-                  onChange={(shop) => assign({ group_keys: picked, connection_id: shop })}
-                  label="Shop for the selected groups"
-                  size="xs"
-                />
-              )}
               <ProfilePicker
                 profiles={profiles}
-                shopId={pickedShop}
-                shopName={shopChoices.find((sh) => sh.id === pickedShop)?.name}
+                shopId={null}
                 value={null}
                 emptyLabel="Profile…"
                 label="Profile for the selected groups"
@@ -556,19 +519,13 @@ export default function BatchPage({ params }: { params: { id: string } }) {
               />
               <ProfilePicker
                 profiles={profiles}
-                shopId={pickedShop}
-                shopName={shopChoices.find((sh) => sh.id === pickedShop)?.name}
+                shopId={null}
                 value={null}
                 emptyLabel="Size charts…"
                 label="Size charts for the selected groups"
                 size="xs"
                 onChange={(pid) => pid && assign({ group_keys: picked, size_chart_profile_id: pid })}
               />
-              {pickedShops.size > 1 && (
-                <span key="mixed" className="text-xs text-amber-800">
-                  The selected groups are in different shops. A profile serves every shop it is set up in.
-                </span>
-              )}
               <button type="button" className="text-xs text-slate-500 underline" onClick={() => setPicked([])}>
                 Clear
               </button>
@@ -611,7 +568,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
           const pubs = mine.flatMap((c) => c.publications);
           const asking = confirming?.key === g.key ? confirming.kind : null;
           return (
-            <div key={g.key} id={`group-${g.key}`} className="card scroll-mt-4 p-3 target:ring-2 target:ring-brand-500/50">
+            <div key={g.key} id={`group-${g.key}`} {...dropTarget(g.key)} data-testid="group-card"
+              className={"card scroll-mt-4 p-3 target:ring-2 target:ring-brand-500/50 " + (overCard === g.key ? "ring-2 ring-brand-500" : "")}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   {groups.length > 1 && !noProfiles && (
@@ -642,6 +600,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                   <span className="text-xs text-slate-400">
                     <span><span>{g.assets.length}</span><span> image</span><Txt>{g.assets.length === 1 ? "" : "s"}</Txt></span>
                   </span>
+                  <button type="button" className="btn-secondary h-8 w-8 p-0 text-base" aria-label={`Add photos to ${g.label}`}
+                    onClick={() => pickFiles(g.key)} disabled={arranging} data-testid="add-to-group">+</button>
                   {g.done && pubs.length === 0 && (
                     <span key="span-358-18" className="text-xs text-emerald-600">
                       <span><span>{s?.source === "manual" ? "✓ written by you" : "✓ content ready"}</span><Txt>{approved ? " · approved" : ""}</Txt></span>
@@ -759,25 +719,11 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 
               {!noProfiles && (
                 <div key="choices" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-                  {manyShops && (
-                    <label key="shop" className="flex items-center gap-1.5 text-slate-500">
-                      <span>Shop</span>
-                      <ShopPicker
-                        shops={shopChoices}
-                        value={shopOf(g.key)}
-                        onChange={(shop) => assign({ group_key: g.key, connection_id: shop })}
-                        label={`Shop for ${g.label}`}
-                        size="xs"
-                        disabled={anyBusy}
-                      />
-                    </label>
-                  )}
                   <label className="flex items-center gap-1.5 text-slate-500">
                     <span>Profile</span>
                     <ProfilePicker
                       profiles={profiles}
-                      shopId={shopOf(g.key)}
-                      shopName={s?.shop_name ?? batchShopName}
+                      shopId={null}
                       value={s?.profile_id ?? null}
                       emptyLabel="Choose…"
                       label={`Profile for ${g.label}`}
@@ -789,8 +735,7 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     <span>Size charts</span>
                     <ProfilePicker
                       profiles={profiles}
-                      shopId={shopOf(g.key)}
-                      shopName={s?.shop_name ?? batchShopName}
+                      shopId={null}
                       value={s?.size_chart_profile_id ?? null}
                       emptyLabel="Own profile"
                       label={`Size charts for ${g.label}`}
@@ -799,23 +744,9 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                     />
                   </label>
                   <span className="text-slate-400">
-                    {s?.manual ? "set here" : s?.profile_id ? "carried from above" : shopOf(g.key) ? "choose a profile" : "choose a shop"}
+                    {s?.manual ? "set here" : s?.profile_id ? "carried from above" : "choose a profile"}
                   </span>
                 </div>
-              )}
-              {s?.profile_setup && (
-                <p key="profile-setup" role="status" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="profile-setup">
-                  <span className="font-medium" translate="no">{s.profile_setup.profile_name}</span>
-                  <span>{s.profile_setup.checking ? " is being set up in " : " cannot build a draft in "}</span>
-                  <span translate="no">{s.profile_setup.shop_name ?? "this shop"}</span>
-                  <span>{s.profile_setup.checking ? " now." : ` yet: ${s.profile_setup.reason}.`}</span>
-                  {!s.profile_setup.checking && (
-                    <button key="setup" type="button" className="tap ml-1 text-brand-700 underline" disabled={anyBusy} data-testid="group-setup"
-                      onClick={() => setUpProfile(s.profile_setup!.profile_id, s.profile_setup!.profile_name, s.profile_setup!.connection_id)}>
-                      <span>{s.profile_setup.setup ? "Set it up there" : "Finish the setup here"}</span>
-                    </button>
-                  )}
-                </p>
               )}
               {g.done && s?.profile_id && s.listing_profile_id && s.listing_profile_id !== s.profile_id && (
                 <p key="profile-differs" role="status" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="profile-differs">
@@ -882,6 +813,46 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             </div>
           );
         })}
+
+        {/* Photos no listing takes yet: drag them onto a listing, or onto "+ New listing". */}
+        {unsorted.length > 0 && (
+          <div key="unsorted-tiles" className="card p-3" data-testid="unsorted-tray">
+            <p className="text-sm font-medium text-slate-800">Unsorted photos</p>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {unsorted.map((a) => (
+                <li key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData(ASSET_DRAG, `${a.id}|${a.group_key ?? ""}`)}
+                  className="relative h-20 w-20 cursor-grab overflow-hidden rounded bg-slate-100" title={a.original_filename}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={api.assetImage(a.id, 112)} alt={a.original_filename} className="h-full w-full object-cover" draggable={false} loading="lazy" />
+                  <select aria-label={`Move ${a.original_filename} to a listing`} value="" disabled={arranging}
+                    className="absolute inset-x-0 bottom-0 h-6 w-full appearance-none bg-slate-900/55 px-1 text-[10px] text-white"
+                    onChange={(e) => e.target.value && moveInto([a.id], e.target.value === "+new" ? null : e.target.value.slice(1))}>
+                    <option value="">Move to…</option>
+                    {groups.map((g) => <option key={g.key} value={`=${g.key}`}>{g.label}</option>)}
+                    <option value="+new">New listing</option>
+                  </select>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* "+ New listing": drop photos (from a card or the computer) here, or click to add. */}
+        <button type="button" {...dropTarget(null)} onClick={() => pickFiles(null)} disabled={arranging}
+          className={"flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed py-6 text-sm font-medium text-slate-600 " +
+            (overCard === "+new" ? "border-brand-600 bg-brand-50" : "border-slate-300 bg-white")}
+          data-testid="batch-new-listing">
+          <span className="text-2xl" aria-hidden>+</span>
+          <span>New listing</span>
+          <span className="mt-0.5 text-xs font-normal text-slate-500">Drop photos here, or click to add</span>
+        </button>
+        <input ref={filePicker} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/tiff" className="hidden"
+          data-testid="group-files-input"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length && pickInto !== undefined) addFilesInto(files, pickInto);
+          }} />
       </div>
 
     </div>

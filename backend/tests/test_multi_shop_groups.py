@@ -302,5 +302,6 @@ async def test_the_group_card_profile_follows_the_group(world) -> None:  # noqa:
                                   profile_id=world["pa1"]))
         await s.commit()
     groups = (await world["a"].get(f"/api/batches/{world['batch']}/groups")).json()
-    setup = next(g["profile_setup"] for g in groups if g["group_key"] == key)
-    assert setup["profile_id"] == str(world["pa1"]) and setup["connection_id"] == str(a3)
+    group = next(g for g in groups if g["group_key"] == key)
+    # B3: the group goes to its profile's main shop, where the profile is set up: nothing to set up.
+    assert group["profile_setup"] is None and group["connection_id"] == str(world["a1"])

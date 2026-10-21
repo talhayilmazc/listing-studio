@@ -107,16 +107,12 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
         .select_from(GeneratedContent)
         .where(GeneratedContent.batch_id == batch.id, GeneratedContent.approved.is_(True))
     )
-    # Every shop this batch is in: its own, its groups', and where it has drafts.
-    shop_ids = set(
-        (
-            await session.execute(
-                select(ListingGroupSetting.connection_id).where(
-                    ListingGroupSetting.batch_id == batch.id, ListingGroupSetting.connection_id.is_not(None)
-                )
-            )
-        ).scalars()
-    ) | set(
+    # Every shop this batch's listings go to (their profiles' main shops, the shops chosen for
+    # them) and where they have drafts. No batch shop decides anything any more (B3).
+    from app.pipeline.group_state import group_states
+
+    shop_ids = {shop for state in (await group_states(session, batch_ids={batch.id}, with_removed=True)).values()
+                for shop in state.targets} | set(
         (
             await session.execute(
                 select(ListingPublication.connection_id)
@@ -125,10 +121,8 @@ async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSu
             )
         ).scalars()
     )
-    if batch.connection_id is not None:
-        shop_ids.add(batch.connection_id)
     shops = [c for c in await active_shops(session, batch.tenant_id) if c.id in shop_ids]
-    own = next((c for c in shops if c.id == batch.connection_id), None)
+    own = None  # B3: a batch has no shop of its own
     grouped = grouping.summarise(list((await session.execute(
         select(Asset.group_key, Asset.parsed_sku).where(Asset.batch_id == batch.id)
     )).all()))
@@ -668,8 +662,9 @@ async def _batch_groups(
             if over
             else None
         )
-        # A group with nothing set is in the batch's shop.
-        shop_id = (s.connection_id if s and s.connection_id else None) or (batch.connection_id if batch else None)
+        # The shop a group goes to by default: its profile's main shop (B3; no batch or group shop).
+        group_profile = by_profile.get(s.profile_id) if s and s.profile_id else None
+        shop_id = group_profile.connection_id if group_profile is not None else None
         shop = shops.get(shop_id) if shop_id else None
         out.append(
             schemas.GroupOut(
@@ -698,7 +693,8 @@ async def _batch_groups(
                     if key in written and written[key].listing_profile_id in by_profile
                     else None
                 ),
-                profile_setup=setup_note(s.profile_id if s else None, shop),
+                # A profile is always set up in its own main shop: nothing to say here any more.
+                profile_setup=None,
             )
         )
     return out

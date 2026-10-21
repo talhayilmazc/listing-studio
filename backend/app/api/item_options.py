@@ -85,9 +85,12 @@ async def target_shops(session: AsyncSession, tenant: Tenant, content: Generated
         if state is not None:
             targets = set(state.targets)
     if not targets:
-        batch = await session.get(UploadBatch, content.batch_id)
-        if batch is not None and batch.connection_id is not None:
-            targets.add(batch.connection_id)
+        # No batch shop any more (B3): the listing's own shop (its profile's main shop).
+        from app.pipeline import shop_targets
+
+        own = await shop_targets.own_shop(session, content)
+        if own is not None:
+            targets.add(own.id)
     return [shops[c] for c in shops if c in targets]
 
 
