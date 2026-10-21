@@ -13,14 +13,15 @@ every reference listing, current and future:
 * one source setting, 10 reference listings, 100 shops: one copy per shop, no question,
   each shop's lists read once (plus one fresh read before each copy);
 * a seller's choice in one card is every card's;
-* copies are made only on the seller's own action (Use in, Finish setup, "Use all
-  reference listings here"): that click is the confirmation; the background check, a
-  reconnected shop and the one-time job only match;
+* a reference listing uses its main shop's settings in every shop with no question
+  (21 October 2026): Use in, drafting there and a newly connected shop all set it up,
+  copying at once what the shop lacks; no dialog, no "Finish setup";
 * a copy the app made that was deleted on Etsy is made again (found missing by the
   background check or refused by a draft), and the card says so in one line; a setting
   the seller made themselves is never recreated;
 * two setups at once make one copy;
-* an Etsy refusal still asks the seller, with the reason, and records nothing;
+* an Etsy refusal is one plain line on the card, records nothing, and the other shops carry on;
+* a reference listing's main shop is its own shop (the shop mix-up check);
 * existing accounts: the map built from the links (migration 0082, tests/test_migration_0082.py)
   fills the second card without any Etsy request (the one-time job).
 """
@@ -80,14 +81,15 @@ async def _map_rows(world) -> list[ShopSettingMap]:  # noqa: F811
 async def test_a_second_reference_listing_is_set_up_the_moment_the_copy_exists(world, fake_etsy) -> None:  # noqa: F811
     extra = await _setup_world(world)
     second = await _second_profile(world)
-    # The second card was checked before any copy existed: "no match in this shop".
+    # The second card was checked before any copy existed ("no match in this shop" then; the card
+    # now reads ready, since a draft there sets the shop up by itself).
     async with world["sm"]() as s:
         s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=second, connection_id=extra["a3"],
                               status="incomplete", production_partner_ids=[3801],
                               notes={"shipping_profile": L.NOT_FOUND, "return_policy": L.NOT_FOUND,
                                      "readiness_state": L.NOT_FOUND}))
         await s.commit()
-    assert (await _card(world, second, "Frost Caps"))["ready"] is False
+    assert L.NOT_FOUND not in str(await _card(world, second, "Frost Caps"))
 
     # "Regular" is set up in Caps: the copies are made, and the second card is set up too,
     # without a job of its own and without a question.
@@ -227,57 +229,23 @@ async def test_a_deleted_setting_the_seller_made_is_never_recreated(world, fake_
     ctx = {**_ctx(world), "enqueue": enqueue}
     await link_jobs._refresh_shop_links(ctx, str(world["a2"]))
     await link_jobs._link_profile(ctx, str(world["pa1"]))
-    assert fake_etsy.created == []  # not the app's copy: not made again without the seller
+    assert fake_etsy.created == []  # not the app's copy: not made again
     card = await _card(world, world["pa1"], "Frost Mugs")
     assert card["ready"] is False
-    assert card["notice"] == 'Shipping profile "Standard US" is no longer in Frost Mugs; set it up again.'
-
-
-async def test_use_all_reference_listings_here_sets_every_profile_up_in_one_click(world, fake_etsy) -> None:  # noqa: F811
-    extra = await _setup_world(world)
-    second = await _second_profile(world)
-    caps = str(extra["a3"])
-    status = (await world["a"].get(f"/api/profiles/shop/{caps}")).json()
-    assert (status["total"], status["not_set_up"], status["set_up"]) == (2, 2, 0)
-    world["queue"].calls.clear()
-    res = await world["a"].post(f"/api/profiles/shop/{caps}/use-all")
-    assert res.status_code == 200 and res.json()["started"] == 2 and res.json()["checking"] == 2
-    assert sorted(world["queue"].calls) == sorted([("link_profile", (str(world["pa1"]),)), ("link_profile", (str(second),))])
-    for profile_id in (world["pa1"], second):
-        await link_jobs._link_profile(_ctx(world), str(profile_id))
-    status = (await world["a"].get(f"/api/profiles/shop/{caps}")).json()
-    assert (status["set_up"], status["waiting"], status["checking"]) == (2, [], 0)
-    assert _made(fake_etsy, 103) == 1  # one copy for both reference listings
-    # A second click starts nothing; another account's shop is 404.
-    assert (await world["a"].post(f"/api/profiles/shop/{caps}/use-all")).json()["started"] == 0
-    assert (await world["b"].post(f"/api/profiles/shop/{caps}/use-all")).status_code == 404
-    assert (await world["b"].get(f"/api/profiles/shop/{caps}")).status_code == 404
-
-
-async def test_use_all_reports_what_etsy_refused_for_the_dialog(world, fake_etsy) -> None:  # noqa: F811
-    extra = await _setup_world(world)
-    fake_etsy.fail[(103, "shipping")] = EtsyClientError(
-        status_code=400, body='{"error": "Unable to create shipping profile"}', path="/x", method="POST")
-    await world["a"].post(f"/api/profiles/shop/{extra['a3']}/use-all")
-    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
-    status = (await world["a"].get(f"/api/profiles/shop/{extra['a3']}")).json()
-    assert status["set_up"] == 0 and [w["id"] for w in status["waiting"]] == [str(world["pa1"])]
-    assert "Create it in Frost Caps's Shop Manager" in status["waiting"][0]["reason"]
-
-
-async def test_a_reconnected_shop_is_matched_again_but_nothing_is_copied(world, fake_etsy) -> None:  # noqa: F811
-    from app.pipeline.profile_shops import recheck_shop
-
-    extra = await _setup_world(world)
-    async with world["sm"]() as s:
-        s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=world["pa1"], connection_id=extra["a3"],
-                              status="incomplete", production_partner_ids=[3801], notes={"shipping_profile": L.NOT_FOUND}))
-        await s.commit()
-    async with world["sm"]() as s:
-        assert await recheck_shop(s, extra["a3"]) == [world["pa1"]]
-    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    assert card["reason"] == ('Shipping profile: "Standard US" was deleted in Frost Mugs\'s Shop Manager; choose another '
+                              "of the shop's with change")
+    # Set up again (Use in, a draft): still never remade.
+    await _use_in(world, world["pa1"], [world["a2"]])
+    await link_jobs._link_profile(ctx, str(world["pa1"]))
     assert fake_etsy.created == []
-    assert (await _links(world, world["pa1"]))[extra["a3"]].status == "incomplete"
+    # The seller's pick with change replaces the tombstone, for every card.
+    fake_etsy.lists[102].shipping = [{"shipping_profile_id": 2599, "title": "New Mugs shipping"}]
+    await world["a"].post(f"/api/profiles/{world['pa1']}/setup/{world['a2']}/check")
+    await link_jobs._link_profile(ctx, str(world["pa1"]))
+    res = await world["a"].put(f"/api/profiles/{world['pa1']}/setup/{world['a2']}",
+                               json={"resource": "shipping_profile", "ids": [2599]})
+    assert res.status_code == 200
+    assert (await _card(world, world["pa1"], "Frost Mugs"))["ready"] is True
 
 
 async def test_a_draft_refused_for_a_deleted_setting_resolves_it_again(world, fake_etsy) -> None:  # noqa: F811
@@ -388,7 +356,7 @@ async def test_the_one_time_job_fills_existing_cards_from_the_map_without_etsy(w
     assert await link_jobs.resolve_shop_settings_once(ctx) == "done-before"
 
 
-async def test_the_one_time_job_matches_but_never_makes_a_copy_nobody_asked_for(world, fake_etsy, monkeypatch) -> None:  # noqa: F811
+async def test_the_one_time_job_sets_up_what_the_old_rules_left_waiting(world, fake_etsy, monkeypatch) -> None:  # noqa: F811
     extra = await _setup_world(world)
     async with world["sm"]() as s:
         s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=world["pa1"], connection_id=extra["a3"],
@@ -404,15 +372,9 @@ async def test_the_one_time_job_matches_but_never_makes_a_copy_nobody_asked_for(
     assert done["links_to_resolve"] == 1
     assert (await _links(world, world["pa1"]))[extra["a3"]].status == "checking"
     await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
-    # Read and matched only: Caps has no counterpart, and nobody asked for a copy.
-    assert fake_etsy.created == []
-    assert (await _links(world, world["pa1"]))[extra["a3"]].status == "incomplete"
-    card = await _card(world, world["pa1"], "Frost Caps")
-    assert card["ready"] is False
-    # "Finish setup" is the seller's click: now the copies are made.
-    await _use_in(world, world["pa1"], [extra["a3"]])
-    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    # Caps had no counterpart: copied at once, no "Finish setup", no question.
     assert (await _links(world, world["pa1"]))[extra["a3"]].status == "ready" and _made(fake_etsy, 103) == 1
+    assert (await _card(world, world["pa1"], "Frost Caps"))["ready"] is True
 
 
 async def test_disconnecting_a_shop_forgets_its_settings_both_ways(world, fake_etsy) -> None:  # noqa: F811
@@ -428,3 +390,240 @@ async def test_disconnecting_a_shop_forgets_its_settings_both_ways(world, fake_e
     assert await _map_rows(world) == []
     async with world["sm"]() as s:
         assert (await s.get(EtsyConnection, extra["a3"])) is not None  # only the map and links go
+
+
+# --- 21 October 2026: no dialog, no "Finish setup", no confirm -------------------------------------
+
+
+async def test_opa_to_pcs_needs_no_dialog_and_no_seller_action(world, fake_etsy) -> None:  # noqa: F811
+    """"Regular" (main OPA = Frost Tees) used in PCS (Frost Caps): its shipping profile,
+    return policy and processing profile are copied at once; the card says the shop is set
+    up; nothing waits for the seller."""
+    extra = await _setup_world(world)
+    second = await _second_profile(world)
+    await _use_in(world, world["pa1"], [extra["a3"]])
+    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    for profile_id in (world["pa1"], second):  # the second reference listing too, without its own setup
+        if profile_id == second:
+            await _use_in(world, second, [extra["a3"]])
+            await link_jobs._link_profile(_ctx(world), str(second))
+        card = await _card(world, profile_id, "Frost Caps")
+        assert card["ready"] is True and card["missing"] == [] and card["status"] == "ready"
+    setup = (await world["a"].get(f"/api/profiles/{world['pa1']}/setup")).json()
+    assert all(s["failure"] is None and s["default"] == "keep" for c in setup["shops"] for s in c["settings"])
+    assert (_made(fake_etsy, 103), _made(fake_etsy, 103, "return_policy"), _made(fake_etsy, 103, "readiness")) == (1, 1, 1)
+
+
+async def test_a_newly_connected_shop_gets_every_reference_listing(world, fake_etsy) -> None:  # noqa: F811
+    from app.pipeline.profile_shops import use_all_in_shop
+
+    extra = await _setup_world(world)
+    second = await _second_profile(world)
+    async with world["sm"]() as s:
+        started = await use_all_in_shop(s, world["alice"], extra["a3"])
+    assert sorted(started, key=str) == sorted([world["pa1"], second], key=str)
+    for profile_id in started:
+        await link_jobs._link_profile(_ctx(world), str(profile_id))
+    assert (await _card(world, world["pa1"], "Frost Caps"))["ready"] is True
+    assert (await _card(world, second, "Frost Caps"))["ready"] is True
+    assert _made(fake_etsy, 103) == 1  # one copy for both
+    async with world["sm"]() as s:  # connected again: nothing set up twice
+        assert await use_all_in_shop(s, world["alice"], extra["a3"]) == []
+
+
+async def test_drafting_in_a_shop_not_set_up_sets_it_up_first(world, fake_etsy) -> None:  # noqa: F811
+    """Ticking Frost Caps for a listing whose profile was never used there: the draft is
+    queued anyway, the profile is set up there (copies made), and the matrix shows the cell
+    as available, not "set it up first"."""
+    extra = await _setup_world(world)
+    c0 = world["contents"][0]
+    world["queue"].calls.clear()
+    preview = (await world["a"].post(f"/api/batches/{world['batch']}/publish/preview",
+                                     json={"pairs": [{"content_id": str(c0), "connection_id": str(extra["a3"])}]})).json()
+    row = next(r for r in preview["rows"] if r["content_id"] == str(c0))
+    cell = next(c for c in row["cells"] if c["connection_id"] == str(extra["a3"]))
+    assert cell["state"] == "available" and "Frost Tees's shipping, return and processing settings" in cell["note"]
+    column = next(c for c in preview["columns"] if c["connection_id"] == str(extra["a3"]))
+    assert [n for n in column["needs"] if n["kind"] != "section"] == []
+    res = await world["a"].post(f"/api/batches/{world['batch']}/publish",
+                                json={"pairs": [{"content_id": str(c0), "connection_id": str(extra["a3"])}]})
+    assert res.status_code == 200, res.text
+    assert [j["connection_id"] for j in res.json()["jobs"]] == [str(extra["a3"])]
+    assert ("link_profile", (str(world["pa1"]),)) in world["queue"].calls
+    assert (await _links(world, world["pa1"]))[extra["a3"]].status == "checking"
+    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    assert (await _links(world, world["pa1"]))[extra["a3"]].status == "ready"
+
+
+async def test_the_draft_job_waits_for_the_setup_and_fails_only_on_a_refusal(world, fake_etsy, monkeypatch) -> None:  # noqa: F811
+    from app.db.models import Job, JobStatus, JobType
+    from app.workers import publish as publish_worker
+    from app.workers import recovery
+
+    extra = await _setup_world(world)
+    c0 = world["contents"][0]
+
+    class Pool:
+        def __init__(self) -> None:
+            self.jobs: list[tuple] = []
+
+        async def enqueue_job(self, function: str, *args: Any, **kwargs: Any) -> None:
+            self.jobs.append((function, args))
+
+    pool = Pool()
+
+    async def no_gate(ctx, session, job, function):  # noqa: ANN001
+        return None
+
+    monkeypatch.setattr(publish_worker, "start_job", no_gate)
+    ctx = {"sessionmaker": world["sm"], "redis": pool}
+
+    async def run() -> Job:
+        async with world["sm"]() as s:
+            job = Job(tenant_id=world["alice"], connection_id=extra["a3"], type=JobType.create_draft,
+                      payload={"content_id": str(c0), "profile_id": str(world["pa1"])}, status=JobStatus.running)
+            s.add(job)
+            await s.commit()
+            job_id = job.id
+        assert await publish_worker._run_publish_job(ctx, str(job_id)) in ("deferred", "failed")
+        async with world["sm"]() as s:
+            return await s.get(Job, job_id)
+
+    # Not set up in Frost Caps: set up now, and the draft waits without using a try.
+    job = await run()
+    assert (job.status, job.paused_reason, job.attempts or 0) == (JobStatus.queued, recovery.WAIT_SETUP, 0)
+    assert ("link_profile", (str(world["pa1"]),)) in pool.jobs
+    # Etsy refuses the copy: the draft for Frost Caps fails with that one line; nothing else stops.
+    fake_etsy.fail[(103, "shipping")] = EtsyClientError(
+        status_code=400, body='{"error": "Unable to create shipping profile"}', path="/x", method="POST")
+    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    job = await run()
+    assert job.status is JobStatus.failed
+    assert job.last_error.startswith('Frost Caps: Shipping profile: Etsy refused the copy of "Standard US"')
+
+
+async def test_an_etsy_refusal_in_one_shop_leaves_the_others_publishing(world, fake_etsy) -> None:  # noqa: F811
+    extra = await _setup_world(world)
+    fake_etsy.fail[(103, "shipping")] = EtsyClientError(
+        status_code=400, body='{"error": "Unable to create shipping profile"}', path="/x", method="POST")
+    await _use_in(world, world["pa1"], [world["a2"], extra["a3"]])
+    await link_jobs._link_profile(_ctx(world), str(world["pa1"]))
+    caps, mugs = await _card(world, world["pa1"], "Frost Caps"), await _card(world, world["pa1"], "Frost Mugs")
+    assert mugs["ready"] is True
+    assert caps["ready"] is False and caps["reason"].startswith('Shipping profile: Etsy refused the copy of "Standard US"')
+    assert "Create it in Frost Caps's Shop Manager" in caps["reason"]
+    c0 = world["contents"][0]
+    res = await world["a"].post(f"/api/batches/{world['batch']}/publish",
+                                json={"pairs": [{"content_id": str(c0), "connection_id": str(world["a2"])},
+                                                {"content_id": str(c0), "connection_id": str(extra["a3"])}]})
+    assert res.status_code == 200
+    assert str(world["a2"]) in [j["connection_id"] for j in res.json()["jobs"]]  # Mugs drafts as usual
+
+
+# --- the shop mix-up check: a reference listing's main shop is its own shop ------------------------
+
+
+async def test_a_profile_whose_reference_listing_is_in_another_shop_gets_that_shop_as_main(world, fake_etsy) -> None:  # noqa: F811
+    """A profile attached to Frost Tees whose reference listing is (by the account's own listing
+    cache) in Frost Caps: Frost Caps becomes its main shop, its ids are that listing's own, and
+    Frost Tees is set up like any other shop. No Etsy request."""
+    from datetime import datetime, timezone
+
+    from app.db.models import ShopListingCache
+
+    extra = await _setup_world(world)
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, world["pa1"])
+        s.add(ShopListingCache(tenant_id=world["alice"], connection_id=extra["a3"], listing_id=profile.reference_listing_id,
+                               payload={"listing_id": profile.reference_listing_id, "title": "Ref"},
+                               fetched_at=datetime.now(timezone.utc)))
+        await s.commit()
+    async with world["sm"]() as s:
+        result = await link_jobs.resolve_all(s, apply=True)
+    assert result["main_shops_corrected"] == 1 and result["refresh"] == [world["pa1"]]
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, world["pa1"])
+        assert profile.connection_id == extra["a3"] and profile.updated_at is None  # read again from its own shop
+    links = await _links(world, world["pa1"])
+    assert links[world["a1"]].status == "checking"  # Frost Tees: set up like any other shop
+    assert sum(fake_etsy.reads.values()) == 0
+    profiles = (await world["a"].get("/api/profiles")).json()
+    mine = next(p for p in profiles if p["id"] == str(world["pa1"]))
+    assert next(link for link in mine["links"] if link["main"])["shop_name"] == "Frost Caps"
+
+
+async def test_a_reference_listing_of_another_shop_is_refused_or_used_as_its_own_shop(world) -> None:  # noqa: F811
+    from datetime import datetime, timezone
+
+    from app.db.models import ShopListingCache
+
+    async with world["sm"]() as s:
+        s.add(ShopListingCache(tenant_id=world["alice"], connection_id=world["a2"], listing_id=777001,
+                               payload={"listing_id": 777001, "title": "A Mugs listing"},
+                               fetched_at=datetime.now(timezone.utc)))
+        await s.commit()
+    # Changing a profile's reference to another shop's listing: refused, naming both shops.
+    res = await world["a"].put(f"/api/profiles/{world['pa1']}/reference", json={"reference_listing_id": 777001})
+    assert res.status_code == 409 and "Frost Mugs" in res.json()["detail"] and "Frost Tees" in res.json()["detail"]
+    # A new profile on that listing with the wrong shop: its main shop is the listing's own.
+    res = await world["a"].post("/api/profiles", json={"connection_id": str(world["a1"]), "name": "From Mugs",
+                                                       "reference_listing_id": 777001, "content_template": "apparel"})
+    assert res.status_code == 201 and res.json()["connection_id"] == str(world["a2"])
+
+
+async def test_the_refresh_moves_a_profile_to_its_reference_listings_shop(world, monkeypatch) -> None:  # noqa: F811
+    """The listing Etsy returns says which shop it is in: when that is another of the account's
+    shops, the profile moves there (audited) and is read again from it."""
+    from app.workers import profiles as profiles_worker
+
+    queued: list[tuple] = []
+
+    async def enqueue(function: str, *args: Any, **_: Any) -> None:
+        queued.append((function, args))
+
+    ctx = {"sessionmaker": world["sm"], "enqueue": enqueue}
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, world["pa1"])
+        mugs = await s.get(EtsyConnection, world["a2"])
+        assert await profiles_worker._wrong_main(ctx, s, profile, int(mugs.shop_id)) == "main-moved"
+    async with world["sm"]() as s:
+        assert (await s.get(ListingProfile, world["pa1"])).connection_id == world["a2"]
+    assert ("refresh_profile", (str(world["pa1"]),)) in queued and ("link_profile", (str(world["pa1"]),)) in queued
+    # A listing in no shop of this account: not moved; the card says to choose one of the main shop's.
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, world["pa1"])
+        assert await profiles_worker._wrong_main(ctx, s, profile, 99999999) == "foreign-reference"
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, world["pa1"])
+        assert profile.connection_id == world["a2"] and "choose a listing of its main shop" in profile.refresh_error
+
+
+async def test_a_link_left_at_no_match_by_the_old_rules_reads_ready_on_the_card(world, fake_etsy) -> None:  # noqa: F811
+    """A link written before every setup copied ("no match in this shop", nothing tried, nothing
+    refused) reads as ready: a draft there sets the shop up by itself. A refused link still says why."""
+    extra = await _setup_world(world)
+    async with world["sm"]() as s:
+        s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=world["pa1"], connection_id=extra["a3"], status="incomplete", notes={}))
+        await s.commit()
+    card = await _card(world, world["pa1"], "Frost Caps")
+    assert (card["ready"], card["status"], card["reason"], card["missing"]) == (True, "ready", None, [])
+    profiles = (await world["a"].get("/api/profiles")).text
+    assert L.NOT_FOUND not in profiles
+    async with world["sm"]() as s:
+        link = (await s.execute(select(ProfileShopLink).where(ProfileShopLink.connection_id == extra["a3"]))).scalar_one()
+        link.notes = {"shipping_profile": 'Etsy refused the copy of "MemoPaid": "Nope".', "error": "refused"}
+        await s.commit()
+    card = await _card(world, world["pa1"], "Frost Caps")
+    assert card["ready"] is False and "Nope" in (card["reason"] or "")
+
+
+async def test_a_tie_to_pick_is_what_the_card_says_never_no_match(world, fake_etsy) -> None:  # noqa: F811
+    """A link that lacks a copy and has two equal candidates for another setting: the card names
+    the tie (the seller picks with change), not "no match"."""
+    extra = await _setup_world(world)
+    async with world["sm"]() as s:
+        s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=world["pa1"], connection_id=extra["a3"], status="incomplete",
+                              notes={"shipping_profile": L.NOT_FOUND, "readiness_state": L.AMBIGUOUS}))
+        await s.commit()
+    card = await _card(world, world["pa1"], "Frost Caps")
+    assert card["ready"] is False and card["reason"] == f"Processing profile: {L.AMBIGUOUS}"

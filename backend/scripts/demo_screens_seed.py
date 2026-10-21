@@ -216,13 +216,13 @@ async def profile_links(s, t, prof, shops, now):
         if k == 1:
             link.status, link.shipping_profile_id, link.return_policy_id, link.readiness_state_id = "ready", sid * 10 + 1, sid * 10 + 3, sid * 10 + 5
         elif k in (2, 3):
-            entries["shipping_profile"] = {"reason": "no match in this shop", "creatable": True, "requests": 3, "create": copy_shipping,
-                                           "source_label": SRC["shipping_profile"], "options": [shipping(sid * 10 + 2, "Free shipping over $35")]}
             entries["readiness_state"] = {"reason": "several in this shop match; choose one", "creatable": False, "requests": 0,
                                           "source_label": SRC["readiness_state"],
                                           "options": [shipping(sid * 10 + 5, "Made to order, 2-4 days (tees)"), shipping(sid * 10 + 7, "Made to order, 2-4 days (hoodies)")]}
-            link.return_policy_id = sid * 10 + 3
-            link.status, link.notes = "incomplete", {"shipping_profile": "no match in this shop", "readiness_state": "several in this shop match; choose one"}
+            # The shipping profile was copied (every setup copies what a shop lacks); two
+            # processing profiles tie, which waits for the seller's pick under "change".
+            link.shipping_profile_id, link.return_policy_id = sid * 10 + 1, sid * 10 + 3
+            link.status, link.notes = "incomplete", {"readiness_state": "several in this shop match; choose one"}
         else:
             entries = {
                 "shipping_profile": {"reason": "no match in this shop", "creatable": True, "requests": 3, "create": copy_shipping,

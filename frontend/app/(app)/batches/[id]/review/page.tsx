@@ -18,7 +18,7 @@ import type {
   ShopGroups,
 } from "@/lib/types";
 import { PublishMatrix } from "@/components/PublishMatrix";
-import { ShopSetupDialog, type SetupItem } from "@/components/ShopSetupDialog";
+import { startSetup, type SetupItem } from "@/lib/startSetup";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { anyChecking } from "@/lib/shopNeeds";
 import { Distribution } from "@/components/Distribution";
@@ -148,11 +148,20 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     return () => clearTimeout(t);
   }, [settingUp, preview]);
 
-  // "Set up in BCT" (one shop) or "Set up all 4 shops" (v8 §C): the setup dialog opens
-  // here, one dialog for every shop; when it closes the shops are read again and the
-  // batch carries on, without leaving the page.
+  // "Set up in BCT" (one shop) or "Set up all 4 shops" (v8 §C): each listing's profile is set
+  // up in those shops with its main shop's settings (matched or copied), with no question and
+  // no dialog; the shops are read again and the batch carries on, without leaving the page.
   const [setupNote, setSetupNote] = useState<string | null>(null);
-  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
+  async function setUpShops(items: SetupItem[]) {
+    setError(null);
+    try {
+      await startSetup(items);
+      setSetupNote("Preparing those shops' shipping, return and processing settings (the main shop's).");
+      setPreviewTick((n) => n + 1);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    }
+  }
   const [shopGroups, setShopGroups] = useState<ShopGroups | null>(null);
   useEffect(() => {
     api.shopGroups().then(setShopGroups).catch(() => setShopGroups(null));
@@ -164,7 +173,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     try {
       const res = await api.tickShop(id, { group_id: group.id, on });
       if (res.setting_up.length) {
-        setSetupNote(`Setting up ${res.setting_up.map((p) => p.name).join(", ")} in ${group.name}. What each shop still needs is listed below.`);
+        setSetupNote(`Preparing ${group.name} for ${res.setting_up.map((p) => p.name).join(", ")}: the main shop's shipping, return and processing settings.`);
       }
       setPreviewTick((n) => n + 1);
     } catch (e: any) {
@@ -183,7 +192,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       if (res.setting_up.length) {
         const where = shopNames[shopId] ?? "that shop";
         setSetupNote(
-          `Setting up ${res.setting_up.map((p) => p.name).join(", ")} in ${where}. Settings with the same name link at once; anything that shop is missing is listed under it.`,
+          `Preparing ${where} for ${res.setting_up.map((p) => p.name).join(", ")}: the main shop's shipping, return and processing settings.`,
         );
       }
       setPreviewTick((n) => n + 1);
@@ -368,7 +377,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           batchId={id}
           onToggle={toggleCell}
           onColumn={toggleColumn}
-          onSetup={setSetupItems}
+          onSetup={setUpShops}
           groups={shopGroups?.groups}
           onGroup={tickGroup}
           disabled={busy}
@@ -419,14 +428,6 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         <p key="setup-note" role="status" translate="no" className="card p-3 text-xs text-slate-700">
           <span>{setupNote}</span>
         </p>
-      )}
-      {setupItems && (
-        <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
-          setSetupItems(null);
-          setSetupNote(null);
-          setPreviewTick((n) => n + 1);
-          load();
-        }} />
       )}
       {items && items.length > 0 && shops && shops.length === 1 && (
         <p key="oneshop" className="flex flex-wrap items-center gap-2 text-xs text-slate-500">

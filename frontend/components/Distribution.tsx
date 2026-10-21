@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { Content, DistributionPreview, GroupPlanPreview, GroupSchedule, ShopGroups } from "@/lib/types";
-import { ShopSetupDialog, type SetupItem } from "./ShopSetupDialog";
+import { startSetup, type SetupItem } from "@/lib/startSetup";
 import { useShops } from "./ShopProvider";
 import { Txt } from "./Txt";
 
@@ -17,7 +17,7 @@ function tomorrow(): string {
 const day = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
 
-/** The setup dialog's items from a distribution preview: every shop whose profile is not set up yet. */
+/** What to set up from a distribution preview: every shop whose profile is not set up yet. */
 export function distributionSetup(preview: DistributionPreview | null): SetupItem[] {
   const out: SetupItem[] = [];
   for (const row of preview?.rows ?? []) {
@@ -37,7 +37,7 @@ export function distributionSetup(preview: DistributionPreview | null): SetupIte
  * approved listings evenly across them in order. Every shop of a group gets the
  * group's listings and no other group's; a single shop chosen here is a group of
  * one. A shop in two chosen groups gets each group's listings. Shops a listing's
- * profile is not set up in are set up right here, in one dialog. Then the
+ * profile is not set up in are set up right here, in one click (no dialog). Then the
  * schedule: start date, listings per shop per day, the daily window, spacing, and
  * a stagger between the shops of a group. Nothing is queued before the calendar
  * and the Etsy requests per day are shown and confirmed; a day that is full
@@ -48,7 +48,6 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
   const [groups, setGroups] = useState<ShopGroups | null>(null);
   const [chosen, setChosen] = useState<string[]>([]);
   const [chosenShops, setChosenShops] = useState<string[]>([]);
-  const [setup, setSetup] = useState<SetupItem[] | null>(null);
   const [mode, setMode] = useState<"split" | "assign">("split");
   const [selected, setSelected] = useState<string[]>([]);
   const [preview, setPreview] = useState<DistributionPreview | null>(null);
@@ -197,7 +196,15 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
           {toSetUp.length > 0 && (
             <div key="setup" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
               <span translate="no">{`${new Set(toSetUp.flatMap((i) => i.shopIds)).size} shop${new Set(toSetUp.flatMap((i) => i.shopIds)).size === 1 ? "" : "s"} need the listings' profile set up first.`}</span>
-              <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => setSetup(toSetUp)} data-testid="distribution-setup">
+              <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy} data-testid="distribution-setup"
+                onClick={async () => {
+                  try {
+                    await startSetup(toSetUp);
+                  } catch (e: any) {
+                    setError(String(e.message ?? e));
+                  }
+                  askPreview();
+                }}>
                 Set them up here
               </button>
             </div>
@@ -303,12 +310,6 @@ export function Distribution({ batchId, items, onDone }: { batchId: string; item
         </p>
       )}
       {error && <p key="error" className="text-sm text-rose-700">{error}</p>}
-      {setup && (
-        <ShopSetupDialog key="setup-dialog" items={setup} onClose={() => {
-          setSetup(null);
-          askPreview();
-        }} />
-      )}
     </section>
   );
 }

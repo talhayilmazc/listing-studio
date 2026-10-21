@@ -8,7 +8,6 @@ import type { Shop, ShopsOut } from "@/lib/types";
 import { SCOPE_REASONS, TRADEMARK_NOTICE } from "@/lib/legal";
 import { disconnectedNotice } from "@/lib/shops";
 import { useShops } from "@/components/ShopProvider";
-import { ShopProfilesSetup } from "@/components/ShopProfilesSetup";
 
 import { Txt } from "@/components/Txt";
 // Full literal class strings so Tailwind's JIT keeps them.
@@ -244,10 +243,6 @@ function ShopRow({
               </a>
             </p>
           )}
-          {/* Every reference listing set up in this shop in one click (a new shop has none yet). */}
-          <div className="mt-2">
-            <ShopProfilesSetup shopId={shop.id} shopName={shop.name} />
-          </div>
         </div>
         <div className="flex shrink-0 gap-1">
           <button

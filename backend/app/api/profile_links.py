@@ -17,11 +17,6 @@
                                          return and processing lists again (a setting
                                          the seller made by hand in Shop Manager can
                                          then be picked, or is matched by its name).
-``GET  /api/profiles/shop/{shop}``       how many reference listings are set up in a shop,
-                                         and which wait for the seller.
-``POST /api/profiles/shop/{shop}/use-all``  "Use all reference listings here" (Shops page):
-                                         every confirmed profile set up in that shop in one
-                                         click (that click is the confirmation).
 ``DELETE /api/profiles/{id}/links/{shop}`` stop using the profile in a shop.
 ``GET  /api/profiles/link-suggestions``  same-named profiles that stayed apart.
 ``POST /api/profiles/{id}/link-profile`` "Link these": the other becomes this one's.
@@ -39,7 +34,6 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import false as sa_false
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -177,28 +171,6 @@ class ReferenceIn(BaseModel):
 
 class LinkProfileIn(BaseModel):
     other_profile_id: uuid.UUID
-
-
-class ShopProfileNeed(BaseModel):
-    id: uuid.UUID
-    name: str
-    reason: str | None = None
-
-
-class ShopProfilesOut(BaseModel):
-    """The account's reference listings in one shop (the Shops page's one button)."""
-
-    connection_id: uuid.UUID
-    #: Confirmed profiles whose reference listing is in another shop.
-    total: int = 0
-    set_up: int = 0
-    checking: int = 0
-    #: Never set up in this shop.
-    not_set_up: int = 0
-    #: Set up, but waiting for the seller (Etsy refused a copy, two settings match, ...).
-    waiting: list[ShopProfileNeed] = Field(default_factory=list)
-    #: Profiles started by this request.
-    started: int = 0
 
 
 class Suggestion(BaseModel):
@@ -544,70 +516,6 @@ async def check_shop_again(
     return await _out(session, tenant, profile)
 
 
-async def _others(session: AsyncSession, tenant: Tenant, connection_id: uuid.UUID) -> list[ListingProfile]:
-    return list((await session.execute(select(ListingProfile).where(
-        ListingProfile.tenant_id == tenant.id, ListingProfile.confirmed.is_(True),
-        ListingProfile.connection_id != connection_id,
-    ).order_by(ListingProfile.created_at))).scalars())
-
-
-async def _shop_profiles(session: AsyncSession, tenant: Tenant, connection_id: uuid.UUID) -> ShopProfilesOut:
-    profiles = await _others(session, tenant, connection_id)
-    links = {link.profile_id: link for link in (await session.execute(select(ProfileShopLink).where(
-        ProfileShopLink.connection_id == connection_id,
-        ProfileShopLink.profile_id.in_([p.id for p in profiles]) if profiles else sa_false(),
-    ))).scalars()}
-    out = ShopProfilesOut(connection_id=connection_id, total=len(profiles))
-    for profile in profiles:
-        state = profile_shops.state_of(profile, links.get(profile.id))
-        if state is None:
-            out.not_set_up += 1
-        elif state.status == "checking":
-            out.checking += 1
-        elif state.ready:
-            out.set_up += 1
-        else:
-            out.waiting.append(ShopProfileNeed(id=profile.id, name=profile.name, reason=state.reason))
-    return out
-
-
-@router.get("/shop/{connection_id}", response_model=ShopProfilesOut)
-async def shop_profiles_status(
-    connection_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(active_tenant),
-) -> ShopProfilesOut:
-    if await owned_shop(session, tenant.id, connection_id) is None:
-        raise HTTPException(status_code=404, detail="shop not found")
-    return await _shop_profiles(session, tenant, connection_id)
-
-
-@router.post("/shop/{connection_id}/use-all", response_model=ShopProfilesOut)
-async def use_all_profiles_here(
-    connection_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(active_tenant),
-    enqueuer: Enqueuer = Depends(get_enqueuer),
-) -> ShopProfilesOut:
-    """"Use all reference listings here": every confirmed profile of the account set up in this
-    shop in one click. That click is the seller's confirmation: each setting the shop has no
-    counterpart for is copied there (the account's map and same-name/same-terms settings
-    first). Set-up or being-set-up profiles are left as they are. No dialog unless Etsy
-    refuses something; the Shops page then opens it for those profiles."""
-    if await owned_shop(session, tenant.id, connection_id) is None:
-        raise HTTPException(status_code=404, detail="shop not found")
-    started: list[uuid.UUID] = []
-    for profile in await _others(session, tenant, connection_id):
-        if await profile_shops.start_links(session, profile, [connection_id]):
-            started.append(profile.id)
-    await session.commit()
-    for profile_id in started:
-        await enqueuer.enqueue("link_profile", str(profile_id))
-    out = await _shop_profiles(session, tenant, connection_id)
-    out.started = len(started)
-    return out
-
-
 @router.delete("/{profile_id}/links/{connection_id}", response_model=schemas.ProfileOut)
 async def stop_using_in_shop(
     profile_id: uuid.UUID,
@@ -636,8 +544,19 @@ async def set_reference(
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
-    """A reference listing in the main shop (one of that shop's own listings)."""
+    """A reference listing in the main shop (one of that shop's own listings: a listing the
+    account's listing cache places in another shop is refused, with that shop's name)."""
+    from app.db.models import EtsyConnection, ShopListingCache
+
     profile = await _get(session, tenant, profile_id)
+    cached = await session.get(ShopListingCache, (tenant.id, body.reference_listing_id))
+    if cached is not None and cached.connection_id != profile.connection_id:
+        shop = await session.get(EtsyConnection, cached.connection_id)
+        main = await session.get(EtsyConnection, profile.connection_id)
+        raise HTTPException(status_code=409, detail=(
+            f"That listing is in {shop.display_name or shop.shop_name if shop else 'another shop'}, not in "
+            f"{main.display_name or main.shop_name if main else 'this profile’s main shop'}; choose one of the main "
+            "shop's listings"))
     profile.reference_listing_id = body.reference_listing_id
     profile.refresh_error = profile.refresh_failed_at = None
     await session.commit()

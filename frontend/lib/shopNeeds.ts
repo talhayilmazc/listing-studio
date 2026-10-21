@@ -9,9 +9,8 @@ const SETTINGS = ["shipping_profile", "return_policy", "readiness_state", "produ
 /**
  * The one thing to do about a need:
  *  - "setup": the profile is not set up in the shop, or that shop lacks one of its own
- *    settings (a processing profile, a shipping profile, a return policy, ...): the
- *    setup dialog opens right here (components/ShopSetupDialog.tsx): what matches is
- *    used, a copy is offered where the shop has none, one confirm for every shop.
+ *    settings (a processing profile, a shipping profile, a return policy, ...): one click
+ *    sets it up there (lib/startSetup.ts, no dialog): matched, or copied from the main shop.
  *  - "wait": it is being set up now; the page looks again by itself.
  *  - "card": a section the shop does not have; picked on the listing's card.
  *  - null: nothing to press (the message says what to do).

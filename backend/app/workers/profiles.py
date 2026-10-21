@@ -235,6 +235,32 @@ async def _reported(ctx: dict[str, Any], profile_id: str, body: Callable[[], Awa
     return result
 
 
+async def _wrong_main(ctx: dict[str, Any], session, profile: ListingProfile, owner: int) -> str:  # noqa: ANN001
+    """A profile's reference listing belongs to another shop than its main shop. When that
+    shop is one of the account's, it becomes the main shop and the profile is read again
+    from there; otherwise the seller is told to choose a listing of the main shop."""
+    from app.core import audit
+    from app.pipeline import profile_shops
+
+    shop = (await session.execute(select(EtsyConnection).where(
+        EtsyConnection.tenant_id == profile.tenant_id, EtsyConnection.shop_id == owner,
+        EtsyConnection.status == ConnectionStatus.active,
+    ))).scalars().first()
+    if shop is None:
+        await _record_refresh(ctx, str(profile.id), "Its reference listing is not in its main shop or in any shop "
+                              "connected here; choose a listing of its main shop.")
+        return "foreign-reference"
+    previous = profile.connection_id
+    await profile_shops.move_main(session, profile, shop.id)
+    audit.record(session, "profile.main_shop_corrected", actor=None, target_tenant_id=profile.tenant_id, by="system",
+                 profile_id=str(profile.id), previous_shop=str(previous), shop=str(shop.id))
+    await session.commit()
+    await _enqueue_job(ctx, "refresh_profile", str(profile.id))
+    await _enqueue_job(ctx, "link_profile", str(profile.id))
+    logger.info("profile %s: its reference listing is in shop %s, now its main shop", profile.id, shop.id)
+    return "main-moved"
+
+
 async def _token(service: ConnectionService, session, connection: EtsyConnection) -> str:  # noqa: ANN001
     try:
         return await service.get_valid_access_token(session, connection)
@@ -274,6 +300,10 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
             shop_id = await _resolve_shop_id(session, client, connection, kw)
             ref_id = profile.reference_listing_id
             listing = await client.get_listing(ref_id, **kw)
+            owner = listing.get("shop_id")
+            if owner not in (None, "") and int(owner) != int(shop_id):
+                # The reference listing is in another shop: its ids are that shop's, never this one's.
+                return await _wrong_main(ctx, session, profile, int(owner))
             inventory = await client.get_listing_inventory(ref_id, **kw)
             images = await client.get_listing_images(ref_id, **kw)
             # Category attributes (neckline, sleeve length, ...) for v4 §B.
@@ -291,6 +321,7 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
                 category_nodes = await client.get_seller_taxonomy_nodes(**kw)
 
         payload = build_profile_payload(listing, inventory, images, properties)
+        payload["shop_id"] = listing.get("shop_id")  # the reference listing's own shop (checked above)
         payload["category_attributes"] = attribute_choices((category_properties or {}).get("results"))
         # How many values each property takes (Occasion / Holiday on the review card).
         payload["category_attribute_limits"] = attribute_limits((category_properties or {}).get("results"))

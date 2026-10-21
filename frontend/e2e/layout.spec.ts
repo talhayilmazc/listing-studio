@@ -266,22 +266,46 @@ test.describe("signed in", () => {
     await expectSound(page, "/templates after the editor");
   });
 
-  test("Shops: \"Use all reference listings here\" is laid out and tappable", async ({ page }) => {
+  test("Shops: no reference listing button and no setup list; Connect a shop is laid out", async ({ page }) => {
     await page.goto("/connect");
     await settle(page);
-    const button = page.getByTestId("use-all-here").first();
-    await button.waitFor({ state: "visible", timeout: 30_000 });
-    await expect(button).toHaveText("Use all reference listings here");
-    const line = page.getByTestId("shop-profiles-line").first();
-    await expect(line).toContainText("reference listing");
-    const { width } = page.viewportSize()!;
-    const box = (await button.boundingBox())!;
-    if (width < 640) expect(box.height, "44 px on a phone").toBeGreaterThanOrEqual(44);
-    expect(box.x + box.width, "inside the screen").toBeLessThanOrEqual(width + 1);
-    await expectSound(page, "/connect with the reference listing button");
+    await expect(page.getByText("Use all reference listings here")).toHaveCount(0);
+    await expect(page.getByTestId("use-all-here")).toHaveCount(0);
+    await expectSound(page, "/connect");
   });
 
-  test("Use in: the \"All shops\" tick picks every shop, and the setup dialog fits the screen", async ({ page }) => {
+  test("a reference listing card: one settings line, and change opens a small panel that fits", async ({ page }) => {
+    await page.goto("/profiles");
+    await settle(page);
+    const line = page.getByTestId("settings-line").first();
+    await line.waitFor({ state: "visible", timeout: 30_000 });
+    await expect(line).toContainText("Shipping, returns and processing: same as");
+    await expect(line).toContainText("in every shop");
+    await expect(page.getByText("no match in this shop")).toHaveCount(0);
+    await expect(page.getByText(/Finish setup/)).toHaveCount(0);
+    const { width } = page.viewportSize()!;
+    const change = page.getByTestId("settings-change").first();
+    await change.click();
+    const panel = page.getByTestId("settings-panel").first();
+    await panel.waitFor({ state: "visible", timeout: 15_000 });
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, "the panel is inside the screen").toBeLessThanOrEqual(width + 1);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    if (width < 640) {
+      const tap = await change.evaluate((b) => Math.max(b.getBoundingClientRect().height, parseFloat(getComputedStyle(b, "::after").height) || 0));
+      expect(tap, "change is 44 px to tap on a phone").toBeGreaterThanOrEqual(44);
+      const small = await panel.locator("button, select").evaluateAll((els) =>
+        els.filter((b) => b.getClientRects().length).map((b) => ({ t: b.textContent?.trim() || b.getAttribute("aria-label"), h: b.getBoundingClientRect().height }))
+          .filter((b) => b.h < 44));
+      expect(small, "panel controls under 44 px on a phone").toEqual([]);
+    }
+    await expectSound(page, "/profiles with change open");
+    await change.click();
+    await panel.waitFor({ state: "detached", timeout: 15_000 });
+  });
+
+  test("Use in: the \"All shops\" tick picks every shop, and using it opens no dialog", async ({ page }) => {
     await page.goto("/profiles");
     await settle(page);
     const useIn = page.getByRole("button", { name: "Use in…" }).first();
@@ -295,46 +319,21 @@ test.describe("signed in", () => {
     const states = await shops.evaluateAll((boxes) => boxes.map((b) => ({ on: (b as HTMLInputElement).checked, off: (b as HTMLInputElement).disabled })));
     expect(states.length, "the picker lists the shops").toBeGreaterThan(1);
     expect(states.filter((s) => !s.off).every((s) => s.on), "All shops ticks every shop that can be chosen").toBe(true);
-    await expect(page.getByTestId("use-in-chosen").first()).toContainText(`Set up in ${states.filter((s) => !s.off).length} shops`);
+    const chosen = states.filter((s) => !s.off).length;
+    await expect(page.getByTestId("use-in-chosen").first()).toContainText(`Use in ${chosen} shop${chosen === 1 ? "" : "s"}`);
     await expectSound(page, "/profiles with Use in open and All shops ticked");
-    const { width, height } = page.viewportSize()!;
+    const { width } = page.viewportSize()!;
     if (width < 640) {
       const tick = (await all.locator("xpath=ancestor::label[1]").boundingBox())!;
       expect(tick.height, "the All shops row is 44 px on a phone").toBeGreaterThanOrEqual(44);
     }
 
-    // Setting up opens the dialog while each shop is read; it fits the screen.
+    // Using it sets the shops up with no dialog and no question: each shop reads ready or preparing….
     await page.getByTestId("use-in-chosen").first().click();
-    const dialog = page.getByTestId("shop-setup-dialog");
-    await dialog.waitFor({ state: "visible", timeout: 15_000 });
-    const panel = (await dialog.getByRole("dialog").boundingBox())!;
-    expect(panel.x).toBeGreaterThanOrEqual(0);
-    expect(panel.x + panel.width, "the dialog is inside the screen").toBeLessThanOrEqual(width + 1);
-    expect(panel.y + panel.height, "the dialog is no taller than the screen").toBeLessThanOrEqual(height + 1);
-    const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(sideways, "the page scrolls sideways with the dialog open").toBeLessThanOrEqual(0);
-    const wide = await dialog.evaluate((root) => {
-      const w = document.documentElement.clientWidth;
-      return [...root.querySelectorAll("*")].filter((el) => {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.right > w + 1;
-      }).slice(0, 5).map((el) => el.tagName.toLowerCase() + "." + String((el as HTMLElement).className).split(" ").slice(0, 3).join("."));
-    });
-    expect(wide, "nothing in the dialog is wider than the screen").toEqual([]);
-    if (width < 640) {
-      // The tappable area: the box, or a .tap control's 44 px ::after (it keeps its look, globals.css).
-      const small = await dialog.locator("button, select").evaluateAll((els) =>
-        els.filter((b) => b.getClientRects().length).map((b) => ({
-          t: b.textContent?.trim() || b.getAttribute("aria-label"),
-          h: Math.max(b.getBoundingClientRect().height, parseFloat(getComputedStyle(b, "::after").height) || 0),
-        })).filter((b) => b.h < 44));
-      expect(small, "dialog controls under 44 px on a phone").toEqual([]);
-    }
-    // The dialog closes by itself once every shop is set up; otherwise it is closed here.
-    const close = dialog.getByRole("button", { name: "Close" });
-    if (await close.isVisible().catch(() => false)) await close.click();
-    await dialog.waitFor({ state: "detached", timeout: 15_000 });
-    await expectSound(page, "/profiles after the setup dialog");
+    const card = page.getByTestId("profile-shops").first();
+    await expect(card.getByTestId("profile-shop").filter({ hasText: /ready|preparing…/ }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expectSound(page, "/profiles after Use in");
   });
 
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {

@@ -363,7 +363,7 @@ async def test_n_shops_make_n_drafts_and_one_shop_failing_does_not_stop_the_othe
     assert profile_by_shop == {world["a1"]: str(world["pa1"]), world["a2"]: str(world["pa2"])}
 
 
-async def test_a_shop_without_a_suitable_profile_cannot_be_chosen(world) -> None:
+async def test_a_shop_the_profile_is_not_set_up_in_takes_the_listing_and_is_set_up_first(world) -> None:
     async with world["sm"]() as s:
         await s.delete(await s.get(ListingProfile, world["pa2"]))
         await s.commit()
@@ -373,9 +373,9 @@ async def test_a_shop_without_a_suitable_profile_cannot_be_chosen(world) -> None
     ).json()
     by_shop = {shop["connection_id"]: shop for shop in preview["shops"]}
     assert by_shop[str(world["a1"])]["ready"] == 2
-    assert by_shop[str(world["a2"])]["ready"] == 0
-    # A profile is the account's (v8 §C): shop two needs it set up there.
-    assert "is not set up in this shop" in by_shop[str(world["a2"])]["blocked"][0]["reason"]
+    # A profile is the account's (v8 §C) and is used in every shop with its main shop's settings:
+    # shop two takes both listings; the profile is set up there first, with no question.
+    assert by_shop[str(world["a2"])]["ready"] == 2 and by_shop[str(world["a2"])]["blocked"] == []
 
 
 # --- quota protection -------------------------------------------------------------------------
@@ -637,14 +637,15 @@ async def test_only_the_ticked_cells_are_created(world) -> None:
     assert res.status_code == 404 and world["queue"].calls == []
 
 
-async def test_a_shop_that_cannot_take_a_listing_says_why_in_its_cell(world) -> None:
+async def test_a_shop_the_listings_profile_is_not_in_yet_is_a_cell_that_sets_it_up(world) -> None:
     c0, _ = world["contents"]
     async with world["sm"]() as s:  # shop two's only profile is of another kind
         (await s.get(ListingProfile, world["pa2"])).content_template = "digital_products"
         await s.commit()
     cell = _cell(await _matrix(world), c0, world["a2"])
-    assert cell["state"] == "unavailable" and "is not set up in this shop" in cell["reason"]
-    assert cell["setup"] is True and cell["profile_id"] == str(world["pa1"])  # "Set up Standard Tee in Frost Mugs…"
+    # Not "set it up first": the draft sets the profile up there with its main shop's settings.
+    assert cell["state"] == "available" and cell["profile_id"] == str(world["pa1"])
+    assert "shipping, return and processing settings are used here" in cell["note"]
 
 
 # --- a batch has a name ---------------------------------------------------------------------------

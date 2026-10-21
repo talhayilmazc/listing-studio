@@ -101,6 +101,17 @@ class NotYet(Exception):
 
 #: How long the worker waits before the next try after a :class:`NotYet`.
 NOT_YET_SECONDS = 60.0
+
+
+class SetupPending(NotYet):
+    """The listing's profile is being set up in this shop (its main shop's shipping, return
+    and processing settings matched or copied there): the draft waits for it, and the wait
+    does not use up its tries (``workers/recovery.py``), up to ``SETUP_GIVE_UP_SECONDS``."""
+
+
+#: Between looks at a shop being set up, and how long a draft waits for one at most.
+SETUP_WAIT_SECONDS = 20.0
+SETUP_GIVE_UP_SECONDS = 2 * 3600
 #: No answer, or Etsy's own error: the request may or may not have taken effect.
 UNCERTAIN = (httpx.TransportError, EtsyServerError)
 #: After an unanswered create, how long Etsy gets before its drafts are searched,

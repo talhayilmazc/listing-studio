@@ -8,7 +8,7 @@ const POLL_MS = 1500;
 const GIVE_UP_MS = 15 * 60 * 1000;
 
 /** Waits of seconds to minutes after which the job runs again by itself. */
-const SHORT_WAITS = new Set(["etsy_rate_limit", "etsy_unavailable", "interrupted"]);
+const SHORT_WAITS = new Set(["etsy_rate_limit", "etsy_unavailable", "interrupted", "shop_setup"]);
 
 /** The job is waiting to run again shortly: still worth watching, and worth saying. */
 export function isWaitingBriefly(job: JobStatus): boolean {

@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextvars
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
@@ -91,6 +92,8 @@ class _Plan:
     shops: dict[uuid.UUID, EtsyConnection] = field(default_factory=dict)
     ready: dict[uuid.UUID, int] = field(default_factory=dict)
     blocked: dict[uuid.UUID, list[schemas.PublishSkipped]] = field(default_factory=dict)
+    #: Profiles to set up in shops before their drafts (profile id -> (profile, shops)).
+    setups: dict[uuid.UUID, tuple[ListingProfile, list[uuid.UUID]]] = field(default_factory=dict)
 
     def skip(self, content: GeneratedContent, reason: str, shop: EtsyConnection | None = None) -> None:
         row = schemas.PublishSkipped(
@@ -190,12 +193,28 @@ async def _plan_drafts(
                 plan.skip(content, FILES_REMOVED, connection)
                 continue
             target = await resolve_target(session, content, connection, profile_id=profile_id)
-            if not target.ok or target.profile is None:
+            if not target.ok and auto_setup(target):
+                # Used in this shop from now on: set up first (matched or copied), then drafted.
+                entry = plan.setups.setdefault(target.profile.id, (target.profile, []))
+                if connection.id not in entry[1]:
+                    entry[1].append(connection.id)
+            elif not target.ok or target.profile is None:
                 plan.skip(content, target.reason or "no profile for this shop", connection)
                 continue
             plan.jobs.append((content, connection, target.profile.id))
             plan.ready[connection.id] = plan.ready.get(connection.id, 0) + 1
     return plan
+
+
+def auto_setup(target: Any) -> bool:
+    """A listing whose profile is not set up in a shop (or is being set up there) goes there
+    anyway: its main shop's shipping, return and processing settings are matched or copied
+    first (no question), and the draft waits for that. A profile that needs a reference or
+    a refresh, or is not confirmed, is not set up this way."""
+    profile = target.profile
+    if profile is None or not profile.confirmed or target.stale or profile.reference_listing_id is None:
+        return False
+    return target.link is None or target.link.status in ("checking", "incomplete", "error")
 
 
 @dataclass
@@ -344,6 +363,11 @@ async def _publish(
     if not budget.fits:
         raise HTTPException(status_code=409, detail=budget.message)
     result = schemas.BatchPublishResult(skipped=plan.skipped)
+    started = [profile for profile, shops in plan.setups.values() if await profile_shops.start_links(session, profile, shops)]
+    if started:
+        await session.commit()
+        for profile in started:
+            await enqueuer.enqueue("link_profile", str(profile.id))
     for content, connection, profile_id in plan.jobs:
         job = await _enqueue(
             session, enqueuer, tenant=tenant, connection=connection, content=content, profile_id=profile_id
@@ -466,6 +490,23 @@ async def _matrix(
                 continue
             # Every listing with its own profile: a profile is never chosen per shop.
             target = await resolve_target(session, content, shop)
+            if not target.ok and auto_setup(target):
+                # Not set up in this shop yet (or being set up): the draft sets it up first, with the
+                # main shop's shipping, return and processing settings. Only a refusal is said, once.
+                link_state = profile_shops.state_of(target.profile, target.link) if target.link else None
+                if (wanted and link_state is not None and link_state.status in ("incomplete", "error") and link_state.reason
+                        and not L.set_up_again(target.link, target.profile.cached_payload)):
+                    need(shop, "settings", f"{shop_label(shop)}: {link_state.reason}", blocking=False,
+                         profile=target.profile)
+                main = names.get(str(target.profile.connection_id), "the main shop")
+                cells.append(schemas.MatrixCellOut(
+                    connection_id=shop.id, state="unavailable" if problem else "available",
+                    reason=problem or None, profile_id=target.profile.id, profile_name=target.profile.name,
+                    chosen=(content.id, shop.id) in planned, wanted=wanted,
+                    note=None if problem else f"{main}'s shipping, return and processing settings are used here "
+                                              "(copied first where this shop has none).",
+                ))
+                continue
             if not target.ok or target.profile is None:
                 if wanted and not target.by_text:
                     # What this shop still needs before the listing can go there:

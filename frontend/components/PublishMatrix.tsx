@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { MatrixCell, MatrixColumn, MatrixRow, PublishPreview, ShopGroup, ShopNeed } from "@/lib/types";
 import { needAction, needsHeading, setupItems } from "@/lib/shopNeeds";
-import type { SetupItem } from "./ShopSetupDialog";
+import type { SetupItem } from "@/lib/startSetup";
 import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";

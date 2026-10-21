@@ -136,6 +136,9 @@ class FakeShops:
         self.reads: Counter = Counter()
         #: Seconds each create takes (two setups at once overlap).
         self.delay = 0.0
+        #: shipping profile id -> its destinations, as Etsy keeps them; deletes made.
+        self.destinations: dict[int, list[dict[str, Any]]] = {}
+        self.deleted: list[tuple[int, int, int]] = []
 
     def for_shop(self, shop_id: int) -> Any:
         fake = self
@@ -177,10 +180,27 @@ class FakeShops:
                 return row
 
             async def create_shop_shipping_profile(self, sid: int, *, data: dict, **_: Any) -> dict:
-                return await self._make(sid, "shipping", data, "shipping_profile_id", fake.lists[sid].shipping)
+                row = await self._make(sid, "shipping", data, "shipping_profile_id", fake.lists[sid].shipping)
+                fake.next_id += 1
+                fake.destinations[row["shipping_profile_id"]] = [
+                    {"shipping_profile_destination_id": fake.next_id, **{k: v for k, v in data.items()
+                                                                          if k.startswith("destination_")}}]
+                return {**row, "shipping_profile_destinations": list(fake.destinations[row["shipping_profile_id"]])}
 
             async def create_shop_shipping_profile_destination(self, sid: int, pid: int, *, data: dict, **_: Any) -> dict:
-                return await self._make(sid, "destination", data, "shipping_profile_destination_id", None)
+                row = await self._make(sid, "destination", data, "shipping_profile_destination_id", None)
+                fake.destinations.setdefault(pid, []).append(row)
+                return row
+
+            async def get_shop_shipping_profile(self, sid: int, pid: int, **_: Any) -> dict:
+                fake.reads[(sid, "shipping_profile")] += 1
+                return {"shipping_profile_id": pid, "shipping_profile_destinations": list(fake.destinations.get(pid, []))}
+
+            async def delete_shop_shipping_profile_destination(self, sid: int, pid: int, did: int, **_: Any) -> dict:
+                fake.deleted.append((sid, pid, did))
+                fake.destinations[pid] = [d for d in fake.destinations.get(pid, [])
+                                          if d.get("shipping_profile_destination_id") != did]
+                return {}
 
             async def create_shop_shipping_profile_upgrade(self, sid: int, pid: int, *, data: dict, **_: Any) -> dict:
                 return await self._make(sid, "upgrade", data, "upgrade_id", None)

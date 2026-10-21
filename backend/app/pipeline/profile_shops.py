@@ -44,7 +44,9 @@ def state_of(profile: ListingProfile, link: ProfileShopLink | None) -> LinkState
                          status="error")
     missing = L.missing(profile.cached_payload, link)
     if missing:
-        first = next(iter(missing))
+        # The reason that asks something of the seller (a refusal, a tie to pick), never "no
+        # match", which is only a setting not copied yet (every setup copies it).
+        first = next((r for r, why in missing.items() if why != L.NOT_FOUND), next(iter(missing)))
         return LinkState(link.connection_id, False, False, f"{L.LABEL[first]}: {missing[first]}", missing, "incomplete")
     return LinkState(link.connection_id, False, True)
 
@@ -121,19 +123,43 @@ async def start_links(
     return started
 
 
-async def recheck_shop(session: AsyncSession, connection_id: uuid.UUID) -> list[uuid.UUID]:
-    """A shop connected again: its links that are not ready are checked again (status
-    "checking"); returns their profiles, for one ``link_profile`` each. Commits."""
-    rows = list((await session.execute(
-        select(ProfileShopLink).join(ListingProfile, ListingProfile.id == ProfileShopLink.profile_id).where(
-            ProfileShopLink.connection_id == connection_id, ListingProfile.connection_id != connection_id,
-            ProfileShopLink.status.in_(("incomplete", "error")),
-        )
-    )).scalars())
-    for link in rows:
-        link.status, link.pending_create = "checking", None
+async def use_all_in_shop(session: AsyncSession, tenant_id: uuid.UUID, connection_id: uuid.UUID) -> list[uuid.UUID]:
+    """A shop connected (new, or again): every confirmed reference listing of the account is
+    used there, with its main shop's shipping, return and processing settings (matched, or
+    copied there). Set-up and being-set-up links are left as they are. Returns the profiles
+    started, for one ``link_profile`` each. Commits."""
+    profiles = list((await session.execute(select(ListingProfile).where(
+        ListingProfile.tenant_id == tenant_id, ListingProfile.confirmed.is_(True),
+        ListingProfile.connection_id != connection_id,
+    ).order_by(ListingProfile.created_at))).scalars())
+    started = [p.id for p in profiles if await start_links(session, p, [connection_id])]
     await session.commit()
-    return list(dict.fromkeys(link.profile_id for link in rows))
+    return started
+
+
+async def move_main(session: AsyncSession, profile: ListingProfile, connection_id: uuid.UUID) -> None:
+    """The reference listing is in another of the account's shops: that shop is the profile's
+    main shop (its shipping, return and processing ids are that listing's own). The shop it
+    was wrongly attached to keeps the profile, set up again like any other shop (matched or
+    copied). Its reference data is read again. Does not commit."""
+    old = profile.connection_id
+    if old == connection_id:
+        return
+    links = {link.connection_id: link for link in (await links_of(session, [profile.id]))[profile.id]}
+    new = links.get(connection_id)
+    if new is not None:  # the main shop's link holds no ids: its ids are its reference's own
+        new.shipping_profile_id = new.return_policy_id = new.readiness_state_id = None
+        new.production_partner_ids, new.notes, new.status, new.pending_create = None, None, "ready", None
+    previous = links.get(old)
+    if previous is None:
+        previous = ProfileShopLink(tenant_id=profile.tenant_id, profile_id=profile.id, connection_id=old)
+        session.add(previous)
+    previous.shipping_profile_id = previous.return_policy_id = previous.readiness_state_id = None
+    previous.production_partner_ids = None
+    previous.status, previous.notes, previous.pending_create = "checking", None, [L.COPY_ALL]
+    profile.connection_id = connection_id
+    profile.updated_at = profile.images_updated_at = None  # read again from its own shop
+    await session.flush()
 
 
 async def shop_profiles(

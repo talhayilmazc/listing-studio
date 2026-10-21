@@ -282,15 +282,15 @@ async def test_ticking_a_shop_sets_the_profile_up_there_and_says_what_the_shop_n
     def needs(preview: dict) -> list[dict]:
         return next(c for c in preview["columns"] if c["connection_id"] == str(world["a2"]))["needs"]
 
-    # While it is being set up: said per shop, and nothing is created there.
+    # While it is being set up: nothing for the seller to do; the drafts can be made (they wait for it).
     checking = (await world["a"].post(f"/api/batches/{batch}/publish/preview", json={})).json()
-    assert [(n["kind"], n["listings"], n["blocking"], n["checking"]) for n in needs(checking)] == [("checking", 2, True, True)]
-    assert [c["state"] for c in _cells(checking, world["a2"])] == ["unavailable", "unavailable"]
+    assert [n for n in needs(checking) if n["kind"] != "section"] == []
+    assert [c["state"] for c in _cells(checking, world["a2"])] == ["available", "available"]
     # Ticked again: nothing is started twice.
     await world["a"].put(f"/api/batches/{batch}/targets", json={"connection_id": str(world["a2"]), "on": True})
     assert world["queue"].calls.count(("link_profile", (str(hoodie_id),))) == 1
 
-    # The shop has no matching shipping profile or return policy: each is named, per shop, before approving.
+    # The shop could not get a shipping profile (Etsy refused, say): one line for the shop, before approving.
     async with world["sm"]() as s:
         link = (await s.execute(select(ProfileShopLink).where(
             ProfileShopLink.profile_id == hoodie_id, ProfileShopLink.connection_id == world["a2"]))).scalars().one()
@@ -299,14 +299,14 @@ async def test_ticking_a_shop_sets_the_profile_up_there_and_says_what_the_shop_n
         await s.commit()
     incomplete = (await world["a"].post(f"/api/batches/{batch}/publish/preview", json={})).json()
     said = {n["kind"]: n for n in needs(incomplete)}
-    assert set(said) == {"shipping_profile", "return_policy"}
-    assert 'no shipping profile named "Standard"' in said["shipping_profile"]["message"]
-    assert all(n["blocking"] and n["listings"] == 2 and n["profile_name"] == "Hoodie" for n in said.values())
-    # "Create drafts" skips those with the reason: nothing fails silently, the own shop still goes.
+    assert set(said) == {"settings"}
+    assert 'no shipping profile named "Standard"' in said["settings"]["message"]
+    assert not said["settings"]["blocking"] and said["settings"]["listings"] == 2 and said["settings"]["profile_name"] == "Hoodie"
+    # "Create drafts" sends both shops: shop two's setup is tried again first, and its drafts wait for it
+    # (a refusal fails only those drafts, with the reason); the own shop goes as usual.
     sent = await world["a"].post(f"/api/batches/{batch}/publish")
-    assert {j["connection_id"] for j in sent.json()["jobs"]} == {str(world["a1"])}
-    assert {s["connection_id"] for s in sent.json()["skipped"]} == {str(world["a2"])}
-    assert all("Hoodie" in s["reason"] for s in sent.json()["skipped"])
+    assert {j["connection_id"] for j in sent.json()["jobs"]} == {str(world["a1"]), str(world["a2"])}
+    assert sent.json()["skipped"] == []
 
     # Linked: the cells can be created and the shop needs nothing more.
     async with world["sm"]() as s:

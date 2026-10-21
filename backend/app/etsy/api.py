@@ -560,6 +560,25 @@ class EtsyApiClient:
     ) -> dict[str, Any]:
         return await self._shop_create(shop_id, f"shipping-profiles/{shipping_profile_id}/upgrades", data, **kw)
 
+    async def get_shop_shipping_profile(self, shop_id: int, shipping_profile_id: int, **kw: Any) -> dict[str, Any]:
+        """getShopShippingProfile: one profile with its destinations (their ids)."""
+        return await self._shop_list(shop_id, f"shipping-profiles/{shipping_profile_id}", **kw)
+
+    async def delete_shop_shipping_profile_destination(
+        self, shop_id: int, shipping_profile_id: int, destination_id: int, *, access_token: str,
+        tenant_id: Any = None, tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """deleteShopShippingProfileDestination (shops_w; 204; never a profile's last destination).
+        Used only on a copy the app has just created, for its temporary destination
+        (``links.TEMPORARY``): nothing the seller made is ever deleted."""
+        return await self._request(
+            "DELETE",
+            f"/application/shops/{shop_id}/shipping-profiles/{shipping_profile_id}/destinations/{destination_id}",
+            access_token=access_token,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     async def create_shop_return_policy(self, shop_id: int, *, data: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return await self._shop_create(shop_id, "policies/return", data, **kw)
 

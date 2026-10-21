@@ -126,15 +126,26 @@ async def test_the_request_body_sent_to_etsy(name: str) -> None:
     assert all(b.get("destination_region") != "none" for b in bodies)
 
 
-def test_a_profile_whose_only_destination_is_everywhere_else_is_not_offered_as_a_copy() -> None:
+def test_an_everywhere_else_only_profile_is_copied_with_a_temporary_ship_from_destination() -> None:
+    """Etsy's create call needs a country or a region and "everywhere else" is neither: the copy
+    is created for the ship-from country (the same price and time), "everywhere else" is added
+    naming neither field, then the temporary destination is deleted (deleteShopShippingProfileDestination)."""
     main = _main()
     main.shipping = [{**profile(EVERYWHERE), "shipping_profile_id": 501}]
     outcome = L.plan_resource(L.SHIPPING, 501, main, L.ShopSettings(shipping=[{"shipping_profile_id": 9, "title": "Own"}]))
-    assert not outcome.creatable and outcome.create is None and outcome.requests == 0
-    assert outcome.reason == L.EVERYWHERE_ONLY
-    assert outcome.options == [{"id": 9, "label": "Own"}]  # the seller picks one of the shop's own
+    assert outcome.creatable and outcome.requests == 3  # the profile, "everywhere else", the delete
+    first, rest = outcome.create["profile"], outcome.create["destinations"]
+    assert targets(L.send(first)) == {"destination_country_iso": "US"} and first[L.TEMPORARY] == "US"
+    assert L.TEMPORARY not in L.send(first)
+    assert (L.send(first)["primary_cost"], L.send(first)["min_delivery_days"]) == (5.0, 3)  # "everywhere else"'s terms
+    assert [targets(L.send(d)) for d in rest] == [{}]
+    etsy_rule("shipping", L.send(first))
+    # No ship-from country: nothing to create it with; the seller picks one with change.
+    main.shipping = [{**profile(EVERYWHERE), "origin_country_iso": None, "shipping_profile_id": 501}]
+    outcome = L.plan_resource(L.SHIPPING, 501, main, L.ShopSettings())
+    assert not outcome.creatable and outcome.reason == L.EVERYWHERE_ONLY
     with pytest.raises(ValueError):
-        L.shipping_copy(profile(EVERYWHERE))
+        L.shipping_copy({**profile(EVERYWHERE), "origin_country_iso": None})
     main.shipping = [{**profile(), "shipping_profile_id": 501}]
     assert L.plan_resource(L.SHIPPING, 501, main, L.ShopSettings()).reason == L.NO_DESTINATION
 
@@ -181,15 +192,34 @@ async def test_each_shape_is_created_and_linked(world, fake_etsy, name: str) -> 
     assert (await _links(world, world["pa1"]))[extra["a3"]].shipping_profile_id is not None
 
 
-async def test_only_everywhere_else_offers_no_copy_and_sends_nothing(world, fake_etsy) -> None:  # noqa: F811
-    shop, _ = await _copy(world, fake_etsy, EVERYWHERE)
-    setting = await _setting(world, shop)
-    assert setting["default"] == "choose" and setting["creatable"] is False
-    assert setting["reason"] == L.EVERYWHERE_ONLY
-    res = await world["a"].post(f"/api/profiles/{world['pa1']}/setup/apply",
-                                json={"choices": [{"connection_id": shop, "resource": "shipping_profile", "use": "copy"}]})
-    assert res.status_code == 409  # never sent to Etsy
-    assert not any(what == "shipping" for _, what, _ in fake_etsy.created)
+async def test_only_everywhere_else_is_copied_with_no_seller_action(world, fake_etsy) -> None:  # noqa: F811
+    shop, extra = await _copy(world, fake_etsy, EVERYWHERE)
+    sent = [(what, data) for sid, what, data in fake_etsy.created if sid == 103 and what in ("shipping", "destination")]
+    assert [what for what, _ in sent] == ["shipping", "destination"]
+    assert targets(sent[0][1]) == {"destination_country_iso": "US"} and targets(sent[1][1]) == {}
+    # The temporary ship-from destination is gone; "everywhere else" stays.
+    link = (await _links(world, world["pa1"]))[extra["a3"]]
+    [(sid, pid, _)] = fake_etsy.deleted
+    assert (sid, pid) == (103, link.shipping_profile_id)
+    assert [targets(d) for d in fake_etsy.destinations[pid]] == [{}]
+    assert link.status == "ready" and (await _setting(world, shop))["failure"] is None
+
+
+async def test_the_copy_still_works_if_the_temporary_destination_cannot_be_deleted(world, fake_etsy) -> None:  # noqa: F811
+    real = fake_etsy.for_shop
+
+    def for_shop(shop_id: int) -> Any:
+        client = real(shop_id)
+
+        async def refuse(*_: Any, **__: Any) -> dict:
+            raise EtsyClientError(status_code=400, body='{"error": "nope"}', path="/x", method="DELETE")
+        client.delete_shop_shipping_profile_destination = refuse
+        return client
+
+    fake_etsy.for_shop = for_shop
+    _, extra = await _copy(world, fake_etsy, EVERYWHERE)
+    # Kept: the ship-from country is charged exactly what "everywhere else" is. Set up all the same.
+    assert (await _links(world, world["pa1"]))[extra["a3"]].status == "ready"
 
 
 async def test_etsys_exact_refusal_reaches_the_seller_in_plain_words(world, fake_etsy) -> None:  # noqa: F811

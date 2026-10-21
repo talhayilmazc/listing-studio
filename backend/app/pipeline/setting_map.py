@@ -37,6 +37,11 @@ MAPPED: tuple[str, ...] = (L.SHIPPING, L.RETURNS, L.READINESS)
 
 Key = tuple[str, uuid.UUID, int, uuid.UUID]  # resource, source shop, source id, target shop
 
+#: A tombstone: the shop's counterpart was a setting the seller made, and it was deleted on
+#: Etsy. It is never made again (``target_id`` 0); a setting with the same name or terms is
+#: still matched, and the seller's pick ("change") replaces the row.
+GONE = "deleted on Etsy"
+
 
 async def lookup(
     session: AsyncSession, tenant_id: uuid.UUID, resource: str, source: uuid.UUID, source_id: int, target: uuid.UUID
@@ -122,7 +127,7 @@ def fill(profile: ListingProfile, link: ProfileShopLink, maps: dict[Key, ShopSet
         if source_id in (None, "", []):
             continue
         row = maps.get((resource, profile.connection_id, int(source_id), link.connection_id))
-        if row is None:
+        if row is None or row.how == GONE:
             continue
         key = L.PAYLOAD_KEY[resource]
         if getattr(link, key) != int(row.target_id):

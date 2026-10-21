@@ -38,7 +38,7 @@ test("the panel asks first, then deletes, and says when the figures were updated
 });
 
 test("the Privacy Policy has its own date; the terms version stays", () => {
-  assert.equal(PRIVACY_UPDATED, "20 October 2026");
+  assert.equal(PRIVACY_UPDATED, "21 October 2026");
   assert.equal(TERMS_VERSION, "2026-10-14");
   assert.equal(LAST_UPDATED, "14 October 2026");
   const privacy = read("app/(marketing)/privacy/page.tsx");

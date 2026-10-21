@@ -147,6 +147,13 @@ def links_out(profile: ListingProfile, links: list[ProfileShopLink], names: dict
             continue
         state = profile_shops.state_of(profile, link)
         assert state is not None
+        if link.status == "incomplete" and links_mod.set_up_again(link, profile.cached_payload):
+            # Written before every setup copied what a shop lacks ("no match in this shop"):
+            # nothing was refused, and the shop is set up by itself the first time it is used
+            # (a draft there sets it up first), so it reads as ready, never "no match".
+            out.append(schemas.ProfileLinkOut(connection_id=shop_id, shop_name=names[shop_id], ready=True,
+                                              status="ready", checked_at=link.checked_at))
+            continue
         out.append(schemas.ProfileLinkOut(
             connection_id=shop_id, shop_name=names[shop_id], ready=state.ready, status=state.status,
             reason=state.reason, checked_at=link.checked_at,
@@ -238,12 +245,18 @@ async def create_profile(
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
-    # The reference listing is in this shop, which must be one of the caller's own.
+    # The reference listing is in this shop, which must be one of the caller's own. A listing
+    # the account's listing cache places in another of its shops makes that shop the main one:
+    # a profile's ids are always its reference listing's own shop's.
     if await owned_shop(session, tenant.id, body.connection_id) is None:
         raise HTTPException(status_code=404, detail="shop not found")
+    main = body.connection_id
+    cached = await session.get(ShopListingCache, (tenant.id, body.reference_listing_id))
+    if cached is not None and cached.connection_id != main and await owned_shop(session, tenant.id, cached.connection_id):
+        main = cached.connection_id
     profile = ListingProfile(
         tenant_id=tenant.id,
-        connection_id=body.connection_id,
+        connection_id=main,
         name=body.name,
         reference_listing_id=body.reference_listing_id,
         content_template=body.content_template,

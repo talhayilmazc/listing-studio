@@ -661,18 +661,6 @@ export interface ProfileLink {
   notice?: string | null;
 }
 
-/** The account's reference listings in one shop (Shops page: "Use all reference listings here"). */
-export interface ShopProfiles {
-  connection_id: string;
-  total: number;
-  set_up: number;
-  checking: number;
-  not_set_up: number;
-  /** Set up, but waiting for the seller (Etsy refused a copy, two settings match, …). */
-  waiting: { id: string; name: string; reason: string | null }[];
-  started: number;
-}
-
 export interface Profile {
   id: string;
   /** The profile's main shop: its reference listing is there. The profile is the account's (v8 §C). */
@@ -836,7 +824,7 @@ export interface ShopListings {
 export interface Pause {
   /** The daily reset (global_quota, tenant_quota), or a short wait before the job
    *  runs again by itself (etsy_rate_limit, etsy_unavailable, interrupted). */
-  reason: "global_quota" | "tenant_quota" | "etsy_rate_limit" | "etsy_unavailable" | "interrupted";
+  reason: "global_quota" | "tenant_quota" | "etsy_rate_limit" | "etsy_unavailable" | "interrupted" | "shop_setup";
   message: string;
   resumes_at: string;
 }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { UnfinishedDraft } from "@/lib/types";
-import { ShopSetupDialog, type SetupItem } from "./ShopSetupDialog";
+import { startSetup } from "@/lib/startSetup";
 import {
   DELETE_NOTE,
   deleteHeading,
@@ -58,7 +58,6 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
 
   // Every hook before the early return below (a hook after it crashed the page once a seller had
   // unfinished drafts: React saw more hooks than on the render before).
-  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
   if (!items || items.length === 0) return null;
   const { finish: open, fix, remove } = sections(items);
   const ready = open.filter((i) => i.can_finish);
@@ -97,11 +96,17 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
     }
   }
 
-  // The shop's setup opens here, in the same dialog the Profiles page uses.
-  function setUp(item: UnfinishedDraft) {
+  // The shop is set up for the draft's profile here, with no dialog: its main shop's
+  // shipping, return and processing settings are matched or copied there.
+  async function setUp(item: UnfinishedDraft) {
     if (!item.profile_id) return;
     setError(null);
-    setSetupItems([{ profileId: item.profile_id, profileName: item.profile_name ?? null, shopIds: [item.connection_id] }]);
+    try {
+      await startSetup([{ profileId: item.profile_id, profileName: item.profile_name ?? null, shopIds: [item.connection_id] }]);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+    load();
   }
 
   const head = (i: UnfinishedDraft) => (
@@ -116,12 +121,6 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
 
   return (
     <section id="unfinished-drafts" className="card space-y-3 border-amber-200 bg-amber-50/60 p-4" data-testid="unfinished-drafts">
-      {setupItems && (
-        <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
-          setSetupItems(null);
-          load();
-        }} />
-      )}
       {open.length > 0 && (
       <div key="open" className="space-y-3">
       <div className="flex flex-wrap items-start gap-3">

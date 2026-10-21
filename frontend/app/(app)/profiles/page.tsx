@@ -211,8 +211,8 @@ export default function ProfilesPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-slate-500">
           <span>Profiles copy category, price, variations and description from one of your own listings. New
-          drafts reuse them instead of inventing metadata. A profile is used in as many of your shops as you
-          set it up in: each shop keeps its own shipping profile, return policy and processing profile.</span>
+          drafts reuse them instead of inventing metadata. A profile uses its main shop&apos;s shipping, return and
+          processing settings in every shop it is used in (copied there where needed).</span>
           {selected && (
             <>
               {" "}
@@ -365,8 +365,9 @@ export default function ProfilesPage() {
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* The shop picked in the switcher: say which, so its count is not read as a profile's shop's. */}
           <SectionHead
-            title="Your listings"
+            title={selected ? `Listings in ${selected.name}` : "Your listings"}
             count={listings.length}
             note={syncing ? "syncing…" : undefined}
             tone={syncing ? "amber" : undefined}

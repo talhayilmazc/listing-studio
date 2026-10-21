@@ -69,7 +69,7 @@ COPY_LOCK_SECONDS = 300
 COPY_WAIT_SECONDS = 120.0
 COPY_POLL_SECONDS = 0.25
 #: The one-time job after migration 0082 ran.
-ONCE_KEY = "once:shop-setting-map:v1"
+ONCE_KEY = "once:shop-setting-map:v2"
 
 
 def shop_name(connection: EtsyConnection | None) -> str | None:
@@ -296,6 +296,25 @@ async def _mark_partial(ctx: dict[str, Any], connection_id: uuid.UUID, new_id: i
 # --- One copy per setting and shop ---------------------------------------------------------------
 
 
+async def _drop_temporary(client: EtsyApiClient, shop_id: int, profile_id: int, country: str,
+                          made: dict[str, Any], kw: dict[str, Any]) -> None:
+    """An "everywhere else"-only copy was created with the ship-from country as a temporary
+    destination (Etsy's create call needs a country or a region); "everywhere else" is in
+    now, so that destination goes. If it cannot be deleted the copy still works the same:
+    the ship-from country is charged exactly what "everywhere else" is."""
+    def find(profile: dict[str, Any]) -> int | None:
+        for d in profile.get("shipping_profile_destinations") or []:
+            if str(d.get("destination_country_iso") or "").upper() == country and d.get("shipping_profile_destination_id"):
+                return int(d["shipping_profile_destination_id"])
+        return None
+    try:
+        destination = find(made) or find(await client.get_shop_shipping_profile(shop_id, profile_id, **kw))
+        if destination is not None:
+            await client.delete_shop_shipping_profile_destination(shop_id, profile_id, destination, **kw)
+    except (EtsyError, httpx.TransportError) as exc:
+        logger.warning("shipping copy %s: the temporary %s destination stays (%s)", profile_id, country, exc)
+
+
 class CopyBusy(Exception):
     """Another setup is making this copy in this shop right now: it is used once it exists."""
 
@@ -325,6 +344,9 @@ async def _create(client: EtsyApiClient, shop_id: int, outcome: L.Outcome, kw: d
                 await client.create_shop_shipping_profile_upgrade(shop_id, new_id, data=L.send(upgrade), **kw)
             except (EtsyError, httpx.TransportError) as exc:
                 raise PartialCreate(new_id, upgrade.get("label") or "an upgrade", exc) from exc
+        temporary = (plan.get("profile") or {}).get(L.TEMPORARY)
+        if temporary:
+            await _drop_temporary(client, shop_id, new_id, str(temporary), made, kw)
         return new_id
     if outcome.resource == L.RETURNS:
         made = await client.create_shop_return_policy(shop_id, data=plan, **kw)
@@ -425,14 +447,14 @@ def _notice(resource: str, here: str, lost: str | None, how: str, label: str | N
 async def _resolve(
     ctx: dict[str, Any], session: Any, client: EtsyApiClient, shop_id: int, kw: dict[str, Any], *,
     profile: ListingProfile, payload: dict[str, Any], main: EtsyConnection, shop: EtsyConnection,
-    link: ProfileShopLink, source: L.ShopSettings, target: L.ShopSettings, allowed: set[str],
+    link: ProfileShopLink, source: L.ShopSettings, target: L.ShopSettings,
 ) -> dict[str, Any]:
-    """Every shop setting of one profile in one shop, in order: the account's map, the same
-    name, the same terms, then a copy. A copy is made only on the seller's own action
-    (``allowed``: ``links.COPY_ALL``, or the settings they chose to copy in the dialog), or
-    to restore a copy the app made that was deleted on Etsy. The seller is asked only when
-    Etsy refuses, when two settings match, or when nothing can be copied. Returns what is
-    left for the seller (the plan the setup dialog shows)."""
+    """Every shop setting of one profile in one shop, in order: the account's map (a choice
+    the seller made, or what was found before), the same name, the same terms, then a copy
+    made at once. A reference listing uses its main shop's settings in every shop, with no
+    question (since 21 October 2026). Never made again: a setting the seller made themselves
+    that was deleted on Etsy (a tombstone in the map, ``setting_map.GONE``, until the seller
+    picks another). Returns what is left for the seller (shown as one line on the card)."""
     granted = set(shop.scopes) if shop.scopes is not None else None
     outcomes = L.plan_shop(payload, source, target, granted)
     currency_note = L.currency_problem(payload.get("currency"), target.currency)
@@ -449,18 +471,25 @@ async def _resolve(
         source_id = int(wanted)
         source_row = source.find(resource, source_id)
         lost: str | None = None
-        restore = False
+        gone: str | None = None  # a seller-made setting deleted on Etsy: matched again, never remade
         mapped = await setting_map.lookup(session, profile.tenant_id, resource, main.id, source_id, shop.id)
-        if mapped is not None:
+        if mapped is not None and mapped.how == setting_map.GONE:
+            gone = mapped.label or "it"
+        elif mapped is not None:
             row = target.find(resource, int(mapped.target_id))
             if row is not None and not row.get("is_deleted"):
                 outcome.linked, outcome.how, outcome.reason = int(mapped.target_id), mapped.how, None
                 outcome.label = L.label_of(resource, row)
                 continue
-            # Deleted on Etsy: forgotten here, and resolved again below.
+            # Deleted on Etsy: resolved again below. The app's own copy is made again; a
+            # setting the seller made is not (a tombstone keeps that until they pick another).
             lost = mapped.label or (L.label_of(resource, row) if row else None) or f"#{mapped.target_id}"
-            restore = mapped.how == "created"  # the app's own copy: made again without asking
-            await setting_map.forget(session, mapped)
+            if mapped.how == "created":
+                await setting_map.forget(session, mapped)
+            else:
+                gone = lost
+                await setting_map.remember(session, profile.tenant_id, resource, main.id, source_id, shop.id, 0,
+                                           how=setting_map.GONE, label=lost)
         if outcome.linked not in (None, []):
             if int(outcome.linked) in partial:  # the half-made copy: the seller finishes it first
                 failures[resource] = partial[int(outcome.linked)]
@@ -471,13 +500,13 @@ async def _resolve(
             if note := _notice(resource, here, lost, outcome.how or "same name", outcome.label):
                 notices.append(note)
             continue
-        may_copy = L.COPY_ALL in allowed or resource in allowed or restore
-        if not outcome.creatable or currency_note or source_row is None or not may_copy:
-            if lost and not outcome.creatable:
-                notices.append(f"{L.LABEL[resource]} \"{lost}\" is no longer in {here}; choose another.")
-            elif lost:
-                notices.append(f"{L.LABEL[resource]} \"{lost}\" is no longer in {here}; set it up again.")
-            continue  # the seller chooses (or confirms the copy): the reason is the outcome's
+        if gone is not None:
+            # Theirs, deleted in Shop Manager: not made again. One line on the card.
+            outcome.reason, outcome.creatable = (f"\"{gone}\" was deleted in {here}'s Shop Manager; choose another "
+                                                 "of the shop's with change"), False
+            continue
+        if not outcome.creatable or currency_note or source_row is None:
+            continue  # nothing can be copied (the reason is the outcome's): the seller picks with change
         try:
             new_id, how, label = await ensure_copy(
                 ctx, session, client, shop_id, kw, tenant_id=profile.tenant_id, source=main.id,
@@ -636,7 +665,7 @@ async def _link_profile_body(ctx: dict[str, Any], pid: uuid.UUID) -> str:
                     continue
                 plan[str(shop.id)] = await _resolve(
                     ctx, session, client, shop_id, tkw, profile=profile, payload=payload, main=main, shop=shop,
-                    link=link, source=source, target=target, allowed=set(link.pending_create or []))
+                    link=link, source=source, target=target)
                 await session.commit()  # each shop's ids as soon as they exist
                 # Every other reference listing in this shop that uses the same settings, at once.
                 await setting_map.apply(session, profile.tenant_id, target=shop.id)
@@ -762,16 +791,36 @@ async def setting_gone(session: Any, redis: Any, job: Any, exc: BaseException) -
 
 
 async def resolve_all(session: Any, *, apply: bool, email: str | None = None) -> dict[str, Any]:
-    """Fill every account's profile links from the map (database only, no Etsy request),
-    then mark the links that still lack a shipping profile, return policy or processing
-    profile to be resolved again (``link_profile``: the map, the same name or terms; each
-    shop's lists read at most once an hour). **Never a new copy**: nobody clicked anything,
-    so what has no match waits for the seller's "Finish setup" (that click copies it).
+    """Put every account's reference listings right, after a deploy:
+
+    * a profile whose reference listing is, by the account's own listing cache, in another
+      of its shops gets that shop as its main shop (``profile_shops.move_main``; no Etsy
+      request; its ids are that listing's own);
+    * every profile link is filled from the map (database only);
+    * links still lacking a shipping profile, return policy or processing profile are
+      resolved again (``link_profile``: the map, the same name or terms, else a copy made at
+      once; each shop's lists read at most once an hour).
+
     Without ``apply`` nothing is written. Returns the counts and the profiles to queue."""
+    from app.db.models import ShopListingCache
+    from app.pipeline import profile_shops
+
     query = select(Tenant.id)
     if email:
         query = query.where(Tenant.email == email.strip().lower())
     tenants = list((await session.execute(query)).scalars())
+    moved: list[uuid.UUID] = []
+    wrong = (await session.execute(
+        select(ListingProfile, ShopListingCache.connection_id)
+        .join(ShopListingCache, (ShopListingCache.tenant_id == ListingProfile.tenant_id)
+              & (ShopListingCache.listing_id == ListingProfile.reference_listing_id))
+        .join(EtsyConnection, EtsyConnection.id == ShopListingCache.connection_id)
+        .where(ListingProfile.tenant_id.in_(tenants), ShopListingCache.connection_id != ListingProfile.connection_id,
+               EtsyConnection.status == ConnectionStatus.active)
+    )).all()
+    for profile, shop in wrong:
+        await profile_shops.move_main(session, profile, shop)
+        moved.append(profile.id)
     filled = 0
     for tenant_id in tenants:
         filled += await setting_map.apply(session, tenant_id)
@@ -789,15 +838,19 @@ async def resolve_all(session: Any, *, apply: bool, email: str | None = None) ->
         missing = L.missing(profile.cached_payload, link)
         if link.status == "incomplete" and not any(r in missing for r in setting_map.MAPPED):
             continue  # only a production partner is left: the seller's choice
-        link.status, link.pending_create = "checking", None
+        link.status, link.pending_create = "checking", [L.COPY_ALL]
         links += 1
         if profile.id not in again:
             again.append(profile.id)
+    for profile_id in moved:  # their links were set to be resolved by the move
+        if profile_id not in again:
+            again.append(profile_id)
     if apply:
         await session.commit()
     else:
         await session.rollback()
-    return {"accounts": len(tenants), "links_filled": filled, "links_to_resolve": links, "profiles": again}
+    return {"accounts": len(tenants), "links_filled": filled, "links_to_resolve": links, "profiles": again,
+            "main_shops_corrected": len(moved), "refresh": moved}
 
 
 async def resolve_shop_settings_once(ctx: dict[str, Any]) -> str:
@@ -816,6 +869,8 @@ async def resolve_shop_settings_once(ctx: dict[str, Any]) -> str:
         return "done-before"
     async with ctx["sessionmaker"]() as session:
         result = await resolve_all(session, apply=True)
+    for profile_id in result["refresh"]:
+        await _enqueue_job(ctx, "refresh_profile", str(profile_id))
     for profile_id in result["profiles"]:
         await _enqueue_job(ctx, "link_profile", str(profile_id))
     if redis is not None:

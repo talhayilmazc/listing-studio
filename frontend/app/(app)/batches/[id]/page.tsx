@@ -22,7 +22,7 @@ import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
 
 import { Txt } from "@/components/Txt";
-import { ShopSetupDialog, type SetupItem } from "@/components/ShopSetupDialog";
+import { startSetup } from "@/lib/startSetup";
 interface AssetGroup {
   key: string;
   label: string;
@@ -158,13 +158,17 @@ export default function BatchPage({ params }: { params: { id: string } }) {
     }
   }
 
-  // "Set up <profile> in <shop>" on a group whose profile is not usable in its shop yet.
-  // The group's profile in the group's shop: the setup dialog opens here (the same
-  // flow as the Profiles page); the groups are read again when it closes.
-  const [setupItems, setSetupItems] = useState<SetupItem[] | null>(null);
-  function setUpProfile(profileId: string, profileName: string | null, shopId: string) {
+  // "Set up <profile> in <shop>" on a group whose profile is not usable in its shop yet:
+  // its main shop's shipping, return and processing settings are matched or copied there,
+  // with no question (no dialog); the groups are read again.
+  async function setUpProfile(profileId: string, profileName: string | null, shopId: string) {
     setProblem(null);
-    setSetupItems([{ profileId, profileName, shopIds: [shopId] }]);
+    try {
+      await startSetup([{ profileId, profileName, shopIds: [shopId] }]);
+    } catch (e: any) {
+      setProblem(String(e.message ?? e));
+    }
+    loadGroups();
   }
 
   // "Write title and tags myself": an empty listing with everything else from the
@@ -363,12 +367,6 @@ export default function BatchPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-6">
-      {setupItems && (
-        <ShopSetupDialog key="setup-dialog" items={setupItems} onClose={() => {
-          setSetupItems(null);
-          loadGroups();
-        }} />
-      )}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/batches" className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">

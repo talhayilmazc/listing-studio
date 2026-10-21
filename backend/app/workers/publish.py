@@ -35,9 +35,18 @@ from app.db.models import (
 from app.etsy import guard
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.connection import ConnectionService
-from app.etsy.publisher import PublishConfig, PublishImage, ShopNotSetUp, publish_content, publish_live
+from app.etsy.publisher import (
+    SETUP_WAIT_SECONDS,
+    PublishConfig,
+    PublishImage,
+    SetupPending,
+    ShopNotSetUp,
+    publish_content,
+    publish_live,
+)
 from app.pipeline import chart_order, item_options, profile_shops
 from app.pipeline.images import cover_image
+from app.pipeline import links as L
 from app.pipeline.links import setup_message, shop_reference
 from app.pipeline.personalization import for_listing as personalization_for_listing
 from app.pipeline.storage import LocalStorage
@@ -289,14 +298,24 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             )
             if not target.ok:
                 state = profile_shops.state_of(target.profile, target.link) if target.profile and target.link else None
+                again = (target.link is not None and target.link.status == "incomplete" and target.profile is not None
+                         and L.set_up_again(target.link, target.profile.cached_payload))
+                if target.profile is not None and target.profile.confirmed and not target.stale and (
+                    target.link is None or target.link.status == "checking" or again
+                ):
+                    # The profile is used in this shop from now on: its main shop's shipping, return
+                    # and processing settings are matched or copied there, then the draft carries on.
+                    if (target.link is None or again) and await profile_shops.start_links(session, target.profile, [connection.id]):
+                        await session.commit()
+                        from app.workers.profiles import _enqueue_job
+
+                        await _enqueue_job(ctx, "link_profile", str(target.profile.id))
+                    raise SetupPending(f"preparing {connection.shop_name or 'the shop'}'s shipping, return and "
+                                       "processing settings", seconds=SETUP_WAIT_SECONDS)
                 if state is not None and state.missing:
-                    # A shop-scoped setting this shop lacks (its processing profile, say):
+                    # A shop-scoped setting this shop could not get (Etsy refused the copy, say):
                     # said in plain words, before anything is sent to Etsy.
-                    first = next(iter(state.missing))
-                    raise ShopNotSetUp(
-                        f"{setup_message(first, connection.shop_name)}; set it up in "
-                        f"{connection.shop_name or 'that shop'}, then try again"
-                    )
+                    raise ShopNotSetUp(f"{connection.shop_name or 'This shop'}: {state.reason}")
                 raise ValueError(target.reason or "no profile for this shop")
             profile = owned(target.profile, job.tenant_id, "profile")
             link = target.link

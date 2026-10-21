@@ -221,21 +221,43 @@ async def test_a_missing_processing_profile_blocks_before_any_etsy_call(world, m
         s.add(job)
         await s.commit()
         job_id = job.id
-    assert await publish_worker._run_publish_job({"sessionmaker": world["sm"]}, str(job_id)) == "failed"
+    class Pool:
+        def __init__(self) -> None:
+            self.jobs: list[tuple] = []
+
+        async def enqueue_job(self, function: str, *args: Any, **kwargs: Any) -> None:
+            self.jobs.append((function, args))
+
+    pool = Pool()
+    # A link the old rules left at "no match": set up again by itself (its processing profile is
+    # matched or copied), and the draft waits for it, without a try spent and with nothing sent.
+    assert await publish_worker._run_publish_job({"sessionmaker": world["sm"], "redis": pool}, str(job_id)) == "deferred"
     async with world["sm"]() as s:
         job = await s.get(Job, job_id)
-        assert job.last_error.startswith("Processing profile is not set up in BlueCustomTeeShirt")
+        assert (job.status, job.paused_reason) == (JobStatus.queued, recovery.WAIT_SETUP)
         assert (await s.execute(select(DraftAttempt))).scalars().all() == []  # no draft was started
+        link = await s.get(ProfileShopLink, ids["link"].id)
+        assert link.status == "checking"
+        # Etsy refused the copy: the draft for BCT fails with that one line, before any Etsy call.
+        link.status, link.notes = "incomplete", {"readiness_state": 'Etsy refused the copy of "Ready": "Nope". Create it '
+                                                                   "in BlueCustomTeeShirt's Shop Manager, then press Refresh."}
+        refused = Job(tenant_id=world["alice"], connection_id=ids["bct"], type=JobType.create_draft,
+                      payload={"content_id": str(ids["content"])}, status=JobStatus.running)
+        s.add(refused)
+        await s.commit()
+        refused_id = refused.id
+    assert ("link_profile", (str(world["pa1"]),)) in pool.jobs
+    assert await publish_worker._run_publish_job({"sessionmaker": world["sm"], "redis": pool}, str(refused_id)) == "failed"
+    async with world["sm"]() as s:
+        assert (await s.get(Job, refused_id)).last_error.startswith(
+            "BlueCustomTeeShirt: Processing profile: Etsy refused the copy")
 
-    # On the review page the shop says so, with one click to set it up there.
+    # On the review page the refusal is one line for the shop, not a block, and the cell can still be ticked.
     preview = (await world["a"].post(f"/api/batches/{world['batch']}/publish/preview",
                                      json={"pairs": [{"content_id": str(ids["content"]), "connection_id": str(ids["bct"])}]})).json()
     column = next(c for c in preview["columns"] if c["connection_id"] == str(ids["bct"]))
-    need = next(n for n in column["needs"] if n["kind"] == "readiness_state")
-    assert need["message"].startswith("Processing profile is not set up in BlueCustomTeeShirt") and need["setup"] and need["blocking"]
-    # "Set up in BCT" checks an incomplete link again (exact matches link; what was set before is kept).
-    res = await world["a"].post(f"/api/profiles/{world['pa1']}/use-in", json={"scope": "shops", "connection_ids": [str(ids["bct"])]})
-    assert res.status_code == 200 and str(ids["bct"]) in [str(x) for x in res.json()["started"]]
+    need = next(n for n in column["needs"] if n["kind"] == "settings")
+    assert need["message"].startswith("BlueCustomTeeShirt: Processing profile: Etsy refused") and not need["blocking"]
 
 
 async def test_a_retry_after_a_failed_inventory_update_finishes_the_same_listing(world) -> None:  # noqa: F811

@@ -66,6 +66,15 @@ Every scope requested is used; none is requested for future use.
 > Background work never creates a new setting. The current wording is in `docs/etsy-compliance.md` and
 > `backend/app/etsy/oauth.py::SCOPE_REASONS`; tell Etsy if it asks about scope use.
 
+> **Changed again (21 October 2026), `shops_w`:** a reference listing uses its main shop's shipping profile, return
+> policy and processing profile in every shop of the same seller, with no dialog and no confirmation: when it is used
+> in another shop (the seller chooses that shop for it, drafts there, or connects a new shop), each setting that shop
+> lacks is copied there at once, once per setting and shop. The seller can pick another of that shop's own settings at
+> any time. A copy Listyro made that is deleted on Etsy is made again; a setting the seller made is never made again.
+> To copy a shipping profile that ships only "everywhere else", Listyro creates it with the ship-from country as a
+> temporary destination and deletes that destination once "everywhere else" is added (deleteShopShippingProfileDestination,
+> only on the copy it just made); nothing the seller made is deleted.
+
 ## AI use
 
 AI suggests a title, 13 tags and a description from the seller's own images and the reference listing they chose. The seller reviews and edits every listing; nothing is generated or published without the seller.

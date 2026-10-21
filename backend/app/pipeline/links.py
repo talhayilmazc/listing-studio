@@ -60,12 +60,10 @@ NO_SCOPE = ("creating it needs Etsy's permission to change shop settings (\"{sco
             "given Listyro; reconnect the shop on the Connect page to give it, or choose one of this shop's")
 
 # Why a resource is not linked yet, as the seller reads it.
-#: ``profile_shop_link.pending_create`` when the seller set the profile up in that shop
-#: (Use in, ticking the shop, Finish setup, "Use all reference listings here", Refresh in
-#: the setup dialog): that click is the confirmation, so any setting the shop has no
-#: counterpart for may be copied there. Without it (the background check, a reconnected
-#: shop, the one-time job after deploy) a shop is only matched; a copy the app made that
-#: was deleted on Etsy is the one thing made again.
+#: ``profile_shop_link.pending_create`` of a link being set up. Since 21 October 2026 every
+#: setup copies what a shop lacks (a reference listing uses its main shop's shipping, return
+#: and processing settings in every shop, with no question); the marker stays for the links
+#: and jobs written before.
 COPY_ALL = "all"
 
 NO_SOURCE = "the main shop's reference has none, so this shop needs none"
@@ -207,10 +205,14 @@ def match_in(resource: str, source_row: dict[str, Any], rows: list[dict[str, Any
 REGIONS = {"eu": "the EU", "non_eu": "Europe outside the EU"}
 EVERYWHERE = "everywhere else"
 #: A profile Etsy's create call cannot express: it needs a country or a region, and
-#: "everywhere else" is neither (it can only be added afterwards, by naming neither).
-EVERYWHERE_ONLY = ("Etsy's API cannot create a shipping profile whose only destination is \"everywhere else\" "
-                   "(its create call needs a country, the EU or Europe outside the EU); create it in this shop's "
-                   "Shop Manager, then press Refresh and pick it")
+#: "everywhere else" is neither (it can only be added afterwards, by naming neither). A copy
+#: of such a profile is made with a temporary destination, the ship-from country (``TEMPORARY``),
+#: which is deleted once "everywhere else" is in; only a profile with no ship-from country
+#: cannot be copied.
+EVERYWHERE_ONLY = ("the main shop's shipping profile ships only \"everywhere else\" and has no ship-from country, "
+                   "which Etsy needs to create a copy; choose one of this shop's with change")
+#: In a copy's create payload: the temporary destination's country, deleted after the rest is in.
+TEMPORARY = "temporary_destination"
 NO_DESTINATION = ("the main shop's shipping profile has no destination to copy; create it in this shop's Shop "
                   "Manager, then press Refresh and pick it")
 
@@ -276,22 +278,34 @@ def copy_problem(source: dict[str, Any]) -> str | None:
     destinations = source.get("shipping_profile_destinations") or []
     if not destinations:
         return NO_DESTINATION
-    if all(is_everywhere(d) for d in destinations):
+    if all(is_everywhere(d) for d in destinations) and not source.get("origin_country_iso"):
         return EVERYWHERE_ONLY
     return None
+
+
+def everywhere_only(source: dict[str, Any]) -> bool:
+    destinations = source.get("shipping_profile_destinations") or []
+    return bool(destinations) and all(is_everywhere(d) for d in destinations)
 
 
 def shipping_copy(source: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     """createShopShippingProfile's payload for a copy, plus the destinations and
     upgrades to add after it. The first destination goes in the create call, and it
     always names a country or a region (``create_order``); "everywhere else" is added
-    afterwards, naming neither. A profile ``copy_problem`` refuses raises ValueError
-    (``plan_resource`` never offers such a copy)."""
+    afterwards, naming neither. A profile that ships only "everywhere else" is created with
+    a temporary destination, its ship-from country at the same price and delivery time
+    (``TEMPORARY`` marks it), deleted once "everywhere else" is in. A profile
+    ``copy_problem`` refuses raises ValueError (``plan_resource`` never offers such a copy)."""
     problem = copy_problem(source)
     if problem:
         raise ValueError(problem)
     origin = source.get("origin_country_iso")
     destinations = sorted(source.get("shipping_profile_destinations") or [], key=create_order(origin))
+    temporary = everywhere_only(source)
+    if temporary:
+        # The create call needs a country: the ship-from one, the same terms as "everywhere else".
+        destinations = [{**destinations[0], "destination_country_iso": str(origin).upper(), "destination_region": None},
+                        *destinations]
 
     def dest(d: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -311,6 +325,8 @@ def shipping_copy(source: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str
         "origin_postal_code": source.get("origin_postal_code") or None,
         **first,
     }
+    if temporary:
+        profile[TEMPORARY] = str(origin).upper()
 
     def kind(u: dict[str, Any]) -> int:
         try:
@@ -333,8 +349,9 @@ def shipping_copy(source: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str
 
 
 def send(row: dict[str, Any]) -> dict[str, Any]:
-    """What goes to Etsy from a planned destination or upgrade (its label stays here)."""
-    return {k: v for k, v in row.items() if k != "label"}
+    """What goes to Etsy from a planned profile, destination or upgrade (its label and the
+    temporary-destination marker stay here)."""
+    return {k: v for k, v in row.items() if k not in ("label", TEMPORARY)}
 
 
 # --- When Etsy refuses a copy: its reason in plain words, and what fixes it ----------------------
@@ -483,7 +500,7 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
         profile, destinations, upgrades = shipping_copy(row)
         return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, source_label=source_label,
                        create={"profile": profile, "destinations": destinations, "upgrades": upgrades},
-                       requests=1 + len(destinations) + len(upgrades))
+                       requests=1 + len(destinations) + len(upgrades) + (1 if TEMPORARY in profile else 0))
     if resource == RETURNS:
         returns, exchanges, deadline = return_terms(row)
         return Outcome(resource, reason=NOT_FOUND, creatable=True, options=options, requests=1, source_label=source_label,
@@ -540,6 +557,14 @@ def wanted(payload: dict[str, Any] | None, resource: str) -> Any:
         found = offering_readiness(payload)
         value = found[0] if found else None
     return value
+
+
+def set_up_again(link: Any, payload: dict[str, Any] | None) -> bool:
+    """A link that is only missing settings nothing was tried for ("no match", written before
+    every setup copied what a shop lacks): it is set up again by itself. A link Etsy refused,
+    or one waiting for the seller's pick, is not (it would only be refused again)."""
+    gaps = missing(payload, link)
+    return bool(gaps) and all(why == NOT_FOUND for why in gaps.values()) and not (link.notes or {}).get("error")
 
 
 def setup_message(resource: str, shop_name: str | None) -> str:

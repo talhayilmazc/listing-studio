@@ -31,6 +31,8 @@ RETRY_MESSAGES = {
         "requests right now. Nothing has changed on Etsy. This tries again by itself."
     ),
     "interrupted": "This was interrupted. It starts again by itself in a moment and carries on where it stopped.",
+    "shop_setup": "Preparing this shop's shipping, return and processing settings (the main shop's, copied where "
+                  "needed). The draft follows by itself.",
 }
 
 

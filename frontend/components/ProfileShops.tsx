@@ -2,28 +2,28 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { announceProfilesChanged, useInShops } from "@/lib/shopSetup";
+import { announceProfilesChanged, settingsLine, shopState, useInShops } from "@/lib/shopSetup";
+import { startSetup } from "@/lib/startSetup";
 import type { Profile, ShopGroups } from "@/lib/types";
-import { ShopSetupDialog, type SetupItem } from "./ShopSetupDialog";
+import { ShopSettingsPanel } from "./ShopSettingsPanel";
 import { ShopTargetPicker } from "./ShopTargetPicker";
 import { useShops } from "./ShopProvider";
 import { Txt } from "./Txt";
 
 /**
- * Where a profile is used (v8 §C): its main shop (the reference listing is
- * there) and every shop it is set up in, each with what is missing and why.
- * "Use in" sets it up in all shops, in a group, or in the shops chosen. That click
- * is the seller's confirmation: each shop setting is matched (the account's map,
- * the same name or terms) or copied from the main shop, once per shop, and every
- * reference listing using it uses it there too. The dialog appears only for what
- * needs the seller (a copy Etsy refused, two settings that match).
+ * Where a reference listing (profile) is used (v8 §C): its main shop (the reference listing
+ * is there) and every other shop. It uses its main shop's shipping profile, return policy and
+ * processing profile in every shop, with no question: "Use in" (or drafting in a shop, or
+ * connecting one) matches or copies them there at once. Each shop shows "ready", "preparing…",
+ * or one plain line when Etsy refused something. At the bottom one line says which settings
+ * are used, with "change" to pick another of a shop's own (for every reference listing).
  */
 export function ProfileShops({ profile, onChange }: { profile: Profile; onChange: (p: Profile) => void }) {
   const { shops } = useShops();
   const [groups, setGroups] = useState<ShopGroups | null>(null);
   const [open, setOpen] = useState(false);
+  const [changing, setChanging] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
-  const [dialog, setDialog] = useState<SetupItem[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,7 +31,8 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
   const links = profile.links ?? [];
   const checking = links.some((l) => l.status === "checking");
   const candidates = useInShops(shops ?? [], links);
-  const needsWork = links.filter((l) => !l.main && !l.ready && l.status !== "checking");
+  const others = links.filter((l) => !l.main);
+  const mainShop = links.find((l) => l.main)?.shop_name ?? profile.shop_name;
 
   const reload = useCallback(async () => {
     try {
@@ -41,17 +42,17 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
     }
   }, [profile.id, onChange]);
 
-  // While a shop is being set up, look again every few seconds (it takes a minute at most).
+  // While a shop is being prepared, look again every few seconds (it takes a minute at most).
   useEffect(() => {
-    if (!checking || dialog) return;
+    if (!checking) return;
     timer.current = setTimeout(reload, 4000);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [checking, reload, links, dialog]);
+  }, [checking, reload, links]);
 
-  // A setup that finished here may have set up other reference listings too (a copy made,
-  // a choice changed): every card on the page reads itself again.
+  // A shop that finished preparing here may have set up other reference listings too (a copy
+  // made, a choice changed): every card on the page reads itself again.
   const wasChecking = useRef(checking);
   useEffect(() => {
     if (wasChecking.current && !checking) announceProfilesChanged();
@@ -62,9 +63,21 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
     if (open && groups === null) api.shopGroups().then(setGroups).catch(() => setGroups({ groups: [], ungrouped: [] }));
   }, [open, groups]);
 
-  const setUp = (shopIds: string[]) => {
-    if (shopIds.length) setDialog([{ profileId: profile.id, profileName: profile.name, shopIds }]);
-  };
+  async function setUp(shopIds: string[]) {
+    if (!shopIds.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await startSetup([{ profileId: profile.id, profileName: profile.name, shopIds }]);
+      setPicked([]);
+      setOpen(false);
+      await reload();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function stop(shop: string) {
     setBusy(true);
@@ -80,7 +93,7 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
   }
 
   return (
-    <div className="rounded-md border border-slate-200 p-3 text-xs">
+    <div className="rounded-md border border-slate-200 p-3 text-xs" data-testid="profile-shops">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium text-slate-700">Shops</span>
         <button type="button" className="tap text-brand-700 underline" onClick={() => setOpen((o) => !o)} aria-expanded={open}
@@ -89,35 +102,29 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
         </button>
       </div>
       <ul className="mt-1.5 space-y-1">
-        {links.map((l) => (
-          <li key={l.connection_id} className="flex flex-wrap items-baseline gap-x-2">
-            <span translate="no" className="font-medium text-slate-700">{l.shop_name}</span>
-            {l.main ? (
-              <span key="main" className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">main · reference listing</span>
-            ) : l.ready ? (
-              <span key="ready" className="text-emerald-700">set up</span>
-            ) : l.status === "checking" ? (
-              <span key="checking" translate="no" className="text-slate-500">setting up…</span>
-            ) : (
-              <span key="missing" className="text-amber-800"><Txt>{l.reason}</Txt></span>
-            )}
-            {!l.main && l.status !== "checking" && (
-              <button key="stop" type="button" className="tap text-slate-400 underline" disabled={busy} onClick={() => stop(l.connection_id)}>
-                stop using here
-              </button>
-            )}
-            {l.notice && (
-              <span key="notice" className="basis-full text-slate-600" data-testid="link-notice"><Txt>{l.notice}</Txt></span>
-            )}
-          </li>
-        ))}
+        {links.map((l) => {
+          const state = shopState(l);
+          return (
+            <li key={l.connection_id} className="flex flex-wrap items-baseline gap-x-2" data-testid="profile-shop">
+              <span translate="no" className="font-medium text-slate-700">{l.shop_name}</span>
+              {state.kind === "main" ? (
+                <span key="main" className="rounded bg-slate-100 px-1 text-[10px] text-slate-600">main · reference listing</span>
+              ) : state.kind === "ready" ? (
+                <span key="ready" className="text-emerald-700">ready</span>
+              ) : state.kind === "preparing" ? (
+                <span key="preparing" translate="no" className="text-slate-600">preparing…</span>
+              ) : (
+                <span key="problem" className="basis-full text-amber-800" data-testid="profile-shop-problem"><Txt>{state.text}</Txt></span>
+              )}
+              {!l.main && l.status !== "checking" && (
+                <button key="stop" type="button" className="tap text-slate-500 underline" disabled={busy} onClick={() => stop(l.connection_id)}>
+                  stop using here
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
-      {needsWork.length > 0 && (
-        <button key="finish" type="button" className="btn-secondary mt-2 px-2 py-1 text-xs" disabled={busy || !profile.confirmed}
-          onClick={() => setUp(needsWork.map((l) => l.connection_id))} data-testid="finish-setup">
-          <span translate="no">{`Finish setup in ${needsWork.length} shop${needsWork.length === 1 ? "" : "s"}`}</span>
-        </button>
-      )}
 
       {open && (
         <div key="use-in" className="mt-3 space-y-3 border-t border-slate-100 pt-3">
@@ -133,24 +140,27 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
             allShops />
           <button type="button" className="btn-primary px-2 py-1 text-xs" disabled={busy || picked.length === 0}
             onClick={() => setUp(picked)} data-testid="use-in-chosen">
-            <span translate="no">{picked.length ? `Set up in ${picked.length} shop${picked.length === 1 ? "" : "s"}` : "Set up"}</span>
+            <span translate="no">{picked.length ? `Use in ${picked.length} shop${picked.length === 1 ? "" : "s"}` : "Use in"}</span>
           </button>
-          <p className="text-slate-500">
-            Each shop keeps its own shipping, return and processing settings: the ones with the same name (or the same
-            terms) are used; where a shop has none, setting up makes a copy of this profile&apos;s main shop&apos;s
-            there, once, and every reference listing uses it. You are asked only if Etsy refuses or two settings match.
-          </p>
         </div>
       )}
-      {error && <p key="error" className="mt-2 text-rose-600">{error}</p>}
-      {dialog && (
-        <ShopSetupDialog key="dialog" items={dialog} onClose={() => {
-          setDialog(null);
-          setPicked([]);
-          reload();
-          announceProfilesChanged();
-        }} />
+
+      <p className="mt-2 border-t border-slate-100 pt-2 text-slate-600" data-testid="settings-line">
+        <span translate="no">{settingsLine(mainShop)}</span>
+        {others.length > 0 && (
+          <span key="change">
+            <span> · </span>
+            <button type="button" className="tap text-brand-700 underline" onClick={() => setChanging((c) => !c)}
+              aria-expanded={changing} data-testid="settings-change">
+              change
+            </button>
+          </span>
+        )}
+      </p>
+      {changing && others.length > 0 && (
+        <ShopSettingsPanel key="panel" profileId={profile.id} onChanged={reload} />
       )}
+      {error && <p key="error" className="mt-2 text-rose-700">{error}</p>}
     </div>
   );
 }

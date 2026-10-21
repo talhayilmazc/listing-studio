@@ -38,7 +38,7 @@ from app.db.models import EtsyConnection, Job, JobStatus, JobType, Tenant
 from app.etsy.api import RateLimitExceeded
 from app.etsy.errors import EtsyError, EtsyRateLimited, EtsyServerError
 from app.etsy.errors import record as etsy_record
-from app.etsy.publisher import NotYet
+from app.etsy.publisher import SETUP_GIVE_UP_SECONDS, NotYet, SetupPending
 from app.workers import gate
 from app.workers.guards import public_error
 
@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 WAIT_ETSY_RATE = "etsy_rate_limit"
 WAIT_ETSY_DOWN = "etsy_unavailable"
 WAIT_INTERRUPTED = "interrupted"
+#: A draft waiting for its shop to be set up for its profile (settings matched or copied there).
+WAIT_SETUP = "shop_setup"
 
 MIN_RATE_WAIT = 60.0
 MAX_RATE_WAIT = 15 * 60.0
@@ -145,6 +147,21 @@ async def after_failure(
             exhausted="Etsy kept saying requests were coming too fast, so this stopped. Nothing is wrong with "
                       "the listing: try again in a few minutes and it carries on where it stopped.",
         )
+
+    if isinstance(exc, SetupPending):
+        # The shop is being set up for the listing's profile: wait, without using a try.
+        created = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)
+        if (_now() - created).total_seconds() < SETUP_GIVE_UP_SECONDS:
+            job.status, job.paused_reason = JobStatus.queued, WAIT_SETUP
+            job.scheduled_at = _now() + timedelta(seconds=exc.seconds)
+            await session.commit()
+            await _enqueue(ctx, function, str(job.id), exc.seconds)
+            return "deferred"
+        job.status, job.paused_reason, job.finished_at = JobStatus.failed, None, _now()
+        job.last_error = ("The shop's shipping, return and processing settings could not be prepared in time; "
+                          "try again")
+        await session.commit()
+        return "failed"
 
     if isinstance(exc, (httpx.TransportError, EtsyServerError, NotYet)):
         delay = exc.seconds if isinstance(exc, NotYet) else outage_wait((job.attempts or 0) + 1)
