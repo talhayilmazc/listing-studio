@@ -132,3 +132,14 @@ test("the upload page: no shop, one Add files button, the listings arranged in p
     assert.ok(board.includes(piece), piece);
   }
 });
+
+test("the grouping question is asked once, on the upload page; afterwards a result with change", () => {
+  const upload = read("app/(app)/upload/page.tsx");
+  assert.equal(upload.split("<GroupingChoice").length - 1, 1, "asked once, before the upload");
+  assert.ok(upload.includes("<GroupingResult"), "after the upload: the result");
+  const batch = read("app/(app)/batches/[id]/page.tsx");
+  assert.ok(!batch.includes("<GroupingChoice") && batch.includes("<GroupingResult"));
+  assert.ok(batch.includes("regroupable={!!batch.regroupable}"), "no change once anything is written");
+  const choice = read("components/GroupingChoice.tsx");
+  assert.ok(choice.includes('{regroupable && open && ('), "the choices open only from change");
+});

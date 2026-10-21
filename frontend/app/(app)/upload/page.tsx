@@ -30,7 +30,7 @@ import {
   type GroupingMode,
   type PreviewFile,
 } from "@/lib/grouping";
-import { GroupingChoice } from "@/components/GroupingChoice";
+import { GroupingChoice, GroupingResult } from "@/components/GroupingChoice";
 import { MockupUpload } from "@/components/MockupUpload";
 
 import { Txt } from "@/components/Txt";
@@ -722,17 +722,13 @@ export default function UploadPage() {
           <p role="status" translate="no" className="text-sm font-medium text-slate-800" data-testid="grouping-found">
             {summary.grouping}
           </p>
-          {summary.regroupable !== false && (
-            <GroupingChoice
-              key="choice-radios"
-              name="grouping-done"
-              files={rows.filter((r) => r.assetId).map((r) => ({ folder: r.folder, name: r.name }))}
-              value={(summary.grouping_mode as GroupingMode | null) ?? mode}
-              onChange={regroup}
-              disabled={regrouping}
-              extra="Switching regroups the uploaded photos now; nothing has been written yet."
-            />
-          )}
+          <GroupingResult
+            files={rows.filter((r) => r.assetId).map((r) => ({ folder: r.folder, name: r.name }))}
+            value={(summary.grouping_mode as GroupingMode | null) ?? mode}
+            onChange={regroup}
+            regroupable={summary.regroupable !== false}
+            disabled={regrouping}
+          />
         </div>
       )}
 

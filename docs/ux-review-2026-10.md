@@ -144,5 +144,6 @@ Filled in as each item lands (B9 completes it).
 
 | Page | Removed | Merged | Renamed |
 |---|---|---|---|
+| Batch | the grouping question (B2) | | the grouping is a result line, "3 listings, one per folder · change", while nothing is written (B2) |
 | Review | request counts (A3); production-partner box per card (A6) | | |
 | Upload | Merge/Skip prompt (A5); "For shop" (B1); the three add buttons (B1) | photos, folders and ZIPs in one drop zone and one "Add files" button (photos or ZIPs in one dialog, a folder in the other: a browser's dialog cannot pick both at once) (B1) | the staged folders are now the listings they become, arranged in place: drag between cards, "+ New listing", "+" per card, "Move to…" per photo (B1) |

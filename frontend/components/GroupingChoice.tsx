@@ -75,3 +75,51 @@ export function GroupingChoice({
     </fieldset>
   );
 }
+
+const HOW: Record<GroupingMode, string> = {
+  folder: "one per folder",
+  sku: "grouped by SKU",
+  one: "all one listing",
+};
+
+/**
+ * The grouping is asked once, on the upload page (B2). Afterwards (the upload's result, the
+ * batch page) it is one line, "3 listings, one per folder", with a small "change" while
+ * nothing is written; never after Generate (``regroupable`` false: no "change").
+ */
+export function GroupingResult({
+  files,
+  value,
+  onChange,
+  regroupable,
+  disabled,
+}: {
+  files: PreviewFile[];
+  value: GroupingMode;
+  onChange: (mode: GroupingMode) => void;
+  regroupable: boolean;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const line = `${previewText(preview(files, value))}, ${HOW[value]}`;
+  return (
+    <div className="space-y-2" data-testid="grouping-result">
+      <p className="text-sm text-slate-700">
+        <span translate="no">{line}</span>
+        {regroupable && (
+          <span key="change">
+            <span> · </span>
+            <button type="button" className="tap text-brand-700 underline" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+              data-testid="grouping-change">
+              {open ? "done" : "change"}
+            </button>
+          </span>
+        )}
+      </p>
+      {regroupable && open && (
+        <GroupingChoice key="choice" files={files} value={value} onChange={onChange} disabled={disabled}
+          extra="You can switch until anything is written." />
+      )}
+    </div>
+  );
+}

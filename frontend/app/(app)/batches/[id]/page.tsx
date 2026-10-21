@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
-import { GroupingChoice } from "@/components/GroupingChoice";
+import { GroupingResult } from "@/components/GroupingChoice";
 import { GroupingBoard } from "@/components/GroupingBoard";
 import { SkuEditor } from "@/components/SkuEditor";
 import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
@@ -391,22 +391,21 @@ export default function BatchPage({ params }: { params: { id: string } }) {
         </Link>
       </div>
 
-      {batch.grouping && (
+      {/* Asked once, on the upload page (B2): here the result, with "change" until anything is written. */}
+      {batch.grouping_mode && uploaded.length > 0 ? (
+        <GroupingResult
+          key="grouping"
+          files={uploaded}
+          value={batch.grouping_mode as GroupingMode}
+          onChange={regroup}
+          regroupable={!!batch.regroupable}
+          disabled={regrouping}
+        />
+      ) : batch.grouping ? (
         <p key="grouping" className="text-sm text-slate-600" translate="no">
           <span>{batch.grouping}</span>
         </p>
-      )}
-      {batch.regroupable && batch.grouping_mode && uploaded.length > 0 && (
-        <div key="regroup" className="card p-4">
-          <GroupingChoice
-            files={uploaded}
-            value={batch.grouping_mode as GroupingMode}
-            onChange={regroup}
-            disabled={regrouping}
-            extra="You can switch until anything is written from this batch."
-          />
-        </div>
-      )}
+      ) : null}
       {unsorted.length > 0 && (
         <div key="unsorted" className={"rounded-lg border px-4 py-3 text-sm " + (ignoreUnsorted ? "border-slate-200 bg-slate-50 text-slate-600" : "border-amber-200 bg-amber-50 text-amber-900")}>
           <p>
