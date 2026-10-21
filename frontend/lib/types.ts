@@ -706,6 +706,8 @@ export interface Profile {
   refresh_error: string | null;
   /** Drafts would be refused (calculated shipping, no weight or size on the reference): what to do. */
   shipping_note?: string | null;
+  /** A print-on-demand profile whose reference names no production partner (shown once, here). */
+  production_note?: string | null;
   refresh_failed_at: string | null;
   /** Wrote a listing or made a draft in the last two weeks: kept warm in the background. */
   in_use: boolean;

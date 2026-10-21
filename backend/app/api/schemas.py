@@ -1046,6 +1046,9 @@ class ProfileOut(BaseModel):
     #: One line when drafts would be refused: a calculated shipping profile and no weight
     #: or size on the reference listing, with what to do (reference.size_problem).
     shipping_note: str | None = None
+    #: Etsy's Creativity Standards: a print-on-demand profile whose reference names no
+    #: production partner (pipeline/creativity.py). Shown once here, not on every listing.
+    production_note: str | None = None
     refresh_failed_at: datetime | None = None
     # Kept warm in the background: it wrote a listing or made a draft in the
     # last two weeks. Otherwise it refreshes when viewed or used.

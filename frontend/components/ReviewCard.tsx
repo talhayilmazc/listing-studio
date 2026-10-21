@@ -560,13 +560,6 @@ export function ReviewCard({
                 {limitNotice(initial.image_limit)}
               </p>
             )}
-            {initial.production_note && (
-              // Etsy's Creativity Standards: a production partner must be disclosed on the listing.
-              <div key="production-note" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="production-note">
-                <p className="font-medium">No production partner on this profile</p>
-                <p className="mt-0.5">{initial.production_note}</p>
-              </div>
-            )}
             {manual && (
               <div key="manual" className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700" data-testid="manual-note">
                 <p>

@@ -397,6 +397,14 @@ export function ProfileCard({
           </div>
         )}
 
+        {profile.production_note && (
+          // Etsy's Creativity Standards: said once, here (the review page links to it).
+          <p key="production-note" role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="profile-production-note">
+            <span className="font-medium">No production partner on this profile. </span>
+            <span>{profile.production_note}</span>
+          </p>
+        )}
+
         {profile.shipping_note && (
           // A calculated shipping profile and no weight or size on the reference: drafts are not sent until fixed.
           <p key="shipping-note" role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="shipping-note">

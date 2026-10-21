@@ -21,7 +21,7 @@ from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Ten
 from app.etsy.refresh import in_use, request_refresh
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline import chart_order
-from app.pipeline import item_options, profile_shops
+from app.pipeline import creativity, item_options, profile_shops
 from app.pipeline import links as links_mod
 from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
 from app.pipeline.personalization import effective as effective_personalization
@@ -132,6 +132,7 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         ),
         refresh_error=profile.refresh_error,
         shipping_note=size_problem(profile.cached_payload),
+        production_note=creativity.production_note(profile),
         refresh_failed_at=profile.refresh_failed_at,
     )
 

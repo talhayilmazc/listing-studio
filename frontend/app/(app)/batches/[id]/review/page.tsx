@@ -346,6 +346,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
   const needs = needsById(approveResult);
+  // One line per profile without a production partner (Etsy's Creativity Standards).
+  const productionNotes = Object.values(
+    (items ?? []).reduce<Record<string, { id: string; name: string; count: number }>>((acc, c) => {
+      if (c.production_note && c.profile_id) {
+        const row = acc[c.profile_id] ?? { id: c.profile_id, name: c.profile_name ?? "this profile", count: 0 };
+        row.count += 1;
+        acc[c.profile_id] = row;
+      }
+      return acc;
+    }, {}),
+  );
 
   // What the bulk button will really create: the ticked cells that can be made (and drafts already there).
   const tickedShops: Record<string, string[]> | undefined = preview
@@ -434,6 +445,18 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       </div>
 
       <UnfinishedDrafts batchId={id} />
+
+      {productionNotes.length > 0 && (
+        // Said once per profile, linking to it (it used to be a large box on every listing card).
+        <ul key="production-notes" className="space-y-1 text-xs text-amber-900" data-testid="production-notes">
+          {productionNotes.map((p) => (
+            <li key={p.id}>
+              <span translate="no">{`No production partner on the profile "${p.name}" (${p.count} listing${p.count === 1 ? "" : "s"}). `}</span>
+              <Link href={`/profiles#profile-${p.id}`} className="tap text-brand-700 underline">Open the profile</Link>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {items && items.length > 0 && shops && shops.length > 1 && preview && (
         <PublishMatrix key="matrix"

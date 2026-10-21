@@ -430,6 +430,9 @@ async def test_the_review_card_carries_the_warning(world) -> None:  # noqa: F811
         await s.commit()
     [card] = (await world["b"].get(f"/api/batches/{bob.batch_id}/content")).json()
     assert card["production_note"] and "production partner" in card["production_note"]
+    # A6: said once on the profile (the review page shows one line per profile, linking to it).
+    mine = next(p for p in (await world["b"].get("/api/profiles")).json() if p["id"] == str(bob.profile_id))
+    assert mine["production_note"] == card["production_note"]
     async with world["sm"]() as s:
         profile = await s.get(ListingProfile, bob.profile_id)
         profile.cached_payload = {**profile.cached_payload, "production_partner_ids": [5]}
