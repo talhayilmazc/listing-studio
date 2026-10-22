@@ -304,6 +304,8 @@ test.describe("signed in", () => {
   });
 
   test("Use in: the \"All shops\" tick picks every shop, and using it opens no dialog", async ({ page }) => {
+    const connected = (await (await page.request.get("/api/shops")).json()).shops ?? [];
+    test.skip(connected.length < 2, "one shop: there is no other shop to use a profile in");
     await page.goto("/profiles");
     await settle(page);
     const useIn = page.getByRole("button", { name: "Use in…" }).first();
@@ -431,7 +433,13 @@ test.describe("signed in", () => {
     for (let n = 0; n < before && giver < 0; n++) if ((await cards.nth(n).locator(photos).count()) > 1) giver = n;
     test.skip(giver < 0, "every listing of the demo batch is down to one photo: seed-demo again");
     const tile = cards.nth(giver).locator(photos).last();
-    await tile.dragTo(page.getByTestId("batch-new-listing"));
+    // The page's own drag handlers, with a real DataTransfer: Playwright's mouse-driven dragTo
+    // starts no HTML5 drag from this strip in headless Chromium (no data reached the drop; the
+    // quality pass 2026-10 found this test had been failing for that reason, not the page).
+    const transfer = await page.evaluateHandle(() => new DataTransfer());
+    await tile.dispatchEvent("dragstart", { dataTransfer: transfer });
+    const target = page.getByTestId("batch-new-listing");
+    for (const type of ["dragenter", "dragover", "drop"]) await target.dispatchEvent(type, { dataTransfer: transfer });
     await expect(cards).toHaveCount(before + 1, { timeout: 15_000 });
     await expectSound(page, "/batches/<batch> after arranging");
   });
