@@ -160,3 +160,16 @@ Filled in as each item lands (B9 completes it).
 `docs/screens/` holds every main page at 1366 and 375 px after Part B, from the synthetic demo
 account only (`python -m app.cli seed-demo --admin --shops 4 --groups 2`): overview, upload, batches,
 batch, review, scheduled, analytics, profiles, templates, shops, settings.
+
+## End to end (B10)
+
+`backend/tests/test_end_to_end.py` runs Part B as two sellers through the real API and the real
+draft and go-live workers, with Etsy faked at the HTTP level for every shop: one shop (Where and
+when names the shop; 3 drafts; nothing sent twice; spread out, moved, undone, one published now
+and taken live) and 15 shops in 6 overlapping groups (two groups sharing a shop: 4 listings x 7
+shops = 28 drafts, never twice in a shop; spread out with no design in two shops in the same
+minute and a shop's daily limit kept; a group paused and resumed; the profile's Shops table lists
+all 15). The failure cases (429, lost answers, 5xx, time limits) stay in
+`tests/test_publish_volume.py`. The layout test (`frontend/e2e/layout.spec.ts`) covers every page
+at 375 and 1366 px with the demo account seeded with 1, 4 and 15 shops.
+
