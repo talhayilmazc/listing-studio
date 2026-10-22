@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -96,10 +98,12 @@ class DoneOut(BaseModel):
     total: int
 
 
-async def rows(session: AsyncSession, tenant_id: uuid.UUID) -> list[tuple[ListingPublication, EtsyConnection, ListingProfile | None, GeneratedContent | None]]:
-    """Every listing Listyro created, draft or active, in a connected shop, not marked done."""
+async def rows(session: AsyncSession, tenant_id: uuid.UUID) -> list[tuple[ListingPublication, EtsyConnection, ListingProfile | None, Any]]:
+    """Every listing Listyro created, draft or active, in a connected shop, not marked done.
+    Of the listing's text only its title and cover are read (not its tags, description and
+    attributes: quality pass 2026-10, this page and the sidebar badge were the slowest)."""
     found = (await session.execute(
-        select(ListingPublication, EtsyConnection, ListingProfile, GeneratedContent)
+        select(ListingPublication, EtsyConnection, ListingProfile, GeneratedContent.title, GeneratedContent.asset_id)
         .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
         .outerjoin(ListingProfile, ListingProfile.id == ListingPublication.profile_id)
         .outerjoin(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
@@ -107,11 +111,20 @@ async def rows(session: AsyncSession, tenant_id: uuid.UUID) -> list[tuple[Listin
                EtsyConnection.status == ConnectionStatus.active)
         .order_by(EtsyConnection.position, ListingPublication.created_at)
     )).all()
-    return [(p, c, prof, content) for p, c, prof, content in found if not how_made.is_done(p)]
+    return [(p, c, prof, SimpleNamespace(title=title, asset_id=asset_id) if p.content_id else None)
+            for p, c, prof, title, asset_id in found if not how_made.is_done(p)]
 
 
 async def count(session: AsyncSession, tenant_id: uuid.UUID) -> int:
-    return len(await rows(session, tenant_id))
+    """How many: the sidebar badge, on every page. Two columns per listing, nothing else."""
+    found = (await session.execute(
+        select(ListingPublication.manual_done, ListingPublication.etsy_listing_id)
+        .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
+        .where(ListingPublication.tenant_id == tenant_id, ListingPublication.state.in_(("draft", "active")),
+               EtsyConnection.status == ConnectionStatus.active)
+    )).all()
+    return sum(1 for ticks, listing_id in found
+               if not all((ticks or {}).get(k) == listing_id for k in how_made.DONE_KEYS))
 
 
 def _group_key(profile: ListingProfile | None) -> str:

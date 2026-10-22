@@ -94,60 +94,77 @@ async def _content_asset_ids(session: AsyncSession, batch_id: uuid.UUID) -> set[
 
 
 async def _summary(session: AsyncSession, batch: UploadBatch) -> schemas.BatchSummary:
-    asset_count = await session.scalar(
-        select(func.count()).select_from(Asset).where(Asset.batch_id == batch.id)
-    )
-    processed_count = await session.scalar(
-        select(func.count())
-        .select_from(Asset)
-        .where(Asset.batch_id == batch.id, Asset.status == AssetStatus.processed)
-    )
-    approved_count = await session.scalar(
-        select(func.count())
-        .select_from(GeneratedContent)
-        .where(GeneratedContent.batch_id == batch.id, GeneratedContent.approved.is_(True))
-    )
-    # Every shop this batch's listings go to (their profiles' main shops, the shops chosen for
-    # them) and where they have drafts. No batch shop decides anything any more (B3).
+    return (await _summaries(session, batch.tenant_id, [batch]))[batch.id]
+
+
+async def _summaries(
+    session: AsyncSession, tenant_id: uuid.UUID, batches: list[UploadBatch]
+) -> dict[uuid.UUID, schemas.BatchSummary]:
+    """Each batch's summary, worked out for all of them at once: one query per figure, not one
+    set per batch (quality pass 2026-10, review R11: the batch list ran ~19 queries per batch)."""
+    from collections import defaultdict
+
     from app.pipeline.group_state import group_states
 
-    shop_ids = {shop for state in (await group_states(session, batch_ids={batch.id}, with_removed=True)).values()
-                for shop in state.targets} | set(
-        (
-            await session.execute(
-                select(ListingPublication.connection_id)
-                .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
-                .where(GeneratedContent.batch_id == batch.id)
-            )
-        ).scalars()
-    )
-    shops = [c for c in await active_shops(session, batch.tenant_id) if c.id in shop_ids]
-    own = None  # B3: a batch has no shop of its own
-    grouped = grouping.summarise(list((await session.execute(
-        select(Asset.group_key, Asset.parsed_sku).where(Asset.batch_id == batch.id)
-    )).all()))
-    written = await session.scalar(
-        select(func.count()).select_from(GeneratedContent).where(GeneratedContent.batch_id == batch.id)
-    )
-    return schemas.BatchSummary(
-        **grouped,
-        grouping=grouping.found_message(grouped, batch.grouping_mode),
-        grouping_mode=batch.grouping_mode,
-        regroupable=not written,
-        name=(await names_for(session, [batch]))[batch.id],
-        named=bool(batch.name),
-        id=batch.id,
-        status=batch.status.value,
-        file_count=batch.file_count,
-        created_at=batch.created_at,
-        asset_count=int(asset_count or 0),
-        processed_count=int(processed_count or 0),
-        approved_count=int(approved_count or 0),
-        size_chart_profile_id=batch.size_chart_profile_id,
-        connection_id=own.id if own else None,
-        shop_name=shop_label(own) if own else None,
-        shop_names=[shop_label(c) for c in shops],
-    )
+    if not batches:
+        return {}
+    ids = [b.id for b in batches]
+    assets: dict[uuid.UUID, tuple[int, int]] = {}
+    for batch_id, total, processed in (await session.execute(
+        select(Asset.batch_id, func.count(), func.count().filter(Asset.status == AssetStatus.processed))
+        .where(Asset.batch_id.in_(ids)).group_by(Asset.batch_id)
+    )).all():
+        assets[batch_id] = (int(total or 0), int(processed or 0))
+    contents: dict[uuid.UUID, tuple[int, int]] = {}
+    for batch_id, written, approved in (await session.execute(
+        select(GeneratedContent.batch_id, func.count(), func.count().filter(GeneratedContent.approved.is_(True)))
+        .where(GeneratedContent.batch_id.in_(ids)).group_by(GeneratedContent.batch_id)
+    )).all():
+        contents[batch_id] = (int(written or 0), int(approved or 0))
+    # Every shop a batch's listings go to (their profiles' main shops, the shops chosen for
+    # them) and where they have drafts. No batch shop decides anything any more (B3).
+    shop_ids: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+    for (batch_id, _), state in (await group_states(session, batch_ids=set(ids), with_removed=True)).items():
+        shop_ids[batch_id] |= state.targets
+    for batch_id, connection_id in (await session.execute(
+        select(GeneratedContent.batch_id, ListingPublication.connection_id)
+        .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
+        .where(GeneratedContent.batch_id.in_(ids))
+    )).all():
+        shop_ids[batch_id].add(connection_id)
+    keys: dict[uuid.UUID, list] = defaultdict(list)
+    for batch_id, group_key, sku in (await session.execute(
+        select(Asset.batch_id, Asset.group_key, Asset.parsed_sku).where(Asset.batch_id.in_(ids))
+    )).all():
+        keys[batch_id].append((group_key, sku))
+    shops = await active_shops(session, tenant_id)
+    names = await names_for(session, batches)
+    out = {}
+    for batch in batches:
+        grouped = grouping.summarise(keys.get(batch.id, []))
+        total, processed = assets.get(batch.id, (0, 0))
+        written, approved = contents.get(batch.id, (0, 0))
+        mine = [c for c in shops if c.id in shop_ids.get(batch.id, set())]
+        out[batch.id] = schemas.BatchSummary(
+            **grouped,
+            grouping=grouping.found_message(grouped, batch.grouping_mode),
+            grouping_mode=batch.grouping_mode,
+            regroupable=not written,
+            name=names[batch.id],
+            named=bool(batch.name),
+            id=batch.id,
+            status=batch.status.value,
+            file_count=batch.file_count,
+            created_at=batch.created_at,
+            asset_count=total,
+            processed_count=processed,
+            approved_count=approved,
+            size_chart_profile_id=batch.size_chart_profile_id,
+            connection_id=None,  # B3: a batch has no shop of its own
+            shop_name=None,
+            shop_names=[shop_label(c) for c in mine],
+        )
+    return out
 
 
 async def _get_batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID) -> UploadBatch:
@@ -420,9 +437,10 @@ async def list_batches(
         .order_by(UploadBatch.created_at.desc())
     )).scalars())
     overviews = await batch_overviews(session, tenant.id, batches)
+    summaries = await _summaries(session, tenant.id, batches)
     out = []
     for b in batches:
-        summary = await _summary(session, b)
+        summary = summaries[b.id]
         view = overviews[b.id]
         summary.statuses, summary.headline, summary.status_notes = view.statuses, view.headline, view.notes
         out.append(summary)
