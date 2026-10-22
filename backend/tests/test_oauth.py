@@ -428,3 +428,52 @@ async def test_after_a_reconnect_the_shop_has_every_scope_and_is_no_longer_asked
 def test_the_token_responses_own_scope_list_is_kept() -> None:
     tokens = oauth._parse_token({"access_token": "a", "refresh_token": "r", "scope": "listings_r shops_r"})
     assert tokens.scopes == ["listings_r", "shops_r"]
+
+
+async def _started(auth_client: httpx.AsyncClient) -> str:
+    start = await auth_client.get("/api/auth/etsy/start")
+    return parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+
+
+async def test_callback_needs_the_browser_signed_in_to_the_account_that_started_it(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    """Quality pass 2026-10, review R1: someone starts a connection, sends Etsy's consent link to a
+    seller, and the seller's shop must not land in that person's account. The browser finishing
+    the flow must be signed in to the account that started it; the code is not exchanged otherwise."""
+    from tests.auth_support import sign_out
+
+    state = await _started(auth_client)
+    sign_out(auth_client)  # the seller's browser: not signed in to the starter's account
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    assert cb.headers["location"].endswith("/connect?status=wrong_account")
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        assert (await s.execute(select(EtsyConnection))).scalars().first() is None
+
+    # Signed in to another account: refused the same way, and the state is used up.
+    other = await make_tenant(auth_client.sm, "other@example.com")  # type: ignore[attr-defined]
+    authenticate(auth_client, await open_session(auth_client.redis, auth_client.tenant_id))  # type: ignore[attr-defined]
+    state = await _started(auth_client)
+    authenticate(auth_client, await open_session(auth_client.redis, other))  # type: ignore[attr-defined]
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    assert cb.headers["location"].endswith("/connect?status=wrong_account")
+    authenticate(auth_client, await open_session(auth_client.redis, auth_client.tenant_id))  # type: ignore[attr-defined]
+    again = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    assert again.headers["location"].endswith("/connect?status=expired")
+
+
+async def test_callback_refuses_an_account_suspended_or_being_deleted_meanwhile(auth_client: httpx.AsyncClient) -> None:
+    """Review R14: an account suspended (or asked to be deleted) during the 10-minute window gets no shop."""
+    from datetime import datetime, timezone
+
+    from app.db.models import Tenant
+
+    state = await _started(auth_client)
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        tenant = await s.get(Tenant, auth_client.tenant_id)  # type: ignore[attr-defined]
+        tenant.deletion_requested_at = datetime.now(timezone.utc)
+        await s.commit()
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    assert cb.headers["location"].endswith("/connect?status=unavailable")
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        assert (await s.execute(select(EtsyConnection))).scalars().first() is None

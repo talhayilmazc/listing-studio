@@ -15,7 +15,7 @@ from collections.abc import Callable
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,10 +28,12 @@ from app.api.deps import (
     get_enqueuer,
     get_redis,
     get_session,
+    get_session_store,
     get_token_http_factory,
 )
 from app.core.config import get_settings
-from app.db.models import Tenant
+from app.core.sessions import SESSION_COOKIE, SessionStore
+from app.db.models import Tenant, TenantStatus
 from app.etsy import guard
 from app.etsy.connection import ConnectionService
 from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops
@@ -109,8 +111,26 @@ def _refused(back: str, reason: str | None) -> RedirectResponse:
     return _redirect(f"{back}?{query}")
 
 
+async def _finisher(request: Request, session: AsyncSession, sessions: SessionStore, started_by: uuid.UUID) -> str | None:
+    """Why this browser may not finish a connection, or None.
+
+    The tokens go to the account that started the flow (kept with the state), so the browser
+    finishing it must be signed in to that same account and the account must still be usable.
+    Without this, someone could start a connection, send the Etsy consent link to a seller and
+    receive the seller's shop in their own account (quality pass 2026-10, review R1).
+    """
+    record = await sessions.read(request.cookies.get(SESSION_COOKIE, ""))
+    if record is None or record.tenant_id != started_by:
+        return "wrong_account"
+    tenant = await session.get(Tenant, started_by)
+    if tenant is None or tenant.status is not TenantStatus.active or tenant.deletion_requested_at is not None:
+        return "unavailable"
+    return None
+
+
 @router.get("/callback")
 async def callback(
+    request: Request,
     state: str | None = None,
     code: str | None = None,
     error: str | None = None,
@@ -120,8 +140,10 @@ async def callback(
     service: ConnectionService = Depends(get_connection_service),
     client_factory: Callable[[], httpx.AsyncClient] = Depends(get_token_http_factory),
     enqueuer: Enqueuer = Depends(get_enqueuer),
+    sessions: SessionStore = Depends(get_session_store),
 ) -> RedirectResponse:
-    """Handle Etsy's redirect back: validate state, exchange code, persist tokens."""
+    """Handle Etsy's redirect back: validate state, check that this browser is signed in to
+    the account that started it, exchange code, persist tokens."""
     settings = get_settings()
     back = f"{settings.frontend_url}/connect"
     if guard.blocked():
@@ -155,6 +177,12 @@ async def callback(
     else:  # started before this version: "tenant:verifier"
         tenant_id_str, _, verifier = raw.partition(":")
         tenant_id, asked = uuid.UUID(tenant_id_str), settings.etsy_scopes.split()
+
+    # Before the code is exchanged: the code is never turned into tokens for another account.
+    refused = await _finisher(request, session, sessions, tenant_id)
+    if refused is not None:
+        logger.warning("etsy oauth: callback refused (%s)", refused)
+        return _redirect(f"{back}?status={refused}")
 
     try:
         async with client_factory() as client:

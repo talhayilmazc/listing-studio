@@ -21,6 +21,11 @@ const BANNERS: Record<string, { cls: string; text: string }> = {
   denied: { cls: WARN, text: "Authorization was cancelled." },
   expired: { cls: WARN, text: "That authorization link expired. Please start again." },
   unconfigured: { cls: BAD, text: "Etsy API credentials are not configured on the server." },
+  wrong_account: {
+    cls: WARN,
+    text: "That shop was not connected: this browser is not signed in to the account that started the connection. Sign in to that account here, then press Connect a shop again.",
+  },
+  unavailable: { cls: BAD, text: "This account cannot connect shops right now. Please contact support." },
   taken: {
     cls: BAD,
     text: "That shop is already connected to another account here. A shop can belong to one account at a time.",
