@@ -264,7 +264,7 @@ class InviteCode(Base):
     # Set when an admin withdraws an unused code; a revoked code never redeems.
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("tenant.id", ondelete="SET NULL")
+        ForeignKey("tenant.id", ondelete="SET NULL"), index=True
     )
 
 
@@ -278,6 +278,7 @@ class InviteRequest(Base):
     """
 
     __tablename__ = "invite_request"
+    __table_args__ = (Index("ix_invite_request_status", "status", "created_at"),)  # migration 0039
     DECIDED_RETENTION_DAYS: ClassVar[int] = 90
     PENDING_RETENTION_DAYS: ClassVar[int] = 90
 
@@ -294,10 +295,10 @@ class InviteRequest(Base):
     )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_by_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("tenant.id", ondelete="SET NULL")
+        ForeignKey("tenant.id", ondelete="SET NULL"), index=True
     )
     #: The invite an approval created (bound to ``email``).
-    invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"))
+    invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"), index=True)
 
 
 class AiCall(Base):
@@ -362,7 +363,7 @@ class AuditLog(Base):
         ForeignKey("tenant.id", ondelete="SET NULL"), index=True
     )
     target_invite_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("invite_code.id", ondelete="SET NULL")
+        ForeignKey("invite_code.id", ondelete="SET NULL"), index=True
     )
     details: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
@@ -447,7 +448,7 @@ class Job(Base):
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
     )
     connection_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
     )
     type: Mapped[JobType] = mapped_column(_enum(JobType, "job_type"), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
@@ -505,7 +506,7 @@ class DraftAttempt(Base):
     RETENTION_DAYS: ClassVar[int] = 30
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     content_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("generated_content.id", ondelete="CASCADE"), nullable=False
     )
@@ -572,7 +573,7 @@ class ListingSnapshot(Base):
     )
     listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("job.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("job.id", ondelete="CASCADE"), nullable=False, index=True
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
     taken_at: Mapped[datetime] = mapped_column(
@@ -609,10 +610,10 @@ class UploadBatch(Base):
     #: The shop this batch is for: the seller's explicit choice, shown first on the
     #: batch page. Groups start from it and may each choose another (Priority 2).
     connection_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("etsy_connection.id", ondelete="SET NULL")
+        ForeignKey("etsy_connection.id", ondelete="SET NULL"), index=True
     )
     size_chart_profile_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("listing_profile.id", ondelete="SET NULL")
+        ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -631,26 +632,27 @@ class ListingGroupSetting(Base):
     __tablename__ = "listing_group_setting"
     __table_args__ = (
         Index("ix_group_setting_batch_group", "batch_id", "group_key", unique=True),
+        Index("ix_group_setting_batch", "batch_id"),  # migration 0010's name
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     batch_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False
     )
     group_key: Mapped[str] = mapped_column(Text, nullable=False)  # "" is the root group
     #: The shop this group's listing is written for. Its profile and its size-chart
     #: profile always belong to this shop.
     connection_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("etsy_connection.id", ondelete="SET NULL")
+        ForeignKey("etsy_connection.id", ondelete="SET NULL"), index=True
     )
     profile_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("listing_profile.id", ondelete="SET NULL")
+        ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
     )
     size_chart_profile_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("listing_profile.id", ondelete="SET NULL")
+        ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
     )
     #: Set by the seller directly (a bulk apply-to-all won't overwrite it).
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
@@ -666,13 +668,17 @@ class ListingGroupSetting(Base):
 
 class Asset(Base):
     __tablename__ = "asset"
+    __table_args__ = (
+        # Upload retention looks for batches whose files are still kept (migration 0041).
+        Index("ix_asset_files_kept", "batch_id", postgresql_where=text("files_removed_at IS NULL")),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     parsed_sku: Mapped[str | None] = mapped_column(Text)
@@ -715,10 +721,10 @@ class Asset(Base):
     #: Set when this photo is a mockup the app made: the design and the template
     #: photo it was made from (pipeline/mockups.py). Otherwise an uploaded photo.
     mockup_design_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("mockup_design.id", ondelete="SET NULL")
+        ForeignKey("mockup_design.id", ondelete="SET NULL"), index=True
     )
     mockup_photo_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("mockup_photo.id", ondelete="SET NULL")
+        ForeignKey("mockup_photo.id", ondelete="SET NULL"), index=True
     )
 
 
@@ -910,7 +916,7 @@ class MockupDesignVersion(Base):
     __tablename__ = "mockup_design_version"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     design_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -970,7 +976,7 @@ class MockupDesign(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
@@ -1014,7 +1020,7 @@ class MockupRun(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
@@ -1055,19 +1061,19 @@ class MockupOutput(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_run.id", ondelete="CASCADE"), nullable=False, index=True
     )
     batch_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
     )
     design_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_design.id", ondelete="CASCADE"), nullable=False, index=True
     )
     photo_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("mockup_photo.id", ondelete="SET NULL")
+        ForeignKey("mockup_photo.id", ondelete="SET NULL"), index=True
     )
     #: The template's and the photo's names when it was made (either may be renamed or deleted).
     template_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -1133,7 +1139,7 @@ class MockupZip(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("mockup_run.id", ondelete="CASCADE"), nullable=False, index=True
@@ -1160,13 +1166,13 @@ class GeneratedContent(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     batch_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True
     )
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("asset.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("asset.id", ondelete="CASCADE"), nullable=False, index=True
     )
     #: The cover the title and tags were written from. ``asset_id`` follows the
     #: group's cover; when they differ, the seller is told the text came from the
@@ -1261,7 +1267,7 @@ class ListingPublication(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: The profile of *that* shop the draft was built from.
     profile_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("listing_profile.id", ondelete="SET NULL")
+        ForeignKey("listing_profile.id", ondelete="SET NULL"), index=True
     )
     etsy_listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     #: "draft" on create; "active" once the seller explicitly publishes it;
@@ -1284,7 +1290,7 @@ class ListingPublication(Base):
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     #: The publish-live job the schedule released at its time; None while waiting.
     schedule_job_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("job.id", ondelete="SET NULL")
+        ForeignKey("job.id", ondelete="SET NULL"), index=True
     )
     #: Why a due schedule did not publish (no longer approved, compliance), for the seller.
     schedule_note: Mapped[str | None] = mapped_column(Text)
@@ -1459,6 +1465,27 @@ class ShopGroupMember(Base):
     )
 
 
+class ProfileMerge(Base):
+    """What migration 0046 did when it merged same-named profiles, so its downgrade can undo
+    each merge: the merged profile's row (JSON), the rows repointed to the kept profile, the
+    link it became. Written only by that migration; nothing in the app reads it.
+
+    Since 0089 the stored row carries no Etsy content (``cached_payload`` and the refresh error
+    are removed: Etsy content may not be kept past 24 hours) and the row goes with its kept
+    profile (and so with its shop and account)."""
+
+    __tablename__ = "profile_merge"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kept_profile_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("listing_profile.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    merged: Mapped[str] = mapped_column(Text, nullable=False)
+    repointed: Mapped[str] = mapped_column(Text, nullable=False)
+    link_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    costs: Mapped[str | None] = mapped_column(Text)
+
+
 class ProfileShopLink(Base):
     """A profile used in one shop (v8 §C): that shop's own ids.
 
@@ -1568,7 +1595,7 @@ class DesignDistribution(Base):
     )
     #: The design's SKU, so the same design uploaded again in another batch is known.
     sku: Mapped[str | None] = mapped_column(Text, index=True)
-    group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("shop_group.id", ondelete="SET NULL"))
+    group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("shop_group.id", ondelete="SET NULL"), index=True)
     group_name: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -1584,7 +1611,7 @@ class GroupPlan(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload_batch.id", ondelete="SET NULL"))
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload_batch.id", ondelete="SET NULL"), index=True)
     #: start date, listings per shop per day, window, spacing, stagger, time zone.
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
@@ -1624,7 +1651,7 @@ class PlannedSlot(Base):
     #: "waiting" (draft not started) | "drafting" | "scheduled" (draft made, go-live set)
     #: | "cancelled" | "failed" (with ``note``).
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="waiting")
-    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("job.id", ondelete="SET NULL"))
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("job.id", ondelete="SET NULL"), index=True)
     note: Mapped[str | None] = mapped_column(Text)
 
 
@@ -1737,9 +1764,9 @@ class ContentVersion(Base):
     RETENTION_DAYS: ClassVar[int] = 396
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     connection_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True
     )
     publication_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("listing_publication.id", ondelete="CASCADE"), nullable=False
@@ -1791,7 +1818,7 @@ class SalesSync(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     #: "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed"
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="estimating")
@@ -1888,7 +1915,7 @@ class LedgerSync(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     #: "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed"
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="estimating")
@@ -1948,7 +1975,7 @@ class SaleLine(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
     )
     transaction_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     receipt_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     day: Mapped[date] = mapped_column(Date, nullable=False)  # UTC, like sales_daily
@@ -1980,7 +2007,7 @@ class StatementImport(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
     )
     month: Mapped[date] = mapped_column(Date, primary_key=True)  # the 1st
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     currency: Mapped[str | None] = mapped_column(Text)
     rows: Mapped[int] = mapped_column(Integer, nullable=False)
     first_day: Mapped[date] = mapped_column(Date, nullable=False)
@@ -2014,7 +2041,7 @@ class StatementOrder(Base):
     )
     month: Mapped[date] = mapped_column(Date, primary_key=True)
     receipt_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     #: The day the sale was posted; NULL when only fees or a refund fall in this month.
     day: Mapped[date | None] = mapped_column(Date)
     #: {category: minor units}
@@ -2031,7 +2058,7 @@ class StatementListingFee(Base):
     )
     month: Mapped[date] = mapped_column(Date, primary_key=True)
     listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     fees: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")  # negative
     credits_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
@@ -2051,7 +2078,7 @@ class AdCharge(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
     )
     click_day: Mapped[date] = mapped_column(Date, primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     posted: Mapped[date] = mapped_column(Date, nullable=False)
     #: The statement month the charge is on.
     month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
@@ -2073,7 +2100,7 @@ class AdsDaily(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), primary_key=True
     )
     day: Mapped[date] = mapped_column(Date, primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
     views: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     clicks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     orders: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -2088,7 +2115,7 @@ class ComplianceFinding(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True
     )
     generated_content_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("generated_content.id", ondelete="CASCADE"), nullable=False, index=True
