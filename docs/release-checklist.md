@@ -71,7 +71,7 @@ Before you start, have ready:
 
 1. Press **Review listings**.
    - Each card shows its photo, title, tags and description.
-   - It also shows "After publishing, tick in Etsy: shop alters it · computerized tools", with a **Finish in Etsy** link.
+   - Nothing on the card asks you to tick How it's made (there is nothing to do per listing).
 2. Edit one title, then reload the page.
    - The edit is still there (it saved as you typed).
 3. Press **Approve all**.
@@ -97,15 +97,13 @@ Before you start, have ready:
    - Its weight and size match the reference exactly (e.g. 0 lb 4 oz, 10 × 8 × 2 in).
    - It was not refused for a missing `item_weight`.
 
-## 9. Finish in Etsy (2 min)
+## 9. How it's made (1 min)
 
-1. Open **Finish in Etsy** under Batches.
-   - The sidebar shows a count.
-   - The new drafts are grouped under "Shop alters it + computerized tools: N listings", then by shop.
-2. Press **Open in Etsy** on one draft.
-   - Etsy's listing editor opens in a new tab for that draft.
-3. In Etsy, tick the two How it's made answers, then come back and press **Done** on that row.
-   - The row goes; the count drops by one.
+1. On **Profiles**, the profile card's line reads "How it's made: shop alters it · computerized tools · change".
+   - Under it: "Etsy doesn't let apps set this yet, so it can't be sent automatically. You can set it for many listings at once in Shop Manager → Listings → select → Editing options."
+2. In Shop Manager, open one of the drafts from step 7.
+   - Its How it's made answers are empty: Etsy's API can't set them. Nothing in Listyro waited on them.
+3. Optional: in Shop Manager → Listings, select the new drafts, open **Editing options** and set both answers for all of them at once.
 
 ## 10. Schedule and pause (2 min)
 

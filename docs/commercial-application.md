@@ -147,3 +147,7 @@ The product is named Listyro, on listyro.com. "Etsy" does not appear in the prod
 It does not manage Etsy Ads, handle checkout or payments, direct buyers away from Etsy, read other sellers' data, publish anything without the seller's approval, generate images with AI, promise search ranking, or resell or sublicense API access.
 
 Checked before sending: the trademark notice matches Etsy's API Terms word for word; support@listyro.com is a working, read mailbox.
+
+## API features we would like Etsy to expose (added 23 October 2026, after approval)
+
+- Etsy's "How it's made" answers ("How does your shop produce this item?" and "What tools are used to make this item?") on getListing, createDraftListing and updateListing, so a seller's answer can be copied to their new drafts instead of set by hand in Shop Manager (requested publicly in etsy/open-api discussion #1630).

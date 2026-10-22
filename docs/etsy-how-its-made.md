@@ -5,50 +5,71 @@ Etsy's listing editor asks two questions on every listing:
 - **How does your shop produce this item?** One answer: Made from scratch, Assembled from purchased parts, An item my shop alters, A curated set of purchased goods, or A natural material.
 - **What tools are used to make this item?** Any of Handheld or hand-guided tools, Computerized tools or machines, An AI generator. Or None, which can't be combined with the others.
 
-## What Etsy allows today
+**The owner's rule (23 October 2026):** the seller does nothing per listing for these. There is no approval step and no checklist, and nothing about these two answers ever holds up drafting, scheduling or publishing.
 
-- **The API has neither field.** Checked on 22 October 2026 against Etsy's OpenAPI document (getListing response, createDraftListing and updateListing requests). The fields that come close are already handled:
-  - `who_made`, `when_made` and `is_supply`, copied from the reference listing and read back.
-  - `production_partner_ids`, mapped per shop.
-- **Etsy hasn't answered the request for them.** Etsy's developer repository has an open request for exactly these fields (etsy/open-api discussion #1630, 22 June 2026). There was no reply from Etsy as of 21 October 2026.
-- **We never automate Etsy's website.** No browser automation, extension, scraping or internal endpoints, ever (API Terms of Use; CLAUDE.md rule 1). The seller ticks the answers in Etsy's own editor.
-- **The server can check what the live API returns.** This makes three read-only GETs and prints the raw JSON:
+## Why the profile's selector never reached Etsy
 
-  ```
-  docker compose -f docker-compose.prod.yml exec api python -m app.cli etsy-raw-listing --profile "<name>"
-  ```
+The profile stores the seller's choice:
 
-## The workflow
+- `listing_profile.how_made_production`;
+- `listing_profile.how_made_tools`.
 
-1. **Answer once per profile.**
-   - Where: the profile card's line, "How it's made: shop alters it · computerized tools · change". A profile without answers says "How it's made: not set · set it".
-   - The Overview first-run guide counts a confirmed profile without answers as unfinished.
-   - Bulk: the profile's Shops table has "Apply to all profiles…", which gives every confirmed profile the same answers after one confirmation.
-   - Stored in `listing_profile.how_made_production` and `how_made_tools`. Validated by `pipeline/how_made.py::clean` and checked again in `lib/howMade.ts`.
-2. **Review cards and "Where and when" say what to tick.**
-   - With answers: "After publishing, tick in Etsy: shop alters it · computerized tools", with a link to Finish in Etsy.
-   - Without answers: the line asks the seller to set them on the profile first.
-   - It never blocks approving, drafting, scheduling or publishing.
-   - Each draft's two steps say Etsy's exact wording, for example "Tick in Etsy: An item my shop alters."
-3. **Finish in Etsy** (`/batches/finish`, sidebar under Batches, with a count badge).
-   - What it lists: every listing Listyro created, draft or active, in a connected shop, that isn't marked done. Grouped by the answers to tick ("Shop alters it + computerized tools: 24 listings"), then by shop.
-   - Each row: thumbnail, title, shop, state, "Open in Etsy" (the listing in Etsy's editor, `https://www.etsy.com/your/shops/me/listing-editor/edit/<id>`, for drafts and active listings alike) and "Done".
-   - Bulk: select rows, then "Mark done". "Open next" opens the group's listings one by one in a new tab.
-   - The top line tells the two apart. Drafts: open, tick, press Publish. Active listings: open, tick, save.
-   - "Done" uses the same two ticks a draft's steps keep (`listing_publication.manual_done`), so ticks made on the review card count here too.
-4. **Noticing a draft that went live.**
-   - Opening a draft from the page starts a watch for three days (`listing_publication.how_made_opened_at`).
-   - The read: `watch_opened_drafts` reads those drafts' state, one getListingsByListingIds request per 100 listings. It runs at most once a minute per shop while the page is open, and every ten minutes from the cron.
-   - Cost: it counts as upkeep against the app's budget, never against the seller's ceiling.
-   - A draft that is live now asks "Mark done?" in one click. **Nothing is ever marked done by itself**, because the app can't read the answers.
+Every draft path builds the draft in `etsy/publisher.py`, which adds `how_made.draft_fields(profile)`. That function returns nothing, for two reasons:
 
-## Watching for the fields
+- `FIELD_NAMES` is empty: Etsy publishes no field to put the answers in;
+- `ETSY_HOW_ITS_MADE_FIELDS` is off.
 
-- **What runs.** Every Monday at 05:10 UTC the worker downloads Etsy's public OpenAPI document (`ETSY_OPENAPI_URL`). It's a file, not an API call: no token and no quota.
-- **What it looks at.** It lists the fields of createDraftListing, updateListing and getListing (`workers/etsy_spec.py`).
-- **When it alerts.** A field whose name looks like production, tools, making or AI, and isn't one of today's (`processing_min/max`, `production_partner_ids`, `production_partners`), triggers one alert to `ALERT_WEBHOOK_URL` with the field names. The same alert isn't repeated for 30 days.
-- **What it never does.** It changes nothing.
-- **Locally.** It never runs with `ETSY_CALLS_BLOCKED`.
+So `createDraftListing` never carried the answers. Nothing was refused and nothing failed: there was simply nothing to send them in. No other endpoint can take them either (below).
+
+## Evidence: Etsy's API has neither question
+
+Checked against Etsy's official OpenAPI document. This is the generated OAS file linked from developer.etsy.com: `https://www.etsy.com/openapi/generated/oas/3.0.0.json`, "Etsy Open API v3", 76 paths. It was downloaded on 2026-10-23, and checked before on 2026-09-24, 2026-09-26 and 2026-10-22.
+
+- **a) Readable?** No.
+  - `getListing` returns 69 fields. None is about production method, tools or AI: the closest are `who_made`, `when_made`, `is_supply`, `materials` and `production_partners`, which the app already copies and verifies.
+  - `getListingProperties` and `getListingProperty` return category properties (`property_id`, `property_name`, values). The 2026-09-24 check of the apparel category's properties found neither question among them. The 45 real draft responses checked that day carried no such field.
+- **b) Writable?** No.
+  - `createDraftListing` takes 36 body fields. Its required fields are quantity, title, description, price, who_made, when_made and taxonomy_id.
+  - `updateListing` takes 30.
+  - `updateListingProperty` takes only `value_ids`, `values` and `scale_id` for a category property.
+  - None of them takes either question.
+- **The whole document**, descriptions and enum values included, has no match for: "how it's made", "made from scratch", "assembled", "purchased parts", "alters", "curated", "natural material", "handheld", "hand-guided", "computerized", "AI generator", "artificial intelligence", "generative", "production method", "produce this item", "tools used" or "creativity". The single hit for "tools" is about inventory editing tools.
+- **The live API** for one reference listing can be checked on the server with three read-only GETs: `docker compose -f docker-compose.prod.yml exec api python -m app.cli etsy-raw-listing --profile "<name>"`.
+- **Etsy's developer repository** has an open request for exactly these fields (etsy/open-api discussion #1630, 22 June 2026), with no answer from Etsy.
+
+Listyro never automates Etsy's website (no browser automation, extensions or internal endpoints, ever: CLAUDE.md rule 1). So the answers can't be set automatically today.
+
+## Has a missing answer ever blocked a publish?
+
+No evidence that it has.
+
+- **The spec**: activation is `updateListing` with `state=active`, which has no required How it's made field.
+- **The stored records** (the local database, read-only):
+  - 41 stored Etsy publish replies and 52 draft replies; none mentions these questions.
+  - 28 publishes through the API succeeded, although the app has never sent these answers.
+  - The 13 failed publishes were 6 Etsy 404s (listing not found) and 7 internal errors on 2026-09-24, from before Etsy's replies were stored; none names these questions.
+  - The 17 failure messages that matched "production" were the app's own note about stale production partners.
+- **On the server**: `python -m app.cli draft-failures <email>` shows the production records the same way.
+
+Should Etsy ever refuse a publish over them, the seller is told exactly what to set (`etsy/errors.py::HOW_MADE_FIX`): "Etsy wants How it's made set on this listing before it goes live: in Shop Manager open it (or select several under Listings, then Editing options), set … then publish it again."
+
+That listing alone fails. Every other listing in a scheduled run goes live as planned: each go-live is its own job (`tests/test_how_made.py::test_a_scheduled_run_goes_on_after_one_listing_is_refused`).
+
+## What the app does
+
+- **Profile**:
+  - The seller answers both questions once per profile. "None" stands alone.
+  - The card shows "How it's made: shop alters it · computerized tools · change", with one line under it: "Etsy doesn't let apps set this yet, so it can't be sent automatically. You can set it for many listings at once in Shop Manager → Listings → select → Editing options."
+  - The profile's Shops table has "Apply to all profiles…".
+- **Nothing per listing**:
+  - No step on a draft, no line on a review card or in Where and when.
+  - No sidebar count, no "Finish in Etsy" page; it was removed on 2026-10-23, and migration `0090_drop_how_made_opened` drops its column.
+  - The first-run guide doesn't ask for the answers.
+- **Nothing waits on them**: a draft, a schedule and a publish go on whether or not they are set.
+- **Ready to send** the day Etsy adds the field: every draft path calls `how_made.draft_fields(profile)`, in every shop. Its source order:
+  1. the reference listing's own answers, read when the profile is refreshed (`cached_payload["how_made"]`);
+  2. else the profile's selection.
+- **Watched**: every Monday at 05:10 UTC, `workers/etsy_spec.py` downloads the document. If a production, tools or AI field appears on createDraftListing, updateListing or getListing, it alerts `ALERT_WEBHOOK_URL` once with the field names. Nothing changes automatically.
 
 ## Turning on sending, once Etsy adds the fields
 
@@ -56,12 +77,11 @@ Etsy's listing editor asks two questions on every listing:
 2. In `backend/app/pipeline/how_made.py`:
    - fill `FIELD_NAMES` (`{"production": "<Etsy field>", "tools": "<Etsy field>"}`);
    - fill `VALUES` (our answer key → Etsy's value, per field).
-
-   Every draft path builds its body in `etsy/publisher.py`, which already adds `how_made.draft_fields(profile)` in every shop. That covers generated, edited and hand-written drafts, drafts to another shop, and scheduled and planned drafts.
-3. Add a read-back check next to the Creativity Standards checks in `publisher.py`. Mark both ticks done when the read-back matches, so Finish in Etsy no longer lists those listings.
-4. Update `tests/test_how_made.py` (`test_nothing_is_sent_today…`) and the end-to-end fake's `CREATE_FIELDS` in `tests/test_end_to_end.py`.
-5. Deploy with `bash deploy/update.sh`, set `ETSY_HOW_ITS_MADE_FIELDS=true` in the server's `.env`, and run `docker compose -f docker-compose.prod.yml up -d api worker`.
-6. Smoke-test one draft on the test shop only, then check the listing in Etsy's editor.
-7. Update this file, CLAUDE.md and `docs/etsy-compliance.md`.
+3. In the profile refresh (`workers/profiles.py`), store the reference listing's answers under `cached_payload["how_made"]` (`{"production": <key>, "tools": [<keys>]}`), so they come first.
+4. Add a read-back check next to the Creativity Standards checks in `etsy/publisher.py`. If Etsy doesn't keep the answers, show a plain warning on the card and continue; never stop the draft or the schedule.
+5. Update `tests/test_how_made.py` and the end-to-end fake's `CREATE_FIELDS` in `tests/test_end_to_end.py`.
+6. Deploy with `bash deploy/update.sh`, set `ETSY_HOW_ITS_MADE_FIELDS=true` in the server's `.env`, and run `docker compose -f docker-compose.prod.yml up -d api worker`.
+7. Smoke-test one draft on the test shop only, then check the listing in Etsy's editor.
+8. Update this file, CLAUDE.md and `docs/etsy-compliance.md`.
 
 With the setting off, or with no field names, nothing is sent.
