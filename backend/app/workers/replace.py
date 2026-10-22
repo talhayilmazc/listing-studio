@@ -42,6 +42,7 @@ from app.db.models import (
 from app.etsy import guard
 from app.etsy.api import EtsyApiClient
 from app.etsy.connection import ConnectionService
+from app.etsy.connection import renewer_for as _renewer
 from app.etsy.publisher import PublishImage, replace_listing_images
 from app.pipeline import chart_order, versions
 from app.pipeline.content import (
@@ -210,6 +211,7 @@ async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
                     usage=ctx.get("usage"),
                     cache=ctx.get("redis"),
                     shop=connection.id,
+                    renew=_renewer(ctx, connection.id),
                 )
                 kw = {
                     "access_token": token,

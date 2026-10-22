@@ -33,6 +33,7 @@ from app.etsy import guard
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.calllog import current_job
 from app.etsy.connection import ConnectionService
+from app.etsy.connection import renewer_for as _renewer
 from app.etsy.errors import EtsyClientError
 from app.etsy.refresh import FULL, IMAGES, refresh_due, used_recently
 from app.pipeline.attributes import attribute_choices
@@ -98,6 +99,7 @@ def _build_client(
         shop=shop,
         # Every job in this module is upkeep: app-wide budget, not the seller's (v7 §D3).
         upkeep=True,
+        renew=_renewer(ctx, shop),
     )
 
 

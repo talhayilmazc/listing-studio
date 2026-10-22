@@ -37,6 +37,34 @@ def _parse_user_id(access_token: str) -> int | None:
     return int(head) if head.isdigit() else None
 
 
+class TokenUnavailable(Exception):
+    """The shop has no token to renew (disconnected meanwhile)."""
+
+
+def renewer(sessionmaker: Callable, connection_id: uuid.UUID) -> Callable[[str], object]:
+    """For a job's Etsy client: renew this shop's token after a 401, in a session of its own."""
+    from app.core.config import get_settings
+    from app.core.crypto import get_cipher
+
+    async def renew(stale: str) -> str:
+        settings = get_settings()
+        service = ConnectionService(get_cipher(), client_id=settings.etsy_client_id, token_url=settings.etsy_oauth_token_url)
+        async with sessionmaker() as session:
+            connection = await session.get(EtsyConnection, connection_id)
+            if connection is None:
+                raise TokenUnavailable("the shop is not connected")
+            return await service.renew(session, connection, stale)
+
+    return renew
+
+
+def renewer_for(ctx: dict, shop: uuid.UUID | None) -> Callable[[str], object] | None:
+    """A worker job's renewer for its shop, or None (no shop, or no database in this context)."""
+    if shop is None or ctx.get("sessionmaker") is None:
+        return None
+    return renewer(ctx["sessionmaker"], shop)
+
+
 class ConnectionService:
     #: Refresh when the access token has this little life left.
     REFRESH_MARGIN = timedelta(seconds=60)
@@ -142,10 +170,34 @@ class ConnectionService:
         assert connection.access_token_enc is not None
         return self._cipher.decrypt(connection.access_token_enc)
 
+    async def renew(self, session: AsyncSession, connection: EtsyConnection, stale: str) -> str:
+        """A new access token after Etsy refused ``stale`` (401) partway through a job; when
+        another job already renewed it, that token (quality pass 2026-10, review R6)."""
+        return await self._refresh(session, connection, now=datetime.now(timezone.utc), stale=stale)
+
     async def _refresh(
-        self, session: AsyncSession, connection: EtsyConnection, *, now: datetime
+        self, session: AsyncSession, connection: EtsyConnection, *, now: datetime, stale: str | None = None
     ) -> str:
-        assert connection.refresh_token_enc is not None
+        # One refresh per shop at a time, across every worker (review R5): the row is locked
+        # and read again, and a token another job renewed meanwhile is used, not refreshed
+        # again with a refresh token Etsy may already have retired.
+        await session.execute(
+            select(EtsyConnection).where(EtsyConnection.id == connection.id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if connection.status is not ConnectionStatus.active or connection.refresh_token_enc is None:
+            raise TokenUnavailable("the shop is not connected")
+        current = self._cipher.decrypt(connection.access_token_enc) if connection.access_token_enc else None
+        expires_at = connection.token_expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        renewed_meanwhile = (
+            current is not None and current != stale if stale is not None
+            else current is not None and expires_at is not None and expires_at - now > self.REFRESH_MARGIN
+        )
+        if renewed_meanwhile:
+            await session.commit()  # release the lock
+            return current  # type: ignore[return-value]
         refresh_token = self._cipher.decrypt(connection.refresh_token_enc)
         async with self._client_factory() as client:
             tokens = await refresh_tokens(

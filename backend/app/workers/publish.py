@@ -35,6 +35,7 @@ from app.db.models import (
 from app.etsy import guard
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.connection import ConnectionService
+from app.etsy.connection import renewer_for as _renewer
 from app.etsy.publisher import (
     SETUP_WAIT_SECONDS,
     PublishConfig,
@@ -398,6 +399,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     usage=ctx.get("usage"),
                     cache=ctx.get("redis"),
                     shop=connection.id,
+                    renew=_renewer(ctx, connection.id),
                 )
                 await publish_content(
                     session,
@@ -506,6 +508,7 @@ async def _run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                     usage=ctx.get("usage"),
                     cache=ctx.get("redis"),
                     shop=connection.id,
+                    renew=_renewer(ctx, connection.id),
                 )
                 await publish_live(
                     session,

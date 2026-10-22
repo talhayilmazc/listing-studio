@@ -41,6 +41,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
+from app.etsy.connection import renewer_for as _renewer
 from app.core import limits
 from app.core.config import get_settings
 from app.db.models import ConnectionStatus, EtsyConnection, ListingProfile, ProfileShopLink, Tenant
@@ -103,6 +104,7 @@ def _client(ctx: dict[str, Any], http: httpx.AsyncClient, shop: uuid.UUID, *, up
         cache=ctx.get("redis"),
         shop=shop,
         upkeep=upkeep,
+        renew=_renewer(ctx, shop),
     )
 
 

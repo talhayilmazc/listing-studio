@@ -121,6 +121,7 @@ class EtsyApiClient:
         sleep: Callable[[float], Awaitable[None]] | None = None,
         shop: Any = None,
         upkeep: bool = False,
+        renew: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         self._client_id = client_id
         self._shared_secret = shared_secret
@@ -137,6 +138,11 @@ class EtsyApiClient:
         # Upkeep (profile refresh, shop sync) counts app-wide, not in the
         # seller's own daily limit (v7 §D3).
         self._upkeep = upkeep
+        # A job reads its token once; Etsy may refuse it partway through a long job (expired,
+        # or renewed by another job). Then the token is renewed once and the request sent
+        # again (Etsy did not act on a 401), and the job's later requests use the new one.
+        self._renew = renew
+        self._renewed: str | None = None
 
     async def _request(
         self,
@@ -156,6 +162,8 @@ class EtsyApiClient:
         # Development switch: nothing leaves for Etsy, and no quota or bucket is spent.
         guard.check(f"{method.upper()} {path}")
         repeatable = (method.upper() in REPEATABLE) if repeat is None else repeat
+        access_token = self._renewed or access_token
+        renewed = False  # a 401 renews the token once per request
         attempt = 0  # every send
         refused = 0  # 429s
         blips = 0  # no answer, or 5xx
@@ -211,6 +219,14 @@ class EtsyApiClient:
             if resp.status_code >= 500 and repeatable and blips < TRANSIENT_RETRIES:
                 blips += 1
                 await self._sleep(transient_wait(blips))
+                continue
+            if resp.status_code == 401 and self._renew is not None and not renewed:
+                renewed = True
+                try:
+                    access_token = self._renewed = await self._renew(access_token)
+                except Exception:  # noqa: BLE001 - no token to renew: the 401 below says so
+                    logger.warning("Etsy token could not be renewed after a 401 on %s %s", method, path)
+                    break
                 continue
             if resp.status_code != 429:
                 break
