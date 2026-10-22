@@ -13,6 +13,8 @@ description is that profile's reference body under the new title.
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import uuid
 from dataclasses import dataclass
@@ -286,3 +288,28 @@ async def resolve_target(
             return Target(connection, chosen, "with this profile's title prefix: " + "; ".join(errors), link=link, by_text=True)
         return Target(connection, chosen, None, title, description, link=link, title_fit=fitted.too_long)
     return Target(connection, chosen, None, title, description, link=link)
+
+
+async def resolve_cached(
+    session: AsyncSession, content: GeneratedContent, connection: EtsyConnection, cache: dict[Any, Target]
+) -> Target:
+    """:func:`resolve_target` for many listings at once (B11: 500 listings x 15 shops). A listing
+    built with its own profile whose title prefix is the same in this shop gets the same answer
+    as every other such listing of that profile here (its text is not changed, so only the
+    profile and the shop decide), so it is worked out once per (profile, shop) for the caller's
+    request. Use only ``ok``, ``reason``, ``profile``, ``link``, ``stale``, ``setup`` and
+    ``by_text`` of a cached answer, never its title or description."""
+    from app.pipeline import manual as _manual
+    from app.pipeline.profile_shop_settings import shop_prefix
+
+    profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+    key = None
+    if profile is not None and profile.tenant_id == connection.tenant_id and profile.confirmed and (
+            (shop_prefix(profile, connection.id) or "") == (profile.title_prefix or "") or _manual.is_manual(content)):
+        key = (profile.id, connection.id)
+        if key in cache:
+            return cache[key]
+    target = await resolve_target(session, content, connection)
+    if key is not None and not target.title_fit:
+        cache[key] = target
+    return target

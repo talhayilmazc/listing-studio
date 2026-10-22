@@ -143,13 +143,15 @@ def stored(content: GeneratedContent) -> list[uuid.UUID] | None:
 
 
 async def wanted(
-    session: AsyncSession, content: GeneratedContent, shops: Iterable[EtsyConnection]
+    session: AsyncSession, content: GeneratedContent, shops: Iterable[EtsyConnection],
+    members: dict[uuid.UUID, list[uuid.UUID]] | None = None,
 ) -> list[EtsyConnection]:
-    """The connected shops this listing goes to, in the account's shop order."""
+    """The connected shops this listing goes to, in the account's shop order. ``members``: the
+    account's groups, read once by a caller asking for many listings."""
     by_id = {s.id: s for s in shops}
     chosen_dest, _ = await chosen_for(session, content)
     if chosen_dest is not None:
-        chosen = shops_of(chosen_dest, await members_of(session, content.tenant_id))
+        chosen = shops_of(chosen_dest, members if members is not None else await members_of(session, content.tenant_id))
     else:
         chosen = stored(content)
         if chosen is None:

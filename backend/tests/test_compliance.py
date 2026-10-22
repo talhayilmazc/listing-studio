@@ -73,7 +73,11 @@ def test_the_filter_off_lets_trademarks_through(test_settings) -> None:
     assert scan(title, TAGS, "d") == []
 
 
-def test_the_list_file_is_extended_without_a_restart(tmp_path, test_settings) -> None:
+def test_the_list_file_is_extended_without_a_restart(tmp_path, test_settings, monkeypatch) -> None:
+    """Picked up within a few seconds (the file is looked at again every RECHECK_SECONDS, not on
+    every listing checked: a page checking 500 listings asked for it 1,000 times, B11)."""
+    from app.compliance import trademarks
+
     path = tmp_path / "marks.txt"
     path.write_text("# ours\nAcme\n", encoding="utf-8")
     test_settings.trademark_list_path = str(path)
@@ -83,6 +87,8 @@ def test_the_list_file_is_extended_without_a_restart(tmp_path, test_settings) ->
     path.write_text("Acme\nNurse Humor\n", encoding="utf-8")
     later = time.time() + 5
     os.utime(path, (later, later))  # a new modification time, even on coarse clocks
+    clock = time.monotonic() + trademarks.RECHECK_SECONDS + 1
+    monkeypatch.setattr(trademarks.time, "monotonic", lambda: clock)  # a few seconds later
     assert configured_blocklist().find("Nurse Humor tee") == ["Nurse Humor"]
 
 

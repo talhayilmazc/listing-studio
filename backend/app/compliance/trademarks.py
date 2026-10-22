@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -81,38 +82,52 @@ def read_terms(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
 
-# (path, modification time) -> compiled list, so an edited file is picked up on
-# the next check without a restart, and an unchanged one is not re-read.
-_cache: dict[str, tuple[float, Blocklist]] = {}
+# (path) -> (modification time, when it was last looked at, compiled list), so an edited file
+# is picked up within a few seconds without a restart, and an unchanged one is neither re-read
+# nor recompiled: a page checking 500 listings asks for the list 1,000 times (B11).
+_cache: dict[str, tuple[float, float, Blocklist]] = {}
+#: How long a list is used before its file's time is looked at again.
+RECHECK_SECONDS = 5.0
 
 
-def configured_blocklist() -> Blocklist:
-    """The blocklist in force now: empty when TRADEMARK_FILTER is off."""
-    settings = get_settings()
-    if not settings.trademark_filter:
-        return Blocklist()
-    path = Path(settings.trademark_list_path) if settings.trademark_list_path else DEFAULT_LIST_PATH
+def _loaded(path: Path) -> Blocklist:
+    """The compiled list in ``path`` (the bundled list when it cannot be read)."""
+    key = str(path)
+    now = time.monotonic()
+    cached = _cache.get(key)
+    if cached is not None and now - cached[1] < RECHECK_SECONDS:
+        return cached[2]
     try:
         mtime = path.stat().st_mtime
     except OSError:
         # A filter that is on but cannot read its list must not silently pass
         # everything: fall back to the bundled list.
         logger.error("trademark list %s is unreadable; using the bundled list", path)
-        path = DEFAULT_LIST_PATH
-        mtime = path.stat().st_mtime
-    key = str(path)
-    cached = _cache.get(key)
+        return _loaded(DEFAULT_LIST_PATH) if path != DEFAULT_LIST_PATH else Blocklist()
     if cached is not None and cached[0] == mtime:
-        return cached[1]
+        _cache[key] = (mtime, now, cached[2])
+        return cached[2]
     blocklist = compile_blocklist(read_terms(path))
-    _cache[key] = (mtime, blocklist)
+    _cache[key] = (mtime, now, blocklist)
     return blocklist
+
+
+def _list_path() -> Path:
+    settings = get_settings()
+    return Path(settings.trademark_list_path) if settings.trademark_list_path else DEFAULT_LIST_PATH
+
+
+def configured_blocklist() -> Blocklist:
+    """The blocklist in force now: empty when TRADEMARK_FILTER is off."""
+    if not get_settings().trademark_filter:
+        return Blocklist()
+    return _loaded(_list_path())
 
 
 def bundled_blocklist() -> Blocklist:
     """The full list, whatever any account's filter says: for recognising what a
     design shows, not for refusing words."""
-    return compile_blocklist(read_terms(DEFAULT_LIST_PATH))
+    return _loaded(DEFAULT_LIST_PATH)
 
 
 def characters_seen(characters: list[str], themes: list[str]) -> list[str]:
@@ -136,9 +151,7 @@ def blocklist_for(setting: bool | None) -> Blocklist:
     if setting is False:
         return Blocklist()
     if setting is True:
-        settings = get_settings()
-        path = Path(settings.trademark_list_path) if settings.trademark_list_path else DEFAULT_LIST_PATH
-        return compile_blocklist(read_terms(path if path.exists() else DEFAULT_LIST_PATH))
+        return _loaded(_list_path())
     return configured_blocklist()
 
 

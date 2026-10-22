@@ -173,3 +173,29 @@ all 15). The failure cases (429, lost answers, 5xx, time limits) stay in
 `tests/test_publish_volume.py`. The layout test (`frontend/e2e/layout.spec.ts`) covers every page
 at 375 and 1366 px with the demo account seeded with 1, 4 and 15 shops.
 
+## Performance (B11)
+
+`backend/tests/test_performance_part_b.py`, in process against SQLite in the test container
+(Windows host, Docker volume; production's Postgres on Linux is faster). 500 listings, 15 shops
+in 6 groups; times before -> after the two fixes below.
+
+| Step | Before | After |
+|---|---|---|
+| Review page, 500 listings | 1.1 s | 1.0 s |
+| Batches with statuses | 0.3 s | 0.1 s |
+| Where and when preview, 500 x 15 = 7,500 drafts | 20.3 s | 3.2 s |
+| Spread-out preview, 7,500 go-lives | 18.8 s | 3.9 s |
+| Send spread out, 7,500 planned | 20.3 s | 5.0 s |
+| Scheduled page, 7,500 go-lives | 0.7 s | 0.7 s |
+| Bulk shift preview, 500 go-lives | 0.8 s | 0.8 s |
+| 200-photo upload, 2400x3000 JPEGs one request each | 9.2 s | 9.1 s |
+
+Fixes: the account's trademark list was read and compiled from its file on every check (twice
+per listing: the seller's own "on" setting bypassed the cache); it is now compiled once and its
+file looked at again every 5 seconds (`compliance/trademarks._loaded`). A shop's answer for a
+profile (set up there, ready, its settings) is worked out once per (profile, shop) per request
+when the listing's text does not change there (`targets.resolve_cached`), and the account's
+groups are read once (`shop_targets.wanted(members=)`). `reschedule.settle` keeps each shop's
+times sorted and its days counted (it compared every pair before). `PROFILE=<step>` prints where
+a step spends its time.
+

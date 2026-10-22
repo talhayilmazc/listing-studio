@@ -61,7 +61,7 @@ from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, group_shops
 from app.pipeline import group_plan as G
 from app.pipeline import profile_shops, shop_targets
-from app.pipeline.targets import resolve_target
+from app.pipeline.targets import resolve_cached
 
 router = APIRouter(prefix="/api", tags=["send"])
 
@@ -281,6 +281,8 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
         select(PlannedSlot).where(PlannedSlot.content_id.in_(ids),
                                   PlannedSlot.state.in_(("waiting", "drafting", "scheduled")))))
         .scalars()} if ids else {}
+    members = await shop_targets.members_of(session, tenant.id)
+    targets: dict = {}  # (profile, shop) -> its answer, for every listing of that profile there (B11)
     for content in contents:
         why = await _why_not(session, content)
         if why:
@@ -288,7 +290,7 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
             continue
         own_dest, custom = await shop_targets.chosen_for(session, content)
         dest = DestinationIn(**own_dest) if own_dest is not None else None
-        mine = await shop_targets.wanted(session, content, connected)
+        mine = await shop_targets.wanted(session, content, connected, members)
         own = await shop_targets.own_shop(session, content) if dest is None else None
         label = names.label(dest, shop_label(own) if own else None)
         work.contents[content.id], work.dest[content.id], work.shops[content.id] = content, dest, mine
@@ -320,7 +322,7 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
                     cells.append(SendCell(shop_id=shop.id, shop_name=name, state="publish"))
                     work.actions.append((content, shop, "publish"))
                 continue
-            target = await resolve_target(session, content, shop)
+            target = await resolve_cached(session, content, shop, targets)
             if not target.ok and auto_setup(target):
                 entry = work.setups.setdefault(target.profile.id, (target.profile, []))
                 if shop.id not in entry[1]:

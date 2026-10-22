@@ -25,6 +25,8 @@ rules (a time the clocks skip moves to the next hour). Bulk actions:
 from __future__ import annotations
 
 import uuid
+from bisect import bisect_left, bisect_right, insort
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
@@ -138,13 +140,24 @@ def propose(items: list[Item], keys: list[str], op: str, params: dict[str, Any],
 
 def settle(items: list[Item], desired: dict[str, datetime], rules: Rules, now: datetime) -> list[Change]:
     """New times for ``desired``, keeping the rules against every other scheduled listing and
-    against each other; earlier asks are placed first."""
+    against each other; earlier asks are placed first. Each shop's times are kept sorted and
+    its days counted, so 500 listings in 15 shops settle in well under a second."""
     by_key = {i.key: i for i in items}
     floor = (now + LEAD).replace(second=0, microsecond=0) + timedelta(minutes=1)
-    placed: list[tuple[uuid.UUID, uuid.UUID | None, datetime]] = [
-        (i.shop_id, i.content_id, _aware(i.at)) for i in items if i.key not in desired and _aware(i.at) >= now - timedelta(days=1)
-    ]
     tz = ZoneInfo(rules.zone)
+    times: dict[uuid.UUID, list[datetime]] = {}
+    days: Counter[tuple[uuid.UUID, date]] = Counter()
+    design: dict[uuid.UUID, set[tuple[uuid.UUID, datetime]]] = {}
+
+    def place(shop: uuid.UUID, content: uuid.UUID | None, at: datetime) -> None:
+        insort(times.setdefault(shop, []), at)
+        days[(shop, at.astimezone(tz).date())] += 1
+        if content is not None:
+            design.setdefault(content, set()).add((shop, at.replace(second=0, microsecond=0)))
+
+    for i in items:
+        if i.key not in desired and _aware(i.at) >= now - timedelta(days=1):
+            place(i.shop_id, i.content_id, _aware(i.at))
     out: list[Change] = []
     for key in sorted(desired, key=lambda k: (_aware(desired[k]), k)):
         item = by_key[key]
@@ -154,26 +167,24 @@ def settle(items: list[Item], desired: dict[str, datetime], rules: Rules, now: d
             t, why = floor, "past"
         gap = rules.gap(item.shop_id)
         limit = rules.daily.get(item.shop_id)
+        mine = times.get(item.shop_id, [])
         for _ in range(MAX_STEPS):
             day = t.astimezone(tz).date()
-            if limit:
-                same_day = sum(1 for s, _, at in placed if s == item.shop_id and at.astimezone(tz).date() == day)
-                if same_day >= limit:
-                    wall = t.astimezone(tz).time()
-                    t, why = instant(day + timedelta(days=1), wall, rules.zone), why or "daily"
-                    continue
-            clash = [at for s, _, at in placed if s == item.shop_id and abs(at - t) < gap]
-            if clash:
-                t, why = max(clash) + gap, why or "spacing"
+            if limit and days[(item.shop_id, day)] >= limit:
+                t, why = instant(day + timedelta(days=1), t.astimezone(tz).time(), rules.zone), why or "daily"
                 continue
-            if item.content_id is not None and any(c == item.content_id and s != item.shop_id and abs(at - t) < timedelta(minutes=1)
-                                                    for s, c, at in placed):
+            # The shop's listings within ``gap`` of t: the sorted list's neighbours of t.
+            lo, hi = bisect_left(mine, t - gap + timedelta(microseconds=1)), bisect_right(mine, t + gap - timedelta(microseconds=1))
+            if lo < hi:
+                t, why = mine[hi - 1] + gap, why or "spacing"
+                continue
+            if item.content_id is not None and any(s != item.shop_id and m == t for s, m in design.get(item.content_id, ())):
                 t, why = t + timedelta(minutes=1), why or "same_minute"
                 continue
             break
         else:
             raise EditRefused("there is no room for these listings within a year; allow more a day")
-        placed.append((item.shop_id, item.content_id, t))
+        place(item.shop_id, item.content_id, t)
         out.append(Change(key, _aware(item.at), t, why if t != asked else None))
     return out
 

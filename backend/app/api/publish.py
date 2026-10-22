@@ -55,7 +55,7 @@ from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
 from app.pipeline import links as L
 from app.pipeline import profile_shops, shop_targets
-from app.pipeline.targets import is_fresh, resolve_target, shop_profiles
+from app.pipeline.targets import is_fresh, resolve_cached, resolve_target, shop_profiles
 
 from app.pipeline.batch_names import names_by_id
 
@@ -154,6 +154,8 @@ async def _plan_drafts(
     for connection, _ in targets or []:
         plan.shops[connection.id] = connection
     connected = await active_shops(session, tenant.id)
+    members = await shop_targets.members_of(session, tenant.id)
+    cached: dict = {}  # (profile, shop) -> its answer, for many listings at once (B11)
     for content in contents:
         if pairs is not None and content.id not in pairs:
             continue  # not asked for
@@ -173,7 +175,7 @@ async def _plan_drafts(
             shops = targets
         else:
             # The shops ticked for it on the review page; by default its own.
-            mine = await shop_targets.wanted(session, content, connected)
+            mine = await shop_targets.wanted(session, content, connected, members)
             if not mine:
                 chosen, _ = await shop_targets.chosen_for(session, content)
                 plan.skip(
@@ -193,7 +195,8 @@ async def _plan_drafts(
             if await _files_removed(session, content):
                 plan.skip(content, FILES_REMOVED, connection)
                 continue
-            target = await resolve_target(session, content, connection, profile_id=profile_id)
+            target = (await resolve_cached(session, content, connection, cached) if profile_id is None
+                      else await resolve_target(session, content, connection, profile_id=profile_id))
             if not target.ok and auto_setup(target):
                 # Used in this shop from now on: set up first (matched or copied), then drafted.
                 entry = plan.setups.setdefault(target.profile.id, (target.profile, []))
