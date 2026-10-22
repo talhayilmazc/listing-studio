@@ -836,6 +836,13 @@ def main(argv: list[str] | None = None) -> int:
         help="ONE read-only Etsy request: are views and num_favorers in a shop's listing data (counts only)",
     )
     stats_check.add_argument("shop", help="the shop's id in the app, its Etsy shop id, or the account's e-mail")
+    raw = sub.add_parser(
+        "etsy-raw-listing",
+        help="THREE read-only Etsy requests: one listing's raw JSON as its shop's owner sees it (run on the server)",
+    )
+    raw.add_argument("shop", nargs="?", help="the shop's id in the app or its Etsy shop id")
+    raw.add_argument("listing", nargs="?", help="the Etsy listing id")
+    raw.add_argument("--profile", help="instead: a profile's name; its main shop and reference listing are read from the database")
     originals_cmd = sub.add_parser("storage-originals", help="delete the original uploads stored before only processed copies were kept (dry run unless --apply)")
     originals_cmd.add_argument("--apply", action="store_true", help="delete them (default: only count)")
     sub.add_parser("storage-report", help="stored image files per account and kind, their ages and whether they are still needed")
@@ -884,6 +891,10 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(sales_report(sm, args.email)))
     elif args.command == "listing-stats-check":
         print(asyncio.run(listing_stats_check(sm, args.shop)))
+    elif args.command == "etsy-raw-listing":
+        from app.ops.raw_listing import raw_listing
+
+        print(asyncio.run(raw_listing(sm, args.shop, args.listing, profile=args.profile)))
     elif args.command == "storage-originals":
         print(asyncio.run(storage_originals(sm, apply=args.apply)))
     elif args.command == "storage-report":

@@ -20,6 +20,10 @@ when_made) or production partners: those are in the API, copied from the
 reference and verified on read-back (etsy/publisher.py), and recent drafts show
 them stored exactly as sent (v7 §E1).
 
+Etsy's developer repository has an open request for exactly these two fields (etsy/open-api
+discussion #1630, opened 2026-06-22) with no answer from Etsy as of 2026-10-21. What the live
+API really returns for a listing: ``python -m app.cli etsy-raw-listing`` (ops/raw_listing.py).
+
 To add another, append a ManualField below. If Etsy later exposes one of these
 through the API, copy it from the reference like every other setting instead,
 verify it on read-back, and delete its entry here.
