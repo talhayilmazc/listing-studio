@@ -6,7 +6,7 @@
 // The seller can change which of a shop's own settings is used ("change"): that choice is the
 // account's, for every reference listing using the same setting.
 //
-// Pure (components/ProfileShops.tsx and ShopSettingsPanel.tsx draw it; lib/shopSetup.test.ts
+// Pure (components/ProfileShops.tsx and ProfileShopTable.tsx draw it; lib/shopSetup.test.ts
 // checks it).
 
 import type { ProfileLink, SettingUse, ShopSetup } from "./types";

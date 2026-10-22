@@ -25,6 +25,7 @@ import type {
   SendWhen,
   LinkSuggestion,
   ProfileSetup,
+  ProfileShopTable,
   ShopGroups,
   UseInScope,
   SetupChoice,
@@ -821,6 +822,12 @@ export const api = {
   pickInShop: (id: string, shop: string, resource: string, ids: number[]) =>
     req<Profile>(`/profiles/${id}/setup/${shop}`, { method: "PUT", body: JSON.stringify({ resource, ids }) }),
   checkShopAgain: (id: string, shop: string) => req<Profile>(`/profiles/${id}/setup/${shop}/check`, { method: "POST" }),
+  profileShopTable: (id: string) => req<ProfileShopTable>(`/profiles/${id}/shops`),
+  /** One value for one shop on a profile's Shops table; ``follow``: the shop follows the profile again. */
+  setProfileShopValue: (id: string, shop: string, field: "section_title" | "title_prefix", value: string | null, follow = false) =>
+    req<ProfileShopTable>(`/profiles/${id}/shops/${shop}`, { method: "PUT", body: JSON.stringify({ field, value, follow }) }),
+  setShopDailyLimit: (shop: string, daily_limit: number | null) =>
+    req<{ connection_id: string; daily_limit: number | null }>(`/shops/${shop}/daily-limit`, { method: "PUT", body: JSON.stringify({ daily_limit }) }),
   stopUsingInShop: (id: string, shop: string) => req<Profile>(`/profiles/${id}/links/${shop}`, { method: "DELETE" }),
   setProfileReference: (id: string, listingId: number) =>
     req<Profile>(`/profiles/${id}/reference`, { method: "PUT", body: JSON.stringify({ reference_listing_id: listingId }) }),

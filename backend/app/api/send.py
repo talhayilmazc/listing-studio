@@ -373,7 +373,7 @@ async def _spread(session: AsyncSession, tenant: Tenant, quota: DailyQuota, work
             continue
         if key_shops not in keys:
             keys[key_shops] = f"k{len(keys)}"
-            plan_shops += [G.Shop(id=s.id, name=shop_label(s), group_id=keys[key_shops]) for s in shops]
+            plan_shops += [G.Shop(id=s.id, name=shop_label(s), group_id=keys[key_shops], daily=s.daily_limit) for s in shops]
         skip = {s.id: "already there" for s in shops if (row.content_id, s.id) not in to_do}
         listings.append(G.Listing(content_id=row.content_id, title=row.title, group_id=keys[key_shops], skip=skip))
     now = datetime.now(timezone.utc)
@@ -462,6 +462,21 @@ def _record(session: AsyncSession, tenant: Tenant, work: _Work, names: _Names) -
         for cid in dest.connection_ids:
             session.add(DesignDistribution(tenant_id=tenant.id, content_id=row.content_id, sku=row.sku,
                                            group_id=None, group_name=names.shops.get(cid, "")))
+
+
+async def join_all_shops(session: AsyncSession, connection: EtsyConnection) -> None:
+    """A newly connected shop joins every "All shops" group that held every other connected
+    shop, so it keeps meaning all of them. Commits."""
+    shops = await active_shops(session, connection.tenant_id)
+    others = {s.id for s in shops if s.id != connection.id}
+    if not others:
+        return
+    by_group = await group_shops(session, connection.tenant_id, shops)
+    for group in (await session.execute(select(ShopGroup).where(ShopGroup.tenant_id == connection.tenant_id))).scalars():
+        members = {c.id for c in by_group.get(group.id, [])}
+        if group.name.startswith(ALL_SHOPS) and connection.id not in members and members == others:
+            session.add(ShopGroupMember(group_id=group.id, connection_id=connection.id))
+    await session.commit()
 
 
 # --- endpoints -----------------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.api.shops import shop_label
+from app.pipeline.profile_shop_settings import shop_section
 from app.db.models import (
     Asset,
     EtsyConnection,
@@ -141,6 +142,13 @@ def _shop_out(content: GeneratedContent, shop: EtsyConnection, profile: ListingP
                 out.reason = f"same as in {names.get(carried[0], 'your other shop')}"
                 return out
             out.missing_title = title
+        default = shop_section(profile, shop.id)
+        if carried is None and default and default.lower() in by_title:
+            # The profile's section for this shop (B7, on the profile's Shops table).
+            hit = by_title[default.lower()]
+            out.selected_id, out.selected_title, out.source = hit["id"], hit["title"], "profile"
+            out.reason = "the profile's section in this shop"
+            return out
     picked = opts.suggest_section(
         [s["title"] for s in sections], theme_words=opts.theme_words(content.attributes),
         occasion=str(((content.attributes or {}).get("vision") or {}).get("occasion") or ""),

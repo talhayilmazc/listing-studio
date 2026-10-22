@@ -409,6 +409,9 @@ class EtsyConnection(Base):
     #: 24 hours (other Etsy content); deleted with the shop.
     sections: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB_TYPE)
     sections_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Listings a day that go live here when a schedule spreads them out, across every
+    #: schedule (B7/B8); None: the schedule's own number.
+    daily_limit: Mapped[int | None] = mapped_column(Integer)
     #: "Delete my sales history" (pipeline/sales_history.py): the first day the seller still wants
     #: in the profit report. Nothing older is stored again, whatever read brings it in. NULL:
     #: everything the Analytics history setting keeps. Cleared when the shop is disconnected.
@@ -1362,6 +1365,9 @@ class ListingProfile(Base):
     #: Auto-filled from the reference title's leading words; editable. Null = not yet
     #: derived; "" = deliberately none.
     title_prefix: Mapped[str | None] = mapped_column(Text)
+    #: Per shop (B7): {connection id: {"section_title": ..., "title_prefix": ...}}; a shop not
+    #: listed follows the profile (pipeline/profile_shop_settings.py).
+    shop_settings: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: How listings are written with this profile: "classic" ("Long keyword":
     #: 110-140 character keyword titles) or "search" ("Short, clear title":
     #: at most 15 words, tags that do not repeat it, a design-specific description

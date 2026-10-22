@@ -49,6 +49,7 @@ from app.pipeline.images import cover_image
 from app.pipeline import links as L
 from app.pipeline.links import setup_message, shop_reference
 from app.pipeline.personalization import for_listing as personalization_for_listing
+from app.pipeline.profile_shop_settings import shop_section
 from app.pipeline.storage import LocalStorage
 from app.pipeline.targets import Target, is_fresh, resolve_target
 from app.workers import recovery
@@ -422,7 +423,8 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     # The writer's attributes with the seller's Occasion / Holiday; the
                     # section the seller chose for this shop (pipeline/item_options.py).
                     optional_attributes=item_options.draft_attributes(content.attributes, content.item_options),
-                    section_choice=item_options.section_choice(content.item_options, connection.id),
+                    section_choice=item_options.section_choice(
+                        content.item_options, connection.id, shop_section(profile, connection.id)),
                     theme_words=item_options.theme_words(content.attributes),
                     profile_name=profile.name,
                     tenant_limit=limits.ceiling_limit(tenant),

@@ -142,7 +142,7 @@ async def shop_profiles(session: AsyncSession, connection_id: uuid.UUID) -> list
 
 
 def retext(
-    content: GeneratedContent, source: ListingProfile | None, chosen: ListingProfile
+    content: GeneratedContent, source: ListingProfile | None, chosen: ListingProfile, *, to_prefix: str | None | object = None
 ) -> tuple[str, str, FittedTitle]:
     """The listing's title and description as ``chosen`` builds them, when it was
     written with ``source``: the title's prefix is swapped for the new profile's
@@ -152,7 +152,9 @@ def retext(
     stays empty."""
     from app.pipeline import manual
 
-    fitted = retarget_title(content.title or "", source.title_prefix if source else None, chosen.title_prefix)
+    # ``to_prefix``: the prefix ``chosen`` carries in the target shop (B7), else its own.
+    target_prefix = chosen.title_prefix if to_prefix is None else to_prefix
+    fitted = retarget_title(content.title or "", source.title_prefix if source else None, target_prefix)  # type: ignore[arg-type]
     if manual.is_manual(content):
         # The seller's own title: no prefix was added for them, so none is swapped.
         fitted = FittedTitle(content.title or "", True)
@@ -236,10 +238,25 @@ async def resolve_target(
         if size_issue:
             return Target(connection, chosen, size_issue, link=link)
 
-    if source is not None and chosen.id == source.id:
+    from app.pipeline import manual as _manual
+    from app.pipeline.profile_shop_settings import shop_prefix
+
+    # The prefix this profile's titles carry in this shop (B7; the profile's own unless set).
+    shop_px = shop_prefix(chosen, connection.id)
+    if source is not None and chosen.id == source.id and (
+            (shop_px or "") == (chosen.title_prefix or "") or _manual.is_manual(content) or not content.title):
         title, description = content.title or "", content.description or ""
     else:
-        title, description, fitted = retext(content, source, chosen)
+        if source is not None and chosen.id == source.id:
+            # Same profile, its own prefix in this shop: only the prefix changes (never cut).
+            title = content.title or ""
+            fitted = retarget_title(title, chosen.title_prefix, shop_px)
+            description = content.description or ""
+            if title and description.startswith(title):
+                description = fitted.title + description[len(title):]
+            title = fitted.title
+        else:
+            title, description, fitted = retext(content, source, chosen, to_prefix=shop_px if shop_px is not None else "")
         stored = title_fit.stored_for(content, connection.id)
         if fitted.too_long and stored:
             # Rewritten once for this shop already, from this very title.

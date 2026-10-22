@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { announceProfilesChanged, settingsLine, shopState, useInShops } from "@/lib/shopSetup";
 import { startSetup } from "@/lib/startSetup";
 import type { Profile, ShopGroups } from "@/lib/types";
-import { ShopSettingsPanel } from "./ShopSettingsPanel";
+import { ProfileShopTable } from "./ProfileShopTable";
 import { ShopTargetPicker } from "./ShopTargetPicker";
 import { useShops } from "./ShopProvider";
 import { Txt } from "./Txt";
@@ -147,18 +147,19 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
 
       <p className="mt-2 border-t border-slate-100 pt-2 text-slate-600" data-testid="settings-line">
         <span translate="no">{settingsLine(mainShop)}</span>
-        {others.length > 0 && (
+        {links.length > 0 && (
           <span key="change">
             <span> · </span>
             <button type="button" className="tap text-brand-700 underline" onClick={() => setChanging((c) => !c)}
               aria-expanded={changing} data-testid="settings-change">
-              change
+              {changing ? "close" : "change"}
             </button>
           </span>
         )}
       </p>
-      {changing && others.length > 0 && (
-        <ShopSettingsPanel key="panel" profileId={profile.id} onChanged={reload} />
+      {changing && links.length > 0 && (
+        // B7: one row per shop: shipping, returns, processing, section, title prefix, a day.
+        <ProfileShopTable key="table" profileId={profile.id} profileName={profile.name} onChanged={reload} onClose={() => setChanging(false)} />
       )}
       {error && <p key="error" className="mt-2 text-rose-700">{error}</p>}
     </div>

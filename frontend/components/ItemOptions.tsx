@@ -221,6 +221,7 @@ function ValuePicker({
 const SECTION_SOURCE: Record<ShopSection["source"], string> = {
   seller: "your choice",
   carried: "",
+  profile: "the profile's in this shop",
   suggested: "suggested",
   none: "",
 };

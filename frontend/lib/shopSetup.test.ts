@@ -65,7 +65,7 @@ test("Use in offers every shop but the main one, whatever its state", () => {
 
 test("no setup dialog, no Finish setup, no Shops-page button; the card has the line and change", () => {
   const card = read("components/ProfileShops.tsx");
-  assert.ok(card.includes("settingsLine(") && card.includes('data-testid="settings-change"') && card.includes("<ShopSettingsPanel"));
+  assert.ok(card.includes("settingsLine(") && card.includes('data-testid="settings-change"') && card.includes("<ProfileShopTable"));
   assert.ok(card.includes("startSetup(") && card.includes("preparing…"));
   for (const gone of ["Finish setup", "ShopSetupDialog", "no match in this shop", "Use all reference listings here"]) {
     assert.ok(!card.includes(gone), gone);
@@ -75,7 +75,7 @@ test("no setup dialog, no Finish setup, no Shops-page button; the card has the l
                       "components/UnfinishedDrafts.tsx"]) {
     assert.ok(!read(page).includes("ShopSetupDialog"), page);
   }
-  const panel = read("components/ShopSettingsPanel.tsx");
+  const panel = read("components/ProfileShopTable.tsx");
   assert.ok(panel.includes("api.pickInShop(") && panel.includes("panelSettings("));
   assert.ok(read("app/(app)/profiles/page.tsx").includes("PROFILES_CHANGED"), "every card reloads when one changes");
 });

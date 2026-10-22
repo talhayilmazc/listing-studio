@@ -1931,6 +1931,23 @@ export interface SetupChoice {
   ids: number[];
 }
 
+/** The Shops table on a profile (B7): per shop, the profile's section and title prefix and the shop's daily limit. */
+export interface ProfileShopRow {
+  connection_id: string;
+  shop_name: string;
+  main: boolean;
+  section_title: string | null;
+  sections: string[] | null;
+  title_prefix: string | null;
+  prefix_own: boolean;
+  daily_limit: number | null;
+}
+
+export interface ProfileShopTable {
+  profile_id: string;
+  rows: ProfileShopRow[];
+}
+
 export interface ProfileSetup {
   profile: Profile;
   shops: ShopSetup[];
@@ -2092,7 +2109,7 @@ export interface ShopSection {
   sections: { id: number; title: string }[] | null;
   selected_id: number | null;
   selected_title: string | null;
-  source: "seller" | "carried" | "suggested" | "none";
+  source: "seller" | "carried" | "profile" | "suggested" | "none";
   reason: string;
   /** A section chosen elsewhere that this shop does not have. */
   missing_title: string | null;

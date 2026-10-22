@@ -1272,7 +1272,7 @@ class ShopSectionOut(BaseModel):
     sections: list[SectionOptionOut] | None = None
     selected_id: int | None = None
     selected_title: str | None = None
-    source: str = "none"  # "seller" | "carried" | "suggested" | "none"
+    source: str = "none"  # "seller" | "carried" | "profile" | "suggested" | "none"
     reason: str = ""
     #: A section chosen in another shop (or chosen here and deleted on Etsy) that
     #: this shop does not have: the card offers to create it, or another pick.

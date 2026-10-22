@@ -432,6 +432,21 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<batch> after arranging");
   });
 
+  test("a profile's Shops table opens wide, one row per shop, and closes", async ({ page }) => {
+    await page.goto("/profiles");
+    await settle(page);
+    await page.getByTestId("settings-change").first().click();
+    const table = page.getByTestId("profile-shop-table");
+    await expect(table).toBeVisible({ timeout: 15_000 });
+    await expect(table.getByTestId("profile-shop-row").first()).toBeVisible();
+    for (const head of ["Shipping", "Returns", "Processing", "Section", "Title prefix", "A day"]) {
+      await expect(table.locator("th").filter({ hasText: new RegExp(`^${head}$`) }), head).toHaveCount(1);
+    }
+    await expectSound(page, "/profiles with a Shops table open");
+    await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+    await expect(table).toHaveCount(0);
+  });
+
   test("review: one Where and when panel; groups first; one button with the real total", async ({ page }) => {
     await page.goto("/batches");
     await settle(page);

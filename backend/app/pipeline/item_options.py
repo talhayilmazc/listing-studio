@@ -201,14 +201,15 @@ def draft_attributes(content_attributes: Mapping[str, Any] | None, own: Mapping[
     return out
 
 
-def section_choice(own: Mapping[str, Any] | None, connection_id: Any) -> dict[str, Any] | None:
+def section_choice(own: Mapping[str, Any] | None, connection_id: Any, default: str | None = None) -> dict[str, Any] | None:
     """The seller's section for this shop (``explicit``), else the title they chose
-    in another shop (used here when this shop has a section by that name), else None."""
+    in another shop, else the profile's section for this shop (``default``, B7); a title is
+    used only when this shop has a section by that name. None: the design's best fit."""
     sections = (own or {}).get(SECTIONS) or {}
     mine = sections.get(str(connection_id))
     if mine is not None:
         return {"id": mine.get("id"), "title": mine.get("title"), "explicit": True}
-    carried = next((s.get("title") for s in sections.values() if s and s.get("title")), None)
+    carried = next((s.get("title") for s in sections.values() if s and s.get("title")), None) or default
     return {"id": None, "title": carried, "explicit": False} if carried else None
 
 

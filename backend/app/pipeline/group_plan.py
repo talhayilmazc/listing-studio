@@ -74,6 +74,8 @@ class Shop:
     id: uuid.UUID
     name: str
     group_id: Any
+    #: The shop's own listings a day (``etsy_connection.daily_limit``), below the schedule's.
+    daily: int | None = None
 
 
 @dataclass(frozen=True)
@@ -180,7 +182,8 @@ def plan(
             break
         for shop in unique.values():  # in group order: the stagger follows it
             queue = queues[shop.id]
-            for at in _times(settings, index[shop.id]):
+            times = _times(settings, index[shop.id])
+            for at in times[: shop.daily] if shop.daily else times:
                 if not queue:
                     break
                 publish_at = _instant(day, at, settings.zone)

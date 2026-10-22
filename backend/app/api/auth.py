@@ -195,6 +195,10 @@ async def callback(
 
     for profile_id in await use_all_in_shop(session, connection.tenant_id, connection.id):
         await enqueuer.enqueue("link_profile", str(profile_id))
+    # A group of all the seller's shops ("Make a group of all my shops") takes the new shop too (B7).
+    from app.api.send import join_all_shops
+
+    await join_all_shops(session, connection)
     marker, now = mark_reading(connection.id)
     await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
     return _redirect(f"{back}?status=connected&shop={connection.id}")
