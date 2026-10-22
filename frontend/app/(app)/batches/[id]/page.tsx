@@ -281,6 +281,11 @@ export default function BatchPage() {
         skipped += res.skipped;
         allFailures.push(...res.failures);
       } catch (e: any) {
+        if (e?.status === 409 && /another tab or window/.test(e.message ?? "")) {
+          // Being written elsewhere (another tab): stop here; nothing failed.
+          setProblem(e.message);
+          break;
+        }
         failed += 1;
         allFailures.push({ original_filename: g.label, error: e.message ?? String(e) });
       }

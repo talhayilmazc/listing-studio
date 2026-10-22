@@ -1437,6 +1437,13 @@ async def write_manually(
     )
 
 
+#: How long one writing request may hold the account's writing lock (a group's AI calls take
+#: ~20-60 s; the lock goes when the request ends, this only bounds a crash).
+GENERATE_LOCK_SECONDS = 600
+WRITING_ELSEWHERE = ("Listings are being written in another tab or window right now. Wait for it to finish, "
+                     "then try again.")
+
+
 @router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)
 async def generate_content(
     batch_id: uuid.UUID,
@@ -1467,6 +1474,23 @@ async def generate_content(
     if await llm_status.current(redis):
         return schemas.GenerateResult(generated=0, failed=0, skipped=0, paused=llm_status.SELLER_MESSAGE)
 
+    # One writing request per account at a time (quality pass 2026-10, review R20): "Generate all"
+    # sends its groups one by one, so this only stops a second tab or a double click, which
+    # could write the same group twice and spend past the allowance between its check and use.
+    lock = f"generating:{tenant.id}"
+    if not await redis.set(lock, "1", nx=True, ex=GENERATE_LOCK_SECONDS):
+        raise HTTPException(status_code=409, detail=WRITING_ELSEWHERE)
+    try:
+        return await _write_listings(batch_id, body, session, tenant, storage, enqueuer, redis)
+    finally:
+        await redis.delete(lock)
+
+
+async def _write_listings(
+    batch_id: uuid.UUID, body: schemas.GenerateRequest, session: AsyncSession, tenant: Tenant,
+    storage: Storage, enqueuer: Enqueuer, redis: Redis,
+) -> schemas.GenerateResult:
+    settings = get_settings()
     # The product allowance: a listing is only written while some is left, and
     # the seller is told when it resets (checked where a group needs writing, so
     # "for all" with nothing to write isn't refused).

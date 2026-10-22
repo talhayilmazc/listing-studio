@@ -215,3 +215,21 @@ async def test_a_listing_the_seller_wrote_can_be_generated_with_ai_later(ctx, ll
         assert len((await s.execute(select(AiCall))).scalars().all()) == 2  # the vision call and the content call
     mine = (await ctx["client"].get("/api/account/allowance")).json()
     assert (mine["used"], mine["rewrites"]) == (0, 1)
+
+
+async def test_a_second_tab_cannot_write_while_the_first_is_writing(ctx, llm) -> None:  # noqa: F811
+    """Quality pass 2026-10, review R20: two tabs (or a double click) could write the same group
+    twice and spend past the allowance between its check and its use. One writing request per
+    account at a time; the lock goes when the request ends."""
+    from app.api.batches import WRITING_ELSEWHERE
+
+    batch, _, profile = await _group(ctx)
+    await ctx["redis"].set(f"generating:{ctx['tenant_id']}", "1", ex=60)  # the first tab is writing
+    res = await ctx["client"].post(f"/api/batches/{batch}/generate",
+                                   json={"profile_id": str(profile), "group_key": "G1", "regenerate": True})
+    assert res.status_code == 409 and res.json()["detail"] == WRITING_ELSEWHERE
+    await ctx["redis"].delete(f"generating:{ctx['tenant_id']}")
+    res = await ctx["client"].post(f"/api/batches/{batch}/generate",
+                                   json={"profile_id": str(profile), "group_key": "G1", "regenerate": True})
+    assert res.status_code != 409  # the first tab finished: this one writes
+    assert await ctx["redis"].get(f"generating:{ctx['tenant_id']}") is None  # released after the request
