@@ -574,3 +574,21 @@ async def test_features_are_turned_on_per_account_and_audited(world) -> None:
     assert (await world["a"].put(url, json={"features": {"anything": True}})).status_code == 422
     assert (await world["b"].put(url, json={"features": {"own_patterns": True}})).status_code == 404  # not an admin
     assert [e.action for e in await _audit(world["sm"])].count("user.features_changed") == 1
+
+
+async def test_an_account_being_deleted_cannot_be_reactivated(world) -> None:
+    """Review R13: reactivating left the deletion under way; the account could sign in and was then
+    deleted by the next sweep without a word. It is refused while the deletion is under way."""
+    from datetime import datetime, timezone
+
+    from app.db.models import Tenant, TenantStatus
+
+    a, bob = world["a"], world["bob"]
+    async with world["sm"]() as s:
+        tenant = await s.get(Tenant, bob.tenant_id)
+        tenant.status, tenant.deletion_requested_at = TenantStatus.suspended, datetime.now(timezone.utc)
+        await s.commit()
+    res = await a.post(f"/api/admin/users/{bob.tenant_id}/reactivate")
+    assert res.status_code == 409 and "being deleted" in res.json()["detail"]
+    async with world["sm"]() as s:
+        assert (await s.get(Tenant, bob.tenant_id)).status is TenantStatus.suspended

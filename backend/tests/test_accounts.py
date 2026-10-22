@@ -346,3 +346,23 @@ async def test_sessions_are_scoped_to_their_tenant(app_ctx) -> None:
     await store.destroy_all(one)
     assert await store.read(token_one) is None
     assert (await store.read(token_two)).tenant_id == two  # untouched
+
+
+async def test_guessing_the_current_password_locks_like_sign_in(app_ctx) -> None:
+    """Quality pass 2026-10, review R17: with a session cookie (a borrowed device), the password could
+    be guessed through "change password" or "delete account" at the general rate. Both now share
+    sign-in's lockout, per account; the right password still works once the lock has passed."""
+    client = app_ctx["client"]
+    await _register(app_ctx)
+    token = (await client.post("/api/account/login", json={"email": "user@example.com", "password": GOOD_PASSWORD})).cookies[SESSION_COOKIE]
+    client.cookies.set(SESSION_COOKIE, token)
+    codes = []
+    for _ in range(8):
+        res = await client.post("/api/account/password", json={"current_password": "wrong", "new_password": "a-different-long-secret"})
+        codes.append(res.status_code)
+    assert codes[0] == 401 and codes[-1] == 429
+    res = await client.post("/api/account/delete", json={"password": "wrong", "confirm": True})
+    assert res.status_code == 429  # the same lock: delete is no way around it
+    # The right password is refused too while locked (nothing is learned from the answer).
+    res = await client.post("/api/account/password", json={"current_password": GOOD_PASSWORD, "new_password": "a-different-long-secret"})
+    assert res.status_code == 429

@@ -237,6 +237,21 @@ async def bootstrap_token(
     await _require_bootstrap_token(session, x_admin_token)
 
 
+async def _own_password(sessions: SessionStore, tenant: Tenant, password: str, *, status: int, detail: str) -> None:
+    """The signed-in account's own password, checked with the same lockout as sign-in (per
+    account): a borrowed device or a stolen cookie cannot guess it through "change password" or
+    "delete account" (quality pass 2026-10, review R17)."""
+    scope = f"password:{tenant.id}"
+    if await sessions.is_locked(scope):
+        retry = await sessions.retry_after(scope)
+        raise HTTPException(status_code=429, detail="too many attempts; try again later",
+                            headers={"Retry-After": str(retry or 900)})
+    if not verify_password(tenant.password_hash, password):
+        await sessions.register_failure(scope)
+        raise HTTPException(status_code=status, detail=detail)
+    await sessions.clear_failures(scope)
+
+
 # --- Registration -----------------------------------------------------------
 @router.post("/register", response_model=AccountOut, status_code=201)
 async def register(
@@ -429,8 +444,7 @@ async def delete_account(
     (workers/accounts.py), within 30 days at the latest. Nothing on Etsy changes."""
     if not body.confirm:
         raise HTTPException(status_code=422, detail="Confirm that you want the account deleted.")
-    if not verify_password(tenant.password_hash, body.password):
-        raise HTTPException(status_code=403, detail="That is not this account's password.")
+    await _own_password(sessions, tenant, body.password, status=403, detail="That is not this account's password.")
     if tenant.is_admin:
         admins = await session.scalar(
             select(func.count()).select_from(Tenant).where(Tenant.is_admin, Tenant.deletion_requested_at.is_(None))
@@ -524,8 +538,7 @@ async def change_password(
     sessions: SessionStore = Depends(get_session_store),
 ) -> AccountOut:
     """Replace the password, ending every existing session (A3)."""
-    if not verify_password(tenant.password_hash, body.current_password):
-        raise HTTPException(status_code=401, detail="current password is incorrect")
+    await _own_password(sessions, tenant, body.current_password, status=401, detail="current password is incorrect")
     try:
         validate_strength(body.new_password, email=tenant.email)
     except WeakPassword as exc:

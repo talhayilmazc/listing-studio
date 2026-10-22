@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
+    ConnectionStatus,
     EtsyConnection,
     GeneratedContent,
     Job,
@@ -40,6 +41,15 @@ logger = logging.getLogger(__name__)
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+async def _unfinished_draft(session: AsyncSession, content_id: uuid.UUID, connection_id: uuid.UUID) -> Job | None:
+    """A draft job of this listing for this shop that is queued or running, if there is one."""
+    jobs = (await session.execute(select(Job).where(
+        Job.connection_id == connection_id, Job.type == JobType.create_draft,
+        Job.status.in_((JobStatus.queued, JobStatus.running)),
+    ))).scalars().all()
+    return next((j for j in jobs if (j.payload or {}).get("content_id") == str(content_id)), None)
 
 
 async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UUID | None = None,
@@ -62,6 +72,9 @@ async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UU
         if content is None or shop is None or content.tenant_id != slot.tenant_id or shop.tenant_id != slot.tenant_id:
             slot.state, slot.note = "failed", "the listing or the shop is no longer there"
             continue
+        if shop.status is not ConnectionStatus.active:
+            slot.state, slot.note = "cancelled", "the shop is no longer connected"  # review R15
+            continue
         if not content.approved:
             slot.state, slot.note = "cancelled", "the listing is no longer approved"
             continue
@@ -70,6 +83,13 @@ async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UU
         if existing is not None:
             # A draft is there already (made by hand meanwhile): schedule it instead.
             await _schedule(session, slot, now)
+            continue
+        # A draft of this listing for this shop already on its way ("Create drafts" by hand
+        # meanwhile): the slot follows that job instead of queueing a second one (review R12).
+        unfinished = await _unfinished_draft(session, content.id, shop.id)
+        if unfinished is not None:
+            slot.job_id, slot.state = unfinished.id, "drafting"
+            await session.commit()
             continue
         job = Job(tenant_id=slot.tenant_id, connection_id=shop.id, type=JobType.create_draft,
                   payload={"content_id": str(content.id), "planned_slot": str(slot.id)},

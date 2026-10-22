@@ -383,7 +383,11 @@ async def restore_recolours(
         design = await _own_design(session, tenant, row.design_id)
         if await _written(session, design.batch_id):
             raise HTTPException(status_code=409, detail=WRITTEN)
-        await _store_recolour(session, tenant.id, design.id, row.subgroup, design_edits.clean_regions(row.regions))
+        try:
+            regions = design_edits.clean_regions(row.regions)
+        except design_edits.EditError as exc:  # 422 in plain words, not a 500 (review R19)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        await _store_recolour(session, tenant.id, design.id, row.subgroup, regions)
     await session.commit()
     return RecolourOut(changed=len(body.rows), undo=[])
 

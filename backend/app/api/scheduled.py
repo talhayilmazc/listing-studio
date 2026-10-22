@@ -53,6 +53,9 @@ from app.pipeline import reschedule as R
 from app.pipeline.batch_names import names_by_id
 from app.pipeline.group_plan import DRAFT_LEAD
 
+#: The note of a slot removed on this page: the only cancelled slot Undo brings back.
+REMOVED = "removed from the schedule"
+
 router = APIRouter(prefix="/api/scheduled", tags=["scheduled"])
 
 #: How long a finished go-live stays on the page.
@@ -387,7 +390,7 @@ async def _set_time(session: AsyncSession, row: Any, at: datetime, now: datetime
 
 async def _remove(session: AsyncSession, tenant: Tenant, row: Any) -> None:
     if isinstance(row, PlannedSlot):
-        row.state, row.note = "cancelled", "removed from the schedule"
+        row.state, row.note = "cancelled", REMOVED
         return
     try:
         await withdraw(session, row, actor=tenant, reason="removed on the Scheduled page")
@@ -396,7 +399,7 @@ async def _remove(session: AsyncSession, tenant: Tenant, row: Any) -> None:
     for slot in (await session.execute(select(PlannedSlot).where(
             PlannedSlot.content_id == row.content_id, PlannedSlot.connection_id == row.connection_id,
             PlannedSlot.state == "scheduled"))).scalars():
-        slot.state, slot.note = "cancelled", "removed from the schedule"
+        slot.state, slot.note = "cancelled", REMOVED
 
 
 @router.post("/apply", response_model=ApplyOut)
@@ -449,6 +452,10 @@ async def restore(body: RestoreIn, session: AsyncSession = Depends(get_session),
         at = max(_aware(step.at), now + timedelta(minutes=1))
         if isinstance(row, PlannedSlot):
             if row.state not in ("waiting", "cancelled") or (row.state == "cancelled" and step.state != "waiting"):
+                continue
+            # Undo brings back only what this page removed: not a slot cancelled by a shop
+            # disconnect, a cancelled plan or an unapproved listing (review R15).
+            if row.state == "cancelled" and row.note != REMOVED:
                 continue
             row.state, row.note = "waiting", None
             row.publish_at, row.draft_at = at, max(now, at - DRAFT_LEAD)

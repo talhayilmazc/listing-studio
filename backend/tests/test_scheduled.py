@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import uuid
+
+import sqlalchemy as sa
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -210,3 +212,64 @@ async def test_another_account_gets_404(world) -> None:  # noqa: F811
     assert (await b.post("/api/scheduled/restore", json={"undo": [{"key": keys[0], "at": datetime.now(timezone.utc).isoformat(), "state": "waiting"}]})).status_code == 404
     async with world["sm"]() as s:
         assert (await s.execute(select(PlannedSlot))).scalars().first().state == "waiting"
+
+
+async def test_undo_brings_back_only_what_this_page_removed(world) -> None:  # noqa: F811
+    """Quality pass 2026-10, review R15: the undo list comes from the browser; a slot cancelled by a
+    shop disconnect or a cancelled plan must not come back, only one this page removed."""
+    keys = await _slots(world, [(0, "a1", "09:00"), (1, "a1", "10:00")])
+    async with world["sm"]() as s:
+        for key, note in zip(keys, ("the shop is no longer connected", "removed from the schedule")):
+            slot = await s.get(PlannedSlot, uuid.UUID(key[5:]))
+            slot.state, slot.note = "cancelled", note
+        await s.commit()
+    at = (datetime.now(timezone.utc) + timedelta(days=4)).isoformat()
+    res = await world["a"].post("/api/scheduled/restore", json={"undo": [
+        {"key": k, "at": at, "state": "waiting"} for k in keys]})
+    assert res.status_code == 200 and res.json()["changed"] == 1
+    async with world["sm"]() as s:
+        assert (await s.get(PlannedSlot, uuid.UUID(keys[0][5:]))).state == "cancelled"
+        assert (await s.get(PlannedSlot, uuid.UUID(keys[1][5:]))).state == "waiting"
+
+
+async def test_a_slot_of_a_disconnected_shop_is_cancelled_not_released(world) -> None:  # noqa: F811
+    """Review R15: release_due queued a draft for a shop that is no longer connected (which then failed)."""
+    from app.db.models import ConnectionStatus, Job
+
+    keys = await _slots(world, [(0, "a1", "09:00")])
+    async with world["sm"]() as s:
+        (await s.get(EtsyConnection, world["a1"])).status = ConnectionStatus.revoked
+        await s.commit()
+        assert await plans.release_due(s, lambda *a: _noop(), now=datetime.now(timezone.utc) + timedelta(days=10)) == 0
+        slot = await s.get(PlannedSlot, uuid.UUID(keys[0][5:]))
+        assert (slot.state, slot.note) == ("cancelled", "the shop is no longer connected")
+        assert (await s.execute(sa.select(Job))).scalars().first() is None
+
+
+async def test_a_due_slot_follows_a_draft_job_already_on_its_way(world) -> None:  # noqa: F811
+    """Review R12: a slot due while "Create drafts" for the same listing and shop is still queued
+    queued a second draft job; it now follows that job, and goes live at its time once the draft is made."""
+    from app.db.models import Job, JobStatus, JobType, ListingPublication
+
+    keys = await _slots(world, [(0, "a1", "09:00")])
+    async with world["sm"]() as s:
+        manual = Job(tenant_id=world["alice"], connection_id=world["a1"], type=JobType.create_draft,
+                     status=JobStatus.queued, payload={"content_id": str(world["contents"][0])})
+        s.add(manual)
+        await s.commit()
+        queued: list = []
+
+        async def enqueue(*args) -> None:  # noqa: ANN002
+            queued.append(args)
+
+        assert await plans.release_due(s, enqueue, now=datetime.now(timezone.utc) + timedelta(days=10)) == 0
+        slot = await s.get(PlannedSlot, uuid.UUID(keys[0][5:]))
+        assert (slot.state, slot.job_id) == ("drafting", manual.id) and queued == []
+        assert len((await s.execute(sa.select(Job))).scalars().all()) == 1
+        # The manual job makes the draft: the slot's go-live is scheduled for its time.
+        s.add(ListingPublication(tenant_id=world["alice"], content_id=world["contents"][0], connection_id=world["a1"],
+                                 etsy_listing_id=4242, state="draft"))
+        await s.commit()
+        await plans.after_draft(s, world["contents"][0], world["a1"])
+        await s.refresh(slot)
+        assert slot.state == "scheduled"

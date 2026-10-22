@@ -263,6 +263,9 @@ async def reactivate_user(
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     target = await _target(session, tenant_id)
+    if target.deletion_requested_at is not None:
+        # Reactivating would let it sign in until the deletion sweep removes it anyway (review R13).
+        raise HTTPException(status_code=409, detail="This account is being deleted at its owner's request; it cannot be reactivated.")
     if target.status is not TenantStatus.active:
         target.status = TenantStatus.active
         audit.record(session, "user.reactivated", actor=admin, target_tenant_id=target.id)

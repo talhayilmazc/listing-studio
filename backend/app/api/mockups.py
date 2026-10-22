@@ -2269,7 +2269,7 @@ async def use_for_listings(
     """"Use for listings": each chosen design becomes a listing group, all its
     mockups as its photos, the chosen cover first. Using it again changes them."""
     run = await _own_run(session, tenant, run_id)
-    if run.status in ("queued", "running"):
+    if _active(run):  # a run a stopped worker left behind does not block for ever (review R16)
         raise HTTPException(status_code=409, detail="The mockups are still being made.")
     if await _written(session, run.batch_id):
         raise HTTPException(status_code=409, detail=WRITTEN)
@@ -2288,7 +2288,7 @@ async def request_zip(
 ) -> ZipOut:
     """"Download": a ZIP built in the worker, private to the account, deleted 24 hours after it is ready."""
     run = await _own_run(session, tenant, run_id)
-    if run.status in ("queued", "running"):
+    if _active(run):  # a run a stopped worker left behind does not block for ever (review R16)
         raise HTTPException(status_code=409, detail="The mockups are still being made.")
     archive = MockupZip(tenant_id=tenant.id, run_id=run.id, layout=body.layout,
                         design_ids=[str(d) for d in body.design_ids] if body.design_ids is not None else None)

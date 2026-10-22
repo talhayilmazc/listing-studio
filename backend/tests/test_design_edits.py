@@ -293,3 +293,33 @@ async def test_another_account_cannot_see_or_change_any_edit(mw) -> None:  # noq
     async with mw["sm"]() as s:
         assert (await s.execute(select(MockupAdjustment))).scalars().all() == []
         assert (await s.get(MockupRun, r["run"])).status == "succeeded"
+
+
+async def test_a_run_a_stopped_worker_left_behind_does_not_block_listings_or_the_zip(mw, test_settings) -> None:  # noqa: F811
+    """Quality pass 2026-10, review R16: "Use for listings" and "Download" checked the run's raw
+    status, so a run left "running" by a stopped worker answered "still being made" for ever."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import MockupRun
+
+    r = await _run_with_two_designs(mw)
+    async with mw["sm"]() as s:
+        run = await s.get(MockupRun, r["run"])
+        run.status, run.started_at = "running", datetime.now(timezone.utc)
+        await s.commit()
+    res = await mw["a"].post(f"/api/mockup-runs/{r['run']}/listings", json={})
+    assert res.status_code == 409 and res.json()["detail"] == "The mockups are still being made."  # really running
+    async with mw["sm"]() as s:
+        run = await s.get(MockupRun, r["run"])
+        run.started_at = datetime.now(timezone.utc) - timedelta(seconds=test_settings.worker_job_timeout + 600)
+        await s.commit()
+    assert (await mw["a"].post(f"/api/mockup-runs/{r['run']}/zip", json={})).status_code != 409
+    assert (await mw["a"].post(f"/api/mockup-runs/{r['run']}/listings", json={})).status_code != 409
+
+
+async def test_restoring_a_recolour_with_a_bad_region_is_422(mw) -> None:  # noqa: F811
+    """Review R19: an unreadable region answered 500 instead of saying what is wrong."""
+    r = await _run_with_two_designs(mw)
+    res = await mw["a"].post("/api/mockup-recolours/restore", json={"rows": [
+        {"design_id": r["designs"][0]["id"], "subgroup": "", "regions": [{"kind": "bogus"}]}]})
+    assert res.status_code == 422
