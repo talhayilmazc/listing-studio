@@ -84,7 +84,7 @@ def read_failure(exc: BaseException, shop: str | None) -> str:
     here = shop or "this shop"
     status = getattr(exc, "status_code", None)
     if status in (401, 403):
-        return f"Etsy refused to show {here}'s settings; reconnect {here} on the Connect page, then try again"
+        return f"Etsy refused to show {here}'s settings; reconnect {here} on Shops & groups, then try again"
     if isinstance(exc, EtsyError):
         from app.etsy.errors import explain
 

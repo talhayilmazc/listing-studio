@@ -327,7 +327,7 @@ async def test_a_shop_without_permission_to_change_its_settings_is_never_written
     assert fake_etsy.created == []
     caps = (await _links(world, world["pa1"]))[extra["a3"]]
     assert caps.status == "incomplete" and caps.shipping_profile_id is None
-    assert "reconnect the shop on the Connect page" in caps.notes["shipping_profile"]
+    assert "reconnect the shop on Shops & groups" in caps.notes["shipping_profile"]
     # The job run again creates nothing either.
     assert await link_jobs._create_link_resources(_ctx(world), str(world["pa1"])) == "nothing"
     assert fake_etsy.created == []

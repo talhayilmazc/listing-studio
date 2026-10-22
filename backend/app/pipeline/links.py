@@ -57,7 +57,7 @@ CREATABLE = frozenset({SHIPPING, RETURNS, READINESS})
 #: have to reconnect).
 CREATE_SCOPE: dict[str, str] = {SHIPPING: "shops_w", RETURNS: "shops_w", READINESS: "shops_w"}
 NO_SCOPE = ("creating it needs Etsy's permission to change shop settings (\"{scope}\"), which this shop has not "
-            "given Listyro; reconnect the shop on the Connect page to give it, or choose one of this shop's")
+            "given Listyro; reconnect the shop on Shops & groups to give it, or choose one of this shop's")
 
 # Why a resource is not linked yet, as the seller reads it.
 #: ``profile_shop_link.pending_create`` of a link being set up. Since 21 October 2026 every
@@ -451,7 +451,7 @@ def create_failure(
     if status in (401, 403) or (detail and _PERMISSION.search(detail) and not field):
         return {"action": "reconnect", "field": None, "status": status,
                 "reason": f"Etsy refused it{said}. {here} has not given Listyro permission to change its shop "
-                          f"settings, or its connection has lapsed. Reconnect {here} on the Connect page, then "
+                          f"settings, or its connection has lapsed. Reconnect {here} on Shops & groups, then "
                           f"confirm again; or {then_pick}."}
     if field:
         words = FIELD_WORDS[field]

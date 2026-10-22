@@ -305,7 +305,7 @@ export default function ProfilesPage() {
           <summary className="tap cursor-pointer font-medium text-slate-800">Shop groups</summary>
           <p className="mb-3 mt-1 text-xs text-slate-500">
             A profile can be set up in a whole group at once (&ldquo;Use in&rdquo; on each profile). The same groups are on
-            the Shops page.
+            the Shops &amp; groups page.
           </p>
           <ShopGroupsEditor />
         </details>

@@ -60,7 +60,7 @@ export function OperatorSettings({ onError }: { onError: (message: string) => vo
     try {
       const r = await api.admin.setConnectionsPaused(on);
       setPaused(r.on);
-      setSaved(r.on ? "New shop connections are paused. The Shops page shows the notice." : "New shops can be connected again.");
+      setSaved(r.on ? "New shop connections are paused. The Shops & groups page shows the notice." : "New shops can be connected again.");
     } catch (e: any) {
       onError(String(e.message ?? e));
     } finally {
@@ -104,7 +104,7 @@ export function OperatorSettings({ onError }: { onError: (message: string) => vo
           <span>
             <span>Pause new shop connections</span>
             <span className="block text-xs text-slate-500">
-              Shops already connected keep working and can reconnect. While it is on, the Shops page says:
+              Shops already connected keep working and can reconnect. While it is on, the Shops &amp; groups page says:
             </span>
             <span className="mt-1 block rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">{notice}</span>
           </span>

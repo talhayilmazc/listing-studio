@@ -1,6 +1,7 @@
 import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
+import { UNREACHABLE, messageFor } from "./apiErrors";
 import type {
   FoundArea,
   UnfinishedDraft,
@@ -109,21 +110,32 @@ function shopQuery(shop?: string | null): string {
 // Full-page navigation target that begins the Etsy OAuth redirect flow.
 export const AUTH_START_URL = `${BASE}/auth/etsy/start`;
 
+/** The answer, or an ApiError in plain words (lib/apiErrors.ts). */
+async function send(url: string, init: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    throw new ApiError(UNREACHABLE, 0);
+  }
+  if (!res.ok) {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      body = undefined;
+    }
+    throw new ApiError(messageFor(res.status, body, res.statusText), res.status);
+  }
+  return res;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await send(`${BASE}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",
   });
-  if (!res.ok) {
-    let detail: unknown;
-    try {
-      detail = (await res.json())?.detail;
-    } catch {
-      detail = res.statusText;
-    }
-    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), res.status);
-  }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
@@ -137,16 +149,7 @@ function query(params: Record<string, string | number | null | undefined>): stri
 
 /** A multipart request: the browser sets the boundary, so no Content-Type here. */
 async function reqForm<T>(path: string, form: FormData, method: "POST" | "PUT" = "POST"): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method, body: form, cache: "no-store" });
-  if (!res.ok) {
-    let detail: unknown;
-    try {
-      detail = (await res.json())?.detail;
-    } catch {
-      detail = res.statusText;
-    }
-    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), res.status);
-  }
+  const res = await send(`${BASE}${path}`, { method, body: form, cache: "no-store" });
   return (await res.json()) as T;
 }
 
@@ -969,14 +972,13 @@ function postForm<T>(url: string, form: FormData, onProgress: (pct: number) => v
       } else {
         // Refusals (415 not an image, 413 too large) carry a readable `detail`;
         // show that, not the raw JSON envelope.
-        let message = xhr.statusText || "upload failed";
+        let body: unknown;
         try {
-          const detail = JSON.parse(xhr.responseText)?.detail;
-          if (typeof detail === "string") message = detail;
+          body = JSON.parse(xhr.responseText);
         } catch {
-          /* non-JSON body: keep the status text */
+          /* non-JSON body: the status says what happened */
         }
-        reject(new ApiError(message, xhr.status));
+        reject(new ApiError(messageFor(xhr.status, body, xhr.statusText), xhr.status));
       }
     };
     xhr.onerror = () => reject(new ApiError("The upload could not reach the server. Check your connection and try again.", 0));

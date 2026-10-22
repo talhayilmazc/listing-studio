@@ -93,7 +93,7 @@ def test_no_delivery_time_is_invented_and_a_refusal_for_it_says_so() -> None:
 
 
 def test_a_missing_permission_names_reconnect() -> None:
-    assert "reconnect the shop on the Connect page" in L.NO_SCOPE
+    assert "reconnect the shop on Shops & groups" in L.NO_SCOPE
 
 
 # --- what the seller reads (pure) --------------------------------------------------------------
@@ -105,7 +105,7 @@ def test_each_refusal_says_etsys_reason_and_the_action_that_fixes_it() -> None:
     scope = L.create_failure(refused(403, "The provided access token lacks the shops_w scope"), L.SHIPPING, **KW)
     assert scope["action"] == "reconnect"
     assert '"The provided access token lacks the shops_w scope"' in scope["reason"]
-    assert "Reconnect PCS on the Connect page" in scope["reason"]
+    assert "Reconnect PCS on Shops & groups" in scope["reason"]
 
     postal = L.create_failure(refused(400, "origin_postal_code is not a valid postal code for US"), L.SHIPPING, **KW)
     assert (postal["action"], postal["field"]) == ("fix", "origin_postal_code")
@@ -283,4 +283,4 @@ async def test_a_shop_whose_lists_cannot_be_read_says_why_and_the_others_carry_o
     links = await _links(world, world["pa1"])
     assert links[world["a2"]].status == "ready"  # Frost Mugs linked all the same
     caps = links[extra["a3"]]
-    assert caps.status == "error" and "reconnect Frost Caps on the Connect page" in caps.notes["error"]
+    assert caps.status == "error" and "reconnect Frost Caps on Shops & groups" in caps.notes["error"]

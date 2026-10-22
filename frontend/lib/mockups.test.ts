@@ -62,7 +62,8 @@ test("the rights sentence and every limit are the backend's", () => {
   assert.match(backend("workers/mockups.py"), new RegExp(`^MAX_PHOTOS = ${MAX_PHOTOS_PER_RUN}$`, "m"));
   assert.match(backend("db/models.py"), new RegExp(`MAX_PER_TEMPLATE: ClassVar\\[int\\] = ${MAX_PHOTOS_PER_TEMPLATE}`));
   assert.match(backend("core/config.py"), new RegExp(`max_mockup_upload_bytes: int = ${MAX_UPLOAD_MB} \\* 1024 \\* 1024`));
-  assert.match(backend("core/security.py"), /_MOCKUP_PATH = re\.compile\(r"\^\/api\/\(mockup-templates\/\[\^\/\]\+\/photos\|batches\/\[\^\/\]\+\/designs\)\$"\)/);
+  // The photo, design and back-design uploads all get the mockup file limit (QA-R3 added the back design).
+  assert.match(backend("core/security.py"), /_MOCKUP_PATH = re\.compile\(r"\^\/api\/\(mockup-templates\/\[\^\/\]\+\/photos\|batches\/\[\^\/\]\+\/designs\|mockup-designs\/\[\^\/\]\+\/back\)\$"\)/);
 });
 
 test("a file over 30 MB is refused before it is sent, saying so", () => {
