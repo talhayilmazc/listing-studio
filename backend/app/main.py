@@ -1,5 +1,7 @@
 """FastAPI application entrypoint."""
 
+import logging
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +51,9 @@ CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 CORS_HEADERS = ["Content-Type"]
 
 
+logger = logging.getLogger(__name__)
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     install_log_redaction()
@@ -85,6 +90,7 @@ def create_app() -> FastAPI:
     application.add_middleware(SecurityMiddleware)
 
     application.add_exception_handler(RequestValidationError, _validation_error)
+    application.add_exception_handler(FileNotFoundError, _file_missing)
 
     application.include_router(health.router)
     application.include_router(accounts.router)
@@ -139,6 +145,13 @@ def _require_legal_identity(settings) -> None:  # noqa: ANN001
             "production needs the operator details for the legal pages; set: "
             + ", ".join(m.upper() for m in missing)
         )
+
+
+async def _file_missing(_: Request, exc: FileNotFoundError) -> JSONResponse:
+    """A stored file that is not there (removed by retention, never written, or a bad key):
+    404 in plain words, not a 500. The path is not echoed."""
+    logger.info("stored file missing: %s", type(exc).__name__)
+    return JSONResponse(status_code=404, content={"detail": "This file is no longer stored."})
 
 
 async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

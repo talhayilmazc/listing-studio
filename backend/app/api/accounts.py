@@ -228,6 +228,15 @@ async def _require_bootstrap_token(session: AsyncSession, token: str | None) -> 
         raise HTTPException(status_code=404, detail="not found")
 
 
+async def bootstrap_token(
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """The bootstrap guard as a dependency: it runs before the body is read, so a caller without
+    the token gets 404 whatever it sends, never a 422 that would show the endpoint exists."""
+    await _require_bootstrap_token(session, x_admin_token)
+
+
 # --- Registration -----------------------------------------------------------
 @router.post("/register", response_model=AccountOut, status_code=201)
 async def register(
@@ -538,11 +547,10 @@ async def change_password(
 @router.post("/admin/invites", response_model=InviteCreated, status_code=201)
 async def create_invite(
     body: InviteCreateRequest,
-    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    _: None = Depends(bootstrap_token),
     session: AsyncSession = Depends(get_session),
 ) -> InviteCreated:
     """Mint a single-use invite code. Returned once; only its hash is stored."""
-    await _require_bootstrap_token(session, x_admin_token)
 
     code = secrets.token_urlsafe(18)
     expires_at = (
@@ -562,12 +570,11 @@ async def create_invite(
 @router.post("/admin/reset-password", response_model=TempPasswordOut)
 async def admin_reset_password(
     body: ResetRequest,
-    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    _: None = Depends(bootstrap_token),
     session: AsyncSession = Depends(get_session),
     sessions: SessionStore = Depends(get_session_store),
 ) -> TempPasswordOut:
     """Issue a temporary password; the tenant must change it at next login (A4)."""
-    await _require_bootstrap_token(session, x_admin_token)
 
     target = _normalise_email(body.email)
     row = await session.execute(select(Tenant).where(func.lower(Tenant.email) == target))

@@ -41,6 +41,11 @@ class LocalStorage:
         self._base = Path(base_dir)
 
     def _path(self, key: str) -> Path:
+        # A key is a relative path made by the app from ids; anything that could leave the
+        # storage root (empty, absolute, "..", a backslash) is refused as missing.
+        parts = key.split("/") if key else []
+        if not key or key.startswith("/") or "\\" in key or ".." in parts:
+            raise FileNotFoundError("not a storage key")
         return self._base / key
 
     def put(self, key: str, data: bytes, content_type: str | None = None) -> None:
@@ -52,7 +57,10 @@ class LocalStorage:
         return self._path(key).read_bytes()
 
     def exists(self, key: str) -> bool:
-        return self._path(key).is_file()
+        try:
+            return self._path(key).is_file()
+        except FileNotFoundError:
+            return False
 
     def delete_prefix(self, prefix: str) -> None:
         """Delete everything stored under ``prefix`` (a folder of keys).
