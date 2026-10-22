@@ -67,6 +67,33 @@ from tests.test_publish_volume import _png
 from tests.test_publisher import REFERENCE
 
 ZONE = "America/Chicago"
+#: createDraftListing's request fields in Etsy's OpenAPI document (spec 3.0.0, fetched 2026-10-22). Etsy's
+#: Creativity Standards questions "How does your shop produce this item?" and "What tools are used to make
+#: this item?" are not among them, nor in getListing or updateListing (etsy/manual_fields.py).
+CREATE_FIELDS = {
+    "description", "ecgt_after_sales_service_info", "ecgt_garan_brand", "ecgt_garan_guarantee_details", "ecgt_garan_model",
+    "ecgt_garan_years", "ecgt_other_commercial_guarantee_details", "ecgt_software_update_details", "image_ids",
+    "is_customizable", "is_supply", "is_taxable", "item_dimensions_unit", "item_height", "item_length", "item_weight",
+    "item_weight_unit", "item_width", "materials", "price", "processing_max", "processing_min", "production_partner_ids",
+    "quantity", "readiness_state_id", "return_policy_id", "shipping_profile_id", "shop_section_id", "should_auto_renew",
+    "styles", "tags", "taxonomy_id", "title", "type", "when_made", "who_made",
+}
+CREATIVITY = ["creativity_production", "creativity_tools"]
+
+
+async def _creativity_checked(w: dict) -> None:
+    """Every draft, in every shop, lists Etsy's two Creativity Standards questions for Shop Manager
+    (the API has no field for either), and no draft request sent a field Etsy does not list."""
+    assert w["etsy"].create_fields <= CREATE_FIELDS, w["etsy"].create_fields - CREATE_FIELDS
+    assert {"who_made", "when_made", "is_supply"} <= w["etsy"].create_fields  # the Creativity fields that are in the API
+    cards = (await w["client"].get(f"/api/batches/{w['batch']}/content")).json()
+    publications = [p for c in cards for p in c["publications"]]
+    assert publications and len(publications) == len(w["etsy"].listings)
+    for p in publications:
+        assert [m["key"] for m in p["manual_steps"]] == CREATIVITY, p
+    profile = next(x for x in (await w["client"].get("/api/profiles")).json() if x["id"] == str(w["profile"]))
+    assert "How does your shop produce this item?" in profile["shop_manager_note"]
+    assert "What tools are used to make this item?" in profile["shop_manager_note"]
 TITLE = "Design {i:02d} Retro Graphic Tee, Vintage Sunset Shirt, Mountain Hiking Tee, Outdoor Adventure Shirt, Camping Lover Top"
 TAGS = ["graphic tee", "retro shirt", "sunset tee", "hiking shirt", "camping gift", "outdoor tee", "mountain top",
         "nature lover", "adventure shirt", "vintage tee", "trail shirt", "forest tee", "summit gift"]
@@ -78,6 +105,8 @@ class FakeEtsy:
     def __init__(self) -> None:
         self.listings: dict[int, dict[str, Any]] = {}
         self._next = 70000
+        #: Every field any createDraftListing carried (the Creativity Standards check below).
+        self.create_fields: set[str] = set()
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path.removeprefix("/v3/application")
@@ -93,6 +122,7 @@ class FakeEtsy:
                 for d in drafts]})
         if (m := re.fullmatch(r"/shops/(\d+)/listings", path)) and method == "POST":
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
+            self.create_fields |= set(form)
             self._next += 1
             self.listings[self._next] = {
                 "listing_id": self._next, "shop": int(m.group(1)), "title": form["title"], "state": "draft",
@@ -254,6 +284,7 @@ async def test_one_shop_seller_end_to_end(tmp_path, test_settings: Settings, mon
     assert preview["sentence"] == "3 listings → 1 shop: 3 drafts." and preview["button"] == "Create 3 drafts"
     await _run_drafts(w, await _send_drafts(w))
     assert len(w["etsy"].listings) == 3 and {d["state"] for d in w["etsy"].listings.values()} == {"draft"}
+    await _creativity_checked(w)
     # Sent again: nothing new.
     again = (await a.post(f"/api/batches/{w['batch']}/send/preview", json={"when": "drafts"})).json()
     assert again["total"] == 0 and again["disabled"].startswith("Nothing new to send")
@@ -315,6 +346,7 @@ async def test_fifteen_shops_six_groups_end_to_end(tmp_path, test_settings: Sett
         assert len(list((await s.execute(select(ListingPublication))).scalars())) == 4 * len(union)
         failed = [j.last_error for j in (await s.execute(select(Job))).scalars() if j.status is not JobStatus.succeeded]
     assert not failed, failed
+    await _creativity_checked(w)  # every draft in all 7 shops
 
     # One listing also to GROUP 6 alone; the rest spread out over the remaining shops of GROUP 3.
     await a.put(f"/api/batches/{w['batch']}/send-to", json={"send_to": {"group_ids": [groups[2]]}})

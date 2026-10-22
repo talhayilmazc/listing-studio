@@ -228,3 +228,59 @@ async def test_generating_for_all_with_nothing_to_write_is_not_refused(ctx, llm)
     await _tenant(ctx, allowance_amount=0)
     resp = await ctx["client"].post(f"/api/batches/{batch}/generate", json={"profile_id": str(profile)})
     assert resp.status_code == 200 and resp.json()["skipped"] == 1
+
+
+async def test_there_is_no_free_path_to_a_listing(ctx, llm) -> None:  # noqa: F811
+    """B12 (owner, 2026-10-22: today's rule stays). A hand-written listing counts 1 when it is
+    created; generating it later is a rewrite (the first 3 free). With an allowance of 1 used,
+    no route gives a second listing: not writing it yourself, not generating it, not "Generate
+    the empty ones", not a fourth rewrite; and no rewrite is ever free for a design that was
+    never counted."""
+    batch, profile = await _unwritten_group(ctx)
+    await _tenant(ctx, time_zone="America/Chicago", allowance_amount=1, allowance_period="monthly")
+    # A second design in the same batch, with photos and no listing.
+    async with ctx["sm"]() as s:
+        from app.db.models import Asset
+
+        first = (await s.execute(select(Asset).where(Asset.batch_id == batch, Asset.group_key == "G1"))).scalars().first()
+        s.add(Asset(batch_id=batch, tenant_id=ctx["tenant_id"], original_filename="G2/front.png", group_key="G2",
+                    storage_key=first.storage_key, processed_key=first.processed_key, status=first.status, rank=1))
+        await s.commit()
+    client = ctx["client"]
+    res = await client.put(f"/api/batches/{batch}/groups", json={"group_keys": ["G1", "G2"], "profile_id": str(profile)})
+    assert res.status_code == 200, res.text
+
+    async def used() -> tuple[int, int, int]:
+        body = (await client.get("/api/account/allowance")).json()
+        return body["used"], body["rewrites"], body["remaining"]
+
+    # Writing it yourself is a listing: it counts 1.
+    res = await client.post(f"/api/batches/{batch}/manual", json={"group_key": "G1"})
+    assert res.status_code == 200 and res.json()["generated"] == 1, res.text
+    assert await used() == (1, 0, 0)
+    # The allowance is used: the other design cannot be written by hand or by AI.
+    assert (await client.post(f"/api/batches/{batch}/manual", json={"group_key": "G2"})).status_code == 429
+    llm._responses.extend([fake_response(VISION), fake_response(_content_reply())])
+    assert (await client.post(f"/api/batches/{batch}/generate", json={"profile_id": str(profile), "group_key": "G2"})).status_code == 429
+    # Generating the hand-written one ("Generate the empty ones", then Regenerate) is a rewrite of the
+    # same design: the first three are free.
+    llm._responses.extend([fake_response(VISION), fake_response(_content_reply())])
+    assert (await _generate(ctx, batch, profile, only_empty=True))["generated"] == 1
+    assert await used() == (1, 1, 0)
+    for n in (2, 3):
+        llm._responses.extend([fake_response(VISION), fake_response(_content_reply())])
+        assert (await _generate(ctx, batch, profile, replace=True, replace_approved=True))["generated"] == 1
+        assert await used() == (1, n, 0)
+    # The fourth would count, and nothing is left: refused.
+    res = await client.post(f"/api/batches/{batch}/generate",
+                            json={"profile_id": str(profile), "group_key": "G1", "replace": True, "replace_approved": True})
+    assert res.status_code == 429
+    assert await used() == (1, 3, 0)
+    # Every listing's design was counted once, and every free rewrite belongs to a counted design.
+    uses = await _uses(ctx)
+    counted = {d for k, d in uses if k == allowance.GENERATION}
+    assert counted == {f"{batch}:G1"}
+    assert {d for k, d in uses if k == allowance.REWRITE} <= counted
+    async with ctx["sm"]() as s:
+        designs = {(c.batch_id, "G1") for c in (await s.execute(select(GeneratedContent).where(GeneratedContent.batch_id == batch))).scalars()}
+    assert designs == {(batch, "G1")}  # G2 never got a listing
