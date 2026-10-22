@@ -15,6 +15,7 @@ import type {
   SendState,
 } from "@/lib/types";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
+import { Help } from "@/components/Help";
 import { ListingChange, WhereAndWhen } from "@/components/WhereAndWhen";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
 import { resumeTime } from "@/lib/format";
@@ -298,8 +299,12 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             <span>← <span translate="no">{batchName ?? `Batch ${id.slice(0, 8)}`}</span></span>
           </Link>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Edit and approve each listing, then create drafts. Publishing is always a separate,
-            explicit step.
+            <span>Approve each listing, then choose where and when it goes.</span>
+            <Help label="this page">
+              Nothing reaches Etsy until you press the button in Where and when. A listing goes to every shop you choose;
+              one already in a shop is not sent there again. Going live is always your own choice: now, or at the times
+              you set.
+            </Help>
           </p>
         </div>
         {items && items.length > 0 && (
@@ -343,6 +348,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           onPreview={setPreview}
           onDrafts={(call) => runBulk("Creating drafts", call)}
           onDone={load}
+          primary={actions.approved === items.length}
         />
       )}
 

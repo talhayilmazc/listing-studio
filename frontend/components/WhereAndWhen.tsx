@@ -14,6 +14,7 @@ import {
 } from "@/lib/whereWhen";
 import { DestinationPicker } from "./DestinationPicker";
 import { Txt } from "./Txt";
+import { Help } from "./Help";
 
 /** Today in the seller's time zone, "YYYY-MM-DD". */
 function today(timeZone: string): string {
@@ -40,7 +41,10 @@ export function WhereAndWhen({
   onPreview,
   onDrafts,
   onDone,
+  primary = true,
 }: {
+  /** The page's one primary button (B9): false while the page's next step is elsewhere (Approve all). */
+  primary?: boolean;
   batchId: string;
   timeZone: string;
   /** Changes when listings are approved or drafted: the preview is asked again. */
@@ -143,7 +147,14 @@ export function WhereAndWhen({
 
   return (
     <section className="card space-y-3 p-4" data-testid="where-and-when" aria-labelledby="where-and-when">
-      <h2 id="where-and-when" className="text-sm font-semibold text-slate-900">Where and when</h2>
+      <h2 id="where-and-when" className="text-sm font-semibold text-slate-900">
+        <span>Where and when</span>
+        <Help label="Where and when">
+          Every approved listing goes to every shop you choose; several groups give all their shops, each once (6 listings
+          and 2 shops are 12 drafts). A listing already in a shop, or already scheduled there, is not sent again. One
+          listing can go elsewhere with &ldquo;change&rdquo; next to it.
+        </Help>
+      </h2>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="label w-16 shrink-0">Send to</span>
@@ -245,7 +256,7 @@ export function WhereAndWhen({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className="btn-primary" onClick={go} data-testid="send-button"
+        <button type="button" className={primary ? "btn-primary" : "btn-secondary"} onClick={go} data-testid="send-button"
           disabled={disabled || busy || !preview || !!preview.disabled}>
           <span translate="no">{busy ? "Sending…" : preview?.button ?? WHEN_LABELS[when]}</span>
         </button>

@@ -14,10 +14,10 @@ test("bug 2: with several shops the view is every shop until one is picked", () 
   assert.deepEqual(resolveScope(shops, "gone", null), { allShops: true, selected: shops[0] }); // a disconnected shop
 });
 
-test("All shops is offered only on pages that can total every shop", () => {
-  // Profiles shows every shop's profiles with a shop filter (B6).
-  for (const page of ["/dashboard", "/analytics", "/batches", "/scheduled", "/profiles"]) assert.ok(supportsAll(page), page);
-  for (const page of ["/upload", "/batches/x/review", "/templates"]) assert.ok(!supportsAll(page), page);
+test("All shops is offered on every page: no page works on one shop any more (B9)", () => {
+  for (const page of ["/dashboard", "/analytics", "/batches", "/scheduled", "/profiles", "/upload", "/batches/x/review", "/templates"]) {
+    assert.ok(supportsAll(page), page);
+  }
 });
 
 test("a shop in two groups is listed under each; shops in no group come last", () => {

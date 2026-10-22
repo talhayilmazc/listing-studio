@@ -404,7 +404,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
             <span>processed · </span><span>{withContent}</span><span> with content · </span><span>{batch.approved_count}</span><span> approved</span></span>
           </p>
         </div>
-        <Link href={`/batches/${id}/review`} className="btn-primary">
+        {/* One primary button (B9): Generate while groups are unwritten, then Review. */}
+        <Link href={`/batches/${id}/review`} className={groups.length > 0 && groups.every((g) => g.done) ? "btn-primary" : "btn-secondary"}>
           Review listings
         </Link>
       </div>
@@ -475,7 +476,8 @@ export default function BatchPage({ params }: { params: { id: string } }) {
                 />
               </label>
               <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                <button className="btn-primary" onClick={generateAll} disabled={anyBusy || noProfiles} data-testid="generate-all">
+                <button className={groups.some((g) => !g.done) ? "btn-primary" : "btn-secondary"} onClick={generateAll}
+                  disabled={anyBusy || noProfiles} data-testid="generate-all">
                   {busy === "__all__" ? "Generating all…" : "Generate all"}
                 </button>
                 {groups.some((g) => !g.done) && (

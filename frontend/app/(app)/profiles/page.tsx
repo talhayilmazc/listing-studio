@@ -10,6 +10,7 @@ import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
 import { ShopGroupsEditor } from "@/components/ShopGroupsEditor";
 import { useShops } from "@/components/ShopProvider";
+import { Help } from "@/components/Help";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import type { ReplaceMode } from "@/lib/replaceModes";
 import { leftOutNotice } from "@/lib/chartOrder";
@@ -215,9 +216,12 @@ export default function ProfilesPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-slate-500">
-          <span>Profiles copy category, price, variations and description from one of your own listings. New
-          drafts reuse them instead of inventing metadata. A profile uses its main shop&apos;s shipping, return and
-          processing settings in every shop it is used in (copied there where needed).</span>
+          <span>A profile copies category, price, variations and description from one of your own listings.</span>
+          <Help label="profiles">
+            New drafts reuse a profile instead of inventing anything. A profile uses its main shop&apos;s shipping, return
+            and processing settings in every shop it is used in (copied there where needed); &ldquo;change&rdquo; on a
+            profile shows each shop&apos;s settings, section, title prefix and listings a day.
+          </Help>
         </p>
         <button className="btn-primary shrink-0" onClick={detect} disabled={detecting || !shopId}>
           <span translate="no">{detecting ? "Detecting…" : `Detect from ${listingShop?.name ?? "my shop"}`}</span>

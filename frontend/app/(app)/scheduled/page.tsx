@@ -29,16 +29,19 @@ import { ZoneNote } from "@/components/ZoneNote";
 import { WhereAndWhen } from "@/components/WhereAndWhen";
 import { useSession } from "@/components/SessionProvider";
 import { Txt } from "@/components/Txt";
+import { Help } from "@/components/Help";
+import { StatusChip, type Tone } from "@/components/StatusChip";
 
-const TONE: Record<string, string> = {
-  planned: "border-slate-200 bg-slate-50 text-slate-700",
-  drafting: "border-brand-100 bg-brand-50 text-brand-700",
-  scheduled: "border-brand-100 bg-brand-50 text-brand-700",
-  publishing: "border-brand-100 bg-brand-50 text-brand-700",
-  waiting: "border-amber-200 bg-amber-50 text-amber-800",
-  published: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  failed: "border-rose-200 bg-rose-50 text-rose-700",
-  not_published: "border-rose-200 bg-rose-50 text-rose-700",
+// Each status in the one status chip every page uses (B9).
+const TONE: Record<string, Tone> = {
+  planned: "neutral",
+  drafting: "working",
+  scheduled: "working",
+  publishing: "working",
+  waiting: "attention",
+  published: "done",
+  failed: "failed",
+  not_published: "failed",
 };
 
 const DRAG = "application/x-listyro-scheduled";
@@ -124,7 +127,13 @@ export default function ScheduledPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-slate-500">
-          Every listing waiting to go live, in your time zone. Change one time or many; each still goes live only at its time.
+          <span>Every listing waiting to go live, in your time zone.</span>
+          <Help label="scheduling">
+            Change one time or many; each goes live only at its time, and approval and Etsy&apos;s rules are checked again
+            then. After every change the times keep the minutes between listings in a shop, each shop&apos;s listings a
+            day across all your groups, and never the same design in two shops in the same minute; anything moved further
+            is said in one line. Pause holds listings without cancelling them.
+          </Help>
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {data && (
@@ -287,9 +296,7 @@ function Row({ item, selected, busy, multiShop, onSelect, onTime }: {
       <span className="min-w-0 flex-1 truncate text-slate-900" title={item.title}>{item.title}</span>
       {multiShop && <span key="shop" translate="no" className="max-w-[10rem] truncate text-xs text-slate-600" title={item.shop_name}>{item.shop_name}</span>}
       {item.profile_name && <span key="profile" translate="no" className="hidden max-w-[10rem] truncate text-xs text-slate-500 sm:inline" title={item.profile_name}>{item.profile_name}</span>}
-      <span translate="no" className={"rounded border px-1.5 text-[11px] " + (TONE[item.status] ?? TONE.planned)}>
-        {STATUS_LABELS[item.status] ?? item.status}
-      </span>
+      <StatusChip tone={TONE[item.status] ?? "neutral"}>{STATUS_LABELS[item.status] ?? item.status}</StatusChip>
       {item.paused && item.movable && <span key="paused" className="text-[11px] text-amber-800">paused</span>}
       {item.listing_link && (
         <a key="link" href={item.listing_link} target="_blank" rel="noreferrer" className="tap text-xs text-brand-700 underline">Etsy ↗</a>

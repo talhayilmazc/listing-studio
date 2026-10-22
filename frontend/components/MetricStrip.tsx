@@ -93,7 +93,7 @@ export function MetricStrip() {
                 : shop.syncing
                   ? "all listings published in the shop: syncing…"
                   : shop.fetched_at
-                    ? "all listings published in the shop: unknown (last read more than 6 hours ago; open Overview to refresh)"
+                    ? "all listings published in the shop: not read in the last 6 hours"
                     : "all listings published in the shop: not read from Etsy yet"
               : null
           }

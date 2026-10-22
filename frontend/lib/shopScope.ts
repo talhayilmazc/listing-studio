@@ -2,9 +2,11 @@
 // Pure: no React, no API, so the rules are tested on their own (lib/shopScope.test.ts).
 
 /** Pages that can show every shop at once: a total and a row per shop (or that list
- *  every shop's work anyway). The switcher offers "All shops" only here; any other
- *  page works on one shop and shows the one picked last. */
-export const ALL_SHOP_PAGES: RegExp[] = [/^\/dashboard$/, /^\/analytics$/, /^\/batches$/, /^\/scheduled$/, /^\/profiles$/];
+ *  every shop's work anyway). Since B9 that is every page: uploads, batches and review are
+ *  not tied to a shop (B1, B3), Profiles lists every shop's (B6). The switcher offers
+ *  "All shops" everywhere; a page part that needs one shop (Profiles' listings) uses the
+ *  shop picked last. */
+export const ALL_SHOP_PAGES: RegExp[] = [/^\//];
 
 export const supportsAll = (pathname: string | null | undefined): boolean =>
   ALL_SHOP_PAGES.some((re) => re.test(pathname ?? ""));

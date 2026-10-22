@@ -22,11 +22,11 @@ const TITLES: [RegExp, string][] = [
   [/^\/profiles$/, "Profiles"],
   [/^\/templates$/, "Mockup templates"],
   [/^\/templates\/designs$/, "Add designs"],
-  [/^\/upload$/, "Uploads"],
+  [/^\/upload$/, "Upload"],
   [/^\/scheduled$/, "Scheduled"],
   [/^\/analytics$/, "Analytics"],
   [/^\/analytics\/\d+$/, "Listing analytics"],
-  [/^\/connect$/, "Shops"],
+  [/^\/connect$/, "Shops & groups"],
   [/^\/settings$/, "Settings"],
   [/^\/admin$/, "Admin"],
   [/^\/terms$/, "Terms of Service"],
@@ -83,9 +83,12 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
           {batchId && batchName ? batchName : titleFor(pathname, Boolean(account?.is_admin))}
         </h1>
 
-        <Link href="/upload" className="btn-primary shrink-0">
-          New upload
-        </Link>
+        {/* A way to start, never the page's own primary action (B9: one primary button per page). */}
+        {pathname !== "/upload" && (
+          <Link key="new-upload" href="/upload" className="btn-secondary shrink-0">
+            New upload
+          </Link>
+        )}
       </div>
     </header>
   );

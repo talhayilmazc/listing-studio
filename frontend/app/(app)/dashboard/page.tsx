@@ -23,6 +23,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { NeedsAttention } from "@/components/NeedsAttention";
+import { FirstRunGuide } from "@/components/FirstRunGuide";
 import { Txt } from "@/components/Txt";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
@@ -156,6 +157,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <FirstRunGuide />
       <NeedsAttention />
       <UnfinishedDrafts />
       <div className="grid gap-4 lg:grid-cols-3">

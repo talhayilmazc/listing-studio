@@ -26,13 +26,15 @@ import { PROFILES_CHANGED } from "@/lib/shopSetup";
 
 type Item = { href: string; label: string; icon: Icon };
 
+// The order follows the work (B9): upload, review in a batch, schedule, see how it went; the
+// library the work uses; then the shops and the account.
 const SECTIONS: { title: string; items: Item[] }[] = [
   {
     title: "Workspace",
     items: [
       { href: "/dashboard", label: "Overview", icon: IconGrid },
+      { href: "/upload", label: "Upload", icon: IconUpload },
       { href: "/batches", label: "Batches", icon: IconLayers },
-      { href: "/upload", label: "Uploads", icon: IconUpload },
       { href: "/scheduled", label: "Scheduled", icon: IconClock },
       { href: "/analytics", label: "Analytics", icon: IconChart },
     ],
@@ -42,6 +44,13 @@ const SECTIONS: { title: string; items: Item[] }[] = [
     items: [
       { href: "/profiles", label: "Profiles", icon: IconTag },
       { href: "/templates", label: "Mockup templates", icon: IconShirt },
+    ],
+  },
+  {
+    title: "Account",
+    items: [
+      { href: "/connect", label: "Shops & groups", icon: IconStore },
+      { href: "/settings", label: "Settings", icon: IconGear },
     ],
   },
 ];
@@ -352,12 +361,7 @@ function RailFooter() {
         <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--rail-text)]" title={account?.email}>
           {account?.email ?? ""}
         </span>
-        <Link
-          href="/settings"
-          className="tap shrink-0 rounded px-1 text-[11px] font-medium text-[var(--rail-text)] transition-colors hover:text-[var(--rail-active)] max-lg:px-2 max-lg:py-2 max-lg:text-xs"
-        >
-          Settings
-        </Link>
+
         <button
           type="button"
           onClick={signOut}
@@ -638,6 +642,27 @@ function IconTag({ active }: { active: boolean }) {
     <>
       <path d="M20.6 13.4L12 4.8H4.8V12l8.6 8.6a2 2 0 0 0 2.8 0l4.4-4.4a2 2 0 0 0 0-2.8z" />
       <circle cx="8.4" cy="8.4" r="1.2" />
+    </>,
+    active,
+  );
+}
+
+function IconStore({ active }: { active: boolean }) {
+  return svg(
+    <>
+      <path d="M4 9l1.5-5h13L20 9" />
+      <path d="M4 9h16v11H4z" />
+      <path d="M9 20v-6h6v6" />
+    </>,
+    active,
+  );
+}
+
+function IconGear({ active }: { active: boolean }) {
+  return svg(
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
     </>,
     active,
   );

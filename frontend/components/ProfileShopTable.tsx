@@ -17,6 +17,7 @@ import {
 } from "@/lib/profileShopTable";
 import type { ProfileSetup, ProfileShopTable as TableData } from "@/lib/types";
 import { Txt } from "./Txt";
+import { Help } from "./Help";
 
 const POLL_MS = 3000;
 const MAX_TRIES = 10;
@@ -262,8 +263,13 @@ export function ProfileShopTable({
         </table>
       </div>
       <p className="text-[11px] text-slate-600">
-        Shipping, returns and processing are each shop&apos;s own; a choice here is used by every profile with the same main-shop
-        setting. &ldquo;A day&rdquo; is the shop&apos;s limit when a schedule spreads listings out, for every profile.
+        <span>Each value is used in that shop only.</span>
+        <Help label="the Shops table">
+          Shipping, returns and processing are each shop&apos;s own; a choice here is used by every profile with the same
+          main-shop setting. &ldquo;A day&rdquo; is the shop&apos;s limit when a schedule spreads listings out, for every
+          profile. &ldquo;apply to all shops&rdquo; and &ldquo;Copy from shop…&rdquo; go by name; a shop without that
+          name is skipped and said.
+        </Help>
       </p>
       {result && <p key="result" role="status" translate="no" className="text-xs text-slate-700" data-testid="table-result"><span>{result}</span></p>}
       {error && <p key="error" className="text-xs text-rose-700"><Txt>{error}</Txt></p>}
