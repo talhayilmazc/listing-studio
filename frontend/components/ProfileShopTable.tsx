@@ -18,6 +18,7 @@ import {
 import type { ProfileSetup, ProfileShopTable as TableData } from "@/lib/types";
 import { Txt } from "./Txt";
 import { Help } from "./Help";
+import { HowMadeBulk } from "./HowMadeBulk";
 
 const POLL_MS = 3000;
 const MAX_TRIES = 10;
@@ -35,11 +36,14 @@ export function ProfileShopTable({
   profileName,
   onChanged,
   onClose,
+  howMade,
 }: {
   profileId: string;
   profileName: string;
   onChanged: () => void;
   onClose: () => void;
+  /** The profile's How it's made answers: the bulk section under the table. */
+  howMade?: { production: string | null; tools: string[] | null };
 }) {
   const [setup, setSetup] = useState<ProfileSetup | null>(null);
   const [table, setTable] = useState<TableData | null>(null);
@@ -273,6 +277,9 @@ export function ProfileShopTable({
       </p>
       {result && <p key="result" role="status" translate="no" className="text-xs text-slate-700" data-testid="table-result"><span>{result}</span></p>}
       {error && <p key="error" className="text-xs text-rose-700"><Txt>{error}</Txt></p>}
+      {howMade && (
+        <HowMadeBulk key="how-made" profileId={profileId} production={howMade.production} tools={howMade.tools} onChanged={onChanged} />
+      )}
     </div>
     );
   }

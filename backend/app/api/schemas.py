@@ -305,6 +305,11 @@ class ContentOut(BaseModel):
     # Set when its profile looks print-on-demand and names no production partner
     # (pipeline/creativity.py): a warning on the card, before any draft.
     production_note: str | None = None
+    # How it's made, ticked in Etsy after publishing (pipeline/how_made.py): "After publishing,
+    # tick in Etsy: shop alters it · computerized tools", or a sentence asking to set it on the
+    # profile first. Never blocks anything.
+    how_made_line: str | None = None
+    how_made_set: bool = False
     # The search-readiness checklist (pipeline/checklist.py): computed from the
     # listing's own text and settings, never blocking anything.
     checklist: "ChecklistOut | None" = None
@@ -949,6 +954,22 @@ class ProfileUpdate(BaseModel):
     #: The seller's personalization override (v7 §D4). Sending null resets it to
     #: the reference's question; leaving it out changes nothing.
     personalization: dict[str, Any] | None = None
+    #: How it's made: sent together; both null clears them; left out changes nothing.
+    how_made_production: str | None = None
+    how_made_tools: list[str] | None = Field(default=None, max_length=4)
+
+
+class HowMadeBulk(BaseModel):
+    """"Apply to all profiles…": the same How it's made answers on many profiles at once."""
+
+    #: The profiles; omitted: every confirmed profile of the account.
+    profile_ids: list[uuid.UUID] | None = Field(default=None, max_length=1000)
+    production: str
+    tools: list[str] = Field(max_length=4)
+
+
+class HowMadeBulkOut(BaseModel):
+    updated: int
 
 
 class PersonalizationOut(BaseModel):
@@ -1049,9 +1070,12 @@ class ProfileOut(BaseModel):
     #: Etsy's Creativity Standards: a print-on-demand profile whose reference names no
     #: production partner (pipeline/creativity.py). Shown once here, not on every listing.
     production_note: str | None = None
-    #: Settings Etsy's API cannot read or set (how the item is produced, the tools used):
-    #: one line saying to set them on each draft in Shop Manager (etsy/manual_fields.py).
-    shop_manager_note: str | None = None
+    #: How it's made (Etsy's Creativity Standards; ticked in Etsy, pipeline/how_made.py): the
+    #: answers, and the card's one line ("How it's made: shop alters it · computerized tools").
+    how_made_production: str | None = None
+    how_made_tools: list[str] | None = None
+    how_made_line: str = "How it's made: not set"
+    how_made_set: bool = False
     refresh_failed_at: datetime | None = None
     # Kept warm in the background: it wrote a listing or made a draft in the
     # last two weeks. Otherwise it refreshes when viewed or used.

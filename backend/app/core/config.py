@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     # database that holds real shops production is already serving. Off by
     # default; docker-compose.yml turns it on for local work.
     etsy_calls_blocked: bool = False
+    # How it's made (Etsy's Creativity Standards answers): send the profile's answers on every
+    # draft once Etsy's API has fields for them (pipeline/how_made.py, docs/etsy-how-its-made.md).
+    # Off: Etsy has no such fields today, so nothing is sent.
+    etsy_how_its_made_fields: bool = False
+    # Where the weekly check reads Etsy's OpenAPI document (workers/etsy_spec.py).
+    etsy_openapi_url: str = "https://www.etsy.com/openapi/generated/oas/3.0.0.json"
     # transactions_r (added 2026-09-26): read the shop's own sales for the seller's
     # analytics. Only listing id, quantity, price and date are read; buyer fields
     # (names, addresses, emails, messages) are never stored (CLAUDE.md rule 2).

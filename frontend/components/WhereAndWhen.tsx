@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { GroupSchedule, PublishJob, PublishSkipped, SendPreview, SendResult, SendState, SendWhen } from "@/lib/types";
@@ -220,6 +221,13 @@ export function WhereAndWhen({
         <div key="summary" className="space-y-1 text-sm">
           <p translate="no" className="font-medium text-slate-900" data-testid="send-sentence"><span>{preview.sentence}</span></p>
           {preview.notes.map((n) => <p key={n} className="text-xs text-slate-600">{n}</p>)}
+          {(preview.how_made ?? []).length > 0 && (
+            // How it's made: Etsy's API cannot set it; ticked in Etsy after publishing. Never blocks.
+            <div key="how-made" className="text-xs text-slate-700" data-testid="send-how-made">
+              {(preview.how_made ?? []).map((line) => <p key={line}>{line}</p>)}
+              <Link href="/batches/finish" className="tap text-brand-700 underline">Finish in Etsy</Link>
+            </div>
+          )}
           {preview.left_out.length > 0 && (
             <p key="left" className="text-xs text-slate-600">
               <span translate="no">{`${preview.left_out.length} not sent: `}</span>

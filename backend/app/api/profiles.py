@@ -18,11 +18,10 @@ from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.core import audit
 from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Tenant
-from app.etsy import manual_fields
 from app.etsy.refresh import in_use, request_refresh
 from app.etsy.shops import active_shops, owned_shop
 from app.pipeline import chart_order
-from app.pipeline import creativity, item_options, profile_shops
+from app.pipeline import creativity, how_made, item_options, profile_shops
 from app.pipeline import links as links_mod
 from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
 from app.pipeline.personalization import effective as effective_personalization
@@ -134,7 +133,10 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         refresh_error=profile.refresh_error,
         shipping_note=size_problem(profile.cached_payload),
         production_note=creativity.production_note(profile),
-        shop_manager_note=manual_fields.PROFILE_NOTE if manual_fields.manual_fields_for(profile.content_template) else None,
+        how_made_production=profile.how_made_production,
+        how_made_tools=list(profile.how_made_tools) if profile.how_made_tools else None,
+        how_made_line=how_made.card_line(profile),
+        how_made_set=how_made.is_set(profile),
         refresh_failed_at=profile.refresh_failed_at,
     )
 
@@ -242,6 +244,31 @@ async def list_profiles(
     return out
 
 
+@router.post("/how-made", response_model=schemas.HowMadeBulkOut)
+async def how_made_for_many(
+    body: schemas.HowMadeBulk,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.HowMadeBulkOut:
+    """"Apply to all profiles…": the same How it's made answers on the profiles named, or on
+    every confirmed profile of the account. Another account's profile is 404."""
+    try:
+        production, tools = how_made.clean(body.production, body.tools)
+    except how_made.NotValid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    if body.profile_ids is None:
+        profiles = list((await session.execute(select(ListingProfile).where(
+            ListingProfile.tenant_id == tenant.id, ListingProfile.confirmed.is_(True)))).scalars())
+    else:
+        profiles = [await _get(session, tenant, pid) for pid in dict.fromkeys(body.profile_ids)]
+    for profile in profiles:
+        profile.how_made_production, profile.how_made_tools = production, tools
+    audit.record(session, "profile.how_made_changed", actor=tenant, target_tenant_id=tenant.id,
+                 profiles=len(profiles), production=production)
+    await session.commit()
+    return schemas.HowMadeBulkOut(updated=len(profiles))
+
+
 @router.post("", response_model=schemas.ProfileOut, status_code=201)
 async def create_profile(
     body: schemas.ProfileCreate,
@@ -303,6 +330,13 @@ async def update_profile(
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)
+    if {"how_made_production", "how_made_tools"} & body.model_fields_set:
+        try:
+            profile.how_made_production, profile.how_made_tools = how_made.clean(body.how_made_production, body.how_made_tools)
+        except how_made.NotValid as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        audit.record(session, "profile.how_made_changed", actor=tenant, target_tenant_id=tenant.id,
+                     profile_id=str(profile.id), production=profile.how_made_production)
     if body.name is not None:
         profile.name = body.name
     if body.content_template is not None:

@@ -1275,6 +1275,9 @@ class ListingPublication(Base):
     manual_done: Mapped[dict[str, Any]] = mapped_column(
         JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
     )
+    #: When the seller last opened it in Etsy from "Finish in Etsy": the app then watches whether
+    #: the draft went live and asks "Mark done?" (never marks it done by itself).
+    how_made_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: When the seller chose for this draft to go live (UTC), v6 §G. Setting it is
     #: the seller's explicit confirmation (CLAUDE.md rule 3); only an approved
     #: listing's existing draft can be scheduled. Cleared when cancelled.
@@ -1367,6 +1370,10 @@ class ListingProfile(Base):
     #: Auto-filled from the reference title's leading words; editable. Null = not yet
     #: derived; "" = deliberately none.
     title_prefix: Mapped[str | None] = mapped_column(Text)
+    #: How it's made (Etsy's Creativity Standards; not in Etsy's API, so ticked in Etsy by the
+    #: seller): one of pipeline/how_made.PRODUCTION, and a list of how_made.TOOLS ("none" alone).
+    how_made_production: Mapped[str | None] = mapped_column(Text)
+    how_made_tools: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
     #: Per shop (B7): {connection id: {"section_title": ..., "title_prefix": ...}}; a shop not
     #: listed follows the profile (pipeline/profile_shop_settings.py).
     shop_settings: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)

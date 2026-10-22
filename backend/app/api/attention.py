@@ -78,6 +78,9 @@ async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
     batches = list((await session.execute(select(UploadBatch).where(UploadBatch.tenant_id == tid))).scalars())
     statuses = await batch_status.batch_statuses(session, tid, batches)
     failed = sum(1 for s in statuses.values() if "failed" in s)
+    from app.api.finish_in_etsy import count as finish_count
+
+    finish = await finish_count(session, tid)
     records = [r for r in await unfinished.records(session, tid, with_blocks=False)
                if r.etsy_listing_id is not None and r.category in unfinished.SELLER and not r.dismissed]
 
@@ -93,6 +96,9 @@ async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
                       href="/batches?status=in_review", nav="/batches"),
         AttentionItem(key="failed", label=_plural(failed, "batch with a failed draft", "batches with a failed draft"),
                       count=failed, href="/batches?status=failed", nav="/batches"),
+        AttentionItem(key="finish", label=_plural(finish, "listing to finish in Etsy (How it's made)",
+                                                  "listings to finish in Etsy (How it's made)"),
+                      count=finish, href="/batches/finish", nav="/batches/finish"),
         AttentionItem(key="unfinished", label=_plural(len(records), "draft on Etsy to finish or delete", "drafts on Etsy to finish or delete"),
                       count=len(records), href="/dashboard#unfinished-drafts", nav="/dashboard"),
     ]

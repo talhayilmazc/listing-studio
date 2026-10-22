@@ -444,12 +444,12 @@ async def test_how_it_is_produced_and_the_tools_are_said_never_guessed(world) ->
     """Etsy's listing editor asks "How does your shop produce this item?" and "What tools are
     used to make this item?". Etsy's OpenAPI spec (checked 2026-10-22) has neither on
     getListing, createDraftListing or updateListing: nothing is read, sent or guessed; each
-    draft lists both for Shop Manager and the profile card says so in one line."""
+    draft lists both to tick in Etsy and the profile card says the profile's answers in one line
+    (pipeline/how_made.py)."""
     from app.etsy import manual_fields
 
     keys = [f.key for f in manual_fields.manual_fields_for("apparel")]
     assert keys == ["creativity_production", "creativity_tools"]
     bob = world["bob"]
     mine = next(p for p in (await world["b"].get("/api/profiles")).json() if p["id"] == str(bob.profile_id))
-    assert mine["shop_manager_note"] == manual_fields.PROFILE_NOTE
-    assert "Shop Manager" in mine["shop_manager_note"] and "tools" in mine["shop_manager_note"]
+    assert mine["how_made_line"] == "How it's made: not set" and mine["how_made_set"] is False

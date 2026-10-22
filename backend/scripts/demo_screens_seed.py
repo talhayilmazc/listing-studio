@@ -119,6 +119,8 @@ async def main():
                 p = ListingProfile(tenant_id=t.id, connection_id=shop.id, name=name, reference_listing_id=7001, content_template="apparel",
                                    confirmed=True, updated_at=now, images_updated_at=now, cached_payload=PAYLOAD, fixed_image_ids=[902],
                                    listing_style="search", title_prefix="")
+                if name == "Standard Tee":  # How it's made answered; the sweatshirt shows "not set"
+                    p.how_made_production, p.how_made_tools = "altered", ["computerized"]
                 s.add(p); profs[(shop.shop_name, name)] = p
         plan = await profile_links(s, t, profs[("Northwind Tees", "Standard Tee")], shops, now)
         b = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=18, connection_id=shops[0].id, name="Summer drop")

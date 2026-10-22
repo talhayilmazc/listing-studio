@@ -483,7 +483,8 @@ async def test_a_draft_lists_what_still_has_to_be_set_in_shop_manager(ctx) -> No
     assert pub["state"] == "draft"
     assert pub["listing_link"].endswith("/listing-editor/edit/777")  # where to set it
     assert [step["label"] for step in pub["manual_steps"]] == ["How does your shop produce this item?", "What tools are used to make this item?"]
-    assert "Shop Manager" in pub["manual_steps"][0]["detail"]
+    # The profile has no How it's made answers yet: the step says to set them there first.
+    assert "set How it's made on the profile" in pub["manual_steps"][0]["detail"]
 
 
 async def test_a_live_listing_has_no_steps_left(ctx) -> None:

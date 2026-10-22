@@ -15,6 +15,8 @@ export interface Step {
 export interface Facts {
   shops: number;
   confirmedProfiles: number;
+  /** Confirmed profiles without How it's made answers: the profile step is not finished (lib/howMade.ts). */
+  profilesWithoutHowMade?: number;
   batches: number;
   /** Listings with a draft or live in a shop (any batch). */
   sent: number;
@@ -23,7 +25,15 @@ export interface Facts {
 export function steps(f: Facts): Step[] {
   return [
     { key: "shop", title: "Connect a shop", body: "Sign in to Etsy as the shop's owner.", href: "/connect", done: f.shops > 0 },
-    { key: "profile", title: "Make a profile", body: "Pick one of your own listings to copy category, price and shipping from.", href: "/profiles", done: f.confirmedProfiles > 0 },
+    {
+      key: "profile",
+      title: "Make a profile",
+      body: (f.profilesWithoutHowMade ?? 0) > 0 && f.confirmedProfiles > 0
+        ? `Set How it's made on ${f.profilesWithoutHowMade} profile${f.profilesWithoutHowMade === 1 ? "" : "s"}: it says what to tick in Etsy after publishing.`
+        : "Pick one of your own listings to copy category, price and shipping from.",
+      href: "/profiles",
+      done: f.confirmedProfiles > 0 && (f.profilesWithoutHowMade ?? 0) === 0,
+    },
     { key: "upload", title: "Upload designs", body: "Photos, folders or a ZIP; each listing's photos together.", href: "/upload", done: f.batches > 0 },
     { key: "send", title: "Review and send", body: "Approve each listing, then choose where and when it goes.", href: "/batches", done: f.sent > 0 },
   ];

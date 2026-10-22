@@ -159,7 +159,8 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
       </p>
       {changing && links.length > 0 && (
         // B7: one row per shop: shipping, returns, processing, section, title prefix, a day.
-        <ProfileShopTable key="table" profileId={profile.id} profileName={profile.name} onChanged={reload} onClose={() => setChanging(false)} />
+        <ProfileShopTable key="table" profileId={profile.id} profileName={profile.name} onChanged={reload} onClose={() => setChanging(false)}
+          howMade={{ production: profile.how_made_production ?? null, tools: profile.how_made_tools ?? null }} />
       )}
       {error && <p key="error" className="mt-2 text-rose-700">{error}</p>}
     </div>

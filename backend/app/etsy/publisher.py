@@ -53,13 +53,14 @@ from app.db.models import (
     Job,
     JobStatus,
     JobType,
+    ListingProfile,
     ListingPublication,
     ListingSnapshot,
     Tenant,
 )
 from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
-from app.pipeline import chart_order, design_match, item_options, skus, versions
+from app.pipeline import chart_order, design_match, how_made, item_options, skus, versions
 from app.pipeline.attribute_fill import garment_attributes
 from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.personalization import differs as personalization_differs
@@ -698,6 +699,10 @@ async def publish_content(
     # sent whenever the reference has them, so a calculated shipping profile is accepted
     # in every shop. Never 0, never converted.
     listing.update(shipping_size(reference))
+    # How it's made (Etsy's Creativity Standards): nothing until Etsy's API has the fields and
+    # ETSY_HOW_ITS_MADE_FIELDS is on (pipeline/how_made.py); then every draft path and shop sends them.
+    if profile_id is not None:
+        listing.update(how_made.draft_fields(await session.get(ListingProfile, profile_id)))
     # production_partner_ids: required only for made-by-someone-else; copy if present.
     if reference.get("production_partner_ids"):
         listing["production_partner_ids"] = reference["production_partner_ids"]

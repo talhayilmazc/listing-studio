@@ -15,7 +15,7 @@ API v3, spec 3.0.0, fetched 2026-09-24, 2026-09-26 and again 2026-10-22, when th
 owner asked for them): no request or response field of getListing,
 createDraftListing or updateListing carries either, and the first is not among
 the category attributes for the apparel taxonomy either. Nothing is guessed: each
-draft lists them, and the profile card says so in one line (``PROFILE_NOTE``). It is not "who made it / when was it made" (who_made,
+draft lists them with the profile's own answers to tick (pipeline/how_made.py). It is not "who made it / when was it made" (who_made,
 when_made) or production partners: those are in the API, copied from the
 reference and verified on read-back (etsy/publisher.py), and recent drafts show
 them stored exactly as sent (v7 §E1).
@@ -49,31 +49,17 @@ MANUAL_FIELDS: tuple[ManualField, ...] = (
     ManualField(
         key="creativity_production",
         label="How does your shop produce this item?",
-        detail=(
-            "Etsy's Creativity Standards question: made from scratch, assembled from "
-            "purchased parts, altered by your shop, a curated set of purchased goods, or a "
-            "natural material. Who made it, when, and any production partner are copied from "
-            "your reference and checked; this question is separate, and Etsy's API cannot set "
-            "it, so choose it on the draft in Shop Manager."
-        ),
+        # Replaced on each draft by the profile's own answer to tick (api/content.manual_steps).
+        detail="Etsy's API cannot set it: tick your profile's answer on the listing in Etsy.",
     ),
     ManualField(
         key="creativity_tools",
         label="What tools are used to make this item?",
-        detail=(
-            "Etsy's Creativity Standards question: handheld or hand-guided tools, computerized tools "
-            "or machines, an AI generator, or none. Etsy's API cannot read or set it, so choose it on "
-            "the draft in Shop Manager, as on your reference listing."
-        ),
+        detail="Etsy's API cannot set it: tick your profile's answer on the listing in Etsy.",
     ),
 )
 
-#: The one line a profile card shows about them (they belong to the item, not to a shop).
-PROFILE_NOTE = (
-    "Etsy's API cannot read or set \"How does your shop produce this item?\" or \"What tools are used to "
-    "make this item?\": set them on each draft in Shop Manager, as on the reference listing. "
-    "Each draft lists them to tick."
-)
+# The profile card says the profile's own answers instead ("How it's made: …", pipeline/how_made.py).
 
 
 def manual_fields_for(template: str | None) -> list[ManualField]:

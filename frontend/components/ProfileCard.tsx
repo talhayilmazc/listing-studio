@@ -5,6 +5,7 @@ import { ListingStyle } from "./ListingStyle";
 import { presetPlacement, type ChartPosition } from "@/lib/chartOrder";
 import { ChartPlacementEditor } from "./ChartPlacementEditor";
 import { ProfileShops } from "./ProfileShops";
+import { HowMadePicker } from "./HowMadePicker";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Profile, ReferenceImage, ShopListing } from "@/lib/types";
@@ -405,11 +406,15 @@ export function ProfileCard({
           </p>
         )}
 
-        {profile.shop_manager_note && (
-          <p key="shop-manager-note" className="text-xs text-slate-600" data-testid="profile-shop-manager-note">
-            {profile.shop_manager_note}
-          </p>
-        )}
+        <HowMadePicker
+          key="how-made"
+          id={profile.id}
+          production={profile.how_made_production}
+          tools={profile.how_made_tools}
+          onSave={async (production, tools) =>
+            onChange(await api.updateProfile(profile.id, { how_made_production: production, how_made_tools: tools }))
+          }
+        />
 
         {profile.shipping_note && (
           // A calculated shipping profile and no weight or size on the reference: drafts are not sent until fixed.

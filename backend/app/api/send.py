@@ -50,6 +50,7 @@ from app.db.models import (
     EtsyConnection,
     GeneratedContent,
     GroupPlan,
+    ListingProfile,
     ListingPublication,
     PlannedSlot,
     ShopGroup,
@@ -60,7 +61,7 @@ from app.db.models import (
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, group_shops
 from app.pipeline import group_plan as G
-from app.pipeline import profile_shops, shop_targets
+from app.pipeline import how_made, profile_shops, shop_targets
 from app.pipeline.targets import resolve_cached
 
 router = APIRouter(prefix="/api", tags=["send"])
@@ -158,6 +159,17 @@ class SendPreviewOut(BaseModel):
     time_zone: str
     #: The schedule used for "spread" (the seller's, else the defaults), to show and change.
     schedule: ScheduleIn | None = None
+    #: How it's made to tick in Etsy after publishing, one line per profile of these listings
+    #: (pipeline/how_made.py); a profile without answers asks to set them first. Never blocks.
+    how_made: list[str] = Field(default_factory=list)
+
+
+async def _how_made_lines(session: AsyncSession, contents: list[GeneratedContent]) -> list[str]:
+    ids = list(dict.fromkeys(c.listing_profile_id for c in contents if c.listing_profile_id is not None))
+    profiles = [p for p in [await session.get(ListingProfile, pid) for pid in ids] if p is not None]
+    if len(profiles) == 1:
+        return [how_made.after_publishing(profiles[0])]
+    return [f"{p.name}: {how_made.after_publishing(p)}" for p in profiles]
 
 
 class SendOut(BaseModel):
@@ -446,6 +458,7 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
         when=body.when, rows=work.rows, left_out=work.left_out, listings=listings, shops=shops, total=total,
         sentence=sentence, button=button, disabled=disabled, first_day=first, finishes_on=last, notes=notes,
         time_zone=zone, schedule=schedule,
+        how_made=await _how_made_lines(session, list(work.contents.values())),
     ), work, plan
 
 

@@ -33,6 +33,7 @@ from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline import approval, creativity, manual, versions
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
 from app.pipeline.generation import TITLE_WARNINGS
+from app.pipeline import how_made
 from app.pipeline.personalization import DEFAULT_QUESTION
 from app.pipeline.reference import decode_etsy_text
 from app.pipeline.personalization import for_listing as personalization_for_listing
@@ -51,25 +52,27 @@ async def publications(
     if not content_ids:
         return found
     rows = await session.execute(
-        select(ListingPublication, EtsyConnection, ListingProfile.content_template, Job)
+        select(ListingPublication, EtsyConnection, ListingProfile, Job)
         .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
         .outerjoin(ListingProfile, ListingProfile.id == ListingPublication.profile_id)
         .outerjoin(Job, Job.id == ListingPublication.schedule_job_id)
         .where(ListingPublication.content_id.in_(content_ids))
         .order_by(EtsyConnection.position, EtsyConnection.connected_at)
     )
-    for publication, connection, template, job in rows.all():
-        found[publication.content_id].append(publication_out(publication, connection, template, job))
+    for publication, connection, profile, job in rows.all():
+        found[publication.content_id].append(publication_out(publication, connection, profile, job))
     return found
 
 
 def publication_out(
     publication: ListingPublication,
     connection: EtsyConnection,
-    template: str | None,
+    profile: ListingProfile | None,
     job: Job | None = None,
 ) -> schemas.PublicationOut:
     from app.api.shops import shop_label
+
+    template = profile.content_template if profile is not None else None
 
     schedule = state_of(publication, job)
     return schemas.PublicationOut(
@@ -81,20 +84,26 @@ def publication_out(
         etsy_listing_id=publication.etsy_listing_id,
         state=publication.state,
         listing_link=link_for(publication.etsy_listing_id, publication.state),
-        manual_steps=manual_steps(publication.state, template, publication.manual_done_keys()),
+        manual_steps=manual_steps(publication.state, template, publication.manual_done_keys(), profile),
     )
 
 
 def manual_steps(
-    state: str, template: str | None, done: set[str] | frozenset[str] = frozenset()
+    state: str, template: str | None, done: set[str] | frozenset[str] = frozenset(), profile: ListingProfile | None = None,
 ) -> list[schemas.ManualStepOut]:
-    """What a draft needs in Shop Manager, each with the seller's tick; nothing once live."""
+    """What a draft needs in Shop Manager, each with the seller's tick; nothing once live. The two
+    How it's made questions say the profile's exact answers to tick (pipeline/how_made.py)."""
     if state == "active":
         return []
-    return [
-        schemas.ManualStepOut(key=f.key, label=f.label, detail=f.detail, done=f.key in done)
-        for f in manual_fields_for(template)
-    ]
+    out = []
+    for f in manual_fields_for(template):
+        detail = f.detail
+        if f.key in how_made.DONE_KEYS:
+            answer = how_made.tick(profile, f.key)
+            detail = (f"Tick in Etsy: {answer}." if answer else
+                      "Not set on the profile yet: set How it's made on the profile, then tick the same in Etsy.")
+        out.append(schemas.ManualStepOut(key=f.key, label=f.label, detail=detail, done=f.key in done))
+    return out
 
 
 async def _template_of(session: AsyncSession, publication: ListingPublication) -> str | None:
@@ -132,6 +141,7 @@ async def tick_manual_step(
         raise HTTPException(status_code=404, detail="draft not found")
     publication, connection = found
     template = await _template_of(session, publication)
+    profile = await session.get(ListingProfile, publication.profile_id) if publication.profile_id else None
     if key not in {f.key for f in manual_fields_for(template)}:
         raise HTTPException(status_code=404, detail="no such setting for this draft")
     ticks = dict(publication.manual_done or {})  # a new dict, so the change is saved
@@ -142,7 +152,7 @@ async def tick_manual_step(
     publication.manual_done = ticks
     await session.commit()
     job = await session.get(Job, publication.schedule_job_id) if publication.schedule_job_id else None
-    return publication_out(publication, connection, template, job)
+    return publication_out(publication, connection, profile, job)
 
 
 @router.post("/batches/{batch_id}/manual-steps/done", response_model=schemas.ManualStepsDone)
@@ -303,6 +313,8 @@ async def contents_out(
         out.profile_id, out.profile_name = (profile.id, profile.name) if profile else (None, None)
         # Etsy's Creativity Standards: a print-on-demand profile with no production partner.
         out.production_note = creativity.production_note(profile) if profile is not None else None
+        out.how_made_line = how_made.after_publishing(profile) if profile is not None else None
+        out.how_made_set = how_made.is_set(profile)
         out.attributes = dict((c.attributes or {}).get("listing") or {})
     for out in outs:
         out.findings = findings.get(out.id, [])

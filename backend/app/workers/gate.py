@@ -71,6 +71,8 @@ JOB_COST: dict[str, int] = {
     "sync_shop_listings": 251,
     # shop, and one request per listing state for its count (the top strip)
     "sync_shop_counts": 6,
+    # Drafts opened from "Finish in Etsy": 100 listings a request (workers/how_made.py).
+    "watch_opened_drafts": 5,
     # shop, and its sections (the review card's Section control; upkeep)
     "sync_shop_sections": 2,
     # shop, its sections read fresh, and the section the seller confirmed
@@ -104,7 +106,7 @@ JOB_COST: dict[str, int] = {
 # listing work. Creating a shop section and updating a draft's SKU are the
 # seller's own changes on Etsy and still count toward their ceiling.
 UPKEEP = frozenset(
-    {"refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
+    {"refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "watch_opened_drafts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "link_profile", "create_link_resources"}
 )
 

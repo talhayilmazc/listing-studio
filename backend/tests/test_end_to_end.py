@@ -92,8 +92,7 @@ async def _creativity_checked(w: dict) -> None:
     for p in publications:
         assert [m["key"] for m in p["manual_steps"]] == CREATIVITY, p
     profile = next(x for x in (await w["client"].get("/api/profiles")).json() if x["id"] == str(w["profile"]))
-    assert "How does your shop produce this item?" in profile["shop_manager_note"]
-    assert "What tools are used to make this item?" in profile["shop_manager_note"]
+    assert profile["how_made_line"].startswith("How it's made: ")
 TITLE = "Design {i:02d} Retro Graphic Tee, Vintage Sunset Shirt, Mountain Hiking Tee, Outdoor Adventure Shirt, Camping Lover Top"
 TAGS = ["graphic tee", "retro shirt", "sunset tee", "hiking shirt", "camping gift", "outdoor tee", "mountain top",
         "nature lover", "adventure shirt", "vintage tee", "trail shirt", "forest tee", "summit gift"]

@@ -18,6 +18,7 @@ import { useSession } from "./SessionProvider";
 const TITLES: [RegExp, string][] = [
   [/^\/dashboard$/, "Overview"],
   [/^\/batches$/, "Batches"],
+  [/^\/batches\/finish$/, "Finish in Etsy"],
   [/^\/batches\/[^/]+\/review$/, "Review"],
   [/^\/profiles$/, "Profiles"],
   [/^\/templates$/, "Mockup templates"],

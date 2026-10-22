@@ -27,7 +27,7 @@ import { TRADEMARK_NOTICE } from "../lib/legal";
 
 const PUBLIC = ["/", "/pricing", "/terms", "/privacy", "/request-invite", "/contact"];
 const SIGN_IN = ["/login", "/register"];
-const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs", "/scheduled", "/analytics", "/connect", "/settings"];
+const SIGNED_IN = ["/dashboard", "/batches", "/batches/finish", "/upload", "/profiles", "/templates", "/templates/designs", "/scheduled", "/analytics", "/connect", "/settings"];
 const ADMIN_TABS = ["Users", "Invites", "Usage"];
 
 const EMAIL = process.env.LAYOUT_EMAIL;
@@ -467,6 +467,22 @@ test.describe("signed in", () => {
     await expect(page.getByRole("dialog", { name: "Schedule listings" })).toBeVisible();
     await expectSound(page, "/scheduled, Schedule listings");
     await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+  });
+
+  test("Finish in Etsy: groups by answers, editor links; nothing marked", async ({ page }) => {
+    await page.goto("/batches/finish");
+    await settle(page);
+    await expect(page.getByTestId("finish-top-line")).toContainText(/draft|active|Nothing to finish/);
+    if (await page.getByTestId("finish-row").count()) {
+      await expect(page.getByTestId("finish-group").first()).toContainText("Shop alters it + computerized tools");
+      for (const href of await page.getByTestId("finish-open").evaluateAll((els) => els.map((e) => e.getAttribute("href")))) {
+        expect(href).toMatch(/^https:\/\/www\.etsy\.com\/your\/shops\/me\/listing-editor\/edit\/\d+$/);
+      }
+      await page.getByTestId("finish-row").first().getByRole("checkbox").check();
+      await expect(page.getByTestId("finish-mark-done")).toHaveText("Mark done (1)");
+      await expectSound(page, "/batches/finish with a row selected");
+      await page.getByTestId("finish-row").first().getByRole("checkbox").uncheck();
+    }
   });
 
   test("review: one Where and when panel; groups first; one button with the real total", async ({ page }) => {

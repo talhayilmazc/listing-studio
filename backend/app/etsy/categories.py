@@ -12,6 +12,7 @@ from __future__ import annotations
 _BY_JOB: dict[str, str] = {
     "sync_shop_listings": "shop_sync",
     "sync_shop_counts": "shop_sync",
+    "watch_opened_drafts": "shop_sync",
     "sync_shop_sections": "shop_sync",
     "create_shop_section": "sections",
     "update_sku_on_etsy": "sku_updates",
