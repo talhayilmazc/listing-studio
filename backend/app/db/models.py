@@ -597,6 +597,10 @@ class UploadBatch(Base):
     #: "one" (pipeline/grouping.py::MODES); None: folders, then SKUs (the default).
     grouping_mode: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str | None] = mapped_column(Text)
+    #: Where its listings go, {"group_ids": [...], "connection_ids": [...]}: every
+    #: approved listing to every shop of those groups and to those shops, each shop
+    #: once (B4). None: each listing to its profile's main shop.
+    send_to: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: The shop this batch is for: the seller's explicit choice, shown first on the
     #: batch page. Groups start from it and may each choose another (Priority 2).
     connection_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1193,9 +1197,12 @@ class GeneratedContent(Base):
     #: shop ({"sections": {connection id: {"id", "title"}}}), set on the review card;
     #: what is not here follows the writer and the profile (pipeline/item_options.py).
     item_options: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
-    #: The shops ticked for this listing on the review page (connection ids as
-    #: text). None: the shop it was written for (pipeline/shop_targets.py).
+    #: The shops ticked per listing on the old review matrix. Read only where a row was
+    #: not migrated (0084 moved them to ``send_to``); nothing writes it any more.
     target_shops: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
+    #: This listing's own destination, {"group_ids": [...], "connection_ids": [...]}
+    #: ("→ GROUP 1 · change"). None: its batch's (pipeline/shop_targets.py).
+    send_to: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

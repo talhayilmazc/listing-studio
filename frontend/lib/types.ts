@@ -1955,38 +1955,71 @@ export interface ShopGroups {
 
 export type UseInScope = { scope: "all" } | { scope: "group"; group_id: string } | { scope: "shops"; connection_ids: string[] };
 
-// --- Distribution and group scheduling (v8 §B) ---------------------------------------
+// --- Where and when (B4): where a batch's listings go, and when -----------------------
 
-export interface DistributionRow {
+/** Groups and single shops: every listing goes to every one of their shops, each shop once. */
+export interface Destination {
+  group_ids: string[];
+  connection_ids: string[];
+}
+
+export interface SendState {
+  shops: { id: string; name: string }[];
+  groups: { id: string; name: string; shop_ids: string[] }[];
+  /** The batch's choice; null: each listing to its profile's main shop. */
+  send_to: Destination | null;
+  label: string;
+  /** "Make a group of all my shops" (several shops, no groups yet). */
+  offer_all_shops: boolean;
+}
+
+export type SendWhen = "drafts" | "publish" | "spread";
+
+export interface SendCell {
+  shop_id: string;
+  shop_name: string;
+  state: "new" | "publish" | "draft" | "live" | "scheduled" | "cannot";
+  reason: string | null;
+  at: string | null;
+  local: string | null;
+  note?: string | null;
+}
+
+export interface SendRow {
   content_id: string;
   title: string;
   sku: string | null;
-  /** The group it goes to, or the single shop chosen in place of one. */
-  group_id: string | null;
-  connection_id: string | null;
-  group_name: string;
-  shops: {
-    shop_id: string;
-    shop_name: string;
-    ok: boolean;
-    reason: string | null;
-    /** The listing's profile is not set up there yet: the setup dialog can do it. */
-    setup_profile_id?: string | null;
-    setup_profile_name?: string | null;
-  }[];
-  warning: string | null;
+  label: string;
+  /** Its own destination, not the batch's. */
+  custom: boolean;
+  send_to: Destination | null;
+  cells: SendCell[];
 }
 
-export interface DistributionAssignment {
-  content_id: string;
-  group_id: string | null;
-  connection_id: string | null;
-}
-
-export interface DistributionPreview {
-  rows: DistributionRow[];
+export interface SendPreview {
+  when: SendWhen;
+  rows: SendRow[];
   left_out: { content_id: string; title: string; reason: string }[];
-  per_group: Record<string, number>;
+  listings: number;
+  shops: number;
+  total: number;
+  sentence: string;
+  button: string;
+  disabled: string | null;
+  first_day: string | null;
+  finishes_on: string | null;
+  notes: string[];
+  time_zone: string;
+  schedule: GroupSchedule | null;
+}
+
+export interface SendResult {
+  when: SendWhen;
+  jobs: PublishJob[];
+  skipped: PublishSkipped[];
+  plan_id: string | null;
+  scheduled: number;
+  message: string;
 }
 
 export interface GroupSchedule {
@@ -1996,21 +2029,6 @@ export interface GroupSchedule {
   window_end: string;
   spacing_minutes: number;
   stagger_minutes: number;
-}
-
-export interface GroupPlanPreview {
-  shops: {
-    shop_id: string;
-    shop_name: string;
-    group_name: string;
-    listings: number;
-    days: { date: string; slots: { time: string; zone: string; content_id: string; title: string }[] }[];
-  }[];
-  finishes_on: string | null;
-  drafts: number;
-  skipped: { content_id: string; shop: string; reason: string }[];
-  notes: string[];
-  time_zone: string;
 }
 
 export interface GroupPlanSummary {

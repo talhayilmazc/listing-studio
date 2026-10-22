@@ -16,10 +16,13 @@ import type {
   SlotIn,
   MockupZip,
   Checklist,
-  DistributionPreview,
-  GroupPlanPreview,
   GroupPlanSummary,
   GroupSchedule,
+  Destination,
+  SendPreview,
+  SendResult,
+  SendState,
+  SendWhen,
   LinkSuggestion,
   ProfileSetup,
   ShopGroups,
@@ -28,7 +31,6 @@ import type {
   ShopsOverview,
   Attention,
   AnalyticsShops,
-  DistributionAssignment,
   Account,
   Allowance,
   AllowanceDefault,
@@ -364,9 +366,6 @@ export const api = {
     }),
   /** The title and tags of the listing's profile's reference listing (the seller's own). */
   referenceText: (contentId: string) => req<ReferenceText>(`/content/${contentId}/reference-text`),
-  /** Tick or untick one shop for the batch's listings (all, or the ones named); kept on each listing. */
-  tickShop: (id: string, body: ({ connection_id: string } | { group_id: string }) & { on: boolean; content_ids?: string[] }) =>
-    req<ShopTickResult>(`/batches/${id}/targets`, { method: "PUT", body: JSON.stringify(body) }),
   // Occasion, Holiday and Section per shop on the review card (Etsy's own values).
   itemOptions: (contentId: string) => req<ItemOptions>(`/content/${contentId}/options`),
   /** Only the fields sent change: values ([] = none), null = back to the writer's;
@@ -749,12 +748,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body ?? {}),
     }),
-  /** What a publish would do per shop, and whether it fits today's budget. */
-  publishPreview: (id: string, body?: PublishRequest) =>
-    req<PublishPreview>(`/batches/${id}/publish/preview`, {
-      method: "POST",
-      body: JSON.stringify(body ?? {}),
-    }),
   /** The seller confirms (or un-confirms) setting one manual field on one draft. */
   tickManualStep: (contentId: string, shopId: string, key: string, done: boolean) =>
     req<Publication>(
@@ -846,15 +839,24 @@ export const api = {
       body: JSON.stringify({ personalization, content_ids: contentIds ?? null }),
     }),
   deleteShopGroup: (id: string) => req<ShopGroups>(`/shop-groups/${id}`, { method: "DELETE" }),
-  // --- Distribution and group scheduling (v8 §B) ---
-  previewDistribution: (batch: string, body: { mode: "assign" | "split"; group_ids: string[]; connection_ids?: string[]; content_ids?: string[] }) =>
-    req<DistributionPreview>(`/batches/${batch}/distribution/preview`, { method: "POST", body: JSON.stringify(body) }),
-  planDistribution: (batch: string, assignments: DistributionAssignment[], schedule: GroupSchedule) =>
-    req<GroupPlanPreview>(`/batches/${batch}/distribution/plan`, { method: "POST", body: JSON.stringify({ assignments, schedule }) }),
-  confirmDistribution: (batch: string, assignments: DistributionAssignment[], schedule: GroupSchedule) =>
-    req<{ plan_id: string; plan: GroupPlanPreview }>(`/batches/${batch}/distribution/confirm`, {
+  // --- Where and when (B4) ---
+  sendState: (batch: string) => req<SendState>(`/batches/${batch}/send`),
+  /** The batch's destination, or (with contentIds) those listings' own; null = back to the default. */
+  setSendTo: (batch: string, send_to: Destination | null, contentIds?: string[]) =>
+    req<SendState>(`/batches/${batch}/send-to`, {
+      method: "PUT",
+      body: JSON.stringify({ send_to, content_ids: contentIds ?? null }),
+    }),
+  sendToAllShops: (batch: string) => req<SendState>(`/batches/${batch}/send-to/all-shops`, { method: "POST" }),
+  sendPreview: (batch: string, when: SendWhen, schedule?: GroupSchedule | null) =>
+    req<SendPreview>(`/batches/${batch}/send/preview`, {
       method: "POST",
-      body: JSON.stringify({ assignments, schedule }),
+      body: JSON.stringify({ when, ...(schedule ? { schedule } : {}) }),
+    }),
+  send: (batch: string, when: SendWhen, schedule?: GroupSchedule | null) =>
+    req<SendResult>(`/batches/${batch}/send`, {
+      method: "POST",
+      body: JSON.stringify({ when, ...(schedule ? { schedule } : {}) }),
     }),
   groupPlans: () => req<GroupPlanSummary[]>("/plans"),
   cancelGroupPlan: (id: string) => req<GroupPlanSummary>(`/plans/${id}`, { method: "DELETE" }),

@@ -14,6 +14,7 @@ from app.api import (
     board,
     content,
     distribution,
+    send,
     health,
     imports,
     invite_requests,
@@ -104,6 +105,7 @@ def create_app() -> FastAPI:
     application.include_router(mockups.router)
     application.include_router(mockup_edits.router)
     application.include_router(distribution.router)
+    application.include_router(send.router)
     application.include_router(shop.router)
     application.include_router(shops.router)
     application.include_router(publish.router)

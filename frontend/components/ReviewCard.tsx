@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { ScheduleControl } from "./ScheduleControl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -11,6 +10,7 @@ import type {
   ManualStep,
   Pause,
   Personalization,
+  Profile,
   Publication,
   PublishSkipped,
   Work,
@@ -22,6 +22,7 @@ import { ApiError } from "@/lib/api";
 import { limitNotice } from "@/lib/chartOrder";
 import { waitForJob } from "@/lib/jobs";
 import { TagEditor } from "./TagEditor";
+import { ProfilePicker } from "./ProfilePicker";
 import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
@@ -75,7 +76,15 @@ export function ReviewCard({
   onSelect,
   optionsVersion = 0,
   needs,
+  profiles,
+  onProfile,
+  destination,
 }: {
+  /** The account's profiles: the card changes its listing's profile in place (B4). */
+  profiles?: Profile[];
+  onProfile?: (profileId: string | null) => void;
+  /** "→ GROUP 1 · change": where this listing goes, from the page's "Where and when". */
+  destination?: React.ReactNode;
   /** "Approve all" did not approve this listing: what it needs, short ("needs a title"). */
   needs?: string[];
   /** Ticked for "Set for selected" on the review page. */
@@ -480,6 +489,11 @@ export function ReviewCard({
               <span>Profile </span><span className="font-medium text-slate-800" translate="no">{initial.profile_name}</span>
             </p>
           )}
+          {destination && (
+            <p key="destination" className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600" data-testid="card-destination">
+              {destination}
+            </p>
+          )}
           <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -495,15 +509,14 @@ export function ReviewCard({
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
           </dl>
           <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-600" data-testid="card-profile">
-            <span>Profile: </span>
-            <span className="font-medium text-slate-800" translate="no">{initial.profile_name ?? "none chosen"}</span>
-            {batchId && (
-              <span key="change">
-                <span> · </span>
-                <Link href={`/batches/${batchId}#group-${encodeURIComponent(initial.group_key ?? "")}`} className="tap text-brand-700 underline">
-                  change on its group
-                </Link>
-              </span>
+            <span className="mb-1 block">Profile</span>
+            {profiles && onProfile ? (
+              // Changing it here changes the listing's group, as on the batch page (no AI call).
+              <ProfilePicker key="picker" profiles={profiles} shopId={null} value={initial.profile_id ?? null}
+                onChange={onProfile} emptyLabel="Choose a profile…" label="Profile" size="xs"
+                disabled={bulkRunning || publications.length > 0} />
+            ) : (
+              <span key="name" className="font-medium text-slate-800" translate="no">{initial.profile_name ?? "none chosen"}</span>
             )}
             <span className="mt-0.5 block text-slate-400">
               Price, variations, shipping, returns, size charts and the description come from it, in every shop.

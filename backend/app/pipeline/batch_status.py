@@ -166,16 +166,12 @@ async def batch_statuses(
         select(ListingGroupSetting).where(ListingGroupSetting.batch_id.in_(ids)))).scalars()}
     profile_shop = dict((await session.execute(select(ListingProfile.id, ListingProfile.connection_id).where(
         ListingProfile.tenant_id == tenant_id))).all())
+    from app.pipeline.shop_targets import destination_shops
+
+    chosen = await destination_shops(session, tenant_id, contents)
     for item in listings.values():
         c = item.content
-        ticked = None
-        if c.target_shops is not None:
-            ticked = set()
-            for value in c.target_shops:
-                try:
-                    ticked.add(uuid.UUID(str(value)))
-                except (TypeError, ValueError):
-                    continue
+        ticked = set(chosen[c.id]) if chosen.get(c.id) is not None else None
         if ticked is None:
             own = group_shop.get((c.batch_id, assets.get(c.asset_id) or "")) or by_batch[c.batch_id].connection_id \
                 or profile_shop.get(c.listing_profile_id)

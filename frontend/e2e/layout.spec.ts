@@ -432,6 +432,34 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<batch> after arranging");
   });
 
+  test("review: one Where and when panel; groups first; one button with the real total", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const href = (await page.locator('a[href^="/batches/"]', { hasText: "Summer drop" }).first().getAttribute("href"))!;
+    await page.goto(`${href.replace(/\/review$/, "")}/review`);
+    await settle(page);
+    const panel = page.getByTestId("where-and-when");
+    await expect(panel).toBeVisible();
+    await expect(page.getByText("Tick a group for every listing")).toHaveCount(0);
+    await expect(page.getByText("Split evenly")).toHaveCount(0);
+    await expect(panel.getByText("Each shop uses the profile's shipping, return and processing settings automatically.")).toBeVisible();
+    const button = panel.getByTestId("send-button");
+    await expect(button).toHaveText(/^(Create \d+ drafts?|Publish \d+ listings?|Schedule \d+ listings?( from .+)?|Now as drafts)$/, { timeout: 15_000 });
+    if (await panel.getByTestId("send-to").count()) {
+      await panel.getByTestId("send-to").click();
+      const sheet = page.getByText("or one shop");
+      await expect(sheet).toBeVisible();
+      await expect(page.getByText("Create shop groups")).toBeVisible();
+      await expectSound(page, "/batches/<batch>/review with Send to open");
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+    } else {
+      await expect(panel.getByTestId("send-to-one")).toBeVisible();
+    }
+    await panel.getByText("Spread out").click();
+    await expect(panel.getByTestId("schedule-line")).toContainText("a day per shop");
+    await expectSound(page, "/batches/<batch>/review, Where and when");
+  });
+
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
     await page.goto("/admin", { waitUntil: "commit" });
     const bar = page.getByRole("tablist", { name: "Admin sections" });

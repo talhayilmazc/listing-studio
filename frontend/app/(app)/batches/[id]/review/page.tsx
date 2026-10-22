@@ -6,31 +6,23 @@ import { api } from "@/lib/api";
 import type {
   ApproveAllResult,
   Content,
-  MatrixCell,
-  MatrixColumn,
-  MatrixRow,
   Pause,
   Personalization,
+  Profile,
   PublishJob,
-  PublishPreview,
   PublishSkipped,
-  ShopGroup,
-  ShopGroups,
+  SendPreview,
+  SendState,
 } from "@/lib/types";
-import { PublishMatrix } from "@/components/PublishMatrix";
-import { startSetup, type SetupItem } from "@/lib/startSetup";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
-import { anyChecking } from "@/lib/shopNeeds";
-import { Distribution } from "@/components/Distribution";
+import { ListingChange, WhereAndWhen } from "@/components/WhereAndWhen";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
 import { ListingPersonalization } from "@/components/ListingPersonalization";
-import { ShopBadge } from "@/components/ShopPicker";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { applyChange, cardKey, emptyHandWritten, needsById, pendingManualSteps, reviewActions } from "@/lib/review";
 import { anyUnsaved, flushAll } from "@/lib/cardSave";
 import { ReviewCard } from "@/components/ReviewCard";
-import { BulkSchedule, schedulableDrafts } from "@/components/BulkSchedule";
 import { useShops } from "@/components/ShopProvider";
 
 import { Txt } from "@/components/Txt";
@@ -71,25 +63,37 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [busy, setBusy] = useState(false);
   const [skipped, setSkipped] = useState<PublishSkipped[]>([]);
 
-  // Where drafts go: the shops ticked for each listing. The ticks are kept on the
-  // listing (they are there after a reload, and before and after approval); by
-  // default a listing goes to the shop it was written for. The profile is not
-  // chosen here: it is the listing's own in every shop (customer feedback, item 3).
+  // Where and when (B4): the batch's listings go to the groups and shops chosen in the panel
+  // at the top; every approved listing to every one of their shops, each shop once. The
+  // profile is not chosen here: it is the listing's own in every shop.
   const { shops } = useShops();
-  const [preview, setPreview] = useState<PublishPreview | null>(null);
-  const [previewTick, setPreviewTick] = useState(0);
-  const [tickingShop, setTickingShop] = useState<string | null>(null);
+  const [sendState, setSendState] = useState<SendState | null>(null);
+  const [preview, setPreview] = useState<SendPreview | null>(null);
+  const [sendTick, setSendTick] = useState(0);
   const shopNames = Object.fromEntries((shops ?? []).map((sh) => [sh.id, sh.name]));
 
-  // Per listing: the shops ticked for it (what its own "Create draft" sends).
+  // Per listing: the shops it goes to (what its own "Create draft" sends).
   const chosenShops: Record<string, string[]> | undefined = preview
     ? Object.fromEntries(
-        preview.rows.map((r) => [
-          r.content_id,
-          r.cells.filter((c) => c.wanted || c.state === "draft" || c.state === "live").map((c) => c.connection_id),
-        ]),
+        preview.rows.map((r) => [r.content_id, r.cells.filter((c) => c.state !== "cannot").map((c) => c.shop_id)]),
       )
     : undefined;
+  const rowOf = Object.fromEntries((preview?.rows ?? []).map((r) => [r.content_id, r]));
+
+  // The account's profiles, for changing a listing's profile on its card.
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  useEffect(() => {
+    api.listProfiles().then((p) => setProfiles(p.filter((x) => x.confirmed))).catch(() => setProfiles([]));
+  }, []);
+  async function changeProfile(groupKey: string | null, profileId: string | null) {
+    setError(null);
+    try {
+      await api.assignGroup(id, { group_keys: [groupKey ?? ""], profile_id: profileId });
+      load();
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    }
+  }
 
   // Cards are keyed by their Etsy state (cardKey): a reload remounts only the cards
   // whose draft or live state changed, so text being edited elsewhere survives.
@@ -117,94 +121,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     api.batchSummary(id).then((b) => setBatchName(b.name)).catch(() => {});
   }, [id]);
 
-  // The estimate before anything is queued: drafts per shop, the Etsy requests they
-  // take, and whether that fits what can still be spent today (v5 §E).
+  // The panel asks again when listings are approved, drafted, published or change profile.
   const approvedKey = (items ?? []).filter((c) => c.approved).map((c) => c.id).join(",");
-  const draftedKey = (items ?? []).map((c) => c.publications.length).join(",");
-  useEffect(() => {
-    if (!items || items.length === 0) {
-      setPreview(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const next = await api.publishPreview(id); // each listing's ticked shops, as kept on it
-        if (!cancelled) setPreview(next);
-      } catch {
-        if (!cancelled) setPreview(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, approvedKey, draftedKey, previewTick]);
-
-  // A profile being set up in a ticked shop: look again until it is done.
-  const settingUp = preview !== null && anyChecking(preview.columns);
-  useEffect(() => {
-    if (!settingUp) return;
-    const t = setTimeout(() => setPreviewTick((n) => n + 1), 4000);
-    return () => clearTimeout(t);
-  }, [settingUp, preview]);
-
-  // "Set up in BCT" (one shop) or "Set up all 4 shops" (v8 §C): each listing's profile is set
-  // up in those shops with its main shop's settings (matched or copied), with no question and
-  // no dialog; the shops are read again and the batch carries on, without leaving the page.
-  const [setupNote, setSetupNote] = useState<string | null>(null);
-  async function setUpShops(items: SetupItem[]) {
-    setError(null);
-    try {
-      await startSetup(items);
-      setSetupNote("Preparing those shops' shipping, return and processing settings (the main shop's).");
-      setPreviewTick((n) => n + 1);
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-    }
-  }
-  const [shopGroups, setShopGroups] = useState<ShopGroups | null>(null);
-  useEffect(() => {
-    api.shopGroups().then(setShopGroups).catch(() => setShopGroups(null));
-  }, []);
-
-  // A group ticked or unticked for every listing: each of its shops, at once.
-  async function tickGroup(group: ShopGroup, on: boolean) {
-    setError(null);
-    try {
-      const res = await api.tickShop(id, { group_id: group.id, on });
-      if (res.setting_up.length) {
-        setSetupNote(`Preparing ${group.name} for ${res.setting_up.map((p) => p.name).join(", ")}: the main shop's shipping, return and processing settings.`);
-      }
-      setPreviewTick((n) => n + 1);
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-    }
-  }
-
-  // Tick or untick a shop, for one listing or for all of them. Saved at once; a
-  // shop the listing's profile is not set up in is set up as "Use in" does, and
-  // the matrix then says what that shop still needs.
-  async function tick(shopId: string, ticked: boolean, contentIds?: string[]) {
-    setTickingShop(shopId);
-    setError(null);
-    try {
-      const res = await api.tickShop(id, { connection_id: shopId, on: ticked, ...(contentIds ? { content_ids: contentIds } : {}) });
-      if (res.setting_up.length) {
-        const where = shopNames[shopId] ?? "that shop";
-        setSetupNote(
-          `Preparing ${where} for ${res.setting_up.map((p) => p.name).join(", ")}: the main shop's shipping, return and processing settings.`,
-        );
-      }
-      setPreviewTick((n) => n + 1);
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-    } finally {
-      setTickingShop(null);
-    }
-  }
-  const toggleCell = (row: MatrixRow, cell: MatrixCell, ticked: boolean) => tick(cell.connection_id, ticked, [row.content_id]);
-  const toggleColumn = (column: MatrixColumn, ticked: boolean) => tick(column.connection_id, ticked);
+  const draftedKey = (items ?? []).map((c) => `${c.publications.map((p) => p.state).join("/")}:${c.profile_id ?? ""}`).join(",");
 
   // One listing's personalization for every listing of the batch (its card's "Use this for all listings").
   async function personalizationForAll(setting: Personalization) {
@@ -269,15 +188,11 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
 
-  // Each approved listing to its ticked shops (kept on the listing).
-  const createDraftsAll = () => runBulk("Creating drafts", () => api.publishBatch(id));
   const publishAll = () => runBulk("Publishing", () => api.publishBatchLive(id));
 
   // One click for the whole batch (v6 §D). The server approves only what passes
   // validation; the rest stay as they are and are listed below with the reason.
   const [approveResult, setApproveResult] = useState<ApproveAllResult | null>(null);
-  // Scheduling many drafts at once (v6 §G).
-  const [scheduling, setScheduling] = useState(false);
   async function approveAll() {
     setBusy(true);
     setError(null);
@@ -358,14 +273,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }, {}),
   );
 
-  // What the bulk button will really create: the ticked cells that can be made (and drafts already there).
-  const tickedShops: Record<string, string[]> | undefined = preview
-    ? Object.fromEntries(
-        preview.rows.map((r) => [r.content_id, r.cells.filter((c) => c.chosen || c.state === "draft" || c.state === "live").map((c) => c.connection_id)]),
-      )
-    : undefined;
-  const actions = reviewActions(items ?? [], tickedShops);
-  const overBudget = preview !== null && !preview.fits;
+  const actions = reviewActions(items ?? [], chosenShops);
   // Settings Etsy's API cannot make, still to be set on the drafts in Shop Manager.
   const manual = pendingManualSteps(items ?? []);
   const [marking, setMarking] = useState(false);
@@ -414,30 +322,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
               </button>
             )}
-            {actions.toDraft > 0 && (
-              <button key="button-230-12"
-                className={actions.approved < items.length ? "btn-secondary" : "btn-primary"}
-                onClick={createDraftsAll}
-                disabled={busy || overBudget}
-                title={overBudget ? preview?.message ?? undefined : undefined}
-              >
-                <span>Create drafts for all (<span>{actions.toDraft}</span>)</span>
-              </button>
-            )}
             {actions.toPublish > 0 && (
-              <button key="button-240-12" className={actions.approved < items.length || actions.toDraft > 0 ? "btn-secondary" : "btn-primary"}
-                onClick={publishAll} disabled={busy}>
-                <span>Publish all (<span>{actions.toPublish}</span>)</span>
-              </button>
-            )}
-            {(scheduling || schedulableDrafts(items).length > 0) && (
-              <button key="button-245-12"
-                className="btn-secondary"
-                onClick={() => setScheduling((v) => !v)}
-                aria-expanded={scheduling}
-                title="Choose when approved drafts go live"
-              >
-                {scheduling ? "Close scheduling" : `Schedule… (${schedulableDrafts(items).length})`}
+              <button key="button-240-12" className="btn-secondary" onClick={publishAll} disabled={busy}
+                title="Every draft of these listings goes live now">
+                <span>Publish all drafts (<span>{actions.toPublish}</span>)</span>
               </button>
             )}
           </div>
@@ -445,6 +333,19 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       </div>
 
       <UnfinishedDrafts batchId={id} />
+
+      {items && items.length > 0 && (
+        <WhereAndWhen key="where-and-when"
+          batchId={id}
+          timeZone={timeZone}
+          refreshKey={`${approvedKey}|${draftedKey}|${sendTick}`}
+          disabled={busy}
+          onState={setSendState}
+          onPreview={setPreview}
+          onDrafts={(call) => runBulk("Creating drafts", call)}
+          onDone={load}
+        />
+      )}
 
       {productionNotes.length > 0 && (
         // Said once per profile, linking to it (it used to be a large box on every listing card).
@@ -458,19 +359,6 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </ul>
       )}
 
-      {items && items.length > 0 && shops && shops.length > 1 && preview && (
-        <PublishMatrix key="matrix"
-          preview={preview}
-          batchId={id}
-          onToggle={toggleCell}
-          onColumn={toggleColumn}
-          onSetup={setUpShops}
-          groups={shopGroups?.groups}
-          onGroup={tickGroup}
-          disabled={busy}
-          busyShop={tickingShop}
-        />
-      )}
       {items && items.length > 1 && (
         <details key="personalize-all" className="card p-3 text-sm">
           <summary className="tap cursor-pointer font-medium text-slate-800">Personalization: set for all listings</summary>
@@ -508,25 +396,6 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           }}
         />
       )}
-      {items && items.length > 0 && shops && shops.length > 1 && (
-        <Distribution key="distribution" batchId={id} items={items} onDone={load} />
-      )}
-      {setupNote && (
-        <p key="setup-note" role="status" translate="no" className="card p-3 text-xs text-slate-700">
-          <span>{setupNote}</span>
-        </p>
-      )}
-      {items && items.length > 0 && shops && shops.length === 1 && (
-        <p key="oneshop" className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span>Drafts are created in</span>
-          <ShopBadge name={shops[0].name} />
-        </p>
-      )}
-      {items && items.length > 0 && (!shops || shops.length <= 1) && preview && !preview.fits && (
-        <div key="div-269-6" className="card p-3 text-sm text-amber-800">{preview.message}</div>
-      )}
-
-      {scheduling && items && <BulkSchedule key="bulkschedule-273-6" items={items} onDone={load} />}
 
       {approveResult && (
         <div key="div-275-6" role="status" translate="no" className="card p-3 text-sm text-slate-700">
@@ -596,7 +465,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <p>
             <span className="font-medium text-slate-900">Recommended in Shop Manager.</span>{" "}
             Etsy&apos;s API cannot set these, so set them on the drafts yourself. They don&apos;t
-            block publishing: &ldquo;Publish all&rdquo; works either way.
+            block publishing: &ldquo;Publish all drafts&rdquo; works either way.
           </p>
           <button
             type="button"
@@ -704,6 +573,14 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               onSelect={items.length > 1 ? (on) => setSelectedIds((cur) => (on ? [...cur, c.id] : cur.filter((x) => x !== c.id))) : undefined}
               optionsVersion={optionsVersion}
               needs={needs[c.id]}
+              profiles={profiles}
+              onProfile={(profileId) => changeProfile(c.group_key ?? null, profileId)}
+              destination={rowOf[c.id] && sendState && sendState.shops.length > 1 ? (
+                <span translate="no">
+                  <span>{`→ ${rowOf[c.id].label} · `}</span>
+                  <ListingChange batchId={id} state={sendState} row={rowOf[c.id]} onDone={() => setSendTick((n) => n + 1)} />
+                </span>
+              ) : undefined}
             />
           ))}
         </div>

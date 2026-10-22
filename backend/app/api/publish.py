@@ -175,11 +175,12 @@ async def _plan_drafts(
             # The shops ticked for it on the review page; by default its own.
             mine = await shop_targets.wanted(session, content, connected)
             if not mine:
+                chosen, _ = await shop_targets.chosen_for(session, content)
                 plan.skip(
                     content,
-                    "its profile's shop is not connected; choose a shop"
-                    if shop_targets.stored(content) is None
-                    else "no shop is ticked for it",
+                    "its profile's shop is not connected; choose where to send it"
+                    if chosen is None and shop_targets.stored(content) is None
+                    else "none of the shops it is sent to is connected",
                 )
                 continue
             for shop in mine:

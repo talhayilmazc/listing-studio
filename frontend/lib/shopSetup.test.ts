@@ -71,8 +71,8 @@ test("no setup dialog, no Finish setup, no Shops-page button; the card has the l
     assert.ok(!card.includes(gone), gone);
   }
   assert.ok(!read("app/(app)/connect/page.tsx").includes("ShopProfilesSetup"));
-  for (const page of ["app/(app)/batches/[id]/page.tsx", "app/(app)/batches/[id]/review/page.tsx", "components/Distribution.tsx",
-                      "components/UnfinishedDrafts.tsx", "components/PublishMatrix.tsx"]) {
+  for (const page of ["app/(app)/batches/[id]/page.tsx", "app/(app)/batches/[id]/review/page.tsx", "components/WhereAndWhen.tsx",
+                      "components/UnfinishedDrafts.tsx"]) {
     assert.ok(!read(page).includes("ShopSetupDialog"), page);
   }
   const panel = read("components/ShopSettingsPanel.tsx");

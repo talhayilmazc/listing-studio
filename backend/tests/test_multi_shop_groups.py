@@ -248,30 +248,18 @@ async def test_analytics_all_shops_has_a_row_per_shop_and_blank_totals_without_f
     assert [s["name"] for s in (await world["b"].get("/api/analytics/shops")).json()["shops"]] == ["Bob Shop"]
 
 
-# --- distribution: single shops, overlapping groups, the warning kept -----------------------------
+# --- sending: a single shop next to a group, another account's shop -------------------------------
 
 
-async def test_distribution_to_a_single_shop_and_the_cross_group_warning_stays(world) -> None:  # noqa: F811
+async def test_a_single_shop_next_to_a_group_and_another_accounts_shop_is_404(world) -> None:  # noqa: F811
     g = await _groups(world, A=[world["a1"], world["a2"]], B=[world["a2"]])
     a, batch = world["a"], world["batch"]
-    c0, c1 = (str(c) for c in world["contents"])
-    res = await a.post(f"/api/batches/{batch}/distribution/preview",
-                       json={"mode": "split", "group_ids": [g["A"]], "connection_ids": [str(world["a1"])]})
-    assert res.status_code == 200, res.text
-    rows = res.json()["rows"]
-    assert {(r["group_id"], r["connection_id"]) for r in rows} == {(g["A"], None), (None, str(world["a1"]))}
-    one = next(r for r in rows if r["connection_id"])
-    assert one["group_name"] == "Frost Tees" and [s["shop_name"] for s in one["shops"]] == ["Frost Tees"]
-
-    # Confirm A for c0, then send c0 to B: still warned, never blocked.
-    body = {"assignments": [{"content_id": c0, "group_id": g["A"]}], "schedule": SCHEDULE}
-    assert (await a.post(f"/api/batches/{batch}/distribution/confirm", json=body)).status_code == 200
-    res = await a.post(f"/api/batches/{batch}/distribution/preview", json={"mode": "assign", "group_ids": [g["B"]], "content_ids": [c0]})
-    assert "sent to A before" in res.json()["rows"][0]["warning"]
-    # Bob's shop as a target: 404.
-    res = await a.post(f"/api/batches/{batch}/distribution/preview", json={"mode": "split", "connection_ids": [str(world["b1"])]})
+    res = await a.put(f"/api/batches/{batch}/send-to", json={"send_to": {"group_ids": [g["B"]], "connection_ids": [str(world["a1"])]}})
+    assert res.status_code == 200 and res.json()["label"] == "B + Frost Tees"
+    preview = (await a.post(f"/api/batches/{batch}/send/preview", json={"when": "drafts"})).json()
+    assert all(sorted(c["shop_name"] for c in r["cells"]) == ["Frost Mugs", "Frost Tees"] for r in preview["rows"])
+    res = await a.put(f"/api/batches/{batch}/send-to", json={"send_to": {"connection_ids": [str(world["b1"])]}})
     assert res.status_code == 404
-    assert c1
 
 
 def test_a_shop_in_two_chosen_groups_gets_both_groups_listings_on_one_calendar() -> None:

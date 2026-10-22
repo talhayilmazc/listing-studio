@@ -237,19 +237,3 @@ def _stagger_index(shop_ids: list[uuid.UUID], groups: dict[Any, list[Shop]]) -> 
         index[shop] = next(i for i in range(len(shop_ids) + 1) if i not in taken)
     return index
 
-
-def split_evenly(content_ids: list[uuid.UUID], group_ids: list[Any]) -> dict[uuid.UUID, Any]:
-    """Approved listings divided across the chosen groups, in order: the first
-    ``n / groups`` to the first group, and so on (60 over 4 = 15 each; any
-    remainder goes one each to the first groups)."""
-    if not group_ids:
-        raise PlanRefused("choose at least one group")
-    base, extra = divmod(len(content_ids), len(group_ids))
-    out: dict[uuid.UUID, Any] = {}
-    i = 0
-    for n, group in enumerate(group_ids):
-        take = base + (1 if n < extra else 0)
-        for cid in content_ids[i:i + take]:
-            out[cid] = group
-        i += take
-    return out

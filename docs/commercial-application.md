@@ -31,6 +31,15 @@ Listyro has reached the user limit of personal access (5 users): sellers who hav
 
 A seller who runs 16 shops, each its own Etsy account and brand, has asked to use Listyro. With the personal-access limit reached, they cannot connect yet. Listyro would let them manage those shops from one login, each with its own listings and settings. If Etsy prefers limits on how a seller's designs are shared between their own shops, we will build them in.
 
+> **Changed after approval (22 October 2026), one listing in several shops:** the paragraph above is the text Etsy
+> approved. Since 22 October 2026, on the owner's decision, when a seller chooses shops or shop groups for a batch on
+> the review page ("Where and when"), every approved listing becomes a draft in every chosen shop: 6 listings and 2
+> shops give 12 drafts. The earlier "Split evenly", which divided a batch's listings between groups so that each
+> group got different ones, is removed, and no check stops the same listing going to several of the seller's own
+> shops. The seller still approves each listing, chooses the shops and presses the button; a listing already in a
+> shop is not sent there again. The Terms still require Etsy's Seller Policy, including the rule against duplicate
+> shops. Etsy has not asked for a limit; the offer above stands, and if Etsy asks for one it will be built in.
+
 ## How Etsy data is used
 
 Only the authenticated seller's own shop data is read, only through the Open API, and only to provide the service to that seller:

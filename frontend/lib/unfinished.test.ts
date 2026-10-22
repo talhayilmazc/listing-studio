@@ -67,8 +67,6 @@ test("finish these drafts, set up in the shop, and where the list is shown", () 
   assert.match(panel, /nothing new\s+is created and nothing is deleted on Etsy/);
   assert.match(read("app/(app)/batches/[id]/review/page.tsx"), /<UnfinishedDrafts batchId=\{id\} \/>/);
   assert.match(read("app/(app)/dashboard/page.tsx"), /<UnfinishedDrafts \/>/);
-  // The review page's shop needs offer the same one click.
-  assert.match(read("components/PublishMatrix.tsx"), /<span>Set up in <\/span><span translate="no">\{col\.shop_name \?\? "this shop"\}<\/span>/);
 });
 
 test("drafts to delete are listed apart with their listing ids, and the app never deletes on Etsy", () => {
@@ -82,8 +80,6 @@ test("drafts to delete are listed apart with their listing ids, and the app neve
   assert.doesNotMatch(panel, /deleteListing|delete_listing|method: "DELETE"/); // nothing is deleted on Etsy
 });
 
-test("the matrix says when a title is rewritten for another shop's prefix", () => {
-  const matrix = read("components/PublishMatrix.tsx");
-  assert.match(matrix, /title rewritten once to fit this shop/);
-  assert.match(matrix, /title=\{cell\.note \?\? undefined\}/);
+test("each listing's list in Where and when says when a title is rewritten for another shop's prefix", () => {
+  assert.match(read("lib/whereWhen.ts"), /cell\.note/);
 });

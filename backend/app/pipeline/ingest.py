@@ -107,8 +107,12 @@ class BatchIngestor:
     # at a time for per-file progress, so these drive the same steps with the
     # caller's session.
     async def create_batch(self, session: AsyncSession, tenant_id: uuid.UUID) -> UploadBatch:
+        from app.pipeline.shop_targets import last_destination
+
         batch = UploadBatch(
-            tenant_id=tenant_id, status=UploadBatchStatus.uploading, file_count=0
+            tenant_id=tenant_id, status=UploadBatchStatus.uploading, file_count=0,
+            # Where the seller sent their last batch: "Where and when" starts from it (B4).
+            send_to=await last_destination(session, tenant_id),
         )
         session.add(batch)
         await session.flush()

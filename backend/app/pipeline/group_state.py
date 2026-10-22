@@ -108,10 +108,16 @@ async def group_states(
     )).scalars())
     chosen = {(s.batch_id, s.group_key or ""): s.connection_id for s in settings}
     group_profile = {(s.batch_id, s.group_key or ""): s.profile_id for s in settings}
-    content_rows = (await session.execute(
-        select(GeneratedContent.id, GeneratedContent.asset_id, GeneratedContent.created_at, GeneratedContent.target_shops,
-               GeneratedContent.listing_profile_id).where(GeneratedContent.batch_id.in_(batches))
-    )).all()
+    from app.pipeline.shop_targets import destination_shops
+
+    contents = list((await session.execute(
+        select(GeneratedContent).where(GeneratedContent.batch_id.in_(batches))
+    )).scalars())
+    tenant_ids = {c.tenant_id for c in contents}
+    chosen_shops: dict[uuid.UUID, list[uuid.UUID] | None] = {}
+    for tid in tenant_ids:
+        chosen_shops.update(await destination_shops(session, tid, [c for c in contents if c.tenant_id == tid]))
+    content_rows = [(c.id, c.asset_id, c.created_at, chosen_shops.get(c.id), c.listing_profile_id) for c in contents]
     profile_ids = {p for p in group_profile.values() if p} | {row[4] for row in content_rows if row[4]}
     main_shop = dict((await session.execute(
         select(ListingProfile.id, ListingProfile.connection_id).where(ListingProfile.id.in_(profile_ids))
@@ -136,13 +142,9 @@ async def group_states(
             g.targets.add(main)
             own[key] = main
         if ticked is not None:
-            # The seller chose its shops on the review page: those, not the default.
+            # The seller chose where it goes ("Where and when"): those shops, not the default.
             g.targets.discard(own.get(key))  # type: ignore[arg-type]
-            for value in ticked:
-                try:
-                    g.targets.add(uuid.UUID(str(value)))
-                except (TypeError, ValueError):
-                    pass
+            g.targets.update(ticked)
         g.content_ids.append((cid, asset_id, _utc(written)))
         g.worked_at = max(g.worked_at, _utc(written))
         content_group[cid] = key
