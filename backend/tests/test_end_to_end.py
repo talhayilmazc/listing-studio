@@ -106,9 +106,12 @@ class FakeEtsy:
         self._next = 70000
         #: Every field any createDraftListing carried (the Creativity Standards check below).
         self.create_fields: set[str] = set()
+        #: Every request, as "METHOD /path with ids as {id}" (requests per draft, below).
+        self.requests: list[str] = []
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path.removeprefix("/v3/application")
+        self.requests.append(f"{method} {re.sub(r'/\d+', '/{id}', path)}")
         if m := re.fullmatch(r"/shops/(\d+)/sections", path):
             return httpx.Response(200, json={"results": []})
         if path.startswith("/seller-taxonomy/nodes/"):
@@ -378,4 +381,25 @@ async def test_fifteen_shops_six_groups_end_to_end(tmp_path, test_settings: Sett
     # The profile's Shops table: every shop it is used in.
     table = (await a.get(f"/api/profiles/{w['profile']}/shops")).json()
     assert len(table["rows"]) == 15 and table["rows"][0]["main"] is True
+    await w["engine"].dispose()
+
+
+async def test_etsy_requests_per_draft(tmp_path, test_settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Quality pass 2026-10: what one draft costs in Etsy requests, counted at the HTTP level, in its
+    profile's main shop and in another shop (one photo each; every further photo adds one upload).
+    CLAUDE.md's budget figures assume ~19 for a 5-photo draft; ``-s`` prints the breakdown."""
+    w = await _world(tmp_path, test_settings, monkeypatch, shops=2, listings=2)
+    await w["client"].put(f"/api/batches/{w['batch']}/send-to", json={"send_to": {"connection_ids": [str(w["shops"][1])]}})
+    jobs = await _send_drafts(w)
+    assert len(jobs) == 2
+    per_draft = []
+    for job in jobs:
+        before = len(w["etsy"].requests)
+        await _run_drafts(w, [job])
+        made = w["etsy"].requests[before:]
+        per_draft.append(len(made))
+        print(f"{len(made)} requests: " + ", ".join(f"{k} x{v}" for k, v in Counter(made).items()))
+    # One photo, no attributes or personalization: create, read back, inventory, one upload (4); the
+    # first draft in a shop also reads its sections and the category's attributes (cached after).
+    assert per_draft == [6, 4], per_draft
     await w["engine"].dispose()
