@@ -64,3 +64,33 @@ async def test_bootstrap_endpoints_are_404_without_the_token_whatever_the_body(p
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=BROWSER_HEADERS) as c:
         res = await c.post(path, json=body)
     assert res.status_code == 404
+
+
+def test_every_file_upload_route_has_its_own_body_limit() -> None:
+    """Review R3/R4: an upload route missing from the size patterns falls to the 1 MB JSON limit
+    and every real file gets 413. Each route that takes a file has its own limit."""
+    from app.api import imports
+    from app.core import security
+
+    assert security.IMPORT_FILE_LIMIT == imports.MAX_BYTES
+    for path in ("/api/mockup-designs/abc/back", "/api/mockup-templates/abc/photos", "/api/batches/abc/designs",
+                 "/api/batches/abc/assets", "/api/batches/abc/archive", "/api/batches/abc/designs/archive",
+                 "/api/analytics/import/statement", "/api/analytics/import/ads"):
+        assert security.body_limit(path) > 2 * 1024 * 1024, path
+    assert security.body_limit("/api/profiles") == security.DEFAULT_BODY_LIMIT
+
+
+def test_the_brush_is_refused_by_its_pixels_before_it_is_decoded() -> None:
+    """Review R9: a tiny PNG of a huge blank canvas is refused by its declared size."""
+    import io
+
+    from PIL import Image
+
+    from app.api.mockups import MAX_BRUSH_BYTES, MAX_BRUSH_PIXELS
+    from app.pipeline.uploads import UploadTooLarge, admit_image
+
+    buf = io.BytesIO()
+    Image.new("L", (8000, 8000), 128).save(buf, "PNG", optimize=True)
+    assert len(buf.getvalue()) < MAX_BRUSH_BYTES  # small on the wire
+    with pytest.raises(UploadTooLarge):
+        admit_image(buf.getvalue(), max_bytes=MAX_BRUSH_BYTES, max_pixels=MAX_BRUSH_PIXELS)

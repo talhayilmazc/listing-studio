@@ -55,7 +55,7 @@ from app.pipeline import grouping, mockup_refresh, mockup_sample, mockups, place
 from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
-from app.pipeline.uploads import UploadRejected, admit_image
+from app.pipeline.uploads import UploadRejected, UploadTooLarge, admit_image
 from app.workers import mockups as work
 
 router = APIRouter(prefix="/api", tags=["mockups"])
@@ -71,6 +71,8 @@ MAX_GARMENTS = 24
 MAX_NAME = 120
 #: The "Keep in front" brush as sent by the editor (a gray PNG at screen size).
 MAX_BRUSH_BYTES = 900 * 1024
+#: ... and at most this many pixels: a small, highly compressed PNG must not unpack to gigabytes.
+MAX_BRUSH_PIXELS = 4096 * 4096
 #: The width the editor previews at (fast; the real mockups use the full photo).
 PREVIEW_WIDTH = 900
 #: Said when a photo's background could not be separated from the garment.
@@ -1400,6 +1402,13 @@ async def save_front_brush(
     data = await file.read()
     if len(data) > MAX_BRUSH_BYTES:
         raise HTTPException(status_code=413, detail="The brush is too large to save; paint at a smaller size.")
+    try:
+        # Its size in pixels is checked before it is decoded (review R9).
+        admit_image(data, max_bytes=MAX_BRUSH_BYTES, max_pixels=MAX_BRUSH_PIXELS)
+    except UploadTooLarge as exc:
+        raise HTTPException(status_code=413, detail="The brush is too large to save; paint at a smaller size.") from exc
+    except UploadRejected as exc:
+        raise HTTPException(status_code=422, detail="The brush could not be read.") from exc
     try:
         brush = await asyncio.to_thread(mockups.brush_png, data, photo.width or 1, photo.height or 1)
     except Exception as exc:  # noqa: BLE001 - one message for every unreadable mask

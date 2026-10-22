@@ -47,7 +47,11 @@ _UPLOAD_PATH = re.compile(r"^/api/batches/[^/]+/assets$")
 _ARCHIVE_PATH = re.compile(r"^/api/batches/[^/]+/(archive|designs/archive)$")
 # A blank garment photo (into a template) or a design for mockups: one file per request.
 # Without this they fell to DEFAULT_BODY_LIMIT (1 MB) and every real photo got a 413.
-_MOCKUP_PATH = re.compile(r"^/api/(mockup-templates/[^/]+/photos|batches/[^/]+/designs)$")
+_MOCKUP_PATH = re.compile(r"^/api/(mockup-templates/[^/]+/photos|batches/[^/]+/designs|mockup-designs/[^/]+/back)$")
+# The Etsy statement CSV and Ads report (api/imports.py, MAX_BYTES): a busy shop's month is
+# several MB; at the 1 MB default every such file got "request body too large".
+_IMPORT_PATH = re.compile(r"^/api/analytics/import/(statement|ads)$")
+IMPORT_FILE_LIMIT = 8 * 1024 * 1024
 #: After refusing an upload, the rest of its body is read and discarded, up to this
 #: much (Cloudflare's own request cap), so the proxy in front can finish sending
 #: and pass the 413 on, instead of failing with a broken pipe the browser never hears about.
@@ -135,6 +139,8 @@ def _file_limit(path: str) -> int | None:
         return get_settings().max_archive_bytes
     if _MOCKUP_PATH.match(path):
         return get_settings().max_mockup_upload_bytes
+    if _IMPORT_PATH.match(path):
+        return IMPORT_FILE_LIMIT
     return None
 
 
