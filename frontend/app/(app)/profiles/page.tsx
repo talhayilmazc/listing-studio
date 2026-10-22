@@ -13,6 +13,7 @@ import { useShops } from "@/components/ShopProvider";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import type { ReplaceMode } from "@/lib/replaceModes";
 import { leftOutNotice } from "@/lib/chartOrder";
+import { inShop, perShop } from "@/lib/profileShops";
 
 import { Txt } from "@/components/Txt";
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
@@ -31,11 +32,13 @@ export default function ProfilesPage() {
   const [choosing, setChoosing] = useState<ShopListing | null>(null);
   const pendingListing = useRef<{ id: number; mode: ReplaceMode } | null>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
-  // Profiles are the account's (v8 §C): every one is shown, with the shops it is
-  // used in. The listings below are the selected shop's (switch shops in the rail).
-  const { selected, shops } = useShops();
+  // Profiles are the account's (v8 §C): every shop's are shown, with a shop filter (B6; the
+  // same choice as the shop switcher). The listings below are the filtered shop's, else the
+  // shop picked last.
+  const { selected, shops, scope, allShops, select, selectAll } = useShops();
   const shopCount = shops?.length;
-  const shopId = selected?.id ?? null;
+  const shopId = (scope ?? selected)?.id ?? null;
+  const listingShop = scope ?? selected;
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -167,8 +170,10 @@ export default function ProfilesPage() {
 
   const byListingId = new Map(listings.map((l) => [l.listing_id, l]));
   const shown = (profiles ?? []).filter((p) =>
+    inShop(p, scope?.id ?? null) &&
     matchesProfile(p, query, p.reference_title ?? byListingId.get(p.reference_listing_id ?? -1)?.title),
   );
+  const breakdown = shops && shops.length > 1 ? perShop(profiles ?? [], shops) : [];
   const detected = shown.filter((p) => !p.confirmed);
   const confirmed = shown.filter((p) => p.confirmed);
 
@@ -213,22 +218,46 @@ export default function ProfilesPage() {
           <span>Profiles copy category, price, variations and description from one of your own listings. New
           drafts reuse them instead of inventing metadata. A profile uses its main shop&apos;s shipping, return and
           processing settings in every shop it is used in (copied there where needed).</span>
-          {selected && (
-            <>
-              {" "}
-              Listings below are from <span className="font-medium text-slate-700">{selected.name}</span>; switch shops at
-              the bottom of the menu.
-            </>
-          )}
         </p>
         <button className="btn-primary shrink-0" onClick={detect} disabled={detecting || !shopId}>
-          {detecting ? "Detecting…" : `Detect from ${selected?.name ?? "my shop"}`}
+          <span translate="no">{detecting ? "Detecting…" : `Detect from ${listingShop?.name ?? "my shop"}`}</span>
         </button>
       </div>
 
       {error && <div key="div-184-6" className="card p-4 text-sm text-rose-700">{error}</div>}
 
       {profiles === null && <p key="p-186-6" className="text-sm text-slate-400">Loading…</p>}
+
+      {shops && shops.length > 1 && (
+        // Every shop's profiles; the filter is the shop switcher's choice (B6).
+        <div key="shop-filter" className="flex flex-wrap items-center gap-2 text-sm" data-testid="profiles-shop-filter">
+          <label className="label" htmlFor="profiles-shop">Shop</label>
+          <select id="profiles-shop" className="field w-auto py-1.5 text-sm" value={allShops ? "all" : selected?.id ?? "all"}
+            onChange={(e) => (e.target.value === "all" ? selectAll() : select(e.target.value))}>
+            <option value="all">All shops</option>
+            {shops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          {breakdown.length > 0 && (
+            <details key="by-shop" className="w-full text-xs text-slate-600" data-testid="profiles-by-shop">
+              <summary className="tap cursor-pointer text-brand-700 underline">By shop</summary>
+              <div className="mt-2 overflow-x-auto">
+                <table className="min-w-[18rem] text-left">
+                  <thead><tr className="text-slate-500"><th className="pr-4 font-medium">Shop</th><th className="pr-4 font-medium">Main shop of</th><th className="font-medium">Also set up here</th></tr></thead>
+                  <tbody>
+                    {breakdown.map((r) => (
+                      <tr key={r.id}>
+                        <td translate="no" className="max-w-[12rem] truncate pr-4" title={r.name}>{r.name}</td>
+                        <td translate="no" className="pr-4 tabular-nums">{r.main}</td>
+                        <td translate="no" className="tabular-nums">{r.setUp}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
 
       {profiles !== null && profiles.length > 0 && (
         <div key="div-188-6" className="flex flex-wrap items-center gap-3">
@@ -240,7 +269,7 @@ export default function ProfilesPage() {
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search profiles"
           />
-          {query && (
+          {(query || scope) && (
             <span key="span-198-10" className="text-xs text-slate-500">
               <span><span>{shown.length}</span> of <span>{profiles.length}</span></span>
             </span>
@@ -306,7 +335,7 @@ export default function ProfilesPage() {
           {needsReference.map((p) => (
             <div key={p.id} className="flex flex-wrap items-center gap-2 text-xs">
               <span><span translate="no" className="font-medium">{p.name}</span><span> lost its main shop. Its main shop is now </span><span translate="no">{p.shop_name}</span><span>.</span></span>
-              {selected?.id === p.connection_id ? (
+              {listingShop?.id === p.connection_id ? (
                 <select key="pick" className="field py-1 text-xs" defaultValue="" onChange={(e) => chooseReference(p, e.target.value)}
                   aria-label={`Reference listing for ${p.name}`}>
                   <option value="">Choose one of this shop&apos;s listings…</option>
@@ -367,7 +396,7 @@ export default function ProfilesPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* The shop picked in the switcher: say which, so its count is not read as a profile's shop's. */}
           <SectionHead
-            title={selected ? `Listings in ${selected.name}` : "Your listings"}
+            title={listingShop ? `Listings in ${listingShop.name}` : "Your listings"}
             count={listings.length}
             note={syncing ? "syncing…" : undefined}
             tone={syncing ? "amber" : undefined}

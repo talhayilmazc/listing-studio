@@ -4,7 +4,7 @@
 /** Pages that can show every shop at once: a total and a row per shop (or that list
  *  every shop's work anyway). The switcher offers "All shops" only here; any other
  *  page works on one shop and shows the one picked last. */
-export const ALL_SHOP_PAGES: RegExp[] = [/^\/dashboard$/, /^\/analytics$/, /^\/batches$/, /^\/scheduled$/];
+export const ALL_SHOP_PAGES: RegExp[] = [/^\/dashboard$/, /^\/analytics$/, /^\/batches$/, /^\/scheduled$/, /^\/profiles$/];
 
 export const supportsAll = (pathname: string | null | undefined): boolean =>
   ALL_SHOP_PAGES.some((re) => re.test(pathname ?? ""));

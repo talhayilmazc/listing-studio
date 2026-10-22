@@ -15,8 +15,9 @@ test("bug 2: with several shops the view is every shop until one is picked", () 
 });
 
 test("All shops is offered only on pages that can total every shop", () => {
-  for (const page of ["/dashboard", "/analytics", "/batches", "/scheduled"]) assert.ok(supportsAll(page), page);
-  for (const page of ["/profiles", "/upload", "/batches/x/review", "/templates"]) assert.ok(!supportsAll(page), page);
+  // Profiles shows every shop's profiles with a shop filter (B6).
+  for (const page of ["/dashboard", "/analytics", "/batches", "/scheduled", "/profiles"]) assert.ok(supportsAll(page), page);
+  for (const page of ["/upload", "/batches/x/review", "/templates"]) assert.ok(!supportsAll(page), page);
 });
 
 test("a shop in two groups is listed under each; shops in no group come last", () => {

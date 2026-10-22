@@ -9,6 +9,8 @@ import { useSession } from "./SessionProvider";
 import type { Attention, Profile, ShopGroups } from "@/lib/types";
 import { useShops } from "./ShopProvider";
 import { RailAllowance } from "./Allowance";
+import { SEARCH_ABOVE, byMainShop } from "@/lib/profileShops";
+import { PROFILES_CHANGED } from "@/lib/shopSetup";
 
 /**
  * Persistent dark left rail (docs/ui-direction-v2.md §1).
@@ -58,8 +60,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
   const pathname = usePathname() ?? "/";
   const { account } = useSession();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
-  const { selected } = useShops();
-  const shopId = selected?.id ?? null;
+  const { shops } = useShops();
   // What needs the seller, as a count on each entry (GET /api/attention; the same counts as
   // Overview's "Needs your attention"). Read again on every page and once a minute.
   const [attention, setAttention] = useState<Attention | null>(null);
@@ -74,18 +75,22 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
     };
   }, [pathname]);
 
-  // The selected shop's profiles: each shop has its own (v5 §E).
+  // Every shop's profiles (B6): a profile is the account's; the rail groups them by main shop.
+  // Read once, and again whenever a profile changes anywhere (lib/shopSetup.ts PROFILES_CHANGED).
   useEffect(() => {
     let cancelled = false;
-    setProfiles(null);
-    api
-      .listProfiles(shopId)
-      .then((p) => !cancelled && setProfiles(p))
-      .catch(() => setProfiles([]));
+    const load = () =>
+      api
+        .listProfiles(null)
+        .then((p) => !cancelled && setProfiles(p))
+        .catch(() => setProfiles([]));
+    load();
+    window.addEventListener(PROFILES_CHANGED, load);
     return () => {
       cancelled = true;
+      window.removeEventListener(PROFILES_CHANGED, load);
     };
-  }, [shopId]);
+  }, []);
 
   return (
     <>
@@ -143,7 +148,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
                     badge={attention?.nav?.[item.href] ?? 0}
                   />
                   {item.href === "/profiles" && (
-                    <ProfileChildren key="profilechildren-125-18" profiles={profiles} pathname={pathname} onClose={onClose} />
+                    <ProfileChildren key="profilechildren-125-18" profiles={profiles} shops={shops ?? []} onClose={onClose} />
                   )}
                 </div>
               ))}
@@ -207,16 +212,43 @@ function RailLink({
   );
 }
 
-/** The seller's own profiles, so their data lives in the frame. */
+/** Whether the rail's "Profiles" section is open, remembered in this browser (a convenience). */
+const OPEN_KEY = "listyro.rail.profiles";
+
+/**
+ * Every shop's profiles under the Profiles entry, grouped by main shop (B6), in a section the
+ * seller opens and closes; a search once there are more than ten.
+ */
 function ProfileChildren({
   profiles,
-  pathname,
+  shops,
   onClose,
 }: {
   profiles: Profile[] | null;
-  pathname: string;
+  shops: { id: string; name: string }[];
   onClose: () => void;
 }) {
+  const [open, setOpen] = useState(true);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    try {
+      const saved = globalThis.localStorage?.getItem(OPEN_KEY);
+      if (saved !== null && saved !== undefined) setOpen(saved !== "0");
+    } catch {
+      /* storage blocked: open */
+    }
+  }, []);
+  const toggle = () => {
+    setOpen((o) => {
+      try {
+        globalThis.localStorage?.setItem(OPEN_KEY, o ? "0" : "1");
+      } catch {
+        /* not remembered */
+      }
+      return !o;
+    });
+  };
+
   if (profiles === null) {
     return (
       <div className="space-y-1.5 py-1.5 pl-[46px] pr-5">
@@ -227,41 +259,50 @@ function ProfileChildren({
     );
   }
   if (profiles.length === 0) return null;
+  const groups = byMainShop(profiles, shops, query);
+  const several = shops.length > 1;
 
-  const onProfiles = pathname === "/profiles";
   return (
-    <div className="relative">
-      {/* Guide line tying the children to their parent */}
-      <span aria-hidden className="absolute inset-y-1 left-[26px] w-px bg-white/[0.08]" />
-      {profiles.slice(0, 6).map((p) => (
-        <Link
-          key={p.id}
-          href={"/profiles#profile-" + p.id}
-          onClick={onClose}
-          title={p.name}
-          className="flex items-center gap-2 py-[5px] pl-[46px] pr-5 text-[13px] max-lg:min-h-[2.75rem] text-[var(--rail-text)] transition-colors hover:bg-white/[0.03] hover:text-[var(--rail-active)]"
-        >
-          <span
-            aria-hidden
-            className={
-              "h-1 w-1 shrink-0 rounded-full " +
-              (p.confirmed ? "bg-emerald-500/70" : "bg-amber-500/70")
-            }
-          />
-          <span className="truncate">{p.name}</span>
-        </Link>
-      ))}
-      {profiles.length > 6 && (
-        <Link key="link-220-6"
-          href="/profiles"
-          onClick={onClose}
-          className={
-            "block py-[5px] pl-[46px] pr-5 text-[13px] transition-colors hover:text-[var(--rail-active)] " +
-            (onProfiles ? "text-[var(--rail-text)]" : "text-stone-400/70")
-          }
-        >
-          <span>+<span>{profiles.length - 6}</span> more</span>
-        </Link>
+    <div className="relative" data-testid="rail-profiles">
+      <button type="button" onClick={toggle} aria-expanded={open} data-testid="rail-profiles-toggle"
+        className="flex w-full items-center gap-1.5 py-[5px] pl-[46px] pr-5 text-left text-[12px] text-[var(--rail-text)] hover:text-[var(--rail-active)] max-lg:min-h-[2.75rem]">
+        <span aria-hidden className={"inline-block transition-transform " + (open ? "rotate-90" : "")}>›</span>
+        <span translate="no">{`${open ? "Hide" : "Show"} ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`}</span>
+      </button>
+      {open && (
+        <div key="list">
+          {profiles.length > SEARCH_ABOVE && (
+            <div key="search" className="py-1 pl-[46px] pr-5">
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a profile…"
+                aria-label="Find a profile" data-testid="rail-profiles-search"
+                className="w-full rounded border border-white/10 bg-white/[0.06] px-2 py-1 text-[13px] text-white placeholder:text-[var(--rail-text)] max-lg:min-h-[2.75rem] max-lg:text-base" />
+            </div>
+          )}
+          {groups.map(([shop, items]) => (
+            <div key={shop}>
+              {several && (
+                <p key="shop" translate="no" className="truncate pb-0.5 pl-[46px] pr-5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--rail-heading)]">
+                  {shop}
+                </p>
+              )}
+              {items.map((p) => (
+                <Link
+                  key={p.id}
+                  href={"/profiles#profile-" + p.id}
+                  onClick={onClose}
+                  title={p.name}
+                  className="flex items-center gap-2 py-[5px] pl-[46px] pr-5 text-[13px] max-lg:min-h-[2.75rem] text-[var(--rail-text)] transition-colors hover:bg-white/[0.03] hover:text-[var(--rail-active)]"
+                >
+                  <span aria-hidden className={"h-1 w-1 shrink-0 rounded-full " + (p.confirmed ? "bg-emerald-500/70" : "bg-amber-500/70")} />
+                  <span className="truncate">{p.name}</span>
+                </Link>
+              ))}
+            </div>
+          ))}
+          {query && groups.length === 0 && (
+            <p key="none" className="py-1 pl-[46px] pr-5 text-[12px] text-[var(--rail-text)]">No profile matches.</p>
+          )}
+        </div>
       )}
     </div>
   );
