@@ -448,9 +448,8 @@ export default function ReviewPage() {
         <div key="div-305-6" role="status" className="card border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
           <p>
-            <span className="font-medium text-slate-900">How it&apos;s made, ticked in Etsy.</span>{" "}
-            Etsy&apos;s API cannot set it: tick each profile&apos;s answers on the listings in Etsy, or use{" "}
-            <Link href="/batches/finish" className="tap text-brand-700 underline">Finish in Etsy</Link>. It doesn&apos;t
+            <span className="font-medium text-slate-900">Set in Shop Manager.</span>{" "}
+            Etsy&apos;s API cannot set these, so set them on the drafts yourself. They don&apos;t
             block publishing: &ldquo;Publish all drafts&rdquo; works either way.
           </p>
           <button
@@ -470,7 +469,7 @@ export default function ReviewPage() {
                 <span className="text-slate-500">
                   <span>{" "}
                   <span>· not yet ticked on </span><span>{m.drafts}</span><span> draft</span><Txt>{m.drafts === 1 ? "" : "s"}</Txt><span>. Each listing below
-                  says the answer and links to its draft; tick it there, or mark all as done once you have set them.</span></span>
+                  links to its draft; tick it there, or mark all as done once you have set them.</span></span>
                 </span>
               </li>
             ))}

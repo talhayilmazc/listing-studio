@@ -5,7 +5,7 @@
  *   - no page logs a JavaScript error or a React error, and no internal link on any page is broken;
  *   - when the server fails every request, each page says so in words (never a blank page or a crash);
  *   - on a slow connection each page shows that it is loading, then its content;
- *   - with nothing yet (no batches, nothing to finish), the page says what to do.
+ *   - with nothing yet (no batches), the page says what to do.
  *
  * Network faults are made in the browser (page.route), against our own server only.
  * Runs with the layout test: playwright.config.ts. Skipped without LAYOUT_EMAIL / LAYOUT_PASSWORD.
@@ -14,7 +14,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const EMAIL = process.env.LAYOUT_EMAIL;
 const PASSWORD = process.env.LAYOUT_PASSWORD;
-const PAGES = ["/dashboard", "/batches", "/batches/finish", "/upload", "/profiles", "/templates", "/templates/designs",
+const PAGES = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs",
   "/scheduled", "/analytics", "/connect", "/settings", "/admin"];
 /** What the app needs to draw its frame: these are never failed or slowed. */
 const FRAME = /\/api\/(account\/(me|session)|meta)(\?|$)/;
@@ -52,7 +52,7 @@ test.describe("every page, every state", () => {
     const pages = [...PAGES];
     await page.goto("/batches");
     await quiet(page);
-    const batch = await page.locator('a[href^="/batches/"]:not([href="/batches/finish"])').first().getAttribute("href").catch(() => null);
+    const batch = await page.locator('a[href^="/batches/"]').first().getAttribute("href").catch(() => null);
     if (batch) pages.push(batch.replace(/\/review$/, ""), `${batch.replace(/\/review$/, "")}/review`);
     const links = new Set<string>();
     const failed: string[] = [];
@@ -102,7 +102,7 @@ test.describe("every page, every state", () => {
       await route.continue();
     });
     const blank: string[] = [];
-    for (const path of ["/dashboard", "/batches", "/scheduled", "/profiles", "/batches/finish"]) {
+    for (const path of ["/dashboard", "/batches", "/scheduled", "/profiles"]) {
       await page.goto(path, { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(800);
       const loading = await page.locator('[aria-busy="true"], [data-testid*="skeleton"], .animate-pulse').count()
@@ -117,13 +117,8 @@ test.describe("every page, every state", () => {
 
   test("with nothing yet, the page says what to do", async ({ page }) => {
     await page.route(/\/api\/batches(\?|$)/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-    await page.route(/\/api\/finish-in-etsy(\?|$)/, (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ total: 0, drafts: 0, active: 0, groups: [] }) }));
     await page.goto("/batches");
     await quiet(page);
     await expect(page.getByText(/no batches|upload/i).first()).toBeVisible();
-    await page.goto("/batches/finish");
-    await quiet(page);
-    await expect(page.getByTestId("finish-empty")).toBeVisible();
   });
 });

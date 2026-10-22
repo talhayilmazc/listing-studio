@@ -24,7 +24,6 @@ export function FirstRunGuide() {
       setFacts({
         shops: shops.length,
         confirmedProfiles: profiles.filter((p) => p.confirmed).length,
-        profilesWithoutHowMade: profiles.filter((p) => p.confirmed && !p.how_made_set).length,
         batches: batches.length,
         sent: batches.filter((b) => (b.statuses ?? []).some((s) => SENT.has(s))).length,
       });

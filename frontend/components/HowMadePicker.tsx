@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { NONE, PRODUCTION, TOOLS, cardLine, problem, toggleTool } from "@/lib/howMade";
+import { NONE, NOT_SENT, PRODUCTION, TOOLS, cardLine, problem, toggleTool } from "@/lib/howMade";
 
 /**
  * Etsy's two How it's made questions (lib/howMade.ts): one production answer, any tools or
- * None. Etsy's API cannot set them, so the seller ticks the same in Etsy after publishing.
+ * None. Etsy's API cannot set them yet: the choice is kept and sent the day Etsy adds the field.
  */
 export function HowMadeFields({
   production,
@@ -93,7 +93,7 @@ export function HowMadePicker({
   return (
     <div className="text-xs text-slate-700" data-testid="how-made">
       <p>
-        <span className={set ? "" : "font-medium text-amber-800"}>{cardLine(production, tools)}</span>
+        <span>{cardLine(production, tools)}</span>
         <span> · </span>
         <button
           type="button"
@@ -108,12 +108,10 @@ export function HowMadePicker({
           {set ? "change" : "set it"}
         </button>
       </p>
+      <p className="mt-0.5 text-[11px] leading-snug text-slate-600" data-testid="how-made-not-sent">{NOT_SENT}</p>
       {open && (
         <div key="form" className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
           <HowMadeFields production={p} tools={t} onChange={(np, nt) => { setP(np); setT(nt); }} name={`how-made-${id}`} />
-          <p className="mt-2 text-slate-600">
-            Etsy&apos;s API cannot set these: after publishing, tick the same on each listing in Etsy. Finish in Etsy lists them.
-          </p>
           {error && <p key="err" role="alert" className="mt-1 text-rose-700">{error}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button type="button" className="btn-primary" disabled={!!why || saving} onClick={save} data-testid="how-made-save">

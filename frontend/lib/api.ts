@@ -34,7 +34,6 @@ import type {
   SetupChoice,
   ShopsOverview,
   Attention,
-  FinishInEtsy,
   AnalyticsShops,
   Account,
   Allowance,
@@ -825,12 +824,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ production, tools, profile_ids: profile_ids ?? null }),
     }),
-  /** Finish in Etsy: listings whose How it's made is still to tick in Etsy (backend api/finish_in_etsy.py). */
-  finishInEtsy: () => req<FinishInEtsy>("/finish-in-etsy"),
-  finishInEtsyDone: (keys: string[]) =>
-    req<{ done: number; total: number }>("/finish-in-etsy/done", { method: "POST", body: JSON.stringify({ keys }) }),
-  finishInEtsyOpened: (keys: string[]) =>
-    req<{ done: number; total: number }>("/finish-in-etsy/opened", { method: "POST", body: JSON.stringify({ keys }) }),
   confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),
   refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),
   deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),

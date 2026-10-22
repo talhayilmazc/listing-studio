@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { ScheduleControl } from "./ScheduleControl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -497,19 +496,6 @@ export function ReviewCard({
               {destination}
             </p>
           )}
-          {initial.how_made_line && (
-            // How it's made: Etsy's API cannot set it; ticked in Etsy after publishing. Never blocks.
-            <p key="how-made" className={"border-b border-slate-100 px-4 py-2 text-xs " + (initial.how_made_set ? "text-slate-600" : "text-amber-900")}
-              data-testid="card-how-made">
-              <span>{initial.how_made_line}</span>
-              <span> · </span>
-              {initial.how_made_set || !initial.profile_id ? (
-                <Link key="finish" href="/batches/finish" className="tap text-brand-700 underline">Finish in Etsy</Link>
-              ) : (
-                <Link key="profile" href={`/profiles#profile-${initial.profile_id}`} className="tap text-brand-700 underline">Set it on the profile</Link>
-              )}
-            </p>
-          )}
           <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -943,7 +929,7 @@ function ManualSteps({
   if (allDone && !open) {
     return (
       <p className="w-full text-xs text-slate-500">
-        <span className="text-emerald-700">✓</span> How it&apos;s made ticked in Etsy ·{" "}
+        <span className="text-emerald-700">✓</span> Shop Manager settings confirmed ·{" "}
         <button type="button" className="underline hover:text-slate-800" onClick={() => setOpen(true)}>
           change
         </button>
@@ -953,7 +939,7 @@ function ManualSteps({
   return (
     <div className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
       <p className="font-medium">
-        Tick in Etsy (doesn&apos;t block publishing){" "}
+        Set in Shop Manager (optional; doesn&apos;t block publishing){" "}
         <a href={link} target="_blank" rel="noreferrer" className="tap font-normal underline">
           open the draft ↗
         </a>

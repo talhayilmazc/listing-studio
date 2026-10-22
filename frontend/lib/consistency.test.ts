@@ -10,7 +10,7 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
 test("the sidebar: Upload, Batches, Scheduled, Analytics; Library; Shops & groups; Settings", () => {
   const rail = read("components/Rail.tsx");
   const labels = [...rail.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(labels, ["Overview", "Upload", "Batches", "Finish in Etsy", "Scheduled", "Analytics", "Profiles", "Mockup templates", "Shops & groups", "Settings", "Admin"]);
+  assert.deepEqual(labels, ["Overview", "Upload", "Batches", "Scheduled", "Analytics", "Profiles", "Mockup templates", "Shops & groups", "Settings", "Admin"]);
   assert.ok(rail.includes('title: "Library"') && rail.includes('title: "Account"'));
 });
 

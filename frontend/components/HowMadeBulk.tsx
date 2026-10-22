@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { announceProfilesChanged } from "@/lib/shopSetup";
-import { problem, shortWords } from "@/lib/howMade";
+import { NOT_SENT, problem, shortWords } from "@/lib/howMade";
 import { HowMadeFields } from "./HowMadePicker";
 
 /**
@@ -52,7 +52,7 @@ export function HowMadeBulk({
     <section className="rounded-md border border-slate-200 p-3" data-testid="how-made-bulk">
       <h3 className="text-xs font-semibold text-slate-900">How it&apos;s made (the same in every shop)</h3>
       <p className="mb-2 mt-0.5 text-[11px] text-slate-600">
-        Etsy&apos;s API cannot set these: after publishing, tick the same on each listing in Etsy (Finish in Etsy lists them).
+        {NOT_SENT}
       </p>
       <HowMadeFields production={p} tools={t} onChange={(np, nt) => { setP(np); setT(nt); }} name={`how-made-bulk-${profileId}`} />
       <div className="mt-2 flex flex-wrap items-center gap-2">

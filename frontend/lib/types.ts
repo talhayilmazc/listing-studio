@@ -211,9 +211,6 @@ export interface Content {
   image_limit?: ImageLimit | null;
   /** Its profile looks print-on-demand and names no production partner (Etsy's Creativity Standards). */
   production_note?: string | null;
-  /** "After publishing, tick in Etsy: …", or a sentence asking to set How it's made on the profile first. */
-  how_made_line?: string | null;
-  how_made_set?: boolean;
   /** Short-title style: the app's title still broke Etsy's title guidance after one rewrite (kept, never cut). */
   title_warnings?: string[];
   /** A listing the seller wrote: Etsy's refusals (errors) and the app's notes (warnings) on its saved text. */
@@ -711,7 +708,7 @@ export interface Profile {
   shipping_note?: string | null;
   /** A print-on-demand profile whose reference names no production partner (shown once, here). */
   production_note?: string | null;
-  /** How it's made (Etsy's Creativity Standards; ticked in Etsy, lib/howMade.ts). */
+  /** How it's made (Etsy's Creativity Standards; lib/howMade.ts): stored, not sent (Etsy's API has no field yet). */
   how_made_production?: string | null;
   how_made_tools?: string[] | null;
   /** "How it's made: shop alters it · computerized tools" or "How it's made: not set". */
@@ -751,39 +748,6 @@ export interface ShopListing {
 
 /** Cached listing counts. Reading this never triggers a shop sync. */
 /** What needs the seller now (backend api/attention.py): Overview's block and the sidebar badges. */
-export interface FinishInEtsyRow {
-  key: string;
-  content_id: string | null;
-  asset_id: string | null;
-  title: string;
-  connection_id: string;
-  shop_name: string;
-  etsy_listing_id: number;
-  state: "draft" | "active" | string;
-  editor_link: string;
-  opened_at: string | null;
-  /** Opened from the page as a draft and live on Etsy now: "Mark done?". */
-  went_live: boolean;
-}
-
-export interface FinishInEtsyGroup {
-  key: string;
-  label: string;
-  production: string | null;
-  tools: string | null;
-  set: boolean;
-  count: number;
-  profiles: { id: string; name: string }[];
-  shops: { connection_id: string; shop_name: string; rows: FinishInEtsyRow[] }[];
-}
-
-export interface FinishInEtsy {
-  total: number;
-  drafts: number;
-  active: number;
-  groups: FinishInEtsyGroup[];
-}
-
 export interface Attention {
   items: { key: string; label: string; count: number; href: string; nav: string }[];
   total: number;
@@ -2082,8 +2046,6 @@ export interface SendPreview {
   notes: string[];
   time_zone: string;
   schedule: GroupSchedule | null;
-  /** How it's made to tick in Etsy after publishing, one line per profile. */
-  how_made?: string[];
 }
 
 export interface SendResult {

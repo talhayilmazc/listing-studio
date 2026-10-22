@@ -1,9 +1,14 @@
 /**
  * How it's made: Etsy's Creativity Standards questions, answered once per profile
  * (backend pipeline/how_made.py; the same keys and words). Etsy's API has no field for
- * either, so the seller ticks the profile's answers on each listing in Etsy, and
- * "Finish in Etsy" (/batches/finish) lists what is still to tick.
+ * either, so nothing is sent; the choice is kept and every draft sends it the day Etsy adds
+ * the field. The seller does nothing per listing for it, and nothing about it holds up a
+ * draft, a schedule or a publish (docs/etsy-how-its-made.md).
  */
+
+/** The one line under the selector (the owner's wording, 2026-10-23). */
+export const NOT_SENT =
+  "Etsy doesn't let apps set this yet, so it can't be sent automatically. You can set it for many listings at once in Shop Manager → Listings → select → Editing options.";
 
 export const PRODUCTION: { key: string; label: string; short: string }[] = [
   { key: "made_from_scratch", label: "Made from scratch", short: "made from scratch" },
@@ -50,22 +55,4 @@ export function shortWords(production: string | null | undefined, tools: string[
 export function cardLine(production: string | null | undefined, tools: string[] | null | undefined): string {
   const words = shortWords(production, tools);
   return words ? `How it's made: ${words}` : "How it's made: not set";
-}
-
-export interface FinishRow {
-  key: string;
-  state: "draft" | "active" | string;
-}
-
-/** The page's top line: drafts and active listings are finished differently in Etsy. */
-export function topLine(drafts: number, active: number): string {
-  const parts: string[] = [];
-  if (drafts) parts.push(`${drafts} draft${drafts === 1 ? "" : "s"}: open, tick How it's made, press Publish.`);
-  if (active) parts.push(`${active} active listing${active === 1 ? "" : "s"}: open, tick How it's made, save.`);
-  return parts.length ? parts.join(" ") : "Nothing to finish in Etsy.";
-}
-
-/** "Open next": the first row of the group not opened in this visit and not done. */
-export function nextRow<T extends { key: string }>(rows: T[], opened: Set<string>, done: Set<string>): T | null {
-  return rows.find((r) => !opened.has(r.key) && !done.has(r.key)) ?? null;
 }

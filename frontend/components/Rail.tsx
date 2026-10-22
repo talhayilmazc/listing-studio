@@ -35,8 +35,6 @@ const SECTIONS: { title: string; items: Item[] }[] = [
       { href: "/dashboard", label: "Overview", icon: IconGrid },
       { href: "/upload", label: "Upload", icon: IconUpload },
       { href: "/batches", label: "Batches", icon: IconLayers },
-      // How it's made, ticked in Etsy after publishing (Etsy's API cannot set it).
-      { href: "/batches/finish", label: "Finish in Etsy", icon: IconCheck },
       { href: "/scheduled", label: "Scheduled", icon: IconClock },
       { href: "/analytics", label: "Analytics", icon: IconChart },
     ],
@@ -63,7 +61,7 @@ const ADMIN_SECTION = {
 };
 
 function isActive(pathname: string, href: string) {
-  if (href === "/batches") return pathname.startsWith("/batches") && !pathname.startsWith("/batches/finish");
+  if (href === "/batches") return pathname.startsWith("/batches");
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -614,16 +612,6 @@ function IconClock({ active }: { active: boolean }) {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
-    </>,
-    active,
-  );
-}
-
-function IconCheck({ active }: { active: boolean }) {
-  return svg(
-    <>
-      <rect x="4" y="4" width="16" height="16" rx="3" />
-      <path d="M8.5 12.5l2.5 2.5 4.5-5" />
     </>,
     active,
   );
