@@ -1,26 +1,42 @@
-"""How it's made (Etsy's Creativity Standards; pipeline/how_made.py, api/finish_in_etsy.py).
+"""How it's made (Etsy's Creativity Standards; pipeline/how_made.py).
 
 Etsy's API has no field for "How does your shop produce this item?" or "What tools are used to
-make this item?". The seller answers both once per profile; review cards and "Where and when"
-say what to tick in Etsy; "Finish in Etsy" lists every listing Listyro created until it is
-marked done; a draft opened from there that went live asks "Mark done?" (never marked by
-itself); and a weekly job watches Etsy's OpenAPI document for the fields. Nothing is sent today.
+make this item?" (docs/etsy-how-its-made.md has the evidence). The owner's rule (2026-10-23): the
+seller does nothing per listing for them, and nothing about them ever holds up a draft, a
+schedule or a publish. So:
+
+* the profile keeps the answers (validated; "none" alone) and says once where Shop Manager sets
+  them; there is no per-listing list, step or badge;
+* nothing is sent to Etsy for them today; the mapping that will send them is ready (the
+  reference listing's own answers first, then the profile's), behind a setting;
+* a draft, a publish and a scheduled run go on whether or not they are set; if Etsy ever refuses
+  a publish over them, the seller is told exactly what to set, and the rest of the run goes on;
+* a weekly job watches Etsy's OpenAPI document and tells the operator once if fields appear.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 
-from app.db.models import EtsyConnection, ListingProfile, ListingPublication, Tenant
+from app.core.config import Settings
+from app.db.models import EtsyConnection, GeneratedContent, Job, JobStatus, ListingProfile, ListingPublication, Tenant
+from app.etsy.errors import HOW_MADE_FIX, EtsyClientError, explain
+from app.etsy.manual_fields import MANUAL_FIELDS
+from app.etsy.publisher import PublishImage, publish_content
 from app.pipeline import how_made
 from tests.test_publish_api import _add_content, _batch_of, ctx  # noqa: F401  (fixture)
+from tests.test_publisher import CONFIG, REFERENCE, FakeEtsy
+from tests.test_publisher import _seed as publisher_seed
+
+REFUSAL = "How it's made is required before this listing can be activated."
 
 
-# --- the picker -----------------------------------------------------------------------------
+# --- the picker ---------------------------------------------------------------------------------
 
 
 def test_none_stands_alone_and_one_production_answer_is_needed() -> None:
@@ -41,8 +57,6 @@ def test_none_stands_alone_and_one_production_answer_is_needed() -> None:
 
 
 async def _profile_id(ctx, content_id) -> uuid.UUID:  # noqa: F811
-    from app.db.models import GeneratedContent
-
     async with ctx["sm"]() as s:
         return (await s.get(GeneratedContent, content_id)).listing_profile_id
 
@@ -59,13 +73,11 @@ async def test_profile_answers_are_saved_checked_and_said_on_the_card(ctx) -> No
     ok = await ctx["client"].patch(f"/api/profiles/{pid}", json={"how_made_production": "altered", "how_made_tools": ["computerized"]})
     assert ok.status_code == 200, ok.text
     assert ok.json()["how_made_line"] == "How it's made: shop alters it · computerized tools"
-    assert ok.json()["how_made_set"] is True
-    # Another change leaves them alone.
     renamed = await ctx["client"].patch(f"/api/profiles/{pid}", json={"name": "Tee 2"})
-    assert renamed.json()["how_made_tools"] == ["computerized"]
+    assert renamed.json()["how_made_tools"] == ["computerized"]  # another change leaves them alone
 
 
-async def test_apply_to_all_profiles(ctx) -> None:  # noqa: F811
+async def test_apply_to_all_profiles_and_another_accounts_profile_is_404(ctx) -> None:  # noqa: F811
     a = await _profile_id(ctx, await _add_content(ctx["sm"], ctx["tenant_id"]))
     b = await _profile_id(ctx, await _add_content(ctx["sm"], ctx["tenant_id"]))
     res = await ctx["client"].post("/api/profiles/how-made", json={"production": "made_from_scratch", "tools": ["handheld", "ai"]})
@@ -74,7 +86,6 @@ async def test_apply_to_all_profiles(ctx) -> None:  # noqa: F811
         for pid in (a, b):
             p = await s.get(ListingProfile, pid)
             assert (p.how_made_production, p.how_made_tools) == ("made_from_scratch", ["handheld", "ai"])
-        # Another account's profile cannot be named.
         other = Tenant(email="other@example.com", password_hash="!")
         s.add(other)
         await s.flush()
@@ -87,220 +98,154 @@ async def test_apply_to_all_profiles(ctx) -> None:  # noqa: F811
         theirs_id = theirs.id
     assert (await ctx["client"].post("/api/profiles/how-made", json={
         "production": "altered", "tools": ["computerized"], "profile_ids": [str(theirs_id)]})).status_code == 404
-    assert (await ctx["client"].post("/api/profiles/how-made", json={
-        "production": "altered", "tools": ["none", "computerized"], "profile_ids": [str(a)]})).status_code == 422
+    assert (await ctx["client"].patch(f"/api/profiles/{theirs_id}", json={
+        "how_made_production": "altered", "how_made_tools": ["computerized"]})).status_code == 404
     async with ctx["sm"]() as s:
         assert (await s.get(ListingProfile, theirs_id)).how_made_production is None
 
 
-# --- Finish in Etsy -------------------------------------------------------------------------
+# --- nothing per listing ---------------------------------------------------------------------------
 
 
-async def _set(ctx, content_id, production, tools) -> None:  # noqa: F811
-    async with ctx["sm"]() as s:
-        p = await s.get(ListingProfile, await _profile_id(ctx, content_id))
-        p.how_made_production, p.how_made_tools = production, tools
-        await s.commit()
-
-
-async def test_the_list_holds_every_created_listing_not_done_grouped_by_answers_then_shop(ctx) -> None:  # noqa: F811
-    alters = [await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=1000 + i, listing_state=state)
-              for i, state in enumerate(["draft", "draft", "active"])]
-    for c in alters:
-        await _set(ctx, c, "altered", ["computerized"])
-    scratch = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=2000)
-    await _set(ctx, scratch, "made_from_scratch", ["handheld"])
-    unset = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=3000)
-    done = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=4000, listing_state="active")
-    gone = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=5000, listing_state="deleted_on_etsy")
-    not_created = await _add_content(ctx["sm"], ctx["tenant_id"])  # no draft on Etsy
-    async with ctx["sm"]() as s:
-        pub = (await s.execute(select(ListingPublication).where(ListingPublication.etsy_listing_id == 4000))).scalar_one()
-        how_made.mark_done(pub)
-        await s.commit()
-
-    body = (await ctx["client"].get("/api/finish-in-etsy")).json()
-    assert (body["total"], body["drafts"], body["active"]) == (5, 4, 1)
-    labels = [g["label"] for g in body["groups"]]
-    assert labels == ["Shop alters it + computerized tools: 3 listings",
-                      "Made from scratch + handheld tools: 1 listing",
-                      "How it's made not set on the profile: 1 listing"]
-    first = body["groups"][0]
-    assert (first["production"], first["tools"], first["set"]) == ("An item my shop alters", "Computerized tools or machines", True)
-    [shop] = first["shops"]
-    assert [r["etsy_listing_id"] for r in shop["rows"]] == [1000, 1001, 1002]
-    assert {r["state"] for r in shop["rows"]} == {"draft", "active"}
-    # Both drafts and active listings open in Etsy's listing editor.
-    assert all(r["editor_link"] == f"https://www.etsy.com/your/shops/me/listing-editor/edit/{r['etsy_listing_id']}" for r in shop["rows"])
-    unset_group = body["groups"][2]
-    assert unset_group["set"] is False and unset_group["production"] is None
-    assert unset_group["profiles"] == [{"id": str(await _profile_id(ctx, unset)), "name": "Standard Tee"}]
-    listed = {r["etsy_listing_id"] for g in body["groups"] for s in g["shops"] for r in s["rows"]}
-    assert not {4000, 5000} & listed  # done, and deleted on Etsy
-    del done, gone, not_created, scratch
-
-    # The sidebar badge is the same count.
-    attention = (await ctx["client"].get("/api/attention")).json()
-    assert attention["nav"]["/batches/finish"] == 5
-
-
-async def test_bulk_mark_done_takes_them_off_and_only_the_callers_own(ctx) -> None:  # noqa: F811
-    for i in range(3):
-        await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=6000 + i)
-    rows = [r for g in (await ctx["client"].get("/api/finish-in-etsy")).json()["groups"] for s in g["shops"] for r in s["rows"]]
-    res = await ctx["client"].post("/api/finish-in-etsy/done", json={"keys": [rows[0]["key"], rows[1]["key"]]})
-    assert res.status_code == 200 and res.json() == {"done": 2, "total": 1}
-    left = (await ctx["client"].get("/api/finish-in-etsy")).json()
-    assert left["total"] == 1
-    async with ctx["sm"]() as s:
-        pub = await s.get(ListingPublication, uuid.UUID(rows[0]["key"]))
-        assert how_made.is_done(pub)
-        # The two Shop Manager ticks on the review card are the same record.
-        assert set(pub.manual_done_keys()) >= set(how_made.DONE_KEYS)
-    assert (await ctx["client"].post("/api/finish-in-etsy/done", json={"keys": [str(uuid.uuid4())]})).status_code == 404
-    assert (await ctx["client"].post("/api/finish-in-etsy/done", json={"keys": []})).status_code == 422
-
-
-async def test_ticks_on_the_review_card_count_here_too(ctx) -> None:  # noqa: F811
-    content = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=6500)
-    async with ctx["sm"]() as s:
-        shop = (await s.execute(select(EtsyConnection.id))).scalars().first()
-    for key in how_made.DONE_KEYS:
-        r = await ctx["client"].put(f"/api/content/{content}/publications/{shop}/manual-steps/{key}", json={"done": True})
-        assert r.status_code in (200, 204), r.text
-    assert (await ctx["client"].get("/api/finish-in-etsy")).json()["total"] == 0
-
-
-class _FakeEtsy:
-    def __init__(self, live: set[int]) -> None:
-        self.live = live
-        self.asked: list[list[int]] = []
-
-    async def get_listings_by_listing_ids(self, ids, **_kw):  # noqa: ANN001
-        self.asked.append(list(ids))
-        return {"results": [{"listing_id": i, "state": "active" if i in self.live else "draft"} for i in ids]}
-
-
-async def test_a_draft_opened_from_the_list_that_went_live_asks_mark_done_never_marks_it(ctx, monkeypatch) -> None:  # noqa: F811
-    from app.workers import how_made as worker
-
-    await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=7000)
-    await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=7001)
-    await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=7002)  # never opened: not read
-    await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=7003, listing_state="active")  # already live when opened
-    rows = {r["etsy_listing_id"]: r for g in (await ctx["client"].get("/api/finish-in-etsy")).json()["groups"]
-            for s in g["shops"] for r in s["rows"]}
-    opened = await ctx["client"].post("/api/finish-in-etsy/opened", json={"keys": [rows[7000]["key"], rows[7001]["key"], rows[7003]["key"]]})
-    assert opened.status_code == 200
-    # Opening queues the read of that shop's opened drafts (at most once a minute).
-    assert [c[0] for c in ctx["enqueuer"].calls].count("watch_opened_drafts") == 1
-
-    etsy = _FakeEtsy(live={7000})
-
-    class _Tokens:
-        async def get_valid_access_token(self, _s, _c):  # noqa: ANN001
-            return "token"
-
-    monkeypatch.setattr(worker, "_connection_service", lambda _settings: _Tokens())
-    monkeypatch.setattr(worker, "_build_client", lambda *_a, **_k: etsy)
-    async with ctx["sm"]() as s:
-        shop = (await s.execute(select(EtsyConnection.id))).scalars().first()
-    assert await worker._watch({"sessionmaker": ctx["sm"]}, str(shop)) == "live:1 of 2"
-    assert sorted(etsy.asked[0]) == [7000, 7001]
-
-    body = (await ctx["client"].get("/api/finish-in-etsy")).json()
-    rows = {r["etsy_listing_id"]: r for g in body["groups"] for s in g["shops"] for r in s["rows"]}
-    assert rows[7000]["state"] == "active" and rows[7000]["went_live"] is True  # "Mark done?"
-    assert rows[7001]["went_live"] is False and rows[7002]["went_live"] is False
-    assert rows[7003]["went_live"] is False  # it was never a draft opened from here
-    assert body["total"] == 4  # nothing was marked done by itself
-    async with ctx["sm"]() as s:
-        pub = await s.get(ListingPublication, uuid.UUID(rows[7000]["key"]))
-        assert not how_made.is_done(pub) and pub.published_at is not None
-
-
-async def test_the_cron_reads_only_shops_with_drafts_opened_in_the_last_three_days(ctx) -> None:  # noqa: F811
-    from app.workers.how_made import watch_all_opened_drafts
-
-    await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=7100)
-    async with ctx["sm"]() as s:
-        pub = (await s.execute(select(ListingPublication))).scalars().first()
-        pub.how_made_opened_at = datetime.now(timezone.utc) - timedelta(days=4)
-        await s.commit()
-    queued: list = []
-
-    async def enqueue(*args):  # noqa: ANN002
-        queued.append(args)
-
-    assert await watch_all_opened_drafts({"sessionmaker": ctx["sm"], "enqueue": enqueue}) == 0
-    async with ctx["sm"]() as s:
-        pub = (await s.execute(select(ListingPublication))).scalars().first()
-        pub.how_made_opened_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await s.commit()
-    assert await watch_all_opened_drafts({"sessionmaker": ctx["sm"], "enqueue": enqueue}) == 1
-    assert queued == [("watch_opened_drafts", str(pub.connection_id))]
-
-
-# --- review cards and Where and when ---------------------------------------------------------
-
-
-async def test_review_cards_and_where_and_when_say_what_to_tick(ctx) -> None:  # noqa: F811
-    content = await _add_content(ctx["sm"], ctx["tenant_id"])
+async def test_no_listing_carries_a_step_list_or_a_line_about_them(ctx) -> None:  # noqa: F811
+    """No tick list: a draft has no How it's made steps, the review card and Where and when no line,
+    the sidebar no count, and there is no "Finish in Etsy" page."""
+    assert MANUAL_FIELDS == ()
+    content = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
     batch = await _batch_of(ctx, content)
     [card] = (await ctx["client"].get(f"/api/batches/{batch}/content")).json()
-    assert card["how_made_set"] is False
-    assert card["how_made_line"].startswith('How it\'s made is not set on the profile "Standard Tee"')
+    assert card["publications"][0]["manual_steps"] == []
+    assert "how_made_line" not in card
     preview = (await ctx["client"].post(f"/api/batches/{batch}/send/preview", json={"when": "drafts"})).json()
-    assert preview["how_made"] == [card["how_made_line"]]
-    assert preview["disabled"] is None or "How it's made" not in preview["disabled"]  # never blocks
-
-    await _set(ctx, content, "altered", ["computerized"])
-    [card] = (await ctx["client"].get(f"/api/batches/{batch}/content")).json()
-    assert card["how_made_set"] is True
-    assert card["how_made_line"] == "After publishing, tick in Etsy: shop alters it · computerized tools"
-    preview = (await ctx["client"].post(f"/api/batches/{batch}/send/preview", json={"when": "drafts"})).json()
-    assert preview["how_made"] == ["After publishing, tick in Etsy: shop alters it · computerized tools"]
+    assert "how_made" not in preview
+    attention = (await ctx["client"].get("/api/attention")).json()
+    assert all("How it's made" not in i["label"] for i in attention["items"])
+    assert (await ctx["client"].get("/api/finish-in-etsy")).status_code == 404
 
 
-async def test_a_drafts_shop_manager_steps_say_the_exact_answers(ctx) -> None:  # noqa: F811
-    content = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=7200)
-    await _set(ctx, content, "altered", ["computerized", "ai"])
-    [card] = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, content)}/content")).json()
-    steps = card["publications"][0]["manual_steps"]
-    assert [s["detail"] for s in steps] == ["Tick in Etsy: An item my shop alters.",
-                                           "Tick in Etsy: Computerized tools or machines, An AI generator."]
+# --- nothing is sent to Etsy today; ready to send the day Etsy adds the field -----------------------
 
 
-# --- sending, once Etsy publishes the fields ---------------------------------------------------
+def _profile(production=None, tools=None, reference=None) -> SimpleNamespace:
+    return SimpleNamespace(how_made_production=production, how_made_tools=tools,
+                           cached_payload={how_made.REFERENCE_KEY: reference} if reference else {})
+
+
+def _turn_on(monkeypatch) -> None:  # noqa: ANN001
+    from app.core import config
+
+    monkeypatch.setattr(config.get_settings(), "etsy_how_its_made_fields", True)
+    monkeypatch.setattr(how_made, "FIELD_NAMES", {"production": "production_method", "tools": "tools_used"})
+    monkeypatch.setattr(how_made, "VALUES", {"production": {"altered": "altered", "made_from_scratch": "scratch"},
+                                             "tools": {"computerized": "computerized", "handheld": "hand"}})
 
 
 def test_nothing_is_sent_today_and_the_mapping_sends_once_turned_on(monkeypatch) -> None:
-    from types import SimpleNamespace
-
     from app.core import config
 
-    profile = SimpleNamespace(how_made_production="altered", how_made_tools=["computerized"])
+    profile = _profile("altered", ["computerized"])
     assert how_made.draft_fields(profile) == {}  # off by default, and no field names
     monkeypatch.setattr(config.get_settings(), "etsy_how_its_made_fields", True)
     assert how_made.draft_fields(profile) == {}  # still no field names from Etsy's schema
-    monkeypatch.setattr(how_made, "FIELD_NAMES", {"production": "production_method", "tools": "tools_used"})
-    monkeypatch.setattr(how_made, "VALUES", {"production": {"altered": "altered"}, "tools": {"computerized": "computerized"}})
+    _turn_on(monkeypatch)
     assert how_made.draft_fields(profile) == {"production_method": "altered", "tools_used": ["computerized"]}
     monkeypatch.setattr(config.get_settings(), "etsy_how_its_made_fields", False)
     assert how_made.draft_fields(profile) == {}
 
 
-def test_every_draft_path_builds_the_draft_with_the_mapping() -> None:
-    """Generated, edited, hand-written and other-shop drafts all build createDraftListing's body in
-    etsy/publisher.py; the How it's made fields are added there, after the reference's fields."""
-    from pathlib import Path
+def test_the_reference_listings_own_answers_come_first_then_the_profiles(monkeypatch) -> None:
+    """Source order for the day the field exists: the reference listing's answers (read on refresh),
+    else the profile's selection; an unreadable reference answer falls back, never fails."""
+    _turn_on(monkeypatch)
+    both = _profile("altered", ["computerized"], reference={"production": "made_from_scratch", "tools": ["handheld"]})
+    assert how_made.in_use(both) == ("made_from_scratch", ["handheld"], "reference")
+    assert how_made.draft_fields(both) == {"production_method": "scratch", "tools_used": ["hand"]}
+    manual = _profile("altered", ["computerized"])
+    assert how_made.in_use(manual) == ("altered", ["computerized"], "profile")
+    broken = _profile("altered", ["computerized"], reference={"production": "bogus", "tools": ["laser"]})
+    assert how_made.in_use(broken)[2] == "profile"
+    assert how_made.in_use(_profile()) == (None, None, None)
+    assert how_made.draft_fields(_profile()) == {}  # nothing set: nothing sent, nothing raised
 
-    source = (Path(__file__).resolve().parents[1] / "app" / "etsy" / "publisher.py").read_text(encoding="utf-8")
-    assert source.count("how_made.draft_fields(") == 1
-    assert "create_draft_listing" in source
+
+def _how_made_like(field: str) -> bool:
+    from app.workers.etsy_spec import KNOWN, PATTERN
+
+    return bool(PATTERN.search(field)) and field not in KNOWN
 
 
-# --- the weekly spec watcher ------------------------------------------------------------------
+@pytest.mark.parametrize("answers", [(None, None), ("altered", ["computerized"])], ids=["not set", "set"])
+async def test_a_draft_sends_nothing_for_them_and_never_waits_on_them(async_sm, answers) -> None:
+    """With answers set and with none: the draft is made, and createDraftListing carries no How
+    it's made field (who_made / when_made, which are in Etsy's schema, are sent as always)."""
+    _, conn_id, content_id, job_id = await publisher_seed(async_sm)
+    async with async_sm() as s:
+        conn = await s.get(EtsyConnection, conn_id)
+        profile = ListingProfile(tenant_id=conn.tenant_id, connection_id=conn.id, name="Tee", reference_listing_id=1,
+                                 confirmed=True, how_made_production=answers[0], how_made_tools=answers[1])
+        s.add(profile)
+        await s.commit()
+        fake = FakeEtsy()
+        result = await publish_content(
+            s, job_id=job_id, content=await s.get(GeneratedContent, content_id), connection=conn, sku="BR5475",
+            thumbnail=PublishImage(b"t", "t.jpg"), client=fake, access_token="tok", config=CONFIG, reference=REFERENCE,
+            theme="x", tenant_limit=2000, profile_id=profile.id,
+        )
+    assert result.listing_id
+    sent = set(fake.last_listing)
+    assert {"who_made", "when_made"} <= sent
+    assert not {k for k in sent if _how_made_like(k)}, sent
+
+
+def test_the_fields_this_app_sends_are_not_mistaken_for_how_its_made() -> None:
+    for field in ("who_made", "when_made", "production_partner_ids", "processing_min", "is_supply", "materials"):
+        assert not _how_made_like(field), field
+
+
+# --- publishing never waits on them; a refusal is explained and the rest go on --------------------
+
+
+def test_a_refusal_naming_them_says_exactly_what_to_set() -> None:
+    refused = EtsyClientError(400, body=f'{{"error": "{REFUSAL}"}}', path="/application/shops/9/listings/5", method="PATCH")
+    assert explain(refused) == HOW_MADE_FIX
+    assert "Shop Manager" in HOW_MADE_FIX and "Editing options" in HOW_MADE_FIX
+    assert "What tools are used to make this item?" in HOW_MADE_FIX
+    other = EtsyClientError(400, body='{"error": "Invalid shipping_profile_id"}', path="/x", method="PATCH")
+    assert explain(other) != HOW_MADE_FIX
+
+
+async def test_a_scheduled_run_goes_on_after_one_listing_is_refused(tmp_path, test_settings: Settings, monkeypatch) -> None:
+    """Two drafts due to go live; Etsy refuses the first (as if it wanted How it's made). The first
+    fails with the plain sentence, the second goes live: nothing waits on the refused one."""
+    from app.workers import publish as publish_worker
+    from app.workers.schedule import release_scheduled_publishes
+    from tests.test_end_to_end import _run_drafts, _send_drafts, _world
+
+    w = await _world(tmp_path, test_settings, monkeypatch, shops=1, listings=2)
+    await _run_drafts(w, await _send_drafts(w))
+    first = min(w["etsy"].listings)
+    w["etsy"].refuse_active[first] = REFUSAL
+    async with w["sm"]() as s:
+        for pub in (await s.execute(select(ListingPublication))).scalars():
+            pub.scheduled_for = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await s.commit()
+    await release_scheduled_publishes(w["ctx"])
+    live_jobs = [args[1] for args in w["enqueued"] if args[0] == "run_publish_live_job"]
+    assert len(live_jobs) == 2
+    for job in live_jobs:
+        await publish_worker.run_publish_live_job(w["ctx"], job)
+    states = {lid: d["state"] for lid, d in w["etsy"].listings.items()}
+    assert states[first] == "draft" and list(states.values()).count("active") == 1
+    async with w["sm"]() as s:
+        jobs = {str(j.id): j for j in (await s.execute(select(Job).where(Job.id.in_([uuid.UUID(j) for j in live_jobs])))).scalars()}
+    outcomes = sorted(j.status.value for j in jobs.values())
+    assert outcomes == ["failed", "succeeded"], outcomes
+    refused = next(j for j in jobs.values() if j.status is JobStatus.failed)
+    assert refused.last_error and "Shop Manager" in refused.last_error, refused.last_error
+    await w["engine"].dispose()
+
+
+# --- the weekly spec watcher ------------------------------------------------------------------------
 
 
 def _spec(extra_create: dict | None = None) -> dict:

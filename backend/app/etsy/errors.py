@@ -209,6 +209,17 @@ def foreign_setting(detail: str | None) -> str | None:
     return _SETTING.get(match.group(1).lower(), match.group(1).replace("_", " "))
 
 
+#: An Etsy refusal that names the How it's made questions (production method, tools used).
+HOW_MADE_REFUSAL = re.compile(
+    r"how\s+(it'?s|it\s+is)\s+made|produce\s+this\s+item|production\s+method|tools?\s+(are\s+)?used|"
+    r"creativity\s+standards", re.I)
+HOW_MADE_FIX = (
+    "Etsy wants How it's made set on this listing before it goes live: in Shop Manager open it (or select "
+    "several under Listings, then Editing options), set \"How does your shop produce this item?\" and "
+    "\"What tools are used to make this item?\", then publish it again. Etsy doesn't let apps set these yet."
+)
+
+
 def explain(exc: EtsyError, shop: str | None = None) -> str:
     """What the seller is told when Etsy refused or failed a request. ``shop``: the
     shop's name, when the refusal is about one of that shop's own settings."""
@@ -220,6 +231,10 @@ def explain(exc: EtsyError, shop: str | None = None) -> str:
     detail = getattr(exc, "detail", None)
     if isinstance(exc, EtsyServerError):
         return f"Etsy had a problem of its own{where} (it answered {status}); nothing is wrong with the listing"
+    if detail and HOW_MADE_REFUSAL.search(detail):
+        # Never seen yet (2026-10-23): no stored refusal names these questions. If Etsy ever
+        # wants them before a listing goes live, the seller is told exactly what to set.
+        return HOW_MADE_FIX
     if detail and "calculated shipping profile" in detail.lower():
         # The reference has no weight or size for its calculated shipping profile.
         from app.pipeline.reference import SIZE_FIX

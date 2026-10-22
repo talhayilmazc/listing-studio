@@ -33,7 +33,6 @@ from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline import approval, creativity, manual, versions
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
 from app.pipeline.generation import TITLE_WARNINGS
-from app.pipeline import how_made
 from app.pipeline.personalization import DEFAULT_QUESTION
 from app.pipeline.reference import decode_etsy_text
 from app.pipeline.personalization import for_listing as personalization_for_listing
@@ -84,26 +83,18 @@ def publication_out(
         etsy_listing_id=publication.etsy_listing_id,
         state=publication.state,
         listing_link=link_for(publication.etsy_listing_id, publication.state),
-        manual_steps=manual_steps(publication.state, template, publication.manual_done_keys(), profile),
+        manual_steps=manual_steps(publication.state, template, publication.manual_done_keys()),
     )
 
 
 def manual_steps(
-    state: str, template: str | None, done: set[str] | frozenset[str] = frozenset(), profile: ListingProfile | None = None,
+    state: str, template: str | None, done: set[str] | frozenset[str] = frozenset(),
 ) -> list[schemas.ManualStepOut]:
-    """What a draft needs in Shop Manager, each with the seller's tick; nothing once live. The two
-    How it's made questions say the profile's exact answers to tick (pipeline/how_made.py)."""
+    """What a draft needs in Shop Manager, each with the seller's tick; nothing once live."""
     if state == "active":
         return []
-    out = []
-    for f in manual_fields_for(template):
-        detail = f.detail
-        if f.key in how_made.DONE_KEYS:
-            answer = how_made.tick(profile, f.key)
-            detail = (f"Tick in Etsy: {answer}." if answer else
-                      "Not set on the profile yet: set How it's made on the profile, then tick the same in Etsy.")
-        out.append(schemas.ManualStepOut(key=f.key, label=f.label, detail=detail, done=f.key in done))
-    return out
+    return [schemas.ManualStepOut(key=f.key, label=f.label, detail=f.detail, done=f.key in done)
+            for f in manual_fields_for(template)]
 
 
 async def _template_of(session: AsyncSession, publication: ListingPublication) -> str | None:
@@ -313,8 +304,6 @@ async def contents_out(
         out.profile_id, out.profile_name = (profile.id, profile.name) if profile else (None, None)
         # Etsy's Creativity Standards: a print-on-demand profile with no production partner.
         out.production_note = creativity.production_note(profile) if profile is not None else None
-        out.how_made_line = how_made.after_publishing(profile) if profile is not None else None
-        out.how_made_set = how_made.is_set(profile)
         out.attributes = dict((c.attributes or {}).get("listing") or {})
     for out in outs:
         out.findings = findings.get(out.id, [])

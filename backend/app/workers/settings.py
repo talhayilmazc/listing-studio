@@ -52,7 +52,6 @@ from app.workers.sections import create_shop_section, sync_shop_sections
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
 from app.workers.etsy_spec import check_etsy_spec
-from app.workers.how_made import watch_all_opened_drafts, watch_opened_drafts
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +121,6 @@ class WorkerSettings:
         refresh_profile_images,
         sync_shop_listings,
         sync_shop_counts,
-        watch_opened_drafts,
         sync_sales,
         estimate_sales,
         sync_ledger,
@@ -176,8 +174,6 @@ class WorkerSettings:
         cron(resolve_shop_settings_once, hour={4}, minute={25}, second=0, run_at_startup=True),
         # Once after the deploy that sends a reference's weight and size (calculated shipping).
         cron(read_reference_sizes_once, hour={4}, minute={35}, second=0, run_at_startup=True),
-        # Drafts opened from "Finish in Etsy": has one gone live? (workers/how_made.py)
-        cron(watch_all_opened_drafts, minute={4, 14, 24, 34, 44, 54}, second=20, run_at_startup=False),
         # Etsy's OpenAPI document, weekly: How it's made fields yet? (workers/etsy_spec.py)
         cron(check_etsy_spec, weekday={0}, hour={5}, minute={10}, second=0, run_at_startup=False),
     ]

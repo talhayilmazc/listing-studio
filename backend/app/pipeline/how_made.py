@@ -1,20 +1,25 @@
 """How it's made: Etsy's Creativity Standards questions, answered once per profile.
 
 Etsy's listing editor asks "How does your shop produce this item?" (one answer) and "What
-tools are used to make this item?" (any of them, or none). Etsy's Open API has no field for
-either (checked against the OpenAPI document; the request for them, etsy/open-api discussion
-#1630 of June 2026, has no answer from Etsy), and Listyro never automates Etsy's website. So:
+tools are used to make this item?" (any of them, or none). Etsy's Open API has neither: no
+request or response field of getListing, createDraftListing, updateListing or
+updateListingProperty, and nothing in the whole OpenAPI document names them (checked
+2026-09-24, -09-26, 2026-10-22 and 2026-10-23; docs/etsy-how-its-made.md has the evidence). The
+request for them (etsy/open-api discussion #1630, June 2026) has no answer from Etsy, and Listyro
+never automates Etsy's website. So:
 
 * the seller answers both once on each profile (``listing_profile.how_made_production`` and
-  ``how_made_tools``); "none" stands alone;
-* every review card and "Where and when" says what to tick in Etsy after publishing;
-* "Finish in Etsy" (api/finish_in_etsy.py) lists every listing Listyro created whose answers
-  are not marked done, grouped by the answers to tick, with the editor link; the seller marks
-  each done (the two Shop Manager ticks of etsy/manual_fields.py, for that listing);
+  ``how_made_tools``); "none" stands alone. The profile card says, once, that Etsy does not let
+  apps set them yet and where Shop Manager sets them for many listings at once;
+* the seller does nothing per listing for them: no tick list, no step on a draft, and nothing
+  about them ever holds up a draft, a schedule or a publish (the owner's rule, 2026-10-23);
 * the code is ready to send them: once Etsy publishes the fields, fill :data:`FIELD_NAMES` and
-  :data:`VALUES` from Etsy's schema and set ``ETSY_HOW_ITS_MADE_FIELDS=true``; every draft path
-  (they all build the draft in ``etsy/publisher.py``) then sends them in every shop.
-  Today :func:`draft_fields` returns nothing. Steps: docs/etsy-how-its-made.md.
+  :data:`VALUES` from Etsy's schema and set ``ETSY_HOW_ITS_MADE_FIELDS=true``. Every draft path
+  (they all build the draft in ``etsy/publisher.py``) then sends them in every shop: the reference
+  listing's own answers first (:data:`REFERENCE_KEY` in the profile's payload, read when the
+  profile is refreshed once getListing returns them), else the profile's selection.
+  Today :func:`draft_fields` returns nothing. A weekly job watches the document
+  (workers/etsy_spec.py). Steps: docs/etsy-how-its-made.md.
 """
 
 from __future__ import annotations
@@ -38,13 +43,14 @@ TOOLS: dict[str, tuple[str, str]] = {
     "none": ("None", "no tools"),
 }
 NONE = "none"
-#: The two Shop Manager ticks of etsy/manual_fields.py: "done" means both, for that listing.
-DONE_KEYS = ("creativity_production", "creativity_tools")
 
 #: Etsy's field names, once Etsy publishes them ({"production": ..., "tools": ...}); empty today.
 FIELD_NAMES: dict[str, str] = {}
 #: Our answer key -> Etsy's value, per field, once published; empty today.
 VALUES: dict[str, dict[str, Any]] = {"production": {}, "tools": {}}
+#: Where a profile refresh will keep the reference listing's own answers, once getListing returns
+#: them ({"production": <key>, "tools": [<key>, ...]}); nothing writes it today.
+REFERENCE_KEY = "how_made"
 
 
 class NotValid(ValueError):
@@ -87,48 +93,36 @@ def card_line(profile: Any) -> str:
     return f"How it's made: {words}" if words else "How it's made: not set"
 
 
-def after_publishing(profile: Any) -> str:
-    """The review card's and Where and when's line."""
-    words = short_words(profile)
-    if words:
-        return f"After publishing, tick in Etsy: {words}"
-    name = getattr(profile, "name", None)
-    return (f'How it\'s made is not set on the profile "{name}": set it on the profile first, '
-            "then tick the same in Etsy after publishing") if name else "Choose a profile, then set How it's made on it"
-
-
-def tick(profile: Any, key: str) -> str | None:
-    """Etsy's wording to tick for one of the two questions, or None when not set."""
-    if not is_set(profile):
-        return None
-    if key == "creativity_production":
-        return PRODUCTION[profile.how_made_production][0]
-    return ", ".join(TOOLS[t][0] for t in profile.how_made_tools if t in TOOLS)
-
-
-def is_done(publication: Any) -> bool:
-    keys = publication.manual_done_keys()
-    return all(k in keys for k in DONE_KEYS)
-
-
-def mark_done(publication: Any) -> None:
-    """Both ticks, for this listing (a new dict, so the change is saved)."""
-    ticks = dict(publication.manual_done or {})
-    for key in DONE_KEYS:
-        ticks[key] = publication.etsy_listing_id
-    publication.manual_done = ticks
+def in_use(profile: Any) -> tuple[str | None, list[str] | None, str | None]:
+    """(production, tools, source) a draft would send: the reference listing's own answers when
+    the profile holds them (``"reference"``), else the profile's selection (``"profile"``), else
+    nothing (None)."""
+    if profile is None:
+        return None, None, None
+    ref = (getattr(profile, "cached_payload", None) or {}).get(REFERENCE_KEY) or {}
+    try:
+        production, tools = clean(ref.get("production"), ref.get("tools"))
+    except NotValid:
+        production, tools = None, None
+    if production:
+        return production, tools, "reference"
+    if is_set(profile):
+        return profile.how_made_production, list(profile.how_made_tools), "profile"
+    return None, None, None
 
 
 def draft_fields(profile: Any) -> dict[str, Any]:
     """What a draft sends for these questions: nothing until Etsy publishes the fields, they are
-    filled in above and ETSY_HOW_ITS_MADE_FIELDS is on."""
-    if not get_settings().etsy_how_its_made_fields or not FIELD_NAMES or not is_set(profile):
+    filled in above and ETSY_HOW_ITS_MADE_FIELDS is on. Never raises: a missing or unmapped
+    answer sends nothing and holds up nothing."""
+    if not get_settings().etsy_how_its_made_fields or not FIELD_NAMES:
         return {}
+    production, tools, _ = in_use(profile)
     out: dict[str, Any] = {}
-    production = VALUES.get("production", {}).get(profile.how_made_production)
-    tools = [VALUES.get("tools", {}).get(t) for t in profile.how_made_tools]
-    if FIELD_NAMES.get("production") and production is not None:
-        out[FIELD_NAMES["production"]] = production
-    if FIELD_NAMES.get("tools") and tools and all(v is not None for v in tools):
-        out[FIELD_NAMES["tools"]] = tools
+    value = VALUES.get("production", {}).get(production) if production else None
+    if FIELD_NAMES.get("production") and value is not None:
+        out[FIELD_NAMES["production"]] = value
+    sent = [VALUES.get("tools", {}).get(t) for t in tools or []]
+    if FIELD_NAMES.get("tools") and sent and all(v is not None for v in sent):
+        out[FIELD_NAMES["tools"]] = sent
     return out

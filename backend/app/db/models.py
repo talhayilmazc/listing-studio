@@ -1281,9 +1281,6 @@ class ListingPublication(Base):
     manual_done: Mapped[dict[str, Any]] = mapped_column(
         JSONB_TYPE, nullable=False, default=dict, server_default=text("'{}'")
     )
-    #: When the seller last opened it in Etsy from "Finish in Etsy": the app then watches whether
-    #: the draft went live and asks "Mark done?" (never marks it done by itself).
-    how_made_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: When the seller chose for this draft to go live (UTC), v6 §G. Setting it is
     #: the seller's explicit confirmation (CLAUDE.md rule 3); only an approved
     #: listing's existing draft can be scheduled. Cleared when cancelled.

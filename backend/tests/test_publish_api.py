@@ -3,6 +3,7 @@
 import uuid
 from collections.abc import AsyncIterator
 
+import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 from fakeredis import FakeAsyncRedis
@@ -476,31 +477,43 @@ async def _batch_of(ctx, content_id) -> uuid.UUID:
         return (await s.get(GeneratedContent, content_id)).batch_id
 
 
-async def test_a_draft_lists_what_still_has_to_be_set_in_shop_manager(ctx) -> None:
+@pytest.fixture()
+def steps(monkeypatch):
+    """Two sample Shop Manager settings: the registry is empty today (Etsy's How it's made
+    questions are not listed per draft since 2026-10-23), the mechanism is still tested."""
+    from app.etsy import manual_fields
+    from app.etsy.manual_fields import ManualField
+
+    monkeypatch.setattr(manual_fields, "MANUAL_FIELDS", (
+        ManualField("sample_one", "First setting", "Set it in Shop Manager."),
+        ManualField("sample_two", "Second setting", "Set it in Shop Manager."),
+    ))
+
+
+async def test_a_draft_lists_what_still_has_to_be_set_in_shop_manager(ctx, steps) -> None:
     draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
     rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, draft)}/content")).json()
     [pub] = rows[0]["publications"]
     assert pub["state"] == "draft"
     assert pub["listing_link"].endswith("/listing-editor/edit/777")  # where to set it
-    assert [step["label"] for step in pub["manual_steps"]] == ["How does your shop produce this item?", "What tools are used to make this item?"]
-    # The profile has no How it's made answers yet: the step says to set them there first.
-    assert "set How it's made on the profile" in pub["manual_steps"][0]["detail"]
+    assert [step["label"] for step in pub["manual_steps"]] == ["First setting", "Second setting"]
+    assert pub["manual_steps"][0]["detail"] == "Set it in Shop Manager."
 
 
-async def test_a_live_listing_has_no_steps_left(ctx) -> None:
+async def test_a_live_listing_has_no_steps_left(ctx, steps) -> None:
     live = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=888, listing_state="active")
     rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, live)}/content")).json()
     assert rows[0]["publications"][0]["manual_steps"] == []
 
 
-async def test_the_finished_draft_job_carries_the_steps(ctx) -> None:
+async def test_the_finished_draft_job_carries_the_steps(ctx, steps) -> None:
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
     job_id = await _job_for(ctx, content_id)
     body = (await ctx["client"].get(f"/api/jobs/{job_id}")).json()
-    assert [s["key"] for s in body["manual_steps"]] == ["creativity_production", "creativity_tools"]
+    assert [s["key"] for s in body["manual_steps"]] == ["sample_one", "sample_two"]
 
 
-async def test_the_list_is_data_driven(ctx, monkeypatch) -> None:
+async def test_the_list_is_data_driven(ctx, monkeypatch, steps) -> None:
     """A new setting Etsy keeps out of the API is one entry in the registry."""
     from app.etsy import manual_fields
     from app.etsy.manual_fields import ManualField
@@ -517,7 +530,7 @@ async def test_the_list_is_data_driven(ctx, monkeypatch) -> None:
     draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)  # a digital_products profile
     rows = (await ctx["client"].get(f"/api/batches/{await _batch_of(ctx, draft)}/content")).json()
     keys = [s["key"] for s in rows[0]["publications"][0]["manual_steps"]]
-    assert keys == ["creativity_production", "creativity_tools", "digital_only"]
+    assert keys == ["sample_one", "sample_two", "digital_only"]
 
 
 # --- the seller's per-draft ticks ------------------------------------------------------
@@ -531,11 +544,11 @@ async def _steps(ctx, content_id) -> list[dict]:
     return next(r for r in rows if r["id"] == str(content_id))["publications"][0]["manual_steps"]
 
 
-def _tick_url(content_id, shop, key="creativity_production") -> str:
+def _tick_url(content_id, shop, key="sample_one") -> str:
     return f"/api/content/{content_id}/publications/{shop}/manual-steps/{key}"
 
 
-async def test_ticking_a_setting_marks_it_done_on_that_draft(ctx) -> None:
+async def test_ticking_a_setting_marks_it_done_on_that_draft(ctx, steps) -> None:
     draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
     shop = await _shop_id(ctx)
     res = await ctx["client"].put(_tick_url(draft, shop), json={"done": True})
@@ -546,7 +559,7 @@ async def test_ticking_a_setting_marks_it_done_on_that_draft(ctx) -> None:
     assert (await _steps(ctx, draft))[0]["done"] is False
 
 
-async def test_a_regenerated_draft_starts_unticked(ctx) -> None:
+async def test_a_regenerated_draft_starts_unticked(ctx, steps) -> None:
     from app.db.models import ListingPublication
 
     draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
@@ -559,7 +572,7 @@ async def test_a_regenerated_draft_starts_unticked(ctx) -> None:
     assert (await _steps(ctx, draft))[0]["done"] is False
 
 
-async def test_mark_all_as_done_covers_every_approved_draft_of_the_batch(ctx) -> None:
+async def test_mark_all_as_done_covers_every_approved_draft_of_the_batch(ctx, steps) -> None:
     from app.db.models import ListingPublication
 
     first = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=1)
@@ -596,7 +609,7 @@ async def test_mark_all_as_done_covers_every_approved_draft_of_the_batch(ctx) ->
     assert (await ctx["client"].post(f"/api/batches/{batch}/manual-steps/done")).json() == {"updated_drafts": 0}
 
 
-async def test_ticks_are_only_for_the_owners_drafts_and_known_settings(ctx) -> None:
+async def test_ticks_are_only_for_the_owners_drafts_and_known_settings(ctx, steps) -> None:
     draft = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=777)
     shop = await _shop_id(ctx)
     assert (await ctx["client"].put(_tick_url(draft, shop, "no_such_setting"), json={"done": True})).status_code == 404

@@ -78,19 +78,17 @@ CREATE_FIELDS = {
     "quantity", "readiness_state_id", "return_policy_id", "shipping_profile_id", "shop_section_id", "should_auto_renew",
     "styles", "tags", "taxonomy_id", "title", "type", "when_made", "who_made",
 }
-CREATIVITY = ["creativity_production", "creativity_tools"]
-
-
 async def _creativity_checked(w: dict) -> None:
-    """Every draft, in every shop, lists Etsy's two Creativity Standards questions for Shop Manager
-    (the API has no field for either), and no draft request sent a field Etsy does not list."""
+    """No draft request sent a field Etsy does not list; the Creativity Standards fields that are in
+    the API are sent; and no draft carries a step for Etsy's How it's made questions (the API has
+    no field for either and the seller does nothing per listing for them, 2026-10-23)."""
     assert w["etsy"].create_fields <= CREATE_FIELDS, w["etsy"].create_fields - CREATE_FIELDS
     assert {"who_made", "when_made", "is_supply"} <= w["etsy"].create_fields  # the Creativity fields that are in the API
     cards = (await w["client"].get(f"/api/batches/{w['batch']}/content")).json()
     publications = [p for c in cards for p in c["publications"]]
     assert publications and len(publications) == len(w["etsy"].listings)
     for p in publications:
-        assert [m["key"] for m in p["manual_steps"]] == CREATIVITY, p
+        assert p["manual_steps"] == [], p
     profile = next(x for x in (await w["client"].get("/api/profiles")).json() if x["id"] == str(w["profile"]))
     assert profile["how_made_line"].startswith("How it's made: ")
 TITLE = "Design {i:02d} Retro Graphic Tee, Vintage Sunset Shirt, Mountain Hiking Tee, Outdoor Adventure Shirt, Camping Lover Top"
@@ -108,6 +106,8 @@ class FakeEtsy:
         self.create_fields: set[str] = set()
         #: Every request, as "METHOD /path with ids as {id}" (requests per draft, below).
         self.requests: list[str] = []
+        #: Listing id -> Etsy's refusal when asked to make it active (a publish refused).
+        self.refuse_active: dict[int, str] = {}
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path.removeprefix("/v3/application")
@@ -156,6 +156,8 @@ class FakeEtsy:
             row = self.listings[int(m.group(2))]
             text = request.content.decode()
             body = json.loads(text) if text.startswith("{") else {k: v[0] for k, v in parse_qs(text).items()}
+            if body.get("state") == "active" and row["listing_id"] in self.refuse_active:
+                return httpx.Response(400, json={"error": self.refuse_active[row["listing_id"]]})
             if body.get("state"):
                 row["state"] = body["state"]
             return httpx.Response(200, json={"listing_id": row["listing_id"], "state": row["state"]})

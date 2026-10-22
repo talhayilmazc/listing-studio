@@ -937,7 +937,6 @@ async def job_status(
                 publication.state,
                 profile.content_template if profile else None,
                 publication.manual_done_keys(),
-                profile,
             )
     connection = await session.get(EtsyConnection, job.connection_id)
 

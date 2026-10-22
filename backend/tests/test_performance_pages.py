@@ -29,7 +29,6 @@ PAGES = {
     "/api/attention": (0.5, 40),
     "/api/profiles": (0.5, 40),
     "/api/scheduled": (0.5, 40),
-    "/api/finish-in-etsy": (0.5, 20),
     "/api/quota": (0.5, 20),
     "/api/account/allowance": (0.5, 20),
     "/api/drafts/unfinished": (0.5, 40),

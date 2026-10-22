@@ -305,11 +305,6 @@ class ContentOut(BaseModel):
     # Set when its profile looks print-on-demand and names no production partner
     # (pipeline/creativity.py): a warning on the card, before any draft.
     production_note: str | None = None
-    # How it's made, ticked in Etsy after publishing (pipeline/how_made.py): "After publishing,
-    # tick in Etsy: shop alters it · computerized tools", or a sentence asking to set it on the
-    # profile first. Never blocks anything.
-    how_made_line: str | None = None
-    how_made_set: bool = False
     # The search-readiness checklist (pipeline/checklist.py): computed from the
     # listing's own text and settings, never blocking anything.
     checklist: "ChecklistOut | None" = None

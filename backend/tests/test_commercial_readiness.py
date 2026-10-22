@@ -442,14 +442,13 @@ async def test_the_review_card_carries_the_warning(world) -> None:  # noqa: F811
 
 async def test_how_it_is_produced_and_the_tools_are_said_never_guessed(world) -> None:  # noqa: F811
     """Etsy's listing editor asks "How does your shop produce this item?" and "What tools are
-    used to make this item?". Etsy's OpenAPI spec (checked 2026-10-22) has neither on
-    getListing, createDraftListing or updateListing: nothing is read, sent or guessed; each
-    draft lists both to tick in Etsy and the profile card says the profile's answers in one line
-    (pipeline/how_made.py)."""
+    used to make this item?". Etsy's OpenAPI spec (checked 2026-10-23) has neither on getListing,
+    createDraftListing, updateListing or updateListingProperty: nothing is read, sent or guessed,
+    no draft carries a step for them (the seller does nothing per listing) and the profile card
+    says the profile's answers in one line (pipeline/how_made.py)."""
     from app.etsy import manual_fields
 
-    keys = [f.key for f in manual_fields.manual_fields_for("apparel")]
-    assert keys == ["creativity_production", "creativity_tools"]
+    assert manual_fields.manual_fields_for("apparel") == []
     bob = world["bob"]
     mine = next(p for p in (await world["b"].get("/api/profiles")).json() if p["id"] == str(bob.profile_id))
     assert mine["how_made_line"] == "How it's made: not set" and mine["how_made_set"] is False
