@@ -891,3 +891,32 @@ async def test_a_late_answer_with_the_listing_still_a_draft_is_reported(async_sm
     with pytest.raises(ValueError, match="still a draft"):
         await _go_live(async_sm, fake)
     assert fake.calls.count("get_listing") == 3  # asked a few times before giving up
+
+
+async def test_a_shop_disconnected_mid_draft_gets_no_record_afterwards(async_sm: async_sessionmaker) -> None:
+    """Quality pass 2026-10 (review, "uncertain"): a draft job already running when its shop is
+    disconnected went on and wrote a publication after the shop's Etsy data had been purged."""
+    from sqlalchemy import select
+
+    from app.db.models import ConnectionStatus, ListingPublication
+    from app.etsy.publisher import ShopDisconnected
+
+    _, conn_id, content_id, job_id = await _seed(async_sm)
+
+    class DisconnectedMidway(FakeEtsy):
+        async def upload_listing_image(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            async with async_sm() as other:  # the seller presses Disconnect meanwhile
+                (await other.get(EtsyConnection, conn_id)).status = ConnectionStatus.revoked
+                await other.commit()
+            return await super().upload_listing_image(*args, **kwargs)
+
+    async with async_sm() as s:
+        with pytest.raises(ShopDisconnected):
+            await publish_content(
+                s, job_id=job_id, content=await s.get(GeneratedContent, content_id),
+                connection=await s.get(EtsyConnection, conn_id), sku="BR5475",
+                thumbnail=PublishImage(b"t", "t.jpg"), client=DisconnectedMidway(), access_token="tok",
+                config=CONFIG, reference=REFERENCE, theme="x", tenant_limit=2000,
+            )
+    async with async_sm() as s:
+        assert (await s.execute(select(ListingPublication))).scalars().first() is None

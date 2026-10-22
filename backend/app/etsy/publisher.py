@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import audit
 from app.db.models import (
     Asset,
+    ConnectionStatus,
     ComplianceFinding,
     ComplianceSeverity,
     DraftAttempt,
@@ -102,6 +103,10 @@ async def _shop_sections(client: Any, connection: EtsyConnection, shop_id: int, 
 
 class PublishBlocked(Exception):
     """A blocking compliance finding prevents publishing this content."""
+
+
+class ShopDisconnected(ValueError):
+    """The shop was disconnected while a draft was being made: nothing more is recorded."""
 
 
 class ShopNotSetUp(ValueError):
@@ -982,6 +987,15 @@ async def publish_content(
                 f"the draft's images did not save in the order set (size charts expected at "
                 f"{expected}, Etsy has {len(back)} image(s)); check them in Shop Manager"
             )
+
+    # The shop may have been disconnected while this draft was being made (its Etsy data is
+    # purged then): no record is written for it afterwards (quality pass 2026-10, review).
+    await session.refresh(connection, attribute_names=["status"])
+    if connection.status is not ConnectionStatus.active:
+        raise ShopDisconnected(
+            "The shop was disconnected while this draft was being made; the draft stays on Etsy, "
+            "nothing more is done here"
+        )
 
     # 8) Record the listing id. It is created as a DRAFT (state never set), so mark
     # it as such -- the UI links a draft to Shop Manager, not the public URL (A4).
