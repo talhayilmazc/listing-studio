@@ -1931,6 +1931,20 @@ export interface SetupChoice {
   ids: number[];
 }
 
+/** The Scheduled page's preview of an edit (B8): old -> new per listing, and what the rules moved. */
+export interface ScheduledPreview {
+  rows: { key: string; title: string; shop_name: string; old_local: string; new_local: string | null; moved: string | null; removed: boolean }[];
+  sentence: string;
+  moved_line: string | null;
+}
+
+export interface ScheduledApplied {
+  changed: number;
+  sentence: string;
+  moved_line: string | null;
+  undo: { key: string; at: string | null; state: string }[];
+}
+
 /** The Shops table on a profile (B7): per shop, the profile's section and title prefix and the shop's daily limit. */
 export interface ProfileShopRow {
   connection_id: string;

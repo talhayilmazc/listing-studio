@@ -1,3 +1,4 @@
+import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import type {
@@ -16,7 +17,6 @@ import type {
   SlotIn,
   MockupZip,
   Checklist,
-  GroupPlanSummary,
   GroupSchedule,
   Destination,
   SendPreview,
@@ -26,6 +26,8 @@ import type {
   LinkSuggestion,
   ProfileSetup,
   ProfileShopTable,
+  ScheduledApplied,
+  ScheduledPreview,
   ShopGroups,
   UseInScope,
   SetupChoice,
@@ -625,6 +627,19 @@ export const api = {
   approveAll: (batchId: string) =>
     req<ApproveAllResult>(`/batches/${batchId}/approve-all`, { method: "POST" }),
   /** Scheduled go-lives, soonest first (v6 §G). */
+  // --- The Scheduled page (B8) ---
+  scheduled: () => req<ScheduledData>("/scheduled"),
+  scheduledPreview: (op: string, keys: string[], params: Record<string, unknown> = {}) =>
+    req<ScheduledPreview>("/scheduled/preview", { method: "POST", body: JSON.stringify({ op, keys, params }) }),
+  scheduledApply: (op: string, keys: string[], params: Record<string, unknown> = {}) =>
+    req<ScheduledApplied>("/scheduled/apply", { method: "POST", body: JSON.stringify({ op, keys, params }) }),
+  scheduledRestore: (undo: ScheduledApplied["undo"]) =>
+    req<ScheduledApplied>("/scheduled/restore", { method: "POST", body: JSON.stringify({ undo }) }),
+  pauseAllSchedules: (paused: boolean) => req<ScheduledData>("/scheduled/paused", { method: "PUT", body: JSON.stringify({ paused }) }),
+  setGroupSchedule: (id: string, body: { paused?: boolean; settings?: GroupSettings }) =>
+    req<ScheduledData>(`/scheduled/groups/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  reflowGroup: (id: string, settings: GroupSettings, apply = false) =>
+    req<ScheduledPreview>(`/scheduled/groups/${id}/reflow`, { method: "POST", body: JSON.stringify({ settings, apply }) }),
   listSchedules: (shop?: string | null) => req<Schedule[]>(`/schedules${shopQuery(shop)}`),
   /** Schedule or move drafts' go-live; each must be an approved listing's draft. */
   schedule: (items: ScheduleItem[], replace = true) =>
@@ -865,8 +880,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ when, ...(schedule ? { schedule } : {}) }),
     }),
-  groupPlans: () => req<GroupPlanSummary[]>("/plans"),
-  cancelGroupPlan: (id: string) => req<GroupPlanSummary>(`/plans/${id}`, { method: "DELETE" }),
   detectProfiles: (shop?: string | null) =>
     req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),
   shopListings: (shop?: string | null) => req<ShopListings>(`/shop/listings${shopQuery(shop)}`),

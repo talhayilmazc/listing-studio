@@ -50,7 +50,13 @@ async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UU
     if tenant_id is not None:
         query = query.where(PlannedSlot.tenant_id == tenant_id)
     released = 0
-    for slot in list((await session.execute(query.order_by(PlannedSlot.draft_at))).scalars()):
+    from app.pipeline.schedule_pause import is_paused, paused_shops
+
+    due = list((await session.execute(query.order_by(PlannedSlot.draft_at))).scalars())
+    paused = await paused_shops(session, {s.tenant_id for s in due}) if due else (set(), set())
+    for slot in due:
+        if is_paused(slot.tenant_id, slot.connection_id, paused):
+            continue  # paused on the Scheduled page: held, not cancelled
         content = await session.get(GeneratedContent, slot.content_id) if slot.content_id else None
         shop = await session.get(EtsyConnection, slot.connection_id)
         if content is None or shop is None or content.tenant_id != slot.tenant_id or shop.tenant_id != slot.tenant_id:

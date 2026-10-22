@@ -68,7 +68,13 @@ async def release_scheduled_publishes(ctx: dict[str, Any]) -> dict[str, int]:
             )
             .order_by(ListingPublication.scheduled_for)
         )
-        for publication, content, connection, tenant in rows.all():
+        from app.pipeline.schedule_pause import is_paused, paused_shops
+
+        due = rows.all()
+        paused = await paused_shops(session, {p.tenant_id for p, *_ in due}) if due else (set(), set())
+        for publication, content, connection, tenant in due:
+            if is_paused(publication.tenant_id, publication.connection_id, paused):
+                continue  # paused on the Scheduled page: held, not cancelled
             reason: str | None = None
             if tenant.status is TenantStatus.suspended:
                 reason = "Not published: the account is suspended."

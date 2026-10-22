@@ -16,6 +16,7 @@ from app.api import (
     distribution,
     send,
     profile_shop_table,
+    scheduled,
     health,
     imports,
     invite_requests,
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     application.include_router(distribution.router)
     application.include_router(send.router)
     application.include_router(profile_shop_table.router)
+    application.include_router(scheduled.router)
     application.include_router(shop.router)
     application.include_router(shops.router)
     application.include_router(publish.router)

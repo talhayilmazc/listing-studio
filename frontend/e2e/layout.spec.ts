@@ -447,6 +447,24 @@ test.describe("signed in", () => {
     await expect(table).toHaveCount(0);
   });
 
+  test("Scheduled: groups, filters, a bulk preview and Schedule listings, without saving", async ({ page }) => {
+    await page.goto("/scheduled");
+    await settle(page);
+    await expect(page.getByTestId("scheduled-filters")).toBeVisible();
+    if (await page.getByTestId("scheduled-row").count()) {
+      await page.getByTestId("select-row").first().check();
+      await page.getByTestId("bulk-shift").click();
+      await page.getByTestId("bulk-preview").click();
+      await expect(page.getByTestId("bulk-preview-list")).toBeVisible({ timeout: 15_000 });
+      await expectSound(page, "/scheduled with a bulk preview");
+      await page.getByRole("button", { name: "Clear", exact: true }).click();
+    }
+    await page.getByTestId("schedule-listings").click();
+    await expect(page.getByRole("dialog", { name: "Schedule listings" })).toBeVisible();
+    await expectSound(page, "/scheduled, Schedule listings");
+    await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+  });
+
   test("review: one Where and when panel; groups first; one button with the real total", async ({ page }) => {
     await page.goto("/batches");
     await settle(page);

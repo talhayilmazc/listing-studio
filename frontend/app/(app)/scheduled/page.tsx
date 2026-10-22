@@ -1,17 +1,38 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import { addDays, dayKey, formatTime, formatWhen, scheduleLabel, toWallClock, wallToInstant } from "@/lib/schedule";
-import { useSession } from "@/components/SessionProvider";
+import {
+  BULK_LABELS,
+  NO_FILTERS,
+  STATUS_LABELS,
+  allIn,
+  byDay,
+  dayLabel,
+  dragged,
+  filterItems,
+  groupLine,
+  movableKeys,
+  settingsLine,
+  toggleMany,
+  wallValue,
+  type BulkOp,
+  type Filters,
+  type GroupSettings,
+  type ScheduledData,
+  type ScheduledGroup,
+  type ScheduledItem,
+} from "@/lib/scheduled";
+import type { BatchSummary, ScheduledApplied, ScheduledPreview } from "@/lib/types";
 import { ZoneNote } from "@/components/ZoneNote";
-import type { GroupPlanSummary, Schedule } from "@/lib/types";
-import { ShopBadge } from "@/components/ShopPicker";
-import { useShops } from "@/components/ShopProvider";
-
+import { WhereAndWhen } from "@/components/WhereAndWhen";
+import { useSession } from "@/components/SessionProvider";
 import { Txt } from "@/components/Txt";
+
 const TONE: Record<string, string> = {
+  planned: "border-slate-200 bg-slate-50 text-slate-700",
+  drafting: "border-brand-100 bg-brand-50 text-brand-700",
   scheduled: "border-brand-100 bg-brand-50 text-brand-700",
   publishing: "border-brand-100 bg-brand-50 text-brand-700",
   waiting: "border-amber-200 bg-amber-50 text-amber-800",
@@ -20,154 +41,51 @@ const TONE: Record<string, string> = {
   not_published: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
-const DAYS_SHOWN = 14;
+const DRAG = "application/x-listyro-scheduled";
 
 /**
- * Every scheduled go-live (docs/duzeltmeler-v6.md §G): when, which shop, which
- * listing, and how it went. Times are in the seller's own time zone.
+ * Every scheduled go-live (B8): per-group summaries with pause and settings, filters, a
+ * timeline by day, and editing one by one (each row's own date and time, or a drag to another
+ * day) or in bulk (Set time, Shift by, Spread between, Move to day, Publish now, Remove), with a
+ * preview of old -> new before saving, then one Save and one Undo. The server keeps the rules
+ * (minutes between listings in a shop, a shop's daily limit across groups, one design never in
+ * two shops at the same minute) and says in one line what it moved. Times are the seller's.
  */
 export default function ScheduledPage() {
-  const { shops } = useShops();
-  const { timeZone } = useSession();
-  const [rows, setRows] = useState<Schedule[] | null>(null);
+  const [data, setData] = useState<ScheduledData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [result, setResult] = useState<{ text: string; undo: ScheduledApplied["undo"] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
 
   const load = useCallback(() => {
-    api
-      .listSchedules()
-      .then(setRows)
-      .catch((e) => setError(String(e.message ?? e)));
+    api.scheduled().then((d) => {
+      setData(d);
+      setSelected((cur) => cur.filter((k) => d.items.some((i) => i.key === k && i.movable)));
+    }).catch((e) => setError(String(e.message ?? e)));
   }, []);
 
   useEffect(() => {
     load();
-    // Due schedules turn into "Publishing" and then "Published" by themselves.
+    // Due go-lives turn into "Publishing" and then "Published" by themselves.
     const t = setInterval(load, 30_000);
     return () => clearInterval(t);
   }, [load]);
 
-  const byDay = useMemo(() => {
-    const m = new Map<string, Schedule[]>();
-    for (const r of rows ?? []) {
-      const k = dayKey(new Date(r.scheduled_for), timeZone);
-      m.set(k, [...(m.get(k) ?? []), r]);
-    }
-    return m;
-  }, [rows, timeZone]);
+  const shown = useMemo(() => (data ? filterItems(data.items, filters, data.groups) : []), [data, filters]);
+  const days = useMemo(() => byDay(shown), [shown]);
+  const shownKeys = movableKeys(shown);
 
-  const upcoming = (rows ?? []).filter((r) => r.status === "scheduled" || r.status === "waiting").length;
-  const multiShop = (shops?.length ?? 0) > 1;
-
-  return (
-    <div className="space-y-6">
-      <p className="max-w-2xl text-sm text-slate-500">
-        Drafts you approved and chose a time for. Each goes live at its time in your account&apos;s
-        time zone unless you cancel it; the budget scheduled go-lives need is kept for them. Schedule
-        drafts from a batch&apos;s review page.
-      </p>
-      <ZoneNote />
-      <GroupPlans />
-
-      {error && <div key="div-64-6" className="card p-3 text-sm text-rose-700">{error}</div>}
-      {rows === null && !error && <p key="p-65-6" className="text-sm text-slate-400">Loading…</p>}
-
-      {rows !== null && (
-        <>
-          <DayStrip byDay={byDay} timeZone={timeZone} />
-          {rows.length === 0 ? (
-            <div className="card p-6 text-sm text-slate-600">
-              Nothing is scheduled. On a batch&apos;s review page, use <b>Schedule</b> on a draft, or{" "}
-              <b>Schedule…</b> for all approved drafts at once.{" "}
-              <Link href="/batches" className="text-brand-700 underline">
-                Batches
-              </Link>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500">
-              <span translate="no" className="tabular-nums font-medium text-slate-700">{upcoming}</span> still to go
-              live · finished ones stay here for a week
-            </p>
-          )}
-          {[...byDay.entries()].map(([day, list]) => (
-            <section key={day} className="space-y-2">
-              <h2 className="border-b border-slate-200 pb-1 font-display text-lg text-slate-900">
-                <span>{new Date(day + "T12:00:00Z").toLocaleDateString(undefined, {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                  timeZone: "UTC",
-                })}</span>
-                <span className="ml-2 text-xs font-normal text-slate-400">{list.length}</span>
-              </h2>
-              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-                {list.map((r) => (
-                  <Row key={`${r.content_id}-${r.connection_id}`} row={r} showShop={multiShop} onChanged={load} />
-                ))}
-              </ul>
-            </section>
-          ))}
-        </>
-      )}
-    </div>
-  );
-}
-
-/** The next two weeks, with how many go live each day. */
-function DayStrip({ byDay, timeZone }: { byDay: Map<string, Schedule[]>; timeZone: string }) {
-  // Today and the next days on the account zone's calendar; each day is drawn
-  // from its calendar date at noon UTC, so no zone can shift it a day.
-  const today = toWallClock(new Date(), timeZone).slice(0, 10) + "T12:00";
-  const days = Array.from({ length: DAYS_SHOWN }, (_, i) => new Date(addDays(today, i) + ":00Z"));
-  return (
-    <div className="grid grid-cols-7 gap-1.5" aria-label="Next two weeks">
-      {days.map((d) => {
-        const n = (byDay.get(d.toISOString().slice(0, 10)) ?? []).length;
-        return (
-          <div
-            key={d.toISOString()}
-            className={
-              "rounded-md border px-2 py-1.5 text-center " +
-              (n > 0 ? "border-brand-100 bg-brand-50" : "border-slate-200 bg-white")
-            }
-            title={`${n} scheduled`}
-          >
-            <div className="text-[10px] uppercase tracking-wide text-slate-400">
-              {d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })}
-            </div>
-            <div className="text-sm text-slate-700">{d.getUTCDate()}</div>
-            <div translate="no" className={"text-xs tabular-nums " + (n > 0 ? "font-medium text-brand-700" : "text-slate-300")}>
-              {n || "–"}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; onChanged: () => void }) {
-  const { timeZone } = useSession();
-  const at = new Date(row.scheduled_for);
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(toWallClock(at, timeZone));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const changeable = row.status === "scheduled" || row.status === "not_published";
-
-  async function save() {
-    if (!value) return setError("Choose a date and time.");
-    if (!wallToInstant(value, timeZone)) return setError("That time doesn't exist in your time zone (the clocks skip it).");
+  // Saved at once (a row's own time, a drag): the result line says what moved, with Undo.
+  async function applyNow(op: string, keys: string[], params: Record<string, unknown> = {}) {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.schedule([
-        { content_id: row.content_id, connection_id: row.connection_id, local_time: value },
-      ]);
-      if (res.skipped.length) setError(res.skipped[0].reason);
-      else {
-        setEditing(false);
-        onChanged();
-      }
+      const res = await api.scheduledApply(op, keys, params);
+      setResult({ text: [res.sentence, res.moved_line].filter(Boolean).join(" "), undo: res.undo });
+      load();
     } catch (e: any) {
       setError(e.message ?? String(e));
     } finally {
@@ -175,129 +93,481 @@ function Row({ row, showShop, onChanged }: { row: Schedule; showShop: boolean; o
     }
   }
 
-  async function cancel() {
+  async function undo() {
+    if (!result) return;
     setBusy(true);
-    setError(null);
     try {
-      await api.cancelSchedule(row.content_id, row.connection_id);
-      onChanged();
+      const res = await api.scheduledRestore(result.undo);
+      setResult({ text: res.sentence, undo: [] });
+      load();
     } catch (e: any) {
       setError(e.message ?? String(e));
+    } finally {
       setBusy(false);
     }
   }
 
+  async function pauseAll(paused: boolean) {
+    setBusy(true);
+    try {
+      setData(await api.pauseAllSchedules(paused));
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const upcoming = data?.items.filter((i) => i.movable).length ?? 0;
+
   return (
-    <li className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-      {/* On a phone: the time and the status on one line, the listing on the next. */}
-      <span translate="no" className="w-28 shrink-0 whitespace-nowrap text-sm tabular-nums text-slate-800 max-sm:order-1 max-sm:w-auto max-sm:font-medium">
-        {formatTime(at, timeZone)}
-      </span>
-      <span aria-hidden className="hidden max-sm:order-3 max-sm:block max-sm:h-0 max-sm:basis-full" />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={api.assetImage(row.asset_id, 112)} alt="" className="h-10 w-10 shrink-0 rounded object-cover max-sm:order-4" />
-      <span className="min-w-0 flex-1 max-sm:order-5">
-        <span className="block truncate text-sm text-slate-800 max-sm:line-clamp-2 max-sm:whitespace-normal" title={row.title ?? undefined}>
-          {row.title ?? `Listing ${row.etsy_listing_id}`}
-        </span>
-        <span className="block text-xs text-slate-400">
-          <ShopBadge name={row.shop_name ?? "Shop"} className="mr-1.5" />
-          <a href={row.listing_link} target="_blank" rel="noreferrer" className="tap hover:text-brand-700 hover:underline">
-            {row.status === "published" ? "View on Etsy ↗" : "Edit draft ↗"}
-          </a>
-          <span>{" · "}</span>
-          <Link href={`/batches/${row.batch_id}/review`} className="tap hover:text-brand-700 hover:underline">
-            <span>review</span>
-            <Txt>{row.batch_name ? ` in ${row.batch_name}` : ""}</Txt>
-          </Link>
-        </span>
-        {row.status === "waiting" && row.resumes_at && (
-          <span key="resumes" translate="no" className="block text-xs text-amber-800">
-            {`The day's Etsy budget ran out; it goes live after the reset, at ${formatWhen(row.resumes_at, timeZone)}.`}
-          </span>
-        )}
-        {row.note && row.status !== "waiting" && <span key="span-204-8" className="block text-xs text-amber-800">{row.note}</span>}
-        {error && <span key="span-205-8" className="block text-xs text-rose-700">{error}</span>}
-      </span>
-      <span translate="no" className={"shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-medium max-sm:order-2 max-sm:ml-auto " + (TONE[row.status] ?? TONE.scheduled)}>
-        {scheduleLabel(row.status)}
-      </span>
-      {changeable && !editing && (
-        <span key="span-210-6" className="flex shrink-0 gap-2 text-xs max-sm:order-6 max-sm:basis-full">
-          <button type="button" className="text-slate-500 underline hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:rounded-md max-sm:border max-sm:border-slate-300 max-sm:px-3 max-sm:text-slate-700 max-sm:no-underline" onClick={() => setEditing(true)}>
-            change
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <p className="max-w-2xl text-sm text-slate-500">
+          Every listing waiting to go live, in your time zone. Change one time or many; each still goes live only at its time.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {data && (
+            <button key="pause-all" type="button" className="btn-secondary" disabled={busy} onClick={() => pauseAll(!data.paused_all)}
+              data-testid="pause-all">
+              {data.paused_all ? "Resume all" : "Pause all"}
+            </button>
+          )}
+          <button type="button" className="btn-primary" onClick={() => setScheduling(true)} data-testid="schedule-listings">
+            Schedule listings
           </button>
-          <button type="button" className="text-slate-500 underline hover:text-slate-900 max-sm:min-h-[2.75rem] max-sm:rounded-md max-sm:border max-sm:border-slate-300 max-sm:px-3 max-sm:text-slate-700 max-sm:no-underline" onClick={cancel} disabled={busy}>
-            {busy ? "cancelling…" : "cancel"}
-          </button>
-        </span>
+        </div>
+      </div>
+      <ZoneNote />
+      {data?.paused_all && (
+        <p key="paused-all" role="status" className="card border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Everything is paused: nothing goes live until you resume. A time that passes meanwhile goes at once when you resume.
+        </p>
       )}
-      {editing && (
-        <span key="span-220-6" className="flex w-full flex-wrap items-center gap-2 pl-[7.75rem] text-xs max-sm:order-6 max-sm:pl-0">
-          <input
-            type="datetime-local"
-            className="field w-auto py-1 text-xs"
-            value={value}
-            min={toWallClock(new Date(), timeZone)}
-            onChange={(e) => setValue(e.target.value)}
-            aria-label="New time"
-          />
-          <button type="button" className="btn-primary px-2.5 py-1 text-xs" onClick={save} disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-          <button type="button" className="text-slate-500 hover:text-slate-800" onClick={() => setEditing(false)}>
-            Cancel
-          </button>
-        </span>
+
+      {data && data.groups.length > 0 && (
+        <section key="groups" className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" data-testid="group-summaries">
+          {data.groups.map((g) => (
+            <GroupCard key={g.id} group={g} busy={busy} onChanged={setData} onError={setError} reload={load}
+              onSelect={() => setSelected((cur) => toggleMany(cur, movableKeys(data.items.filter((i) => g.shop_ids.includes(i.shop_id))), true))} />
+          ))}
+        </section>
       )}
+
+      {data && (
+        <div key="filters" className="flex flex-wrap items-end gap-2 text-sm" data-testid="scheduled-filters">
+          <FilterSelect label="Group" value={filters.group} onChange={(v) => setFilters({ ...filters, group: v })}
+            options={data.groups.map((g) => [g.id, g.name])} />
+          <FilterSelect label="Shop" value={filters.shop} onChange={(v) => setFilters({ ...filters, shop: v })}
+            options={data.shops.map((s) => [s.id, s.name])} />
+          <FilterSelect label="Profile" value={filters.profile} onChange={(v) => setFilters({ ...filters, profile: v })}
+            options={data.profiles.map((p) => [p.id, p.name])} />
+          <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })}
+            options={Object.entries(STATUS_LABELS)} />
+          <label className="flex min-h-[44px] items-center gap-2 text-slate-700 sm:min-h-0">
+            <input type="checkbox" className="h-4 w-4" checked={allIn(selected, shownKeys)} disabled={!shownKeys.length}
+              onChange={(e) => setSelected((cur) => toggleMany(cur, shownKeys, e.target.checked))} data-testid="select-all-shown" />
+            <span>Select all shown</span>
+          </label>
+        </div>
+      )}
+
+      {selected.length > 0 && data && (
+        <BulkBar key="bulk" selected={selected} items={data.items} onClear={() => setSelected([])}
+          onSaved={(r) => {
+            setResult(r);
+            load();
+          }} />
+      )}
+
+      {result && (
+        <div key="result" role="status" translate="no" className="card flex flex-wrap items-center gap-3 p-3 text-sm text-slate-800" data-testid="scheduled-result">
+          <span>{result.text}</span>
+          {result.undo.length > 0 && (
+            <button key="undo" type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onClick={undo} data-testid="undo">
+              Undo
+            </button>
+          )}
+          <button type="button" className="tap text-xs text-slate-500 underline" onClick={() => setResult(null)}>Dismiss</button>
+        </div>
+      )}
+
+      {error && <div key="error" className="card p-3 text-sm text-rose-700"><Txt>{error}</Txt></div>}
+      {data === null && !error && <p key="loading" className="text-sm text-slate-400">Loading…</p>}
+
+      {data && data.items.length === 0 && (
+        <div key="empty" className="card p-6 text-sm text-slate-600">
+          <span>Nothing is scheduled. Use </span><b>Schedule listings</b><span> to spread a batch&apos;s approved listings out.</span>
+        </div>
+      )}
+      {data && data.items.length > 0 && (
+        <p key="count" className="text-xs text-slate-500">
+          <span translate="no" className="font-medium tabular-nums text-slate-700">{upcoming}</span>
+          <span> still to go live · finished ones stay here for a week · drag a row onto another day to move it</span>
+        </p>
+      )}
+
+      {days.map(([day, list]) => {
+        const keys = movableKeys(list);
+        return (
+          <section key={day} className="space-y-2" data-testid="scheduled-day"
+            onDragOver={(e) => e.dataTransfer.types.includes(DRAG) && e.preventDefault()}
+            onDrop={(e) => {
+              const key = e.dataTransfer.getData(DRAG);
+              if (key) applyNow("move_day", dragged(selected, key), { date: day });
+            }}>
+            <h2 className="flex items-center gap-2 border-b border-slate-200 pb-1 font-display text-lg text-slate-900">
+              {keys.length > 0 && (
+                <input key="day-box" type="checkbox" className="h-4 w-4" checked={allIn(selected, keys)}
+                  onChange={(e) => setSelected((cur) => toggleMany(cur, keys, e.target.checked))} aria-label={`Select ${dayLabel(day)}`}
+                  data-testid="select-day" />
+              )}
+              <span>{dayLabel(day)}</span>
+              <span translate="no" className="text-xs font-normal text-slate-500">{list.length}</span>
+            </h2>
+            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+              {list.map((item) => (
+                <Row key={item.key} item={item} selected={selected.includes(item.key)} busy={busy}
+                  multiShop={(data?.shops.length ?? 0) > 1}
+                  onSelect={(on) => setSelected((cur) => toggleMany(cur, [item.key], on))}
+                  onTime={(value) => applyNow("times", [item.key], { times: { [item.key]: value } })} />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+
+      {scheduling && <ScheduleListings key="schedule" onClose={() => {
+        setScheduling(false);
+        load();
+      }} />}
+    </div>
+  );
+}
+
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
+  return (
+    <label className="space-y-0.5">
+      <span className="label block">{label}</span>
+      <select className="field w-auto py-1.5 text-sm" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">All</option>
+        {options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function Row({ item, selected, busy, multiShop, onSelect, onTime }: {
+  item: ScheduledItem;
+  selected: boolean;
+  busy: boolean;
+  multiShop: boolean;
+  onSelect: (on: boolean) => void;
+  onTime: (value: string) => void;
+}) {
+  const [value, setValue] = useState(wallValue(item));
+  useEffect(() => setValue(wallValue(item)), [item]);
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm" data-testid="scheduled-row"
+      draggable={item.movable} onDragStart={(e) => {
+        e.dataTransfer.setData(DRAG, item.key);
+        e.dataTransfer.effectAllowed = "move";
+      }}>
+      <input type="checkbox" className="h-4 w-4" checked={selected} disabled={!item.movable} onChange={(e) => onSelect(e.target.checked)}
+        aria-label={`Select ${item.title}`} data-testid="select-row" />
+      {item.movable ? (
+        <input key="when" type="datetime-local" className="field w-auto py-1 text-sm" value={value} disabled={busy}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={() => value && value !== wallValue(item) && onTime(value)}
+          onKeyDown={(e) => e.key === "Enter" && value && value !== wallValue(item) && onTime(value)}
+          aria-label={`When ${item.title} goes live`} data-testid="row-time" />
+      ) : (
+        <span key="when" translate="no" className="tabular-nums text-slate-700">{item.local}</span>
+      )}
+      <span className="min-w-0 flex-1 truncate text-slate-900" title={item.title}>{item.title}</span>
+      {multiShop && <span key="shop" translate="no" className="max-w-[10rem] truncate text-xs text-slate-600" title={item.shop_name}>{item.shop_name}</span>}
+      {item.profile_name && <span key="profile" translate="no" className="hidden max-w-[10rem] truncate text-xs text-slate-500 sm:inline" title={item.profile_name}>{item.profile_name}</span>}
+      <span translate="no" className={"rounded border px-1.5 text-[11px] " + (TONE[item.status] ?? TONE.planned)}>
+        {STATUS_LABELS[item.status] ?? item.status}
+      </span>
+      {item.paused && item.movable && <span key="paused" className="text-[11px] text-amber-800">paused</span>}
+      {item.listing_link && (
+        <a key="link" href={item.listing_link} target="_blank" rel="noreferrer" className="tap text-xs text-brand-700 underline">Etsy ↗</a>
+      )}
+      {item.note && <span key="note" className="basis-full text-xs text-slate-600"><Txt>{item.note}</Txt></span>}
     </li>
   );
 }
 
-const STATE_LABEL: Record<string, string> = {
-  waiting: "draft not made yet",
-  drafting: "making the draft",
-  scheduled: "draft made, go-live set",
-  cancelled: "cancelled",
-  failed: "failed",
-};
-
-/** Group schedules (v8 §B): their drafts and go-lives, and cancelling what has not happened. */
-function GroupPlans() {
-  const [plans, setPlans] = useState<GroupPlanSummary[] | null>(null);
+/** The bulk actions on the selection: a small form, the preview (old -> new), one Save. */
+function BulkBar({ selected, items, onClear, onSaved }: {
+  selected: string[];
+  items: ScheduledItem[];
+  onClear: () => void;
+  onSaved: (r: { text: string; undo: ScheduledApplied["undo"] }) => void;
+}) {
+  const [op, setOp] = useState<BulkOp | null>(null);
+  const first = items.filter((i) => selected.includes(i.key)).sort((a, b) => a.at.localeCompare(b.at))[0];
+  const [params, setParams] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState<ScheduledPreview | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    api.groupPlans().then(setPlans).catch(() => setPlans([]));
-  }, []);
-  const active = (plans ?? []).filter((p) => !p.cancelled);
-  if (active.length === 0) return null;
+
+  function start(next: BulkOp) {
+    setOp(next);
+    setPreview(null);
+    setError(null);
+    const at = first ? wallValue(first) : "";
+    setParams({ local_time: at, minutes_between: "30", minutes: "60", from: at, to: at, date: first?.local_day ?? "" });
+    if (next === "publish_now" || next === "remove") ask(next, {});
+  }
+
+  function body(which: BulkOp, p: Record<string, string>): Record<string, unknown> {
+    if (which === "set_time") return { local_time: p.local_time, minutes_between: Number(p.minutes_between || 0) };
+    if (which === "shift") return { minutes: Number(p.minutes || 0) };
+    if (which === "spread") return { from: p.from, to: p.to };
+    if (which === "move_day") return { date: p.date };
+    return {};
+  }
+
+  async function ask(which: BulkOp, p: Record<string, string>) {
+    setBusy(true);
+    setError(null);
+    try {
+      setPreview(await api.scheduledPreview(which, selected, body(which, p)));
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save() {
+    if (!op) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.scheduledApply(op, selected, body(op, params));
+      onSaved({ text: [res.sentence, res.moved_line].filter(Boolean).join(" "), undo: res.undo });
+      setOp(null);
+      setPreview(null);
+      onClear();
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setParams((cur) => ({ ...cur, [k]: e.target.value }));
   return (
-    <section className="card space-y-2 p-4 text-sm">
-      <p className="font-medium text-slate-800">Group schedules</p>
-      <ul className="space-y-2">
-        {active.map((p) => (
-          <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <span translate="no" className="font-medium">{p.batch_name ?? "Batch"}</span>
-            <span translate="no" className="text-slate-500">
-              {Object.entries(p.counts).map(([k, n]) => `${n} ${STATE_LABEL[k] ?? k}`).join(" · ")}
-            </span>
-            <span translate="no" className="text-slate-500">
-              {p.last_publish ? `until ${new Date(p.last_publish).toLocaleDateString()}` : ""}
-            </span>
-            <button type="button" className="tap text-rose-600 underline" onClick={async () => {
-              try {
-                const out = await api.cancelGroupPlan(p.id);
-                setPlans((cur) => (cur ?? []).map((x) => (x.id === p.id ? out : x)));
-              } catch (e: any) {
-                setError(String(e.message ?? e));
-              }
-            }}>
-              Cancel what has not happened
-            </button>
-          </li>
+    <div className="card sticky top-2 z-10 space-y-3 p-3 text-sm shadow-sm" data-testid="bulk-bar">
+      <div className="flex flex-wrap items-center gap-2">
+        <span translate="no" className="font-medium text-slate-800">{`${selected.length} selected`}</span>
+        {(Object.keys(BULK_LABELS) as BulkOp[]).map((b) => (
+          <button key={b} type="button" disabled={busy} onClick={() => start(b)} data-testid={`bulk-${b}`}
+            className={(op === b ? "btn-primary" : b === "remove" ? "btn-danger" : "btn-secondary") + " px-3 py-1.5 text-xs"}>
+            {BULK_LABELS[b]}
+          </button>
         ))}
-      </ul>
-      {error && <p key="error" className="text-rose-600">{error}</p>}
-    </section>
+        <button type="button" className="tap text-xs text-slate-500 underline" onClick={onClear}>Clear</button>
+      </div>
+      {op && !["publish_now", "remove"].includes(op) && (
+        <div key="form" className="flex flex-wrap items-end gap-2">
+          {op === "set_time" && (
+            <>
+              <label key="t" className="space-y-0.5"><span className="label block">First at</span>
+                <input type="datetime-local" className="field w-auto py-1" value={params.local_time} onChange={set("local_time")} /></label>
+              <label key="m" className="space-y-0.5"><span className="label block">Then minutes between</span>
+                <input type="number" min={0} className="field w-24 py-1" value={params.minutes_between} onChange={set("minutes_between")} /></label>
+            </>
+          )}
+          {op === "shift" && (
+            <label key="s" className="space-y-0.5"><span className="label block">Minutes (negative: earlier)</span>
+              <input type="number" className="field w-28 py-1" value={params.minutes} onChange={set("minutes")} /></label>
+          )}
+          {op === "spread" && (
+            <>
+              <label key="f" className="space-y-0.5"><span className="label block">From</span>
+                <input type="datetime-local" className="field w-auto py-1" value={params.from} onChange={set("from")} /></label>
+              <label key="u" className="space-y-0.5"><span className="label block">Until</span>
+                <input type="datetime-local" className="field w-auto py-1" value={params.to} onChange={set("to")} /></label>
+            </>
+          )}
+          {op === "move_day" && (
+            <label key="d" className="space-y-0.5"><span className="label block">Day (each keeps its time)</span>
+              <input type="date" className="field w-auto py-1" value={params.date} onChange={set("date")} /></label>
+          )}
+          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onClick={() => ask(op, params)} data-testid="bulk-preview">
+            Preview
+          </button>
+        </div>
+      )}
+      {preview && (
+        <div key="preview" className="space-y-2" data-testid="bulk-preview-list">
+          <p translate="no" className="font-medium text-slate-900"><span>{preview.sentence}</span></p>
+          {preview.moved_line && <p key="moved" className="text-xs text-amber-900">{preview.moved_line}</p>}
+          <ul className="max-h-64 space-y-0.5 overflow-y-auto text-xs text-slate-700">
+            {preview.rows.map((r) => (
+              <li key={r.key} translate="no" className="flex flex-wrap gap-x-2">
+                <span className="min-w-0 max-w-[16rem] truncate font-medium" title={r.title}>{r.title}</span>
+                <span className="text-slate-500">{r.shop_name}</span>
+                <span>{r.removed ? `${r.old_local} → removed` : `${r.old_local} → ${r.new_local}`}</span>
+                {r.moved && <span key="m" className="text-amber-800">(moved by the rules)</span>}
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy || preview.rows.length === 0} onClick={save}
+            data-testid="bulk-save">
+            Save
+          </button>
+        </div>
+      )}
+      {error && <p key="error" className="text-xs text-rose-700"><Txt>{error}</Txt></p>}
+    </div>
+  );
+}
+
+/** A group's summary, pause, selection and settings (with a reflow preview). */
+function GroupCard({ group, busy, onChanged, onError, reload, onSelect }: {
+  group: ScheduledGroup;
+  busy: boolean;
+  onChanged: (d: ScheduledData) => void;
+  onError: (e: string) => void;
+  reload: () => void;
+  onSelect: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [settings, setSettings] = useState<GroupSettings>(group.settings ?? {
+    per_shop_per_day: 5, window_start: "09:00", window_end: "17:00", spacing_minutes: 30, stagger_minutes: 5,
+  });
+  const [preview, setPreview] = useState<ScheduledPreview | null>(null);
+  const [working, setWorking] = useState(false);
+
+  async function pause() {
+    try {
+      onChanged(await api.setGroupSchedule(group.id, { paused: !group.paused }));
+    } catch (e: any) {
+      onError(e.message ?? String(e));
+    }
+  }
+
+  async function reflow(apply: boolean) {
+    setWorking(true);
+    try {
+      const res = await api.reflowGroup(group.id, settings, apply);
+      if (apply) {
+        setEditing(false);
+        setPreview(null);
+        reload();
+      } else setPreview(res);
+    } catch (e: any) {
+      onError(e.message ?? String(e));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const num = (k: keyof GroupSettings) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setSettings((s) => ({ ...s, [k]: k === "window_start" || k === "window_end" ? e.target.value : Math.max(k === "stagger_minutes" ? 0 : 1, Number(e.target.value) || 0) }));
+  return (
+    <div className="card space-y-2 p-3 text-sm" data-testid="group-summary">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate font-medium text-slate-900" translate="no" title={group.name}>{group.name}</p>
+          <p translate="no" className="text-xs text-slate-600"><span>{groupLine(group)}</span></p>
+          <p className="text-xs text-slate-500"><span translate="no">{settingsLine(group.settings)}</span></p>
+        </div>
+        {group.paused && <span key="paused" className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1.5 text-[11px] text-amber-800">Paused</span>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onClick={pause} data-testid="group-pause">
+          {group.paused ? "Resume" : "Pause"}
+        </button>
+        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={!group.upcoming} onClick={onSelect}>Select</button>
+        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setEditing((v) => !v)} aria-expanded={editing}
+          data-testid="group-settings">
+          {editing ? "Close settings" : "Settings"}
+        </button>
+      </div>
+      {editing && (
+        <div key="settings" className="space-y-2 border-t border-slate-100 pt-2">
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+            <label className="space-y-0.5"><span className="label block">A day per shop</span>
+              <input type="number" min={1} max={50} className="field py-1" value={settings.per_shop_per_day} onChange={num("per_shop_per_day")} /></label>
+            <label className="space-y-0.5"><span className="label block">Minutes apart</span>
+              <input type="number" min={1} className="field py-1" value={settings.spacing_minutes} onChange={num("spacing_minutes")} /></label>
+            <label className="space-y-0.5"><span className="label block">Shops apart (min)</span>
+              <input type="number" min={0} className="field py-1" value={settings.stagger_minutes} onChange={num("stagger_minutes")} /></label>
+            <label className="space-y-0.5"><span className="label block">From</span>
+              <input type="time" className="field py-1" value={settings.window_start} onChange={num("window_start")} /></label>
+            <label className="space-y-0.5"><span className="label block">Until</span>
+              <input type="time" className="field py-1" value={settings.window_end} onChange={num("window_end")} /></label>
+          </div>
+          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={working} onClick={() => reflow(false)} data-testid="reflow-preview">
+            Preview the new times
+          </button>
+          {preview && (
+            <div key="preview" className="space-y-1 text-xs">
+              <p translate="no" className="font-medium"><span>{preview.sentence}</span></p>
+              {preview.moved_line && <p key="moved" className="text-amber-900">{preview.moved_line}</p>}
+              <ul className="max-h-48 space-y-0.5 overflow-y-auto text-slate-700">
+                {preview.rows.map((r) => (
+                  <li key={r.key} translate="no"><span>{`${r.title} · ${r.shop_name}: ${r.old_local} → ${r.new_local}`}</span></li>
+                ))}
+              </ul>
+              <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={working} onClick={() => reflow(true)} data-testid="reflow-save">
+                Save settings and times
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Schedule listings": choose a batch with approved listings, then its "Where and when". */
+function ScheduleListings({ onClose }: { onClose: () => void }) {
+  const { timeZone } = useSession();
+  const [batches, setBatches] = useState<BatchSummary[] | null>(null);
+  const [batch, setBatch] = useState<string>("");
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    api.listBatches().then((b) => setBatches(b.filter((x) => x.approved_count > 0))).catch(() => setBatches([]));
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 sm:p-6" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Schedule listings" onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-full max-w-3xl flex-col gap-3 overflow-y-auto bg-white p-4 shadow-xl sm:h-auto sm:max-h-[90vh] sm:rounded-lg">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-900">Schedule listings</h2>
+          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={onClose}>Close</button>
+        </div>
+        <label className="space-y-0.5 text-sm">
+          <span className="label block">Batch</span>
+          <select className="field" value={batch} onChange={(e) => setBatch(e.target.value)} data-testid="schedule-batch">
+            <option value="">{batches === null ? "Loading…" : batches.length ? "Choose a batch with approved listings…" : "No batch has approved listings yet"}</option>
+            {(batches ?? []).map((b) => <option key={b.id} value={b.id}>{`${b.name} (${b.approved_count} approved)`}</option>)}
+          </select>
+        </label>
+        {batch && (
+          <WhereAndWhen key={batch} batchId={batch} timeZone={timeZone} refreshKey="" disabled={false}
+            onState={() => undefined} onPreview={() => undefined}
+            onDrafts={async (call) => {
+              const res = await call();
+              setNote(`Creating ${res.jobs.length} draft${res.jobs.length === 1 ? "" : "s"}.`);
+            }}
+            onDone={() => setNote("Scheduled. The listings are on this page now.")} />
+        )}
+        {note && <p key="note" role="status" className="text-sm text-emerald-800">{note}</p>}
+      </div>
+    </div>,
+    document.body,
   );
 }

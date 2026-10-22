@@ -175,6 +175,8 @@ class Tenant(Base):
     #: shown in it (app/core/timezones.py). Detected from the browser on first
     #: sign-in; editable in Settings. None until then.
     time_zone: Mapped[str | None] = mapped_column(Text)
+    #: Every scheduled go-live of the account paused (B8, "Pause all" on Scheduled).
+    schedules_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     #: The product allowance (core/allowance.py): listings generated plus drafts
     #: created per period. None = the system default. Not the Etsy request quota.
     allowance_amount: Mapped[int | None] = mapped_column(Integer)
@@ -1430,6 +1432,9 @@ class ShopGroup(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    #: The group's schedule settings and pause (B8): {"per_shop_per_day", "window_start",
+    #: "window_end", "spacing_minutes", "stagger_minutes", "paused"}; None: none set.
+    schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
 
 
 class ShopGroupMember(Base):
