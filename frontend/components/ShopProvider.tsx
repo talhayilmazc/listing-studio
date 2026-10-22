@@ -33,6 +33,9 @@ interface ShopValue {
   select: (id: string) => void;
   selectAll: () => void;
   refresh: () => Promise<void>;
+  /** Why the shops could not be read, or null. The shops stay as last read (null at first):
+   *  never an empty list, which would make every page treat a seller with shops as one without. */
+  error: string | null;
 }
 
 const ShopContext = createContext<ShopValue>({
@@ -45,6 +48,7 @@ const ShopContext = createContext<ShopValue>({
   select: () => {},
   selectAll: () => {},
   refresh: async () => {},
+  error: null,
 });
 
 export const useShops = () => useContext(ShopContext);
@@ -69,12 +73,16 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<ShopsOut | null>(null);
   const [remembered, setRemembered] = useState<string | null>(null);
   const [lastSingle, setLastSingle] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       setData(await api.shops());
-    } catch {
-      setData({ shops: [], slots: { used: 0, limit: 0, app_used: 0, app_limit: 0, can_add: false } });
+      setError(null);
+    } catch (e: any) {
+      // Quality pass 2026-10: this used to set an empty list, so Overview offered "Connect a shop"
+      // and the Shops page looked empty to a seller whose shops were only not read this time.
+      setError(e?.message ?? String(e));
     }
   }, []);
 
@@ -102,9 +110,9 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     const paused = data?.connections_paused ? data.pause_notice ?? "New shop connections are paused." : null;
     return {
       shops, slots: data?.slots ?? null, paused, selected, allShops,
-      scope: allShops ? null : selected, select, selectAll, refresh,
+      scope: allShops ? null : selected, select, selectAll, refresh, error,
     };
-  }, [data, remembered, lastSingle, select, selectAll, refresh]);
+  }, [data, remembered, lastSingle, select, selectAll, refresh, error]);
 
   return <ShopContext.Provider value={value}>{children}</ShopContext.Provider>;
 }

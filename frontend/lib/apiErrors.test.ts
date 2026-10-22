@@ -38,3 +38,11 @@ test("every request path goes through it", () => {
   assert.ok(!api.includes("JSON.stringify(detail)"), "no raw JSON error messages");
   assert.ok(api.includes("messageFor(res.status") && api.includes("messageFor(xhr.status"));
 });
+
+test("shops that could not be read are said on every page, never shown as no shops", () => {
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const provider = read("components/ShopProvider.tsx");
+  assert.ok(!/setData\(\{\s*shops:\s*\[\]/.test(provider), "a failed read must not become an empty list of shops");
+  assert.ok(read("components/AppShell.tsx").includes("<ShopsLoadError />"));
+  assert.ok(!read("components/FirstRunGuide.tsx").includes(".catch(() => [])"), "the guide is not built from failed requests");
+});

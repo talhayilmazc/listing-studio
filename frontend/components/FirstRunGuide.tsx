@@ -17,7 +17,9 @@ export function FirstRunGuide() {
   useEffect(() => {
     if (closed || shops === null) return;
     let cancelled = false;
-    Promise.all([api.listProfiles(null).catch(() => []), api.listBatches().catch(() => [])]).then(([profiles, batches]) => {
+    // When either could not be read, the guide stays hidden: steps guessed from a failed request
+    // would tell a seller with shops and profiles to "Connect a shop".
+    Promise.all([api.listProfiles(null), api.listBatches()]).then(([profiles, batches]) => {
       if (cancelled) return;
       setFacts({
         shops: shops.length,
@@ -26,7 +28,7 @@ export function FirstRunGuide() {
         batches: batches.length,
         sent: batches.filter((b) => (b.statuses ?? []).some((s) => SENT.has(s))).length,
       });
-    });
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
     };

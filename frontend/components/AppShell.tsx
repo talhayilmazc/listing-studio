@@ -6,6 +6,7 @@ import { Rail } from "./Rail";
 import { TopStrip } from "./TopStrip";
 import { MetricStrip } from "./MetricStrip";
 import { PauseNotice } from "./PauseNotice";
+import { ShopsLoadError } from "./ShopsLoadError";
 import { ShopProvider } from "./ShopProvider";
 import { Footer } from "./Footer";
 import { isBareRoute, useSession } from "./SessionProvider";
@@ -45,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Rail open={navOpen} onClose={() => setNavOpen(false)} />
         <div className="flex min-h-screen flex-col lg:pl-60">
           <TopStrip onMenu={() => setNavOpen(true)} />
+          <ShopsLoadError />
           <PauseNotice />
           <MetricStrip />
           <main className="flex-1 px-6 py-8 lg:px-8">
