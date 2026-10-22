@@ -1,5 +1,7 @@
 "use client";
 
+import { useParams } from "next/navigation";
+
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
@@ -27,8 +29,9 @@ interface AssetGroup {
   done: boolean;
 }
 
-export default function BatchPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+// Next 15: a page's params arrive as a Promise; a client page reads them with useParams.
+export default function BatchPage() {
+  const { id } = useParams<{ id: string }>();
   const [batch, setBatch] = useState<BatchDetail | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [settings, setSettings] = useState<Record<string, Group>>({});

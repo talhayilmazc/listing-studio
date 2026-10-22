@@ -1,5 +1,7 @@
 "use client";
 
+import { useParams } from "next/navigation";
+
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -51,7 +53,9 @@ interface Outcome {
   error: string | null;
 }
 
-export default function ReviewPage({ params }: { params: { id: string } }) {
+// Next 15: a page's params arrive as a Promise; a client page reads them with useParams.
+export default function ReviewPage() {
+  const params = useParams<{ id: string }>();
   const { timeZone } = useSession();
   const { id } = params;
   const [items, setItems] = useState<Content[] | null>(null);

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { TREND_LABEL, listingName, money } from "@/lib/analytics";
@@ -27,13 +28,10 @@ function day(iso: string): Date {
 }
 
 /** One listing: 13 months of weekly revenue, its unit economics against the period before, and what to do. */
-export default function ListingAnalytics({
-  params,
-  searchParams,
-}: {
-  params: { listingId: string };
-  searchParams: { days?: string };
-}) {
+// Next 15: a page's params arrive as a Promise; a client page reads them with the hooks.
+export default function ListingAnalytics() {
+  const params = useParams<{ listingId: string }>();
+  const searchParams = { days: useSearchParams().get("days") ?? undefined };
   const listingId = Number(params.listingId);
   const { selected } = useShops();
   const shopId = selected?.id ?? null;
