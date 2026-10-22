@@ -450,3 +450,52 @@ async def test_publishing_a_draft_deleted_in_shop_manager_says_so_and_lets_it_be
         [kept] = (await s.execute(select(ListingPublication))).scalars().all()
         assert kept.state == "deleted_on_etsy" and kept.deleted_on_etsy_at is not None
         assert kept.etsy_listing_id == 555 and kept.connection_id == conn_id
+
+
+async def test_a_queued_job_lost_from_the_queue_is_queued_again_once(async_sm: async_sessionmaker) -> None:
+    """Quality pass 2026-10, review R7: when Redis comes back empty a queued job has no copy in the
+    queue and would stay "queued" for ever. Past its time by LOST_AFTER, it is queued again, once
+    per LOST_AFTER; a job waiting for a later time (the daily reset) is left alone."""
+    job_id, queue = await _job(async_sm), _Queue()
+    ctx = {"enqueue": queue, "sessionmaker": async_sm}
+    now = datetime.now(timezone.utc)
+    async with async_sm() as s:
+        job = await s.get(Job, job_id)
+        job.status, job.scheduled_at = JobStatus.queued, now - recovery.LOST_AFTER - timedelta(minutes=1)
+        await s.commit()
+    assert await recovery.recover_interrupted_jobs(ctx) == 1
+    assert queue == [("run_publish_job", (str(job_id),), {"_defer_by": 0})]
+    assert await recovery.recover_interrupted_jobs(ctx) == 0  # not again until LOST_AFTER has passed
+    async with async_sm() as s:
+        job = await s.get(Job, job_id)
+        job.scheduled_at = now + timedelta(hours=5)  # paused until the reset
+        await s.commit()
+    assert await recovery.recover_interrupted_jobs(ctx) == 0
+
+
+async def test_replace_images_runs_one_copy_at_a_time_and_an_interruption_queues_it_again(
+    async_sm: async_sessionmaker, test_settings
+) -> None:
+    """Review R8: Replace images had no run lock and an interrupted job stayed "running" for ever."""
+    from app.db.models import JobType
+    from app.workers.replace import run_replace_images_job
+
+    redis = FakeAsyncRedis()
+    job_id, queue = await _job(async_sm), _Queue()
+    async with async_sm() as s:
+        job = await s.get(Job, job_id)
+        job.type = JobType.replace_images
+        await s.commit()
+    ctx = {"enqueue": queue, "sessionmaker": async_sm, "redis": redis}
+    async with recovery.holding(ctx, str(job_id)):
+        assert await run_replace_images_job(ctx, str(job_id)) == "busy"
+    # Killed mid-run: the cron finds it and queues it again.
+    async with async_sm() as s:
+        job = await s.get(Job, job_id)
+        job.status = JobStatus.running
+        job.started_at = datetime.now(timezone.utc) - timedelta(seconds=test_settings.worker_job_timeout + 600)
+        await s.commit()
+    assert await recovery.recover_interrupted_jobs(ctx) == 1
+    assert queue[-1][0] == "run_replace_images_job"
+    async with async_sm() as s:
+        assert (await s.get(Job, job_id)).status is JobStatus.queued

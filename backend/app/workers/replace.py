@@ -15,6 +15,7 @@ requests against the account's ceiling.
 from __future__ import annotations
 
 import logging
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -64,6 +65,7 @@ from app.pipeline.storage import LocalStorage
 from app.pipeline.taxonomy import clothing_taxonomy_ids, infer_content_template
 from app.pipeline.templates import load_template
 from app.pipeline.vision import AnthropicVisionAnalyzer
+from app.workers import recovery
 from app.workers.gate import start_job
 from app.workers.guards import owned, public_error
 
@@ -118,6 +120,20 @@ async def _chart_placement(session: Any, job: Job, batch_id: uuid.UUID, kept: li
 
 
 async def run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
+    """Like a draft job (review R8): one copy at a time (the run lock), and a job cut short by a
+    worker stopping or arq's time limit is queued to run again rather than left "running"
+    (which blocked account deletion and kept counting as a used rewrite)."""
+    async with recovery.holding(ctx, job_id) as held:
+        if not held:
+            return "busy"
+        try:
+            return await _run_replace_images_job(ctx, job_id)
+        except asyncio.CancelledError:
+            await recovery.interrupted(ctx, None, uuid.UUID(job_id), "run_replace_images_job")
+            raise
+
+
+async def _run_replace_images_job(ctx: dict[str, Any], job_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
     storage = LocalStorage(settings.storage_dir)

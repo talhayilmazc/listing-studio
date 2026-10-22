@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -59,7 +59,12 @@ INTERRUPTED_WAIT = 20.0
 FUNCTIONS: dict[JobType, str] = {
     JobType.create_draft: "run_publish_job",
     JobType.publish_live: "run_publish_live_job",
+    JobType.replace_images: "run_replace_images_job",
 }
+#: A queued job this long past its time has no copy left in the queue (Redis came back empty,
+#: review R7): it is queued again. A copy that is still there is harmless: a finished job is
+#: skipped, a running one holds its run lock.
+LOST_AFTER = timedelta(minutes=30)
 
 
 def _now() -> datetime:
@@ -239,4 +244,22 @@ async def recover_interrupted_jobs(ctx: dict[str, Any]) -> int:
             )
             recovered += 1
             logger.warning("job %s was left running since %s; %s", job.id, job.started_at, result)
+        recovered += await _requeue_lost(ctx, session)
     return recovered
+
+
+async def _requeue_lost(ctx: dict[str, Any], session: AsyncSession) -> int:
+    """Queued jobs long past their time, queued again (each at most once per LOST_AFTER)."""
+    now = _now()
+    stale = now - LOST_AFTER
+    rows = (await session.execute(select(Job).where(
+        Job.status == JobStatus.queued, Job.type.in_(tuple(FUNCTIONS)),
+        func.coalesce(Job.scheduled_at, Job.created_at) < stale,
+    ))).scalars().all()
+    for job in rows:
+        job.scheduled_at = now  # the next look is LOST_AFTER from now
+    await session.commit()
+    for job in rows:
+        await _enqueue(ctx, FUNCTIONS[job.type], str(job.id), 0)
+        logger.warning("job %s was queued but not in the queue; queued again", job.id)
+    return len(rows)
