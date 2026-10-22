@@ -12,6 +12,19 @@ export const DEFAULT_MAX_CHARACTERS = 256;
 const SHOUTED = /\b[A-Z]{3,}/g;
 export const DEFAULT_QUESTION = "Personalization";
 
+/**
+ * The one line on a review card (B5): where the listing's personalization comes from and whether
+ * it is on. "Personalization: from its profile (on)", "Personalization: this listing's own (off)".
+ */
+export function personalizationLine(value: Personalization | null, source: string): string {
+  if (source === "unknown" || (source !== "listing" && !value)) {
+    return "Personalization: from its profile (read when its reference is read)";
+  }
+  const where = source === "listing" ? "this listing's own" : "from its profile";
+  const state = value?.enabled ? (value.required ? "on, required" : "on") : "off";
+  return `Personalization: ${where} (${state})`;
+}
+
 /** Why a setting cannot be sent, or [] when it can. */
 export function personalizationErrors(p: Personalization): string[] {
   if (!p.enabled) return [];

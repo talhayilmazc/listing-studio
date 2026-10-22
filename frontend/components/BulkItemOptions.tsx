@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { ItemOptions } from "@/lib/types";
+import type { ItemOptions, Personalization } from "@/lib/types";
+import { ListingPersonalization } from "./ListingPersonalization";
 
 const KEEP = "__keep__";
 const NONE = "__none__";
@@ -37,6 +38,23 @@ export function BulkItemOptions({
   const [skuAll, setSkuAll] = useState("");
   const [prefix, setPrefix] = useState("");
   const [suffix, setSuffix] = useState("");
+  // "Personalization…": one setting for the selected listings, or back to each one's profile (B5).
+  const [personalizing, setPersonalizing] = useState(false);
+
+  async function applyPersonalization(setting: Personalization | null) {
+    setBusy(true);
+    setResult(null);
+    try {
+      await api.setPersonalizationForAll(batchId, setting, selected);
+      setResult(setting === null
+        ? `${selected.length} listing${selected.length === 1 ? "" : "s"} follow${selected.length === 1 ? "s" : ""} its profile's personalization again.`
+        : `Personalization set for ${selected.length} listing${selected.length === 1 ? "" : "s"}.`);
+      setPersonalizing(false);
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function applySku() {
     setBusy(true);
@@ -137,6 +155,20 @@ export function BulkItemOptions({
           <button key="apply" type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy || nothing} onClick={apply}>
             {busy ? "Setting…" : "Set for selected"}
           </button>
+          <span key="personalization-row" className="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setPersonalizing((v) => !v)}
+              aria-expanded={personalizing} data-testid="bulk-personalization">
+              Personalization…
+            </button>
+            <button type="button" className="tap text-xs text-slate-600 underline" disabled={busy} onClick={() => applyPersonalization(null)}>
+              Follow their profiles
+            </button>
+          </span>
+          {personalizing && (
+            <div key="personalization-editor" className="w-full">
+              <ListingPersonalization value={null} source="" onSave={(setting) => applyPersonalization(setting)} />
+            </div>
+          )}
           <span key="sku-row" className="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
             <span className="font-medium text-slate-800">SKU for selected:</span>
             <input className="field w-28 py-1 font-mono text-sm" placeholder="Prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)} aria-label="SKU prefix" maxLength={40} />

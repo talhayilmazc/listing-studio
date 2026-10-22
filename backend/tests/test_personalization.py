@@ -182,3 +182,26 @@ async def test_set_for_all_reaches_every_listing_and_only_the_owners(ctx) -> Non
     authenticate(ctx["client"], await open_session(ctx["redis"], other))
     res = await ctx["client"].post(f"/api/batches/{batch_id}/personalization", json={"personalization": None})
     assert res.status_code == 404
+
+
+async def test_personalization_for_selected_listings_only_and_back_to_the_profile(ctx) -> None:
+    """B5: "Personalization…" sets the selected listings only; "Follow their profiles" (null)
+    puts them back; the others keep following their profile."""
+    first = await _add_content(ctx["sm"], ctx["tenant_id"])
+    async with ctx["sm"]() as s:
+        batch_id = (await s.get(GeneratedContent, first)).batch_id
+    second = await _add_content(ctx["sm"], ctx["tenant_id"])
+    async with ctx["sm"]() as s:  # both listings in one batch
+        (await s.get(GeneratedContent, second)).batch_id = batch_id
+        await s.commit()
+    setting = {"enabled": True, "question_text": "Your name", "required": True, "max_allowed_characters": 20}
+    res = await ctx["client"].post(f"/api/batches/{batch_id}/personalization",
+                                   json={"personalization": setting, "content_ids": [str(first)]})
+    assert res.status_code == 200
+    by_id = {c["id"]: c for c in res.json()}
+    assert by_id[str(first)]["personalization_source"] == "listing"
+    assert by_id[str(first)]["personalization"]["question_text"] == "Your name"
+    assert by_id[str(second)]["personalization_source"] != "listing"  # untouched: still its profile's
+    res = await ctx["client"].post(f"/api/batches/{batch_id}/personalization",
+                                   json={"personalization": None, "content_ids": [str(first)]})
+    assert all(c["personalization_source"] != "listing" for c in res.json())

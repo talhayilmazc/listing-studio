@@ -17,7 +17,6 @@ import type {
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { ListingChange, WhereAndWhen } from "@/components/WhereAndWhen";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
-import { ListingPersonalization } from "@/components/ListingPersonalization";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { applyChange, cardKey, emptyHandWritten, needsById, pendingManualSteps, reviewActions } from "@/lib/review";
@@ -359,30 +358,6 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </ul>
       )}
 
-      {items && items.length > 1 && (
-        <details key="personalize-all" className="card p-3 text-sm">
-          <summary className="tap cursor-pointer font-medium text-slate-800">Personalization: set for all listings</summary>
-          <p className="mb-2 mt-1 text-xs text-slate-500">
-            One setting for every listing of this batch, in every shop it goes to. Each card can still be changed on its
-            own; &ldquo;Use the profile&apos;s&rdquo; there goes back to its profile. To give every listing the setting
-            one listing already has, use &ldquo;Use this for all listings&rdquo; on that listing&apos;s card.
-          </p>
-          <ListingPersonalization
-            value={null}
-            source=""
-            onSave={async (setting) => {
-              await api.setPersonalizationForAll(id, setting);
-              await load();
-            }}
-          />
-          <button type="button" className="tap mt-2 text-xs text-slate-500 underline" onClick={async () => {
-            await api.setPersonalizationForAll(id, null);
-            await load();
-          }}>
-            Every listing follows its profile again
-          </button>
-        </details>
-      )}
       {items && items.length > 1 && (
         <BulkItemOptions
           key="bulk-options"

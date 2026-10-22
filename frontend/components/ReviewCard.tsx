@@ -29,6 +29,7 @@ import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
 import { ListingPersonalization } from "./ListingPersonalization";
+import { personalizationLine } from "@/lib/personalization";
 import { SearchChecklist } from "./SearchChecklist";
 import { SEARCH_CARD_NOTE, TITLE_WARNING_HEAD, TITLE_WARNING_TAIL } from "@/lib/listingStyle";
 import { useSession } from "./SessionProvider";
@@ -120,6 +121,7 @@ export function ReviewCard({
   useEffect(() => setSku(initial.parsed_sku ?? null), [initial.parsed_sku]);
   const [personalization, setPersonalization] = useState(initial.personalization ?? null);
   const [personalizationSource, setPersonalizationSource] = useState(initial.personalization_source ?? "unknown");
+  const [editingPersonalization, setEditingPersonalization] = useState(false);
   // "Set for all" on the page changes it without remounting the card.
   const incomingPersonalization = JSON.stringify([initial.personalization, initial.personalization_source]);
   useEffect(() => {
@@ -661,16 +663,27 @@ export function ReviewCard({
 
             <SearchChecklist checklist={checklist} updating={checking} />
 
-            <ListingPersonalization
-              value={personalization}
-              source={personalizationSource}
-              onSave={async (setting) => {
-                const res = await api.updateContent(initial.id, { personalization: setting });
-                setPersonalization(res.content.personalization ?? null);
-                setPersonalizationSource(res.content.personalization_source ?? "unknown");
-              }}
-              onUseForAll={onPersonalizationForAll}
-            />
+            {/* One line: from its profile unless changed here (B5); "change" opens the editor. */}
+            <p className="text-xs text-slate-600" data-testid="card-personalization">
+              <span translate="no">{personalizationLine(personalization, personalizationSource)}</span>
+              <span> · </span>
+              <button type="button" className="tap text-brand-700 underline" onClick={() => setEditingPersonalization((v) => !v)}
+                aria-expanded={editingPersonalization} data-testid="card-personalization-change">
+                {editingPersonalization ? "done" : "change"}
+              </button>
+            </p>
+            {editingPersonalization && (
+              <ListingPersonalization key="personalization"
+                value={personalization}
+                source={personalizationSource}
+                onSave={async (setting) => {
+                  const res = await api.updateContent(initial.id, { personalization: setting });
+                  setPersonalization(res.content.personalization ?? null);
+                  setPersonalizationSource(res.content.personalization_source ?? "unknown");
+                }}
+                onUseForAll={onPersonalizationForAll}
+              />
+            )}
 
             {!valid && (
               <ul key="ul-288-12" className="space-y-0.5 text-xs text-rose-700" data-testid="card-errors">
