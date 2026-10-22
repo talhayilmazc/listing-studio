@@ -19,7 +19,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.core import audit
 from app.db.models import ListingProfile, ProfileShopLink, ShopListingCache, Tenant
 from app.etsy.refresh import in_use, request_refresh
-from app.etsy.shops import active_shops, owned_shop
+from app.etsy.shops import NOT_YOUR_LISTING, active_shops, owned_listing, owned_shop
 from app.pipeline import chart_order
 from app.pipeline import creativity, how_made, item_options, profile_shops
 from app.pipeline import links as links_mod
@@ -281,10 +281,10 @@ async def create_profile(
     # a profile's ids are always its reference listing's own shop's.
     if await owned_shop(session, tenant.id, body.connection_id) is None:
         raise HTTPException(status_code=404, detail="shop not found")
-    main = body.connection_id
-    cached = await session.get(ShopListingCache, (tenant.id, body.reference_listing_id))
-    if cached is not None and cached.connection_id != main and await owned_shop(session, tenant.id, cached.connection_id):
-        main = cached.connection_id
+    cached = await owned_listing(session, tenant.id, body.reference_listing_id)
+    if cached is None:
+        raise HTTPException(status_code=404, detail=NOT_YOUR_LISTING)
+    main = cached.connection_id
     profile = ListingProfile(
         tenant_id=tenant.id,
         connection_id=main,

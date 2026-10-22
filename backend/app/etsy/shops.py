@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import ConnectionStatus, EtsyConnection, ShopGroup, ShopGroupMember, Tenant
+from app.db.models import ConnectionStatus, EtsyConnection, ShopGroup, ShopGroupMember, ShopListingCache, Tenant
 
 
 class ShopLimitReached(Exception):
@@ -120,6 +120,21 @@ async def shop_slots(session: AsyncSession, tenant: Tenant) -> ShopSlots:
         app_limit=get_settings().max_shops_app_wide,
         paused=await app_settings.connections_paused(session),
     )
+
+
+#: Said when a listing id is not one of the account's own listings (create a profile from it).
+NOT_YOUR_LISTING = ("That listing is not among your shops' listings. Open the shop's listings so they are read "
+                    "again, then choose it there")
+
+
+async def owned_listing(session: AsyncSession, tenant_id: uuid.UUID, listing_id: int) -> ShopListingCache | None:
+    """One of this account's own listings, as its shop listing cache knows it, in one of its active
+    shops; None otherwise. A reference listing must be one: a listing id typed or sent from
+    anywhere else would make the worker read another seller's listing (CLAUDE.md rule 2)."""
+    cached = await session.get(ShopListingCache, (tenant_id, listing_id))
+    if cached is None or await owned_shop(session, tenant_id, cached.connection_id) is None:
+        return None
+    return cached
 
 
 async def owned_shop(

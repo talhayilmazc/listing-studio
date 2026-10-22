@@ -97,7 +97,37 @@ async def ctx() -> AsyncIterator[dict]:
     await engine.dispose()
 
 
+async def _own_listing(ctx, listing_id: int) -> None:
+    """One of the shop's own listings, as its listing cache knows it: a profile may only be made from one."""
+    async with ctx["sm"]() as s:
+        s.add(ShopListingCache(tenant_id=ctx["tenant_id"], connection_id=ctx["shop"], listing_id=listing_id,
+                               payload={"listing_id": listing_id, "title": "Own listing"},
+                               fetched_at=datetime.now(timezone.utc)))
+        await s.commit()
+
+
+async def test_a_profile_is_only_made_from_the_accounts_own_listing(ctx) -> None:
+    """Quality pass 2026-10: a listing id not among the account's shops' listings (another seller's,
+    or typed) is refused before anything is queued, so the worker never reads another seller's
+    listing (CLAUDE.md rule 2). The same for "Use as profile" and choosing a new reference."""
+    from app.etsy.shops import NOT_YOUR_LISTING
+
+    res = await ctx["client"].post("/api/profiles", json={"connection_id": str(ctx["shop"]), "name": "Tee",
+                                                          "reference_listing_id": 404404})
+    assert res.status_code == 404 and res.json()["detail"] == NOT_YOUR_LISTING
+    res = await ctx["client"].post("/api/shop/listings/404404/use-as-profile")
+    assert res.status_code == 404 and res.json()["detail"] == NOT_YOUR_LISTING
+    assert ctx["enqueuer"].calls == []
+
+    await _own_listing(ctx, 111)
+    pid = (await ctx["client"].post("/api/profiles", json={"connection_id": str(ctx["shop"]), "name": "Tee",
+                                                           "reference_listing_id": 111})).json()["id"]
+    res = await ctx["client"].put(f"/api/profiles/{pid}/reference", json={"reference_listing_id": 404404})
+    assert res.status_code == 404 and res.json()["detail"] == NOT_YOUR_LISTING
+
+
 async def test_create_profile_enqueues_refresh(ctx) -> None:
+    await _own_listing(ctx, 111)
     res = await ctx["client"].post(
         "/api/profiles",
         json={"connection_id": str(ctx["shop"]), "name": "Standard Tee", "reference_listing_id": 111, "content_template": "apparel"},
@@ -134,6 +164,7 @@ async def test_detect_and_confirm_flow(ctx) -> None:
 
 
 async def test_list_get_patch_delete_profile(ctx) -> None:
+    await _own_listing(ctx, 222)
     created = (
         await ctx["client"].post(
             "/api/profiles", json={"connection_id": str(ctx["shop"]), "name": "Tee", "reference_listing_id": 222}
@@ -157,6 +188,7 @@ async def test_list_get_patch_delete_profile(ctx) -> None:
 
 
 async def test_refresh_endpoint_reenqueues(ctx) -> None:
+    await _own_listing(ctx, 222)
     pid = (
         await ctx["client"].post(
             "/api/profiles", json={"connection_id": str(ctx["shop"]), "name": "Tee", "reference_listing_id": 222}

@@ -586,11 +586,15 @@ async def set_reference(
 ) -> schemas.ProfileOut:
     """A reference listing in the main shop (one of that shop's own listings: a listing the
     account's listing cache places in another shop is refused, with that shop's name)."""
-    from app.db.models import EtsyConnection, ShopListingCache
+    from app.db.models import EtsyConnection
+
+    from app.etsy.shops import NOT_YOUR_LISTING, owned_listing
 
     profile = await _get(session, tenant, profile_id)
-    cached = await session.get(ShopListingCache, (tenant.id, body.reference_listing_id))
-    if cached is not None and cached.connection_id != profile.connection_id:
+    cached = await owned_listing(session, tenant.id, body.reference_listing_id)
+    if cached is None:
+        raise HTTPException(status_code=404, detail=NOT_YOUR_LISTING)
+    if cached.connection_id != profile.connection_id:
         shop = await session.get(EtsyConnection, cached.connection_id)
         main = await session.get(EtsyConnection, profile.connection_id)
         raise HTTPException(status_code=409, detail=(

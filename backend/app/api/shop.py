@@ -39,7 +39,7 @@ from app.db.models import (
     UploadBatch,
 )
 from app.etsy.connection import ConnectionService
-from app.etsy.shops import active_shops, shop_groups_of
+from app.etsy.shops import NOT_YOUR_LISTING, active_shops, owned_listing, shop_groups_of
 from app.pipeline import upload_retention
 from app.pipeline.reference import decode_etsy_text
 
@@ -474,7 +474,9 @@ async def use_listing_as_profile(
     create-draft flow, using this profile as the reference. Name/template can be
     tuned afterwards via PATCH /api/profiles/{id}.
     """
-    cached = await session.get(ShopListingCache, (tenant.id, listing_id))
+    cached = await owned_listing(session, tenant.id, listing_id)
+    if cached is None:
+        raise HTTPException(status_code=404, detail=NOT_YOUR_LISTING)
     connection = await _listing_shop(session, tenant, cached, shop)
     default_name = (
         decode_etsy_text((cached.payload or {}).get("title")) if cached is not None else None
