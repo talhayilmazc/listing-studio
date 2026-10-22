@@ -40,6 +40,14 @@ from tests.test_tenant_isolation import _seed
 PASSWORD = "correct-horse-battery-staple"
 
 
+
+class _NoQueue:
+    """Jobs asked for by a request are not run in these tests."""
+
+    async def enqueue(self, function: str, *args: object, **options: object) -> None:
+        return None
+
+
 @pytest_asyncio.fixture()
 async def world(tmp_path, test_settings: Settings) -> AsyncIterator[dict]:
     engine = create_async_engine(
@@ -69,6 +77,8 @@ async def world(tmp_path, test_settings: Settings) -> AsyncIterator[dict]:
     app.dependency_overrides[deps.get_redis] = lambda: redis
     app.dependency_overrides[deps.get_session_store] = lambda: SessionStore(redis)
     app.dependency_overrides[deps.get_quota] = lambda: DailyQuota(redis, global_daily_limit=5000)
+    # A stub queue: the real one keeps a Redis pool across tests (and their event loops).
+    app.dependency_overrides[deps.get_enqueuer] = lambda: _NoQueue()
     app.dependency_overrides[deps.get_connection_service] = lambda: ConnectionService(
         TokenCipher(Fernet.generate_key()), client_id="k", token_url="https://t"
     )
