@@ -34,7 +34,7 @@ export function MockupTile({ runId, designId, output, state, edits, label, onOpe
     <span className="relative block aspect-square w-full overflow-hidden rounded bg-slate-100">
       {preview ?? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={api.mockupOutputImageUrl(runId, output.id, 224, output.stamp ?? "")} alt="" loading="lazy"
+        <img src={api.mockupOutputImageUrl(runId, output.id, "small", output.stamp ?? "")} alt="" loading="lazy"
           className="absolute inset-0 h-full w-full object-cover" data-testid="mockup-tile-image" />
       )}
       {state.kind === "updating" && (
@@ -124,7 +124,7 @@ function TilePreview({ edits, designId, photoId }: { edits: MockupEdits; designI
       {s > 0 && (
         <span key="photo" className="absolute" style={{ left: off[0], top: off[1], width: photo.width * s, height: photo.height * s }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={api.mockupPhotoImageUrl(photo.id, 448)} alt="" className="absolute inset-0 h-full w-full" />
+          <img src={api.mockupPhotoImageUrl(photo.id, "thumb")} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full" />
           {photo.areas.map((area, k) => (
             <AreaPrint key={k} edits={edits} design={design} photo={photo} area={k} scale={s} />
           ))}
@@ -150,7 +150,7 @@ function AreaPrint({ edits, design, photo, area, scale }: {
   const [size, setSize] = useState<[number, number] | null>(null);
   useEffect(() => {
     let gone = false;
-    designPixels(api.mockupDesignFileUrl(design.id, file.version_id)).then((src) => {
+    designPixels(api.mockupDesignFileUrl(design.id, file.version_id, file.stamp)).then((src) => {
       const out = canvas.current;
       if (gone || !src || !out) return;
       const printed = printPixels(src, trimOn(file, src.width, src.height), regions, adjust);

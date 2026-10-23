@@ -429,7 +429,7 @@ function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pendin
           <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={api.assetImage(tiles[0].id, 896, "16:10")}
+            src={api.assetImage(tiles[0].id, "thumb", "16:10")}
             alt={tiles[0].original_filename}
             className="relative h-full w-full object-cover"
             loading="lazy"
@@ -459,7 +459,7 @@ function Mosaic({ tiles, more, pending }: { tiles: Asset[]; more: number; pendin
                   <span className="absolute inset-0 animate-pulse bg-slate-200" aria-hidden />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={api.assetImage(asset.id, i === 0 ? 448 : 224, "4:5")}
+                    src={api.assetImage(asset.id, i === 0 ? "thumb" : "small", "4:5")}
                     alt={asset.original_filename}
                     className="relative h-full w-full object-cover"
                     loading="lazy"

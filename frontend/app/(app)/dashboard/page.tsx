@@ -587,7 +587,7 @@ function ActivityRow({
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={api.assetImage(a.id, 112)}
+                    src={api.assetImage(a.id, "small")}
                     alt={a.original_filename}
                     className="h-full w-full object-cover"
                     loading="lazy"

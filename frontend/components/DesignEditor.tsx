@@ -145,7 +145,7 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
       source.current = ctx.getImageData(0, 0, c.width, c.height);
       setLoaded((n) => n + 1);
     };
-    img.src = api.mockupDesignFileUrl(design.id, file.version_id);
+    img.src = api.mockupDesignFileUrl(design.id, file.version_id, file.stamp);
   }, [design.id, file.version_id]);
   useEffect(() => {
     const src = source.current;
@@ -368,7 +368,7 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
               onPointerDown={onStageDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
               data-testid="design-editor-stage">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={api.mockupPhotoImageUrl(photo.id, 896)} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full" />
+              <img src={api.mockupPhotoImageUrl(photo.id, "medium")} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full" />
               <canvas ref={canvas} aria-hidden className="pointer-events-none absolute left-0 top-0 max-w-none"
                 style={{ width: tw, height: th, transformOrigin: "0 0", transform: matrix3d(tw, th, screen) }} data-testid="design-editor-design" />
               <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">

@@ -76,7 +76,7 @@ export function PhotoViewer({
             {photo.status === "ready" ? (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img key={photo.id} src={api.mockupPhotoImageUrl(photo.id, 896)} alt={photo.name} width={photo.width ?? undefined}
+                <img key={photo.id} src={api.mockupPhotoImageUrl(photo.id, "medium")} alt={photo.name} width={photo.width ?? undefined}
                   height={photo.height ?? undefined} className="block h-auto max-h-[70vh] w-auto max-w-full" />
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
                   {photo.areas.map((a, i) => (

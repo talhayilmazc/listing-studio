@@ -2,6 +2,7 @@ import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import { UNREACHABLE, messageFor } from "./apiErrors";
+import { shareInFlight } from "./inFlight";
 import type {
   FoundArea,
   UnfinishedDraft,
@@ -98,7 +99,8 @@ import type {
   SkuResult,
 } from "./types";
 
-// Same-origin: Next rewrites /api/* to the FastAPI backend.
+// Same-origin: in production the tunnel sends /api/* to the API itself (deploy/cloudflared/config.yml);
+// in development Next rewrites it there (next.config.mjs).
 const BASE = "/api";
 
 /** `?shop=<id>` for the shop-scoped endpoints; nothing = the account's first shop. */
@@ -129,14 +131,35 @@ async function send(url: string, init: RequestInit): Promise<Response> {
   return res;
 }
 
+/** Identical GETs asked for at the same moment share one request (lib/inFlight.ts); each
+ * caller parses its own copy of the answer, so no two callers hold the same object. */
+const sharedGet = shareInFlight<{ status: number; text: string }>();
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await send(`${BASE}${path}`, {
+  const call = () => send(`${BASE}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",
   });
+  if ((init?.method ?? "GET").toUpperCase() === "GET" && !init?.signal) {
+    const { status, text } = await sharedGet(path, () =>
+      call().then(async (res) => ({ status: res.status, text: res.status === 204 ? "" : await res.text() })));
+    return status === 204 ? (undefined as T) : (JSON.parse(text) as T);
+  }
+  const res = await call();
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
+
+/**
+ * The version every image URL carries (backend pipeline/thumbs.py ``VERSION``): with it the
+ * browser keeps an image for a year (``immutable``), so it never downloads one twice; a new
+ * version (a new kind of copy) is a new URL.
+ */
+export const IMAGE_VERSION = 1;
+/** The copies a screen may ask for (backend pipeline/thumbs.py): "small" 240 px for tiles up to
+ * about 120 CSS px, "thumb" 480 px for grids and cards, "medium" 1200 px for viewers and editors.
+ * No size: the full file (downloads only). */
+export type ImageSize = "small" | "thumb" | "medium";
 
 /** `?a=1&b=2`, leaving out empty values. */
 function query(params: Record<string, string | number | null | undefined>): string {
@@ -511,7 +534,7 @@ export const api = {
   mockupFrontUrl: (id: string, layer: "cutout" | "combined" | "brush", version: number, w?: number) =>
     `${BASE}/mockup-photos/${id}/front?layer=${layer}&v=${version}${w ? `&w=${w}` : ""}`,
   deleteMockupPhoto: (id: string) => req<void>(`/mockup-photos/${id}`, { method: "DELETE" }),
-  mockupPhotoImageUrl: (id: string, w?: number) => `${BASE}/mockup-photos/${id}/image${w ? `?w=${w}` : ""}`,
+  mockupPhotoImageUrl: (id: string, size?: ImageSize) => `${BASE}/mockup-photos/${id}/image` + query({ size, v: IMAGE_VERSION }),
   /** The photo with a sample design printed (shaded and warped by the fabric), with unsaved areas: a JPEG. */
   previewMockupPhoto: async (
     id: string,
@@ -574,8 +597,8 @@ export const api = {
     req<MockupDesign>(`/mockup-design-versions/${id}`, { method: "PATCH", body: JSON.stringify({ subgroup }) }),
   /** A mockup's image; with its version (``stamp``) the browser keeps it, and a mockup made
    * again has a new version, so an earlier file is never shown. */
-  mockupOutputImageUrl: (runId: string, outputId: string, w?: number, stamp?: string) =>
-    `${BASE}/mockup-runs/${runId}/outputs/${outputId}/image?${[w ? `w=${w}` : "", stamp !== undefined ? `v=${encodeURIComponent(stamp)}` : ""].filter(Boolean).join("&")}`,
+  mockupOutputImageUrl: (runId: string, outputId: string, size?: ImageSize, stamp?: string) =>
+    `${BASE}/mockup-runs/${runId}/outputs/${outputId}/image` + query({ size, v: stamp }),
   /** "Use for listings": a listing group per design, the chosen cover first. */
   useMockupsForListings: (runId: string, designIds: string[] | null, covers: Record<string, string>) =>
     req<{ groups: number; photos: number }>(`/mockup-runs/${runId}/listings`, {
@@ -600,8 +623,9 @@ export const api = {
   batchDesigns: (batchId: string) => req<MockupDesign[]>(`/batches/${batchId}/designs`),
   /** The design editor (backend api/mockup_edits.py): every edit is a render-time layer. */
   mockupEdits: (runId: string) => req<MockupEdits>(`/mockup-runs/${runId}/edits`),
-  mockupDesignFileUrl: (designId: string, versionId?: string | null) =>
-    `${BASE}/mockup-designs/${designId}/file${versionId ? `?version=${versionId}` : ""}`,
+  /** A design file at full size (the editor's arithmetic needs its pixels); with its ``stamp`` the browser keeps it. */
+  mockupDesignFileUrl: (designId: string, versionId?: string | null, stamp?: string) =>
+    `${BASE}/mockup-designs/${designId}/file` + query({ version: versionId ?? undefined, v: stamp }),
   saveAdjustment: (row: MockupAdjustmentRow) =>
     req<MockupAdjustmentRow>("/mockup-adjustments", { method: "PUT", body: JSON.stringify(row) }),
   applyAdjustment: (body: { run_id: string; design_id: string; photo_id: string; area: number; before: unknown; after: unknown;
@@ -733,13 +757,12 @@ export const api = {
   quota: (shop?: string | null) => req<Quota>(`/quota${shopQuery(shop)}`),
   meta: () => req<Meta>("/meta"),
   /**
-   * `width` requests a cached preview derivative; omit it for the full image.
+   * A batch photo: its ``size`` copy (see ``ImageSize``); none is the full file.
    * `aspect` additionally crops to that tile ratio, centred on the artwork
    * rather than the frame, so a portrait mockup is not sliced through.
    */
-  assetImage: (id: string, width?: 112 | 224 | 448 | 896, aspect?: "4:5" | "16:10") =>
-    `${BASE}/assets/${id}/image` +
-    (width ? `?w=${width}` + (aspect ? `&ar=${aspect}` : "") : ""),
+  assetImage: (id: string, size?: ImageSize, aspect?: "4:5" | "16:10") =>
+    `${BASE}/assets/${id}/image` + query({ size, ar: size ? aspect : undefined, v: IMAGE_VERSION }),
   connection: () => req<Connection>("/auth/etsy/status"),
 
   // Connected shops (v5 §E). Each is one Etsy connection; ids are connection ids.

@@ -31,7 +31,7 @@ export function CoverCropper({
   const [error, setError] = useState<string | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
-  const src = api.assetImage(asset.id, 896);
+  const src = api.assetImage(asset.id, "medium");
 
   // Scroll to zoom. A passive React wheel handler cannot stop the page scrolling.
   useEffect(() => {

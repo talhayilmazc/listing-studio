@@ -7,6 +7,7 @@ import { FileDrop } from "@/components/FileDrop";
 import { PhotoViewer } from "@/components/PhotoViewer";
 import { PrintAreaEditor } from "@/components/PrintAreaEditor";
 import { AssignPresets, FilePrefixField, PresetsManager, SaveAsPreset } from "@/components/SubgroupPresets";
+import { UPLOAD_PARALLEL, runLimited, withRetry } from "@/lib/uploadQueue";
 import { api } from "@/lib/api";
 import { pick } from "@/lib/fileDrop";
 import type { MockupPhoto, MockupSubgroup, MockupTemplate, SubgroupPreset } from "@/lib/types";
@@ -325,15 +326,24 @@ function AddPhotos({ templates, onAdded, into, presets = 0 }: {
     const added: string[] = [];
     try {
       const templateId = target === "new" ? (await api.createMockupTemplate(name.trim() || "Template", presets > 0 && usePresets)).id : target;
-      for (const row of sendable) {
+      // Three at a time, each tried again by itself if it fails on the way (lib/uploadQueue.ts).
+      const chosenOrder: (string | null)[] = sendable.map(() => null);
+      await runLimited(sendable, UPLOAD_PARALLEL, async (row, i) => {
         update(row.key, { state: "sending", pct: 0 });
         try {
-          const photo = await api.addMockupPhoto(templateId, row.file, row.name, confirmed, (pct) => update(row.key, { pct }));
-          added.push(photo.id);
+          const photo = await withRetry(() => api.addMockupPhoto(templateId, row.file, row.name, confirmed, (pct) => update(row.key, { pct })));
+          chosenOrder[i] = photo.id;
           update(row.key, { state: "done", pct: 100 });
         } catch (e: any) {
           update(row.key, { state: "error", message: String(e.message ?? e) });
         }
+      });
+      added.push(...chosenOrder.filter((id): id is string => id !== null));
+      // They arrive in any order: put them after the template's earlier photos, in the order chosen.
+      if (added.length > 1) {
+        const template = await api.mockupTemplate(templateId);
+        const earlier = template.photos.filter((p) => !added.includes(p.id)).map((p) => p.id);
+        await api.orderMockupPhotos(templateId, [...earlier, ...added]);
       }
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -658,7 +668,7 @@ function TemplateCard({
                 onClick={() => onView(template.photos.findIndex((x) => x.id === p.id))} aria-label={`View ${p.name}`}
                 data-testid="template-strip-photo">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={api.mockupPhotoImageUrl(p.id, 112)} alt="" loading="lazy" className="h-full w-full object-cover" />
+                <img src={api.mockupPhotoImageUrl(p.id, "small")} alt="" loading="lazy" className="h-full w-full object-cover" />
               </button>
             </li>
           ))}
@@ -835,7 +845,7 @@ function PhotoTile({
         <button key="open" type="button" className="relative block w-full bg-white" style={{ aspectRatio: aspect }} onClick={onView}
           aria-label={`View ${photo.name}`} data-testid="template-photo-open">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={api.mockupPhotoImageUrl(photo.id, 448)} alt="" loading="lazy" className="h-full w-full object-fill" />
+          <img src={api.mockupPhotoImageUrl(photo.id, "thumb")} alt="" loading="lazy" className="h-full w-full object-fill" />
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
             {photo.areas.map((a, i) => (
               <polygon key={i} points={a.print_area.map(([x, y]) => `${x},${y}`).join(" ")}

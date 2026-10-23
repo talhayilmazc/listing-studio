@@ -833,7 +833,7 @@ export default function BatchPage() {
                 <li key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData(ASSET_DRAG, `${a.id}|${a.group_key ?? ""}`)}
                   className="relative h-20 w-20 cursor-grab overflow-hidden rounded bg-slate-100" title={a.original_filename}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={api.assetImage(a.id, 112)} alt={a.original_filename} className="h-full w-full object-cover" draggable={false} loading="lazy" />
+                  <img src={api.assetImage(a.id, "small")} alt={a.original_filename} className="h-full w-full object-cover" draggable={false} loading="lazy" />
                   <select aria-label={`Move ${a.original_filename} to a listing`} value="" disabled={arranging}
                     className="absolute inset-x-0 bottom-0 h-6 w-full appearance-none bg-slate-900/55 px-1 text-[10px] text-white"
                     onChange={(e) => e.target.value && moveInto([a.id], e.target.value === "+new" ? null : e.target.value.slice(1))}>

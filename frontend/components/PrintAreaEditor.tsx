@@ -588,7 +588,7 @@ export function PrintAreaEditor({
               onPointerDown={onStageDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
               data-testid="editor-stage">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={api.mockupPhotoImageUrl(photo.id)} alt="" draggable={false}
+              <img src={api.mockupPhotoImageUrl(photo.id, "medium")} alt="" draggable={false}
                 className="pointer-events-none absolute inset-0 h-full w-full" />
               {showDesign && !fabric && areas.map((a, i) => (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -952,7 +952,7 @@ export function PrintAreaEditor({
                                 onChange={(e) => setCopyIds((ids) => (e.target.checked ? [...ids, p.id] : ids.filter((x) => x !== p.id)))}
                                 data-testid="editor-copy-pick" />
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={api.mockupPhotoImageUrl(p.id, 112)} alt="" className="h-9 w-9 shrink-0 rounded object-cover" loading="lazy" />
+                              <img src={api.mockupPhotoImageUrl(p.id, "small")} alt="" className="h-9 w-9 shrink-0 rounded object-cover" loading="lazy" />
                               <span className="min-w-0 truncate" title={p.name}>{p.name}</span>
                             </label>
                           </li>

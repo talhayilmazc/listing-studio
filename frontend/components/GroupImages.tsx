@@ -20,7 +20,7 @@ function RemovedImages({ assets, listingsOnEtsy }: { assets: Asset[]; listingsOn
     <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-stone-50 p-3">
       {kept ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img key="kept" src={api.assetImage(kept.id, 224)} alt={kept.original_filename} className="h-16 w-16 shrink-0 rounded object-cover" loading="lazy" decoding="async" />
+        <img key="kept" src={api.assetImage(kept.id, "small")} alt={kept.original_filename} className="h-16 w-16 shrink-0 rounded object-cover" loading="lazy" decoding="async" />
       ) : (
         <span key="none" className="flex h-16 w-16 shrink-0 items-center justify-center rounded bg-slate-200 text-[10px] text-slate-500">removed</span>
       )}
@@ -300,9 +300,10 @@ export function GroupImages({
                     // The cover as Etsy will get it: the seller's square.
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={api.assetImage(a.id, 224)}
+                      src={api.assetImage(a.id, "small")}
                       alt={a.original_filename}
                       draggable={false}
+                      loading="lazy"
                       decoding="async"
                       className="absolute max-w-none"
                       style={cropStyle(a.cover_crop, a.width, a.height, 92)}
@@ -310,9 +311,10 @@ export function GroupImages({
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={api.assetImage(a.id, 224)}
+                      src={api.assetImage(a.id, "small")}
                       alt={a.original_filename}
                       draggable={false}
+                      loading="lazy"
                       decoding="async"
                       className="relative h-full w-full object-cover"
                     />

@@ -86,7 +86,7 @@ export default function ListingAnalytics() {
           <header className="flex items-start gap-4">
             {row.thumbnail_url ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={row.thumbnail_url} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+              <img src={row.thumbnail_url} alt="" loading="lazy" decoding="async" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
             ) : (
               <span className="h-16 w-16 shrink-0 rounded-lg bg-slate-100" aria-hidden />
             )}

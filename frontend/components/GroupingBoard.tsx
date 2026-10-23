@@ -530,7 +530,7 @@ function Tile({
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={api.assetImage(asset.id, 112)}
+            src={api.assetImage(asset.id, "small")}
             alt=""
             loading="lazy"
             decoding="async"

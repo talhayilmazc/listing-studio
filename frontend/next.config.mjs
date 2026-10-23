@@ -52,7 +52,10 @@ const nextConfig = {
     proxyTimeout: 300_000,
   },
   // Proxy API calls to the FastAPI backend so the browser stays same-origin
-  // (no CORS) and image <img src="/api/..."> works directly.
+  // (no CORS) and image <img src="/api/..."> works directly. In production the
+  // tunnel already sends /api/* to the API itself (deploy/cloudflared/config.yml),
+  // so uploads and images do not pass through this server; this rewrite serves
+  // development and any request that reaches the frontend anyway.
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${target}/api/:path*` }];
   },

@@ -499,7 +499,7 @@ export function ReviewCard({
           <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={api.assetImage(initial.asset_id, 896)}
+              src={api.assetImage(initial.asset_id, "thumb")}
               alt={initial.original_filename}
               className="max-h-full max-w-full object-contain"
               loading="lazy"

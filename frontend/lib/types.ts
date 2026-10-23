@@ -406,7 +406,7 @@ export interface MockupEdits {
     areas: { print_area: number[][]; subgroup: string | null }[] }[];
   designs: { id: string; original_filename: string; sku: string | null;
     files: { version_id: string | null; subgroup: string | null; filename: string; width: number; height: number;
-      trim: number[] | null; trim_size: number[] | null }[] }[];
+      trim: number[] | null; trim_size: number[] | null; stamp?: string }[] }[];
   adjustments: MockupAdjustmentRow[];
   recolours: MockupRecolourRow[];
   editable: boolean;

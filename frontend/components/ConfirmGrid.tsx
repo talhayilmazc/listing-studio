@@ -79,8 +79,14 @@ function Tile({ photo, onFix }: { photo: MockupPhoto; onFix: () => void }) {
   const quads: Quad[] = photo.areas.map((a) => toPx(a.print_area, W, H));
   return (
     <li className="min-w-0 overflow-hidden rounded-md border border-slate-200" data-testid="confirm-grid-tile">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block aspect-square w-full bg-slate-100" role="img" aria-label={`${photo.name} with its print area`}>
-        <image href={api.mockupPhotoImageUrl(photo.id, 448)} x={0} y={0} width={W} height={H} preserveAspectRatio="xMidYMid meet" />
+      {/* The photo is an <img> so it loads only when scrolled to; the areas are drawn over it,
+          both fitted the same way ("contain"), so they line up. */}
+      <div className="relative aspect-square w-full bg-slate-100">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={api.mockupPhotoImageUrl(photo.id, "thumb")} alt="" loading="lazy" decoding="async"
+        className="absolute inset-0 h-full w-full object-contain" />
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="absolute inset-0 block h-full w-full" role="img"
+        aria-label={`${photo.name} with its print area`}>
         {quads.map((q, i) => {
           const d = designQuad(q, 1000, 1000, photo.size);
           const cx = (d[0][0] + d[2][0]) / 2;
@@ -96,6 +102,7 @@ function Tile({ photo, onFix }: { photo: MockupPhoto; onFix: () => void }) {
           );
         })}
       </svg>
+      </div>
       <div className="flex min-w-0 items-center gap-1 px-2 py-1">
         <span className="min-w-0 flex-1 truncate text-xs text-slate-700" title={photo.name}>{photo.name}</span>
         <button type="button" className="tap shrink-0 text-xs font-medium text-brand-700 underline" onClick={onFix} data-testid="confirm-grid-fix">

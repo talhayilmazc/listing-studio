@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { UPLOAD_PARALLEL, runLimited, withRetry } from "@/lib/uploadQueue";
 import { api } from "@/lib/api";
 import type { MockupDesign, MockupEdits, MockupOutput, MockupPlan, MockupRun, MockupTemplate, MockupZip, SlotIn } from "@/lib/types";
 import { DesignVariants } from "@/components/DesignVariants";
@@ -182,24 +183,26 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
       batchRef.current ??= api.createBatch(shop).then((b) => b.id);
       const id = await batchRef.current;
       setBatchId(id);
-      for (const u of waiting) {
+      // Three at a time (lib/uploadQueue.ts; the server pairs a design's files under the batch's lock),
+      // and a file that fails on the way is tried again by itself.
+      await runLimited(waiting, UPLOAD_PARALLEL, async (u) => {
         update(u.key, { state: "sending", pct: 0 });
         try {
           if (kindOf(u.file) === "zip") {
             // A ZIP: every image in it becomes a design; what fails comes back with why.
-            const res = await api.addMockupDesignArchive(id, u.file, (pct) => update(u.key, { pct }), slots);
+            const res = await withRetry(() => api.addMockupDesignArchive(id, u.file, (pct) => update(u.key, { pct }), slots));
             upsert(res.added);
             if (res.failed.length) setFailed((all) => [...all, ...res.failed]);
           } else {
-            const design = await api.addMockupDesign(id, u.file, (pct) => update(u.key, { pct }),
-              slots.length ? { subgroup: slot ?? null, subgroups: slots } : undefined);
+            const design = await withRetry(() => api.addMockupDesign(id, u.file, (pct) => update(u.key, { pct }),
+              slots.length ? { subgroup: slot ?? null, subgroups: slots } : undefined));
             upsert([design]);
           }
           update(u.key, { state: "done", pct: 100 });
         } catch (e: any) {
           update(u.key, { state: "error", message: String(e.message ?? e) });
         }
-      }
+      });
       setPhase("ready");
     } catch (e: any) {
       batchRef.current = null; // the batch was not made: the next drop tries again

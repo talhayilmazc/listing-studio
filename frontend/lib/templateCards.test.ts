@@ -77,9 +77,9 @@ test("the viewer: arrow buttons, the keyboard, swipes, Escape and Check from ins
   assert.match(viewer, /ArrowLeft[\s\S]*ArrowRight[\s\S]*Escape/);
   assert.match(viewer, /onTouchStart[\s\S]*onTouchEnd[\s\S]*swipeStep/);
   assert.match(viewer, /min-h-11 min-w-11[^"]*"\s*\n?\s*onClick=\{\(\) => go\(-1\)\}/);
-  // Only a width the server serves (pipeline/images.py PREVIEW_WIDTHS); another one is refused with 400.
-  const widths = [...viewer.matchAll(/mockupPhotoImageUrl\(photo\.id, (\d+)\)/g)].map((m) => Number(m[1]));
-  assert.ok(widths.length > 0 && widths.every((w) => [112, 224, 448, 896].includes(w)), String(widths));
+  // Only a size the server serves (pipeline/thumbs.py SIZES): the viewer shows the 1200 px copy.
+  const sizes = [...viewer.matchAll(/mockupPhotoImageUrl\(photo\.id, "(\w+)"\)/g)].map((m) => m[1]);
+  assert.ok(sizes.length > 0 && sizes.every((s) => s === "medium"), String(sizes));
   const page = read("app/(app)/templates/page.tsx");
   // A photo opens the viewer; Check there opens the editor on it.
   assert.match(page, /data-testid="template-photo-open"/);

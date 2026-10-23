@@ -48,5 +48,5 @@ test("every mockup in the results opens the editor", () => {
   assert.match(upload, /<MockupTile /);
   assert.match(upload, /api\.mockupEdits\(run\.id\)/);
   // A re-made mockup's image is never a stale copy: its URL carries its version.
-  assert.match(tile, /api\.mockupOutputImageUrl\(runId, output\.id, 224, output\.stamp \?\? ""\)/);
+  assert.match(tile, /api\.mockupOutputImageUrl\(runId, output\.id, "small", output\.stamp \?\? ""\)/);
 });

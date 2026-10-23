@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadArchive, uploadAsset } from "@/lib/api";
+import { UPLOAD_PARALLEL, UPLOAD_TRIES, runLimited, withRetry } from "@/lib/uploadQueue";
 import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
 import type { ArchiveResult, BatchSummary } from "@/lib/types";
@@ -334,6 +335,48 @@ export default function UploadPage() {
     }
   }
 
+  // Files that did not arrive (after their own tries), kept so "Try the failed ones again"
+  // sends only them, into the same batch.
+  const failedFiles = useRef(new Map<string, { file: File; relpath: string }>());
+
+  /** Up to three files at a time (lib/uploadQueue.ts); a file that fails on the way is tried again by itself. */
+  async function sendFiles(batch: string, files: { file: File; relpath: string; key: string }[], chosen: GroupingMode) {
+    await runLimited(files, UPLOAD_PARALLEL, async ({ file, relpath, key }) => {
+      setRows((r) => update(r, key, { status: "uploading", pct: 0, error: undefined }));
+      try {
+        const asset = await withRetry(
+          () => uploadAsset(batch, file, (pct) => setRows((r) => update(r, key, { pct })), groupKeyOf(relpath), chosen),
+          { onRetry: (n) => setRows((r) => update(r, key, { pct: 0, error: `Trying again (${n} of ${UPLOAD_TRIES})` })) },
+        );
+        failedFiles.current.delete(key);
+        // The server decides the group: a folder, else the SKU in the name, else Unsorted.
+        setRows((r) =>
+          update(r, key, {
+            status: "done", pct: 100, sku: asset.parsed_sku, assetStatus: asset.status,
+            group: asset.group_key || "(root)", assetId: asset.id, error: undefined,
+          }),
+        );
+      } catch (e: any) {
+        failedFiles.current.set(key, { file, relpath });
+        setRows((r) => update(r, key, { status: "error", error: String(e.message ?? e) }));
+      }
+    });
+  }
+
+  async function retryFailed() {
+    if (!batchId || failedFiles.current.size === 0) return;
+    setPhase("uploading");
+    const again = [...failedFiles.current.entries()].map(([key, f]) => ({ ...f, key }));
+    const chosen = (summary?.grouping_mode as GroupingMode | null) ?? mode;
+    await sendFiles(batchId, again, chosen);
+    try {
+      setSummary(await api.finalizeBatch(batchId));
+    } catch (e: any) {
+      setNotes((n) => [String(e.message ?? e), ...n]);
+    }
+    setPhase("done");
+  }
+
   async function upload() {
     if (imageCount === 0 && archives.length === 0) return;
     setPhase("uploading");
@@ -381,27 +424,7 @@ export default function UploadPage() {
       setBatchId(batch.id);
     }
 
-    for (const { sf, key } of files) {
-      setRows((r) => update(r, key, { status: "uploading" }));
-      try {
-        const asset = await uploadAsset(
-          batch.id,
-          sf.file,
-          (pct) => setRows((r) => update(r, key, { pct })),
-          groupKeyOf(sf.relpath),
-          chosen,
-        );
-        // The server decides the group: a folder, else the SKU in the name, else Unsorted.
-        setRows((r) =>
-          update(r, key, {
-            status: "done", pct: 100, sku: asset.parsed_sku, assetStatus: asset.status,
-            group: asset.group_key || "(root)", assetId: asset.id,
-          }),
-        );
-      } catch (e: any) {
-        setRows((r) => update(r, key, { status: "error", error: String(e.message ?? e) }));
-      }
-    }
+    await sendFiles(batch.id, files.map(({ sf, key }) => ({ file: sf.file, relpath: sf.relpath, key })), chosen);
 
     for (const [j, zip] of archives.entries()) {
       const key = `r${r0}-z${j}`;
@@ -706,6 +729,11 @@ export default function UploadPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {!busy && failed > 0 && batchId && (
+            <button key="retry-failed" type="button" className="btn-secondary" onClick={retryFailed} data-testid="upload-retry-failed">
+              Try the failed ones again
+            </button>
+          )}
           {!busy && pickers}
           {batchId && !busy && (
             <button key="button-458-10" className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)}>
@@ -811,6 +839,7 @@ function Tiles({ tiles, more }: { tiles: Tile[]; more: number }) {
                     "absolute inset-0 h-full w-full object-cover transition-opacity " +
                     (!t.status || t.status === "done" ? "opacity-100" : "opacity-60")
                   }
+                  loading="lazy"
                   decoding="async"
                   draggable={false}
                 />
@@ -947,7 +976,7 @@ function archiveRows(key: string, res: ArchiveResult): Row[] {
     folder: a.upload_folder ?? "",
     assetId: a.id,
     assetStatus: a.status,
-    preview: a.status === "processed" ? api.assetImage(a.id, 224) : undefined,
+    preview: a.status === "processed" ? api.assetImage(a.id, "small") : undefined,
   }));
 }
 
