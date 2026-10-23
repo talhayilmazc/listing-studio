@@ -132,6 +132,34 @@ It should end in "Ready.": every warning in sections 2–4 should be gone. The o
 
 Then run the 20-minute manual test in `docs/release-checklist.md` on the test shop.
 
+## 7. Faster pages and a steadier tunnel (23 October 2026)
+
+After `bash deploy/update.sh` with this change (no migration, no `.env` change):
+
+1. The tunnel is on HTTP/2. Preflight prints `ok    tunnel protocol http2`. Then:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml logs --since 10m cloudflared | grep -o 'protocol=[a-z0-9]*' | sort | uniq -c
+   ```
+
+   Every line should say `protocol=http2` (usually four, one per edge connection). Why it
+   changed: `docs/deploy.md`, "Tunnel protocol and routing".
+2. The small image copies, for images stored before this release. A dry run first: it says
+   how many copies it would make, about how much space they take, and how many earlier
+   previews it deletes (those usually free more than the copies take):
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli thumbnails
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli thumbnails --apply
+   ```
+
+   It stops if the disk would have less than 5 GB free (`--keep-free-gb`), and leaves out an
+   account at its storage cap (listed). Screens make any copy they ask for that is missing, so
+   this only saves the first visitor the wait.
+3. In a browser, open the site with the developer tools' Network tab: images are `webp`, a
+   second visit to the same page shows them "(disk cache)" or "(memory cache)", and an upload
+   shows three files going at once.
+
 ## What is already in place (no action)
 
 - Error alerts go to `ALERT_WEBHOOK_URL`: failed deploy, failed backup, disk growth, an AI provider refusing us, a new invite request, and the weekly Etsy spec watcher.

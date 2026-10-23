@@ -178,6 +178,27 @@ else
     pass "credentials file present and readable by the tunnel container"
   fi
 fi
+# The tunnel's transport (docs/deploy.md, "Tunnel protocol"): HTTP/2 over TCP. QUIC streams
+# timed out on the server's uplink, the tunnel dropped and visitors saw "SSL handshake failed".
+# What cloudflared uses: its --protocol flag, else TUNNEL_TRANSPORT_PROTOCOL, else `protocol:`
+# in its config; nothing set means "auto", which is QUIC.
+compose_file="${COMPOSE_FILE:-docker-compose.prod.yml}"
+tunnel_block="$(awk '/^  cloudflared:/{on=1; next} on && /^  [^ #]/{on=0} on' "$compose_file" 2>/dev/null)"
+tunnel_protocol="$(printf '%s\n' "$tunnel_block" | grep -oE '"--protocol",[[:space:]]*"[a-z0-9]+"' | grep -oE '[a-z0-9]+"$' | tr -d '"')"
+[ -n "$tunnel_protocol" ] || tunnel_protocol="$(printf '%s\n' "$tunnel_block" | grep -oE 'TUNNEL_TRANSPORT_PROTOCOL:[[:space:]]*"?[a-z0-9]+' | grep -oE '[a-z0-9]+$')"
+[ -n "$tunnel_protocol" ] || tunnel_protocol="$(grep -E '^protocol:' "$TUNNEL_CONFIG" 2>/dev/null | awk '{print $2}' | tr -d '"')"
+if [ "$tunnel_protocol" = "http2" ]; then
+  pass "tunnel protocol http2"
+else
+  warn "the tunnel protocol is ${tunnel_protocol:-not set (cloudflared then uses QUIC)}, not http2: add \"--protocol\", \"http2\" to the cloudflared command in $compose_file (docs/deploy.md, \"Tunnel protocol\")"
+fi
+# And what the running tunnel actually registered with, when it is running.
+if command -v docker >/dev/null 2>&1; then
+  running_protocol="$(docker compose -f "$compose_file" logs --since 24h cloudflared 2>/dev/null | grep -oE 'protocol=[a-z0-9]+' | tail -1 | cut -d= -f2)"
+  if [ -n "$running_protocol" ] && [ "$running_protocol" != "http2" ]; then
+    warn "the running tunnel last registered with protocol=$running_protocol: recreate it (docker compose -f $compose_file up -d cloudflared)"
+  fi
+fi
 
 echo "== disk"
 # A full disk is what took the site down: a build failed half-way and Redis was

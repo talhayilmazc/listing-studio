@@ -89,7 +89,7 @@ user (uid 65532):
 
 ```bash
 cf() { sudo docker run --rm -it -v /etc/listyro/cloudflared:/home/nonroot/.cloudflared \
-         cloudflare/cloudflared:2026.9.1 "$@"; }
+         cloudflare/cloudflared:2026.10.3 "$@"; }
 cf tunnel login                          # open the printed URL, pick listyro.com
 cf tunnel create listyro                 # prints the tunnel id
 cf tunnel route dns listyro listyro.com
@@ -99,11 +99,49 @@ sudo rm /etc/listyro/cloudflared/cert.pem   # account-wide credential; not neede
 
 Then replace both `<TUNNEL_ID>` placeholders in `deploy/cloudflared/config.yml`
 with the printed id. The ingress rules in that file are the whole edge policy:
-- `listyro.com` goes to the frontend.
 - On `listyro.com`, `/api/account/admin/*` (the bootstrap token endpoints)
   returns 404.
+- On `listyro.com`, every other `/api/*` goes straight to the backend (see
+  "Tunnel protocol and routing" below).
+- The rest of `listyro.com` goes to the frontend.
 - On `api.listyro.com`, only the OAuth callback and `/health` reach the backend.
   Everything else returns 404.
+
+To see which rule a URL meets:
+`cf tunnel --config /path/to/config.yml ingress rule https://listyro.com/api/batches`.
+
+### Tunnel protocol and routing
+
+The tunnel runs **HTTP/2 over TCP**, not QUIC (`--protocol http2` and
+`TUNNEL_TRANSPORT_PROTOCOL=http2` in `docker-compose.prod.yml`). Why:
+
+- The server's internet is 69 Mbps down but only **14 Mbps up**, and everything a
+  visitor loads leaves through that uplink.
+- On QUIC the cloudflared log showed "failed to accept QUIC stream: timeout: no
+  recent network activity", connections terminated and re-registered (`protocol=quic`,
+  location ist04), and "Incoming request ended abruptly: context canceled" on `/login`
+  and `/api/batches/<id>/assets`. Visitors saw "SSL handshake failed".
+- Measured on the server at the time: load 0.68, 3.9 GB RAM free, `/health` in 27 ms.
+  The server was not busy; the tunnel's transport was failing.
+
+HTTP/2 rides TCP, whose congestion control backs off on a saturated uplink instead of
+timing streams out. `deploy/preflight.sh` warns when the protocol is anything else, and
+when the running tunnel last registered with another one. To check by hand:
+
+```bash
+docker compose -f docker-compose.prod.yml logs --since 1h cloudflared | grep -o 'protocol=[a-z0-9]*' | sort | uniq -c
+```
+
+The image is pinned to an exact release (`cloudflare/cloudflared:2026.10.3`) and is
+restarted whenever it exits (`restart: unless-stopped`).
+
+**`/api/*` goes from the edge straight to the API** (2026-10-23). Before, it passed
+through the Next.js server, which proxied it on: every upload and every image was
+received and sent again by Node. The host is still `listyro.com`, so nothing about the
+session changes: the cookie is host-only and still sent, the Origin the CSRF check
+compares with `FRONTEND_URL` is the same, `cf-connecting-ip` still carries the
+visitor's address, and there is no CORS. In development Next still rewrites `/api/*`
+to the API (`frontend/next.config.mjs`).
 
 ## 4. Etsy Developer Portal (F4)
 

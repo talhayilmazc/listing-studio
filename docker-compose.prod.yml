@@ -174,9 +174,16 @@ services:
 
   cloudflared:
     # Pinned: a tunnel client that updates itself underneath production is a
-    # change nobody reviewed. Bump deliberately.
-    image: cloudflare/cloudflared:2026.9.1
-    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    # change nobody reviewed. Bump deliberately (docs/deploy.md uses the same tag).
+    image: cloudflare/cloudflared:2026.10.3
+    # HTTP/2 over TCP, not QUIC: on the server's 14 Mbps uplink QUIC streams timed out
+    # ("failed to accept QUIC stream: timeout: no recent network activity"), the tunnel
+    # dropped and re-registered, and visitors saw "SSL handshake failed" (docs/deploy.md,
+    # "Tunnel protocol"). Both are said: the flag wins, the variable covers a run without it.
+    # deploy/preflight.sh warns if this is not http2.
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--config", "/etc/cloudflared/config.yml", "run"]
+    environment:
+      TUNNEL_TRANSPORT_PROTOCOL: http2
     volumes:
       - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
       # The tunnel credentials file lives on the server, never in the repo.
@@ -186,6 +193,7 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    # Restarted whenever it exits (a lost connection it cannot recover ends the process).
     restart: unless-stopped
     logging: *logging
 

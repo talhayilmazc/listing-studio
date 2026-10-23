@@ -16,8 +16,16 @@ ingress:
     path: ^/api/account/admin/
     service: http_status:404
 
-  # The app. The browser only ever talks to listyro.com; /api/* is proxied to
-  # the backend inside the Docker network, so the session stays same-origin.
+  # The API, straight from the edge (page weight and uploads, 2026-10-23): uploads and
+  # images do not pass through the Next.js server as well. Same host, so the browser
+  # still only talks to listyro.com: the session cookie (host-only), the Origin the
+  # CSRF check compares with FRONTEND_URL and cf-connecting-ip are all as before, and
+  # no CORS is involved. After the admin rule above, so that refusal still comes first.
+  - hostname: listyro.com
+    path: ^/api/
+    service: http://api:8000
+
+  # The app's pages. In development Next rewrites /api/* to the API (next.config.mjs).
   - hostname: listyro.com
     service: http://frontend:3000
 
