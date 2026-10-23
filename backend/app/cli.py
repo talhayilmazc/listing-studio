@@ -792,6 +792,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     colours.add_argument("--apply", action="store_true", help="measure them (default: only count)")
     colours.add_argument("--email", default=None, help="only this account's photos")
+    thumbs_cmd = sub.add_parser(
+        "thumbnails",
+        help="the small image copies screens use, for images stored before them; earlier previews deleted (dry run unless --apply)",
+    )
+    thumbs_cmd.add_argument("--apply", action="store_true", help="make and delete (default: only count and estimate)")
+    thumbs_cmd.add_argument("--email", default=None, help="only this account's images")
+    thumbs_cmd.add_argument("--keep-free-gb", type=float, default=5.0, help="stop when the disk would have less free (default 5)")
     settings_map = sub.add_parser(
         "resolve-shop-settings",
         help="profile links filled from the shop setting map; what is still missing resolved again; --apply",
@@ -916,6 +923,12 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.mockup_colours import run as colours_run
 
         print(asyncio.run(colours_run(sm, get_storage(), apply=args.apply, email=args.email)))
+    elif args.command == "thumbnails":
+        from app.api.deps import get_storage
+        from app.ops.thumbnails import run as thumbnails_run
+
+        print(asyncio.run(thumbnails_run(sm, get_storage(), apply=args.apply, email=args.email,
+                                         keep_free_gb=args.keep_free_gb)))
     elif args.command == "resolve-shop-settings":
         from app.ops.shop_settings import run as settings_run
 

@@ -14,8 +14,12 @@ from pathlib import Path
 from collections.abc import Iterator
 from typing import Protocol
 
-#: A cached preview, stored beside its source as ``<key>.v<N>.w<width>[-ratio].jpg``.
-_PREVIEW = re.compile(r"\.v\d+\.w\d+")
+#: A copy made from a stored file for a screen, stored beside it (pipeline/thumbs.py):
+#: ``<key>.d1.thumb.webp`` now, ``<key>.v2.w224[-4x5].jpg`` (batch photos) and
+#: ``<key>.w224.jpg`` (template photos and mockups) before. Counted apart from the files.
+DERIVATIVE = re.compile(r"\.(d\d+\.(small|thumb|medium)(-\d+x\d+)?\.webp|v\d+\.w\d+(-\d+x\d+)?\.jpg|w\d+\.jpg)$")
+#: Only the copies of the earlier schemes, which nothing asks for any more.
+LEGACY = re.compile(r"\.(v\d+\.w\d+(-\d+x\d+)?\.jpg|w\d+\.jpg)$")
 
 
 class Storage(Protocol):
@@ -144,7 +148,7 @@ class LocalStorage:
                     size = os.stat(os.path.join(folder, name)).st_size
                 except OSError:
                     continue  # deleted while we were counting
-                kind = "uploads" if original and not _PREVIEW.search(name) else "derivatives"
+                kind = "uploads" if original and not DERIVATIVE.search(name) else "derivatives"
                 out[f"{kind}_bytes"] += size
                 out[f"{kind}_files"] += 1
         return out

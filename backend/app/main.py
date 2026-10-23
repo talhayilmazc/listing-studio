@@ -5,6 +5,7 @@ import logging
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
@@ -85,6 +86,10 @@ def create_app() -> FastAPI:
         allow_methods=CORS_METHODS,
         allow_headers=CORS_HEADERS,
     )
+    # JSON and text leave compressed: the API answers the browser itself in production (the
+    # tunnel sends /api/* straight here), and everything crosses the server's 14 Mbps uplink.
+    # Images, ZIPs and other compressed types are left alone (Starlette's own exclusions).
+    application.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
     # Added last, so outermost: it must see every request and every response.
     application.add_middleware(SecurityMiddleware)
 

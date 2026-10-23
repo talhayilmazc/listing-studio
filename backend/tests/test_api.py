@@ -274,7 +274,7 @@ async def test_a_batch_has_no_cost_endpoint_for_sellers(client: AsyncClient) -> 
 async def test_asset_image_preview_widths(
     client: AsyncClient, make_image: "Callable[..., bytes]"
 ) -> None:
-    """?w= returns a resized JPEG; the no-parameter response stays byte-identical."""
+    """?w= (from before) returns the nearest WebP copy; the no-parameter response stays byte-identical."""
     from PIL import Image
 
     created = await client.post("/api/batches")
@@ -292,10 +292,10 @@ async def test_asset_image_preview_widths(
 
     preview = await client.get(f"/api/assets/{asset_id}/image", params={"w": 112})
     assert preview.status_code == 200
-    assert preview.headers["content-type"] == "image/jpeg"
+    assert preview.headers["content-type"] == "image/webp"
     im = Image.open(io.BytesIO(preview.content))
-    assert im.format == "JPEG"
-    assert im.width == 112
+    assert im.format == "WEBP"
+    assert im.width == 240  # w=112 asks for the "small" copy (pipeline/thumbs.py)
     assert len(preview.content) < len(baseline)
 
     # Cached: the second request returns the same bytes without re-encoding.
@@ -307,9 +307,9 @@ async def test_asset_image_preview_widths(
     assert after.status_code == 200
     assert after.content == baseline
     assert after.headers["content-type"] == full.headers["content-type"]
-    # The preview's browser-cache policy does not leak onto the original, which
-    # keeps the hardening default: tenant designs are never stored by caches.
-    assert after.headers["cache-control"] == "no-store"
+    # Without its version the original is checked every time, and it is private: only the
+    # seller's own browser may keep it, never a shared cache (api/images.py).
+    assert after.headers["cache-control"] == "private, no-cache"
 
 
 async def test_asset_image_preview_width_allowlist(
@@ -370,10 +370,10 @@ async def test_asset_image_aspect_variant(
     # ar without w would silently do nothing, so it is rejected.
     assert (await client.get(f"/api/assets/{asset_id}/image", params={"ar": "4:5"})).status_code == 400
 
-    # And the parameterless response is still the untouched original.
+    # And the parameterless response is still the untouched original, private.
     full = await client.get(f"/api/assets/{asset_id}/image")
     assert full.status_code == 200
-    assert full.headers["cache-control"] == "no-store"
+    assert full.headers["cache-control"] == "private, no-cache"
 
 
 async def test_quota_history_series(client: AsyncClient) -> None:

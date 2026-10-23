@@ -19,7 +19,6 @@ in review / files removed (kept covers) / no row (a file no asset points at).
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
 from collections import defaultdict
@@ -31,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Asset
 from app.pipeline import group_state as gs
-from app.pipeline.storage import LocalStorage
+from app.pipeline.storage import DERIVATIVE, LocalStorage
 
 KINDS = ("original", "processed", "kept cover", "preview", "design", "mockup", "template", "zip")
 STATES = (gs.DRAFTED, gs.PENDING, gs.IN_REVIEW, gs.REMOVED, "no row")
@@ -41,7 +40,6 @@ STATE_LABELS = {
 }
 #: Age buckets, by the file's modification time: (upper bound in days, label).
 AGES = ((1, "<1d"), (3, "1-3d"), (7, "3-7d"), (14, "7-14d"), (30, "14-30d"), (None, "30d+"))
-_PREVIEW = re.compile(r"\.v\d+\.w\d+")
 _FOLDERS = {"original": "original", "processed": "processed", "kept": "kept cover", "designs": "design", "mockups": "mockup"}
 
 
@@ -53,7 +51,7 @@ def kind_of(key: str) -> str | None:
         return None
     if parts[1] == "templates":  # a mockup template's blank, mask and previews
         return "template"
-    if _PREVIEW.search(parts[3]):
+    if DERIVATIVE.search(parts[3]):
         return "preview"
     return _FOLDERS.get(parts[2])
 

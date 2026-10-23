@@ -27,12 +27,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import images
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
 from app.core import audit, storage_cap
 from app.core.config import get_settings
@@ -51,8 +52,8 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.pipeline import grouping, mockup_refresh, mockup_sample, mockups, placement, skus, subgroups, upload_retention, variants
-from app.pipeline.images import PREVIEW_WIDTHS, ImageProcessingError, resize_preview
+from app.pipeline import grouping, mockup_refresh, mockup_sample, mockups, placement, skus, subgroups, thumbs, upload_retention, variants
+from app.pipeline.images import ImageProcessingError
 from app.pipeline.sku import SkuParser
 from app.pipeline.storage import Storage
 from app.pipeline.uploads import UploadRejected, UploadTooLarge, admit_image
@@ -90,12 +91,6 @@ NONE_CONFIRMED = (
 )
 #: Said by "Add area" when nothing garment-shaped is under the tap: a box is placed there instead.
 TAP_MISSED = "No garment was found where you tapped, so a box was placed there: drag it onto the print area."
-_CACHE = {"Cache-Control": "private, max-age=3600"}
-#: A mockup asked for with its version (``?v=<stamp>``, the run's ``OutputOut.stamp``): a made
-#: again mockup has a new file and a new stamp, so a versioned URL never changes and is kept;
-#: one without the current version is checked every time (an old tile never shows a stale file).
-_VERSIONED = {"Cache-Control": "private, max-age=31536000, immutable"}
-_REVALIDATE = {"Cache-Control": "private, no-cache"}
 
 
 def output_stamp(key: str | None) -> str:
@@ -1141,15 +1136,23 @@ async def add_photo(
     if not rights_confirmed:
         raise HTTPException(status_code=422, detail=f"Please confirm: “{RIGHTS_STATEMENT}”")
     template = await _own_template(session, tenant, template_id)
-    count = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.tenant_id == tenant.id))
-    if int(count or 0) >= MAX_PHOTOS_PER_ACCOUNT:
-        raise HTTPException(status_code=409, detail=f"An account keeps up to {MAX_PHOTOS_PER_ACCOUNT} template photos; delete one first.")
-    in_template = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.template_id == template.id))
-    if int(in_template or 0) >= MAX_PHOTOS_PER_TEMPLATE:
-        raise HTTPException(status_code=409, detail=f"A template holds up to {MAX_PHOTOS_PER_TEMPLATE} photos; start another template.")
+
+    async def limits() -> None:
+        count = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.tenant_id == tenant.id))
+        if int(count or 0) >= MAX_PHOTOS_PER_ACCOUNT:
+            raise HTTPException(status_code=409, detail=f"An account keeps up to {MAX_PHOTOS_PER_ACCOUNT} template photos; delete one first.")
+        in_template = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.template_id == template.id))
+        if int(in_template or 0) >= MAX_PHOTOS_PER_TEMPLATE:
+            raise HTTPException(status_code=409, detail=f"A template holds up to {MAX_PHOTOS_PER_TEMPLATE} photos; start another template.")
+
+    await limits()  # before any work on the file: a full template says so at once
     data = await file.read()
     _admitted(data)
     source = await _resized(data, "a photo")
+    # Photos of a template arrive three at a time (the page's upload queue): the limits are
+    # checked again and each photo's position taken under the template's row lock.
+    await session.execute(select(MockupTemplate.id).where(MockupTemplate.id == template.id).with_for_update())
+    await limits()
     await _room(session, storage, tenant, len(source.image))
     photo_id = uuid.uuid4()
     key = f"{tenant.id}/templates/{photo_id}/source{'.png' if source.has_alpha else '.jpg'}"
@@ -1435,8 +1438,10 @@ async def clear_front_brush(
 @router.get("/mockup-photos/{photo_id}/front")
 async def front_mask(
     photo_id: uuid.UUID,
+    request: Request,
     layer: Literal["combined", "brush", "cutout"] = Query("combined"),
     w: int | None = Query(None),
+    v: str | None = Query(None, max_length=40),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
@@ -1465,8 +1470,10 @@ async def front_mask(
             return mockups.front_layer(storage.get(photo.image_key or ""), occluder, scale_to)
         return occluder
 
-    data = await asyncio.to_thread(build)
-    return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})
+    # The layers are written again in place when the brush or the analysis changes, and the
+    # photo's version moves with them: that is their version (the URL's ``v``, the ETag).
+    tag = images.etag(f"p{photo.version}", f"{layer}{scale_to or ''}")
+    return await images.send(request, tag=tag, versioned=v == str(photo.version), media_type="image/png", load=build)
 
 
 @router.delete("/mockup-photos/{photo_id}", status_code=204)
@@ -1490,21 +1497,20 @@ async def delete_photo(
 @router.get("/mockup-photos/{photo_id}/image")
 async def photo_image(
     photo_id: uuid.UUID,
-    w: int | None = Query(None, description=f"Optional preview width; one of {sorted(PREVIEW_WIDTHS)}."),
+    request: Request,
+    size: str | None = Query(None, description=f"A smaller copy for a screen; one of {sorted(thumbs.SIZES)}. Omit for the full file."),
+    w: int | None = Query(None, description="Widths from before (112, 224, 448, 896): mapped to a size."),
+    v: str | None = Query(None, max_length=40),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
+    """A template photo for a screen (api/images.py). Its blank is written once, when it is
+    prepared, so its URL version is the scheme's (``thumbs.VERSION``)."""
     photo = await _own_photo(session, tenant, photo_id)
     _ready(photo)
-    if w is None:
-        return Response(storage.get(photo.image_key or ""), media_type="image/jpeg", headers=_CACHE)
-    if w not in PREVIEW_WIDTHS:
-        raise HTTPException(status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}")
-    key = f"{photo.image_key}.w{w}.jpg"
-    if not storage.exists(key):
-        storage.put(key, await asyncio.to_thread(resize_preview, storage.get(photo.image_key or ""), w), "image/jpeg")
-    return Response(storage.get(key), media_type="image/jpeg", headers=_CACHE)
+    return await images.send_stored(request, storage, key=photo.image_key or "", url_version=str(thumbs.VERSION),
+                                    asked=v, size=images.size_of(size, w))
 
 
 @router.post("/mockup-photos/{photo_id}/preview")
@@ -2235,30 +2241,25 @@ async def get_run(
 async def output_image(
     run_id: uuid.UUID,
     output_id: uuid.UUID,
+    request: Request,
+    size: str | None = Query(None, description=f"A smaller copy for a screen; one of {sorted(thumbs.SIZES)}. Omit for the full file."),
     w: int | None = Query(None),
     v: str | None = Query(None, max_length=40),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
-    """A mockup, or a small preview of it (to pick a cover). With its current version (``v``)
-    the answer is kept by the browser; without it, checked every time (``ETag``)."""
+    """A mockup, or a smaller copy of it (api/images.py). With its current version (``v``,
+    the run's ``OutputOut.stamp``: a mockup made again is a new file with a new stamp) the
+    browser keeps it; without it, it is checked every time."""
     run = await _own_run(session, tenant, run_id)
     output = await session.get(MockupOutput, output_id)
     if output is None or output.run_id != run.id or output.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="mockup not found")
     if not output.key:
         raise HTTPException(status_code=410, detail="this mockup's file has been removed")
-    stamp = output_stamp(output.key)
-    headers = {**(_VERSIONED if v and v == stamp else _REVALIDATE), "ETag": f'"{stamp}-{w or 0}"'}
-    if w is None:
-        return Response(storage.get(output.key), media_type="image/jpeg", headers=headers)
-    if w not in PREVIEW_WIDTHS:
-        raise HTTPException(status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}")
-    key = f"{output.key}.w{w}.jpg"
-    if not storage.exists(key):
-        storage.put(key, await asyncio.to_thread(resize_preview, storage.get(output.key), w), "image/jpeg")
-    return Response(storage.get(key), media_type="image/jpeg", headers=headers)
+    return await images.send_stored(request, storage, key=output.key, url_version=output_stamp(output.key),
+                                    asked=v, size=images.size_of(size, w))
 
 
 @router.post("/mockup-runs/{run_id}/listings", response_model=ListingsOut)

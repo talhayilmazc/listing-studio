@@ -325,9 +325,10 @@ async def test_after_the_files_are_gone_the_app_shows_the_cover_and_refuses_what
     assert flags[str(cover)] == (True, True) and flags[str(second)] == (True, False)
 
     # The cover is still shown, at whatever size a list asks for; the others are gone.
-    for query in ("", "?w=224", "?w=896", "?w=448&ar=4:5"):
+    for query, kind in (("", "image/jpeg"), ("?size=small", "image/webp"), ("?size=medium", "image/webp"),
+                        ("?size=thumb&ar=4:5", "image/webp"), ("?w=224", "image/webp")):
         shown = await b.get(f"/api/assets/{cover}/image{query}")
-        assert shown.status_code == 200 and shown.headers["content-type"] == "image/jpeg", query
+        assert shown.status_code == 200 and shown.headers["content-type"] == kind, query
         assert Image.open(io.BytesIO(shown.content)).width <= upload_retention.THUMBNAIL_WIDTH
     assert (await b.get(f"/api/assets/{second}/image?w=224")).status_code == 410
     assert (await world["a"].get(f"/api/assets/{cover}/image")).status_code == 404  # still only its owner's

@@ -6,12 +6,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Request, Response, UploadFile
 from redis.asyncio import Redis
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import schemas
+from app.api import images, schemas
 from app.api.deps import (
     Enqueuer,
     active_tenant,
@@ -45,7 +45,7 @@ from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
 from app.compliance.scanner import rescan
-from app.pipeline import chart_order, grouping, manual, profile_shops, upload_retention
+from app.pipeline import chart_order, grouping, manual, profile_shops, thumbs, upload_retention
 from app.pipeline.targets import retext
 from app.pipeline.archive import read_archive
 from app.pipeline.batch_names import clean_name, names_for
@@ -56,13 +56,7 @@ from app.pipeline.content import (
     search_style,
 )
 from app.pipeline.generation import generate_listing_content
-from app.pipeline.images import (
-    PREVIEW_ASPECTS,
-    PREVIEW_VERSION,
-    PREVIEW_WIDTHS,
-    ImageProcessingError,
-    resize_preview,
-)
+from app.pipeline.images import PREVIEW_ASPECTS
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.ingest import UploadFile as IngestFile
 from app.pipeline.llm import client_for
@@ -491,28 +485,29 @@ async def get_batch(
     return schemas.BatchDetail(**summary.model_dump(), assets=assets)
 
 
-# Browser cache for the resized previews only. These are the seller's own uploaded
-# designs, not Etsy Member Content, so the ToU cache ceilings do not apply.
-_PREVIEW_CACHE_HEADERS = {"Cache-Control": "private, max-age=3600"}
-
-
 @router.get("/assets/{asset_id}/image")
 async def get_asset_image(
     asset_id: uuid.UUID,
-    w: int | None = Query(
-        None, description=f"Optional preview width; one of {sorted(PREVIEW_WIDTHS)}."
+    request: Request,
+    size: str | None = Query(
+        None, description=f"A smaller copy for a screen; one of {sorted(thumbs.SIZES)} (pipeline/thumbs.py). Omit for the full file."
     ),
+    w: int | None = Query(None, description="Widths from before (112, 224, 448, 896): mapped to a size."),
     ar: str | None = Query(
         None,
         description=(
             "Optional tile aspect ratio, cropped around the artwork; one of "
-            f"{sorted(PREVIEW_ASPECTS)}. Requires w."
+            f"{sorted(PREVIEW_ASPECTS)}. Requires a size."
         ),
     ),
+    v: str | None = Query(None, max_length=40, description="The image version (frontend IMAGE_VERSION): kept for a year."),
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
+    """A batch photo for a screen (api/images.py): its WebP copy of ``size``, or the full
+    file. A photo's picture never changes under its id, so its URL version is the scheme's
+    (``thumbs.VERSION``); the ETag follows the stored file."""
     asset = await session.get(Asset, asset_id)
     if asset is None or asset.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="asset not found")
@@ -525,51 +520,13 @@ async def get_asset_image(
         if asset.thumbnail_key is None:
             raise HTTPException(status_code=410, detail="this image's files have been removed")
         key, media_type = asset.thumbnail_key, "image/jpeg"
-
-    # Additive preview path: only taken when ?w= is supplied. Widths are limited to
-    # an allowlist so an arbitrary ?w= cannot force unbounded resize work, and each
-    # result is cached beside its source so the resize runs once per asset per width.
-    if w is None and ar is not None:
-        raise HTTPException(status_code=400, detail="ar requires w")
-
-    if w is not None:
-        if w not in PREVIEW_WIDTHS:
-            raise HTTPException(
-                status_code=400, detail=f"w must be one of {sorted(PREVIEW_WIDTHS)}"
-            )
-        if ar is not None and ar not in PREVIEW_ASPECTS:
-            raise HTTPException(
-                status_code=400, detail=f"ar must be one of {sorted(PREVIEW_ASPECTS)}"
-            )
-        suffix = f".v{PREVIEW_VERSION}.w{w}" + (f"-{ar.replace(':', 'x')}" if ar else "")
-        cache_key = f"{key}{suffix}.jpg"
-        try:
-            if storage.exists(cache_key):
-                return Response(
-                    content=storage.get(cache_key),
-                    media_type="image/jpeg",
-                    headers=_PREVIEW_CACHE_HEADERS,
-                )
-        except FileNotFoundError:
-            pass  # cache entry vanished between the check and the read; rebuild it
-        try:
-            source = storage.get(key)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="image not found") from exc
-        try:
-            preview = resize_preview(source, w, ar)
-        except ImageProcessingError as exc:
-            raise HTTPException(status_code=422, detail="image cannot be resized") from exc
-        storage.put(cache_key, preview, "image/jpeg")
-        return Response(
-            content=preview, media_type="image/jpeg", headers=_PREVIEW_CACHE_HEADERS
-        )
-
-    try:
-        data = storage.get(key)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="image not found") from exc
-    return Response(content=data, media_type=media_type)
+    chosen = images.size_of(size, w)
+    if ar is not None and chosen is None:
+        raise HTTPException(status_code=400, detail="ar requires a size")
+    if ar is not None and ar not in PREVIEW_ASPECTS:
+        raise HTTPException(status_code=400, detail=f"ar must be one of {sorted(PREVIEW_ASPECTS)}")
+    return await images.send_stored(request, storage, key=key, url_version=str(thumbs.VERSION), asked=v,
+                                    size=chosen, aspect=ar, media_type=media_type)
 
 
 # --- Per-group shop, profile and size charts (v4 §E; shop first, Priority 2) ---------

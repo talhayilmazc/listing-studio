@@ -145,23 +145,30 @@ class BatchIngestor:
                 f"a batch is limited to {ceiling // (1024 * 1024)} MB in total"
             )
 
+        room = await self._room(session, tenant_id)
+        batch = await session.get(UploadBatch, batch_id)
+        asset = await self._ingest_one(
+            tenant_id, batch_id, 0, upload, admitted, group_key, room,
+            mode=mode if mode is not None else (batch.grouping_mode if batch is not None else None),
+        )
+        # The upload page sends three files of a batch at once: the batch's count and each
+        # file's place are taken under the batch's row lock, after the (slow) image work,
+        # so two files never get the same rank and the count is never one short.
+        batch = await session.scalar(
+            select(UploadBatch).where(UploadBatch.id == batch_id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
         count = await session.scalar(
             select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id)
         )
-        rank = int(count or 0) + 1
-        room = await self._room(session, tenant_id)
-        batch = await session.get(UploadBatch, batch_id)
+        asset.rank = int(count or 0) + 1
         # The seller's choice of how photos become listings; one per batch, so a
         # file sent without one follows the batch's.
         if batch is not None and mode is not None:
             batch.grouping_mode = mode
-        asset = await self._ingest_one(
-            tenant_id, batch_id, rank, upload, admitted, group_key, room,
-            mode=batch.grouping_mode if batch is not None else mode,
-        )
         session.add(asset)
         if batch is not None:
-            batch.file_count = rank
+            batch.file_count = asset.rank
             if batch.status is UploadBatchStatus.uploading:
                 batch.status = UploadBatchStatus.processing
         await session.commit()
@@ -181,6 +188,7 @@ class BatchIngestor:
         rows = await session.execute(select(Asset).where(Asset.batch_id == batch_id))
         assets = list(rows.scalars())
         _rerank(assets)
+        batch.file_count = len(assets)
 
         processed = sum(1 for a in assets if a.status is AssetStatus.processed)
         batch.status = UploadBatchStatus.ready if processed > 0 else UploadBatchStatus.failed

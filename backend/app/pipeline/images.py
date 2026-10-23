@@ -408,8 +408,8 @@ def _fit(width: int, height: int, want_w: float, ratio: float) -> tuple[float, f
     return crop_w, crop_h
 
 
-def resize_preview(data: bytes, width: int, aspect: str | None = None) -> bytes:
-    """Return ``data`` as a small JPEG.
+def resize_preview(data: bytes, width: int, aspect: str | None = None, fmt: str = "JPEG", quality: int = 82) -> bytes:
+    """Return ``data`` as a small JPEG (or ``fmt="WEBP"``: pipeline/thumbs.py).
 
     Without ``aspect`` the image is scaled to ``width``, preserving its own
     proportions. With one, it is first cropped to that ratio around the artwork.
@@ -440,5 +440,8 @@ def resize_preview(data: bytes, width: int, aspect: str | None = None) -> bytes:
 
     img = img.resize((target_w, target_h), Image.LANCZOS)
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=82, optimize=True)
+    if fmt == "WEBP":
+        img.save(out, format="WEBP", quality=quality, method=4)
+    else:
+        img.save(out, format="JPEG", quality=quality, optimize=True)
     return out.getvalue()

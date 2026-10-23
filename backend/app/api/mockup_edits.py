@@ -32,13 +32,14 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from redis.asyncio import Redis
 
+from app.api import images
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
 from app.api.mockups import WRITTEN, RunOut, _active, _own_design, _own_photo, _own_run, _run_out, _written, output_stamp
 from app.db.models import (
@@ -130,6 +131,9 @@ class EditFile(BaseModel):
     #: The box of its visible pixels (left, top, right, bottom) on a file of ``trim_size``.
     trim: list[int] | None = None
     trim_size: list[int] | None = None
+    #: Its file's version: the file URL carries it (``?v=``), so the browser keeps the file and
+    #: asks again only when the design's file is another one.
+    stamp: str = ""
 
 
 class EditDesign(BaseModel):
@@ -214,9 +218,10 @@ async def get_edits(
         designs=[EditDesign(
             id=d.id, original_filename=d.original_filename, sku=d.parsed_sku,
             files=[EditFile(version_id=None, subgroup=d.subgroup, filename=d.original_filename, width=d.width, height=d.height,
-                            trim=_trim(d.trims)[0], trim_size=_trim(d.trims)[1])]
+                            trim=_trim(d.trims)[0], trim_size=_trim(d.trims)[1], stamp=images.stamp(d.design_key or ""))]
             + [EditFile(version_id=v.id, subgroup=v.subgroup, filename=v.original_filename, width=v.width, height=v.height,
-                        trim=_trim(v.trims)[0], trim_size=_trim(v.trims)[1]) for v in versions.get(d.id, [])],
+                        trim=_trim(v.trims)[0], trim_size=_trim(v.trims)[1], stamp=images.stamp(v.design_key or ""))
+               for v in versions.get(d.id, [])],
         ) for d in designs],
         adjustments=[AdjustmentOut(design_id=d, photo_id=p, area=k, data=v) for (d, p, k), v in adjust.items()],
         recolours=[RecolourRow(design_id=r.design_id, subgroup=r.subgroup, regions=r.regions) for r in rec_rows],
@@ -226,20 +231,22 @@ async def get_edits(
 
 @router.get("/mockup-designs/{design_id}/file")
 async def design_file(
-    design_id: uuid.UUID, version: uuid.UUID | None = Query(None), session: AsyncSession = Depends(get_session),
-    tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
+    design_id: uuid.UUID, request: Request, version: uuid.UUID | None = Query(None), v: str | None = Query(None, max_length=40),
+    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
 ) -> Response:
-    """A design file as stored (never changed): the editor previews recolouring on it."""
+    """A design file as stored (never changed): the editor previews recolouring on it. Full
+    size, as the editor's arithmetic needs its pixels; kept by the browser with its ``stamp``."""
     design = await _own_design(session, tenant, design_id)
     key = design.design_key
     if version is not None:
-        v = await session.get(MockupDesignVersion, version)
-        if v is None or v.design_id != design.id:
+        found = await session.get(MockupDesignVersion, version)
+        if found is None or found.design_id != design.id:
             raise HTTPException(status_code=404, detail="file not found")
-        key = v.design_key
+        key = found.design_key
     if not key:
         raise HTTPException(status_code=410, detail="this design's file has been removed")
-    return Response(storage.get(key), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    return await images.send_stored(request, storage, key=key, url_version=images.stamp(key), asked=v, size=None,
+                                    media_type="image/png")
 
 
 # --- adjustments ----------------------------------------------------------------------------------
