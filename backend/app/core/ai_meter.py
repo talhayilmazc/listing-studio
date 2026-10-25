@@ -53,6 +53,7 @@ PURPOSES = {
     "content_retry": "Listing text, second attempt",
     "size_chart": "Size-chart check",
     "title_fit": "Title rewritten for another shop's prefix",
+    "personalization_fix": "Personalization text shortened to Etsy's limit (an offer)",
     "eval": "Evaluation runs (ours)",
     "backfill": "Before metering (listings that still existed)",
     "other": "Other",

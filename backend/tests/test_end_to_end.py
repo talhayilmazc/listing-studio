@@ -108,6 +108,8 @@ class FakeEtsy:
         self.requests: list[str] = []
         #: Listing id -> Etsy's refusal when asked to make it active (a publish refused).
         self.refuse_active: dict[int, str] = {}
+        #: Listing ids Etsy answers 200 for when asked to go live, but keeps as drafts.
+        self.keep_draft: set[int] = set()
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path.removeprefix("/v3/application")
@@ -140,6 +142,13 @@ class FakeEtsy:
                 return httpx.Response(404, json={"error": "not found"})
             return httpx.Response(200, json={k: row[k] for k in ("listing_id", "title", "state", "taxonomy_id", "who_made",
                                                                   "when_made", "production_partners")})
+        if m := re.fullmatch(r"/shops/\d+/listings/(\d+)/personalization", path):
+            # updateListingPersonalization: Etsy answers with the questions it kept.
+            row = self.listings[int(m.group(1))]
+            row["personalization"] = json.loads(request.content.decode() or "{}").get("personalization_questions", [])
+            return httpx.Response(200, json={"personalization_questions": row["personalization"]})
+        if m := re.fullmatch(r"/listings/(\d+)/personalization", path):
+            return httpx.Response(200, json={"personalization_questions": self.listings[int(m.group(1))].get("personalization", [])})
         if m := re.fullmatch(r"/listings/(\d+)/images", path):
             return httpx.Response(200, json={"results": [{"listing_image_id": i} for i in self.listings[int(m.group(1))]["images"]]})
         if m := re.fullmatch(r"/listings/(\d+)/inventory", path):
@@ -158,6 +167,8 @@ class FakeEtsy:
             body = json.loads(text) if text.startswith("{") else {k: v[0] for k, v in parse_qs(text).items()}
             if body.get("state") == "active" and row["listing_id"] in self.refuse_active:
                 return httpx.Response(400, json={"error": self.refuse_active[row["listing_id"]]})
+            if body.get("state") == "active" and row["listing_id"] in self.keep_draft:
+                return httpx.Response(200, json={"listing_id": row["listing_id"], "state": row["state"]})
             if body.get("state"):
                 row["state"] = body["state"]
             return httpx.Response(200, json={"listing_id": row["listing_id"], "state": row["state"]})

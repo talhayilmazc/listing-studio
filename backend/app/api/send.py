@@ -40,6 +40,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
+from app.compliance.check import personalization_hold
+from app.pipeline.personalization import HELD_NOTE
 from app.api.publish import _budget, _Plan, _publish, auto_setup
 from app.api.shops import shop_label
 from app.core import request_cost
@@ -333,6 +335,10 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
                 continue
             # Another shop's prefix makes the title too long: rewritten once for that shop, never cut.
             note = "title rewritten once to fit this shop" if target.ok and target.title_fit else None
+            # Its personalization breaks Etsy's rules: the draft is queued but held, nothing is sent,
+            # until the seller fixes it (the card offers the fix); then it goes on by itself.
+            if await personalization_hold(session, content):
+                note = HELD_NOTE
             cells.append(SendCell(shop_id=shop.id, shop_name=name, state="new", note=note))
             work.actions.append((content, shop, "new"))
         work.rows.append(SendRow(content_id=content.id, title=content.title or "", label=label,

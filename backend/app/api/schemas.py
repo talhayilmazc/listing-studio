@@ -297,6 +297,8 @@ class ContentOut(BaseModel):
     # it is the listing's own ("listing"), its profile's ("profile") or unknown yet.
     personalization: "PersonalizationOut | None" = None
     personalization_source: str = "unknown"
+    # Set when its personalization breaks Etsy's rules: nothing is sent, the fix is offered.
+    personalization_hold: "PersonalizationHoldOut | None" = None
     # Creating a draft or going live that did not finish: why, and whether it is
     # waiting to run again by itself. Shown on the card with "Try again".
     work: list["WorkOut"] = Field(default_factory=list)
@@ -975,6 +977,33 @@ class PersonalizationOut(BaseModel):
     max_allowed_characters: int | None = None
 
 
+class PersonalizationFieldOut(BaseModel):
+    """One personalization field that breaks Etsy's rules, and what fixes it."""
+
+    field: Literal["question", "instructions"]
+    text: str
+    length: int
+    limit: int
+    #: Words in capitals beyond the one Etsy allows.
+    extra_caps: int = 0
+    #: The same text with only the first word in capitals kept (None: caps were fine).
+    caps_fix: str | None = None
+    #: Too long even after that: a shorter version is offered (POST /api/personalization/shorten).
+    needs_shortening: bool = False
+
+
+class PersonalizationHoldOut(BaseModel):
+    """A listing (or profile) whose personalization Etsy would refuse: no draft is sent, and the
+    card shows why and the one-click fix (api/personalization_fix.py)."""
+
+    reason: str
+    #: Where the text comes from: "listing" (its own setting) or "profile" (the fix changes the profile).
+    source: str
+    profile_id: uuid.UUID | None = None
+    profile_name: str | None = None
+    fields: list[PersonalizationFieldOut] = Field(default_factory=list)
+
+
 class ReferenceImageOut(BaseModel):
     listing_image_id: int | None = None
     rank: int | None = None
@@ -1057,6 +1086,9 @@ class ProfileOut(BaseModel):
     # reference's ("reference"), the seller's own ("custom") or not read yet.
     personalization: PersonalizationOut | None = None
     personalization_source: str = "unknown"
+    # Set when its personalization breaks Etsy's rules (copied from the reference, say): drafts
+    # of listings that follow it are held until it is fixed; the fix is offered on the card.
+    personalization_hold: PersonalizationHoldOut | None = None
     # The last refresh failed, and why (v6 §H); None once a refresh succeeds.
     refresh_error: str | None = None
     #: One line when drafts would be refused: a calculated shipping profile and no weight

@@ -69,7 +69,9 @@ router = APIRouter(prefix="/api", tags=["publish"])
 
 
 async def _content_problem(session: AsyncSession, content: GeneratedContent) -> str | None:
-    """Why this listing cannot go to any shop (its own text), or None."""
+    """Why this listing cannot go to any shop (its own text), or None. A personalization
+    Etsy would refuse is not a reason to skip it: its draft is queued and held until the
+    seller fixes the text (workers/publish.py), so the fix carries it on by itself."""
     return await listing_problem(session, content)
 
 

@@ -31,6 +31,8 @@ from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline import approval, creativity, manual, versions
+from app.workers.recovery import WAIT_PERSONALIZATION
+from app.api.personalization_fix import hold_out, requeue_held
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
 from app.pipeline.generation import TITLE_WARNINGS
 from app.pipeline.personalization import DEFAULT_QUESTION
@@ -255,7 +257,9 @@ async def unfinished_work(
                 shop_name=shop_label(connection),
                 job_id=job.id,
                 status=job.status.value,
-                error=job.last_error if job.status is JobStatus.failed else None,
+                # Failed: why. Held for its personalization: why, too (it waits for the seller).
+                error=job.last_error if job.status is JobStatus.failed or (
+                    job.status is JobStatus.queued and job.paused_reason == WAIT_PERSONALIZATION) else None,
                 pause=pause_out(
                     job.paused_reason if job.status is JobStatus.queued else None,
                     tenant=tenant,
@@ -297,6 +301,8 @@ async def contents_out(
         )
         out.personalization = _personalization_out(setting)
         out.personalization_source = source
+        # Etsy would refuse it: nothing is sent, and the card offers the fix (api/personalization_fix.py).
+        out.personalization_hold = hold_out(setting, source, profile)
         bounds = bounds_for(profile)
         out.title_min_length, out.title_max_length = bounds.min_length, bounds.max_length
         out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
@@ -398,6 +404,7 @@ async def set_personalization_for_all(
     body: schemas.BulkPersonalization,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.ContentOut]:
     """"Set for all" on the review page: one personalization for every listing of
     the batch (or the ones named). Drafts made from now on get it, in every shop."""
@@ -408,9 +415,11 @@ async def set_personalization_for_all(
     query = select(GeneratedContent).where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
     if body.content_ids:
         query = query.where(GeneratedContent.id.in_(body.content_ids))
-    for content in (await session.execute(query)).scalars():
+    changed = list((await session.execute(query)).scalars())
+    for content in changed:
         content.personalization = setting
     await session.commit()
+    await requeue_held(session, tenant, changed, enqueuer)  # held listings go ahead once it can be sent
     return await list_batch_content(batch_id, session, tenant)
 
 
@@ -485,6 +494,7 @@ async def update_content(
     body: schemas.ContentUpdate,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
     before = (content.title, list(content.tags or []), content.description)
@@ -512,10 +522,14 @@ async def update_content(
         manual.follow_title(content, profile, before[0])
     if (content.title, list(content.tags or []), content.description) != before:
         versions.mark_edited(content)  # its published versions say "edited" (Part D)
-    if "personalization" in body.model_fields_set:
+    personalization_changed = "personalization" in body.model_fields_set
+    if personalization_changed:
         content.personalization = _clean_personalization(body.personalization)
     await rescan(session, content)
     await session.commit()
+    if personalization_changed:
+        # A listing held for its personalization goes ahead once it can be sent.
+        await requeue_held(session, tenant, [content], enqueuer)
     await session.refresh(content)
     asset = await session.get(Asset, content.asset_id)
     return schemas.ContentUpdateResult(
@@ -611,7 +625,7 @@ async def approve_content(
             status_code=422,
             detail={"message": "cannot approve invalid content", "errors": validation.errors},
         )
-    content.approved = body.approved
+    approval.set_approved(content, body.approved, approval.VIA_CARD)
     if not body.approved:
         # A schedule is the seller's confirmation of an approved listing (v6 §G):
         # withdrawing the approval withdraws its schedules.
@@ -665,7 +679,7 @@ async def approve_all(
             continue
         if validation.warnings:
             noted.append((content.id, hand_written, validation.warnings))
-        content.approved = True
+        approval.set_approved(content, True, approval.VIA_APPROVE_ALL)
         result.approved += 1
     await session.commit()
     # One line per reason with how many, not the same long list for every listing.

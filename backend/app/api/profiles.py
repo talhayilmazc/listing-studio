@@ -61,6 +61,14 @@ async def shop_names(session: AsyncSession, tenant: Tenant) -> dict[uuid.UUID, s
     return {c.id: shop_label(c) for c in await active_shops(session, tenant.id)}
 
 
+def _personalization_hold(profile: ListingProfile) -> schemas.PersonalizationHoldOut | None:
+    """Set when what new drafts would get breaks Etsy's rules (a reference's long instructions,
+    say): their drafts are held until it is fixed; the card offers the fix."""
+    from app.api.personalization_fix import hold_out
+
+    return hold_out(effective_personalization(profile.personalization, profile.cached_payload), "profile", profile)
+
+
 def _personalization_out(profile: ListingProfile) -> schemas.PersonalizationOut | None:
     setting = effective_personalization(profile.personalization, profile.cached_payload)
     if setting is None:
@@ -125,6 +133,7 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
         reference_images_expired=bool(images) and not displayable,
         images_updated_at=profile.images_updated_at,
         personalization=_personalization_out(profile),
+        personalization_hold=_personalization_hold(profile),
         personalization_source=(
             "custom" if profile.personalization is not None
             else "reference" if "personalization" in (profile.cached_payload or {})
@@ -328,6 +337,7 @@ async def update_profile(
     body: schemas.ProfileUpdate,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)
     if {"how_made_production", "how_made_tools"} & body.model_fields_set:
@@ -394,6 +404,11 @@ async def update_profile(
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
     await session.commit()
+    if "personalization" in body.model_fields_set:
+        # Listings held for this profile's personalization go ahead once it can be sent.
+        from app.api.personalization_fix import following, requeue_held
+
+        await requeue_held(session, tenant, await following(session, profile), enqueuer)
     await session.refresh(profile)
     return await _out(session, tenant, profile)
 

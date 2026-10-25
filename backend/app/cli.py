@@ -835,6 +835,17 @@ def main(argv: list[str] | None = None) -> int:
     failures.add_argument("--check-etsy", action="store_true",
                           help="also READ each listing on Etsy (draft, active or gone) and the shop's drafts near each "
                           "failure without a listing id; rate limited, counted, never writes (run on the server)")
+    publishes = sub.add_parser(
+        "publish-report",
+        help="one account's listings between draft and going live: per outcome (published, approved but not "
+        "published, scheduled and waiting or missed, never approved, refused by Etsy, held by our own check), split "
+        "by personalization; per listing its approval, schedule, attempts and findings; read only",
+    )
+    publishes.add_argument("email")
+    publishes.add_argument("--since", default=None, help="listings from this day on (YYYY-MM-DD; default: the last 30 days)")
+    publishes.add_argument("--check-etsy", action="store_true",
+                           help="also READ each draft's state on Etsy (draft, active or gone); rate limited, counted, "
+                           "never writes (run on the server)")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -954,6 +965,13 @@ def main(argv: list[str] | None = None) -> int:
 
         since = _date.fromisoformat(args.since) if args.since else None
         print(asyncio.run(draft_failures_report(sm, args.email, since, check_etsy=args.check_etsy)))
+    elif args.command == "publish-report":
+        from datetime import date as _date
+
+        from app.ops.publish_report import report as publish_report
+
+        since = _date.fromisoformat(args.since) if args.since else None
+        print(asyncio.run(publish_report(sm, args.email, since, check_etsy=args.check_etsy)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 

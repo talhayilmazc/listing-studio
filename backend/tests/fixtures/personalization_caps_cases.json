@@ -1,0 +1,9 @@
+[
+  {"text": "PLEASE ENTER THE NAME", "fixed": "PLEASE enter the name"},
+  {"text": "Enter the NAME and the DATE", "fixed": "Enter the NAME and the date"},
+  {"text": "NAME. DATE goes here", "fixed": "NAME. Date goes here"},
+  {"text": "Type your name", "fixed": "Type your name"},
+  {"text": "UPPERCASE only: NAMES, DATES", "fixed": "UPPERCASE only: Names, dates"},
+  {"text": "Up to 12 letters, A-Z", "fixed": "Up to 12 letters, A-Z"},
+  {"text": "Write it IN CAPITALS", "fixed": "Write it IN CAPITALS"}
+]

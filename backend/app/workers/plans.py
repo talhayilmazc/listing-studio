@@ -100,11 +100,19 @@ async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UU
         await session.commit()
         await enqueue("run_publish_job", str(job.id))
         released += 1
-    # Drafts that failed for good: the slot says why (the card offers the retry).
+    # Drafts that failed for good: the slot says why (the card offers the retry). A draft that
+    # finished but whose go-live was never set (the worker stopped between the two): set it now,
+    # never left "drafting" for ever.
     for slot in list((await session.execute(select(PlannedSlot).where(PlannedSlot.state == "drafting"))).scalars()):
         job = await session.get(Job, slot.job_id) if slot.job_id else None
         if job is not None and job.status in (JobStatus.failed, JobStatus.cancelled):
             slot.state, slot.note = "failed", job.last_error or "the draft could not be created"
+        elif job is not None and job.status is JobStatus.succeeded:
+            content = await session.get(GeneratedContent, slot.content_id) if slot.content_id else None
+            if content is None or not content.approved:
+                slot.state, slot.note = "cancelled", "the listing is no longer approved; the draft stays a draft"
+            else:
+                await _schedule(session, slot, now)
     await session.commit()
     return released
 

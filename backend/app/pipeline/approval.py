@@ -12,6 +12,26 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+#: The paths a listing is approved by, as the publish report prints them.
+VIA_CARD = "card"
+VIA_APPROVE_ALL = "approve_all"
+
+
+def set_approved(content: Any, approved: bool, via: str = VIA_CARD) -> None:
+    """Approve or un-approve a listing, recording when and by which path (migration 0091).
+    An approval already given keeps its first time and path."""
+    if approved:
+        if not content.approved or content.approved_at is None:
+            content.approved_at = datetime.now(timezone.utc)
+            content.approved_via = via
+        content.approved = True
+    else:
+        content.approved = False
+        content.approved_at = None
+        content.approved_via = None
 
 #: (start of a validation message, singular, plural). First match wins; the
 #: messages are the app's own (pipeline/content.py, pipeline/etsy_text.py).

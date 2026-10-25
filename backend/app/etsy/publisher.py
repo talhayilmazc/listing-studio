@@ -105,6 +105,10 @@ class PublishBlocked(Exception):
     """A blocking compliance finding prevents publishing this content."""
 
 
+class NotLive(ValueError):
+    """Etsy answered the go-live without an error but kept the listing as it was."""
+
+
 class ShopDisconnected(ValueError):
     """The shop was disconnected while a draft was being made: nothing more is recorded."""
 
@@ -130,6 +134,12 @@ class NotYet(Exception):
 
 #: How long the worker waits before the next try after a :class:`NotYet`.
 NOT_YET_SECONDS = 60.0
+
+
+class PersonalizationHeld(Exception):
+    """The listing's personalization breaks Etsy's rules: no draft is made. The job waits,
+    held (it uses no tries and nothing reaches Etsy), until the seller fixes the text and
+    "Use this" queues it again (api/personalization_fix.py)."""
 
 
 class SetupPending(NotYet):
@@ -368,6 +378,13 @@ async def _has_blocking_finding(session: AsyncSession, content_id: uuid.UUID) ->
         )
     )
     return rows.first() is not None
+
+
+def not_live_message(state: str) -> str:
+    """What the seller reads when Etsy kept a listing as a draft after "go live"."""
+    return (f"Etsy answered without an error but did not make this listing live: it is still a {state} on Etsy. "
+            "Nothing was changed here. Open it in Shop Manager, where Etsy shows what it still needs, "
+            "then press Publish now again.")
 
 
 async def _became_active(
@@ -1090,7 +1107,7 @@ async def publish_live(
     await session.commit()
 
     try:
-        await client.update_listing(shop_id, listing_id, updates={"state": "active"}, repeat=False, **ctx)
+        answer = await client.update_listing(shop_id, listing_id, updates={"state": "active"}, repeat=False, **ctx)
     except (httpx.TransportError, EtsyServerError) as exc:
         # No answer, or a server error: Etsy may still have applied it. Ask.
         if not await _became_active(
@@ -1119,6 +1136,14 @@ async def publish_live(
                 "to publish. Create the draft again, then publish it."
             ) from exc
         raise
+    else:
+        # A 2xx is not proof: Etsy answers with the listing, and a listing it kept as a draft
+        # says so. Read back before believing either; never record "live" for a draft.
+        state = str((answer or {}).get("state") or "") if isinstance(answer, dict) else ""
+        if state and state != "active" and not await _became_active(
+            client, listing_id, ctx, attempts=confirm_attempts, wait=confirm_wait
+        ):
+            raise NotLive(not_live_message(state))
     publication.state = "active"
     publication.published_at = _now()
     await versions.went_live(session, publication, publication.published_at)

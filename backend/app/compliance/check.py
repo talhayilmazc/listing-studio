@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent, ListingProfile
-from app.pipeline import manual
+from app.pipeline import manual, personalization
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
 
 
@@ -63,3 +63,24 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent) -> s
     if blocked:
         return f"compliance: {blocked}"
     return None
+
+
+async def personalization_setting(session: AsyncSession, content: GeneratedContent) -> tuple[dict | None, str]:
+    """The personalization a new draft of this listing would get, and where it comes from
+    ("listing", "profile", "unknown"): pipeline/personalization.py."""
+    profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+    if profile is not None and profile.tenant_id != content.tenant_id:
+        profile = None
+    return personalization.for_listing(
+        content.personalization, profile.personalization if profile else None, profile.cached_payload if profile else None
+    )
+
+
+async def personalization_hold(session: AsyncSession, content: GeneratedContent) -> str | None:
+    """Why no new draft can be made for this listing because of its personalization (Etsy
+    would refuse the question), with the fix in plain words; None when it can go.
+
+    Only new drafts are held: a draft that exists already went to Etsy with a question Etsy
+    accepted, so going live never waits on this (workers/schedule.py does not ask it)."""
+    setting, _ = await personalization_setting(session, content)
+    return personalization.held_reason(setting)

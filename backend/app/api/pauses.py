@@ -33,7 +33,12 @@ RETRY_MESSAGES = {
     "interrupted": "This was interrupted. It starts again by itself in a moment and carries on where it stopped.",
     "shop_setup": "Preparing this shop's shipping, return and processing settings (the main shop's, copied where "
                   "needed). The draft follows by itself.",
+    # Waits for the seller, not for time: the card says what breaks Etsy's rules and offers the fix.
+    "personalization_held": "Held: its personalization breaks Etsy's rules, so nothing was sent to Etsy. Use the "
+                            "suggested text on this card (or edit the personalization); the draft then goes ahead by itself.",
 }
+#: Pauses that wait for the seller, not for a time: shown without "resumes at".
+WAITS_FOR_SELLER = frozenset({"personalization_held"})
 
 
 def pause_out(

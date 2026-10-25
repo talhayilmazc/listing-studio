@@ -38,6 +38,7 @@ from app.etsy.connection import ConnectionService
 from app.etsy.connection import renewer_for as _renewer
 from app.etsy.publisher import (
     SETUP_WAIT_SECONDS,
+    PersonalizationHeld,
     PublishConfig,
     PublishImage,
     SetupPending,
@@ -50,6 +51,7 @@ from app.pipeline.images import cover_image
 from app.pipeline import links as L
 from app.pipeline.links import setup_message, shop_reference
 from app.pipeline.personalization import for_listing as personalization_for_listing
+from app.pipeline.personalization import held_reason
 from app.pipeline.profile_shop_settings import shop_section
 from app.pipeline.storage import LocalStorage
 from app.pipeline.targets import Target, is_fresh, resolve_target
@@ -323,6 +325,12 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
             link = target.link
             if link is None or link.connection_id != connection.id:
                 raise ValueError("the profile is not set up in this shop")
+            # A personalization question Etsy would refuse is never sent: the draft waits,
+            # held, with why and the fix, until the seller fixes it (nothing reaches Etsy).
+            held = held_reason(personalization_for_listing(
+                content.personalization, profile.personalization, profile.cached_payload)[0])
+            if held:
+                raise PersonalizationHeld(held)
             if target.title_fit:
                 # Over 140 characters only with this shop's prefix: rewritten once for this shop,
                 # else the draft stops here, before anything reaches Etsy, and the card says

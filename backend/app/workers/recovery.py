@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -38,7 +38,7 @@ from app.db.models import EtsyConnection, Job, JobStatus, JobType, Tenant
 from app.etsy.api import RateLimitExceeded
 from app.etsy.errors import EtsyError, EtsyRateLimited, EtsyServerError
 from app.etsy.errors import record as etsy_record
-from app.etsy.publisher import SETUP_GIVE_UP_SECONDS, NotYet, SetupPending
+from app.etsy.publisher import SETUP_GIVE_UP_SECONDS, NotYet, PersonalizationHeld, SetupPending
 from app.workers import gate
 from app.workers.guards import public_error
 
@@ -50,6 +50,9 @@ WAIT_ETSY_DOWN = "etsy_unavailable"
 WAIT_INTERRUPTED = "interrupted"
 #: A draft waiting for its shop to be set up for its profile (settings matched or copied there).
 WAIT_SETUP = "shop_setup"
+#: A draft held because its personalization breaks Etsy's rules: it waits for the seller's fix
+#: (it is queued again by "Use this", never by time).
+WAIT_PERSONALIZATION = "personalization_held"
 
 MIN_RATE_WAIT = 60.0
 MAX_RATE_WAIT = 15 * 60.0
@@ -153,6 +156,14 @@ async def after_failure(
                       "the listing: try again in a few minutes and it carries on where it stopped.",
         )
 
+    if isinstance(exc, PersonalizationHeld):
+        # Never sent: Etsy would refuse the question. Held, not failed, with why and the fix;
+        # it uses no try and is not queued again until the seller's fix queues it.
+        job.status, job.paused_reason, job.scheduled_at = JobStatus.queued, WAIT_PERSONALIZATION, None
+        job.last_error = str(exc)
+        await session.commit()
+        return "held"
+
     if isinstance(exc, SetupPending):
         # The shop is being set up for the listing's profile: wait, without using a try.
         created = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)
@@ -255,6 +266,8 @@ async def _requeue_lost(ctx: dict[str, Any], session: AsyncSession) -> int:
     rows = (await session.execute(select(Job).where(
         Job.status == JobStatus.queued, Job.type.in_(tuple(FUNCTIONS)),
         func.coalesce(Job.scheduled_at, Job.created_at) < stale,
+        # Held for its personalization: it waits for the seller's fix, not for time.
+        or_(Job.paused_reason.is_(None), Job.paused_reason != WAIT_PERSONALIZATION),
     ))).scalars().all()
     for job in rows:
         job.scheduled_at = now  # the next look is LOST_AFTER from now

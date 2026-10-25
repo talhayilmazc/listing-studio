@@ -30,6 +30,10 @@ MAX_AHEAD = timedelta(days=60)
 GRACE = timedelta(minutes=2)
 
 NOT_APPROVED = "Not published: the listing is no longer approved."
+#: A schedule this far past its time with nothing released is "missed", never "scheduled".
+MISSED_AFTER = timedelta(minutes=10)
+MISSED = ("Its time passed and it has not gone live: nothing was released for it. It goes at the next "
+          "release; if it stays like this, press Publish now.")
 ALREADY_LIVE = "Already live; it was published before its scheduled time."
 
 
@@ -43,7 +47,7 @@ class ScheduleBusy(ScheduleRefused):
 
 @dataclass(frozen=True)
 class ScheduleState:
-    #: "scheduled" | "publishing" | "waiting" | "published" | "failed" | "not_published"
+    #: "scheduled" | "missed" | "publishing" | "waiting" | "published" | "failed" | "not_published"
     status: str
     note: str | None = None
 
@@ -145,10 +149,12 @@ async def cancel_for_content(
             pass  # already going live; the job re-checks approval itself
 
 
-def state_of(publication: ListingPublication, job: Job | None) -> ScheduleState | None:
-    """Where a schedule stands, for the seller; None when there is none."""
+def state_of(publication: ListingPublication, job: Job | None, now: datetime | None = None) -> ScheduleState | None:
+    """Where a schedule stands, for the seller; None when there is none. A time that passed
+    with nothing released is "missed" (never shown as still waiting)."""
     if publication.scheduled_for is None:
         return None
+    now = now or datetime.now(timezone.utc)
     if job is not None and job.status is JobStatus.succeeded:
         return ScheduleState("published")
     if publication.state == "active":
@@ -156,6 +162,9 @@ def state_of(publication: ListingPublication, job: Job | None) -> ScheduleState 
     if job is None:
         if publication.schedule_note:
             return ScheduleState("not_published", publication.schedule_note)
+        when = publication.scheduled_for if publication.scheduled_for.tzinfo else publication.scheduled_for.replace(tzinfo=timezone.utc)
+        if when < now - MISSED_AFTER:
+            return ScheduleState("missed", MISSED)
         return ScheduleState("scheduled")
     if job.status is JobStatus.queued:
         if job.paused_reason:

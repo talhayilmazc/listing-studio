@@ -24,6 +24,7 @@ the seller can act on; nothing is shortened for them.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 MAX_QUESTION_TEXT = 45  # Etsy: 1-45 characters
@@ -33,6 +34,8 @@ MAX_CHARACTERS = 1024  # Etsy: 1-1024
 #: the seller nor the reference set one, this is sent (the app's choice, shown on the card).
 DEFAULT_MAX_CHARACTERS = 256
 _SHOUTED = re.compile(r"\b[A-Z]{3,}")
+#: A whole word Etsy counts as "in capitals" (it starts with three or more capital letters).
+_SHOUTED_WORD = re.compile(r"\b[A-Z]{3,}[\w'’]*")
 
 
 def from_reference(resp: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -86,6 +89,103 @@ def etsy_problems(setting: dict[str, Any] | None) -> list[str]:
     if limit is not None and not 1 <= int(limit) <= MAX_CHARACTERS:
         out.append(f"the character limit must be between 1 and {MAX_CHARACTERS}")
     return out
+
+
+def shouted(value: str) -> list[str]:
+    """The words Etsy counts as in capitals."""
+    return _SHOUTED_WORD.findall(value or "")
+
+
+def fix_caps(value: str) -> str:
+    """The same text with the first word in capitals kept and every later one in normal case
+    ("PLEASE ENTER THE NAME" -> "PLEASE enter the name"); a word that starts a sentence keeps
+    its first capital. Nothing else changes. Etsy allows one word in capitals."""
+    seen = False
+
+    def one(m: re.Match[str]) -> str:
+        nonlocal seen
+        if not seen:
+            seen = True
+            return m.group(0)
+        word = m.group(0)
+        before = value[: m.start()].rstrip()
+        starts_sentence = not before or before[-1] in ".!?:"
+        return word[0] + word[1:].lower() if starts_sentence else word.lower()
+
+    return _SHOUTED_WORD.sub(one, value or "")
+
+
+@dataclass(frozen=True)
+class FieldProblem:
+    """What is wrong with one field ("question" or "instructions") and what fixes it."""
+
+    field: str
+    text: str
+    #: Characters over Etsy's limit (0: within it).
+    over: int
+    #: Words in capitals beyond the one Etsy allows (0: fine).
+    extra_caps: int
+    #: The text with the caps fixed (None when caps were not the problem).
+    caps_fix: str | None
+    #: The caps fix alone is not enough: the text must also be shortened (a model offer).
+    needs_shortening: bool
+
+    @property
+    def limit(self) -> int:
+        return MAX_QUESTION_TEXT if self.field == "question" else MAX_INSTRUCTIONS
+
+
+def field_problems(setting: dict[str, Any] | None) -> list[FieldProblem]:
+    """Per field, what breaks Etsy's rules and what would fix it ([] when it can be sent).
+    Only length and capitals are fixed for the seller; the other rules (an empty question,
+    a first character that is not a letter or number, the character limit) are said by
+    :func:`etsy_problems`."""
+    if not setting or not setting.get("enabled"):
+        return []
+    out = []
+    for name, limit in (("question", MAX_QUESTION_TEXT), ("instructions", MAX_INSTRUCTIONS)):
+        text = str(setting.get("question_text" if name == "question" else "instructions") or "").strip()
+        extra = max(0, len(shouted(text)) - 1)
+        over = max(0, len(text) - limit)
+        if not extra and not over:
+            continue
+        fixed = fix_caps(text) if extra else None
+        out.append(FieldProblem(name, text, over, extra, fixed, len(fixed if fixed is not None else text) > limit))
+    return out
+
+
+#: What a listing held for its personalization says first (the card, the schedule, the job).
+HELD = "Held: its personalization breaks Etsy's rules"
+#: The short line beside such a listing where drafts are planned ("Where and when").
+HELD_NOTE = "personalization breaks Etsy's rules: the draft waits, nothing is sent, until it is fixed"
+
+
+def held_reason(setting: dict[str, Any] | None) -> str | None:
+    """Why nothing is sent for a listing with this setting, with the fix in plain words; None
+    when it can be sent. Etsy would refuse the question, so the draft is never made."""
+    problems = etsy_problems(setting)
+    if not problems:
+        return None
+    return (f"{HELD}: {'; '.join(problems)}. Nothing was sent to Etsy. Use the suggested text on the card, "
+            "or edit the personalization; it then goes ahead by itself.")
+
+
+def hold_line(setting: dict[str, Any] | None) -> str | None:
+    """The sentence above the fix on a card or profile: true whether or not a draft was tried
+    yet, and whether or not one is already on Etsy (the job's own reason is :func:`held_reason`)."""
+    problems = etsy_problems(setting)
+    if not problems:
+        return None
+    return (f"Its personalization breaks Etsy's rules: {'; '.join(problems)}. A new draft waits, and nothing "
+            "is sent to Etsy, until it is fixed; drafts already on Etsy are not changed. Use the suggested "
+            "text, or edit the personalization; waiting drafts then go ahead by themselves.")
+
+
+def is_held(message: str | None) -> bool:
+    """A stored reason (job, slot) that says a listing was held for its personalization; also
+    the draft step's own refusal from before the hold existed."""
+    text = message or ""
+    return text.startswith(HELD) or "personalization question cannot be sent to Etsy" in text
 
 
 def validate(override: dict[str, Any]) -> dict[str, Any]:
@@ -146,7 +246,7 @@ def for_listing(own: dict[str, Any] | None, profile_override: dict[str, Any] | N
 def differs(sent: dict[str, Any], back: dict[str, Any] | None) -> list[str]:
     """What Etsy did not keep of the question that was sent (the draft read-back)."""
     questions = [q for q in (back or {}).get("personalization_questions") or []
-                 if q.get("question_text") == sent["question_text"]]
+                 if _same_text(q.get("question_text")) == _same_text(sent["question_text"])]
     if not questions:
         return ["question"]
     q = questions[0]
@@ -155,6 +255,16 @@ def differs(sent: dict[str, Any], back: dict[str, Any] | None) -> list[str]:
         out.append("required")
     if int(q.get("max_allowed_characters") or 0) != character_limit(sent):
         out.append("character limit")
-    if (sent.get("instructions") or "").strip() != (q.get("instructions") or "").strip():
+    if _same_text(sent.get("instructions")) != _same_text(q.get("instructions")):
         out.append("instructions")
     return out
+
+
+def _same_text(value: Any) -> str:
+    """Text as Etsy may give it back: HTML entities decoded (``&amp;``), spaces and line
+    breaks collapsed, curly quotes made straight. Only a real difference fails a draft."""
+    import html
+
+    text = html.unescape(str(value or ""))
+    text = text.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
+    return " ".join(text.split())

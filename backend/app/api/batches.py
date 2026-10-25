@@ -45,7 +45,7 @@ from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
 from app.compliance.scanner import rescan
-from app.pipeline import chart_order, grouping, manual, profile_shops, thumbs, upload_retention
+from app.pipeline import approval, chart_order, grouping, manual, profile_shops, thumbs, upload_retention
 from app.pipeline.targets import retext
 from app.pipeline.archive import read_archive
 from app.pipeline.batch_names import clean_name, names_for
@@ -804,7 +804,7 @@ async def _follow_profile(
         content.title, content.description = title, description
         content.listing_profile_id = profile.id
         content.taxonomy_id = (profile.cached_payload or {}).get("taxonomy_id")
-        content.approved = False  # what would be sent changed: the seller approves it again
+        approval.set_approved(content, False)  # what would be sent changed: the seller approves it again
         await rescan(session, content)
 
 

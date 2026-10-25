@@ -40,6 +40,7 @@ from app.db.models import (
     Asset,
     GeneratedContent,
     Job,
+    JobStatus,
     ListingProfile,
     ListingPublication,
     PlannedSlot,
@@ -47,8 +48,9 @@ from app.db.models import (
     Tenant,
 )
 from app.etsy.publisher import link_for
-from app.etsy.scheduling import ScheduleBusy, ScheduleRefused, set_schedule, state_of, withdraw
+from app.etsy.scheduling import MISSED, MISSED_AFTER, ScheduleBusy, ScheduleRefused, set_schedule, state_of, withdraw
 from app.etsy.shops import active_shops, group_shops
+from app.workers.recovery import WAIT_PERSONALIZATION
 from app.pipeline import reschedule as R
 from app.pipeline.batch_names import names_by_id
 from app.pipeline.group_plan import DRAFT_LEAD
@@ -57,6 +59,9 @@ from app.pipeline.group_plan import DRAFT_LEAD
 REMOVED = "removed from the schedule"
 
 router = APIRouter(prefix="/api/scheduled", tags=["scheduled"])
+#: A group schedule's slot past its time while its draft is still being made.
+MISSED_DRAFTING = ("Its time passed while its draft was still being made; it goes live as soon as the draft is ready. "
+                   "If it stays like this, the draft did not finish: open the listing to see why.")
 
 #: How long a finished go-live stays on the page.
 SHOWN_AFTER = timedelta(days=7)
@@ -88,7 +93,8 @@ class ItemOut(BaseModel):
     local: str
     local_day: str
     local_time: str
-    #: planned (its draft is made at its time) · drafting · scheduled · publishing · waiting ·
+    #: planned (its draft is made at its time) · drafting · held (its personalization) · scheduled · missed (its time passed,
+    #: not live) · publishing · waiting ·
     #: published · failed · not_published
     status: str
     note: str | None
@@ -261,20 +267,31 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
             status=status, note=note, movable=movable, paused=is_paused(tenant.id, shop_id, paused), listing_link=link,
         ))
 
+    slot_jobs = {j.id: j for j in (await session.execute(select(Job).where(
+        Job.id.in_([s.job_id for s in slots if s.job_id])))).scalars()} if slots else {}
     for slot in slots:
-        if slot.state == "failed":
+        job = slot_jobs.get(slot.job_id) if slot.job_id else None
+        if slot.state == "drafting" and job is not None and job.status is JobStatus.queued                 and job.paused_reason == WAIT_PERSONALIZATION:
+            # Its draft is held for its personalization: said as such, with the fix on the card.
+            add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "held",
+                job.last_error, True, None, None, None)
+        elif slot.state == "failed":
             add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "failed", slot.note,
                 False, None, None, None)
+        elif _aware(slot.publish_at) < now - MISSED_AFTER:
+            # Its time passed and it has not gone live: "missed", never shown as still waiting.
+            add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "missed",
+                MISSED if slot.state == "waiting" else MISSED_DRAFTING, True, None, None, None)
         else:
             add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at,
                 "planned" if slot.state == "waiting" else "drafting", slot.note, True, None, None, None)
         w.rows[f"slot:{slot.id}"] = slot
     for pub in pubs:
-        state = state_of(pub, jobs.get(pub.schedule_job_id) if pub.schedule_job_id else None)
+        state = state_of(pub, jobs.get(pub.schedule_job_id) if pub.schedule_job_id else None, now)
         if state is None:
             continue
         add(f"pub:{pub.id}", "draft", pub.content_id, pub.connection_id, pub.scheduled_for, state.status, state.note,
-            state.status == "scheduled", pub.title, pub.sku, link_for(pub.etsy_listing_id, pub.state))
+            state.status in ("scheduled", "missed"), pub.title, pub.sku, link_for(pub.etsy_listing_id, pub.state))
         w.rows[f"pub:{pub.id}"] = pub
     w.items.sort(key=lambda i: (i.at, i.shop_name, i.key))
     return w

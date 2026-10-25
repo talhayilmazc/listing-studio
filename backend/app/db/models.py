@@ -1194,6 +1194,10 @@ class GeneratedContent(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: When it was approved and by which path: "card" (its own toggle) or "approve_all"
+    #: (migration 0091; empty for approvals before it, cleared when approval is taken away).
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_via: Mapped[str | None] = mapped_column(Text)
     #: The reference-listing profile that drives category/price/variations/
     #: description for this content (required by the generate path). SET NULL on
     #: profile delete so content survives.
