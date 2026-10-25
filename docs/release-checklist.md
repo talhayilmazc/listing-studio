@@ -122,6 +122,14 @@ Before you start, have ready:
    - In Listyro its card shows **Live**.
 2. Set that listing back to draft or delete it in Shop Manager.
 
+## 11a. Personalization that Etsy would refuse (1 min)
+
+1. On **Profiles**, open a profile's Personalization **edit** and paste instructions over 120 characters.
+   - The counter turns red ("131 / 120 characters"), the rule is listed and **Save** stays off.
+2. Press **Cancel**. Nothing changed.
+3. If a profile shows the amber "Its personalization breaks Etsy's rules" panel: the offer beside the
+   original changes nothing until **Use this**; after it, the panel goes and held listings go ahead.
+
 ## 12. Clean up (1 min)
 
 1. In Shop Manager, delete the drafts and the listing you made.

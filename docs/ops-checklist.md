@@ -160,6 +160,32 @@ After `bash deploy/update.sh` with this change (no migration, no `.env` change):
    second visit to the same page shows them "(disk cache)" or "(memory cache)", and an upload
    shows three files going at once.
 
+## 8. Listings that did not go live, and personalization (25 October 2026)
+
+After `bash deploy/update.sh` with this change (migration `0091_approval_record`: two empty columns on
+`generated_content`, quick, no rows changed; no `.env` change):
+
+1. The seller's report: for one account, every listing since a date, what happened to it and why.
+   Read only (one READ ONLY transaction, SELECT only, no tokens or buyer data printed, titles cut at
+   40 characters). `--check-etsy` adds one getListing per listing through the rate limiter and the
+   daily budget (upkeep); nothing is written to Etsy:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli publish-report <email> --since 2026-10-23
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli publish-report <email> --since 2026-10-23 --check-etsy
+   ```
+
+   The summary comes first: published, published here but still a draft on Etsy (only with
+   `--check-etsy`), approved but not published, scheduled and waiting, scheduled and missed, never
+   approved, refused by Etsy, held by our own check; each split by personalization on/off, with
+   listing ids. Then one block per listing.
+2. Listings whose personalization breaks Etsy's rules (instructions over 120 characters, more than
+   one word in capitals) are now held before anything is sent; the seller sees why on the card and
+   the profile, with the fix. Once fixed they go ahead by themselves. Nothing to run.
+3. A publish Etsy answered 2xx but kept as a draft is no longer recorded as live: the job fails with
+   Etsy's state and the seller is told. Listings recorded live before this release that are still
+   drafts show up in step 1 with `--check-etsy` as "published here, still a draft on Etsy".
+
 ## What is already in place (no action)
 
 - Error alerts go to `ALERT_WEBHOOK_URL`: failed deploy, failed backup, disk growth, an AI provider refusing us, a new invite request, and the weekly Etsy spec watcher.
