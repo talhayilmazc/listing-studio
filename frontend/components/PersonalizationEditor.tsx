@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import type { Personalization, Profile } from "@/lib/types";
-import { DEFAULT_MAX_CHARACTERS, MAX_CHARACTERS, MAX_INSTRUCTIONS } from "@/lib/personalization";
+import { DEFAULT_MAX_CHARACTERS, MAX_CHARACTERS, MAX_INSTRUCTIONS, MAX_QUESTION, counter, personalizationErrors } from "@/lib/personalization";
+import { api } from "@/lib/api";
+import { PersonalizationFix } from "@/components/PersonalizationFix";
 
 import { Txt } from "@/components/Txt";
 const SOURCE: Record<string, string> = {
@@ -14,16 +16,21 @@ const SOURCE: Record<string, string> = {
 /**
  * Personalization on a profile (v7 §D4): what new drafts get, copied from the
  * reference listing unless the seller sets their own. Etsy takes one text
- * question (1-45 characters), with optional instructions and a character limit.
+ * question (1-45 characters), with optional instructions and a character limit. Each field
+ * shows a live counter and Etsy's rules; the profile cannot be saved with text Etsy would
+ * refuse. Text that breaks them already (copied from the reference) shows the one-click fix.
  */
 export function PersonalizationEditor({
   profile,
   busy,
   onSave,
+  onFixed,
 }: {
   profile: Profile;
   busy: boolean;
   onSave: (setting: Personalization | null) => Promise<void>;
+  /** "Use this" saved the fixed text: the profile as it is now. */
+  onFixed?: (profile: Profile) => void;
 }) {
   const current = profile.personalization;
   const [editing, setEditing] = useState(false);
@@ -40,8 +47,13 @@ export function PersonalizationEditor({
     setEditing(true);
   }
 
+  const problems = personalizationErrors(draft);
+  const question = counter(draft.question_text, MAX_QUESTION);
+  const instructions = counter(draft.instructions, MAX_INSTRUCTIONS);
+  const hold = profile.personalization_hold;
+
   return (
-    <div className="rounded-md border border-slate-200 px-3 py-2 text-xs">
+    <div className="rounded-md border border-slate-200 px-3 py-2 text-xs" data-testid="profile-personalization">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium text-slate-700">Personalization</span>
         <span className="text-slate-400">{SOURCE[profile.personalization_source] ?? ""}</span>
@@ -80,11 +92,22 @@ export function PersonalizationEditor({
           )}
         </div>
       )}
+      {!editing && hold && (
+        <div key="hold" className="mt-2">
+          <PersonalizationFix hold={hold} scope={`this profile (“${profile.name}”)`}
+            onUse={async (body) => {
+              const res = await api.fixProfilePersonalization(profile.id, body);
+              onFixed?.(res.profile);
+              return res.message;
+            }} />
+        </div>
+      )}
       {editing && (
         <form key="form-81-6"
           className="mt-2 space-y-2"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (problems.length) return; // Etsy would refuse it: never saved
             await onSave(draft);
             setEditing(false);
           }}
@@ -93,22 +116,37 @@ export function PersonalizationEditor({
             Question the buyer answers
             <input
               className="field mt-0.5 py-1 text-xs"
-              maxLength={45}
               value={draft.question_text ?? ""}
               onChange={(e) => setDraft({ ...draft, question_text: e.target.value })}
               placeholder="e.g. Name to print"
               required
+              aria-describedby="profile-question-count"
+              data-testid="profile-question"
             />
+            <span id="profile-question-count" translate="no" className={`mt-0.5 block ${question.over ? "text-rose-700" : "text-slate-500"}`}>
+              {question.line}
+            </span>
           </label>
           <label className="block text-slate-600">
             Instructions (optional)
-            <input
+            <textarea
               className="field mt-0.5 py-1 text-xs"
-              maxLength={MAX_INSTRUCTIONS}
+              rows={2}
               value={draft.instructions ?? ""}
               onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
+              aria-describedby="profile-instructions-count"
+              data-testid="profile-instructions"
             />
+            <span id="profile-instructions-count" translate="no" data-testid="profile-instructions-count"
+              className={`mt-0.5 block ${instructions.over ? "text-rose-700" : "text-slate-500"}`}>
+              {instructions.line}
+            </span>
           </label>
+          {problems.length > 0 && (
+            <ul key="rules" role="alert" className="space-y-0.5 text-rose-700" data-testid="profile-personalization-rules">
+              {problems.map((p) => <li key={p}>{p}</li>)}
+            </ul>
+          )}
           <div className="flex flex-wrap items-center gap-4 text-slate-600">
             <label className="flex items-center gap-1.5">
               <input
@@ -135,7 +173,9 @@ export function PersonalizationEditor({
             </label>
           </div>
           <div className="flex gap-2">
-            <button type="submit" className="btn-primary px-2.5 py-1 text-xs" disabled={busy}>
+            <button type="submit" className="btn-primary px-2.5 py-1 text-xs" disabled={busy || problems.length > 0}
+              title={problems.length ? "Etsy would refuse this text: fix what is listed above first" : undefined}
+              data-testid="profile-personalization-save">
               Save
             </button>
             <button type="button" className="text-slate-500 underline" onClick={() => setEditing(false)}>

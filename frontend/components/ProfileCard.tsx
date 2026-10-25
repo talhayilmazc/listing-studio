@@ -299,6 +299,7 @@ export function ProfileCard({
           profile={profile}
           busy={busy !== null}
           onSave={(setting) => run("personalization", () => api.updateProfile(profile.id, { personalization: setting }))}
+          onFixed={onChange}
         />
 
         {charts.length > 0 && (

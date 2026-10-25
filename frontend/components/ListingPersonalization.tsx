@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DEFAULT_MAX_CHARACTERS, DEFAULT_QUESTION, MAX_CHARACTERS, MAX_INSTRUCTIONS, MAX_QUESTION, personalizationErrors } from "@/lib/personalization";
+import { DEFAULT_MAX_CHARACTERS, DEFAULT_QUESTION, MAX_CHARACTERS, MAX_INSTRUCTIONS, MAX_QUESTION, counter, personalizationErrors } from "@/lib/personalization";
 import type { Personalization } from "@/lib/types";
 import { Txt } from "./Txt";
 
@@ -97,8 +97,11 @@ export function ListingPersonalization({
         <div key="fields" className="mt-2 grid gap-2 sm:grid-cols-2">
           <label className="space-y-0.5 sm:col-span-2">
             <span>{`Question (up to ${MAX_QUESTION} characters)`}</span>
-            <input className="field py-1" maxLength={MAX_QUESTION} value={draft.question_text ?? ""}
+            <input className="field py-1" value={draft.question_text ?? ""}
               onChange={(e) => set({ question_text: e.target.value })} />
+            <span translate="no" className={counter(draft.question_text, MAX_QUESTION).over ? "text-rose-700" : "text-slate-500"}>
+              {counter(draft.question_text, MAX_QUESTION).line}
+            </span>
           </label>
           <label className="flex min-h-[2.75rem] items-center gap-2 sm:min-h-0">
             <input type="checkbox" className="h-4 w-4" checked={draft.required} onChange={(e) => set({ required: e.target.checked })} />
@@ -111,8 +114,11 @@ export function ListingPersonalization({
           </label>
           <label className="space-y-0.5 sm:col-span-2">
             <span>{`Instructions for the buyer (up to ${MAX_INSTRUCTIONS})`}</span>
-            <textarea className="field py-1" rows={2} maxLength={MAX_INSTRUCTIONS} value={draft.instructions ?? ""}
+            <textarea className="field py-1" rows={2} value={draft.instructions ?? ""}
               onChange={(e) => set({ instructions: e.target.value })} />
+            <span translate="no" className={counter(draft.instructions, MAX_INSTRUCTIONS).over ? "text-rose-700" : "text-slate-500"}>
+              {counter(draft.instructions, MAX_INSTRUCTIONS).line}
+            </span>
           </label>
         </div>
       )}

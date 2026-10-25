@@ -220,6 +220,8 @@ export interface Content {
   /** What its drafts get in every shop (v8 §D): its own setting, or its profile's. */
   personalization?: Personalization | null;
   personalization_source?: "listing" | "profile" | "unknown" | string;
+  /** Set when its personalization breaks Etsy's rules: nothing is sent; the card offers the fix. */
+  personalization_hold?: PersonalizationHold | null;
 }
 
 /** One print area on a template photo (backend api/mockups.py AreaOut). */
@@ -722,8 +724,35 @@ export interface Profile {
   /** What new drafts get (v7 §D4); null until the reference is read for it. */
   personalization: Personalization | null;
   personalization_source: "reference" | "custom" | "unknown" | string;
+  /** Set when what new drafts would get breaks Etsy's rules: their drafts are held until it is fixed. */
+  personalization_hold?: PersonalizationHold | null;
   /** The reference listing's title while the listing cache is fresh (for search). */
   reference_title?: string | null;
+}
+
+/** One personalization field that breaks Etsy's rules, and what fixes it (backend api/personalization_fix.py). */
+export interface PersonalizationField {
+  field: "question" | "instructions";
+  text: string;
+  length: number;
+  limit: number;
+  extra_caps: number;
+  caps_fix: string | null;
+  needs_shortening: boolean;
+}
+
+/** A listing or profile whose personalization Etsy would refuse: nothing is sent; the fix is offered. */
+export interface PersonalizationHold {
+  reason: string;
+  source: "listing" | "profile" | string;
+  profile_id: string | null;
+  profile_name: string | null;
+  fields: PersonalizationField[];
+}
+
+export interface PersonalizationFixResult {
+  requeued: { drafts: number; schedules: number; listings: string[] };
+  message: string | null;
 }
 
 export interface Personalization {

@@ -30,6 +30,7 @@ import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { personalizationLine } from "@/lib/personalization";
+import { PersonalizationFix } from "@/components/PersonalizationFix";
 import { SearchChecklist } from "./SearchChecklist";
 import { SEARCH_CARD_NOTE, TITLE_WARNING_HEAD, TITLE_WARNING_TAIL } from "@/lib/listingStyle";
 import { useSession } from "./SessionProvider";
@@ -123,10 +124,13 @@ export function ReviewCard({
   const [personalizationSource, setPersonalizationSource] = useState(initial.personalization_source ?? "unknown");
   const [editingPersonalization, setEditingPersonalization] = useState(false);
   // "Set for all" on the page changes it without remounting the card.
-  const incomingPersonalization = JSON.stringify([initial.personalization, initial.personalization_source]);
+  // Etsy would refuse its personalization: nothing is sent, and the card offers the fix.
+  const [hold, setHold] = useState(initial.personalization_hold ?? null);
+  const incomingPersonalization = JSON.stringify([initial.personalization, initial.personalization_source, initial.personalization_hold]);
   useEffect(() => {
     setPersonalization(initial.personalization ?? null);
     setPersonalizationSource(initial.personalization_source ?? "unknown");
+    setHold(initial.personalization_hold ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingPersonalization]);
   const [approved, setApproved] = useState(initial.approved);
@@ -672,6 +676,18 @@ export function ReviewCard({
                 {editingPersonalization ? "done" : "change"}
               </button>
             </p>
+            {hold && (
+              <PersonalizationFix key="hold" hold={hold}
+                scope={hold.source === "listing" ? "this listing" : `its profile (“${hold.profile_name ?? "profile"}”) and every listing that follows it`}
+                onUse={async (body) => {
+                  const res = await api.fixContentPersonalization(initial.id, body);
+                  setPersonalization(res.content.personalization ?? null);
+                  setPersonalizationSource(res.content.personalization_source ?? "unknown");
+                  setHold(res.content.personalization_hold ?? null);
+                  onChange?.({ id: initial.id, personalization: res.content.personalization, personalization_hold: res.content.personalization_hold });
+                  return res.message;
+                }} />
+            )}
             {editingPersonalization && (
               <ListingPersonalization key="personalization"
                 value={personalization}
@@ -680,6 +696,7 @@ export function ReviewCard({
                   const res = await api.updateContent(initial.id, { personalization: setting });
                   setPersonalization(res.content.personalization ?? null);
                   setPersonalizationSource(res.content.personalization_source ?? "unknown");
+                  setHold(res.content.personalization_hold ?? null);
                 }}
                 onUseForAll={onPersonalizationForAll}
               />

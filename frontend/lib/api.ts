@@ -81,6 +81,7 @@ import type {
   JobStatus,
   Group,
   Meta,
+  PersonalizationFixResult,
   Profile,
   Publication,
   PublishPreview,
@@ -490,6 +491,15 @@ export const api = {
   orderMockupPhotos: (templateId: string, ids: string[]) =>
     req<MockupTemplate>(`/mockup-templates/${templateId}/photos/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
   mockupPhoto: (id: string) => req<MockupPhoto>(`/mockup-photos/${id}`),
+  /** A version of personalization text within Etsy's limit, by the content model: an offer only, nothing saved. */
+  shortenPersonalization: (field: "question" | "instructions", text: string) =>
+    req<{ text: string | null; message: string | null }>("/personalization/shorten", { method: "POST", body: JSON.stringify({ field, text }) }),
+  /** "Use this" on a profile: the new text, then every held listing that follows it goes ahead. */
+  fixProfilePersonalization: (profileId: string, body: { question_text?: string; instructions?: string }) =>
+    req<PersonalizationFixResult & { profile: Profile }>(`/profiles/${profileId}/personalization/fix`, { method: "POST", body: JSON.stringify(body) }),
+  /** "Use this" on a listing card (its own setting, or its profile's: then every listing that follows it). */
+  fixContentPersonalization: (contentId: string, body: { question_text?: string; instructions?: string }) =>
+    req<PersonalizationFixResult & { content: Content }>(`/content/${contentId}/personalization/fix`, { method: "POST", body: JSON.stringify(body) }),
   updateMockupPhoto: (
     id: string,
     body: {

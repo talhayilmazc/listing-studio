@@ -36,7 +36,9 @@ import { StatusChip, type Tone } from "@/components/StatusChip";
 const TONE: Record<string, Tone> = {
   planned: "neutral",
   drafting: "working",
+  held: "attention",
   scheduled: "working",
+  missed: "attention",
   publishing: "working",
   waiting: "attention",
   published: "done",

@@ -10,6 +10,8 @@ export const MAX_INSTRUCTIONS = 120;
 export const MAX_CHARACTERS = 1024;
 export const DEFAULT_MAX_CHARACTERS = 256;
 const SHOUTED = /\b[A-Z]{3,}/g;
+/** A whole word Etsy counts as in capitals (it starts with three or more capital letters). */
+const SHOUTED_WORD = /\b[A-Z]{3,}[\w'’]*/g;
 export const DEFAULT_QUESTION = "Personalization";
 
 /**
@@ -41,4 +43,33 @@ export function personalizationErrors(p: Personalization): string[] {
   if (max != null && (!Number.isInteger(max) || max < 1 || max > MAX_CHARACTERS))
     out.push(`The character limit must be between 1 and ${MAX_CHARACTERS}.`);
   return out;
+}
+
+/** The words Etsy counts as in capitals (backend personalization.shouted). */
+export function shouted(value: string): string[] {
+  return value.match(SHOUTED_WORD) ?? [];
+}
+
+/**
+ * The same text with the first word in capitals kept and every later one in normal case; a
+ * word that starts a sentence keeps its first capital (backend personalization.fix_caps; both
+ * read backend/tests/fixtures/personalization_caps_cases.json).
+ */
+export function fixCaps(value: string): string {
+  let seen = false;
+  return value.replace(SHOUTED_WORD, (word: string, offset: number) => {
+    if (!seen) {
+      seen = true;
+      return word;
+    }
+    const before = value.slice(0, offset).trimEnd();
+    const startsSentence = before === "" || ".!?:".includes(before[before.length - 1]);
+    return startsSentence ? word[0] + word.slice(1).toLowerCase() : word.toLowerCase();
+  });
+}
+
+/** The live counter under a personalization field: "143 / 120 characters", and whether it is over. */
+export function counter(text: string | null | undefined, limit: number): { line: string; over: boolean } {
+  const n = (text ?? "").trim().length;
+  return { line: `${n} / ${limit} characters`, over: n > limit };
 }

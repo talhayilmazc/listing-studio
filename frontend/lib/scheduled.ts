@@ -70,7 +70,9 @@ export const BULK_LABELS: Record<BulkOp, string> = {
 export const STATUS_LABELS: Record<string, string> = {
   planned: "Planned",
   drafting: "Making the draft",
+  held: "Held: fix personalization",
   scheduled: "Scheduled",
+  missed: "Missed",
   publishing: "Publishing",
   waiting: "Waiting",
   published: "Published",
