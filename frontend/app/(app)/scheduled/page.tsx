@@ -44,6 +44,7 @@ const TONE: Record<string, Tone> = {
   published: "done",
   failed: "failed",
   not_published: "failed",
+  deleted: "neutral",
 };
 
 const DRAG = "application/x-listyro-scheduled";

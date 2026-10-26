@@ -48,6 +48,7 @@ from app.db.models import (
     Tenant,
 )
 from app.etsy.publisher import link_for
+from app.etsy.reconcile import DELETED_MARK, DELETED_NOTE, PUBLISHED_NOTE
 from app.etsy.scheduling import MISSED, MISSED_AFTER, ScheduleBusy, ScheduleRefused, set_schedule, state_of, withdraw
 from app.etsy.shops import active_shops, group_shops
 from app.workers.recovery import WAIT_PERSONALIZATION
@@ -95,7 +96,7 @@ class ItemOut(BaseModel):
     local_time: str
     #: planned (its draft is made at its time) · drafting · held (its personalization) · scheduled · missed (its time passed,
     #: not live) · publishing · waiting ·
-    #: published · failed · not_published
+    #: published · failed · not_published · deleted (on Etsy, by the seller)
     status: str
     note: str | None
     movable: bool
@@ -233,12 +234,19 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
 
     contents: dict[uuid.UUID, GeneratedContent] = {}
     slots = list((await session.execute(select(PlannedSlot).where(
-        PlannedSlot.tenant_id == tenant.id, PlannedSlot.state.in_(("waiting", "drafting", "failed")),
+        PlannedSlot.tenant_id == tenant.id,
+        PlannedSlot.state.in_(("waiting", "drafting", "failed", "published_on_etsy", "deleted_on_etsy")),
         PlannedSlot.publish_at >= since))).scalars())
     pubs = list((await session.execute(select(ListingPublication).where(
         ListingPublication.tenant_id == tenant.id, ListingPublication.scheduled_for.is_not(None),
         ListingPublication.scheduled_for >= since))).scalars())
-    ids = {s.content_id for s in slots if s.content_id} | {p.content_id for p in pubs if p.content_id}
+    # Scheduled drafts the seller deleted on Etsy (etsy/reconcile.py): said as such, never dropped.
+    deleted = list((await session.execute(select(ListingPublication).where(
+        ListingPublication.tenant_id == tenant.id, ListingPublication.state == "deleted_on_etsy",
+        ListingPublication.schedule_note == DELETED_MARK,
+        ListingPublication.deleted_on_etsy_at >= since))).scalars())
+    ids = ({s.content_id for s in slots if s.content_id} | {p.content_id for p in pubs if p.content_id}
+           | {p.former_content_id for p in deleted if p.former_content_id})
     if ids:
         contents = {c.id: c for c in (await session.execute(select(GeneratedContent).where(GeneratedContent.id.in_(ids)))).scalars()}
     assets = {a.id: a for a in (await session.execute(select(Asset).where(
@@ -275,6 +283,12 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
             # Its draft is held for its personalization: said as such, with the fix on the card.
             add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "held",
                 job.last_error, True, None, None, None)
+        elif slot.state == "published_on_etsy":
+            add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "published",
+                slot.note or PUBLISHED_NOTE, False, None, None, None)
+        elif slot.state == "deleted_on_etsy":
+            add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "deleted",
+                slot.note or DELETED_NOTE, False, None, None, None)
         elif slot.state == "failed":
             add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "failed", slot.note,
                 False, None, None, None)
@@ -293,13 +307,16 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
         add(f"pub:{pub.id}", "draft", pub.content_id, pub.connection_id, pub.scheduled_for, state.status, state.note,
             state.status in ("scheduled", "missed"), pub.title, pub.sku, link_for(pub.etsy_listing_id, pub.state))
         w.rows[f"pub:{pub.id}"] = pub
+    for pub in deleted:
+        add(f"pub:{pub.id}", "draft", pub.former_content_id, pub.connection_id, pub.deleted_on_etsy_at, "deleted",
+            DELETED_NOTE, False, pub.title, pub.sku, None)
     w.items.sort(key=lambda i: (i.at, i.shop_name, i.key))
     return w
 
 
 def _items(w: _World) -> list[R.Item]:
     return [R.Item(key=i.key, shop_id=i.shop_id, content_id=i.content_id, at=i.at, movable=i.movable, shop_name=i.shop_name)
-            for i in w.items if i.status not in ("published", "failed", "not_published")]
+            for i in w.items if i.status not in ("published", "failed", "not_published", "deleted")]
 
 
 def _group_out(w: _World, group: ShopGroup, zone: str) -> GroupOut:

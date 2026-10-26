@@ -1279,6 +1279,16 @@ class ListingPublication(Base):
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
     #: When the app found the listing gone on Etsy (state "deleted_on_etsy").
     deleted_on_etsy_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The listing a draft deleted on Etsy was made from (``content_id`` is detached then, so
+    #: it can be drafted again); the card still says "Deleted on Etsy" (migration 0092).
+    former_content_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_content.id", ondelete="SET NULL"), index=True
+    )
+    #: "seller_on_etsy": the seller published the draft in Shop Manager and the app found it
+    #: live (it sent nothing; etsy/reconcile.py). NULL when the app published it.
+    published_by: Mapped[str | None] = mapped_column(Text)
+    #: When the app last read this listing's state on Etsy (at most every 6 hours by upkeep).
+    etsy_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Settings the seller confirmed making by hand in Shop Manager (etsy/manual_fields.py),
     #: as {field key: the etsy_listing_id it was confirmed for}. A tick counts only
     #: for that draft, so a regenerated draft starts unticked.

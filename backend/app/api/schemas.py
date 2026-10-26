@@ -317,6 +317,8 @@ class ContentOut(BaseModel):
     #: A listing the seller wrote: what Etsy would refuse (``errors``, blocking) and the
     #: app's quality rules it does not meet (``warnings``, not blocking), for its saved text.
     validation: ValidationInfo | None = None
+    #: Drafts of it the seller deleted on Etsy (shown on the card; nothing is published there).
+    deleted_on_etsy: list["DeletedDraftOut"] = Field(default_factory=list)
 
 
 class CheckOut(BaseModel):
@@ -403,6 +405,18 @@ class PublicationOut(BaseModel):
     scheduled_for: datetime | None = None
     schedule_status: str | None = None
     schedule_note: str | None = None
+    #: "seller_on_etsy": the seller published it in Shop Manager (the app sent nothing).
+    published_by: str | None = None
+
+
+class DeletedDraftOut(BaseModel):
+    """A draft of this listing the seller deleted on Etsy (the record is kept, marked)."""
+
+    connection_id: uuid.UUID
+    shop_name: str | None = None
+    etsy_listing_id: int
+    deleted_at: datetime | None = None
+    note: str
 
 
 class AllowanceOut(BaseModel):

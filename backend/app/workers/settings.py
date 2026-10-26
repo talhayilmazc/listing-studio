@@ -43,6 +43,7 @@ from app.workers.profiles import (
     sync_shop_listings,
 )
 from app.workers.publish import run_publish_job, run_publish_live_job
+from app.workers.reconcile import reconcile_all_shops, reconcile_listings
 from app.workers.recovery import recover_interrupted_jobs
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
@@ -132,6 +133,7 @@ class WorkerSettings:
         create_link_resources,
         refresh_shop_links,
         read_listing_stats,
+        reconcile_listings,
         sync_shop_sections,
         create_shop_section,
         update_sku_on_etsy,
@@ -161,6 +163,9 @@ class WorkerSettings:
         cron(sync_all_ledgers, hour={2}, minute={40}, second=0, run_at_startup=False),
         # Views and favourites of the listings the app published (Part D).
         cron(read_all_listing_stats, hour={3}, minute={10}, second=0, run_at_startup=False),
+        # The app's drafts against their state on Etsy: published or deleted by the seller in
+        # Shop Manager (workers/reconcile.py). Hourly; each draft at most every 6 hours.
+        cron(reconcile_all_shops, minute={25}, second=0, run_at_startup=False),
         # Image files past their time are deleted and the day's disk summary is
         # sent (workers/upkeep.py). At most once a day; also at startup, so a
         # worker that was down at the hour catches up.

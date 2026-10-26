@@ -29,7 +29,7 @@ from app.db.models import (
     ListingPublication,
 )
 from app.etsy.errors import EtsyClientError
-from app.etsy.publisher import publication_for, publish_live
+from app.etsy.publisher import NothingToPublish, publication_for, publish_live
 from app.pipeline.storage import LocalStorage
 from tests.test_publish_api import OWNER_EMAIL, _add_content, _shop, ctx  # noqa: F401  (fixture)
 from tests.test_publisher import FakeEtsy
@@ -114,7 +114,8 @@ async def test_a_draft_gone_on_etsy_is_marked_its_schedule_withdrawn_and_audited
         released_id, runner_id = released.id, runner.id
 
     async with ctx["sm"]() as s:
-        with pytest.raises(ValueError, match="no longer on Etsy"):
+        # Read before the go-live (etsy/reconcile.py): gone, so marked and nothing is sent.
+        with pytest.raises(NothingToPublish, match="Deleted on Etsy"):
             await publish_live(s, job_id=runner_id, content=await s.get(GeneratedContent, content_id),
                                connection=await s.get(EtsyConnection, shop), client=_Gone(),
                                access_token="tok", tenant_limit=2000)

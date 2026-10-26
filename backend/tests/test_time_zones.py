@@ -93,7 +93,7 @@ async def test_scheduled_go_lives_keep_their_budget(ctx) -> None:  # noqa: F811
         tenant = await s.get(Tenant, ctx["tenant_id"])
         tenant.etsy_ceiling_override = 20
         await s.commit()
-    # Three go-lives due before tonight's reset: 3 x 3 requests held back.
+    # Three go-lives due before tonight's reset: 3 x 4 requests held back (the state read first).
     for listing_id in (801, 802, 803):
         cid = await _add_content(ctx["sm"], ctx["tenant_id"], listing_id=listing_id)
         async with ctx["sm"]() as s:
@@ -104,7 +104,7 @@ async def test_scheduled_go_lives_keep_their_budget(ctx) -> None:  # noqa: F811
             row.scheduled_for = datetime.now(UTC) + timedelta(minutes=5)
             await s.commit()
     wctx = {"quota": quota, "sessionmaker": ctx["sm"]}
-    assert await gate.scheduled_reserve(wctx, ctx["tenant_id"]) == 9
+    assert await gate.scheduled_reserve(wctx, ctx["tenant_id"]) == 12
 
     async with ctx["sm"]() as s:
         tenant = await s.get(Tenant, ctx["tenant_id"])

@@ -110,6 +110,8 @@ class FakeEtsy:
         self.refuse_active: dict[int, str] = {}
         #: Listing ids Etsy answers 200 for when asked to go live, but keeps as drafts.
         self.keep_draft: set[int] = set()
+        #: getListingsByListingIds leaves drafts out (each is then read alone).
+        self.batch_hides_drafts = False
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
         method, path = request.method, request.url.path.removeprefix("/v3/application")
@@ -136,6 +138,13 @@ class FakeEtsy:
                 "images": [], "inventory": None,
             }
             return httpx.Response(201, json={"listing_id": self._next})
+        if path == "/listings/batch":
+            # getListingsByListingIds: the ones it has (``batch_hides_drafts``: as if it left drafts out).
+            wanted = [int(i) for i in request.url.params.get("listing_ids", "").split(",") if i]
+            rows = [self.listings[i] for i in wanted if i in self.listings
+                    and not (self.batch_hides_drafts and self.listings[i]["state"] == "draft")]
+            return httpx.Response(200, json={"count": len(rows), "results": [
+                {"listing_id": r["listing_id"], "state": r["state"]} for r in rows]})
         if m := re.fullmatch(r"/listings/(\d+)", path):
             row = self.listings.get(int(m.group(1)))
             if row is None:

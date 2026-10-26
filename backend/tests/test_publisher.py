@@ -890,7 +890,8 @@ async def test_a_late_answer_with_the_listing_still_a_draft_is_reported(async_sm
     fake = SlowActivation(live=False)
     with pytest.raises(ValueError, match="still a draft"):
         await _go_live(async_sm, fake)
-    assert fake.calls.count("get_listing") == 3  # asked a few times before giving up
+    # Read once before the go-live (still a draft: etsy/reconcile.py), then a few times after.
+    assert fake.calls.count("get_listing") == 4
 
 
 async def test_a_shop_disconnected_mid_draft_gets_no_record_afterwards(async_sm: async_sessionmaker) -> None:

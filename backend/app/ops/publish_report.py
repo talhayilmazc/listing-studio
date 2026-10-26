@@ -4,7 +4,8 @@ listing of one account stands between its draft and going live, for diagnosis on
 A summary comes first: per outcome, how many listings and which (Etsy listing id, or the
 listing's short id when it has no draft), split by personalization on and off:
 
-* published; published here but still a draft on Etsy (``--check-etsy``);
+* published; published in Etsy by the seller; deleted on Etsy (``etsy/reconcile.py``; with
+  ``--check-etsy`` also the ones not recorded yet); published here but still a draft on Etsy;
 * approved but not published; scheduled and waiting; scheduled and missed;
 * never approved; refused by Etsy; held by our own check.
 
@@ -57,6 +58,8 @@ from app.pipeline import personalization as P
 
 #: The outcomes, in the order the summary prints them.
 PUBLISHED = "published"
+BY_SELLER = "published in Etsy by the seller"
+DELETED = "deleted on Etsy"
 NOT_LIVE = "published here, still a draft on Etsy"
 APPROVED = "approved but not published"
 WAITING = "scheduled and waiting"
@@ -64,7 +67,7 @@ MISSED = "scheduled and missed"
 NOT_APPROVED = "never approved"
 REFUSED = "refused by Etsy"
 HELD = "held by our own check"
-OUTCOMES = (PUBLISHED, NOT_LIVE, APPROVED, WAITING, MISSED, NOT_APPROVED, REFUSED, HELD)
+OUTCOMES = (PUBLISHED, BY_SELLER, DELETED, NOT_LIVE, APPROVED, WAITING, MISSED, NOT_APPROVED, REFUSED, HELD)
 #: Days looked back when no --since is given.
 DEFAULT_DAYS = 30
 TITLE_CHARS = 40
@@ -175,6 +178,10 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
         findings[f.generated_content_id].append(f)
     all_pubs = list((await session.execute(select(ListingPublication).where(
         ListingPublication.content_id.in_(list(contents) or [uuid.uuid4()])))).scalars())
+    # Drafts the seller deleted on Etsy keep their listing in ``former_content_id``.
+    gone = list((await session.execute(select(ListingPublication).where(
+        ListingPublication.former_content_id.in_(list(contents) or [uuid.uuid4()]),
+        ListingPublication.state == "deleted_on_etsy").order_by(ListingPublication.deleted_on_etsy_at))).scalars())
     by_pair: dict[tuple[uuid.UUID, uuid.UUID | None], Item] = {}
 
     def item(content: GeneratedContent, shop_id: uuid.UUID | None) -> Item:
@@ -191,6 +198,11 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
     for pub in all_pubs:
         if pub.content_id in contents:
             item(contents[pub.content_id], pub.connection_id).publication = pub
+    for pub in gone:
+        if pub.former_content_id in contents:
+            found = item(contents[pub.former_content_id], pub.connection_id)
+            if found.publication is None or found.publication.state == "deleted_on_etsy":
+                found.publication = pub
     for slot in slots:
         if slot.content_id in contents:
             item(contents[slot.content_id], slot.connection_id).slots.append(slot)
@@ -239,6 +251,14 @@ def classify(item: Item, now: datetime) -> tuple[str, str]:
     pub, content = item.publication, item.content
     live = _latest(item.jobs, JobType.publish_live)
     draft = _latest(item.jobs, JobType.create_draft)
+    if pub is not None and pub.state == "deleted_on_etsy":
+        return DELETED, f"the seller deleted it on Etsy; found {_when(pub.deleted_on_etsy_at)}"
+    if pub is not None and pub.state != "active" and item.etsy_state == "gone":
+        return DELETED, "gone on Etsy, not recorded yet (reconcile-etsy --apply records it)"
+    if pub is not None and pub.state != "active" and item.etsy_state == "active":
+        return BY_SELLER, "live on Etsy, a draft here: not recorded yet (reconcile-etsy --apply records it)"
+    if pub is not None and pub.published_by == "seller_on_etsy":
+        return BY_SELLER, f"published in Shop Manager; found live {_when(pub.published_at)}"
     if pub is not None and pub.state == "active":
         if item.etsy_state is not None and item.etsy_state != "active":
             return NOT_LIVE, f"the app recorded it live; Etsy says {item.etsy_state}"

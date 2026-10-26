@@ -178,6 +178,7 @@ async def status(session: AsyncSession, tenant: Tenant, now: datetime | None = N
             ListingPublication.tenant_id == tenant.id,
             ListingPublication.published_at >= start,
             ListingPublication.published_at < reset,
+            ListingPublication.published_by.is_(None),  # published by hand in Shop Manager: not by the app
         )
     )
     return AllowanceStatus(

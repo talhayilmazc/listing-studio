@@ -222,6 +222,8 @@ export interface Content {
   personalization_source?: "listing" | "profile" | "unknown" | string;
   /** Set when its personalization breaks Etsy's rules: nothing is sent; the card offers the fix. */
   personalization_hold?: PersonalizationHold | null;
+  /** Drafts of it the seller deleted on Etsy: shown on the card, nothing is published there. */
+  deleted_on_etsy?: DeletedDraft[];
 }
 
 /** One print area on a template photo (backend api/mockups.py AreaOut). */
@@ -506,6 +508,17 @@ export interface Publication {
   scheduled_for?: string | null;
   schedule_status?: string | null;
   schedule_note?: string | null;
+  /** "seller_on_etsy": the seller published it in Shop Manager; the app sent nothing. */
+  published_by?: string | null;
+}
+
+/** A draft of this listing the seller deleted on Etsy (the record is kept, marked). */
+export interface DeletedDraft {
+  connection_id: string;
+  shop_name: string | null;
+  etsy_listing_id: number;
+  deleted_at: string | null;
+  note: string;
 }
 
 export interface PublishJob {

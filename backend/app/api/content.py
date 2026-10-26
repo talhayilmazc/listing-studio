@@ -14,6 +14,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.db.models import (
     Asset,
     ComplianceFinding,
+    ConnectionStatus,
     EtsyConnection,
     GeneratedContent,
     Job,
@@ -86,7 +87,42 @@ def publication_out(
         state=publication.state,
         listing_link=link_for(publication.etsy_listing_id, publication.state),
         manual_steps=manual_steps(publication.state, template, publication.manual_done_keys()),
+        published_by=publication.published_by,
     )
+
+
+async def deleted_drafts(
+    session: AsyncSession, content_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[schemas.DeletedDraftOut]]:
+    """Each listing's drafts the seller deleted on Etsy (etsy/reconcile.py), in shops still
+    connected where it has no newer draft or live listing: the card says "Deleted on Etsy"."""
+    from app.api.shops import shop_label
+    from app.etsy.reconcile import DELETED_NOTE
+
+    found: dict[uuid.UUID, list[schemas.DeletedDraftOut]] = {i: [] for i in content_ids}
+    if not content_ids:
+        return found
+    current = {(c, s) for c, s in (await session.execute(
+        select(ListingPublication.content_id, ListingPublication.connection_id)
+        .where(ListingPublication.content_id.in_(content_ids)))).all()}
+    rows = await session.execute(
+        select(ListingPublication, EtsyConnection)
+        .join(EtsyConnection, EtsyConnection.id == ListingPublication.connection_id)
+        .where(ListingPublication.former_content_id.in_(content_ids),
+               ListingPublication.state == "deleted_on_etsy",
+               EtsyConnection.status == ConnectionStatus.active)
+        .order_by(ListingPublication.deleted_on_etsy_at.desc())
+    )
+    seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    for publication, connection in rows.all():
+        key = (publication.former_content_id, publication.connection_id)
+        if key in current or key in seen:
+            continue
+        seen.add(key)
+        found[publication.former_content_id].append(schemas.DeletedDraftOut(
+            connection_id=connection.id, shop_name=shop_label(connection), etsy_listing_id=publication.etsy_listing_id,
+            deleted_at=publication.deleted_on_etsy_at, note=DELETED_NOTE))
+    return found
 
 
 def manual_steps(
@@ -288,6 +324,9 @@ async def contents_out(
                 schemas.FindingOut(rule=f.rule, severity=f.severity.value, detail=f.detail)
             )
     outs = [_to_out(c, a, pubs[c.id], shops.get(c.id)) for c, a in pairs]
+    gone = await deleted_drafts(session, [c.id for c, _ in pairs])
+    for out in outs:
+        out.deleted_on_etsy = gone.get(out.id, [])
     profile_ids = {c.listing_profile_id for c, _ in pairs if c.listing_profile_id}
     profiles = (
         {p.id: p for p in (await session.execute(select(ListingProfile).where(ListingProfile.id.in_(profile_ids)))).scalars()}

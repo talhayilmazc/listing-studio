@@ -778,7 +778,7 @@ export function ReviewCard({
                             : "border-slate-200 bg-slate-50 text-slate-600")
                         }
                       >
-                        {p.state === "active" ? "Live" : "Draft"}
+                        {p.state === "active" ? (p.published_by === "seller_on_etsy" ? "Live · published in Shop Manager" : "Live") : "Draft"}
                       </span>
                     </span>
                     <a href={p.listing_link} target="_blank" rel="noreferrer" className="btn-secondary px-2.5 py-1 text-xs">
@@ -815,6 +815,16 @@ export function ReviewCard({
                         onTick={(key, done) => tickStep(p.connection_id, key, done)}
                       />
                     )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(initial.deleted_on_etsy ?? []).length > 0 && (
+              // Drafts the seller deleted in Shop Manager: the record stays, nothing is published there.
+              <ul key="deleted-on-etsy" className="mt-2 space-y-1 text-xs text-slate-600" data-testid="card-deleted-on-etsy">
+                {(initial.deleted_on_etsy ?? []).map((d) => (
+                  <li key={`${d.connection_id}-${d.etsy_listing_id}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span><Txt>{d.shop_name ? `${d.shop_name}: ` : ""}</Txt><span>{d.note}</span></span>
                   </li>
                 ))}
               </ul>

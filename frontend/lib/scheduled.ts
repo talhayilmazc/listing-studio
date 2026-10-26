@@ -78,6 +78,7 @@ export const STATUS_LABELS: Record<string, string> = {
   published: "Published",
   failed: "Failed",
   not_published: "Not published",
+  deleted: "Deleted on Etsy",
 };
 
 export interface Filters {

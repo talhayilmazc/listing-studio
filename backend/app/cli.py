@@ -846,6 +846,13 @@ def main(argv: list[str] | None = None) -> int:
     publishes.add_argument("--check-etsy", action="store_true",
                            help="also READ each draft's state on Etsy (draft, active or gone); rate limited, counted, "
                            "never writes (run on the server)")
+    reconciles = sub.add_parser(
+        "reconcile-etsy",
+        help="one account's drafts against Etsy: published or deleted there by the seller, or changed; the dry run "
+        "lists what would change, --apply changes only our records; reads only, never writes to Etsy",
+    )
+    reconciles.add_argument("email")
+    reconciles.add_argument("--apply", action="store_true", help="change our records (never Etsy)")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
     sub.add_parser("oauth-check", help="what the app sends Etsy to connect a shop, and what is wrong with it")
@@ -972,6 +979,10 @@ def main(argv: list[str] | None = None) -> int:
 
         since = _date.fromisoformat(args.since) if args.since else None
         print(asyncio.run(publish_report(sm, args.email, since, check_etsy=args.check_etsy)))
+    elif args.command == "reconcile-etsy":
+        from app.ops.reconcile_etsy import run as reconcile_etsy
+
+        print(asyncio.run(reconcile_etsy(sm, args.email, apply=args.apply)))
     elif args.command == "profile-shop-check":
         from app.ops.profile_shop_check import report as profile_shop_report
 

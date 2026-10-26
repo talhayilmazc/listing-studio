@@ -343,6 +343,7 @@ async def summary_of(
                 ListingPublication.tenant_id == tenant.id,
                 ListingPublication.connection_id == connection.id,
                 ListingPublication.state == "active",
+                ListingPublication.published_by.is_(None),  # not the ones published by hand in Shop Manager
                 ListingPublication.published_at >= last_month,
             )
         )

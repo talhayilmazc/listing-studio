@@ -109,6 +109,11 @@ class NotLive(ValueError):
     """Etsy answered the go-live without an error but kept the listing as it was."""
 
 
+class NothingToPublish(Exception):
+    """Etsy's own state says there is nothing to publish (the seller deleted the draft, or it
+    went live and then changed in Shop Manager): our record now says so; nothing was sent."""
+
+
 class ShopDisconnected(ValueError):
     """The shop was disconnected while a draft was being made: nothing more is recorded."""
 
@@ -324,6 +329,8 @@ class PublishResult:
     left_out: list[str] = field(default_factory=list)
     #: Every attribute written on the draft, ``{name: value}`` (Part C report).
     attributes: dict[str, str] = field(default_factory=dict)
+    #: The go-live found it live already: the seller published it in Shop Manager (nothing sent).
+    already_live: bool = False
 
 
 @dataclass
@@ -440,12 +447,20 @@ async def mark_deleted_on_etsy(
         job.status = JobStatus.cancelled
         job.finished_at = _now()
         job.last_error = "cancelled: the draft was deleted on Etsy"
+    from app.etsy import reconcile
+
+    # Its group-schedule slots close too: the seller deleted it, so no new draft is made for it.
+    slots = await reconcile.open_slots(session, publication.content_id, publication.connection_id)
+    for slot in slots:
+        slot.state, slot.note = "deleted_on_etsy", reconcile.DELETED_NOTE
     publication.state = "deleted_on_etsy"
     publication.deleted_on_etsy_at = _now()
+    # Detached so it can be drafted again; the card still finds it ("Deleted on Etsy").
+    publication.former_content_id = publication.content_id or publication.former_content_id
     publication.content_id = None
     publication.scheduled_for = None
     publication.schedule_job_id = None
-    publication.schedule_note = "the draft was deleted on Etsy" if had_schedule else None
+    publication.schedule_note = reconcile.DELETED_MARK if had_schedule else None
     audit.destructive(
         session,
         "publication.deleted_on_etsy",
@@ -1094,6 +1109,30 @@ async def publish_live(
         await session.commit()
     shop_id = connection.shop_id
     listing_id = publication.etsy_listing_id
+
+    # What the seller did on Etsy comes first (etsy/reconcile.py): a draft they published in
+    # Shop Manager is recorded live and nothing is sent; one they deleted is marked so.
+    from app.etsy import reconcile
+
+    try:
+        listing: dict[str, Any] | None = await client.get_listing(listing_id, **ctx)
+        known = True
+    except EtsyClientError as exc:
+        if exc.status_code not in (404, 410):
+            raise
+        listing, known = None, True
+    except UNCERTAIN:
+        listing, known = None, False  # no answer: the go-live below reads back what happened
+    if known:
+        etsy_state = reconcile.state_of(listing)
+        change = await reconcile.apply(session, publication, etsy_state, listing, job_id=job_id)
+        await session.commit()
+        if change == reconcile.PUBLISHED:
+            return PublishResult(listing_id=listing_id, listing_url=listing_url(listing_id), already_live=True)
+        if change == reconcile.DELETED:
+            raise NothingToPublish(reconcile.DELETED_NOTE)
+        if change == reconcile.WITHDRAWN or etsy_state in reconcile.CHANGED:
+            raise NothingToPublish(reconcile.changed_note(etsy_state))
 
     # Snapshot the pre-change state so the go-live can be rolled back to draft.
     session.add(

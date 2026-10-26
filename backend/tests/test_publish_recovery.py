@@ -29,7 +29,7 @@ from app.db.models import (
 from app.etsy import publisher
 from app.etsy.api import RATE_LIMIT_RETRIES, TRANSIENT_RETRIES, EtsyApiClient, RateLimitExceeded
 from app.etsy.errors import EtsyClientError, EtsyRateLimited, EtsyServerError, explain
-from app.etsy.publisher import NotYet, PublishBlocked, PublishImage, publication_for, publish_content, publish_live
+from app.etsy.publisher import NothingToPublish, NotYet, PublishBlocked, PublishImage, publication_for, publish_content, publish_live
 from app.pipeline.targets import is_fresh, resolve_target
 from app.workers import publish as publish_worker
 from app.workers import recovery
@@ -441,7 +441,8 @@ async def test_publishing_a_draft_deleted_in_shop_manager_says_so_and_lets_it_be
                                  etsy_listing_id=555, state="draft"))
         await s.commit()
     async with async_sm() as s:
-        with pytest.raises(ValueError, match="no longer on Etsy"):
+        # Read before the go-live (etsy/reconcile.py): gone, so marked and nothing is sent.
+        with pytest.raises(NothingToPublish, match="Deleted on Etsy"):
             await publish_live(s, job_id=job_id, content=await s.get(GeneratedContent, content_id),
                                connection=await s.get(EtsyConnection, conn_id), client=Gone(), access_token="tok", tenant_limit=2000)
     async with async_sm() as s:

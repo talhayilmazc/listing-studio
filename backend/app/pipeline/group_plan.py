@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 from app.pipeline.targets import ESTIMATED_CALLS_PER_DRAFT
 
 DRAFT_REQUESTS = ESTIMATED_CALLS_PER_DRAFT
-PUBLISH_REQUESTS = 3
+PUBLISH_REQUESTS = 4  # the state read first (etsy/reconcile.py), the go-live, its read-back
 #: A draft is made this long before it goes live (room for a retry if Etsy blips).
 DRAFT_LEAD = timedelta(hours=2)
 #: No plan runs further than this.

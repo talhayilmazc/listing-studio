@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.db.models import GeneratedContent, Job, JobStatus, JobType, ListingPublication, Tenant
+from app.etsy.reconcile import PUBLISHED_NOTE, SELLER_ON_ETSY
 
 #: How far ahead a listing can be scheduled.
 MAX_AHEAD = timedelta(days=60)
@@ -155,6 +156,8 @@ def state_of(publication: ListingPublication, job: Job | None, now: datetime | N
     if publication.scheduled_for is None:
         return None
     now = now or datetime.now(timezone.utc)
+    if publication.published_by == SELLER_ON_ETSY:
+        return ScheduleState("published", PUBLISHED_NOTE)
     if job is not None and job.status is JobStatus.succeeded:
         return ScheduleState("published")
     if publication.state == "active":

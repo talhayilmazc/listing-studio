@@ -38,6 +38,7 @@ from app.etsy.connection import ConnectionService
 from app.etsy.connection import renewer_for as _renewer
 from app.etsy.publisher import (
     SETUP_WAIT_SECONDS,
+    NothingToPublish,
     PersonalizationHeld,
     PublishConfig,
     PublishImage,
@@ -527,6 +528,14 @@ async def _run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                     access_token=access_token,
                     tenant_limit=limits.ceiling_limit(tenant),
                 )
+        except NothingToPublish as exc:
+            # Etsy's own state: deleted, or changed in Shop Manager. Recorded; not a failure to retry.
+            await session.rollback()
+            job = await session.get(Job, uuid.UUID(job_id))
+            if job is not None:
+                job.status, job.finished_at, job.last_error = JobStatus.cancelled, datetime.now(timezone.utc), str(exc)
+                await session.commit()
+            return "nothing-to-publish"
         except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
             return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_live_job")
 

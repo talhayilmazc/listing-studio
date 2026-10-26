@@ -186,6 +186,24 @@ After `bash deploy/update.sh` with this change (migration `0091_approval_record`
    Etsy's state and the seller is told. Listings recorded live before this release that are still
    drafts show up in step 1 with `--check-etsy` as "published here, still a draft on Etsy".
 
+## 9. Drafts the seller published or deleted in Shop Manager (26 October 2026)
+
+After `bash deploy/update.sh` with this change (migration `0092_etsy_reconcile`: three empty
+columns on `listing_publication`, quick, no rows changed; no `.env` change):
+
+1. From now on every go-live first reads the listing on Etsy, and upkeep reads the app's drafts
+   at most every 6 hours. Drafts published by hand become "published in Etsy by the seller"; ones
+   deleted there become "deleted on Etsy"; their pending go-lives close. Nothing is written to Etsy.
+2. To bring an account's records up to date now (dry run first; it reads each draft through the
+   rate limiter as upkeep):
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli reconcile-etsy <email>
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli reconcile-etsy <email> --apply
+   ```
+
+   `--apply` changes only our own records.
+
 ## What is already in place (no action)
 
 - Error alerts go to `ALERT_WEBHOOK_URL`: failed deploy, failed backup, disk growth, an AI provider refusing us, a new invite request, and the weekly Etsy spec watcher.

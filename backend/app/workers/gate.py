@@ -43,7 +43,9 @@ JOB_COST: dict[str, int] = {
     # The worst case; a draft is admitted on the measured average (gate.job_cost,
     # core/request_cost.py), and request_cost.WORST_CASE matches this.
     "run_publish_job": 45,
-    "run_publish_live_job": 3,
+    # the listing's state on Etsy first (published or deleted there by the seller?), the
+    # go-live, and up to its read-back (etsy/reconcile.py)
+    "run_publish_live_job": 4,
     # listing, images, up to 10 deletes and 10 uploads, update, inventory
     "run_replace_images_job": 30,
     # shop, listing, inventory, images, properties, personalization (v7 §D4),
@@ -66,6 +68,9 @@ JOB_COST: dict[str, int] = {
     # Views and favourites of a shop's app-published listings: one request per
     # 100 listings, up to 1,000 (upkeep; Part D).
     "read_listing_stats": 10,
+    # The app's drafts against Etsy: up to 300 in batches of 100, and up to 50 read alone
+    # (those a batch did not return) before they count as deleted (upkeep; workers/reconcile.py).
+    "reconcile_listings": 53,
     # shop, and up to 50 pages of 100 for each of the 5 listing states
     # (profiles.SYNC_STATES, SYNC_MAX_PAGES); one per state for a small shop
     "sync_shop_listings": 251,
@@ -105,7 +110,7 @@ JOB_COST: dict[str, int] = {
 # seller's own changes on Etsy and still count toward their ceiling.
 UPKEEP = frozenset(
     {"refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
-     "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "link_profile", "create_link_resources"}
+     "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "reconcile_listings", "link_profile", "create_link_resources"}
 )
 
 # Resume a little after midnight, so the new day's counters are in place.
