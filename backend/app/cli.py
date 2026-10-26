@@ -841,11 +841,22 @@ def main(argv: list[str] | None = None) -> int:
         "published, scheduled and waiting or missed, never approved, refused by Etsy, held by our own check), split "
         "by personalization; per listing its approval, schedule, attempts and findings; read only",
     )
-    publishes.add_argument("email")
+    publishes.add_argument("email", nargs="?", default=None, help="the account (or --all)")
+    publishes.add_argument("--all", action="store_true", dest="all_accounts",
+                           help="every account with listings in the period: a summary per account, then the totals")
     publishes.add_argument("--since", default=None, help="listings from this day on (YYYY-MM-DD; default: the last 30 days)")
     publishes.add_argument("--check-etsy", action="store_true",
                            help="also READ each draft's state on Etsy (draft, active or gone); rate limited, counted, "
                            "never writes (run on the server)")
+    stuck = sub.add_parser(
+        "requeue-stuck",
+        help="approved listings the old rules left behind (a draft the app stopped, a failed group-schedule slot, a "
+        "go-live held for the text): the dry run lists them, --apply sends them on the normal path; nothing "
+        "unapproved is touched",
+    )
+    stuck.add_argument("email", nargs="?", default=None, help="the account (or --all)")
+    stuck.add_argument("--all", action="store_true", dest="all_accounts", help="every account")
+    stuck.add_argument("--apply", action="store_true", help="queue the drafts and release the schedules")
     reconciles = sub.add_parser(
         "reconcile-etsy",
         help="one account's drafts against Etsy: published or deleted there by the seller, or changed; the dry run "
@@ -976,9 +987,21 @@ def main(argv: list[str] | None = None) -> int:
         from datetime import date as _date
 
         from app.ops.publish_report import report as publish_report
+        from app.ops.publish_report import report_all as publish_report_all
 
         since = _date.fromisoformat(args.since) if args.since else None
-        print(asyncio.run(publish_report(sm, args.email, since, check_etsy=args.check_etsy)))
+        if args.all_accounts == bool(args.email):
+            parser.error("publish-report takes an email address or --all (one of them)")
+        if args.all_accounts:
+            print(asyncio.run(publish_report_all(sm, since)))
+        else:
+            print(asyncio.run(publish_report(sm, args.email, since, check_etsy=args.check_etsy)))
+    elif args.command == "requeue-stuck":
+        from app.ops.requeue_stuck import run as requeue_stuck
+
+        if args.all_accounts == bool(args.email):
+            parser.error("requeue-stuck takes an email address or --all (one of them)")
+        print(asyncio.run(requeue_stuck(sm, args.email, every=args.all_accounts, apply=args.apply)))
     elif args.command == "reconcile-etsy":
         from app.ops.reconcile_etsy import run as reconcile_etsy
 

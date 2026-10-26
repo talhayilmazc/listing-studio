@@ -450,15 +450,19 @@ def check_listing(
 ) -> ListingCheck:
     """The one decision on a listing's own text, for approval and for every draft.
 
-    A listing the app wrote is held to every rule (:func:`validate_listing`), as
-    before. A listing the seller wrote themselves is stopped only by what Etsy
-    itself refuses for a draft (``pipeline/etsy_text.py``) and by the account's
-    trademark filter (a compliance rule, not a quality one); the app's quality
-    rules (exactly 13 tags, the title's length range, the product type named in
-    the title and a tag, words with no search value...) become warnings on it.
+    **One rule set for every listing, whoever wrote it** (production report, 2026-10-26:
+    two sellers' listings with text they wrote by hand never reached a draft; a seller who
+    rewrites an AI listing's title by hand is writing it too). A listing is stopped only by
+    what Etsy itself refuses for a draft (``pipeline/etsy_text.py``) and by the account's
+    trademark filter (a compliance rule, not a quality one); the app's quality rules
+    (exactly 13 tags, the title's length range, the product type named in the title and a
+    tag, words with no search value...) are warnings on it. The writer still holds what it
+    writes to every rule (:func:`validate_listing`, called there directly), so the app's own
+    text meets them before anyone sees it. ``hand_written`` no longer changes the decision.
     """
     from app.pipeline import etsy_text
 
+    del hand_written  # kept in the signature for the callers; the decision is the same
     strict = validate_listing(
         listing,
         policy,
@@ -468,8 +472,6 @@ def check_listing(
         for_seller=for_seller,
         title_prefix=title_prefix,
     )
-    if not hand_written:
-        return ListingCheck(strict, [])
     blocklist = configured_blocklist() if trademarks is None else trademarks
     searchable = " ".join([listing.description, *listing.attributes.values()])
     if for_seller:

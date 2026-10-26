@@ -21,6 +21,22 @@ function shown(chars: string[]): string {
   return [...new Set(chars)].map((ch) => (/\s/.test(ch) ? `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}` : `'${ch}'`)).join(" ");
 }
 
+const CURLY = new Set(["’", "‘", "ʼ"]);
+const DASHES = new Set(["–", "—", "‒"]);
+
+/** The plain fix for characters Etsy refuses (backend etsy_text._fix). */
+function fix(bad: string[], tag: boolean): string {
+  const chars = new Set(bad);
+  const hints: string[] = [];
+  const has = (set: Set<string>) => [...chars].some((c) => set.has(c));
+  if (has(CURLY)) hints.push("use a straight apostrophe (') instead of a curly one");
+  if (tag && has(DASHES)) hints.push("use a hyphen (-) instead of a dash");
+  if (tag && chars.has("&")) hints.push('write "and" instead of &');
+  const rest = [...chars].filter((c) => !CURLY.has(c) && !(tag && (DASHES.has(c) || c === "&")));
+  if (rest.length) hints.push(hints.length ? "remove the others (emoji, symbols, tabs)" : "remove them (emoji, symbols, tabs)");
+  return hints.join("; ");
+}
+
 /** Why Etsy would refuse this title (none: it would not). */
 export function titleErrors(title: string): string[] {
   if (!title.trim()) return ["Title is empty"];
@@ -28,9 +44,10 @@ export function titleErrors(title: string): string[] {
   const chars = [...title];
   if (chars.length > MAX_TITLE) errors.push(`Title is over Etsy's ${MAX_TITLE} characters (${chars.length})`);
   const bad = chars.filter((ch) => !TITLE_OK.test(ch));
-  if (bad.length) errors.push(`Title has characters Etsy does not allow: ${shown(bad)}`);
+  if (bad.length) errors.push(`Title has characters Etsy does not allow: ${shown(bad)}: ${fix(bad, false)}`);
   const twice = ONCE.filter((ch) => chars.filter((c) => c === ch).length > 1);
-  if (twice.length) errors.push(`Title uses ${twice.join(" ")} more than once; Etsy allows %, :, & and + once each`);
+  if (twice.length)
+    errors.push(`Title uses ${twice.join(" ")} more than once; Etsy allows %, :, & and + once each${twice.includes("&") ? ' (write "and" for the other &)' : ""}`);
   return errors;
 }
 
@@ -46,7 +63,7 @@ export function tagErrors(tags: string[]): string[] {
     if ([...tag].length > MAX_TAG) errors.push(`Tag over ${MAX_TAG} characters: "${tag}"`);
     if (tag.includes(",")) errors.push(`Tag has a comma: "${tag}"`);
     const bad = [...tag].filter((ch) => ch !== "," && !TAG_OK.test(ch));
-    if (bad.length) errors.push(`Tag has characters Etsy does not allow: "${tag}" (${shown(bad)})`);
+    if (bad.length) errors.push(`Tag has characters Etsy does not allow: "${tag}" (${shown(bad)}): ${fix(bad, true)}`);
   }
   return [...new Set(errors)];
 }

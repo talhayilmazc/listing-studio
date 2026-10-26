@@ -46,7 +46,7 @@ async def test_the_drafts_preview_names_what_it_will_do_and_skip(ctx) -> None:  
     assert preview["act"][0]["original_filename"] == "tasarim_BR5475.png"
     reasons = _reasons(preview)
     assert reasons[str(ids["unapproved"])] == "not approved"
-    assert "at least 110" in reasons[str(ids["invalid"])]
+    assert "characters Etsy does not allow" in reasons[str(ids["invalid"])]  # Etsy's own refusal (2026-10-26)
     assert reasons[str(ids["drafted"])] == "already has a draft in this shop"
     assert preview["fits"] is True and "estimated_calls" not in preview  # request counts are for admins only (A3)
     assert await _jobs(ctx) == [] and ctx["enqueuer"].calls == []  # a preview queues nothing

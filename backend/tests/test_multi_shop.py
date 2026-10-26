@@ -308,7 +308,9 @@ async def test_a_title_too_long_only_for_another_shops_prefix_goes_to_the_job_wh
     assert target.title == f"Bella Canvas Unisex Jersey {long_tail}" and target.title_fit is True
 
 
-async def test_a_title_still_short_with_every_phrase_refuses_that_shop(world) -> None:
+async def test_a_title_short_with_another_shops_prefix_is_a_note_not_a_stop(world) -> None:
+    """Under the profile's minimum only with that shop's prefix: the app's own length rule is a note
+    since 2026-10-26 (one rule set; only what Etsy refuses stops a listing), so the shop takes it."""
     short = "Retro Frog Tee, Cottagecore Shirt, Pond Life Crewneck, Frog Mom Gift, Nature Lover Top, Pond Gift"
     async with world["sm"]() as s:
         content = await s.get(GeneratedContent, world["contents"][0])
@@ -316,8 +318,11 @@ async def test_a_title_still_short_with_every_phrase_refuses_that_shop(world) ->
         await s.commit()
         assert len(content.title) >= 110 > len(short)
         target = await resolve_target(s, content, await s.get(EtsyConnection, world["a2"]))
-    assert not target.ok
-    assert "at least 110" in target.reason
+        assert target.ok and target.reason is None
+        content.title = f"{PREFIX_A}, {short} & Pond & Frog"  # & twice: Etsy refuses it, in every shop
+        await s.commit()
+        refused = await resolve_target(s, content, await s.get(EtsyConnection, world["a2"]))
+    assert not refused.ok and "more than once" in refused.reason
 
 
 async def test_each_shop_builds_its_draft_from_its_own_profile(world) -> None:

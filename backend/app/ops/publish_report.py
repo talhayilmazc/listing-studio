@@ -7,7 +7,13 @@ listing's short id when it has no draft), split by personalization on and off:
 * published; published in Etsy by the seller; deleted on Etsy (``etsy/reconcile.py``; with
   ``--check-etsy`` also the ones not recorded yet); published here but still a draft on Etsy;
 * approved but not published; scheduled and waiting; scheduled and missed;
-* never approved; refused by Etsy; held by our own check.
+* never approved (with what stops approval, if anything); approved, never sent (with what
+  stops sending, if anything); refused when sending (the app's own refusal of a draft);
+  refused by Etsy; held by our own check.
+
+Every line of the summary is also split by who wrote the listing (``generated_content.source``:
+the app, "ai", or the seller, "manual"), and every listing says it. ``--all`` prints the summary
+of every account that has listings in the period, then the totals (no per-listing blocks).
 
 Then one block per listing and shop:
 
@@ -65,9 +71,13 @@ APPROVED = "approved but not published"
 WAITING = "scheduled and waiting"
 MISSED = "scheduled and missed"
 NOT_APPROVED = "never approved"
+NEVER_SENT = "approved, never sent"
+SEND_REFUSED = "refused when sending"
 REFUSED = "refused by Etsy"
 HELD = "held by our own check"
-OUTCOMES = (PUBLISHED, BY_SELLER, DELETED, NOT_LIVE, APPROVED, WAITING, MISSED, NOT_APPROVED, REFUSED, HELD)
+OUTCOMES = (PUBLISHED, BY_SELLER, DELETED, NOT_LIVE, APPROVED, WAITING, MISSED, NOT_APPROVED, NEVER_SENT,
+            SEND_REFUSED, REFUSED, HELD)
+WRITERS = (("ai", "written by the app"), ("manual", "by hand"))
 #: Days looked back when no --since is given.
 DEFAULT_DAYS = 30
 TITLE_CHARS = 40
@@ -87,8 +97,16 @@ class Item:
     jobs: list[Job] = field(default_factory=list)
     findings: list[tuple[str, str, str]] = field(default_factory=list)  # (rule, severity, blocks)
     etsy_state: str | None = None
+    #: What Etsy would refuse in its own text, and the app's notes on it (content.check_listing).
+    text_problems: list[str] = field(default_factory=list)
+    text_notes: int = 0
     outcome: str = APPROVED
     why: str = ""
+
+    @property
+    def written_from(self) -> str:
+        """"manual" when the seller wrote it ("Write title and tags myself"), else "ai"."""
+        return "manual" if getattr(self.content, "source", "ai") == "manual" else "ai"
 
     @property
     def personalized(self) -> bool:
@@ -178,6 +196,7 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
         findings[f.generated_content_id].append(f)
     all_pubs = list((await session.execute(select(ListingPublication).where(
         ListingPublication.content_id.in_(list(contents) or [uuid.uuid4()])))).scalars())
+    checks = await _text_checks(session, tid, contents, profiles)
     # Drafts the seller deleted on Etsy keep their listing in ``former_content_id``.
     gone = list((await session.execute(select(ListingPublication).where(
         ListingPublication.former_content_id.in_(list(contents) or [uuid.uuid4()]),
@@ -191,8 +210,10 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
             setting, source = P.for_listing(content.personalization, profile.personalization if profile else None,
                                             profile.cached_payload if profile else None)
             asset = assets.get(content.asset_id)
+            problems, notes = checks.get(content.id, ([], 0))
             by_pair[key] = Item(content, shops.get(shop_id) if shop_id else None, asset.parsed_sku if asset else None,
-                                setting, source, findings=_findings(content, findings.get(content.id, []), setting))
+                                setting, source, findings=_findings(content, findings.get(content.id, []), setting),
+                                text_problems=problems, text_notes=notes)
         return by_pair[key]
 
     for pub in all_pubs:
@@ -219,6 +240,30 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
     ordered = sorted(by_pair.values(), key=lambda i: (
         i.shop.shop_name or "" if i.shop else "~", _aware(i.content.created_at), str(i.content.id)))
     return (tenant.email, str(tenant.id)), ordered
+
+
+async def _text_checks(session: AsyncSession, tenant_id: uuid.UUID, contents: dict, profiles: dict) -> dict:
+    """Per listing: what Etsy would refuse in its text now and how many notes it has, by the same
+    decision approval and sending use (content.check_listing); computed here, nothing written."""
+    from app.compliance.trademarks import tenant_blocklist
+    from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
+
+    marks = await tenant_blocklist(session, tenant_id)
+    out: dict[uuid.UUID, tuple[list[str], int]] = {}
+    for content in contents.values():
+        profile = profiles.get(content.listing_profile_id) if content.listing_profile_id else None
+        check = check_listing(
+            GeneratedListing(title=content.title or "", tags=list(content.tags or []), description=content.description or ""),
+            policy_for(profile.content_template) if profile is not None else None,
+            trademarks=marks, title_rules=bounds_for(profile))
+        out[content.id] = (check.errors, len(check.warnings))
+    return out
+
+
+def _stops(item: Item) -> str:
+    if item.text_problems:
+        return "what stops it: " + "; ".join(redact(p)[:120] for p in item.text_problems[:3])
+    return "nothing in its text stops it"
 
 
 def _findings(content: GeneratedContent, rows: list[ComplianceFinding], setting: dict[str, Any] | None) -> list[tuple[str, str, str]]:
@@ -264,7 +309,7 @@ def classify(item: Item, now: datetime) -> tuple[str, str]:
             return NOT_LIVE, f"the app recorded it live; Etsy says {item.etsy_state}"
         return PUBLISHED, _when(pub.published_at)
     if not content.approved:
-        return NOT_APPROVED, "not approved (now)"
+        return NOT_APPROVED, f"not approved; {_stops(item)}" + (f" ({item.text_notes} note(s), never a stop)" if item.text_notes else "")
     if live is not None and live.status is JobStatus.failed:
         if (live.payload or {}).get("etsy_error") or "Etsy" in (live.last_error or ""):
             return REFUSED, "going live failed with Etsy's answer"
@@ -274,7 +319,8 @@ def classify(item: Item, now: datetime) -> tuple[str, str]:
     if pub is None and draft is not None and draft.status is JobStatus.failed:
         if (draft.payload or {}).get("etsy_error"):
             return REFUSED, "the draft was refused by Etsy"
-        return HELD, "the draft was stopped by the app's own check"
+        return SEND_REFUSED, (f"its draft was stopped before Etsy: {redact(draft.last_error or 'no reason kept')[:160]}; "
+                              f"now {_stops(item)}")
     if pub is not None and pub.schedule_note:
         return HELD, "its scheduled go-live was not released (the reason is below)"
     failed = [s for s in item.slots if s.state == "failed"]
@@ -296,7 +342,11 @@ def classify(item: Item, now: datetime) -> tuple[str, str]:
         if due < now - MISSED_AFTER:
             return MISSED, f"group schedule due {_when(due)}, still {open_slots[-1].state}"
         return WAITING, f"group schedule due {_when(due)}"
-    return APPROVED, "approved; no go-live asked for or still to happen" if pub is not None else "approved; no draft yet"
+    if pub is not None:
+        return APPROVED, "approved; it has a draft, no go-live asked for"
+    if draft is not None and draft.status in (JobStatus.queued, JobStatus.running):
+        return APPROVED, f"its draft is {draft.status.value}" + (f" ({draft.paused_reason})" if draft.paused_reason else "")
+    return NEVER_SENT, f"approved, never sent to a shop; {_stops(item)}"
 
 
 async def _check_etsy(sm: async_sessionmaker, items: list[Item], *, client_factory: Callable | None,
@@ -383,21 +433,67 @@ def _job_line(job: Job) -> str:
     return line
 
 
-def _render(who: tuple[str, str], since: date, items: list[Item], notes: list[str], checked: bool) -> str:
-    lines = [f"publish report for {who[0]} (account {who[1][:8]}), listings since {since.isoformat()}", ""]
-    lines.append("== summary (one line per outcome; personalization on | off)")
+def summary_lines(items: list[Item]) -> list[str]:
+    """One line per outcome with its counts, split by personalization and by who wrote it, and
+    the listing ids under each split."""
+    lines: list[str] = []
     for outcome in OUTCOMES:
         on = [i.label() for i in items if i.outcome == outcome and i.personalized]
         off = [i.label() for i in items if i.outcome == outcome and not i.personalized]
         if not on and not off:
             continue
-        lines.append(f"  {outcome}: {len(on) + len(off)} (personalization on {len(on)}, off {len(off)})")
+        writers = " · ".join(f"{label} {sum(1 for i in items if i.outcome == outcome and i.written_from == key)}"
+                             for key, label in WRITERS)
+        lines.append(f"  {outcome}: {len(on) + len(off)} (personalization on {len(on)}, off {len(off)}) · {writers}")
         if on:
             lines.append("    on:  " + ", ".join(on))
         if off:
             lines.append("    off: " + ", ".join(off))
     if not items:
         lines.append("  no listings in this period")
+    return lines
+
+
+async def report_all(sm: async_sessionmaker, since: date | None = None, *, now: datetime | None = None) -> str:
+    """``--all``: every account with listings in the period, its summary, then the totals. Read only."""
+    now = now or datetime.now(timezone.utc)
+    since = since or (now - timedelta(days=DEFAULT_DAYS)).date()
+    start = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+    blocks: list[str] = []
+    everything: list[Item] = []
+    async with sm() as session:
+        if session.bind.dialect.name == "postgresql":
+            await session.execute(text("SET TRANSACTION READ ONLY"))
+        try:
+            active = set((await session.execute(select(GeneratedContent.tenant_id).where(
+                GeneratedContent.created_at >= start))).scalars())
+            active |= set((await session.execute(select(Job.tenant_id).where(
+                Job.type.in_((JobType.create_draft, JobType.publish_live)), Job.created_at >= start))).scalars())
+            tenants = list((await session.execute(select(Tenant).where(Tenant.id.in_(active or {uuid.uuid4()}))
+                                                  .order_by(Tenant.email))).scalars())
+            for tenant in tenants:
+                found = await _gather(session, tenant.email, since, now)
+                if isinstance(found, str):
+                    continue
+                who, items = found
+                for item in items:
+                    item.outcome, item.why = classify(item, now)
+                everything += items
+                blocks.append("\n".join([f"== {who[0]} (account {who[1][:8]}): {len(items)} listing(s)",
+                                         *summary_lines(items)]))
+            session.expunge_all()
+        finally:
+            await session.rollback()
+    head = [f"publish report for every account ({len(blocks)}), listings since {since.isoformat()}", ""]
+    totals = ["== all accounts", *summary_lines(everything)]
+    body = "\n\n".join(blocks) if blocks else "no account has listings in this period"
+    return "\n".join([*head, body, "", *totals]) + "\n"
+
+
+def _render(who: tuple[str, str], since: date, items: list[Item], notes: list[str], checked: bool) -> str:
+    lines = [f"publish report for {who[0]} (account {who[1][:8]}), listings since {since.isoformat()}", ""]
+    lines.append("== summary (one line per outcome; personalization on | off; who wrote it)")
+    lines += summary_lines(items)
     lines += [""] + ([f"  {n}" for n in notes] if notes else []) + ([""] if notes else [])
     for i in items:
         c = i.content
@@ -405,6 +501,7 @@ def _render(who: tuple[str, str], since: date, items: list[Item], notes: list[st
         shop = i.shop.shop_name if i.shop is not None else "no shop yet"
         lines.append(f"== {shop} · {i.label()} · \"{title}\" · SKU {i.sku or '-'}")
         lines.append(f"  outcome: {i.outcome} ({i.why})")
+        lines.append("  written: " + ("by hand (manual)" if i.written_from == "manual" else "by the app (ai)"))
         lines.append("  " + _personalization_line(i))
         if c.approved:
             when = _when(c.approved_at) if c.approved_at else "time not recorded"

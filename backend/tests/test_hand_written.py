@@ -70,9 +70,10 @@ def test_etsys_title_and_tag_characters_follow_its_spec() -> None:
 def test_a_hand_written_listing_is_held_to_etsys_rules_and_the_rest_are_warnings() -> None:
     policy = policy_for("apparel")
     listing = GeneratedListing(title="Frog Reading Club", tags=FIVE_TAGS, description="Soft and warm.")
-    strict = check_listing(listing, policy, trademarks=None)
+    ai = check_listing(listing, policy, trademarks=None)
     mine = check_listing(listing, policy, hand_written=True, trademarks=None)
-    assert not strict.valid and "expected exactly 13 tags, got 5" in strict.errors
+    # One rule set whoever wrote it (2026-10-26): the same answer for the same text.
+    assert (ai.errors, ai.warnings) == (mine.errors, mine.warnings)
     assert mine.valid and mine.errors == []
     joined = " ".join(mine.warnings)
     assert "expected exactly 13 tags, got 5" in joined and "product type" in joined
@@ -167,20 +168,26 @@ async def test_empty_hand_written_listings_are_blocked_with_one_summary_line(wor
     assert "13 tags" not in json.dumps(res) and "product type" not in json.dumps(res)
 
 
-async def test_listings_the_app_wrote_keep_the_strict_rules(world) -> None:  # noqa: F811
+async def test_an_ai_listing_rewritten_by_hand_is_held_to_the_same_rules(world) -> None:  # noqa: F811
+    """A seller who rewrites an AI listing's title and tags is writing it too: the same rules as a
+    listing they typed from scratch (2026-10-26; before, 5 tags or a short title kept it unapproved
+    for ever). What Etsy refuses still stops it."""
     batch, [card] = await _hand_written(world)
     async with world["sm"]() as s:
         row = await s.get(GeneratedContent, uuid.UUID(card["id"]))
         row.source, row.title, row.tags = manual.AI, TITLE, FIVE_TAGS
         await s.commit()
+    res = (await world["a"].post(f"/api/batches/{batch}/approve-all")).json()
+    assert res["approved"] == 1 and res["skipped"] == [], res
+    assert any("13 tags" in n["line"] for n in res["notes"])  # said, never a stop
+    async with world["sm"]() as s:
+        row = await s.get(GeneratedContent, uuid.UUID(card["id"]))
+        assert await listing_problem(s, row) is None
+        row.approved, row.tags = False, [*FIVE_TAGS, "mom’s gift"]  # a curly apostrophe: Etsy refuses it
+        await s.commit()
     refused = await world["a"].post(f"/api/content/{card['id']}/approve", json={"approved": True})
     assert refused.status_code == 422
-    assert "expected exactly 13 tags, got 5" in refused.json()["detail"]["errors"]
-    res = (await world["a"].post(f"/api/batches/{batch}/approve-all")).json()
-    assert res["summary"] == "1 listing was not approved:"  # more than one reason: each on its own line
-    assert "1 listing does not have 13 tags" in [p["line"] for p in res["problems"]]
-    async with world["sm"]() as s:
-        assert await listing_problem(s, await s.get(GeneratedContent, uuid.UUID(card["id"])))
+    assert any("straight apostrophe" in e for e in refused.json()["detail"]["errors"])
 
 
 async def test_a_hand_written_listing_with_five_tags_can_be_drafted(world) -> None:  # noqa: F811

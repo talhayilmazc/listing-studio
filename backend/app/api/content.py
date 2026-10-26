@@ -353,17 +353,16 @@ async def contents_out(
     for out in outs:
         out.findings = findings.get(out.id, [])
         out.work = work.get(out.id, [])
-    # A listing the seller writes: Etsy's own rules block, the app's are notes on it.
-    hand_written = [c for c, _ in pairs if manual.is_manual(c)]
-    if hand_written:
-        marks = await tenant_blocklist(session, hand_written[0].tenant_id)
+    # Every listing, whoever wrote it: Etsy's own rules block, the app's are notes on it
+    # (content.check_listing; the same decision as approval, sending and every draft).
+    if pairs:
+        marks = await tenant_blocklist(session, pairs[0][0].tenant_id)
         by_id = {out.id: out for out in outs}
-        for c in hand_written:
+        for c, _ in pairs:
             profile = profiles.get(c.listing_profile_id)
             check = check_listing(
                 GeneratedListing(title=c.title or "", tags=list(c.tags or []), description=c.description or ""),
                 policy_for(profile.content_template) if profile is not None else None,
-                hand_written=True,
                 trademarks=marks,
                 title_rules=bounds_for(profile),
             )

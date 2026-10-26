@@ -204,6 +204,32 @@ columns on `listing_publication`, quick, no rows changed; no `.env` change):
 
    `--apply` changes only our own records.
 
+## 10. Listings with text the seller wrote, and what is stuck (26 October 2026)
+
+After `bash deploy/update.sh` with this change (no migration, no `.env` change), every listing is
+held to the same rules: only what Etsy refuses, the trademark filter and blocking compliance
+findings stop it; the app's own quality rules are notes. Then:
+
+1. Every account's summary, split by who wrote each listing (the app or the seller), with the
+   listings that never reached a draft and why (read only):
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli publish-report --all --since 2026-10-01
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli publish-report <email> --since 2026-10-01
+   ```
+
+2. Approved listings the old rules left behind (a draft the app stopped, a failed group-schedule
+   slot, a go-live held for the text). Dry run first; `--apply` sends them on the normal path (a
+   missed time goes at the next one the shop's rules allow). Nothing unapproved is touched:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli requeue-stuck --all
+   docker compose -f docker-compose.prod.yml exec api python -m app.cli requeue-stuck --all --apply
+   ```
+
+   Listings that were never approved need the seller: their cards now say what stops them, if
+   anything, and Approve all takes them.
+
 ## What is already in place (no action)
 
 - Error alerts go to `ALERT_WEBHOOK_URL`: failed deploy, failed backup, disk growth, an AI provider refusing us, a new invite request, and the weekly Etsy spec watcher.

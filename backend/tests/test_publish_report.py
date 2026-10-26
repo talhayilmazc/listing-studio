@@ -152,7 +152,7 @@ async def test_the_outcome_rules() -> None:
     content = GeneratedContent(id=uuid.uuid4(), approved=True, created_at=NOW)
     shop_id = uuid.uuid4()
     item = R.Item(content, None, None, None, "profile")
-    assert R.classify(item, NOW)[0] == R.APPROVED
+    assert R.classify(item, NOW)[0] == R.NEVER_SENT  # approved, no draft and no job: never sent
     item.slots = [PlannedSlot(state="waiting", publish_at=NOW + timedelta(hours=1), draft_at=NOW)]
     assert R.classify(item, NOW)[0] == R.WAITING
     item.slots[0].publish_at = NOW - timedelta(hours=1)

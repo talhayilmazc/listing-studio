@@ -152,7 +152,8 @@ async def _add_content(
             tenant_id=tenant_id,
             batch_id=batch.id,
             asset_id=asset.id,
-            title=VALID_TITLE if valid else "too short",
+            # Invalid = what Etsy itself refuses ($ in a title); the app's own rules are notes (2026-10-26).
+            title=VALID_TITLE if valid else "Price $20 Tee",
             tags=[f"tag{i}" for i in range(13)],
             description="Fixed description.",
             approved=approved,
@@ -633,7 +634,7 @@ async def test_approve_all_approves_only_listings_that_pass(ctx) -> None:
     async with ctx["sm"]() as s:  # two more in the same batch: one invalid, one already approved
         base = await s.get(GeneratedContent, good)
         made = []
-        for n, (title, approved) in enumerate([("too short", False), (VALID_TITLE, True)], start=2):
+        for n, (title, approved) in enumerate([("Price $20 Tee", False), (VALID_TITLE, True)], start=2):
             asset = Asset(batch_id=batch, tenant_id=ctx["tenant_id"], original_filename=f"x{n}.png",
                           storage_key=f"k{n}", status=AssetStatus.processed, rank=n)
             s.add(asset)
@@ -650,7 +651,7 @@ async def test_approve_all_approves_only_listings_that_pass(ctx) -> None:
     assert body["approved"] == 1 and body["already_approved"] == 1
     [skip] = body["skipped"]
     assert skip["content_id"] == str(made[0]) and skip["original_filename"] == "x2.png"
-    assert "at least 110" in skip["reason"]
+    assert "characters Etsy does not allow" in skip["reason"]
     async with ctx["sm"]() as s:
         assert (await s.get(GeneratedContent, good)).approved is True
         assert (await s.get(GeneratedContent, made[0])).approved is False  # invalid stays unapproved

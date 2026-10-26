@@ -56,6 +56,26 @@ def _shown(chars: list[str]) -> str:
     return " ".join(out)
 
 
+#: Characters people paste from documents and phones, and what Etsy takes instead.
+_CURLY = {"’", "‘", "ʼ"}
+_DASHES = {"–", "—", "‒"}
+
+
+def _fix(bad: list[str], *, tag: bool) -> str:
+    """The plain fix for characters Etsy refuses (said after the refusal)."""
+    chars = set(bad)
+    hints: list[str] = []
+    if chars & _CURLY:
+        hints.append("use a straight apostrophe (') instead of a curly one")
+    if tag and chars & _DASHES:
+        hints.append("use a hyphen (-) instead of a dash")
+    if tag and "&" in chars:
+        hints.append("write \"and\" instead of &")
+    if chars - _CURLY - (_DASHES if tag else set()) - ({"&"} if tag else set()):
+        hints.append("remove the others (emoji, symbols, tabs)" if hints else "remove them (emoji, symbols, tabs)")
+    return "; ".join(hints)
+
+
 def title_errors(title: str) -> list[str]:
     """Why Etsy would refuse this title (empty list: it would not)."""
     if not title.strip():
@@ -65,10 +85,11 @@ def title_errors(title: str) -> list[str]:
         errors.append(f"title is over Etsy's {MAX_TITLE} characters (yours is {len(title)})")
     bad = [ch for ch in title if not _title_char_ok(ch)]
     if bad:
-        errors.append(f"title has characters Etsy does not allow: {_shown(bad)}")
+        errors.append(f"title has characters Etsy does not allow: {_shown(bad)}: {_fix(bad, tag=False)}")
     twice = [ch for ch in ONCE if title.count(ch) > 1]
     if twice:
-        errors.append(f"title uses {' '.join(twice)} more than once; Etsy allows %, :, & and + once each")
+        fix = " (write \"and\" for the other &)" if "&" in twice else ""
+        errors.append(f"title uses {' '.join(twice)} more than once; Etsy allows %, :, & and + once each{fix}")
     return errors
 
 
@@ -88,7 +109,7 @@ def tag_errors(tags: list[str]) -> list[str]:
             errors.append(f"tag contains a comma: {tag!r}")
         bad = [ch for ch in tag if ch != "," and not _tag_char_ok(ch)]
         if bad:
-            errors.append(f"tag has characters Etsy does not allow: {tag!r} ({_shown(bad)})")
+            errors.append(f"tag has characters Etsy does not allow: {tag!r} ({_shown(bad)}): {_fix(bad, tag=True)}")
     return list(dict.fromkeys(errors))
 
 

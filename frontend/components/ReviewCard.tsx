@@ -37,34 +37,7 @@ import { useSession } from "./SessionProvider";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
 const DEFAULT_MIN_TITLE = 110;
 const DEFAULT_MAX_TITLE = 140;
-const MAX_TAG = 20;
 const REQUIRED_TAGS = 13;
-
-/** Mirror of the backend validation, for instant feedback while editing. */
-function validate(
-  title: string,
-  tags: string[],
-  description: string,
-  MIN_TITLE: number,
-  MAX_TITLE: number,
-): string[] {
-  const errors: string[] = [];
-  if (!title.trim()) errors.push("Title is empty");
-  else if (title.length < MIN_TITLE) errors.push(`Title must be at least ${MIN_TITLE} characters`);
-  if (title.length > MAX_TITLE) errors.push(`Title exceeds ${MAX_TITLE} characters`);
-  if (tags.length !== REQUIRED_TAGS) errors.push(`Need exactly ${REQUIRED_TAGS} tags`);
-  const seen = new Set<string>();
-  for (const t of tags) {
-    if (!t.trim()) errors.push("A tag is empty");
-    if (t.length > MAX_TAG) errors.push(`Tag over ${MAX_TAG} chars: "${t}"`);
-    if (t.includes(",")) errors.push(`Tag has a comma: "${t}"`);
-    const key = t.trim().toLowerCase();
-    if (seen.has(key)) errors.push(`Duplicate tag: "${t}"`);
-    seen.add(key);
-  }
-  if (!description.trim()) errors.push("Description is empty");
-  return errors;
-}
 
 export function ReviewCard({
   initial,
@@ -175,12 +148,10 @@ export function ReviewCard({
   const drafted = new Set(publications.map((p) => p.connection_id));
   const missing = wanted.filter((shop) => !drafted.has(shop));
 
-  // A listing the seller writes is stopped only by what Etsy itself refuses for a
-  // draft (lib/etsyText.ts); the app's quality rules are the server's notes on it.
-  const errors = useMemo(
-    () => (manual ? draftErrors(title, tags, description) : validate(title, tags, description, MIN_TITLE, MAX_TITLE)),
-    [manual, title, tags, description, MIN_TITLE, MAX_TITLE],
-  );
+  // Every listing, whoever wrote it, is stopped only by what Etsy itself refuses for a
+  // draft (lib/etsyText.ts); the app's quality rules are the server's notes on it
+  // (content.check_listing, 2026-10-26: text a seller typed or rewrote was being held back).
+  const errors = useMemo(() => draftErrors(title, tags, description), [title, tags, description]);
   const valid = errors.length === 0;
   const [notes, setNotes] = useState<string[]>(initial.validation?.warnings ?? []);
 
@@ -709,8 +680,8 @@ export function ReviewCard({
                 ))}
               </ul>
             )}
-            {manual && notes.length > 0 && (
-              // The app's quality rules on a listing the seller writes: notes, never a reason it cannot be approved.
+            {notes.length > 0 && (
+              // The app's quality rules: notes on any listing, never a reason it cannot be approved.
               <div key="notes" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="card-notes">
                 <p className="font-medium">Notes (they do not stop approval)</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
