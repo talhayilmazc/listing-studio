@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     accounts,
+    personalization_etsy,
     personalization_fix,
     admin,
     analytics,
@@ -128,6 +129,7 @@ def create_app() -> FastAPI:
     application.include_router(unfinished.router)
     application.include_router(schedules.router)
     application.include_router(personalization_fix.router)
+    application.include_router(personalization_etsy.router)
     return application
 
 

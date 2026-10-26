@@ -145,6 +145,7 @@ HTTP_CLIENTS = {
     "etsy/connection.py": "the default factory for oauth.refresh_tokens (guarded)",
     "ops/draft_failures.py": "draft-failures --check-etsy: hands the client to EtsyApiClient, reads only (guarded)",
     "ops/publish_report.py": "publish-report --check-etsy: hands the client to EtsyApiClient, one getListing per listing (guarded)",
+    "workers/personalization_etsy.py": "personalization written to existing listings: hands the client to EtsyApiClient (guarded)",
     "ops/reconcile_etsy.py": "reconcile-etsy: hands the client to EtsyApiClient, reads drafts' states only (guarded)",
     "workers/reconcile.py": "the upkeep check of drafts against Etsy: hands the client to EtsyApiClient, reads only (guarded)",
     "workers/etsy_spec.py": "the weekly read of Etsy's public OpenAPI document (no token, no quota); guard.check first",

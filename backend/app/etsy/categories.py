@@ -15,6 +15,7 @@ _BY_JOB: dict[str, str] = {
     "sync_shop_sections": "shop_sync",
     "create_shop_section": "sections",
     "update_sku_on_etsy": "sku_updates",
+    "apply_personalization_on_etsy": "personalization",
     "refresh_profile": "profiles",
     "read_reference_size": "profiles",
     "refresh_profile_images": "profiles",
@@ -48,6 +49,7 @@ LABELS: dict[str, str] = {
     "reconcile": "Checking drafts against Etsy",
     "sections": "Creating shop sections",
     "sku_updates": "Updating SKUs on drafts",
+    "personalization": "Writing personalization to existing listings",
     "other": "Other",
 }
 

@@ -30,6 +30,7 @@ from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledger
 from app.workers.links import create_link_resources, link_profile, refresh_shop_links, resolve_shop_settings_once
 from app.workers.listing_stats import read_all_listing_stats, read_listing_stats
 from app.workers.mockups import build_mockup_zip, generate_mockups, prepare_mockup_template, rerender_mockups
+from app.workers.personalization_etsy import apply_personalization_on_etsy
 from app.workers.plans import release_planned_drafts
 from app.workers.processor import JobProcessor, ProcessResult
 from app.workers.profiles import (
@@ -137,6 +138,7 @@ class WorkerSettings:
         sync_shop_sections,
         create_shop_section,
         update_sku_on_etsy,
+        apply_personalization_on_etsy,
         generate_mockups,
         rerender_mockups,
         prepare_mockup_template,

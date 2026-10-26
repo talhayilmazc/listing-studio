@@ -268,3 +268,51 @@ def _same_text(value: Any) -> str:
     text = html.unescape(str(value or ""))
     text = text.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
     return " ".join(text.split())
+
+
+# --- A listing that says it is personalized, with no personalization box (2026-10-26) ------------
+
+#: Words in a title, tag or description that promise the buyer something of their own.
+_PROMISES = re.compile(
+    r"\b(?:personali[sz](?:ed|e|ation|able)"
+    r"|custom(?:i[sz]ed)?[\s-]+(?:names?|text|initials?|monograms?|messages?|dates?|wording|words?|quotes?)"
+    r"|add\s+(?:your|a)\s+(?:own\s+)?(?:names?|text|initials?|messages?|wording|words?)"
+    r"|(?:with|your)\s+(?:own\s+)?name\s+(?:on|here)"
+    r"|monogram(?:med)?)\b",
+    re.IGNORECASE,
+)
+#: "not personalized", "no personalization", "non-personalized": not a promise.
+_DENIED = re.compile(r"\b(?:not|no|non|without)[\s-]+(?:\w+[\s-]+)?$", re.IGNORECASE)
+
+MISMATCH = "This listing says it's personalized but has no personalization box."
+
+
+def says_personalized(title: str | None, tags: list[str] | None, description: str | None) -> list[str]:
+    """The phrases that promise personalization (lower case, each once, title first)."""
+    found: list[str] = []
+    for text in [title or "", *(tags or []), description or ""]:
+        for m in _PROMISES.finditer(text):
+            if _DENIED.search(text[max(0, m.start() - 24):m.start()]):
+                continue
+            phrase = " ".join(m.group(0).lower().split())
+            if phrase not in found:
+                found.append(phrase)
+    return found
+
+
+def reference_question(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The reference listing's own question as an enabled setting (None when it has none)."""
+    questions = (payload or {}).get("personalization") or []
+    return {"enabled": True, **questions[0]} if questions else None
+
+
+def profile_question(override: dict[str, Any] | None, payload: dict[str, Any] | None) -> tuple[dict[str, Any] | None, str]:
+    """The question "use the profile's" means: the profile's setting when it is on, else its
+    reference listing's own question (the profile turned it off), else none. With where from."""
+    setting = effective(override, payload)
+    if setting and setting.get("enabled"):
+        return setting, "profile"
+    reference = reference_question(payload)
+    if reference is not None:
+        return reference, "reference"
+    return None, "none"

@@ -319,6 +319,8 @@ class ContentOut(BaseModel):
     validation: ValidationInfo | None = None
     #: Drafts of it the seller deleted on Etsy (shown on the card; nothing is published there).
     deleted_on_etsy: list["DeletedDraftOut"] = Field(default_factory=list)
+    #: Its words say personalized, custom name… but personalization is off (a warning, never blocking).
+    personalization_mismatch: "PersonalizationMismatchOut | None" = None
 
 
 class CheckOut(BaseModel):
@@ -407,6 +409,25 @@ class PublicationOut(BaseModel):
     schedule_note: str | None = None
     #: "seller_on_etsy": the seller published it in Shop Manager (the app sent nothing).
     published_by: str | None = None
+    #: Personalization written to it on Etsy at the seller's ask: state, when, why.
+    personalization_sync: "PersonalizationSyncOut | None" = None
+
+
+class PersonalizationSyncOut(BaseModel):
+    state: str  # "queued" | "written" | "failed"
+    at: datetime | None = None
+    message: str | None = None
+
+
+class PersonalizationMismatchOut(BaseModel):
+    """The listing's words promise personalization; its personalization is off."""
+
+    message: str
+    #: The phrases found ("custom name", "personalized"), lower case.
+    phrases: list[str] = Field(default_factory=list)
+    #: What "Turn on personalization" uses: "profile", "reference" or "listing" (the editor opens).
+    offer: str = "listing"
+    question: str | None = None
 
 
 class DeletedDraftOut(BaseModel):

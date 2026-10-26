@@ -1289,6 +1289,9 @@ class ListingPublication(Base):
     published_by: Mapped[str | None] = mapped_column(Text)
     #: When the app last read this listing's state on Etsy (at most every 6 hours by upkeep).
     etsy_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The last personalization written to this existing listing on Etsy at the seller's ask
+    #: (workers/personalization_etsy.py): {"state": queued|written|failed, "at", "message"}.
+    personalization_sync: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: Settings the seller confirmed making by hand in Shop Manager (etsy/manual_fields.py),
     #: as {field key: the etsy_listing_id it was confirmed for}. A tick counts only
     #: for that draft, so a regenerated draft starts unticked.

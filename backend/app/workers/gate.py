@@ -82,6 +82,9 @@ JOB_COST: dict[str, int] = {
     "create_shop_section": 3,
     # shop, the draft's inventory read, written with the new SKU, read again
     "update_sku_on_etsy": 4,
+    # shop, the personalization written to an existing draft or live listing, and its
+    # read-back when the answer does not carry it (workers/personalization_etsy.py)
+    "apply_personalization_on_etsy": 3,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,
