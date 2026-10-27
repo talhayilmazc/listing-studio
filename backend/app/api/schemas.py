@@ -322,6 +322,9 @@ class ContentOut(BaseModel):
     validation: ValidationInfo | None = None
     #: Drafts of it the seller deleted on Etsy (shown on the card; nothing is published there).
     deleted_on_etsy: list["DeletedDraftOut"] = Field(default_factory=list)
+    #: Shop id -> this listing's own text there ("Publish in another shop", or the card edited
+    #: while that shop was shown).
+    shop_texts: dict[str, ShopTextOut] = Field(default_factory=dict)
 
 
 class CheckOut(BaseModel):
@@ -511,6 +514,18 @@ class ContentUpdate(BaseModel):
     base: ContentText | None = None
     #: This listing's personalization (v8 §D); sending null follows the profile again.
     personalization: dict[str, Any] | None = None
+    #: The shop shown on the review page, one the listing is not in yet: the title, tags and
+    #: description sent are that shop's own (pipeline/shop_listing.py), and the answer shows
+    #: the listing as it goes there. A shop it is already in: 409 (edited on Etsy).
+    shop: uuid.UUID | None = None
+
+
+class ShopTextOut(BaseModel):
+    """A listing's own text in one shop (a field not here follows the listing)."""
+
+    title: str | None = None
+    tags: list[str] | None = None
+    description: str | None = None
 
 
 class BulkPersonalization(BaseModel):

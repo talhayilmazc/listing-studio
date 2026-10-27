@@ -500,6 +500,7 @@ async def publish_content(
     profile_id: uuid.UUID | None = None,
     title: str | None = None,
     description: str | None = None,
+    tags: list[str] | None = None,
     personalization: dict[str, Any] | None = None,
     chart_slots: list[int] | None = None,
     section_choice: dict[str, Any] | None = None,
@@ -729,7 +730,8 @@ async def publish_content(
         # Apparel is always a PHYSICAL listing. Sending type=download makes Etsy
         # create a digital listing and force the "Digital files" category (v4 §A).
         "type": "physical",
-        "tags": list(content.tags or []),
+        # This shop's own tags when it has them (pipeline/shop_listing.py), else the listing's.
+        "tags": list(tags if tags is not None else content.tags or []),
         **required,
     }
     # The reference's weight and packed size, exactly as Etsy gave them (number and unit):

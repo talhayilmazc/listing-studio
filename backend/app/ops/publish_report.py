@@ -455,27 +455,29 @@ def summary_lines(items: list[Item]) -> list[str]:
 
 
 async def report_all(sm: async_sessionmaker, since: date | None = None, *, now: datetime | None = None) -> str:
-    """``--all``: every account with listings in the period, its summary, then the totals. Read only."""
+    """``--all``: every account with listings in the period, its summary, then the totals. Read only.
+
+    Each account is gathered exactly as the one-account report gathers it (``_gather``: listings
+    written, drafted, scheduled or published since ``since``, and their jobs and slots), so the
+    two never disagree. Until 2026-10-27 accounts were picked first by listings *written* or jobs
+    started since then: an account whose 92 listings were written earlier but drafted, scheduled
+    or published in the period showed 92 alone and nothing under ``--all``."""
     now = now or datetime.now(timezone.utc)
     since = since or (now - timedelta(days=DEFAULT_DAYS)).date()
-    start = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
     blocks: list[str] = []
     everything: list[Item] = []
     async with sm() as session:
         if session.bind.dialect.name == "postgresql":
             await session.execute(text("SET TRANSACTION READ ONLY"))
         try:
-            active = set((await session.execute(select(GeneratedContent.tenant_id).where(
-                GeneratedContent.created_at >= start))).scalars())
-            active |= set((await session.execute(select(Job.tenant_id).where(
-                Job.type.in_((JobType.create_draft, JobType.publish_live)), Job.created_at >= start))).scalars())
-            tenants = list((await session.execute(select(Tenant).where(Tenant.id.in_(active or {uuid.uuid4()}))
-                                                  .order_by(Tenant.email))).scalars())
+            tenants = list((await session.execute(select(Tenant).order_by(Tenant.email))).scalars())
             for tenant in tenants:
                 found = await _gather(session, tenant.email, since, now)
                 if isinstance(found, str):
                     continue
                 who, items = found
+                if not items:
+                    continue  # nothing in the period: not listed
                 for item in items:
                     item.outcome, item.why = classify(item, now)
                 everything += items

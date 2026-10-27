@@ -95,3 +95,67 @@ export function profileIn(data: BatchShops | null, contentId: string | null | un
   if (!data || !contentId || !inView) return null;
   return data.listings.find((l) => l.content_id === contentId)?.profiles[inView] ?? null;
 }
+
+// --- Text for the target shop (the dialog's text step, the review card per shop) --------------
+
+export interface ShopText {
+  title: string;
+  tags: string[];
+  description: string;
+}
+
+/** A listing's text as it goes to a shop: that shop's own fields, else the listing's. */
+export function textFor(
+  content: {
+    title: string | null;
+    tags: string[] | null;
+    description: string | null;
+    shop_texts?: Record<string, { title?: string | null; tags?: string[] | null; description?: string | null }>;
+  },
+  shopId: string | null,
+): ShopText {
+  const own = (shopId && content.shop_texts?.[shopId]) || {};
+  return {
+    title: own.title ?? content.title ?? "",
+    tags: own.tags ?? content.tags ?? [],
+    description: own.description ?? content.description ?? "",
+  };
+}
+
+const words = (text: string): string[] => text.split(",").map((w) => w.trim()).filter(Boolean);
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** "Add these tags": each tag not there yet (any case), at the end. More than Etsy's 13 is
+ *  kept and said by the rule check, never dropped silently. */
+export function addTagsTo(tags: string[], text: string): string[] {
+  const seen = new Set(tags.map((t) => t.toLowerCase()));
+  const out = [...tags];
+  for (const t of words(text)) if (!seen.has(t.toLowerCase())) (out.push(t), seen.add(t.toLowerCase()));
+  return out;
+}
+
+/** "Remove these tags" (any case). */
+export function removeTagsFrom(tags: string[], text: string): string[] {
+  const gone = new Set(words(text).map((t) => t.toLowerCase()));
+  return tags.filter((t) => !gone.has(t.trim().toLowerCase()));
+}
+
+/** "Add these words" to the end of a title (a word already in it is not added again). */
+export function addWordsTo(title: string, text: string): string {
+  const have = title.toLowerCase();
+  const extra = words(text).filter((w) => !new RegExp(`(^|[^\\p{L}\\p{N}])${escape(w.toLowerCase())}($|[^\\p{L}\\p{N}])`, "u").test(have));
+  return extra.length ? `${title.trim()} ${extra.join(" ")}`.trim() : title;
+}
+
+/** "Remove these words" from a title: whole words, any case; spaces and commas tidied. */
+export function removeWordsFrom(title: string, text: string): string {
+  let out = title;
+  for (const w of words(text)) out = out.replace(new RegExp(`(^|[^\\p{L}\\p{N}])${escape(w)}(?=$|[^\\p{L}\\p{N}])`, "giu"), "$1");
+  return out.replace(/\s+,/g, ",").replace(/,(\s*,)+/g, ",").replace(/\s{2,}/g, " ").replace(/^[\s,]+|[\s,]+$/g, "");
+}
+
+/** Find and replace in a title (any case, every match); empty ``find`` changes nothing. */
+export function replaceIn(title: string, find: string, replace: string): string {
+  if (!find) return title;
+  return title.replace(new RegExp(escape(find), "gi"), replace).replace(/\s{2,}/g, " ").trim();
+}

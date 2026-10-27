@@ -31,7 +31,7 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline import approval, creativity, manual, versions
+from app.pipeline import approval, creativity, manual, shop_listing, versions
 from app.workers.recovery import WAIT_PERSONALIZATION
 from app.api.personalization_fix import hold_out, requeue_held
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
@@ -409,6 +409,8 @@ def _to_out(
         group_key=asset.group_key or "",
         source=manual.MANUAL if manual.is_manual(content) else manual.AI,
         title_warnings=[str(w) for w in (content.attributes or {}).get(TITLE_WARNINGS) or []],
+        shop_texts={k: schemas.ShopTextOut(**shop_listing.text_in(content, k)) for k in (content.shop_overrides or {})
+                    if shop_listing.text_in(content, k)},
     )
 
 
@@ -535,6 +537,8 @@ async def update_content(
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
+    if body.shop is not None:
+        return await _update_shop_text(session, tenant, content, body, enqueuer)
     before = (content.title, list(content.tags or []), content.description)
     if body.base is not None:
         stale = _changed_elsewhere(content, body)
@@ -575,10 +579,53 @@ async def update_content(
     )
 
 
-def _changed_elsewhere(content: GeneratedContent, body: schemas.ContentUpdate) -> list[str]:
+async def _update_shop_text(
+    session: AsyncSession, tenant: Tenant, content: GeneratedContent, body: schemas.ContentUpdate, enqueuer: Enqueuer,
+) -> schemas.ContentUpdateResult:
+    """The review card while a shop the listing is not in yet is shown: the text typed is that
+    shop's own; the listing's text and every shop it is already in stay as they are."""
+    from app.etsy.shops import active_shops
+    from app.pipeline.targets import check_text
+
+    shop = next((s for s in await active_shops(session, tenant.id) if s.id == body.shop), None)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="shop not found")
+    if shop_listing.sent((await shop_listing.states(session, [content]))[content.id], shop.id):
+        raise HTTPException(status_code=409, detail=(
+            f"This listing is already in {shop.display_name or shop.shop_name or 'that shop'}: "
+            "what is there is edited on Etsy. Pick a shop it is not in yet, or every shop, to edit its text here."))
+    title, tags, description = shop_listing.text_for(content, shop.id)
+    if body.base is not None:
+        stale = _changed_elsewhere(content, body, {"title": title, "tags": tags, "description": description})
+        if stale:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This listing's {' and '.join(stale)} changed in another tab or window. "
+                "Reload this listing to see it, or keep what you typed here.",
+            )
+    shop_listing.set_override(
+        content, shop.id,
+        **{name: getattr(body, name) for name in shop_listing.TEXT_FIELDS if getattr(body, name) is not None})
+    if "personalization" in body.model_fields_set:
+        content.personalization = _clean_personalization(body.personalization)
+    await session.commit()
+    await session.refresh(content)
+    asset = await session.get(Asset, content.asset_id)
+    out = (await contents_out(session, [(content, asset)]))[0]
+    title, tags, description = shop_listing.text_for(content, shop.id)
+    out.title, out.tags, out.description = title, tags, description  # the listing as it goes to that shop
+    profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
+    check = await check_text(session, content, profile, title, tags, description, source=profile)
+    return schemas.ContentUpdateResult(
+        content=out, validation=schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings))
+
+
+def _changed_elsewhere(
+    content: GeneratedContent, body: schemas.ContentUpdate, current: dict | None = None
+) -> list[str]:
     """The fields this save would overwrite although they changed since the card read
     them (another tab or window saved them). A field already holding what is sent is
-    not a conflict."""
+    not a conflict. ``current``: the text as stored for the shop being edited."""
     assert body.base is not None
     stale: list[str] = []
     for name in ("title", "tags", "description"):
@@ -586,7 +633,7 @@ def _changed_elsewhere(content: GeneratedContent, body: schemas.ContentUpdate) -
         if new is None or name not in body.base.model_fields_set:
             continue
         empty: object = [] if name == "tags" else ""
-        stored = getattr(content, name) or empty
+        stored = (current[name] if current is not None else getattr(content, name)) or empty
         base = getattr(body.base, name) or empty
         if name == "tags":
             stored, base, new = list(stored), list(base), list(new)  # type: ignore[arg-type]

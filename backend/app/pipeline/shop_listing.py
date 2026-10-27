@@ -1,13 +1,16 @@
-"""A listing in one shop: its own profile and SKU there, and where it stands there.
+"""A listing in one shop: its own profile, SKU and text there, and where it stands there.
 
 A written listing (one design, one ``generated_content``) can be on Etsy in several shops,
 one draft each (``listing_publication``). Its title, tags, description and photos are the
-same everywhere. Its **profile** and **SKU** can differ per shop
-(``generated_content.shop_overrides`` = ``{connection id: {"profile_id", "sku"}}``): a
-seller who published a batch in one shop sends the same listings to another shop with that
-shop's own profile and SKUs ("Publish in another shop", api/another_shop.py), or edits the
-SKU or profile while that shop is shown on the batch page. A shop or field not in the entry
-follows the listing: its own profile and its group's SKU.
+same everywhere unless the seller gives a shop its own. Its **profile**, **SKU** and
+**title, tags and description** can differ per shop (``generated_content.shop_overrides`` =
+``{connection id: {"profile_id", "sku", "title", "tags", "description"}}``; no migration
+beyond 0093, the same column): a seller who published a batch in one shop sends the same
+listings to another shop with that shop's own profile, SKUs and edited text ("Publish in
+another shop", api/another_shop.py), or edits the SKU, profile or the review card's text
+while that shop is shown. A shop or field not in the entry follows the listing: its own
+profile, its group's SKU and its own text. Each text field stands alone (a shop with its
+own title keeps the listing's tags).
 
 Nothing here changes a listing already on Etsy in a shop: what is there is edited on Etsy
 (or with "Update SKU on Etsy", which names the shop it changes).
@@ -34,6 +37,8 @@ STATES = (NOT_SENT, DRAFTED, SCHEDULED, PUBLISHED)
 OPEN_SLOTS = ("waiting", "drafting", "scheduled")
 
 _KEEP: Any = object()
+#: The text fields a shop can have its own of.
+TEXT_FIELDS = ("title", "tags", "description")
 
 
 def entry(content: GeneratedContent, shop_id: uuid.UUID | str) -> dict[str, Any]:
@@ -60,11 +65,29 @@ def sku_in(content: GeneratedContent, base: str | None, shop_id: uuid.UUID | str
     return sku_override(content, shop_id) or (base or None)
 
 
+def text_in(content: GeneratedContent, shop_id: uuid.UUID | str) -> dict[str, Any]:
+    """The text fields this listing has of its own in this shop (none: it follows the listing)."""
+    mine = entry(content, shop_id)
+    out: dict[str, Any] = {}
+    for name in TEXT_FIELDS:
+        if name in mine and mine[name] is not None:
+            out[name] = list(mine[name]) if name == "tags" else str(mine[name])
+    return out
+
+
+def text_for(content: GeneratedContent, shop_id: uuid.UUID | str | None) -> tuple[str, list[str], str]:
+    """(title, tags, description) as this listing goes to this shop."""
+    own = text_in(content, shop_id) if shop_id is not None else {}
+    return (own.get("title", content.title or ""), list(own.get("tags", content.tags or [])),
+            own.get("description", content.description or ""))
+
+
 def set_override(
-    content: GeneratedContent, shop_id: uuid.UUID | str, *, profile_id: Any = _KEEP, sku: Any = _KEEP
+    content: GeneratedContent, shop_id: uuid.UUID | str, *, profile_id: Any = _KEEP, sku: Any = _KEEP,
+    title: Any = _KEEP, tags: Any = _KEEP, description: Any = _KEEP,
 ) -> None:
-    """Set (or, with None, clear) this listing's profile or SKU in one shop. An entry left
-    empty is dropped; the column goes back to NULL when no shop has one."""
+    """Set (or, with None, clear) this listing's profile, SKU or a text field in one shop. An
+    entry left empty is dropped; the column goes back to NULL when no shop has one."""
     stored = {k: dict(v) for k, v in (content.shop_overrides or {}).items() if isinstance(v, dict)}
     mine = stored.get(str(shop_id), {})
     if profile_id is not _KEEP:
@@ -77,6 +100,13 @@ def set_override(
             mine.pop("sku", None)
         else:
             mine["sku"] = str(sku)
+    for name, value in (("title", title), ("tags", tags), ("description", description)):
+        if value is _KEEP:
+            continue
+        if value is None:
+            mine.pop(name, None)
+        else:
+            mine[name] = [str(t) for t in value] if name == "tags" else str(value)
     if mine:
         stored[str(shop_id)] = mine
     else:

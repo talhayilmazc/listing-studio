@@ -16,6 +16,15 @@ for, in a few clicks:
                                                  SKUs refused (already used there, twice in
                                                  this request, or not allowed by Etsy).
 ``POST /api/batches/{id}/another-shop``          the same, done: drafts in that shop.
+``POST /api/batches/{id}/another-shop/rewrite``  "Rewrite for this shop": new title, tags and
+                                                 description in that shop's profile style,
+                                                 kept as that shop's own text; a rewrite of the
+                                                 design under the allowance's rewrite rule.
+
+**Text for the shop** (2026-10-27): each listing's title, tags and description can be edited
+for that shop only, in the same step (``texts``; "Keep as it is" is ``reset``); they are held
+to the same rules as every listing's text (Etsy's refusals and the trademark filter stop it,
+the app's quality rules are notes), and a listing whose text Etsy would refuse is not sent.
 
 The profile there is that shop's own (a profile whose main shop it is) or each listing's own
 profile through its link to that shop (its main shop's shipping, return and processing
@@ -39,10 +48,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session, get_storage
 from app.api.distribution import _contents, _why_not
 from app.api.shops import shop_label
-from app.core import audit
+from app.core import allowance, audit
 from app.db.models import (
     Asset,
     EtsyConnection,
@@ -56,9 +65,14 @@ from app.db.models import (
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops
 from app.pipeline import shop_listing, shop_targets, skus
-from app.pipeline.targets import resolve_target
+from app.pipeline.storage import Storage
+from app.pipeline.targets import check_text, resolve_target
 
 router = APIRouter(prefix="/api", tags=["another-shop"])
+
+#: Said before "Rewrite for this shop" runs (core/allowance.py).
+REWRITE_RULE = (f"Rewriting is a rewrite of the design: the first {allowance.FREE_REWRITES} of each design this "
+                "period are free, then each counts as one listing generated.")
 
 #: Words a listing's state in a shop is said in.
 STATE_WORDS = {shop_listing.NOT_SENT: "not sent", shop_listing.DRAFTED: "drafted",
@@ -95,6 +109,16 @@ class BatchShopsOut(BaseModel):
     listings: list[ListingShopOut]
 
 
+class ShopTextIn(BaseModel):
+    """One listing's text for the target shop: only the fields sent change; ``reset`` drops
+    its own text there ("Keep as it is": the listing's text goes)."""
+
+    title: str | None = Field(default=None, max_length=1000)
+    tags: list[str] | None = Field(default=None, max_length=40)
+    description: str | None = Field(default=None, max_length=100_000)
+    reset: bool = False
+
+
 class AnotherShopIn(BaseModel):
     connection_id: uuid.UUID
     #: These listings; omitted: every listing of the batch.
@@ -107,6 +131,9 @@ class AnotherShopIn(BaseModel):
     prefix_to: str = Field(default="", max_length=64)
     #: ``each``: listing id -> its SKU in that shop (a listing not here keeps its SKU).
     skus: dict[uuid.UUID, str] = Field(default_factory=dict)
+    #: Listing id -> its text for that shop (a listing not here: its own text there, if any,
+    #: else the listing's).
+    texts: dict[uuid.UUID, ShopTextIn] = Field(default_factory=dict)
 
 
 class ProfileChoice(BaseModel):
@@ -127,6 +154,17 @@ class AnotherShopRow(BaseModel):
     reason: str | None = None
     #: Said next to the SKU ("does not start with PCS: kept as it is").
     note: str | None = None
+    #: Its text as it goes to that shop, and whether any of it is that shop's own.
+    title: str = ""
+    tags: list[str] = Field(default_factory=list)
+    description: str = ""
+    own_text: bool = False
+    #: What Etsy would refuse (or the trademark filter stops): it is not sent until fixed.
+    errors: list[str] = Field(default_factory=list)
+    #: The app's quality notes: they never stop it.
+    warnings: list[str] = Field(default_factory=list)
+    #: Free rewrites of this design left this period ("Rewrite for this shop").
+    free_rewrites_left: int = 0
 
 
 class AnotherShopPreview(BaseModel):
@@ -139,10 +177,37 @@ class AnotherShopPreview(BaseModel):
     rows: list[AnotherShopRow]
     #: SKUs refused, one line each; while any is here nothing can be sent.
     refused: list[str]
+    #: Listings whose text Etsy would refuse (their rows say why).
+    text_problems: int = 0
+    #: Said before "Rewrite for this shop" (the allowance's rewrite rule).
+    rewrite_rule: str = REWRITE_RULE
     total: int
     sentence: str
     button: str
     disabled: str | None
+
+
+class RewriteIn(BaseModel):
+    connection_id: uuid.UUID
+    content_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    #: The profile whose style it is written in (that shop's); omitted: the one it goes there with.
+    profile_id: uuid.UUID | None = None
+
+
+class RewriteRow(BaseModel):
+    content_id: uuid.UUID
+    title: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    description: str | None = None
+    #: It counted as a listing generated (no free rewrite of the design was left).
+    counted: bool = False
+    #: Why it was not rewritten.
+    reason: str | None = None
+
+
+class RewriteOut(BaseModel):
+    rows: list[RewriteRow]
+    message: str
 
 
 class AnotherShopOut(BaseModel):
@@ -202,6 +267,24 @@ async def taken_in_shop(
     return out
 
 
+def _apply_text(content: GeneratedContent, shop_id: uuid.UUID, text: ShopTextIn | None) -> None:
+    """The text the dialog holds for this listing in that shop: a field equal to the
+    listing's own is not kept as the shop's (it follows the listing); ``reset`` drops what the
+    shop had of its own first."""
+    if text is None:
+        return
+    if text.reset:  # back to the listing's text, then whatever was typed after
+        shop_listing.set_override(content, shop_id, title=None, tags=None, description=None)
+    own = {"title": content.title or "", "tags": list(content.tags or []), "description": content.description or ""}
+    for name in shop_listing.TEXT_FIELDS:
+        value = getattr(text, name)
+        if value is None:
+            continue
+        if name == "tags":
+            value = [t.strip() for t in value if t and t.strip()]
+        shop_listing.set_override(content, shop_id, **{name: None if value == own[name] else value})
+
+
 async def _target_shop(session: AsyncSession, tenant: Tenant, shop_id: uuid.UUID) -> EtsyConnection:
     shop = next((s for s in await active_shops(session, tenant.id) if s.id == shop_id), None)
     if shop is None:
@@ -248,6 +331,9 @@ async def _work(
     going: list[tuple[GeneratedContent, str | None]] = []
     refused: list[str] = []
     given: dict[str, list[str]] = {}
+    text_problems = 0
+    chosen_profile = await session.get(ListingProfile, body.profile_id) if body.profile_id else None
+    period = await allowance.status(session, tenant)
     for content in contents:
         asset = assets.get(content.asset_id)
         key = (asset.group_key if asset else None) or ""
@@ -257,9 +343,15 @@ async def _work(
         row = AnotherShopRow(content_id=content.id, group_key=key, title=content.title or "", sku_from=current,
                              sku=current, state="new")
         rows.append(row)
+        row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
         if state != shop_listing.NOT_SENT:
             row.state, row.reason = "there", f"already in {shop_label(shop)} ({STATE_WORDS[state]}): left as it is"
             continue
+        _apply_text(content, shop.id, body.texts.get(content.id))
+        row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
+        row.own_text = bool(shop_listing.text_in(content, shop.id))
+        row.free_rewrites_left = await allowance.free_rewrites_left(
+            session, tenant, allowance.design_key(content.batch_id, key), period)
         why = await _why_not(session, content)
         if why:
             row.state, row.reason = "cannot", why
@@ -281,6 +373,15 @@ async def _work(
             shop_listing.set_override(content, shop.id,
                                       profile_id=None if body.profile_id == content.listing_profile_id else body.profile_id)
         shop_listing.set_override(content, shop.id, sku=sku if sku != (asset.parsed_sku if asset else None) else None)
+        # Its text in that shop, under the one rule set (its own there, else the listing's).
+        profile = chosen_profile or (await session.get(ListingProfile, shop_listing.profile_in(content, shop.id))
+                                     if shop_listing.profile_in(content, shop.id) else None) \
+            or (await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None)
+        check = await check_text(session, content, profile, row.title, row.tags, row.description)
+        row.errors, row.warnings = list(check.errors), list(check.warnings)
+        if row.errors:
+            text_problems += 1
+            continue
         target = await resolve_target(session, content, shop)
         from app.api.publish import auto_setup
 
@@ -297,6 +398,8 @@ async def _work(
     disabled = None
     if refused:
         disabled = f"Change the SKUs listed above first: each SKU can be used once in {name}."
+    elif text_problems:
+        disabled = f"Fix the text marked below first: Etsy would refuse {_plural(text_problems, 'listing')} as written."
     elif not rows:
         disabled = "No listings yet."
     elif total == 0:
@@ -304,7 +407,7 @@ async def _work(
                     else "Nothing can be sent yet: the list says why.")
     preview = AnotherShopPreview(
         shop_id=shop.id, shop_name=name, profiles=[ProfileChoice(id=p.id, name=p.name) for p in choices],
-        own_profiles=own_names, rows=rows, refused=refused, total=total,
+        own_profiles=own_names, rows=rows, refused=refused, total=total, text_problems=text_problems,
         sentence=f"{_plural(total, 'listing')} → {name}: {_plural(total, 'draft')}. Nothing changes in your other shops.",
         button=f"Create {_plural(total, 'draft')} in {name}", disabled=disabled,
     )
@@ -377,3 +480,102 @@ async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncS
     await session.commit()
     message = f"Creating {_plural(len(result.jobs), 'draft')} in {shop_label(shop)}. Nothing changed in your other shops."
     return AnotherShopOut(jobs=result.jobs, skipped=result.skipped, message=message)
+
+
+async def _write(
+    session: AsyncSession, tenant: Tenant, content: GeneratedContent, profile: ListingProfile, storage: Storage
+) -> tuple[str, list[str], str]:
+    """New title, tags and description for ``profile`` from the listing's cover: the writer
+    every listing is written with (its style, its prefix, the account's trademark filter),
+    one vision and one content call, metered; the description is the profile's own body under
+    the new opening (short style) or title (long style)."""
+    from app.compliance.trademarks import blocklist_for_tenant
+    from app.core import ai_meter
+    from app.core.config import get_settings
+    from app.pipeline.content import AnthropicContentGenerator, content_template_for, policy_for, search_style
+    from app.pipeline.llm import client_for
+    from app.pipeline.templates import load_template
+    from app.pipeline.reference import replace_title_block, with_opening
+    from app.pipeline.vision import AnthropicVisionAnalyzer
+
+    asset = await session.get(Asset, content.asset_id)
+    if asset is None or asset.files_removed_at is not None or not asset.processed_key:
+        raise ValueError("its image files were deleted after the retention period")
+    settings = get_settings()
+    generator = AnthropicContentGenerator(
+        client_for(settings, "content"), template=load_template(content_template_for(profile)),
+        policy=policy_for(profile.content_template), title_prefix=profile.title_prefix or "",
+        trademarks=blocklist_for_tenant(tenant), **search_style(profile))
+    analyzer = AnthropicVisionAnalyzer(client_for(settings, "vision"))
+    async with ai_meter.scope(tenant.id, session) as meter:
+        vision = await analyzer.analyze(storage.get(asset.processed_key), asset.mime_type or "image/jpeg")
+        result = await generator.generate(vision.analysis, asset.parsed_sku)
+        meter.listing_written()
+    body = str((profile.cached_payload or {}).get("description", ""))
+    listing = result.listing
+    description = with_opening(body, listing.opening) if listing.opening else replace_title_block(body, listing.title)
+    return listing.title, list(listing.tags), description
+
+
+@router.post("/batches/{batch_id}/another-shop/rewrite", response_model=RewriteOut)
+async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncSession = Depends(get_session),
+                           tenant: Tenant = Depends(active_tenant),
+                           storage: Storage = Depends(get_storage)) -> RewriteOut:
+    """"Rewrite for this shop": each listing written again in that shop's profile style and
+    kept as that shop's own text (the listing and every shop it is in stay as they are). A
+    rewrite of the design: free while the design has free rewrites left this period, else it
+    counts as a listing generated; refused (with the reset date) when none would fit."""
+    from app.core.llm_status import LLMUnavailable
+
+    batch = await _batch(session, tenant, batch_id)
+    shop = await _target_shop(session, tenant, body.connection_id)
+    if body.profile_id is not None and all(p.id != body.profile_id for p in await _shop_profiles(session, tenant, shop)):
+        raise HTTPException(status_code=404, detail="profile not found in that shop")
+    contents = await _contents(session, tenant, batch, body.content_ids)
+    assets = await _assets(session, contents)
+    states = await shop_listing.states(session, contents)
+    rows: list[RewriteRow] = []
+    for content in contents:
+        row = RewriteRow(content_id=content.id)
+        rows.append(row)
+        if shop_listing.sent(states[content.id], shop.id):
+            row.reason = f"already in {shop_label(shop)}: what is there is edited on Etsy"
+            continue
+        profile_id = body.profile_id or shop_listing.profile_in(content, shop.id) or content.listing_profile_id
+        profile = await session.get(ListingProfile, profile_id) if profile_id else None
+        if profile is None or profile.tenant_id != tenant.id or not profile.cached_payload:
+            row.reason = "its profile has no reference read yet: refresh the profile first"
+            continue
+        asset = assets.get(content.asset_id)
+        design = allowance.design_key(content.batch_id, (asset.group_key if asset else None) or "")
+        current = await allowance.status(session, tenant)
+        kind = await allowance.rewrite_kind(session, tenant, design, current)
+        if kind == allowance.GENERATION and current.remaining <= 0:
+            row.reason = current.message()
+            continue
+        try:
+            title, tags, description = await _write(session, tenant, content, profile, storage)
+        except LLMUnavailable:
+            await session.rollback()
+            row.reason = "writing is paused for a few minutes; try again shortly"
+            break
+        except ValueError as exc:
+            row.reason = str(exc)
+            continue
+        except Exception:  # noqa: BLE001 - the provider's words are never shown to sellers
+            row.reason = "it could not be rewritten this time; try again"
+            continue
+        if body.profile_id is not None:
+            shop_listing.set_override(content, shop.id,
+                                      profile_id=None if body.profile_id == content.listing_profile_id else body.profile_id)
+        shop_listing.set_override(content, shop.id, title=title, tags=tags, description=description)
+        allowance.record(session, tenant.id, kind, design=design)
+        await session.commit()
+        row.title, row.tags, row.description = title, tags, description
+        row.counted = kind == allowance.GENERATION
+    done = [r for r in rows if r.reason is None]
+    counted = sum(1 for r in done if r.counted)
+    message = (f"Rewrote {_plural(len(done), 'listing')} for {shop_label(shop)}"
+               + (f"; {counted} counted as {'a listing' if counted == 1 else 'listings'} generated" if counted else ", all free rewrites")
+               + "." + (f" {_plural(len(rows) - len(done), 'listing')} not rewritten: the list says why." if len(done) < len(rows) else ""))
+    return RewriteOut(rows=rows, message=message)

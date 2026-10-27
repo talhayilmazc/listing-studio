@@ -5,11 +5,13 @@ import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { previewSkus } from "@/lib/anotherShop";
 import type { AnotherShopPreview, AnotherShopRequest, SkuMode } from "@/lib/types";
+import { ShopTextStep, type TextEdit } from "./ShopTextStep";
 
 /**
  * "Publish in another shop" (backend api/another_shop.py): the batch's listings, already on
- * Etsy in one shop, as drafts in another shop with that shop's profile and its own SKUs.
- * Title, tags, description and photos go as they are; nothing changes in any other shop;
+ * Etsy in one shop, as drafts in another shop with that shop's profile and its own SKUs, and,
+ * if the seller wants, its own title, tags and description ("Text for <shop>", skippable).
+ * Photos go as they are; nothing changes in any other shop;
  * drafts do not count against the allowance. Going live there is the seller's own step
  * afterwards (Where and when, or Scheduled), as usual.
  */
@@ -36,6 +38,11 @@ export function AnotherShopDialog({
   const [to, setTo] = useState("");
   const [each, setEach] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<AnotherShopPreview | null>(null);
+  // "Text for <shop>": off (each listing's text goes as it is) until the seller opens it.
+  const [editText, setEditText] = useState(false);
+  const [edits, setEdits] = useState<Record<string, TextEdit>>({});
+  const [rewriting, setRewriting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -50,9 +57,39 @@ export function AnotherShopDialog({
       prefix_from: from,
       prefix_to: to,
       skus: mode === "each" ? each : {},
+      texts: editText ? edits : {},
     }),
-    [shopId, contentIds, profileId, mode, from, to, each],
+    [shopId, contentIds, profileId, mode, from, to, each, editText, edits],
   );
+
+  function onEdit(id: string, edit: TextEdit | null) {
+    setEdits((cur) => {
+      const next = { ...cur };
+      if (edit) next[id] = edit;
+      else delete next[id];
+      return next;
+    });
+  }
+
+  // "Rewrite for this shop": the server writes and keeps it as that shop's text; the editors follow.
+  async function rewrite(ids: string[]) {
+    setRewriting(true);
+    setNotice(null);
+    try {
+      const res = await api.anotherShopRewrite(batchId, { connection_id: shopId, content_ids: ids, profile_id: profileId || null });
+      setEdits((cur) => {
+        const next = { ...cur };
+        for (const r of res.rows) if (!r.reason && r.title) next[r.content_id] = { title: r.title, tags: r.tags, description: r.description ?? "" };
+        return next;
+      });
+      const why = res.rows.filter((r) => r.reason).map((r) => r.reason);
+      setNotice(res.message + (why.length ? ` ${[...new Set(why)].join("; ")}` : ""));
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setRewriting(false);
+    }
+  }
 
   // The server's answer (refused SKUs, what cannot go): asked again shortly after each change.
   useEffect(() => {
@@ -100,7 +137,7 @@ export function AnotherShopDialog({
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-slate-900">Publish in another shop</h2>
             <p className="text-xs text-slate-600">
-              <span>Drafts of these listings in another shop, with its profile and SKUs. Title, tags, description and photos go as they are; nothing changes in your other shops.</span>
+              <span>Drafts of these listings in another shop, with its profile, its SKUs and, if you like, its own text. Photos go as they are; nothing changes in your other shops.</span>
             </p>
           </div>
           <button type="button" className="btn-secondary h-11 w-11 shrink-0 p-0" aria-label="Close" onClick={onClose}>
@@ -168,6 +205,34 @@ export function AnotherShopDialog({
                 <span>with</span>
                 <input className="field w-28 font-mono" value={to} onChange={(e) => setTo(e.target.value)} aria-label="New prefix" placeholder="ILC" />
               </div>
+            )}
+          </fieldset>
+
+          <fieldset data-testid="shop-text-fieldset">
+            <legend className="label">Text for <span translate="no">{name}</span></legend>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              <label className="flex min-h-[2.75rem] items-center gap-2">
+                <input type="radio" name="text-mode" checked={!editText} onChange={() => setEditText(false)} />
+                <span>Keep each listing&apos;s text</span>
+              </label>
+              <label className="flex min-h-[2.75rem] items-center gap-2">
+                <input type="radio" name="text-mode" checked={editText} onChange={() => setEditText(true)} />
+                <span>Edit text for this shop</span>
+              </label>
+            </div>
+            {editText && preview && (
+              <ShopTextStep key="text-step"
+                rows={preview.rows}
+                edits={edits}
+                onEdit={onEdit}
+                shopName={name}
+                rewriteRule={preview.rewrite_rule}
+                onRewrite={rewrite}
+                busy={rewriting || busy}
+              />
+            )}
+            {notice && (
+              <p key="notice" role="status" className="mt-2 text-xs text-brand-800" translate="no">{notice}</p>
             )}
           </fieldset>
 

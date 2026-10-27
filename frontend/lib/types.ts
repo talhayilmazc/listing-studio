@@ -175,6 +175,8 @@ export interface Finding {
 }
 
 export interface Content {
+  /** Shop id -> this listing's own text there (a field not here follows the listing). */
+  shop_texts?: Record<string, { title?: string | null; tags?: string[] | null; description?: string | null }>;
   id: string;
   asset_id: string;
   /** The cover the title and tags were written from; differs from asset_id once the cover changed. */
@@ -2284,6 +2286,8 @@ export interface AnotherShopRequest {
   prefix_from?: string;
   prefix_to?: string;
   skus?: Record<string, string>;
+  /** Listing id -> its text for that shop; ``reset`` goes back to the listing's text. */
+  texts?: Record<string, { title?: string; tags?: string[]; description?: string; reset?: boolean }>;
 }
 
 export interface AnotherShopPreview {
@@ -2300,11 +2304,27 @@ export interface AnotherShopPreview {
     state: "new" | "there" | "cannot";
     reason: string | null;
     note: string | null;
+    /** Its text as it goes to that shop (``title`` above), and whether any of it is that shop's own. */
+    tags: string[];
+    description: string;
+    own_text: boolean;
+    /** What Etsy would refuse (it is not sent until fixed) and the app's notes (never a stop). */
+    errors: string[];
+    warnings: string[];
+    free_rewrites_left: number;
   }[];
   /** SKUs refused, one line each; while any is listed nothing can be sent. */
   refused: string[];
+  text_problems: number;
+  rewrite_rule: string;
   total: number;
   sentence: string;
   button: string;
   disabled: string | null;
+}
+
+/** "Rewrite for this shop" (backend api/another_shop.py). */
+export interface RewriteResult {
+  rows: { content_id: string; title: string | null; tags: string[]; description: string | null; counted: boolean; reason: string | null }[];
+  message: string;
 }

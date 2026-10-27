@@ -443,6 +443,7 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     profile_id=profile.id,
                     title=target.title,
                     description=target.description,
+                    tags=target.tags,
                     # "Finish draft": never a second listing for this design in this shop.
                     finishing=bool((job.payload or {}).get("finish")),
                 )

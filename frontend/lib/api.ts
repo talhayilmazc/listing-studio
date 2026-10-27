@@ -7,6 +7,7 @@ import type {
   AnotherShopPreview,
   AnotherShopRequest,
   BatchShops,
+  RewriteResult,
   PublishJob,
   PublishSkipped,
   FoundArea,
@@ -393,6 +394,9 @@ export const api = {
   /** "Publish in another shop": what it would do (nothing is kept). */
   anotherShopPreview: (id: string, body: AnotherShopRequest) =>
     req<AnotherShopPreview>(`/batches/${id}/another-shop/preview`, { method: "POST", body: JSON.stringify(body) }),
+  /** "Rewrite for this shop": kept as that shop's text; a rewrite of the design (allowance rule). */
+  anotherShopRewrite: (id: string, body: { connection_id: string; content_ids: string[]; profile_id?: string | null }) =>
+    req<RewriteResult>(`/batches/${id}/another-shop/rewrite`, { method: "POST", body: JSON.stringify(body) }),
   /** The same, done: drafts in that shop; nothing changes in the others. */
   anotherShop: (id: string, body: AnotherShopRequest) =>
     req<{ jobs: PublishJob[]; skipped: PublishSkipped[]; message: string }>(`/batches/${id}/another-shop`, {
@@ -469,6 +473,8 @@ export const api = {
     body: Partial<Pick<Content, "title" | "tags" | "description">> & {
       personalization?: Personalization | null;
       base?: Partial<Pick<Content, "title" | "tags" | "description">>;
+      /** A shop the listing is not in yet: the text sent is that shop's own. */
+      shop?: string | null;
     },
     opts: { keepalive?: boolean } = {},
   ) =>

@@ -68,6 +68,8 @@ class Target:
     #: The title is over 140 characters with this shop's prefix: the draft job rewrites it
     #: once for this shop (pipeline/title_fit.py), else stops and flags the card. Never cut.
     title_fit: bool = False
+    #: This shop's own tags (pipeline/shop_listing.py); None: the listing's.
+    tags: list[str] | None = None
 
     @property
     def ok(self) -> bool:
@@ -170,6 +172,22 @@ def retext(
     return title, description, fitted
 
 
+async def check_text(
+    session: AsyncSession, content: GeneratedContent, profile: ListingProfile | None, title: str, tags: list[str],
+    description: str, *, source: ListingProfile | None = None,
+) -> Any:
+    """A shop's own text under the one rule set every listing has (content.check_listing):
+    ``errors`` stop it (Etsy's own refusals, the account's trademark filter), ``warnings`` are
+    the app's quality notes."""
+    return check_listing(
+        GeneratedListing(title=title, tags=list(tags), description=description),
+        policy_for(profile.content_template) if profile is not None else None,
+        trademarks=await tenant_blocklist(session, content.tenant_id),
+        for_seller=True,
+        title_rules=_widest(bounds_for(source), bounds_for(profile)) if profile is not None else bounds_for(source),
+    )
+
+
 async def resolve_target(
     session: AsyncSession,
     content: GeneratedContent,
@@ -252,6 +270,14 @@ async def resolve_target(
     from app.pipeline import manual as _manual
     from app.pipeline.profile_shop_settings import shop_prefix
 
+    if shop_listing.text_in(content, connection.id):
+        # This shop's own title, tags or description (the rest the listing's): sent as they
+        # are, held to the same rules as every listing's text (Etsy's refusals, the trademark filter).
+        title, tags, description = shop_listing.text_for(content, connection.id)
+        check = await check_text(session, content, chosen, title, tags, description, source=source)
+        if check.errors:
+            return Target(connection, chosen, "this shop's text: " + "; ".join(check.errors), link=link, by_text=True)
+        return Target(connection, chosen, None, title, description, link=link, tags=tags)
     if per_shop is not None and (source is None or chosen.id != source.id):
         # This shop's own profile for a listing already written: its title, tags and
         # description go as they are; price, variations, shipping and the rest are this profile's.
@@ -317,6 +343,8 @@ async def resolve_cached(
 
     from app.pipeline import shop_listing
 
+    if shop_listing.text_in(content, connection.id):
+        return await resolve_target(session, content, connection)  # its own text there: worked out alone
     per_shop = shop_listing.profile_in(content, connection.id)
     if per_shop is not None:
         # Its own profile in this shop: the text goes as it is, so the profile and shop decide.

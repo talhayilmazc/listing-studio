@@ -29,7 +29,7 @@ import { ShopBadge } from "./ShopPicker";
 import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
-import { profileIn, profileLocked, skuIn } from "@/lib/anotherShop";
+import { profileIn, profileLocked, skuIn, textFor } from "@/lib/anotherShop";
 import type { BatchShops } from "@/lib/types";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { personalizationLine } from "@/lib/personalization";
@@ -60,7 +60,11 @@ export function ReviewCard({
   inView = null,
   shopData = null,
   onShopsChanged,
+  textShop = null,
 }: {
+  /** The shop picked in the menu when the listing is not in it yet: the text typed here is
+   *  that shop's own (the page remounts the card when this changes). */
+  textShop?: { id: string; name: string } | null;
   /** The shop picked in the menu (several shops); null: every shop is shown. */
   inView?: { id: string; name: string } | null;
   /** Where each listing of the batch stands per shop, its SKU and profile there. */
@@ -96,9 +100,11 @@ export function ReviewCard({
   const { timeZone } = useSession();
   const MIN_TITLE = initial.title_min_length ?? DEFAULT_MIN_TITLE;
   const MAX_TITLE = initial.title_max_length ?? DEFAULT_MAX_TITLE;
-  const [title, setTitle] = useState(initial.title ?? "");
-  const [tags, setTags] = useState<string[]>(initial.tags ?? []);
-  const [description, setDescription] = useState(initial.description ?? "");
+  // The text as it goes to the shop being edited (its own there, else the listing's).
+  const start = textFor(initial, textShop?.id ?? null);
+  const [title, setTitle] = useState(start.title);
+  const [tags, setTags] = useState<string[]>(start.tags);
+  const [description, setDescription] = useState(start.description);
   // A listing the seller writes themselves: no AI wrote it and none is called here.
   const manual = initial.source === "manual";
   const [starting, setStarting] = useState(false);
@@ -209,7 +215,7 @@ export function ReviewCard({
   // each with what the server had: another tab's edit is never overwritten.
   const textRef = useRef<CardText>({ title, tags, description });
   textRef.current = { title, tags, description };
-  const savedRef = useRef<CardText>({ title: initial.title ?? "", tags: initial.tags ?? [], description: initial.description ?? "" });
+  const savedRef = useRef<CardText>({ title: start.title, tags: start.tags, description: start.description });
   const inFlight = useRef<Promise<boolean> | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
 
@@ -225,7 +231,7 @@ export function ReviewCard({
       setSaving(true);
       setMessage(null);
       try {
-        const body = opts.keepMine ? { ...patch, base: undefined } : patch;
+        const body = { ...(opts.keepMine ? { ...patch, base: undefined } : patch), ...(textShop ? { shop: textShop.id } : {}) };
         const res = await api.updateContent(initial.id, body, { keepalive: opts.keepalive });
         const server = { title: res.content.title ?? "", tags: res.content.tags ?? [], description: res.content.description ?? "" };
         savedRef.current = server;
@@ -285,7 +291,7 @@ export function ReviewCard({
   // "Use the saved one": the text another tab saved (an empty save returns it, changing nothing).
   async function useSaved() {
     try {
-      const res = await api.updateContent(initial.id, {});
+      const res = await api.updateContent(initial.id, textShop ? { shop: textShop.id } : {});
       const server = { title: res.content.title ?? "", tags: res.content.tags ?? [], description: res.content.description ?? "" };
       savedRef.current = server;
       textRef.current = server;
@@ -540,6 +546,28 @@ export function ReviewCard({
         {/* Editable fields */}
         <div className="flex flex-col">
           <div className="space-y-5 p-5">
+            {Object.keys(shopNames ?? {}).length > 1 && (
+              // Whose text this is: the shop picked in the menu (not in it yet), or the listing's.
+              <p key="text-for" className={"rounded-md border px-3 py-2 text-xs " + (textShop ? "border-brand-200 bg-brand-50 text-brand-900" : "border-slate-200 bg-slate-50 text-slate-700")}
+                data-testid="card-text-for">
+                {textShop ? (
+                  <span key="shop">
+                    <span className="font-medium">Editing text for </span>
+                    <span className="font-medium" translate="no">{textShop.name}</span>
+                    <span>. The listing&apos;s own text, and the shops it is already in, stay as they are.</span>
+                  </span>
+                ) : inView ? (
+                  <span key="in">
+                    <span>Already in </span><span translate="no">{inView.name}</span>
+                    <span>: its text there is edited on Etsy. Text edited here is the listing&apos;s, for shops it is not in yet.</span>
+                  </span>
+                ) : (
+                  <span key="all">
+                    <span>Editing the listing&apos;s text: it goes to every shop without text of its own. Shops it is already in are not changed. Pick a shop in the menu to edit its text only.</span>
+                  </span>
+                )}
+              </p>
+            )}
             {needs && needs.length > 0 && !approved && !valid && (
               // "Approve all" skipped it: said here, on the card, once.
               <p key="needs" role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" data-testid="card-needs">

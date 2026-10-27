@@ -464,6 +464,10 @@ test.describe("signed in", () => {
     await dialog.getByLabel("New prefix").fill("JPC");
     await expect(dialog.getByTestId("another-shop-sku").first()).toHaveText(/^JPC\d+$/, { timeout: 15_000 });
     await expectSound(page, "/batches/<published batch> with Publish in another shop open");
+    // Its text step: every listing's title, tags and description for that shop, editable.
+    await dialog.getByText("Edit text for this shop", { exact: true }).click();
+    await expect(dialog.getByTestId("shop-text-row").first()).toBeVisible({ timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> with the text step open");
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
   });
