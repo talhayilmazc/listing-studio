@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type {
   ApproveAllResult,
+  BatchShops,
   Content,
   Pause,
   Personalization,
@@ -70,7 +71,13 @@ export default function ReviewPage() {
   // Where and when (B4): the batch's listings go to the groups and shops chosen in the panel
   // at the top; every approved listing to every one of their shops, each shop once. The
   // profile is not chosen here: it is the listing's own in every shop.
-  const { shops } = useShops();
+  const { shops, scope } = useShops();
+  // The shop picked in the menu: a card's profile and SKU are that shop's (several shops only).
+  const inView = (shops?.length ?? 0) > 1 && scope ? { id: scope.id, name: scope.name } : null;
+  const [shopData, setShopData] = useState<BatchShops | null>(null);
+  const loadShops = useCallback(() => {
+    api.batchShops(id).then(setShopData).catch(() => setShopData(null));
+  }, [id]);
   const [sendState, setSendState] = useState<SendState | null>(null);
   const [preview, setPreview] = useState<SendPreview | null>(null);
   const [sendTick, setSendTick] = useState(0);
@@ -92,8 +99,9 @@ export default function ReviewPage() {
   async function changeProfile(groupKey: string | null, profileId: string | null) {
     setError(null);
     try {
-      await api.assignGroup(id, { group_keys: [groupKey ?? ""], profile_id: profileId });
+      await api.assignGroup(id, { group_keys: [groupKey ?? ""], profile_id: profileId, for_shop: inView?.id ?? null });
       load();
+      loadShops();
     } catch (e: any) {
       setError(e.message ?? String(e));
     }
@@ -118,6 +126,9 @@ export default function ReviewPage() {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    loadShops();
+  }, [loadShops, items]);
 
   // The batch's name, for the header (it is what the seller searches by).
   const [batchName, setBatchName] = useState<string | null>(null);
@@ -560,6 +571,9 @@ export default function ReviewPage() {
               needs={needs[c.id]}
               profiles={profiles}
               onProfile={(profileId) => changeProfile(c.group_key ?? null, profileId)}
+              inView={inView}
+              shopData={shopData}
+              onShopsChanged={loadShops}
               destination={rowOf[c.id] && sendState && sendState.shops.length > 1 ? (
                 <span translate="no">
                   <span>{`→ ${rowOf[c.id].label} · `}</span>

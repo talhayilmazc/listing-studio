@@ -1218,6 +1218,10 @@ class GeneratedContent(Base):
     #: This listing's own destination, {"group_ids": [...], "connection_ids": [...]}
     #: ("→ GROUP 1 · change"). None: its batch's (pipeline/shop_targets.py).
     send_to: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: Its own profile and SKU in one shop, {connection id: {"profile_id", "sku"}}
+    #: ("Publish in another shop"); a shop or field not here follows the listing
+    #: (pipeline/shop_listing.py).
+    shop_overrides: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

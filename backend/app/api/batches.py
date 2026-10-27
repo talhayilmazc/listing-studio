@@ -45,7 +45,7 @@ from app.etsy.refresh import request_refresh
 from app.etsy.scheduling import record_cancel
 from app.etsy.shops import active_shops, owned_shop
 from app.compliance.scanner import rescan
-from app.pipeline import approval, chart_order, grouping, manual, profile_shops, thumbs, upload_retention
+from app.pipeline import approval, chart_order, grouping, manual, profile_shops, shop_listing, thumbs, upload_retention
 from app.pipeline.targets import retext
 from app.pipeline.archive import read_archive
 from app.pipeline.batch_names import clean_name, names_for
@@ -760,9 +760,14 @@ async def _own_profile(session: AsyncSession, tenant: Tenant, profile_id: uuid.U
     return profile
 
 
+#: Said where a listing already sent to a shop is asked to change its profile there.
+ANOTHER_SHOP = "To send these listings to another shop with that shop's profile and SKUs, use \"Publish in another shop\"."
+
+
 async def _follow_profile(
-    session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, keys: list[str], profile: ListingProfile
-) -> None:
+    session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, keys: list[str], profile: ListingProfile,
+    for_shop: uuid.UUID | None = None,
+) -> set[str]:
     """The written listings of ``keys`` take ``profile``: the profile shown on a
     group is the one its drafts are built with (it used to change on the card
     only, while the draft kept the profile the listing was written with).
@@ -771,29 +776,50 @@ async def _follow_profile(
     the new profile's reference description under the listing's own title or
     opening; the title's own words and the tags stay. No AI is called and nothing
     counts as generated. The listing must be approved again, since what will be
-    sent changed. A listing that already has a draft or a live listing on Etsy is
+    sent changed. A listing that already has a draft, a schedule or a live listing is
     refused: that one was built with its profile.
+
+    ``for_shop`` (the shop shown on the batch page): a listing already sent to another
+    shop takes ``profile`` in this shop only (pipeline/shop_listing.py; its text and
+    approval stay, nothing elsewhere changes); one already sent to this shop is refused.
+    Returns the groups changed for that shop only (their group keeps its profile).
     """
     if not keys:
-        return
+        return set()
     rows = (await session.execute(
         select(GeneratedContent, Asset)
         .join(Asset, Asset.id == GeneratedContent.asset_id)
         .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
     )).all()
-    moving = [(c, a) for c, a in rows if (a.group_key or "") in keys and c.listing_profile_id != profile.id]
+    mine = [(c, a) for c, a in rows if (a.group_key or "") in keys]
+    states = await shop_listing.states(session, [c for c, _ in mine])
+    per_shop: set[str] = set()
+    if for_shop is not None:
+        here = [(c, a) for c, a in mine if shop_listing.sent(states[c.id], for_shop)
+                and (shop_listing.profile_in(c, for_shop) or c.listing_profile_id) != profile.id]
+        if here:
+            names = ", ".join(sorted({(a.group_key or a.original_filename) for _, a in here}))
+            raise HTTPException(status_code=409, detail=(
+                f"{names}: already sent to this shop, built with the profile it has; what is on Etsy is edited on Etsy. "
+                + ANOTHER_SHOP))
+        for content, asset in mine:
+            if shop_listing.sent(states[content.id]):
+                # On Etsy in another shop: this shop only.
+                shop_listing.set_override(content, for_shop,
+                                          profile_id=None if profile.id == content.listing_profile_id else profile.id)
+                per_shop.add(asset.group_key or "")
+        mine = [(c, a) for c, a in mine if (a.group_key or "") not in per_shop]
+    moving = [(c, a) for c, a in mine if c.listing_profile_id != profile.id]
     if not moving:
-        return
-    on_etsy = set((await session.execute(
-        select(ListingPublication.content_id).where(ListingPublication.content_id.in_([c.id for c, _ in moving]))
-    )).scalars())
+        return per_shop
+    on_etsy = [(c, a) for c, a in moving if shop_listing.sent(states[c.id])]
     if on_etsy:
-        names = ", ".join(sorted({(a.group_key or a.original_filename) for c, a in moving if c.id in on_etsy}))
+        names = ", ".join(sorted({(a.group_key or a.original_filename) for _, a in on_etsy}))
         raise HTTPException(
             status_code=409,
             detail=(
                 f"{names}: already on Etsy, built with the profile it has. Its profile cannot be changed here any more; "
-                "what is on Etsy is edited on Etsy."
+                "what is on Etsy is edited on Etsy. " + ANOTHER_SHOP
             ),
         )
     for content, _ in moving:
@@ -806,6 +832,7 @@ async def _follow_profile(
         content.taxonomy_id = (profile.cached_payload or {}).get("taxonomy_id")
         approval.set_approved(content, False)  # what would be sent changed: the seller approves it again
         await rescan(session, content)
+    return per_shop
 
 
 @router.put("/batches/{batch_id}/shop", response_model=list[schemas.GroupOut])
@@ -889,17 +916,25 @@ async def assign_group_profile(
             setting.connection_id = batch.connection_id
         return setting
 
+    for_shop = None
+    if body.for_shop is not None:
+        if await owned_shop(session, tenant.id, body.for_shop) is None:
+            raise HTTPException(status_code=404, detail="shop not found")
+        for_shop = body.for_shop
+    shop_only: set[str] = set()
     if "profile_id" in sent and body.profile_id is not None and explicit:
         # A listing that is already written follows the profile chosen for its
-        # group; one that is on Etsy was built with its profile and keeps it.
-        await _follow_profile(
-            session, tenant, batch_id, [k for k in keys if k in written], await _own_profile(session, tenant, body.profile_id)
+        # group; one that is on Etsy was built with its profile and keeps it (in
+        # another shop shown on the page, it takes the profile there only).
+        shop_only = await _follow_profile(
+            session, tenant, batch_id, [k for k in keys if k in written], await _own_profile(session, tenant, body.profile_id),
+            for_shop=for_shop,
         )
     for key in keys:
         setting = setting_for(key)
         if "connection_id" in sent and body.connection_id is not None:
             await _move_to_shop(session, setting, body.connection_id)
-        if "profile_id" in sent:
+        if "profile_id" in sent and key not in shop_only:  # changed for one shop only: the group's stays
             if body.profile_id is not None:
                 profile = await _own_profile(session, tenant, body.profile_id)
                 # A group with no shop yet takes the profile's main shop.

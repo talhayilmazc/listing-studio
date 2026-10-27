@@ -2197,6 +2197,8 @@ export interface SectionCreateResult {
 export interface SkuResult {
   group_key: string;
   sku: string;
+  /** The shop this SKU is for only (its own there); null: the listing's, every shop without its own. */
+  connection_id?: string | null;
   /** Another listing in the same shop has it: a warning, never a refusal. */
   warnings: string[];
   /** Drafts on Etsy with the old SKU; nothing is sent until "Update SKU on Etsy". */
@@ -2244,3 +2246,65 @@ export interface UnfinishedDraft {
 
 export type UnfinishedCategory = "finish" | "fix_personalization" | "fix_shop" | "replaced" | "batch_deleted";
 export type UnfinishedSection = "finish" | "fix" | "delete";
+
+/** Where a listing stands in one shop (backend pipeline/shop_listing.py). */
+export type ShopState = "not_sent" | "drafted" | "scheduled" | "published";
+
+/** A batch's listings in each shop (backend api/another_shop.py). */
+export interface BatchShops {
+  shops: {
+    shop_id: string;
+    name: string;
+    total: number;
+    not_sent: number;
+    drafted: number;
+    scheduled: number;
+    published: number;
+  }[];
+  listings: {
+    content_id: string;
+    group_key: string;
+    /** Shop id -> its state there (a shop not listed: not sent). */
+    states: Record<string, ShopState>;
+    /** Shop id -> the SKU it carries there. */
+    skus: Record<string, string | null>;
+    /** Shop id -> the profile chosen for it in that shop only. */
+    profiles: Record<string, string>;
+  }[];
+}
+
+export type SkuMode = "keep" | "prefix" | "each";
+
+export interface AnotherShopRequest {
+  connection_id: string;
+  content_ids?: string[] | null;
+  /** A profile of that shop; null: each listing's own profile there. */
+  profile_id?: string | null;
+  sku_mode: SkuMode;
+  prefix_from?: string;
+  prefix_to?: string;
+  skus?: Record<string, string>;
+}
+
+export interface AnotherShopPreview {
+  shop_id: string;
+  shop_name: string;
+  profiles: { id: string; name: string }[];
+  own_profiles: string[];
+  rows: {
+    content_id: string;
+    group_key: string;
+    title: string;
+    sku_from: string | null;
+    sku: string | null;
+    state: "new" | "there" | "cannot";
+    reason: string | null;
+    note: string | null;
+  }[];
+  /** SKUs refused, one line each; while any is listed nothing can be sent. */
+  refused: string[];
+  total: number;
+  sentence: string;
+  button: string;
+  disabled: string | null;
+}

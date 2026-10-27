@@ -224,6 +224,9 @@ class GroupAssign(BaseModel):
     connection_id: uuid.UUID | None = None
     profile_id: uuid.UUID | None = None
     size_chart_profile_id: uuid.UUID | None = None
+    #: The shop shown on the batch page: a listing already on Etsy in another shop takes
+    #: the profile in this shop only; one already sent here is refused (409).
+    for_shop: uuid.UUID | None = None
 
 
 class PatternAssign(BaseModel):
@@ -1412,10 +1415,13 @@ class SectionCreateOut(BaseModel):
 class GroupSku(BaseModel):
     group_key: str = Field(max_length=500)
     sku: str = Field(max_length=200)
+    #: The shop shown: its SKU there only, once the listing is on Etsy in another shop.
+    connection_id: uuid.UUID | None = None
 
 
 class ListingSku(BaseModel):
     sku: str = Field(max_length=200)
+    connection_id: uuid.UUID | None = None
 
 
 class EtsySkuUpdate(BaseModel):
@@ -1432,6 +1438,9 @@ class EtsySkuUpdate(BaseModel):
 class SkuResult(BaseModel):
     group_key: str
     sku: str
+    #: The shop this SKU is for only (its own SKU there); None: the listing's, every shop
+    #: without its own.
+    connection_id: uuid.UUID | None = None
     #: Another listing in the same shop has it: a warning, never a refusal.
     warnings: list[str] = Field(default_factory=list)
     #: Drafts on Etsy with the old SKU; nothing is sent until "Update SKU on Etsy".

@@ -444,6 +444,30 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<batch> after arranging");
   });
 
+  test("a batch published in one shop: each shop's status, the profile that stays, Publish in another shop", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const link = page.locator('a[href^="/batches/"]', { hasText: "Published in Northwind" }).first();
+    test.skip((await link.count()) === 0, "no published demo batch: seed-demo again");
+    await page.goto((await link.getAttribute("href"))!.replace(/\/review$/, ""));
+    await settle(page);
+    const status = page.getByTestId("batch-shop-status");
+    test.skip((await status.count()) === 0, "one shop: nothing to send elsewhere");
+    await expect(status).toContainText("published");
+    await expect(page.getByTestId("batch-actions-shop")).toBeVisible();
+    await expectSound(page, "/batches/<published batch>");
+    await page.getByTestId("another-shop-open").click();
+    const dialog = page.getByTestId("another-shop-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByText("Replace a prefix", { exact: true }).click();
+    await dialog.getByLabel("Prefix to replace").fill("NWT");
+    await dialog.getByLabel("New prefix").fill("JPC");
+    await expect(dialog.getByTestId("another-shop-sku").first()).toHaveText(/^JPC\d+$/, { timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> with Publish in another shop open");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+
   test("a profile's Shops table opens wide, one row per shop, and closes", async ({ page }) => {
     await page.goto("/profiles");
     await settle(page);

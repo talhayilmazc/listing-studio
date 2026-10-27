@@ -8,8 +8,12 @@ import { SKU_MAX, skuProblem } from "@/lib/skus";
 /**
  * A listing's SKU, prefilled from the file or folder name. Checked against Etsy's
  * rules as it is typed; another listing in the same shop with it is a warning.
- * Once drafts exist on Etsy, a changed SKU shows "Update SKU on Etsy" with its
- * request cost per shop; nothing is sent until the seller presses it.
+ * Once drafts exist on Etsy, a changed SKU shows "Update SKU on Etsy", naming the shop it
+ * changes; nothing is sent until the seller presses it.
+ *
+ * A SKU belongs to a listing in a shop: with a shop picked in the menu (``shopId``), the SKU
+ * shown and saved is that shop's (once the listing is on Etsy in another shop, its SKU there
+ * only), and only that shop's draft is offered for updating.
  */
 export function SkuEditor({
   value,
@@ -17,6 +21,8 @@ export function SkuEditor({
   contentId,
   compact = false,
   onSaved,
+  shopId = null,
+  shopName = null,
 }: {
   value: string | null;
   /** Saves the SKU (group card or review card endpoint). */
@@ -25,6 +31,9 @@ export function SkuEditor({
   contentId?: string | null;
   compact?: boolean;
   onSaved?: (result: SkuResult) => void;
+  /** The shop picked in the menu; null: every shop is shown. */
+  shopId?: string | null;
+  shopName?: string | null;
 }) {
   const [sku, setSku] = useState(value ?? "");
   const [editing, setEditing] = useState(false);
@@ -44,13 +53,13 @@ export function SkuEditor({
     if (!contentId) return;
     let live = true;
     api
-      .updateSkuOnEtsy(contentId, false)
+      .updateSkuOnEtsy(contentId, false, shopId ? [shopId] : [])
       .then((res) => live && setDrafts(res.shops))
       .catch(() => live && setDrafts([]));
     return () => {
       live = false;
     };
-  }, [contentId, value]);
+  }, [contentId, value, shopId]);
   const problem = skuProblem(sku);
 
   async function submit() {
@@ -76,7 +85,7 @@ export function SkuEditor({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.updateSkuOnEtsy(contentId, true);
+      const res = await api.updateSkuOnEtsy(contentId, true, etsy.map((s) => s.connection_id));
       setAsking(false);
       setSent(
         res.queued
@@ -90,7 +99,8 @@ export function SkuEditor({
     }
   }
 
-  const etsy = drafts;
+  const etsy = shopId ? drafts.filter((d) => d.connection_id === shopId) : drafts;
+  const where = etsy.map((s) => s.shop_name ?? "a shop").join(", ");
   return (
     <div className={compact ? "inline-flex flex-wrap items-center gap-2" : "space-y-1.5"} data-testid="sku-editor">
       {editing ? (
@@ -126,6 +136,7 @@ export function SkuEditor({
       ) : (
         <span key="view" className="inline-flex items-center gap-2 text-xs text-slate-600">
           <span className="font-mono" translate="no">{value ? `SKU ${value}` : "no SKU"}</span>
+          {shopName && <span key="in" className="text-slate-500" translate="no">{`in ${shopName}`}</span>}
           <button type="button" className="tap text-brand-700 underline" onClick={() => setEditing(true)} disabled={busy}>
             Edit SKU
           </button>
@@ -146,13 +157,14 @@ export function SkuEditor({
             <span>.</span>
           </p>
           {!asking ? (
-            <button key="ask" type="button" className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={() => setAsking(true)} disabled={busy}>
-              <span>Update SKU on Etsy</span>
+            <button key="ask" type="button" className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={() => setAsking(true)} disabled={busy}
+              data-testid="sku-update-on-etsy">
+              <span translate="no">{`Update SKU on Etsy in ${where}`}</span>
             </button>
           ) : (
             <div key="confirm" role="alertdialog" aria-label="Update SKU on Etsy" className="mt-2 space-y-2">
               <p>
-                <span>Only the SKU on each draft&apos;s inventory changes; prices, quantities and variations stay.</span>
+                <span translate="no">{`Only the SKU changes, in ${where}; prices, quantities and variations stay.`}</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn-primary px-3 py-1.5 text-xs" onClick={updateOnEtsy} disabled={busy}>

@@ -179,9 +179,18 @@ async def resolve_target(
 ) -> Target:
     """Which profile builds this content's draft in ``connection``'s shop, and its text.
 
-    The content's own profile, or ``profile_id`` when the seller chose another.
-    Either must be one of the account's confirmed profiles, set up in this shop.
+    The content's own profile, or ``profile_id`` when the seller chose another, else the
+    profile chosen for this listing in this shop only ("Publish in another shop",
+    pipeline/shop_listing.py; its title, tags and description go as they are). Either must
+    be one of the account's confirmed profiles, set up in this shop.
     """
+    from app.pipeline import shop_listing
+
+    per_shop = shop_listing.profile_in(content, connection.id)
+    if profile_id is None:
+        profile_id = per_shop
+    elif profile_id != per_shop:
+        per_shop = None  # another profile asked for by the caller: built as before
     source = (
         await session.get(ListingProfile, content.listing_profile_id)
         if content.listing_profile_id
@@ -243,6 +252,10 @@ async def resolve_target(
     from app.pipeline import manual as _manual
     from app.pipeline.profile_shop_settings import shop_prefix
 
+    if per_shop is not None and (source is None or chosen.id != source.id):
+        # This shop's own profile for a listing already written: its title, tags and
+        # description go as they are; price, variations, shipping and the rest are this profile's.
+        return Target(connection, chosen, None, content.title or "", content.description or "", link=link)
     # The prefix this profile's titles carry in this shop (B7; the profile's own unless set).
     shop_px = shop_prefix(chosen, connection.id)
     if source is not None and chosen.id == source.id and (
@@ -291,7 +304,7 @@ async def resolve_target(
 
 
 async def resolve_cached(
-    session: AsyncSession, content: GeneratedContent, connection: EtsyConnection, cache: dict[Any, Target]
+    session: AsyncSession, content: GeneratedContent, connection: EtsyConnection, cache: dict[Any, Any]
 ) -> Target:
     """:func:`resolve_target` for many listings at once (B11: 500 listings x 15 shops). A listing
     built with its own profile whose title prefix is the same in this shop gets the same answer
@@ -302,6 +315,15 @@ async def resolve_cached(
     from app.pipeline import manual as _manual
     from app.pipeline.profile_shop_settings import shop_prefix
 
+    from app.pipeline import shop_listing
+
+    per_shop = shop_listing.profile_in(content, connection.id)
+    if per_shop is not None:
+        # Its own profile in this shop: the text goes as it is, so the profile and shop decide.
+        key = ("shop", per_shop, connection.id)
+        if key not in cache:
+            cache[key] = await resolve_target(session, content, connection)
+        return cache[key]
     profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
     key = None
     if profile is not None and profile.tenant_id == connection.tenant_id and profile.confirmed and (

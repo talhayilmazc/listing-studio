@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ScheduleControl } from "./ScheduleControl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -28,6 +29,8 @@ import { ShopBadge } from "./ShopPicker";
 import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
+import { profileIn, profileLocked, skuIn } from "@/lib/anotherShop";
+import type { BatchShops } from "@/lib/types";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { personalizationLine } from "@/lib/personalization";
 import { PersonalizationFix } from "@/components/PersonalizationFix";
@@ -54,7 +57,16 @@ export function ReviewCard({
   profiles,
   onProfile,
   destination,
+  inView = null,
+  shopData = null,
+  onShopsChanged,
 }: {
+  /** The shop picked in the menu (several shops); null: every shop is shown. */
+  inView?: { id: string; name: string } | null;
+  /** Where each listing of the batch stands per shop, its SKU and profile there. */
+  shopData?: BatchShops | null;
+  /** A per-shop SKU or profile was saved: the page reads the shops again. */
+  onShopsChanged?: () => void;
   /** The account's profiles: the card changes its listing's profile in place (B4). */
   profiles?: Profile[];
   onProfile?: (profileId: string | null) => void;
@@ -486,25 +498,41 @@ export function ReviewCard({
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
           </dl>
           <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-600" data-testid="card-profile">
-            <span className="mb-1 block">Profile</span>
+            <span className="mb-1 block">
+              <span>{inView ? "Profile in " : "Profile"}</span>
+              {inView && <span key="shop" translate="no">{inView.name}</span>}
+            </span>
             {profiles && onProfile ? (
-              // Changing it here changes the listing's group, as on the batch page (no AI call).
-              <ProfilePicker key="picker" profiles={profiles} shopId={null} value={initial.profile_id ?? null}
+              // Changing it here changes the listing's group, as on the batch page (no AI call); on
+              // Etsy in another shop, the profile in the shop shown only.
+              <ProfilePicker key="picker" profiles={profiles} shopId={null}
+                value={profileIn(shopData, initial.id, inView?.id ?? null) ?? initial.profile_id ?? null}
                 onChange={onProfile} emptyLabel="Choose a profile…" label="Profile" size="xs"
-                disabled={bulkRunning || publications.length > 0} />
+                disabled={bulkRunning || profileLocked(shopData, initial.id, inView?.id ?? null) || (!shopData && publications.length > 0)} />
             ) : (
               <span key="name" className="font-medium text-slate-800" translate="no">{initial.profile_name ?? "none chosen"}</span>
             )}
-            <span className="mt-0.5 block text-slate-400">
-              Price, variations, shipping, returns, size charts and the description come from it, in every shop.
-            </span>
+            {profileLocked(shopData, initial.id, inView?.id ?? null) && batchId && Object.keys(shopNames ?? {}).length > 1 ? (
+              <span key="locked" className="mt-0.5 block text-slate-600" data-testid="card-profile-locked">
+                <span>Already on Etsy here, built with this profile. </span>
+                <Link href={`/batches/${batchId}?another=${initial.id}`} className="tap text-brand-700 underline">
+                  Publish in another shop
+                </Link>
+              </span>
+            ) : (
+              <span key="from" className="mt-0.5 block text-slate-400">
+                Price, variations, shipping, returns, size charts and the description come from it.
+              </span>
+            )}
           </p>
           <div className="border-t border-slate-200 px-4 py-3">
             <SkuEditor
-              value={sku}
+              value={skuIn(shopData, initial.id, inView?.id ?? null, sku)}
               contentId={initial.id}
-              save={(next) => api.setListingSku(initial.id, next)}
-              onSaved={(res) => setSku(res.sku)}
+              shopId={inView?.id ?? null}
+              shopName={inView?.name ?? null}
+              save={(next) => api.setListingSku(initial.id, next, inView?.id ?? null)}
+              onSaved={(res) => (res.connection_id ? onShopsChanged?.() : setSku(res.sku))}
             />
           </div>
         </div>

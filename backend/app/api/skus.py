@@ -10,6 +10,10 @@ the review card, prefilled from the file or folder name.
   the SKU on the inventory there (workers/skus.py).
 * Every change is audited (``listing.sku_changed``); a change on Etsy also starts
   a new content version carrying the SKU.
+* A SKU belongs to a listing in a shop: saved while a shop is shown on the page
+  (``connection_id``), once the listing is on Etsy in another shop, it is that shop's
+  SKU only (pipeline/shop_listing.py) and "Update SKU on Etsy" offers that shop's draft
+  only, by name. Its drafts elsewhere keep theirs.
 
 Everything is per account: another account's batch, listing or shop is 404.
 """
@@ -35,8 +39,8 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
-from app.etsy.shops import active_shops
-from app.pipeline import grouping, skus
+from app.etsy.shops import active_shops, owned_shop
+from app.pipeline import grouping, shop_listing, skus
 from app.pipeline.group_state import group_states
 
 router = APIRouter(prefix="/api", tags=["skus"])
@@ -142,16 +146,26 @@ async def duplicate_warnings(
     return found
 
 
-async def _result(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, key: str, sku: str) -> schemas.SkuResult:
-    members = await _group(session, tenant, batch_id, key)
-    contents = list((await session.execute(
+async def _contents_of(session: AsyncSession, members: list[Asset]) -> list[GeneratedContent]:
+    return list((await session.execute(
         select(GeneratedContent).where(GeneratedContent.asset_id.in_([a.id for a in members]))
     )).scalars()) if members else []
+
+
+async def _result(
+    session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, key: str, sku: str, shop: uuid.UUID | None = None
+) -> schemas.SkuResult:
+    """The SKU saved, its warnings, and the drafts on Etsy carrying another SKU than the one
+    they should have in their shop (``shop``: that shop only)."""
+    members = await _group(session, tenant, batch_id, key)
+    contents = await _contents_of(session, members)
+    base = next((a.parsed_sku for a in members if a.parsed_sku), None)
     pubs = list((await session.execute(
         select(ListingPublication).where(
             ListingPublication.content_id.in_([c.id for c in contents]), ListingPublication.state != "deleted_on_etsy",
         )
     )).scalars()) if contents else []
+    by_id = {c.id: c for c in contents}
     shops = {c.id: c for c in await active_shops(session, tenant.id)}
     etsy = [
         schemas.EtsySkuUpdate(
@@ -159,13 +173,51 @@ async def _result(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, ke
             current_sku=p.sku, requests=REQUESTS_PER_SHOP,
         )
         for p in pubs
-        if p.connection_id in shops and (p.sku or "") != sku
+        if p.connection_id in shops and (shop is None or p.connection_id == shop)
+        and (p.sku or "") != (shop_listing.sku_in(by_id[p.content_id], base, p.connection_id) or "")
     ]
+    targets = [shop] if shop is not None else await _targets(session, tenant, batch_id, key)
     warnings = await duplicate_warnings(
-        session, tenant, sku, await _targets(session, tenant, batch_id, key), batch_id=batch_id, key=key,
+        session, tenant, sku, targets, batch_id=batch_id, key=key,
         own_listings={int(p.etsy_listing_id) for p in pubs},
     )
-    return schemas.SkuResult(group_key=key, sku=sku, warnings=warnings, etsy=etsy)
+    return schemas.SkuResult(group_key=key, sku=sku, warnings=warnings, etsy=etsy, connection_id=shop)
+
+
+async def _shop_sku(
+    session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, key: str, raw: str, shop_id: uuid.UUID | None
+) -> tuple[str, str, uuid.UUID | None]:
+    """Save a SKU from the batch or review page: (group key, SKU, the shop it is for only).
+
+    The shop shown on the page (``shop_id``): once the group's listing is on Etsy in another
+    shop, or already has its own SKU in this one, the SKU is this shop's only (its drafts
+    elsewhere keep theirs; pipeline/shop_listing.py). Otherwise it is the group's SKU, for
+    every shop without its own, as before."""
+    if shop_id is not None and await owned_shop(session, tenant.id, shop_id) is None:
+        raise HTTPException(status_code=404, detail="shop not found")
+    if shop_id is not None:
+        members = await _group(session, tenant, batch_id, key)
+        contents = await _contents_of(session, members)
+        states = await shop_listing.states(session, contents)
+        if contents and any(shop_listing.sku_override(c, shop_id) or any(s != shop_id for s in states[c.id])
+                            for c in contents):
+            if grouping.is_unsorted(key):
+                raise HTTPException(status_code=422, detail="Unsorted photos have no SKU: move them into a group.")
+            try:
+                sku = skus.validate(raw)
+            except skus.SkuInvalid as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            base = next((a.parsed_sku for a in members if a.parsed_sku), None)
+            for content in contents:
+                old = shop_listing.sku_in(content, base, shop_id)
+                shop_listing.set_override(content, shop_id, sku=None if sku == base else sku)
+                if old != sku:
+                    audit.record(session, "listing.sku_changed", actor=tenant, target_tenant_id=tenant.id, on_etsy=False,
+                                 batch_id=str(batch_id), group_key=key, sku_from=old, sku_to=sku, by="seller",
+                                 shop_id=str(shop_id))
+            return key, sku, shop_id
+    key, sku, _ = await apply_group_sku(session, tenant, batch_id, key, raw)
+    return key, sku, None
 
 
 @router.put("/batches/{batch_id}/groups/sku", response_model=schemas.SkuResult)
@@ -179,9 +231,9 @@ async def set_group_sku(
     batch = await session.get(UploadBatch, batch_id)
     if batch is None or batch.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="batch not found")
-    key, sku, _ = await apply_group_sku(session, tenant, batch_id, body.group_key or "", body.sku)
+    key, sku, shop = await _shop_sku(session, tenant, batch_id, body.group_key or "", body.sku, body.connection_id)
     await session.commit()
-    return await _result(session, tenant, batch_id, key, sku)
+    return await _result(session, tenant, batch_id, key, sku, shop)
 
 
 async def _own_content(session: AsyncSession, tenant: Tenant, content_id: uuid.UUID) -> tuple[GeneratedContent, Asset]:
@@ -201,9 +253,9 @@ async def set_listing_sku(
 ) -> schemas.SkuResult:
     """The review card's SKU field."""
     content, asset = await _own_content(session, tenant, content_id)
-    key, sku, _ = await apply_group_sku(session, tenant, content.batch_id, asset.group_key or "", body.sku)
+    key, sku, shop = await _shop_sku(session, tenant, content.batch_id, asset.group_key or "", body.sku, body.connection_id)
     await session.commit()
-    return await _result(session, tenant, content.batch_id, key, sku)
+    return await _result(session, tenant, content.batch_id, key, sku, shop)
 
 
 @router.post("/batches/{batch_id}/sku", response_model=schemas.SkuBulkOut)
@@ -261,9 +313,13 @@ async def update_sku_on_etsy(
     its cost. Nothing is sent without ``confirm``; then one job per shop updates
     only the SKU on that draft's inventory."""
     content, asset = await _own_content(session, tenant, content_id)
-    sku = skus.clean(asset.parsed_sku)
-    result = await _result(session, tenant, content.batch_id, asset.group_key or "", sku) if sku else None
-    shops = [u for u in (result.etsy if result else []) if not body.connection_ids or u.connection_id in body.connection_ids]
+    base = skus.clean(asset.parsed_sku)
+    # Each draft gets the SKU the listing has in its own shop (its own there, else the group's).
+    result = await _result(session, tenant, content.batch_id, asset.group_key or "", base)
+    shops = [u for u in result.etsy if (not body.connection_ids or u.connection_id in body.connection_ids)
+             and shop_listing.sku_in(content, base, u.connection_id)]
+    wanted = {u.connection_id: shop_listing.sku_in(content, base, u.connection_id) or "" for u in shops}
+    sku = next(iter(wanted.values())) if len(set(wanted.values())) == 1 else base
     if not body.confirm or not shops:
         return schemas.SkuEtsyOut(queued=False, sku=sku, shops=shops, requests=REQUESTS_PER_SHOP * len(shops))
     from app.workers.skus import update_spec
@@ -276,5 +332,6 @@ async def update_sku_on_etsy(
     for shop in shops:
         pub = pubs.get(shop.connection_id)
         if pub is not None:
-            await enqueuer.enqueue("update_sku_on_etsy", update_spec(pub.id, sku), _job_id=f"sku:{pub.id}:{sku}")
+            mine = wanted[shop.connection_id]
+            await enqueuer.enqueue("update_sku_on_etsy", update_spec(pub.id, mine), _job_id=f"sku:{pub.id}:{mine}")
     return schemas.SkuEtsyOut(queued=True, sku=sku, shops=shops, requests=REQUESTS_PER_SHOP * len(shops))

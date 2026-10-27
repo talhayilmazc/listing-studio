@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +8,7 @@ import { api, uploadAsset } from "@/lib/api";
 import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
 import { GroupingResult } from "@/components/GroupingChoice";
 import { SkuEditor } from "@/components/SkuEditor";
-import type { Asset, BatchDetail, Content, Group, Profile, Publication } from "@/lib/types";
+import type { Asset, BatchDetail, BatchShops, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { ProfilePicker } from "@/components/ProfilePicker";
@@ -19,6 +19,10 @@ import { ASSET_DRAG, GroupImages } from "@/components/GroupImages";
 import { ReplaceChoice } from "@/components/ReplaceChoice";
 import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
+import { useShops } from "@/components/ShopProvider";
+import { AnotherShopDialog } from "@/components/AnotherShopDialog";
+import { BatchShopStatus } from "@/components/BatchShopStatus";
+import { STATE_WORDS, profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 
 import { Txt } from "@/components/Txt";
 interface AssetGroup {
@@ -54,15 +58,31 @@ export default function BatchPage() {
   const [contents, setContents] = useState<Content[]>([]);
   // A group waiting for the seller to confirm replacing something.
   const [confirming, setConfirming] = useState<{ key: string; kind: "regenerate" | "replace" } | null>(null);
+  // The shop picked in the menu: profile and SKU changes apply there (null: every shop is shown).
+  const { shops: connected, scope } = useShops();
+  const multi = (connected?.length ?? 0) > 1;
+  const inView = multi ? scope?.id ?? null : null;
+  const inViewName = multi ? scope?.name ?? null : null;
+  // Where each listing stands in each shop, and its SKU and profile per shop.
+  const [shopData, setShopData] = useState<BatchShops | null>(null);
+  // "Publish in another shop": the listings it is for (null: all); undefined: closed.
+  const [anotherFor, setAnotherFor] = useState<string[] | null | undefined>(undefined);
+  const search = useSearchParams();
 
   const load = useCallback(async () => {
     try {
       setBatch(await api.getBatch(id));
       setContents(await api.listContent(id));
+      setShopData(await api.batchShops(id).catch(() => null));
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
   }, [id]);
+  // From a review card ("Publish in another shop"): open it for that listing.
+  useEffect(() => {
+    const one = search?.get("another");
+    if (one) setAnotherFor(one === "all" ? null : [one]);
+  }, [search]);
 
   const loadGroups = useCallback(async () => {
     try {
@@ -103,6 +123,13 @@ export default function BatchPage() {
   }, [batch]);
 
   const unsorted = useMemo(() => (batch ? batch.assets.filter((a) => isUnsorted(a.group_key)) : []), [batch]);
+  // The listing written for a group, if any.
+  const contentOf = (g: AssetGroup): string | null => contents.find((c) => g.assets.some((a) => a.id === c.asset_id))?.id ?? null;
+  // Groups whose listing was sent to the shop in view (any shop, with every shop shown): their
+  // profile there cannot change any more.
+  const lockedKeys = new Set(groups.filter((g) => profileLocked(shopData, contentOf(g), inView)).map((g) => g.key));
+  // Listings on Etsy somewhere: "Publish in another shop" is offered (several shops only).
+  const onEtsySomewhere = multi && groups.some((g) => profileLocked(shopData, contentOf(g), null));
   // Writing does not start while photos are unsorted, unless the seller ignores them.
   const [ignoreUnsorted, setIgnoreUnsorted] = useState(false);
   const blockedByUnsorted = unsorted.length > 0 && !ignoreUnsorted;
@@ -132,12 +159,22 @@ export default function BatchPage() {
   async function assign(body: Parameters<typeof api.assignGroup>[1]) {
     try {
       setProblem(null);
-      const gs = await api.assignGroup(id, body);
+      const gs = await api.assignGroup(id, body.profile_id ? { ...body, for_shop: inView } : body);
       setSettings(Object.fromEntries(gs.map((g) => [g.group_key, g])));
-      // A listing already written takes the profile chosen for its group.
+      // A listing already written takes the profile chosen for its group (on Etsy in another
+      // shop: in the shop shown only).
       const keys = body.group_key != null ? [body.group_key] : body.group_keys ?? [];
-      const moved = body.profile_id ? groups.filter((g) => keys.includes(g.key) && g.done) : [];
-      if (moved.length) {
+      const sentElsewhere = (g: AssetGroup) => profileLocked(shopData, contentOf(g), null);
+      const shopOnly = body.profile_id && inView ? groups.filter((g) => keys.includes(g.key) && g.done && sentElsewhere(g)) : [];
+      const moved = body.profile_id ? groups.filter((g) => keys.includes(g.key) && g.done && !shopOnly.includes(g)) : [];
+      if (shopOnly.length) {
+        const name = profiles.find((p) => p.id === body.profile_id)?.name ?? "the new profile";
+        setNotice(
+          `${shopOnly.map((g) => g.label).join(", ")} will use ${name} in ${inViewName ?? "this shop"} only; ` +
+            "nothing changes where it is already on Etsy. Send it there with “Publish in another shop”.",
+        );
+        await load();
+      } else if (moved.length) {
         const name = profiles.find((p) => p.id === body.profile_id)?.name ?? "the new profile";
         setNotice(
           `${moved.map((g) => g.label).join(", ")} now ${moved.length === 1 ? "uses" : "use"} ${name}: price, variations, shipping, ` +
@@ -418,6 +455,26 @@ export default function BatchPage() {
         </Link>
       </div>
 
+      {multi && (
+        <BatchShopStatus key="shop-status" data={shopData} inView={inView} inViewName={inViewName}
+          onAnotherShop={onEtsySomewhere ? () => setAnotherFor(null) : undefined} />
+      )}
+      {anotherFor !== undefined && connected && (
+        <AnotherShopDialog key="another-shop"
+          batchId={id}
+          contentIds={anotherFor}
+          shops={connected.map((s) => ({ id: s.id, name: s.name }))}
+          initialShop={inView && groups.some((g) => !profileLocked(shopData, contentOf(g), inView)) ? inView
+            : connected.find((s) => groups.some((g) => stateIn(shopData, contentOf(g), s.id) === "not_sent"))?.id ?? null}
+          onClose={() => setAnotherFor(undefined)}
+          onDone={(message) => {
+            setAnotherFor(undefined);
+            setNotice(message + " Approve or schedule them per shop on the review page, as usual.");
+            load();
+          }}
+        />
+      )}
+
       {/* Asked once, on the upload page (B2): here the result, with "change" until anything is written. */}
       {batch.grouping_mode && uploaded.length > 0 ? (
         <GroupingResult
@@ -466,12 +523,30 @@ export default function BatchPage() {
                   value={bulkProfileId || null}
                   emptyLabel="Choose…"
                   label="Profile for all groups"
+                  disabled={groups.length > 0 && groups.every((g) => lockedKeys.has(g.key))}
                   onChange={(pid) => {
                     setBulkProfileId(pid ?? "");
-                    if (pid) assign({ profile_id: pid });
+                    if (!pid) return;
+                    assign({ profile_id: pid });
+                    // Written and on Etsy elsewhere, not in the shop shown: that shop's profile.
+                    const there = groups.filter((g) => g.done && !lockedKeys.has(g.key) && profileLocked(shopData, contentOf(g), null));
+                    if (inView && there.length) assign({ group_keys: there.map((g) => g.key), profile_id: pid });
                   }}
                 />
               </label>
+              {lockedKeys.size > 0 && (
+                <span key="locked" className="text-xs text-slate-600" data-testid="profile-locked-note">
+                  <span translate="no">{`${lockedKeys.size} of ${groups.length}`}</span>
+                  <span>{inView ? " already in " : " already on Etsy"}</span>
+                  {inView && <span key="shop" translate="no">{inViewName ?? "this shop"}</span>}
+                  <span>: their profile stays. </span>
+                  {multi && (
+                    <button key="offer" type="button" className="tap text-brand-700 underline" onClick={() => setAnotherFor(null)}>
+                      Publish in another shop
+                    </button>
+                  )}
+                </span>
+              )}
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <span>Size charts</span>
                 <ProfilePicker
@@ -525,7 +600,7 @@ export default function BatchPage() {
                 emptyLabel="Profile…"
                 label="Profile for the selected groups"
                 size="xs"
-                onChange={(pid) => pid && assign({ group_keys: picked, profile_id: pid })}
+                onChange={(pid) => pid && assign({ group_keys: picked.filter((k) => !lockedKeys.has(k)), profile_id: pid })}
               />
               <ProfilePicker
                 profiles={profiles}
@@ -536,6 +611,12 @@ export default function BatchPage() {
                 size="xs"
                 onChange={(pid) => pid && assign({ group_keys: picked, size_chart_profile_id: pid })}
               />
+              {onEtsySomewhere && (
+                <button key="another" type="button" className="btn-secondary px-3 py-1.5 text-xs" data-testid="another-shop-selected"
+                  onClick={() => setAnotherFor(groups.filter((g) => picked.includes(g.key)).map(contentOf).filter((x): x is string => !!x))}>
+                  Publish in another shop
+                </button>
+              )}
               <button type="button" className="text-xs text-slate-500 underline" onClick={() => setPicked([])}>
                 Clear
               </button>
@@ -599,9 +680,11 @@ export default function BatchPage() {
                   <SkuEditor
                     key="sku"
                     compact
-                    value={g.sku}
+                    value={skuIn(shopData, mine[0]?.id, inView, g.sku)}
                     contentId={mine[0]?.id ?? null}
-                    save={(sku) => api.setGroupSku(id, g.key, sku)}
+                    shopId={inView}
+                    shopName={inViewName}
+                    save={(sku) => api.setGroupSku(id, g.key, sku, inView)}
                     onSaved={() => {
                       load();
                       loadGroups();
@@ -620,6 +703,11 @@ export default function BatchPage() {
                   {pubs.length > 0 && (
                     <span key="span-363-18" className="text-xs text-emerald-700">
                       <span><span>✓ on Etsy</span><Txt>{pubs.length > 1 ? ` in ${pubs.length} shops` : ""}</Txt></span>
+                    </span>
+                  )}
+                  {inView && g.done && (
+                    <span key="in-view" className="text-xs text-slate-600" translate="no" data-testid="group-shop-state">
+                      {`${inViewName ?? "This shop"}: ${STATE_WORDS[stateIn(shopData, mine[0]?.id, inView)]}`}
                     </span>
                   )}
                 </div>
@@ -730,17 +818,29 @@ export default function BatchPage() {
               {!noProfiles && (
                 <div key="choices" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
                   <label className="flex items-center gap-1.5 text-slate-500">
-                    <span>Profile</span>
+                    <span>{inView ? "Profile in " : "Profile"}</span>
+                    {inView && <span key="shop" translate="no">{inViewName}</span>}
                     <ProfilePicker
                       profiles={profiles}
                       shopId={null}
-                      value={s?.profile_id ?? null}
+                      value={profileIn(shopData, mine[0]?.id, inView) ?? s?.profile_id ?? null}
                       emptyLabel="Choose…"
                       label={`Profile for ${g.label}`}
                       size="xs"
+                      disabled={lockedKeys.has(g.key)}
                       onChange={(pid) => assign({ group_key: g.key, profile_id: pid })}
                     />
                   </label>
+                  {lockedKeys.has(g.key) && (
+                    <span key="locked" className="text-slate-600" data-testid="group-profile-locked">
+                      <span>{inView ? "Already in this shop: built with its profile. " : "Already on Etsy: built with its profile. "}</span>
+                      {multi && mine[0] && (
+                        <button key="offer" type="button" className="tap text-brand-700 underline" onClick={() => setAnotherFor([mine[0].id])}>
+                          Publish in another shop
+                        </button>
+                      )}
+                    </span>
+                  )}
                   <label className="flex items-center gap-1.5 text-slate-500">
                     <span>Size charts</span>
                     <ProfilePicker

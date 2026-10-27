@@ -167,6 +167,26 @@ async def main():
             await s.flush()
             s.add(GeneratedContent(tenant_id=t.id, batch_id=hand.id, asset_id=a.id, approved=False, listing_profile_id=prof.id,
                                    title="", tags=[], description=REF.split("\n\n", 1)[1], source="manual"))
+        # A batch published in the first shop only (the "Publish in another shop" screens: the
+        # shops' status, the dialog with its SKU preview, the profile control that stays).
+        sent = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=4, connection_id=shops[0].id,
+                           name="Published in Northwind")
+        s.add(sent); await s.flush()
+        for n, (_sku, art, title, tags) in enumerate(DESIGNS[:4]):
+            code = f"NWT{430 + n}"
+            key = f"demo-shots/{sent.id}/{code}-front.jpg"
+            storage.put(key, jpg(art, "front"), "image/jpeg")
+            a = Asset(batch_id=sent.id, tenant_id=t.id, original_filename=f"{code}/front.jpg", storage_key=key, processed_key=key,
+                      status=AssetStatus.processed, rank=1, group_key=code, parsed_sku=code, mime_type="image/jpeg", width=1000, height=1250)
+            s.add(a)
+            prof = profs[("Northwind Tees", "Standard Tee")]
+            s.add(ListingGroupSetting(tenant_id=t.id, batch_id=sent.id, group_key=code, connection_id=shops[0].id, profile_id=prof.id, manual=True))
+            await s.flush()
+            c = GeneratedContent(tenant_id=t.id, batch_id=sent.id, asset_id=a.id, approved=True, listing_profile_id=prof.id,
+                                 title=title, tags=tags, description=REF.split("\n\n", 1)[1])
+            s.add(c); await s.flush()
+            s.add(ListingPublication(tenant_id=t.id, content_id=c.id, connection_id=shops[0].id, etsy_listing_id=7200 + n,
+                                     state="active", profile_id=prof.id, title=title, sku=code, published_at=now - timedelta(days=1)))
         for n in range(12):
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,

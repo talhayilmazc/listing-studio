@@ -47,7 +47,7 @@ from app.etsy.publisher import (
     publish_content,
     publish_live,
 )
-from app.pipeline import chart_order, item_options, profile_shops
+from app.pipeline import chart_order, item_options, profile_shops, shop_listing
 from app.pipeline.images import cover_image
 from app.pipeline import links as L
 from app.pipeline.links import setup_message, shop_reference
@@ -415,7 +415,8 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     job_id=job.id,
                     content=content,
                     connection=connection,
-                    sku=asset.parsed_sku,
+                    # Its own SKU in this shop when it has one, else its group's.
+                    sku=shop_listing.sku_in(content, asset.parsed_sku, connection.id),
                     thumbnail=thumbnail,
                     extra_images=extras,
                     fixed_image_ids=fixed,

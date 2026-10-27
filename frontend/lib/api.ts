@@ -4,6 +4,11 @@ import type { GroupingMode } from "./grouping";
 import { UNREACHABLE, messageFor } from "./apiErrors";
 import { shareInFlight } from "./inFlight";
 import type {
+  AnotherShopPreview,
+  AnotherShopRequest,
+  BatchShops,
+  PublishJob,
+  PublishSkipped,
   FoundArea,
   UnfinishedDraft,
   MockupAdjustmentRow,
@@ -379,8 +384,21 @@ export const api = {
       connection_id?: string | null;
       profile_id?: string | null;
       size_chart_profile_id?: string | null;
+      /** The shop shown: a listing on Etsy in another shop takes the profile in this shop only. */
+      for_shop?: string | null;
     },
   ) => req<Group[]>(`/batches/${id}/groups`, { method: "PUT", body: JSON.stringify(body) }),
+  /** Where the batch's listings stand in each shop, and their SKU and profile per shop. */
+  batchShops: (id: string) => req<BatchShops>(`/batches/${id}/shops`),
+  /** "Publish in another shop": what it would do (nothing is kept). */
+  anotherShopPreview: (id: string, body: AnotherShopRequest) =>
+    req<AnotherShopPreview>(`/batches/${id}/another-shop/preview`, { method: "POST", body: JSON.stringify(body) }),
+  /** The same, done: drafts in that shop; nothing changes in the others. */
+  anotherShop: (id: string, body: AnotherShopRequest) =>
+    req<{ jobs: PublishJob[]; skipped: PublishSkipped[]; message: string }>(`/batches/${id}/another-shop`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   listContent: (id: string) => req<Content[]>(`/batches/${id}/content`),
   /**
    * "Write title and tags myself": an empty listing for one group (or every group
@@ -419,10 +437,14 @@ export const api = {
       body: JSON.stringify(body),
     }),
   // The listing's SKU (Etsy's rules; drafts on Etsy only change on "Update SKU on Etsy").
-  setGroupSku: (batchId: string, groupKey: string, sku: string) =>
-    req<SkuResult>(`/batches/${batchId}/groups/sku`, { method: "PUT", body: JSON.stringify({ group_key: groupKey, sku }) }),
-  setListingSku: (contentId: string, sku: string) =>
-    req<SkuResult>(`/content/${contentId}/sku`, { method: "PUT", body: JSON.stringify({ sku }) }),
+  // ``shopId``: the shop shown; once the listing is on Etsy elsewhere, its SKU there only.
+  setGroupSku: (batchId: string, groupKey: string, sku: string, shopId: string | null = null) =>
+    req<SkuResult>(`/batches/${batchId}/groups/sku`, {
+      method: "PUT",
+      body: JSON.stringify({ group_key: groupKey, sku, connection_id: shopId }),
+    }),
+  setListingSku: (contentId: string, sku: string, shopId: string | null = null) =>
+    req<SkuResult>(`/content/${contentId}/sku`, { method: "PUT", body: JSON.stringify({ sku, connection_id: shopId }) }),
   setSkuForSelected: (batchId: string, body: { content_ids: string[]; sku?: string; prefix?: string; suffix?: string }) =>
     req<{ updated: number; results: SkuResult[]; skipped: { content_id: string; reason: string }[] }>(`/batches/${batchId}/sku`, {
       method: "POST",
