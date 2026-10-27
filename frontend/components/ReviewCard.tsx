@@ -521,7 +521,7 @@ export function ReviewCard({
             {profileLocked(shopData, initial.id, inView?.id ?? null) && batchId && Object.keys(shopNames ?? {}).length > 1 ? (
               <span key="locked" className="mt-0.5 block text-slate-600" data-testid="card-profile-locked">
                 <span>Already on Etsy here, built with this profile. </span>
-                <Link href={`/batches/${batchId}?another=${initial.id}`} className="tap text-brand-700 underline">
+                <Link href={`/batches/${batchId}?select=${initial.id}`} className="tap text-brand-700 underline">
                   Publish in another shop
                 </Link>
               </span>

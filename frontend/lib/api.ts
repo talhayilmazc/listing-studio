@@ -8,6 +8,7 @@ import type {
   AnotherShopRequest,
   BatchShops,
   RewriteResult,
+  WorkspaceTextRow,
   PublishJob,
   PublishSkipped,
   FoundArea,
@@ -397,6 +398,18 @@ export const api = {
   /** "Rewrite for this shop": kept as that shop's text; a rewrite of the design (allowance rule). */
   anotherShopRewrite: (id: string, body: { connection_id: string; content_ids: string[]; profile_id?: string | null }) =>
     req<RewriteResult>(`/batches/${id}/another-shop/rewrite`, { method: "POST", body: JSON.stringify(body) }),
+  // The shop workspace: a listing's profile, SKUs and text for one shop, saved as changed.
+  workspaceProfile: (id: string, shop: string, contentIds: string[], profileId: string | null) =>
+    req<AnotherShopPreview>(`/batches/${id}/shops/${shop}/profile`, {
+      method: "PUT",
+      body: JSON.stringify({ content_ids: contentIds, profile_id: profileId }),
+    }),
+  workspaceSkusCheck: (id: string, shop: string, skus: Record<string, string>) =>
+    req<{ saved: number; refused: string[] }>(`/batches/${id}/shops/${shop}/skus/check`, { method: "POST", body: JSON.stringify({ skus }) }),
+  workspaceSkus: (id: string, shop: string, skus: Record<string, string>) =>
+    req<{ saved: number; refused: string[] }>(`/batches/${id}/shops/${shop}/skus`, { method: "PUT", body: JSON.stringify({ skus }) }),
+  workspaceTexts: (id: string, shop: string, texts: NonNullable<AnotherShopRequest["texts"]>) =>
+    req<WorkspaceTextRow[]>(`/batches/${id}/shops/${shop}/texts`, { method: "PUT", body: JSON.stringify({ texts }) }),
   /** The same, done: drafts in that shop; nothing changes in the others. */
   anotherShop: (id: string, body: AnotherShopRequest) =>
     req<{ jobs: PublishJob[]; skipped: PublishSkipped[]; message: string }>(`/batches/${id}/another-shop`, {
@@ -943,15 +956,16 @@ export const api = {
       body: JSON.stringify({ send_to, content_ids: contentIds ?? null }),
     }),
   sendToAllShops: (batch: string) => req<SendState>(`/batches/${batch}/send-to/all-shops`, { method: "POST" }),
-  sendPreview: (batch: string, when: SendWhen, schedule?: GroupSchedule | null) =>
+  // ``only``: one shop and these listings (the batch page's shop workspace); omitted: the batch's choice.
+  sendPreview: (batch: string, when: SendWhen, schedule?: GroupSchedule | null, only?: { shop: string; contentIds: string[] }) =>
     req<SendPreview>(`/batches/${batch}/send/preview`, {
       method: "POST",
-      body: JSON.stringify({ when, ...(schedule ? { schedule } : {}) }),
+      body: JSON.stringify({ when, ...(schedule ? { schedule } : {}), ...(only ? { connection_id: only.shop, content_ids: only.contentIds } : {}) }),
     }),
-  send: (batch: string, when: SendWhen, schedule?: GroupSchedule | null) =>
+  send: (batch: string, when: SendWhen, schedule?: GroupSchedule | null, only?: { shop: string; contentIds: string[] }) =>
     req<SendResult>(`/batches/${batch}/send`, {
       method: "POST",
-      body: JSON.stringify({ when, ...(schedule ? { schedule } : {}) }),
+      body: JSON.stringify({ when, ...(schedule ? { schedule } : {}), ...(only ? { connection_id: only.shop, content_ids: only.contentIds } : {}) }),
     }),
   detectProfiles: (shop?: string | null) =>
     req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),

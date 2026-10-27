@@ -1,5 +1,12 @@
-"""A batch's listings in more than one shop: where each stands per shop, and "Publish in
-another shop" (production report, 2026-10-27).
+"""A batch's listings in more than one shop: where each stands per shop, and the batch page's
+shop workspace (production report and seller feedback, 2026-10-27).
+
+**The shop workspace** (batch page, "Working on: <shop>"; it replaced the "Publish in another
+shop" dialog): one row per listing for the shop in the bar, its state there, its profile, SKU
+and text for that shop saved as they are changed (``PUT .../shops/{shop}/profile|skus|texts``;
+a field left alone follows the listing and says so), bulk actions for the selected rows, and
+"Send N to <shop>" (the preview below is its summary; the send below makes the drafts). Rows
+already in that shop are locked (edited on Etsy). The rows are the preview's.
 
 A seller published a batch in one shop, switched to their second shop, picked that shop's
 profile in "Profile for all" and changed SKUs, and nothing went to the second shop: the
@@ -62,6 +69,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
+from app.etsy.publisher import link_for
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops
 from app.pipeline import shop_listing, shop_targets, skus
@@ -165,6 +173,18 @@ class AnotherShopRow(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     #: Free rewrites of this design left this period ("Rewrite for this shop").
     free_rewrites_left: int = 0
+    #: The profile chosen for it in that shop only (None: its own, through the shop link), and
+    #: the name of the one it goes with.
+    profile_id: uuid.UUID | None = None
+    profile_name: str | None = None
+    #: Its SKU there is that shop's own; which text fields are.
+    sku_own: bool = False
+    text_own: list[str] = Field(default_factory=list)
+    approved: bool = False
+    #: Where it stands in that shop (not_sent / drafted / scheduled / published) and, when it is
+    #: there, its listing on Etsy.
+    shop_state: str = shop_listing.NOT_SENT
+    listing_link: str | None = None
 
 
 class AnotherShopPreview(BaseModel):
@@ -285,6 +305,15 @@ def _apply_text(content: GeneratedContent, shop_id: uuid.UUID, text: ShopTextIn 
         shop_listing.set_override(content, shop_id, **{name: None if value == own[name] else value})
 
 
+async def _profile_there(
+    session: AsyncSession, content: GeneratedContent, shop_id: uuid.UUID, chosen: ListingProfile | None
+) -> ListingProfile | None:
+    """The profile this listing goes to that shop with: the one being chosen, else its own there,
+    else its own."""
+    profile_id = shop_listing.profile_in(content, shop_id) or content.listing_profile_id
+    return chosen or (await session.get(ListingProfile, profile_id) if profile_id else None)
+
+
 async def _target_shop(session: AsyncSession, tenant: Tenant, shop_id: uuid.UUID) -> EtsyConnection:
     shop = next((s for s in await active_shops(session, tenant.id) if s.id == shop_id), None)
     if shop is None:
@@ -334,6 +363,9 @@ async def _work(
     text_problems = 0
     chosen_profile = await session.get(ListingProfile, body.profile_id) if body.profile_id else None
     period = await allowance.status(session, tenant)
+    publications = {p.content_id: p for p in (await session.execute(select(ListingPublication).where(
+        ListingPublication.connection_id == shop.id, ListingPublication.content_id.in_([c.id for c in contents]),
+        ListingPublication.state != "deleted_on_etsy"))).scalars()} if contents else {}
     for content in contents:
         asset = assets.get(content.asset_id)
         key = (asset.group_key if asset else None) or ""
@@ -344,14 +376,25 @@ async def _work(
                              sku=current, state="new")
         rows.append(row)
         row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
+        row.approved, row.shop_state = bool(content.approved), state
+        row.profile_id = shop_listing.profile_in(content, shop.id)
+        row.sku_own = shop_listing.sku_override(content, shop.id) is not None
+        row.text_own = sorted(shop_listing.text_in(content, shop.id))
         if state != shop_listing.NOT_SENT:
-            row.state, row.reason = "there", f"already in {shop_label(shop)} ({STATE_WORDS[state]}): left as it is"
+            row.state, row.reason = "there", f"already in {shop_label(shop)} ({STATE_WORDS[state]}): edited on Etsy"
+            pub = publications.get(content.id)
+            row.listing_link = link_for(pub.etsy_listing_id, pub.state) if pub is not None else None
             continue
         _apply_text(content, shop.id, body.texts.get(content.id))
         row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
         row.own_text = bool(shop_listing.text_in(content, shop.id))
+        row.text_own = sorted(shop_listing.text_in(content, shop.id))
         row.free_rewrites_left = await allowance.free_rewrites_left(
             session, tenant, allowance.design_key(content.batch_id, key), period)
+        profile = await _profile_there(session, content, shop.id, chosen_profile)
+        row.profile_name = profile.name if profile is not None else None
+        check = await check_text(session, content, profile, row.title, row.tags, row.description)
+        row.errors, row.warnings = list(check.errors), list(check.warnings)
         why = await _why_not(session, content)
         if why:
             row.state, row.reason = "cannot", why
@@ -373,12 +416,8 @@ async def _work(
             shop_listing.set_override(content, shop.id,
                                       profile_id=None if body.profile_id == content.listing_profile_id else body.profile_id)
         shop_listing.set_override(content, shop.id, sku=sku if sku != (asset.parsed_sku if asset else None) else None)
-        # Its text in that shop, under the one rule set (its own there, else the listing's).
-        profile = chosen_profile or (await session.get(ListingProfile, shop_listing.profile_in(content, shop.id))
-                                     if shop_listing.profile_in(content, shop.id) else None) \
-            or (await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None)
-        check = await check_text(session, content, profile, row.title, row.tags, row.description)
-        row.errors, row.warnings = list(check.errors), list(check.warnings)
+        row.profile_id = shop_listing.profile_in(content, shop.id)
+        row.sku_own = shop_listing.sku_override(content, shop.id) is not None
         if row.errors:
             text_problems += 1
             continue
@@ -579,3 +618,161 @@ async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncS
                + (f"; {counted} counted as {'a listing' if counted == 1 else 'listings'} generated" if counted else ", all free rewrites")
                + "." + (f" {_plural(len(rows) - len(done), 'listing')} not rewritten: the list says why." if len(done) < len(rows) else ""))
     return RewriteOut(rows=rows, message=message)
+
+
+# --- the shop workspace: a listing's profile, SKU and text for one shop, saved as changed -------
+
+
+class WorkspaceProfileIn(BaseModel):
+    content_ids: list[uuid.UUID] = Field(min_length=1, max_length=2000)
+    #: A profile whose main shop is that shop; None: each listing's own (through its shop link).
+    profile_id: uuid.UUID | None = None
+
+
+class WorkspaceSkusIn(BaseModel):
+    #: Listing id -> its SKU in that shop ("" or the listing's own SKU: follows the listing).
+    skus: dict[uuid.UUID, str] = Field(min_length=1, max_length=2000)
+
+
+class WorkspaceSkusOut(BaseModel):
+    saved: int = 0
+    #: One line each: already used in that shop, given twice, or not allowed by Etsy.
+    refused: list[str] = Field(default_factory=list)
+
+
+class WorkspaceTextsIn(BaseModel):
+    texts: dict[uuid.UUID, ShopTextIn] = Field(min_length=1, max_length=2000)
+
+
+class WorkspaceTextRow(BaseModel):
+    content_id: uuid.UUID
+    title: str
+    tags: list[str]
+    description: str
+    text_own: list[str]
+    errors: list[str]
+    warnings: list[str]
+
+
+async def _open_rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, shop_id: uuid.UUID,
+                     ids: list[uuid.UUID]) -> tuple[EtsyConnection, list[GeneratedContent], dict[uuid.UUID, Asset]]:
+    """These listings of the caller's batch, none of them already in that shop (409: locked rows
+    are edited on Etsy)."""
+    batch = await _batch(session, tenant, batch_id)
+    shop = await _target_shop(session, tenant, shop_id)
+    contents = await _contents(session, tenant, batch, list(dict.fromkeys(ids)))
+    states = await shop_listing.states(session, contents)
+    there = [c for c in contents if shop_listing.sent(states[c.id], shop.id)]
+    if there:
+        raise HTTPException(status_code=409, detail=(
+            f"{_plural(len(there), 'listing is', 'listings are')} already in {shop_label(shop)}: what is there is "
+            "edited on Etsy."))
+    return shop, contents, await _assets(session, contents)
+
+
+@router.put("/batches/{batch_id}/shops/{connection_id}/profile", response_model=AnotherShopPreview)
+async def workspace_profile(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceProfileIn,
+                            session: AsyncSession = Depends(get_session),
+                            tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
+    """The profile these listings go to that shop with (that shop's own, or each listing's own
+    through the shop link). Nothing else changes; the listing's own profile stays."""
+    shop, contents, _ = await _open_rows(session, tenant, batch_id, connection_id, body.content_ids)
+    if body.profile_id is not None and all(p.id != body.profile_id for p in await _shop_profiles(session, tenant, shop)):
+        raise HTTPException(status_code=404, detail="profile not found in that shop")
+    for content in contents:
+        shop_listing.set_override(content, shop.id, profile_id=None if body.profile_id in (None, content.listing_profile_id)
+                                  else body.profile_id)
+    await session.commit()
+    return await _rows(session, tenant, batch_id, shop.id)
+
+
+async def _sku_refusals(session: AsyncSession, tenant: Tenant, shop: EtsyConnection, contents: list[GeneratedContent],
+                        assets: dict[uuid.UUID, Asset], wanted: dict[uuid.UUID, str]) -> tuple[list[str], dict[uuid.UUID, str | None]]:
+    """What would be refused if these SKUs were saved for that shop, and each listing's new SKU
+    there (None: follows the listing). Another listing given that SKU for that shop counts
+    (``taken_in_shop``)."""
+    taken = await taken_in_shop(session, tenant, shop.id, mine=set(wanted))
+    refused: list[str] = []
+    new: dict[uuid.UUID, str | None] = {}
+    given: dict[str, list[str]] = {}
+    for content in contents:
+        asset = assets.get(content.asset_id)
+        label = (asset.group_key if asset else None) or "a listing"
+        raw = skus.clean(wanted[content.id])
+        base = asset.parsed_sku if asset else None
+        if not raw or raw == base:
+            new[content.id] = None
+            raw = base or ""
+        else:
+            try:
+                skus.validate(raw)
+            except skus.SkuInvalid as exc:
+                refused.append(f"{label}: {exc}")
+                continue
+            new[content.id] = raw
+        if raw:
+            where = taken.get(raw.casefold())
+            if where:
+                refused.append(f"{raw} ({label}) is already used in {shop_label(shop)} by {where}.")
+            given.setdefault(raw.casefold(), []).append(label)
+    for labels in given.values():
+        if len(labels) > 1:
+            refused.append(f"The same SKU is given to {len(labels)} listings here: {', '.join(labels)}.")
+    return refused, new
+
+
+@router.post("/batches/{batch_id}/shops/{connection_id}/skus/check", response_model=WorkspaceSkusOut)
+async def workspace_skus_check(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceSkusIn,
+                               session: AsyncSession = Depends(get_session),
+                               tenant: Tenant = Depends(active_tenant)) -> WorkspaceSkusOut:
+    """As the seller types: what saving these SKUs for that shop would refuse. Nothing is saved."""
+    shop, contents, assets = await _open_rows(session, tenant, batch_id, connection_id, list(body.skus))
+    refused, _ = await _sku_refusals(session, tenant, shop, contents, assets, body.skus)
+    return WorkspaceSkusOut(refused=refused)
+
+
+@router.put("/batches/{batch_id}/shops/{connection_id}/skus", response_model=WorkspaceSkusOut)
+async def workspace_skus(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceSkusIn,
+                         session: AsyncSession = Depends(get_session),
+                         tenant: Tenant = Depends(active_tenant)) -> WorkspaceSkusOut:
+    """These listings' SKUs in that shop, saved at once, or none of them (409 with the list) when
+    one is already used there, given twice, or not allowed by Etsy. Other shops keep theirs."""
+    shop, contents, assets = await _open_rows(session, tenant, batch_id, connection_id, list(body.skus))
+    refused, new = await _sku_refusals(session, tenant, shop, contents, assets, body.skus)
+    if refused:
+        raise HTTPException(status_code=409, detail=" ".join(refused))
+    for content in contents:
+        before = shop_listing.sku_override(content, shop.id)
+        shop_listing.set_override(content, shop.id, sku=new[content.id])
+        if before != new[content.id]:
+            audit.record(session, "listing.sku_changed", actor=tenant, target_tenant_id=tenant.id, on_etsy=False,
+                         batch_id=str(batch_id), sku_from=before, sku_to=new[content.id], by="seller", shop_id=str(shop.id))
+    await session.commit()
+    return WorkspaceSkusOut(saved=len(contents))
+
+
+@router.put("/batches/{batch_id}/shops/{connection_id}/texts", response_model=list[WorkspaceTextRow])
+async def workspace_texts(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceTextsIn,
+                          session: AsyncSession = Depends(get_session),
+                          tenant: Tenant = Depends(active_tenant)) -> list[WorkspaceTextRow]:
+    """These listings' title, tags and description for that shop (a field equal to the
+    listing's follows it; ``reset``: the listing's text again), with what Etsy would refuse and
+    the notes. Saved as typed; a listing whose text Etsy would refuse is not sent."""
+    shop, contents, _ = await _open_rows(session, tenant, batch_id, connection_id, list(body.texts))
+    for content in contents:
+        _apply_text(content, shop.id, body.texts[content.id])
+    await session.commit()
+    out: list[WorkspaceTextRow] = []
+    for content in contents:
+        title, tags, description = shop_listing.text_for(content, shop.id)
+        check = await check_text(session, content, await _profile_there(session, content, shop.id, None), title, tags, description)
+        out.append(WorkspaceTextRow(content_id=content.id, title=title, tags=tags, description=description,
+                                    text_own=sorted(shop_listing.text_in(content, shop.id)),
+                                    errors=list(check.errors), warnings=list(check.warnings)))
+    return out
+
+
+async def _rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, shop_id: uuid.UUID) -> AnotherShopPreview:
+    preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), AnotherShopIn(connection_id=shop_id))
+    await session.rollback()
+    return preview

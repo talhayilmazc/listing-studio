@@ -2312,6 +2312,15 @@ export interface AnotherShopPreview {
     errors: string[];
     warnings: string[];
     free_rewrites_left: number;
+    /** The profile chosen for it in that shop only (null: its own via the shop link), and the name it goes with. */
+    profile_id: string | null;
+    profile_name: string | null;
+    /** Its SKU there is that shop's own; which text fields are. */
+    sku_own: boolean;
+    text_own: string[];
+    approved: boolean;
+    shop_state: ShopState;
+    listing_link: string | null;
   }[];
   /** SKUs refused, one line each; while any is listed nothing can be sent. */
   refused: string[];
@@ -2327,4 +2336,15 @@ export interface AnotherShopPreview {
 export interface RewriteResult {
   rows: { content_id: string; title: string | null; tags: string[]; description: string | null; counted: boolean; reason: string | null }[];
   message: string;
+}
+
+/** A row's text for one shop, as saved (backend api/another_shop.py::WorkspaceTextRow). */
+export interface WorkspaceTextRow {
+  content_id: string;
+  title: string;
+  tags: string[];
+  description: string;
+  text_own: string[];
+  errors: string[];
+  warnings: string[];
 }

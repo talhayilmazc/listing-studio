@@ -7,7 +7,8 @@ import type { Config } from "tailwindcss";
      brand  -> deep violet accent (primary action, focus, selected)
      emerald / amber / rose -> success / warning / danger */
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  // lib/: class names some helpers return (lib/anotherShop.ts::shopColour).
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.ts"],
   theme: {
     extend: {
       colors: {

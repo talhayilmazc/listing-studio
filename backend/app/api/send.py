@@ -110,6 +110,10 @@ class SendStateOut(BaseModel):
 class SendIn(BaseModel):
     when: Literal["drafts", "publish", "spread"]
     schedule: ScheduleIn | None = None
+    #: Only this shop (the batch page's shop workspace); omitted: every shop chosen.
+    connection_id: uuid.UUID | None = None
+    #: Only these listings; omitted: every listing of the batch.
+    content_ids: list[uuid.UUID] | None = Field(default=None, max_length=2000)
 
 
 class SendCell(BaseModel):
@@ -270,11 +274,16 @@ class _Work:
         self.setups: dict[uuid.UUID, tuple] = {}
 
 
-async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when: str, zone: str) -> _Work:
+async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when: str, zone: str,
+                only_shop: uuid.UUID | None = None, only: list[uuid.UUID] | None = None) -> _Work:
     work = _Work()
     connected = await active_shops(session, tenant.id)
+    if only_shop is not None:
+        # The shop workspace: that shop only; every other shop is left as it is.
+        if all(s.id != only_shop for s in connected):
+            raise HTTPException(status_code=404, detail="shop not found")
     names = await _names(session, tenant)
-    contents = await _contents(session, tenant, batch, None)
+    contents = await _contents(session, tenant, batch, only or None)
     ids = [c.id for c in contents]
     publications = {(p.content_id, p.connection_id): p for p in (await session.execute(
         select(ListingPublication).where(ListingPublication.content_id.in_(ids))))
@@ -293,6 +302,8 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
         own_dest, custom = await shop_targets.chosen_for(session, content)
         dest = DestinationIn(**own_dest) if own_dest is not None else None
         mine = await shop_targets.wanted(session, content, connected, members)
+        if only_shop is not None:
+            mine = [s for s in connected if s.id == only_shop]
         own = await shop_targets.own_shop(session, content) if dest is None else None
         label = names.label(dest, shop_label(own) if own else None)
         work.contents[content.id], work.dest[content.id], work.shops[content.id] = content, dest, mine
@@ -393,7 +404,7 @@ async def _spread(session: AsyncSession, tenant: Tenant, quota: DailyQuota, work
 async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, batch: UploadBatch,
                    body: SendIn) -> tuple[SendPreviewOut, _Work, G.Plan | None]:
     zone = tenant.time_zone if valid_zone(tenant.time_zone) else "UTC"
-    work = await _work(session, tenant, batch, body.when, zone)
+    work = await _work(session, tenant, batch, body.when, zone, body.connection_id, body.content_ids)
     listings = len({c.id for c, _, _ in work.actions})
     shops = len({s.id for _, s, _ in work.actions})
     total = len(work.actions)

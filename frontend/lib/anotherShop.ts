@@ -2,7 +2,7 @@
 // shop" (backend api/another_shop.py, pipeline/shop_listing.py). Pure: no React, no API, so
 // the rules are tested on their own (lib/anotherShop.test.ts).
 
-import type { BatchShops, ShopState, SkuMode } from "./types";
+import type { BatchShops, ShopState } from "./types";
 
 export const STATE_WORDS: Record<ShopState, string> = {
   not_sent: "not sent",
@@ -23,29 +23,6 @@ export function replacePrefix(sku: string | null | undefined, from: string, to: 
   if (!old) return [add + value, true];
   if (value.toLowerCase().startsWith(old.toLowerCase())) return [add + value.slice(old.length), true];
   return [value, false];
-}
-
-/** Every listing's SKU in the target shop as the seller types (the live preview). */
-export function previewSkus(
-  rows: { content_id: string; sku_from: string | null }[],
-  mode: SkuMode,
-  from: string,
-  to: string,
-  each: Record<string, string>,
-): Record<string, { sku: string; note: string | null }> {
-  const out: Record<string, { sku: string; note: string | null }> = {};
-  for (const r of rows) {
-    const current = r.sku_from ?? "";
-    if (mode === "prefix" && (from.trim() || to.trim())) {
-      const [sku, matched] = replacePrefix(current, from, to);
-      out[r.content_id] = matched ? { sku, note: null } : { sku: current, note: `does not start with ${from.trim()}: kept as it is` };
-    } else if (mode === "each" && r.content_id in each) {
-      out[r.content_id] = { sku: each[r.content_id].trim(), note: null };
-    } else {
-      out[r.content_id] = { sku: current, note: null };
-    }
-  }
-  return out;
 }
 
 /** One shop's line on the batch page: "published 14" or "not sent". */
@@ -158,4 +135,50 @@ export function removeWordsFrom(title: string, text: string): string {
 export function replaceIn(title: string, find: string, replace: string): string {
   if (!find) return title;
   return title.replace(new RegExp(escape(find), "gi"), replace).replace(/\s{2,}/g, " ").trim();
+}
+
+// --- The batch page's shop workspace -------------------------------------------------------
+
+type WorkspaceRow = import("./types").AnotherShopPreview["rows"][number];
+
+/** The status chip's tone for a listing in the shop being worked on. */
+export function stateTone(state: ShopState): "neutral" | "working" | "done" | "attention" {
+  return state === "published" ? "done" : state === "scheduled" ? "working" : state === "drafted" ? "attention" : "neutral";
+}
+
+/** One colour per shop (by its place in the account's list), on the bar and on every row, so
+ *  it is plain which shop the edits are for. Text on these is 7:1 or more. */
+const SHOP_COLOURS = [
+  "border-sky-300 bg-sky-50 text-sky-900",
+  "border-violet-300 bg-violet-50 text-violet-900",
+  "border-amber-300 bg-amber-50 text-amber-900",
+  "border-emerald-300 bg-emerald-50 text-emerald-900",
+  "border-rose-300 bg-rose-50 text-rose-900",
+  "border-teal-300 bg-teal-50 text-teal-900",
+];
+export function shopColour(index: number): string {
+  return SHOP_COLOURS[((index % SHOP_COLOURS.length) + SHOP_COLOURS.length) % SHOP_COLOURS.length];
+}
+
+/** A row can be selected for sending: it is not in that shop yet. */
+export const selectable = (row: Pick<WorkspaceRow, "state">): boolean => row.state !== "there";
+
+/** "Send N to <shop>": what goes (profiles used, SKUs, rows with their own text) and what will
+ *  not, with why, from the server's preview of exactly those rows. */
+export function sendSummary(preview: { rows: WorkspaceRow[]; refused: string[] }, chosen: string[]) {
+  const rows = preview.rows.filter((r) => chosen.includes(r.content_id));
+  const going = rows.filter((r) => r.state === "new" && r.errors.length === 0);
+  const profiles = new Map<string, number>();
+  for (const r of going) profiles.set(r.profile_name ?? "no profile", (profiles.get(r.profile_name ?? "no profile") ?? 0) + 1);
+  const notGoing = rows
+    .filter((r) => !going.includes(r))
+    .map((r) => `${r.group_key || r.title.slice(0, 30)}: ${r.errors.length ? `Etsy would refuse its text (${r.errors[0]})` : r.reason ?? "cannot go"}`);
+  return {
+    going: going.length,
+    profiles: [...profiles.entries()],
+    skus: going.map((r) => r.sku ?? "no SKU"),
+    ownText: going.filter((r) => r.text_own.length > 0).length,
+    ownSku: going.filter((r) => r.sku_own).length,
+    notGoing: [...notGoing, ...preview.refused],
+  };
 }

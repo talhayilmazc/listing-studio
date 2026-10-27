@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { previewSkus, profileIn, profileLocked, replacePrefix, shopLine, shopsShown, skuIn, stateIn } from "./anotherShop.ts";
+import { profileIn, profileLocked, replacePrefix, shopLine, shopsShown, skuIn, stateIn } from "./anotherShop.ts";
 import type { BatchShops } from "./types.ts";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
@@ -33,16 +33,6 @@ describe("replacing a SKU prefix (the server's pipeline/shop_listing.py::replace
     assert.deepEqual(replacePrefix("XYZ7", "PCS", "ILC"), ["XYZ7", false]);
     assert.deepEqual(replacePrefix("AB1", "", "ILC"), ["ILCAB1", true]);
     assert.deepEqual(replacePrefix(null, "PCS", "ILC"), ["", false]);
-  });
-  it("previews every new SKU as it is typed, with a note where it is kept", () => {
-    const rows = [{ content_id: "a", sku_from: "PCS432" }, { content_id: "b", sku_from: "XYZ7" }];
-    assert.deepEqual(previewSkus(rows, "prefix", "PCS", "ILC", {}), {
-      a: { sku: "ILC432", note: null },
-      b: { sku: "XYZ7", note: "does not start with PCS: kept as it is" },
-    });
-    assert.equal(previewSkus(rows, "keep", "PCS", "ILC", {}).a.sku, "PCS432");
-    assert.equal(previewSkus(rows, "each", "", "", { b: " ilc10 " }).b.sku, "ilc10");
-    assert.equal(previewSkus(rows, "prefix", "", "", {}).a.sku, "PCS432"); // nothing typed yet
   });
 });
 
@@ -80,20 +70,14 @@ describe("the controls say where they apply", () => {
     assert.ok(page.includes("disabled={lockedKeys.has(g.key)}"));
     assert.ok(page.includes("Publish in another shop"));
     assert.ok(page.includes("api.setGroupSku(id, g.key, sku, inView)"));
-    assert.ok(read("components/BatchShopStatus.tsx").includes("the shop picked in the menu"));
+    assert.ok(page.includes("onClick={toWorkspace}"));
   });
   it("Update SKU on Etsy names the shop it changes", () => {
     assert.ok(read("components/SkuEditor.tsx").includes("Update SKU on Etsy in ${where}"));
   });
-  it("the review card locks the profile where the listing is on Etsy and links to the dialog", () => {
+  it("the review card locks the profile where the listing is on Etsy and links to the shop workspace", () => {
     const card = read("components/ReviewCard.tsx");
     assert.ok(card.includes("profileLocked(shopData, initial.id, inView?.id ?? null)"));
-    assert.ok(card.includes("?another=${initial.id}"));
-  });
-  it("the dialog previews every SKU and lists refused ones; it never shows request counts", () => {
-    const dialog = read("components/AnotherShopDialog.tsx");
-    assert.ok(dialog.includes("previewSkus("));
-    assert.ok(dialog.includes("another-shop-refused"));
-    assert.doesNotMatch(dialog, /Etsy requests|\d+ requests?\b/i);
+    assert.ok(card.includes("?select=${initial.id}"));
   });
 });

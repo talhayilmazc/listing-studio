@@ -38,15 +38,11 @@ describe("a listing's text in one shop", () => {
   });
 });
 
-describe("the dialog's text step and the card per shop", () => {
-  it("the dialog offers the text step after the SKUs, skippable, with the rewrite rule said first", () => {
-    const dialog = read("components/AnotherShopDialog.tsx");
-    assert.ok(dialog.indexOf(">SKUs in <") < dialog.indexOf(">Text for <"));
-    assert.ok(dialog.includes("Keep each listing&apos;s text"));
-    assert.ok(dialog.includes("texts: editText ? edits : {}"));
-    const step = read("components/ShopTextStep.tsx");
-    for (const s of ["Keep as it is", "Rewrite for this shop", "Apply to all", "draftErrors(", "<TagEditor", "{rewriteRule}"]) {
-      assert.ok(step.includes(s), s);
+describe("the workspace text editor and the card per shop", () => {
+  it("each workspace row edits its text for the shop with the card's editors and checks, and says the rewrite rule first", () => {
+    const editor = read("components/ShopTextEditor.tsx");
+    for (const s of ["Keep as it is", "Rewrite for ${shopName}", "draftErrors(", "<TagEditor", "{rewriteRule}", "follows the listing"]) {
+      assert.ok(editor.includes(s), s);
     }
   });
   it("the card edits the picked shop's text when the listing is not there yet, and says whose text it is", () => {

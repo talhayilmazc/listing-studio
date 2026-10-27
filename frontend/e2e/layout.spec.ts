@@ -444,32 +444,40 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<batch> after arranging");
   });
 
-  test("a batch published in one shop: each shop's status, the profile that stays, Publish in another shop", async ({ page }) => {
+  test("the shop workspace: the bar with counts, rows for the shop, a text editor, the bulk bar and the summary, nothing sent", async ({ page }) => {
     await page.goto("/batches");
     await settle(page);
     const link = page.locator('a[href^="/batches/"]', { hasText: "Published in Northwind" }).first();
     test.skip((await link.count()) === 0, "no published demo batch: seed-demo again");
-    await page.goto((await link.getAttribute("href"))!.replace(/\/review$/, ""));
+    const href = (await link.getAttribute("href"))!.replace(/\/review$/, "");
+    await page.goto(href);
     await settle(page);
-    const status = page.getByTestId("batch-shop-status");
-    test.skip((await status.count()) === 0, "one shop: nothing to send elsewhere");
-    await expect(status).toContainText("published");
-    await expect(page.getByTestId("batch-actions-shop")).toBeVisible();
-    await expectSound(page, "/batches/<published batch>");
-    await page.getByTestId("another-shop-open").click();
-    const dialog = page.getByTestId("another-shop-dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.getByText("Replace a prefix", { exact: true }).click();
-    await dialog.getByLabel("Prefix to replace").fill("NWT");
-    await dialog.getByLabel("New prefix").fill("JPC");
-    await expect(dialog.getByTestId("another-shop-sku").first()).toHaveText(/^JPC\d+$/, { timeout: 15_000 });
-    await expectSound(page, "/batches/<published batch> with Publish in another shop open");
-    // Its text step: every listing's title, tags and description for that shop, editable.
-    await dialog.getByText("Edit text for this shop", { exact: true }).click();
-    await expect(dialog.getByTestId("shop-text-row").first()).toBeVisible({ timeout: 15_000 });
-    await expectSound(page, "/batches/<published batch> with the text step open");
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog).toHaveCount(0);
+    const bar = page.getByTestId("shop-bar-select");
+    test.skip((await bar.count()) === 0, "one shop: nothing to send elsewhere");
+    // The bar, the sidebar and the URL follow each other.
+    await bar.selectOption({ label: "Juniper Print Co." });
+    await expect(page.getByTestId("shop-bar-counts")).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(/[?&]shop=/);
+    const rows = page.getByTestId("workspace-row");
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> working on another shop");
+    await rows.first().getByTestId("workspace-text-toggle").click();
+    await expect(rows.first().getByTestId("shop-text-editor")).toBeVisible();
+    await page.getByTestId("select-not-in-shop").click();
+    const bulk = page.getByTestId("workspace-bulk");
+    await expect(bulk).toBeVisible();
+    await bulk.getByRole("button", { name: "Bulk actions" }).click();
+    await bulk.getByLabel("SKU prefix to replace").fill("NWT");
+    await bulk.getByLabel("New SKU prefix").fill("JPC");
+    await expect(bulk.getByTestId("bulk-sku-preview")).toContainText("JPC");
+    await expectSound(page, "/batches/<published batch> with the bulk bar open");
+    await page.getByTestId("workspace-send").click();
+    await expect(page.getByTestId("workspace-summary")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("workspace-summary").getByRole("button", { name: "Back" }).click();
+    // The shop it is already in: every row locked.
+    await bar.selectOption({ label: "Northwind Tees" });
+    await expect(page.getByTestId("workspace-row-locked").first()).toBeVisible({ timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> working on the shop it is in");
   });
 
   test("a profile's Shops table opens wide, one row per shop, and closes", async ({ page }) => {

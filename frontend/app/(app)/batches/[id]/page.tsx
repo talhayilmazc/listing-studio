@@ -20,8 +20,7 @@ import { ReplaceChoice } from "@/components/ReplaceChoice";
 import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
 import { useShops } from "@/components/ShopProvider";
-import { AnotherShopDialog } from "@/components/AnotherShopDialog";
-import { BatchShopStatus } from "@/components/BatchShopStatus";
+import { ShopWorkspace, type ShopWorkspaceHandle } from "@/components/ShopWorkspace";
 import { STATE_WORDS, profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 
 import { Txt } from "@/components/Txt";
@@ -59,15 +58,17 @@ export default function BatchPage() {
   // A group waiting for the seller to confirm replacing something.
   const [confirming, setConfirming] = useState<{ key: string; kind: "regenerate" | "replace" } | null>(null);
   // The shop picked in the menu: profile and SKU changes apply there (null: every shop is shown).
-  const { shops: connected, scope } = useShops();
+  const { shops: connected, scope, select } = useShops();
   const multi = (connected?.length ?? 0) > 1;
   const inView = multi ? scope?.id ?? null : null;
   const inViewName = multi ? scope?.name ?? null : null;
   // Where each listing stands in each shop, and its SKU and profile per shop.
   const [shopData, setShopData] = useState<BatchShops | null>(null);
-  // "Publish in another shop": the listings it is for (null: all); undefined: closed.
-  const [anotherFor, setAnotherFor] = useState<string[] | null | undefined>(undefined);
+  // The shop workspace ("Working on: <shop>"): "Publish in another shop" anywhere brings it up.
+  const workspace = useRef<ShopWorkspaceHandle>(null);
+  const toWorkspace = () => workspace.current?.focus();
   const search = useSearchParams();
+  const [preselect, setPreselect] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -78,11 +79,29 @@ export default function BatchPage() {
       setError(String(e.message ?? e));
     }
   }, [id]);
-  // From a review card ("Publish in another shop"): open it for that listing.
+  // The URL names the shop worked on (?shop=) and rows to select (?select=, from a review card):
+  // the sidebar follows the URL on arrival, then the URL follows the sidebar and the bar.
+  const arrived = useRef(false);
   useEffect(() => {
-    const one = search?.get("another");
-    if (one) setAnotherFor(one === "all" ? null : [one]);
-  }, [search]);
+    if (arrived.current || !connected) return;
+    arrived.current = true;
+    const wanted = search?.get("shop");
+    if (wanted && connected.some((s) => s.id === wanted)) select(wanted);
+    const rows = search?.get("select");
+    if (rows) {
+      setPreselect(rows.split(","));
+      setTimeout(toWorkspace, 300);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
+  useEffect(() => {
+    if (!arrived.current || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (inView) url.searchParams.set("shop", inView);
+    else url.searchParams.delete("shop");
+    url.searchParams.delete("select");
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, [inView]);
 
   const loadGroups = useCallback(async () => {
     try {
@@ -455,23 +474,17 @@ export default function BatchPage() {
         </Link>
       </div>
 
-      {multi && (
-        <BatchShopStatus key="shop-status" data={shopData} inView={inView} inViewName={inViewName}
-          onAnotherShop={onEtsySomewhere ? () => setAnotherFor(null) : undefined} />
-      )}
-      {anotherFor !== undefined && connected && (
-        <AnotherShopDialog key="another-shop"
+      {multi && connected && contents.length > 0 && (
+        <ShopWorkspace key="shop-workspace" ref={workspace}
           batchId={id}
-          contentIds={anotherFor}
           shops={connected.map((s) => ({ id: s.id, name: s.name }))}
-          initialShop={inView && groups.some((g) => !profileLocked(shopData, contentOf(g), inView)) ? inView
-            : connected.find((s) => groups.some((g) => stateIn(shopData, contentOf(g), s.id) === "not_sent"))?.id ?? null}
-          onClose={() => setAnotherFor(undefined)}
-          onDone={(message) => {
-            setAnotherFor(undefined);
-            setNotice(message + " Approve or schedule them per shop on the review page, as usual.");
-            load();
-          }}
+          shopId={inView}
+          onPick={select}
+          profiles={profiles}
+          contents={contents}
+          shopData={shopData}
+          preselect={preselect}
+          onChanged={load}
         />
       )}
 
@@ -541,7 +554,7 @@ export default function BatchPage() {
                   {inView && <span key="shop" translate="no">{inViewName ?? "this shop"}</span>}
                   <span>: their profile stays. </span>
                   {multi && (
-                    <button key="offer" type="button" className="tap text-brand-700 underline" onClick={() => setAnotherFor(null)}>
+                    <button key="offer" type="button" className="tap text-brand-700 underline" onClick={toWorkspace}>
                       Publish in another shop
                     </button>
                   )}
@@ -613,7 +626,10 @@ export default function BatchPage() {
               />
               {onEtsySomewhere && (
                 <button key="another" type="button" className="btn-secondary px-3 py-1.5 text-xs" data-testid="another-shop-selected"
-                  onClick={() => setAnotherFor(groups.filter((g) => picked.includes(g.key)).map(contentOf).filter((x): x is string => !!x))}>
+                  onClick={() => {
+                    setPreselect(groups.filter((g) => picked.includes(g.key)).map(contentOf).filter((x): x is string => !!x));
+                    toWorkspace();
+                  }}>
                   Publish in another shop
                 </button>
               )}
@@ -835,7 +851,7 @@ export default function BatchPage() {
                     <span key="locked" className="text-slate-600" data-testid="group-profile-locked">
                       <span>{inView ? "Already in this shop: built with its profile. " : "Already on Etsy: built with its profile. "}</span>
                       {multi && mine[0] && (
-                        <button key="offer" type="button" className="tap text-brand-700 underline" onClick={() => setAnotherFor([mine[0].id])}>
+                        <button key="offer" type="button" className="tap text-brand-700 underline" onClick={() => { setPreselect([mine[0].id]); toWorkspace(); }}>
                           Publish in another shop
                         </button>
                       )}
