@@ -411,6 +411,7 @@ def _to_out(
         title_warnings=[str(w) for w in (content.attributes or {}).get(TITLE_WARNINGS) or []],
         shop_texts={k: schemas.ShopTextOut(**shop_listing.text_in(content, k)) for k in (content.shop_overrides or {})
                     if shop_listing.text_in(content, k)},
+        edited_for=[k for k in (content.shop_overrides or {}) if shop_listing.edited_after_approval(content, k)],
     )
 
 

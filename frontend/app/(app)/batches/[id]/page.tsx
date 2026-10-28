@@ -21,6 +21,7 @@ import { replacedNotice, type ReplaceMode } from "@/lib/replaceModes";
 import { imageLimit, leftOutNotice, limitNotice } from "@/lib/chartOrder";
 import { useShops } from "@/components/ShopProvider";
 import { ShopWorkspace, type ShopWorkspaceHandle } from "@/components/ShopWorkspace";
+import { GenerateConfirm, WrittenElsewhere } from "@/components/GenerateConfirm";
 import { STATE_WORDS, profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 
 import { Txt } from "@/components/Txt";
@@ -307,6 +308,9 @@ export default function BatchPage() {
   // batches: the page showed an error and never refreshed the cost panel while
   // the server kept generating. Group by group, every result and the cost land
   // as they happen.
+  // Said before Generate writes anything: how many listings, and what it uses of the allowance.
+  const [askGenerate, setAskGenerate] = useState<{ count: number; run: () => void } | null>(null);
+
   async function generateAll() {
     if (blockedByUnsorted) {
       setProblem(unsortedMessage(unsorted.length));
@@ -488,6 +492,12 @@ export default function BatchPage() {
         />
       )}
 
+      {askGenerate && (
+        <GenerateConfirm key="ask-generate" count={askGenerate.count} kind="new"
+          onConfirm={() => { const run = askGenerate.run; setAskGenerate(null); run(); }} onCancel={() => setAskGenerate(null)} />
+      )}
+      <WrittenElsewhere key="written-elsewhere" data={shopData} />
+
       {/* Asked once, on the upload page (B2): here the result, with "change" until anything is written. */}
       {batch.grouping_mode && uploaded.length > 0 ? (
         <GroupingResult
@@ -572,7 +582,12 @@ export default function BatchPage() {
                 />
               </label>
               <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                <button className={groups.some((g) => !g.done) ? "btn-primary" : "btn-secondary"} onClick={generateAll}
+                <button className={groups.some((g) => !g.done) ? "btn-primary" : "btn-secondary"}
+                  onClick={() => {
+                    const todo = groups.filter((g) => !g.done).length;
+                    if (todo === 0) generateAll();
+                    else setAskGenerate({ count: todo, run: generateAll });
+                  }}
                   disabled={anyBusy || noProfiles} data-testid="generate-all">
                   {busy === "__all__" ? "Generating all…" : "Generate all"}
                 </button>
@@ -754,7 +769,7 @@ export default function BatchPage() {
                       className="btn-secondary py-1 text-xs"
                       onClick={() =>
                         !g.done
-                          ? generate(g.key)
+                          ? setAskGenerate({ count: 1, run: () => generate(g.key) })
                           : approved
                             ? setConfirming({ key: g.key, kind: "regenerate" })
                             : regenerate(g, false)

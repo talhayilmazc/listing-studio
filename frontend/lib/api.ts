@@ -408,6 +408,9 @@ export const api = {
     req<{ saved: number; refused: string[] }>(`/batches/${id}/shops/${shop}/skus/check`, { method: "POST", body: JSON.stringify({ skus }) }),
   workspaceSkus: (id: string, shop: string, skus: Record<string, string>) =>
     req<{ saved: number; refused: string[] }>(`/batches/${id}/shops/${shop}/skus`, { method: "PUT", body: JSON.stringify({ skus }) }),
+  /** "Approve selected": approved, and approved for that shop (its text there edited since). */
+  workspaceApprove: (id: string, shop: string, contentIds: string[]) =>
+    req<AnotherShopPreview>(`/batches/${id}/shops/${shop}/approve`, { method: "POST", body: JSON.stringify({ content_ids: contentIds }) }),
   workspaceTexts: (id: string, shop: string, texts: NonNullable<AnotherShopRequest["texts"]>) =>
     req<WorkspaceTextRow[]>(`/batches/${id}/shops/${shop}/texts`, { method: "PUT", body: JSON.stringify({ texts }) }),
   /** The same, done: drafts in that shop; nothing changes in the others. */

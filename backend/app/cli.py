@@ -863,6 +863,13 @@ def main(argv: list[str] | None = None) -> int:
         "lists what would change, --apply changes only our records; reads only, never writes to Etsy",
     )
     reconciles.add_argument("email")
+    workspace = sub.add_parser(
+        "workspace-check",
+        help="a batch's listings as the shop workspace sees them for one shop: text and where it comes from, SKU, "
+        "profile, approval, whether it can be sent and why not, production partner; read only, no Etsy call",
+    )
+    workspace.add_argument("ref", help="the batch id, or a SKU of one of its listings")
+    workspace.add_argument("--shop", required=True, help="the shop's name")
     reconciles.add_argument("--apply", action="store_true", help="change our records (never Etsy)")
     report = sub.add_parser("sales-report", help="where an account's sales data stands (Analytics diagnosis)")
     report.add_argument("email")
@@ -1002,6 +1009,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.all_accounts == bool(args.email):
             parser.error("requeue-stuck takes an email address or --all (one of them)")
         print(asyncio.run(requeue_stuck(sm, args.email, every=args.all_accounts, apply=args.apply)))
+    elif args.command == "workspace-check":
+        from app.ops.workspace_check import run as workspace_check
+
+        print(asyncio.run(workspace_check(sm, args.ref, args.shop)))
     elif args.command == "reconcile-etsy":
         from app.ops.reconcile_etsy import run as reconcile_etsy
 

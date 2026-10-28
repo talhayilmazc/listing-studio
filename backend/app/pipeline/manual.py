@@ -80,6 +80,9 @@ def is_empty(content: Any, profile: ListingProfile | None) -> bool:
     ones" writes only these, never one the seller started."""
     if not is_manual(content) or (content.title or "").strip() or list(content.tags or []):
         return False
+    if any(isinstance(v, dict) and any(v.get(k) for k in ("title", "tags", "description"))
+           for v in (content.shop_overrides or {}).values()):
+        return False  # text typed for a shop is the seller's: never written over
     return (content.description or "") in {"", description_for(profile, "")}
 
 

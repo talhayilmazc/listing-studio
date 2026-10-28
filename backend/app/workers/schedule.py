@@ -28,7 +28,8 @@ from app.db.models import (
     Tenant,
     TenantStatus,
 )
-from app.etsy.scheduling import NOT_APPROVED, new_publish_job
+from app.etsy.scheduling import EDITED_FOR_SHOP, NOT_APPROVED, new_publish_job
+from app.pipeline import shop_listing
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +83,10 @@ async def release_scheduled_publishes(ctx: dict[str, Any]) -> dict[str, int]:
                 reason = "Not published: the shop is no longer connected."
             elif not content.approved:
                 reason = NOT_APPROVED
+            elif not shop_listing.approved_in(content, publication.connection_id):
+                reason = EDITED_FOR_SHOP
             else:
-                problem = await listing_problem(session, content)
+                problem = await listing_problem(session, content, publication.connection_id)
                 if problem:
                     reason = f"Not published: {problem}"
             if reason is not None:

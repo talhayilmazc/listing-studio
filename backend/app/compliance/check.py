@@ -6,6 +6,8 @@ and scheduled publishing (v6 §G), so they refuse for the same reasons.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,8 +32,10 @@ async def blocking_finding(session: AsyncSession, content: GeneratedContent) -> 
     return row[0] or "blocking compliance finding"
 
 
-async def listing_problem(session: AsyncSession, content: GeneratedContent) -> str | None:
-    """Why this listing cannot go to any shop (its own text), or None.
+async def listing_problem(session: AsyncSession, content: GeneratedContent, shop_id: Any = None) -> str | None:
+    """Why this listing cannot go to any shop (its own text), or None. ``shop_id``: its text
+    as it goes to that shop (pipeline/shop_listing.py::text_for: the shop's own, else the
+    listing's).
 
     Scans again first: the trademark list may have grown since the listing was
     approved, and the job that publishes it reads these findings (v6 §B).
@@ -44,12 +48,11 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent) -> s
             policy = policy_for(profile.content_template)
     # The same decision as approval: a listing the seller wrote is stopped only by
     # what Etsy refuses and the trademark filter (content.check_listing).
+    from app.pipeline import shop_listing
+
+    title, tags, description = shop_listing.text_for(content, shop_id)
     errors = check_listing(
-        GeneratedListing(
-            title=content.title or "",
-            tags=list(content.tags or []),
-            description=content.description or "",
-        ),
+        GeneratedListing(title=title, tags=tags, description=description),
         policy,
         hand_written=manual.is_manual(content),
         trademarks=await tenant_blocklist(session, content.tenant_id),

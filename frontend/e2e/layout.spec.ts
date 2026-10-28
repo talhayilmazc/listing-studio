@@ -480,6 +480,106 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<published batch> working on the shop it is in");
   });
 
+  // The sellers' real flows (production bug, 2026-10-27: a hand-written batch published in one
+  // shop read "no title yet" with "Generate the empty ones" for the next shop). Each: the batch
+  // page, the workspace for the other shop and the review page say nothing false.
+  async function noFalseAlarms(page: Page, where: string): Promise<void> {
+    const body = await page.locator("body").innerText();
+    for (const wrong of ["no title yet", "fix these first", "Generate the empty ones", "Something went wrong"]) {
+      expect(body.includes(wrong), `${where}: says "${wrong}"`).toBe(false);
+    }
+    const alerts = await page.locator('[role="alert"]:visible').allInnerTexts();
+    expect(alerts.filter((t) => t.trim()), `${where}: error banners`).toEqual([]);
+  }
+  async function openBatch(page: Page, name: string): Promise<string | null> {
+    await page.goto("/batches");
+    await settle(page);
+    const link = page.locator('a[href^="/batches/"]', { hasText: name }).first();
+    if ((await link.count()) === 0) return null;
+    const href = (await link.getAttribute("href"))!.replace(/\/review$/, "");
+    await page.goto(href);
+    await settle(page);
+    return href;
+  }
+  async function workOn(page: Page, shop: string): Promise<boolean> {
+    const bar = page.getByTestId("shop-bar-select");
+    if ((await bar.count()) === 0) return false;
+    await bar.selectOption({ label: shop });
+    await expect(page.getByTestId("workspace-row").first()).toBeVisible({ timeout: 20_000 });
+    return true;
+  }
+
+  for (const [flow, batchName] of [["a) written by hand", "Hand-written in Northwind"], ["b) written by the app", "Published in Northwind"]] as const) {
+    test(`flow ${flow}: published in the first shop, then the workspace for the next shop`, async ({ page }) => {
+      const href = await openBatch(page, batchName);
+      test.skip(href === null, "no demo batch: seed-demo again");
+      await noFalseAlarms(page, `${batchName}: batch page`);
+      test.skip(!(await workOn(page, "Juniper Print Co.")), "one shop: nothing to send elsewhere");
+      const rows = page.getByTestId("workspace-row");
+      const n = await rows.count();
+      await expect(page.getByTestId("shop-bar-counts")).toContainText(`${n} not sent`);
+      for (let i = 0; i < n; i++) {
+        await expect(rows.nth(i)).toContainText("not sent");
+        await expect(rows.nth(i).getByTestId("workspace-row-why")).toHaveCount(0); // approved, nothing stops it
+      }
+      await noFalseAlarms(page, `${batchName}: working on Juniper`);
+      // Bulk SKU prefix for that shop, checked as typed.
+      await page.getByTestId("select-not-in-shop").click();
+      const bulk = page.getByTestId("workspace-bulk");
+      await bulk.getByRole("button", { name: "Bulk actions" }).click();
+      const prefix = batchName.startsWith("Hand") ? "PCS" : "NWT";
+      await bulk.getByLabel("SKU prefix to replace").fill(prefix);
+      await bulk.getByLabel("New SKU prefix").fill("ILC");
+      await expect(bulk.getByTestId("bulk-sku-preview")).toContainText("ILC");
+      await expect(bulk.getByTestId("bulk-sku-refused")).toHaveCount(0);
+      await page.getByTestId("workspace-send").click();
+      const summary = page.getByTestId("workspace-summary");
+      await expect(summary).toBeVisible({ timeout: 15_000 });
+      await expect(summary).toContainText(`${n} draft`);
+      await expect(page.getByTestId("workspace-summary-refused")).toHaveCount(0);
+      await noFalseAlarms(page, `${batchName}: the send summary`);
+      await summary.getByRole("button", { name: "Back" }).click();
+      // The review page with that shop picked: every card approved, nothing to generate.
+      await page.goto(`${href}/review`);
+      await settle(page);
+      await expect(page.getByText(`${n} of ${n}`, { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+      await noFalseAlarms(page, `${batchName}: review page`);
+      await expect(page.getByTestId("review-next")).toHaveCount(0); // nothing left to approve
+    });
+  }
+
+  test("flow c) one listing with its own text for the next shop: approve again for that shop only", async ({ page }) => {
+    test.skip(test.info().project.name !== "desktop-1366", "changes the demo text: once per run");
+    const href = await openBatch(page, "Hand-written in Northwind");
+    test.skip(href === null, "no demo batch: seed-demo again");
+    test.skip(!(await workOn(page, "Juniper Print Co.")), "one shop: nothing to send elsewhere");
+    const first = page.getByTestId("workspace-row").first();
+    await first.getByTestId("workspace-text-toggle").click();
+    const title = first.getByLabel(/^Title in Juniper/);
+    await title.fill(`${await title.inputValue()} Juniper`.slice(0, 140));
+    await expect(first.getByTestId("workspace-row-why")).toContainText("Edited for Juniper Print Co.: approve again", { timeout: 15_000 });
+    await expect(page.getByTestId("workspace-row").nth(1).getByTestId("workspace-row-why")).toHaveCount(0);
+    await first.getByLabel(/^Select /).check();
+    await page.getByTestId("workspace-approve").click();
+    await expect(first.getByTestId("workspace-row-why")).toHaveCount(0, { timeout: 15_000 });
+    await first.getByRole("button", { name: "Keep as it is" }).click(); // back to the listing's text for the next run
+    await noFalseAlarms(page, "flow c: working on Juniper");
+  });
+
+  test("flow d) a batch never sent anywhere: the workspace for its first shop", async ({ page }) => {
+    const href = await openBatch(page, "Never sent");
+    test.skip(href === null, "no demo batch: seed-demo again");
+    await noFalseAlarms(page, "Never sent: batch page");
+    test.skip(!(await workOn(page, "Northwind Tees")), "one shop: nothing to send elsewhere");
+    const rows = page.getByTestId("workspace-row");
+    await expect(page.getByTestId("shop-bar-counts")).toContainText(`${await rows.count()} not sent`);
+    await page.getByTestId("select-not-in-shop").click();
+    await page.getByTestId("workspace-send").click();
+    await expect(page.getByTestId("workspace-summary")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("workspace-summary-refused")).toHaveCount(0);
+    await noFalseAlarms(page, "Never sent: working on Northwind");
+  });
+
   test("a profile's Shops table opens wide, one row per shop, and closes", async ({ page }) => {
     await page.goto("/profiles");
     await settle(page);

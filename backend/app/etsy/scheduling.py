@@ -31,6 +31,8 @@ MAX_AHEAD = timedelta(days=60)
 GRACE = timedelta(minutes=2)
 
 NOT_APPROVED = "Not published: the listing is no longer approved."
+#: Its text for this shop changed after it was approved (pipeline/shop_listing.py::approved_in).
+EDITED_FOR_SHOP = "Not published: its text for this shop was edited after it was approved; approve it again."
 #: A schedule this far past its time with nothing released is "missed", never "scheduled".
 MISSED_AFTER = timedelta(minutes=10)
 MISSED = ("Its time passed and it has not gone live: nothing was released for it. It goes at the next "

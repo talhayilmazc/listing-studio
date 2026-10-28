@@ -51,12 +51,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session, get_storage
-from app.api.distribution import _contents, _why_not
+from app.api.distribution import _contents
+from app.compliance.check import listing_problem
 from app.api.shops import shop_label
 from app.core import allowance, audit
 from app.db.models import (
@@ -72,7 +73,7 @@ from app.db.models import (
 from app.etsy.publisher import link_for
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops
-from app.pipeline import shop_listing, shop_targets, skus
+from app.pipeline import approval, profile_shops, shop_listing, shop_targets, skus
 from app.pipeline.storage import Storage
 from app.pipeline.targets import check_text, resolve_target
 
@@ -112,9 +113,23 @@ class ListingShopOut(BaseModel):
     profiles: dict[str, uuid.UUID] = Field(default_factory=dict)
 
 
+class WrittenElsewhere(BaseModel):
+    """Listings of this batch with no title or tags yet whose designs (same SKU) are already
+    written in another batch of the account: the seller likely uploaded them again to post
+    them in another shop. Said, so nothing is written twice."""
+
+    batch_id: uuid.UUID
+    name: str
+    count: int
+    skus: list[str]
+    #: Where those listings are on Etsy, by shop name.
+    shops: list[str] = Field(default_factory=list)
+
+
 class BatchShopsOut(BaseModel):
     shops: list[ShopStatusOut]
     listings: list[ListingShopOut]
+    written_elsewhere: list[WrittenElsewhere] = Field(default_factory=list)
 
 
 class ShopTextIn(BaseModel):
@@ -185,6 +200,11 @@ class AnotherShopRow(BaseModel):
     #: there, its listing on Etsy.
     shop_state: str = shop_listing.NOT_SENT
     listing_link: str | None = None
+    #: "Edited for <shop>, approve again": its text there changed after it was approved.
+    approval_note: str | None = None
+    #: A production partner in that shop: required (not sent until set), note (quiet), ok.
+    partner: str = shop_listing.PARTNER_OK
+    partner_profile_id: uuid.UUID | None = None
 
 
 class AnotherShopPreview(BaseModel):
@@ -305,6 +325,27 @@ def _apply_text(content: GeneratedContent, shop_id: uuid.UUID, text: ShopTextIn 
         shop_listing.set_override(content, shop_id, **{name: None if value == own[name] else value})
 
 
+async def _why_not_here(session: AsyncSession, content: GeneratedContent, shop: EtsyConnection,
+                        profile: ListingProfile | None, row: AnotherShopRow) -> str | None:
+    """Why this listing cannot go to that shop now: not approved (or edited for that shop since),
+    its files gone, its text there (the shop's own, else the listing's) refused, or a production
+    partner Etsy requires. None: it can go."""
+    if not content.approved:
+        return "not approved yet"
+    if row.approval_note:
+        return row.approval_note
+    asset = await session.get(Asset, content.asset_id)
+    if asset is not None and asset.files_removed_at is not None:
+        return "its image files were deleted after the retention period"
+    problem = await listing_problem(session, content, shop.id)
+    if problem:
+        return problem
+    if row.partner == shop_listing.PARTNER_REQUIRED:
+        return (f'Etsy refuses a listing made by someone else without a production partner: set a production partner '
+                f'on profile "{profile.name if profile else "its profile"}"')
+    return None
+
+
 async def _profile_there(
     session: AsyncSession, content: GeneratedContent, shop_id: uuid.UUID, chosen: ListingProfile | None
 ) -> ListingProfile | None:
@@ -376,7 +417,7 @@ async def _work(
                              sku=current, state="new")
         rows.append(row)
         row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
-        row.approved, row.shop_state = bool(content.approved), state
+        row.approved, row.shop_state = shop_listing.approved_in(content, shop.id), state
         row.profile_id = shop_listing.profile_in(content, shop.id)
         row.sku_own = shop_listing.sku_override(content, shop.id) is not None
         row.text_own = sorted(shop_listing.text_in(content, shop.id))
@@ -395,7 +436,15 @@ async def _work(
         row.profile_name = profile.name if profile is not None else None
         check = await check_text(session, content, profile, row.title, row.tags, row.description)
         row.errors, row.warnings = list(check.errors), list(check.warnings)
-        why = await _why_not(session, content)
+        if row.errors:
+            text_problems += 1  # said whatever else stops it (approval, files, partner)
+        row.approved = shop_listing.approved_in(content, shop.id)
+        if shop_listing.edited_after_approval(content, shop.id):
+            row.approval_note = f"Edited for {shop_label(shop)}: approve again"
+        link = await profile_shops.link_for(session, profile, shop.id) if profile is not None else None
+        row.partner = shop_listing.partner_state(profile, link)
+        row.partner_profile_id = profile.id if profile is not None and row.partner != shop_listing.PARTNER_OK else None
+        why = await _why_not_here(session, content, shop, profile, row)
         if why:
             row.state, row.reason = "cannot", why
             continue
@@ -419,7 +468,6 @@ async def _work(
         row.profile_id = shop_listing.profile_in(content, shop.id)
         row.sku_own = shop_listing.sku_override(content, shop.id) is not None
         if row.errors:
-            text_problems += 1
             continue
         target = await resolve_target(session, content, shop)
         from app.api.publish import auto_setup
@@ -481,7 +529,43 @@ async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_s
             skus={str(s.id): shop_listing.sku_in(content, base, s.id) for s in shops},
             profiles={str(s.id): p for s in shops if (p := shop_listing.profile_in(content, s.id)) is not None},
         ))
-    return BatchShopsOut(shops=out_shops, listings=listings)
+    return BatchShopsOut(shops=out_shops, listings=listings,
+                         written_elsewhere=await _written_elsewhere(session, tenant, batch, contents, assets))
+
+
+async def _written_elsewhere(session: AsyncSession, tenant: Tenant, batch: UploadBatch, contents: list[GeneratedContent],
+                             assets: dict[uuid.UUID, Asset]) -> list[WrittenElsewhere]:
+    from app.pipeline.batch_names import names_by_id
+
+    empty = {}
+    for c in contents:
+        asset = assets.get(c.asset_id)
+        title, tags, _ = shop_listing.text_for(c, None)
+        if asset is not None and asset.parsed_sku and not title.strip() and not tags:
+            empty[asset.parsed_sku.strip().casefold()] = asset.parsed_sku
+    if not empty:
+        return []
+    rows = (await session.execute(
+        select(GeneratedContent, Asset).join(Asset, Asset.id == GeneratedContent.asset_id).where(
+            GeneratedContent.tenant_id == tenant.id, GeneratedContent.batch_id != batch.id,
+            func.lower(Asset.parsed_sku).in_(list(empty))))).all()
+    found: dict[uuid.UUID, dict[str, str]] = {}
+    ids: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for content, asset in rows:
+        if (content.title or "").strip():
+            found.setdefault(content.batch_id, {})[asset.parsed_sku.strip().casefold()] = asset.parsed_sku
+            ids.setdefault(content.batch_id, []).append(content.id)
+    if not found:
+        return []
+    names = await names_by_id(session, list(found))
+    shops = {s.id: shop_label(s) for s in await active_shops(session, tenant.id)}
+    out = []
+    for batch_id, skus_there in found.items():
+        on = {p.connection_id for p in (await session.execute(select(ListingPublication).where(
+            ListingPublication.content_id.in_(ids[batch_id]), ListingPublication.state != "deleted_on_etsy"))).scalars()}
+        out.append(WrittenElsewhere(batch_id=batch_id, name=names.get(batch_id) or "another batch", count=len(skus_there),
+                                    skus=sorted(skus_there.values())[:5], shops=sorted(shops[s] for s in on if s in shops)))
+    return sorted(out, key=lambda w: -w.count)
 
 
 @router.post("/batches/{batch_id}/another-shop/preview", response_model=AnotherShopPreview)
@@ -517,7 +601,8 @@ async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncS
     request = schemas.PublishRequest.model_construct(targets=None, content_ids=None, pairs=pairs)
     result = await _publish(session, tenant, quota, enqueuer, [c for c, _ in going], request)
     await session.commit()
-    message = f"Creating {_plural(len(result.jobs), 'draft')} in {shop_label(shop)}. Nothing changed in your other shops."
+    name = shop_label(shop)
+    message = f"Creating {_plural(len(result.jobs), 'draft')} in {name}{'' if name.endswith('.') else '.'} Nothing changed in your other shops."
     return AnotherShopOut(jobs=result.jobs, skipped=result.skipped, message=message)
 
 
@@ -776,3 +861,27 @@ async def _rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, shop
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), AnotherShopIn(connection_id=shop_id))
     await session.rollback()
     return preview
+
+
+class WorkspaceApproveIn(BaseModel):
+    content_ids: list[uuid.UUID] = Field(min_length=1, max_length=2000)
+
+
+@router.post("/batches/{batch_id}/shops/{connection_id}/approve", response_model=AnotherShopPreview)
+async def workspace_approve(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceApproveIn,
+                            session: AsyncSession = Depends(get_session),
+                            tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
+    """"Approve selected" in the workspace: each listing approved (if it was not) and approved for
+    that shop (its text there edited since approval). A listing whose text for that shop Etsy
+    would refuse is left as it is; its row says why."""
+    shop, contents, _ = await _open_rows(session, tenant, batch_id, connection_id, body.content_ids)
+    for content in contents:
+        title, tags, description = shop_listing.text_for(content, shop.id)
+        check = await check_text(session, content, await _profile_there(session, content, shop.id, None), title, tags, description)
+        if check.errors:
+            continue
+        if not content.approved:
+            approval.set_approved(content, True, via=approval.VIA_CARD)
+        shop_listing.approve_in(content, shop.id)
+    await session.commit()
+    return await _rows(session, tenant, batch_id, shop.id)

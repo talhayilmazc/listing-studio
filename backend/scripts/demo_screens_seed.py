@@ -187,6 +187,28 @@ async def main():
             s.add(c); await s.flush()
             s.add(ListingPublication(tenant_id=t.id, content_id=c.id, connection_id=shops[0].id, etsy_listing_id=7200 + n,
                                      state="active", profile_id=prof.id, title=title, sku=code, published_at=now - timedelta(days=1)))
+        # The sellers' flows the layout run walks every time (frontend/e2e/layout.spec.ts):
+        # a batch written by hand, approved and published in the first shop; and one never sent.
+        for bname, source, published, codes in (("Hand-written in Northwind", "manual", True, ("PCS417", "PCS418", "PCS419")),
+                                                ("Never sent", "ai", False, ("NEW501", "NEW502", "NEW503"))):
+            fb = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name=bname)
+            s.add(fb); await s.flush()
+            for n, code in enumerate(codes):
+                _sku, art, title, tags = DESIGNS[n + 2]
+                key = f"demo-shots/{fb.id}/{code}-front.jpg"
+                storage.put(key, jpg(art, "front"), "image/jpeg")
+                a = Asset(batch_id=fb.id, tenant_id=t.id, original_filename=f"{code}/front.jpg", storage_key=key, processed_key=key,
+                          status=AssetStatus.processed, rank=1, group_key=code, parsed_sku=code, mime_type="image/jpeg", width=1000, height=1250)
+                s.add(a)
+                prof = profs[("Northwind Tees", "Standard Tee")]
+                s.add(ListingGroupSetting(tenant_id=t.id, batch_id=fb.id, group_key=code, connection_id=shops[0].id, profile_id=prof.id, manual=True))
+                await s.flush()
+                c = GeneratedContent(tenant_id=t.id, batch_id=fb.id, asset_id=a.id, approved=True, approved_at=now - timedelta(days=2),
+                                     listing_profile_id=prof.id, source=source, title=title, tags=tags, description=REF.split("\n\n", 1)[1])
+                s.add(c); await s.flush()
+                if published:
+                    s.add(ListingPublication(tenant_id=t.id, content_id=c.id, connection_id=shops[0].id, etsy_listing_id=7300 + n,
+                                             state="active", profile_id=prof.id, title=title, sku=code, published_at=now - timedelta(days=1)))
         for n in range(12):
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,

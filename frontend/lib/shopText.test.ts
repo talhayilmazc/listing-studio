@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { addTagsTo, addWordsTo, removeTagsFrom, removeWordsFrom, replaceIn, textFor } from "./anotherShop.ts";
+import { addTagsTo, addWordsTo, removeTagsFrom, removeWordsFrom, replaceIn } from "./anotherShop.ts";
+import { textFor } from "./review.ts";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const read = (path: string) => readFileSync(join(root, path), "utf8");

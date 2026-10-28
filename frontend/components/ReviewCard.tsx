@@ -29,7 +29,8 @@ import { ShopBadge } from "./ShopPicker";
 import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
-import { profileIn, profileLocked, skuIn, textFor } from "@/lib/anotherShop";
+import { profileIn, profileLocked, skuIn } from "@/lib/anotherShop";
+import { textFor } from "@/lib/review";
 import type { BatchShops } from "@/lib/types";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { personalizationLine } from "@/lib/personalization";
@@ -554,7 +555,12 @@ export function ReviewCard({
                   <span key="shop">
                     <span className="font-medium">Editing text for </span>
                     <span className="font-medium" translate="no">{textShop.name}</span>
-                    <span>. The listing&apos;s own text, and the shops it is already in, stay as they are.</span>
+                    <span>: the listing&apos;s own text, and the shops it is already in, stay as they are.</span>
+                    {(initial.edited_for ?? []).includes(textShop.id) && (
+                      <span key="again" className="mt-1 block font-medium text-amber-900" data-testid="card-approve-again">
+                        <span translate="no">{`Edited for ${textShop.name}: approve again.`}</span>
+                      </span>
+                    )}
                   </span>
                 ) : inView ? (
                   <span key="in">

@@ -26,6 +26,7 @@ import { waitForJob } from "@/lib/jobs";
 import { applyChange, cardKey, emptyHandWritten, needsById, pendingManualSteps, reviewActions } from "@/lib/review";
 import { anyUnsaved, flushAll } from "@/lib/cardSave";
 import { ReviewCard } from "@/components/ReviewCard";
+import { GenerateConfirm, WrittenElsewhere } from "@/components/GenerateConfirm";
 import { useShops } from "@/components/ShopProvider";
 import { stateIn } from "@/lib/anotherShop";
 
@@ -248,14 +249,17 @@ export default function ReviewPage() {
 
   // "Generate the empty ones": only hand-written listings nothing was typed into, one
   // group at a time (as the batch page writes), counted as Generate counts.
-  const empties = emptyHandWritten(items ?? []);
+  const empties = emptyHandWritten(items ?? [], inView?.id ?? null);
   const [writing, setWriting] = useState<{ done: number; total: number } | null>(null);
+  // Said before anything is written: how many, and what it uses of the allowance.
+  const [askEmpty, setAskEmpty] = useState(false);
   async function generateEmpty() {
+    setAskEmpty(false);
     setBusy(true);
     setError(null);
     try {
       await flushAll(); // a card being typed into is not empty any more: the server sees it
-      const keys = emptyHandWritten(items ?? []);
+      const keys = emptyHandWritten(items ?? [], inView?.id ?? null);
       setWriting({ done: 0, total: keys.length });
       const failed: string[] = [];
       for (const [n, key] of keys.entries()) {
@@ -334,7 +338,7 @@ export default function ReviewPage() {
             {/* Each action appears when it has work, from the listings as they are now; the next
                 step is the one primary action (approve, then draft, then publish). */}
             {empties.length > 0 && (
-              <button key="generate-empty" className="btn-secondary" onClick={generateEmpty} disabled={busy} data-testid="generate-empty"
+              <button key="generate-empty" className="btn-secondary" onClick={() => setAskEmpty(true)} disabled={busy} data-testid="generate-empty"
                 title="Write the listings that have no title or tags yet with AI; listings you typed into are left as they are">
                 <span translate="no">{writing ? `Writing ${writing.done} of ${writing.total}…` : `Generate the empty ones (${empties.length})`}</span>
               </button>
@@ -370,12 +374,17 @@ export default function ReviewPage() {
         />
       )}
 
+      {askEmpty && empties.length > 0 && (
+        <GenerateConfirm key="ask-empty" count={empties.length} kind="rewrite" onConfirm={generateEmpty} onCancel={() => setAskEmpty(false)} />
+      )}
+      <WrittenElsewhere key="written-elsewhere" data={shopData} />
       {productionNotes.length > 0 && (
-        // Said once per profile, linking to it (it used to be a large box on every listing card).
-        <ul key="production-notes" className="space-y-1 text-xs text-amber-900" data-testid="production-notes">
+        // Said once per profile, quietly: a note, not a problem (it stops nothing). Etsy refuses
+        // only a listing made by someone else with no partner; that is stopped where it is sent.
+        <ul key="production-notes" className="space-y-1 text-xs text-slate-600" data-testid="production-notes">
           {productionNotes.map((p) => (
             <li key={p.id}>
-              <span translate="no">{`No production partner on the profile "${p.name}" (${p.count} listing${p.count === 1 ? "" : "s"}). `}</span>
+              <span translate="no">{`Note: the profile "${p.name}" names no production partner (${p.count} listing${p.count === 1 ? "" : "s"}); only needed if a partner makes these items. `}</span>
               <Link href={`/profiles#profile-${p.id}`} className="tap text-brand-700 underline">Open the profile</Link>
             </li>
           ))}
@@ -442,7 +451,7 @@ export default function ReviewPage() {
             </ul>
           )}
           {(approveResult.problems ?? []).some((p) => p.line.includes("no title yet")) && empties.length > 0 && (
-            <button key="generate-empty-here" type="button" className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={generateEmpty} disabled={busy}>
+            <button key="generate-empty-here" type="button" className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={() => setAskEmpty(true)} disabled={busy}>
               <span translate="no">{`Generate the empty ones (${empties.length})`}</span>
             </button>
           )}

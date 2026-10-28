@@ -23,6 +23,8 @@ import { StatusChip } from "./StatusChip";
 
 import { Txt } from "@/components/Txt";
 type Row = AnotherShopPreview["rows"][number];
+/** A shop name ending a sentence: one full stop, even for "Juniper Print Co.". */
+const said = (name: string) => (name.endsWith(".") ? name : `${name}.`);
 interface Shop {
   id: string;
   name: string;
@@ -205,7 +207,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
         <BulkBar key="bulk" batchId={batchId} shop={shop} rows={rows.filter((r) => chosen.includes(r.content_id))}
           profiles={shopProfiles} rewriteRule={preview?.rewrite_rule ?? ""} busy={busy} run={run}
           unapproved={unapproved}
-          onApprove={() => run(async () => { for (const id of unapproved) await api.approve(id, true); }, `Approved ${unapproved.length}.`)}
+          onApprove={() => run(() => api.workspaceApprove(batchId, shop.id, unapproved), `Approved ${unapproved.length} for ${said(shop.name)}`)}
           onSend={openSummary} />
       )}
 
@@ -316,7 +318,17 @@ function WorkspaceRow({
             <p key="tf" className="text-slate-500 sm:col-span-full">Text follows the listing.</p>
           )}
           {row.state === "cannot" && (
-            <p key="why" className="text-amber-800 sm:col-span-full" translate="no">{`Not sent: ${row.reason}`}</p>
+            <p key="why" className="text-amber-800 sm:col-span-full" data-testid="workspace-row-why">
+              <span translate="no">{`Not sent: ${row.reason}`}</span>
+              {row.partner === "required" && row.partner_profile_id && (
+                <a key="profile" href={`/profiles#profile-${row.partner_profile_id}`} className="tap ml-2 text-brand-700 underline">Open the profile</a>
+              )}
+            </p>
+          )}
+          {row.partner === "note" && (
+            <p key="partner" className="text-slate-500 sm:col-span-full" translate="no">
+              {`Note: ${row.profile_name ?? "its profile"} names no production partner; only needed if a partner makes it.`}
+            </p>
           )}
           {row.errors.length > 0 && !textOpen && (
             <p key="err" role="alert" className="text-rose-700 sm:col-span-full" translate="no">{`Etsy would refuse its text: ${row.errors[0]}`}</p>
@@ -333,7 +345,7 @@ function WorkspaceRow({
                   const res = await api.anotherShopRewrite(batchId, { connection_id: shop.id, content_ids: [row.content_id] });
                   const why = res.rows.find((x) => x.reason)?.reason;
                   if (why) throw new Error(why);
-                }, `Rewritten for ${shop.name}.`)}
+                }, `Rewritten for ${said(shop.name)}`)}
               />
             </div>
           )}
@@ -488,7 +500,7 @@ function BulkBar({
                   onClick={() => { setAsking(false); run(async () => {
                     const res = await api.anotherShopRewrite(batchId, { connection_id: shop.id, content_ids: ids });
                     return res;
-                  }, `Rewritten for ${shop.name}.`); }}>
+                  }, `Rewritten for ${said(shop.name)}`); }}>
                   <span translate="no">{`Rewrite ${rows.length}`}</span>
                 </button>
                 <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setAsking(false)}>Not now</button>
@@ -512,7 +524,7 @@ function SendSummary({ summary, chosen, shop, busy, onCancel, onSend }: {
   const s = sendSummary(summary, chosen);
   return (
     <div role="alertdialog" aria-label={`Send to ${shop.name}`} className="card space-y-2 border-2 border-brand-300 p-4 text-sm" data-testid="workspace-summary">
-      <p className="font-medium text-slate-900" translate="no">{`${s.going} draft${s.going === 1 ? "" : "s"} in ${shop.name}. Nothing changes in your other shops.`}</p>
+      <p className="font-medium text-slate-900" translate="no">{`${s.going} draft${s.going === 1 ? "" : "s"} in ${said(shop.name)} Nothing changes in your other shops.`}</p>
       <ul className="list-disc space-y-0.5 pl-5 text-xs text-slate-700" translate="no">
         <li>{`Profiles: ${s.profiles.map(([name, n]) => `${name} (${n})`).join(", ") || "none"}`}</li>
         <li>{`SKUs: ${s.skus.slice(0, 8).join(", ")}${s.skus.length > 8 ? ` and ${s.skus.length - 8} more` : ""}${s.ownSku ? ` (${s.ownSku} with a SKU of their own for ${shop.name})` : ""}`}</li>

@@ -31,12 +31,17 @@ async def test_the_shops_own_text_goes_to_its_draft_and_nowhere_else(tmp_path, t
     a, batch, two = w["client"], w["batch"], w["shops"][1]
     c = [str(x) for x in w["contents"]]
     first = await _first_shop_rows(w)
-    body = {"connection_id": str(two), "texts": {c[0]: {"title": SHOP_TITLE, "tags": SHOP_TAGS}}}
+    # Saved for that shop (the workspace), then approved there: edited after approval asks again.
+    saved = await a.put(f"/api/batches/{batch}/shops/{two}/texts", json={"texts": {c[0]: {"title": SHOP_TITLE, "tags": SHOP_TAGS}}})
+    assert saved.status_code == 200, saved.text
+    body = {"connection_id": str(two)}
     preview = (await a.post(f"/api/batches/{batch}/another-shop/preview", json=body)).json()
     row = preview["rows"][0]
     assert row["title"] == SHOP_TITLE and row["tags"] == SHOP_TAGS and row["own_text"] is True
     assert row["errors"] == [] and row["warnings"], row  # 3 tags: a note, never a stop
-    assert preview["rows"][1]["own_text"] is False and preview["disabled"] is None
+    assert row["approval_note"] == "Edited for Shop 02: approve again" and row["state"] == "cannot"
+    assert preview["rows"][1]["own_text"] is False
+    await a.post(f"/api/batches/{batch}/shops/{two}/approve", json={"content_ids": [c[0]]})
     res = await a.post(f"/api/batches/{batch}/another-shop", json=body)
     assert res.status_code == 200, res.text
     await _run_drafts(w, [j["job_id"] for j in res.json()["jobs"]])

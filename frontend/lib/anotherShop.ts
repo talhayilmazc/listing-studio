@@ -75,29 +75,9 @@ export function profileIn(data: BatchShops | null, contentId: string | null | un
 
 // --- Text for the target shop (the dialog's text step, the review card per shop) --------------
 
-export interface ShopText {
-  title: string;
-  tags: string[];
-  description: string;
-}
-
-/** A listing's text as it goes to a shop: that shop's own fields, else the listing's. */
-export function textFor(
-  content: {
-    title: string | null;
-    tags: string[] | null;
-    description: string | null;
-    shop_texts?: Record<string, { title?: string | null; tags?: string[] | null; description?: string | null }>;
-  },
-  shopId: string | null,
-): ShopText {
-  const own = (shopId && content.shop_texts?.[shopId]) || {};
-  return {
-    title: own.title ?? content.title ?? "",
-    tags: own.tags ?? content.tags ?? [],
-    description: own.description ?? content.description ?? "",
-  };
-}
+// The effective text per shop is lib/review.ts::textFor (one helper; kept there so modules with
+// no runtime imports can use it under the test runner).
+export type { ShopText } from "./review";
 
 const words = (text: string): string[] => text.split(",").map((w) => w.trim()).filter(Boolean);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

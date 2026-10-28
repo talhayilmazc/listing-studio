@@ -325,6 +325,8 @@ class ContentOut(BaseModel):
     #: Shop id -> this listing's own text there ("Publish in another shop", or the card edited
     #: while that shop was shown).
     shop_texts: dict[str, ShopTextOut] = Field(default_factory=dict)
+    #: Shops whose text for this listing was edited after it was approved ("approve again").
+    edited_for: list[str] = Field(default_factory=list)
 
 
 class CheckOut(BaseModel):

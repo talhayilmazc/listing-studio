@@ -14,6 +14,17 @@ own title keeps the listing's tags).
 
 Nothing here changes a listing already on Etsy in a shop: what is there is edited on Etsy
 (or with "Update SKU on Etsy", which names the shop it changes).
+
+**One rule for a listing's text in a shop** (production bug, 2026-10-27): :func:`text_for` is
+the only answer to "what title, tags and description does this listing have in that shop": the
+shop's own field if it has one, else the listing's own. Every reader uses it: the workspace
+rows, its send summary and the send, the draft (pipeline/targets.py), the review card, the
+go-live check, "Generate the empty ones" and ``workspace-check``.
+
+**One rule for approval in a shop** (:func:`approved_in`): a listing approved once is approved
+for every shop, unless its text for that shop was edited after it was approved; then that shop
+says "Edited for <shop>, approve again" until the seller approves it there (``approve_in``) or
+approves the listing again.
 """
 
 from __future__ import annotations
@@ -21,6 +32,8 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 from typing import Any
+
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +52,9 @@ OPEN_SLOTS = ("waiting", "drafting", "scheduled")
 _KEEP: Any = object()
 #: The text fields a shop can have its own of.
 TEXT_FIELDS = ("title", "tags", "description")
+#: When this shop's text was last changed, and when the listing was approved for this shop.
+TEXT_EDITED_AT = "text_edited_at"
+SHOP_APPROVED_AT = "approved_at"
 
 
 def entry(content: GeneratedContent, shop_id: uuid.UUID | str) -> dict[str, Any]:
@@ -100,6 +116,7 @@ def set_override(
             mine.pop("sku", None)
         else:
             mine["sku"] = str(sku)
+    before_text = {k: mine.get(k) for k in TEXT_FIELDS}
     for name, value in (("title", title), ("tags", tags), ("description", description)):
         if value is _KEEP:
             continue
@@ -107,11 +124,90 @@ def set_override(
             mine.pop(name, None)
         else:
             mine[name] = [str(t) for t in value] if name == "tags" else str(value)
+    if not any(k in mine for k in TEXT_FIELDS):
+        mine.pop(TEXT_EDITED_AT, None)  # back to the listing's text: its approval holds
+        mine.pop(SHOP_APPROVED_AT, None)
+    elif {k: mine.get(k) for k in TEXT_FIELDS} != before_text:
+        mine[TEXT_EDITED_AT] = datetime.now(timezone.utc).isoformat()
     if mine:
         stored[str(shop_id)] = mine
     else:
         stored.pop(str(shop_id), None)
     content.shop_overrides = stored or None  # a new value: JSON changes are seen
+
+
+def _when(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        at = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
+def edited_after_approval(content: GeneratedContent, shop_id: uuid.UUID | str) -> bool:
+    """The listing is approved, but its text for this shop changed after that (and was not
+    approved there since): that shop needs it approved again."""
+    if not content.approved:
+        return False
+    mine = entry(content, shop_id)
+    edited = _when(mine.get(TEXT_EDITED_AT))
+    if edited is None:
+        return False
+    approved = [a for a in (_when(content.approved_at.isoformat() if content.approved_at else None),
+                            _when(mine.get(SHOP_APPROVED_AT))) if a is not None]
+    return not approved or max(approved) < edited
+
+
+def approved_in(content: GeneratedContent, shop_id: uuid.UUID | str) -> bool:
+    """Approved for this shop: approved once, and its text there not edited since."""
+    return bool(content.approved) and not edited_after_approval(content, shop_id)
+
+
+def approve_in(content: GeneratedContent, shop_id: uuid.UUID | str) -> None:
+    """The seller approved this listing for this shop ("Approve selected" in the workspace).
+    Only kept when the shop has text of its own (otherwise the listing's approval answers)."""
+    stored = {k: dict(v) for k, v in (content.shop_overrides or {}).items() if isinstance(v, dict)}
+    mine = stored.get(str(shop_id))
+    if not mine or not any(k in mine for k in TEXT_FIELDS):
+        return
+    mine[SHOP_APPROVED_AT] = datetime.now(timezone.utc).isoformat()
+    content.shop_overrides = stored
+
+
+def text_source(content: GeneratedContent, shop_id: uuid.UUID | str | None) -> dict[str, str]:
+    """Where each text field comes from in this shop: "shop" (its own) or "listing"."""
+    own = text_in(content, shop_id) if shop_id is not None else {}
+    return {name: "shop" if name in own else "listing" for name in TEXT_FIELDS}
+
+
+#: A production partner in a shop: needed (Etsy refuses a listing made by someone else without
+#: one), a quiet note (a print-on-demand looking profile names none), or fine.
+PARTNER_REQUIRED = "required"
+PARTNER_NOTE = "note"
+PARTNER_OK = "ok"
+
+
+def partner_state(profile: Any, link: Any = None) -> str:
+    """Whether a draft built with ``profile`` in a shop needs a production partner.
+
+    Etsy's rule as the draft path applies it (etsy/publisher.py: ``production_partner_ids``
+    is required only when ``who_made`` is "someone_else"): such a profile with no partner in
+    that shop (its main shop: the reference's; another shop: the ones linked there) is refused,
+    so it is stopped before anything is sent. A print-on-demand looking profile that names no
+    partner, the seller having said they make it, is only a note (pipeline/creativity.py).
+    """
+    from app.pipeline import creativity
+
+    if profile is None:
+        return PARTNER_OK
+    payload = getattr(profile, "cached_payload", None) or {}
+    partners = (link.production_partner_ids if link is not None and getattr(link, "connection_id", None) != profile.connection_id
+                else payload.get("production_partner_ids"))
+    if payload.get("who_made") == "someone_else" and not partners:
+        return PARTNER_REQUIRED
+    return PARTNER_NOTE if creativity.production_note(profile) else PARTNER_OK
 
 
 def replace_prefix(sku: str | None, old: str, new: str) -> tuple[str, bool]:

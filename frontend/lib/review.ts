@@ -86,9 +86,14 @@ export function pendingManualSteps(
  * into yet (no title, no tags). The server checks each again (its description must
  * still be the profile's) and never writes over one the seller started.
  */
-export function emptyHandWritten(items: Content[]): string[] {
+export function emptyHandWritten(items: Content[], shopId: string | null = null): string[] {
   const keys = items
-    .filter((c) => c.source === "manual" && !(c.title ?? "").trim() && (c.tags ?? []).length === 0 && c.publications.length === 0)
+    .filter((c) => {
+      // The one rule for its text in a shop (lib/anotherShop.ts::textFor, the server's text_for).
+      const t = textFor(c, shopId);
+      const typedForAShop = Object.values(c.shop_texts ?? {}).some((x) => (x.title ?? "").trim() || (x.tags ?? []).length || (x.description ?? "").trim());
+      return c.source === "manual" && !t.title.trim() && t.tags.length === 0 && c.publications.length === 0 && !typedForAShop;
+    })
     .map((c) => c.group_key ?? "");
   return [...new Set(keys)];
 }
@@ -98,4 +103,30 @@ export function needsById(result: { skipped: { content_id: string; reasons?: str
   const out: Record<string, string[]> = {};
   for (const s of result?.skipped ?? []) out[s.content_id] = s.reasons?.length ? s.reasons : [s.reason];
   return out;
+}
+
+// --- A listing's text in one shop: the one rule (the server's pipeline/shop_listing.py::text_for) ---
+
+export interface ShopText {
+  title: string;
+  tags: string[];
+  description: string;
+}
+
+/** A listing's text as it goes to a shop: that shop's own fields, else the listing's. */
+export function textFor(
+  content: {
+    title: string | null;
+    tags: string[] | null;
+    description: string | null;
+    shop_texts?: Record<string, { title?: string | null; tags?: string[] | null; description?: string | null }>;
+  },
+  shopId: string | null,
+): ShopText {
+  const own = (shopId && content.shop_texts?.[shopId]) || {};
+  return {
+    title: own.title ?? content.title ?? "",
+    tags: own.tags ?? content.tags ?? [],
+    description: own.description ?? content.description ?? "",
+  };
 }

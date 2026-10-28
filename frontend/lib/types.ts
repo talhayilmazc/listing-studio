@@ -177,6 +177,8 @@ export interface Finding {
 export interface Content {
   /** Shop id -> this listing's own text there (a field not here follows the listing). */
   shop_texts?: Record<string, { title?: string | null; tags?: string[] | null; description?: string | null }>;
+  /** Shops whose text for this listing was edited after it was approved ("approve again"). */
+  edited_for?: string[];
   id: string;
   asset_id: string;
   /** The cover the title and tags were written from; differs from asset_id once the cover changed. */
@@ -2273,6 +2275,8 @@ export interface BatchShops {
     /** Shop id -> the profile chosen for it in that shop only. */
     profiles: Record<string, string>;
   }[];
+  /** Listings here with no title yet whose designs are already written in another batch. */
+  written_elsewhere?: { batch_id: string; name: string; count: number; skus: string[]; shops: string[] }[];
 }
 
 export type SkuMode = "keep" | "prefix" | "each";
@@ -2321,6 +2325,11 @@ export interface AnotherShopPreview {
     approved: boolean;
     shop_state: ShopState;
     listing_link: string | null;
+    /** "Edited for <shop>: approve again": its text there changed after it was approved. */
+    approval_note: string | null;
+    /** A production partner in that shop: required (not sent until set), note (quiet), ok. */
+    partner: "ok" | "note" | "required";
+    partner_profile_id: string | null;
   }[];
   /** SKUs refused, one line each; while any is listed nothing can be sent. */
   refused: string[];
