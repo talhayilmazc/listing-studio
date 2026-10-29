@@ -713,6 +713,7 @@ export default function BatchPage() {
                     compact
                     value={skuIn(shopData, mine[0]?.id, inView, g.sku)}
                     contentId={mine[0]?.id ?? null}
+                    batchId={id}
                     shopId={inView}
                     shopName={inViewName}
                     save={(sku) => api.setGroupSku(id, g.key, sku, inView)}

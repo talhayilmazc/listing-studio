@@ -536,6 +536,7 @@ export function ReviewCard({
             <SkuEditor
               value={skuIn(shopData, initial.id, inView?.id ?? null, sku)}
               contentId={initial.id}
+              batchId={batchId ?? null}
               shopId={inView?.id ?? null}
               shopName={inView?.name ?? null}
               save={(next) => api.setListingSku(initial.id, next, inView?.id ?? null)}

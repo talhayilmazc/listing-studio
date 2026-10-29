@@ -868,6 +868,20 @@ def main(argv: list[str] | None = None) -> int:
         help="a batch's listings as the shop workspace sees them for one shop: text and where it comes from, SKU, "
         "profile, approval, whether it can be sent and why not, production partner; read only, no Etsy call",
     )
+    sku_hist = sub.add_parser(
+        "sku-history",
+        help="every SKU written to Etsy for an account since a time: shop, listing id, old -> new, time and trigger; "
+        "read only, no Etsy call",
+    )
+    sku_hist.add_argument("email")
+    sku_hist.add_argument("--since", required=True, help="2026-10-28 or 2026-10-28T09:30 (UTC unless +03:00 is given)")
+    sku_rest = sub.add_parser(
+        "sku-restore",
+        help="write back the old SKU for SKU writes on Etsy NOT triggered by the seller's click; dry run unless --apply",
+    )
+    sku_rest.add_argument("email")
+    sku_rest.add_argument("--since", required=True, help="2026-10-28 or 2026-10-28T09:30 (UTC unless +03:00 is given)")
+    sku_rest.add_argument("--apply", action="store_true", help="queue the SKU jobs (through the queue and rate limiter)")
     workspace.add_argument("ref", help="the batch id, or a SKU of one of its listings")
     workspace.add_argument("--shop", required=True, help="the shop's name")
     reconciles.add_argument("--apply", action="store_true", help="change our records (never Etsy)")
@@ -1009,6 +1023,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.all_accounts == bool(args.email):
             parser.error("requeue-stuck takes an email address or --all (one of them)")
         print(asyncio.run(requeue_stuck(sm, args.email, every=args.all_accounts, apply=args.apply)))
+    elif args.command in ("sku-history", "sku-restore"):
+        from app.ops import sku_history
+
+        since = sku_history.parse_since(args.since)
+        if args.command == "sku-history":
+            print(asyncio.run(sku_history.history(sm, args.email, since)), end="")
+        else:
+            print(asyncio.run(sku_history.restore(sm, args.email, since, apply=args.apply)), end="")
     elif args.command == "workspace-check":
         from app.ops.workspace_check import run as workspace_check
 

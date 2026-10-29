@@ -36,8 +36,9 @@ from app.workers.profiles import (
 REQUESTS_PER_SHOP = 3
 
 
-def update_spec(publication_id: uuid.UUID | str, sku: str) -> str:
-    return json.dumps({"publication_id": str(publication_id), "sku": sku})
+def update_spec(publication_id: uuid.UUID | str, sku: str, trigger: str) -> str:
+    """``trigger``: who asked (api/skus.py ``seller_click``; ``restore`` from the sku-restore CLI)."""
+    return json.dumps({"publication_id": str(publication_id), "sku": sku, "trigger": trigger})
 
 
 def writable_inventory(inventory: dict[str, Any], new_skus: list[str]) -> dict[str, Any]:
@@ -113,6 +114,7 @@ async def _update(ctx: dict[str, Any], wanted: dict[str, Any]) -> str:
         await versions.sku_changed(session, publication, datetime.now(timezone.utc), sku)
         audit.record(session, "listing.sku_changed", actor=tenant, target_tenant_id=publication.tenant_id,
                      on_etsy=True, publication_id=str(publication.id), shop_id=str(connection.id),
-                     etsy_listing_id=listing_id, sku_from=before, sku_to=sku)
+                     etsy_listing_id=listing_id, sku_from=before, sku_to=sku,
+                     etsy_skus_from=current, trigger=wanted.get("trigger") or "unrecorded")
         await session.commit()
         return f"sku:{len(new)}"

@@ -159,13 +159,26 @@ async def test_after_drafts_exist_nothing_goes_to_etsy_until_the_seller_presses_
     assert sorted(e["shop_name"] for e in res["etsy"]) == ["Shop A", "Shop B"]
     assert all("requests" not in e for e in res["etsy"])  # request counts are for admins only (A3)
     assert not w["queue"].calls  # nothing sent by editing
-    plan = (await client.post(f"/api/content/{w['content']}/sku/etsy", json={})).json()
-    assert plan["queued"] is False and "requests" not in plan and not w["queue"].calls  # request counts are for admins only (A3)
-    done = (await client.post(f"/api/content/{w['content']}/sku/etsy", json={"confirm": True})).json()
-    assert done["queued"] is True
+    # The check is one read for the whole batch, never a POST; nothing is queued by it.
+    check = (await client.get(f"/api/batches/{w['batch']}/sku-etsy")).json()
+    [listing] = check["listings"]
+    assert listing["content_id"] == str(w["content"]) and {s["sku"] for s in listing["shops"]} == {"CC7002"}
+    assert all("requests" not in e for e in listing["shops"]) and not w["queue"].calls
+    # A POST without the click's confirmation and the shops it named is refused; nothing sent.
+    for body in ({}, {"confirm": False}, {"confirm": True}, {"connection_ids": [str(w["a"]), str(w["b"])]}):
+        refused = await client.post(f"/api/content/{w['content']}/sku/etsy", json=body)
+        assert refused.status_code == 422 and "Nothing was sent to Etsy" in refused.json()["detail"]
+    assert not w["queue"].calls
+    done = (await client.post(f"/api/content/{w['content']}/sku/etsy",
+                              json={"confirm": True, "connection_ids": [str(w["a"]), str(w["b"])]})).json()
+    assert done["queued"] is True and "requests" not in done
     jobs = [c for c in w["queue"].calls if c[0] == "update_sku_on_etsy"]
     assert sorted(json.loads(c[1][0])["publication_id"] for c in jobs) == sorted(str(p) for p in w["pubs"])
     assert {json.loads(c[1][0])["sku"] for c in jobs} == {"CC7002"}
+    assert {json.loads(c[1][0])["trigger"] for c in jobs} == {"seller_click"}
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        asked = (await s.execute(select(AuditLog).where(AuditLog.action == "listing.sku_etsy_requested"))).scalars().all()
+    assert len(asked) == 2 and {a.details["trigger"] for a in asked} == {"seller_click"}
     # One shop only, when asked.
     w["queue"].calls.clear()
     await client.post(f"/api/content/{w['content']}/sku/etsy", json={"confirm": True, "connection_ids": [str(w["b"])]})
@@ -198,7 +211,9 @@ async def test_another_account_gets_404(client: AsyncClient) -> None:  # noqa: F
         await s.commit()
     assert (await client.put(f"/api/batches/{batch.id}/groups/sku", json={"group_key": "ZZ1", "sku": "MINE1"})).status_code == 404
     assert (await client.put(f"/api/content/{theirs.id}/sku", json={"sku": "MINE1"})).status_code == 404
-    assert (await client.post(f"/api/content/{theirs.id}/sku/etsy", json={"confirm": True})).status_code == 404
+    assert (await client.post(f"/api/content/{theirs.id}/sku/etsy",
+                              json={"confirm": True, "connection_ids": [str(w["a"])]})).status_code == 404
+    assert (await client.get(f"/api/batches/{batch.id}/sku-etsy")).status_code == 404
     assert (await client.post(f"/api/batches/{batch.id}/sku", json={"content_ids": [str(theirs.id)], "suffix": "-X"})).status_code == 404
     res = (await client.post(f"/api/batches/{w['batch']}/sku", json={"content_ids": [str(theirs.id)], "suffix": "-X"})).json()
     assert res["updated"] == 0
@@ -247,7 +262,7 @@ async def test_updating_on_etsy_changes_only_the_sku_keeps_the_pattern_and_recor
     monkeypatch.setattr(jobs, "_resolve_shop_id", shop_id)
     monkeypatch.setattr(jobs, "_run_gated", gated)
     ctx = {"sessionmaker": client.sm}  # type: ignore[attr-defined]
-    assert await jobs.update_sku_on_etsy(ctx, jobs.update_spec(w["pubs"][0], "CC7001")) == "sku:2"
+    assert await jobs.update_sku_on_etsy(ctx, jobs.update_spec(w["pubs"][0], "CC7001", "seller_click")) == "sku:2"
     sent = written[0]
     assert [p["sku"] for p in sent["products"]] == ["CC7001-S", "CC7001-M"]
     assert [p["offerings"][0]["price"] for p in sent["products"]] == [25.99, 27.99]
@@ -259,6 +274,7 @@ async def test_updating_on_etsy_changes_only_the_sku_keeps_the_pattern_and_recor
         audit = (await s.execute(select(AuditLog).where(AuditLog.action == "listing.sku_changed"))).scalars().one()
     assert pub.sku == "CC7001" and (version.sku, version.reason) == ("CC7001", "sku_edited")
     assert audit.details["on_etsy"] is True and audit.details["sku_from"] == "BR5229"
+    assert audit.details["trigger"] == "seller_click" and audit.details["etsy_skus_from"] == ["BR5229-S", "BR5229-M"]
 
     # Etsy keeps something else: said, and the record is not changed.
     class Lossy(Etsy):
@@ -267,6 +283,57 @@ async def test_updating_on_etsy_changes_only_the_sku_keeps_the_pattern_and_recor
 
     monkeypatch.setattr(jobs, "_build_client", lambda *a, **k: Lossy())
     with pytest.raises(ValueError, match="did not keep the SKU"):
-        await jobs.update_sku_on_etsy(ctx, jobs.update_spec(w["pubs"][1], "CC7001"))
+        await jobs.update_sku_on_etsy(ctx, jobs.update_spec(w["pubs"][1], "CC7001", "seller_click"))
     async with client.sm() as s:  # type: ignore[attr-defined]
         assert (await s.get(ListingPublication, w["pubs"][1])).sku == "BR5229"
+
+
+# --- sku-history and sku-restore (ops/sku_history.py) ------------------------------------------------
+
+
+async def test_sku_history_lists_every_write_with_its_trigger_and_restore_touches_only_non_clicks(client: AsyncClient) -> None:  # noqa: F811
+    from datetime import datetime, timedelta, timezone
+
+    from app.ops import sku_history
+
+    w = await _world(client)
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+    # A click: "Update it" with the shops named, then the worker's record of what Etsy kept.
+    await client.post(f"/api/content/{w['content']}/sku/etsy", json={"confirm": True, "connection_ids": [str(w["a"])]})
+    await client.put(f"/api/content/{w['content']}/sku", json={"sku": "CC7002"})
+    tid = client.tenant_id  # type: ignore[attr-defined]
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        email = (await s.get(Tenant, tid)).email
+        s.add_all([
+            AuditLog(action="listing.sku_changed", target_tenant_id=tid, details={
+                "on_etsy": True, "publication_id": str(w["pubs"][0]), "shop_id": str(w["a"]), "etsy_listing_id": 5001,
+                "sku_from": "BR5229", "sku_to": "CC7002", "trigger": "seller_click"}),
+            # Recorded before triggers were: shown as an inferred click, never restored.
+            AuditLog(action="listing.sku_changed", target_tenant_id=tid, details={
+                "on_etsy": True, "publication_id": str(w["pubs"][1]), "shop_id": str(w["b"]), "etsy_listing_id": 5002,
+                "sku_from": "BR5229", "sku_to": "OLD1"}),
+            # Synthetic: a write no click asked for (none exists in the code; the CLI must still find it).
+            AuditLog(action="listing.sku_changed", target_tenant_id=tid, details={
+                "on_etsy": True, "publication_id": str(w["pubs"][1]), "shop_id": str(w["b"]), "etsy_listing_id": 5002,
+                "sku_from": "OLD1", "sku_to": "AUTO9", "trigger": "automatic"}),
+        ])
+        await s.commit()
+    report = await sku_history.history(client.sm, email, since)  # type: ignore[attr-defined]
+    assert "SKUs written to Etsy: 3" in report
+    assert "Shop A · Etsy listing 5001 · BR5229 → CC7002 · trigger: seller_click" in report
+    assert "Shop B · Etsy listing 5002 · BR5229 → OLD1 · trigger: seller_click (inferred" in report
+    assert "OLD1 → AUTO9 · trigger: automatic" in report
+    assert "nothing written after it (failed or still queued): 0" in report  # the click's request matched its write
+    assert "SKU changes in Listyro only (never sent to Etsy): 1" in report
+
+    w["queue"].calls.clear()
+    dry = await sku_history.restore(client.sm, email, since)  # type: ignore[attr-defined]
+    assert "dry run" in dry and "to restore (not triggered by a click): 1" in dry
+    assert "Etsy listing 5002 · now AUTO9 → back to OLD1 · trigger was automatic" in dry and not w["queue"].calls
+    done = await sku_history.restore(client.sm, email, since, apply=True, enqueue=w["queue"].enqueue)  # type: ignore[attr-defined]
+    assert "queued 1 SKU job(s)" in done
+    [(function, args)] = w["queue"].calls
+    assert function == "update_sku_on_etsy"
+    assert json.loads(args[0]) == {"publication_id": str(w["pubs"][1]), "sku": "OLD1", "trigger": "restore"}
+    # Read only: history writes nothing; another account's email names nothing.
+    assert "no account" in await sku_history.history(client.sm, "nobody@example.com", since)  # type: ignore[attr-defined]

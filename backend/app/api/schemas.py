@@ -1448,6 +1448,8 @@ class EtsySkuUpdate(BaseModel):
     shop_name: str | None = None
     etsy_listing_id: int
     current_sku: str | None = None
+    #: The SKU it should have in that shop (what "Update SKU on Etsy" would write).
+    sku: str | None = None
     #: Etsy requests updating it there takes.
     requests: int = Field(default=3, exclude=True)  # Etsy request count: never sent to sellers (A3); admins see it
 
@@ -1480,10 +1482,26 @@ class SkuBulkOut(BaseModel):
 
 
 class SkuEtsyRequest(BaseModel):
-    #: Only these shops; empty = every shop whose draft has another SKU.
+    """Sent only by the "Update it" button of the confirmation that names the shops and the
+    number of listings (components/SkuEditor.tsx). Without ``confirm`` and the shops named it
+    is refused: checking which drafts differ is ``GET /batches/{id}/sku-etsy``."""
+
+    #: The shops the confirmation named; required.
     connection_ids: list[uuid.UUID] = Field(default_factory=list)
-    #: Nothing is sent until the seller confirms.
+    #: The seller pressed "Update it"; required.
     confirm: bool = False
+
+
+class SkuOnEtsyListing(BaseModel):
+    content_id: uuid.UUID
+    #: Its drafts on Etsy whose SKU differs from the one it should have in their shop.
+    shops: list[EtsySkuUpdate] = Field(default_factory=list)
+
+
+class SkuOnEtsyOut(BaseModel):
+    """``GET /batches/{id}/sku-etsy``: one read for the whole page, never one per row."""
+
+    listings: list[SkuOnEtsyListing] = Field(default_factory=list)
 
 
 class SkuEtsyOut(BaseModel):

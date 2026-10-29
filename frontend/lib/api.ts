@@ -3,6 +3,7 @@ import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import { UNREACHABLE, messageFor } from "./apiErrors";
 import { shareInFlight } from "./inFlight";
+import type { SkuOnEtsy } from "./skuOnEtsy";
 import type {
   AnotherShopPreview,
   AnotherShopRequest,
@@ -470,11 +471,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  /** Without ``confirm`` it only says which shops and what it costs. */
-  updateSkuOnEtsy: (contentId: string, confirm = false, connectionIds: string[] = []) =>
-    req<{ queued: boolean; sku: string; shops: SkuResult["etsy"]; requests: number }>(`/content/${contentId}/sku/etsy`, {
+  /** Which drafts of the batch carry another SKU on Etsy: one read for the page (lib/skuOnEtsy.ts). */
+  skuOnEtsy: (batchId: string) => req<SkuOnEtsy>(`/batches/${batchId}/sku-etsy`),
+  /** Only "Update it" in the confirmation sends this; the server refuses it without the shops named. */
+  updateSkuOnEtsy: (contentId: string, connectionIds: string[]) =>
+    req<{ queued: boolean; sku: string; shops: SkuResult["etsy"] }>(`/content/${contentId}/sku/etsy`, {
       method: "POST",
-      body: JSON.stringify({ confirm, connection_ids: connectionIds }),
+      body: JSON.stringify({ confirm: true, connection_ids: connectionIds }),
     }),
   /** Nothing is created unless ``confirm``. */
   createSection: (connectionId: string, title: string, contentIds: string[], confirm = false) =>

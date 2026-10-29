@@ -1,15 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
 import type { SkuResult } from "@/lib/types";
 import { SKU_MAX, skuProblem } from "@/lib/skus";
+import { confirmText, skuStore, type SkuDraft } from "@/lib/skuOnEtsy";
+
+/** One read per batch for every SKU editor on the page (lib/skuOnEtsy.ts). */
+const store = skuStore((batchId) => api.skuOnEtsy(batchId));
+const NONE: SkuDraft[] = [];
 
 /**
  * A listing's SKU, prefilled from the file or folder name. Checked against Etsy's
  * rules as it is typed; another listing in the same shop with it is a warning.
  * Once drafts exist on Etsy, a changed SKU shows "Update SKU on Etsy", naming the shop it
- * changes; nothing is sent until the seller presses it.
+ * changes; nothing is sent until the seller presses it and then "Update it" in the
+ * confirmation that names the shops and how many listings change. Which drafts differ comes
+ * from one cached read for the whole batch, never a request per editor.
  *
  * A SKU belongs to a listing in a shop: with a shop picked in the menu (``shopId``), the SKU
  * shown and saved is that shop's (once the listing is on Etsy in another shop, its SKU there
@@ -19,6 +26,7 @@ export function SkuEditor({
   value,
   save,
   contentId,
+  batchId = null,
   compact = false,
   onSaved,
   shopId = null,
@@ -29,6 +37,8 @@ export function SkuEditor({
   save: (sku: string) => Promise<SkuResult>;
   /** The listing written for it, when there is one (for updating drafts on Etsy). */
   contentId?: string | null;
+  /** Its batch: which drafts differ is read once per batch. */
+  batchId?: string | null;
   compact?: boolean;
   onSaved?: (result: SkuResult) => void;
   /** The shop picked in the menu; null: every shop is shown. */
@@ -42,24 +52,23 @@ export function SkuEditor({
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
-  // Drafts on Etsy whose SKU differs from this one (asked, never sent, until "Update it").
-  const [drafts, setDrafts] = useState<SkuResult["etsy"]>([]);
+  // Drafts on Etsy whose SKU differs from this one (read once per batch; never sent until "Update it").
+  const known = useSyncExternalStore(
+    store.subscribe,
+    () => (batchId && contentId ? store.drafts(batchId, contentId) : NONE),
+    () => NONE,
+  );
+  useEffect(() => {
+    if (batchId && contentId) void store.ensure(batchId);
+  }, [batchId, contentId]);
+  const [saved, setSaved] = useState<SkuDraft[] | null>(null);
+  const drafts = saved ?? known;
   useEffect(() => {
     setSku(value ?? "");
     // Changed elsewhere (e.g. "Set SKU for selected"): the last save's notes no longer apply.
     setResult((r) => (r && r.sku !== value ? null : r));
+    setSaved(null);
   }, [value]);
-  useEffect(() => {
-    if (!contentId) return;
-    let live = true;
-    api
-      .updateSkuOnEtsy(contentId, false, shopId ? [shopId] : [])
-      .then((res) => live && setDrafts(res.shops))
-      .catch(() => live && setDrafts([]));
-    return () => {
-      live = false;
-    };
-  }, [contentId, value, shopId]);
   const problem = skuProblem(sku);
 
   async function submit() {
@@ -70,7 +79,8 @@ export function SkuEditor({
     try {
       const res = await save(sku.trim());
       setResult(res);
-      setDrafts(res.etsy);
+      setSaved(res.etsy);
+      if (batchId) void store.forget(batchId);
       setEditing(false);
       onSaved?.(res);
     } catch (e: any) {
@@ -85,8 +95,9 @@ export function SkuEditor({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.updateSkuOnEtsy(contentId, true, etsy.map((s) => s.connection_id));
+      const res = await api.updateSkuOnEtsy(contentId, etsy.map((s) => s.connection_id));
       setAsking(false);
+      if (batchId) void store.forget(batchId);
       setSent(
         res.queued
           ? `Updating the SKU on Etsy in ${res.shops.map((s) => s.shop_name ?? "a shop").join(", ")}.`
@@ -164,7 +175,7 @@ export function SkuEditor({
           ) : (
             <div key="confirm" role="alertdialog" aria-label="Update SKU on Etsy" className="mt-2 space-y-2">
               <p>
-                <span translate="no">{`Only the SKU changes, in ${where}; prices, quantities and variations stay.`}</span>
+                <span translate="no" data-testid="sku-confirm-text">{confirmText(etsy)}</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn-primary px-3 py-1.5 text-xs" onClick={updateOnEtsy} disabled={busy}>

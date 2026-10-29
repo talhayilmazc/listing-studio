@@ -275,7 +275,7 @@ function WorkspaceRow({
             <a key="link" href={row.listing_link} target="_blank" rel="noreferrer" className="tap text-brand-700 underline">View on Etsy</a>
           )}
           <span>Edited on Etsy: profile and text there stay as they are.</span>
-          <SkuEditor compact value={row.sku} contentId={row.content_id} shopId={shop.id} shopName={shop.name}
+          <SkuEditor compact value={row.sku} contentId={row.content_id} batchId={batchId} shopId={shop.id} shopName={shop.name}
             save={(next) => api.setGroupSku(batchId, row.group_key, next, shop.id)} onSaved={() => reload()} />
         </div>
       ) : (
