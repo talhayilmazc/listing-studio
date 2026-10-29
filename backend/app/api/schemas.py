@@ -539,6 +539,13 @@ class BulkPersonalization(BaseModel):
 
 class ApproveUpdate(BaseModel):
     approved: bool
+    #: The shop in view: approving also approves its text there (edited for it since approval).
+    connection_id: uuid.UUID | None = None
+
+
+class ApproveAllRequest(BaseModel):
+    #: The shop in view: every listing whose text for it changed since approval is approved there too.
+    connection_id: uuid.UUID | None = None
 
 
 class ApproveSkipped(BaseModel):
@@ -560,6 +567,8 @@ class ApproveGroup(BaseModel):
 class ApproveAllResult(BaseModel):
     approved: int = 0  # newly approved now
     already_approved: int = 0
+    #: Already approved listings approved again for the shop in view (their text there changed).
+    approved_for_shop: int = 0
     skipped: list[ApproveSkipped] = Field(default_factory=list)  # failed validation
     #: One line for the whole result (pipeline/approval.py); None when nothing was skipped.
     summary: str | None = None

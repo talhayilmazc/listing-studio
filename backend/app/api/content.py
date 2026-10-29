@@ -704,6 +704,7 @@ async def approve_content(
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
+    shop = await _shop_in_view(session, tenant, body.connection_id)
     await rescan(session, content)
     validation = await _validation(session, content)
     if body.approved and not validation.valid:
@@ -711,7 +712,13 @@ async def approve_content(
             status_code=422,
             detail={"message": "cannot approve invalid content", "errors": validation.errors},
         )
+    if body.approved and shop is not None:
+        errors = await _shop_text_errors(session, content, shop)
+        if errors:
+            raise HTTPException(status_code=422, detail={"message": "cannot approve invalid content", "errors": errors})
     approval.set_approved(content, body.approved, approval.VIA_CARD)
+    if body.approved and shop is not None:
+        shop_listing.approve_in(content, shop)
     if not body.approved:
         # A schedule is the seller's confirmation of an approved listing (v6 §G):
         # withdrawing the approval withdraws its schedules.
@@ -724,18 +731,46 @@ async def approve_content(
     )
 
 
+async def _shop_in_view(session: AsyncSession, tenant: Tenant, shop_id: uuid.UUID | None) -> uuid.UUID | None:
+    if shop_id is None:
+        return None
+    from app.etsy.shops import owned_shop
+
+    if await owned_shop(session, tenant.id, shop_id) is None:
+        raise HTTPException(status_code=404, detail="shop not found")
+    return shop_id
+
+
+async def _shop_text_errors(session: AsyncSession, content: GeneratedContent, shop_id: uuid.UUID) -> list[str]:
+    """What Etsy would refuse in this listing's text for that shop (its own there, else the
+    listing's: shop_listing.text_for); empty when the shop has no text of its own."""
+    if not shop_listing.text_in(content, shop_id):
+        return []
+    from app.pipeline.targets import check_text
+
+    profile_id = shop_listing.profile_in(content, shop_id) or content.listing_profile_id
+    profile = await session.get(ListingProfile, profile_id) if profile_id else None
+    title, tags, description = shop_listing.text_for(content, shop_id)
+    return list((await check_text(session, content, profile, title, tags, description)).errors)
+
+
 @router.post("/batches/{batch_id}/approve-all", response_model=schemas.ApproveAllResult)
 async def approve_all(
     batch_id: uuid.UUID,
+    body: schemas.ApproveAllRequest | None = None,
     session: AsyncSession = Depends(get_session),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ApproveAllResult:
     """'Approve all' (docs/duzeltmeler-v6.md §D): every listing in the batch that
     passes validation, exactly as approving it one by one would. The ones that do
-    not pass are left unapproved and reported with the reason."""
+    not pass are left unapproved and reported with the reason. With the shop in view
+    (``connection_id``), each listing is approved for that shop too: one whose text there
+    changed after it was approved ("Edited for <shop>: approve again") is approved there,
+    so the send summary never stays stuck on it (production, 2026-10-28)."""
     batch = await session.get(UploadBatch, batch_id)
     if batch is None or batch.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="batch not found")
+    shop = await _shop_in_view(session, tenant, body.connection_id if body else None)
     rows = await session.execute(
         select(GeneratedContent, Asset)
         .join(Asset, Asset.id == GeneratedContent.asset_id)
@@ -746,11 +781,23 @@ async def approve_all(
     refused: list[tuple[uuid.UUID, bool, list[str]]] = []
     noted: list[tuple[uuid.UUID, bool, list[str]]] = []
     for content, asset in rows.all():
+        shop_errors = await _shop_text_errors(session, content, shop) if shop is not None else []
         if content.approved:
             result.already_approved += 1
+            if shop is not None and shop_listing.edited_after_approval(content, shop):
+                if shop_errors:
+                    result.skipped.append(schemas.ApproveSkipped(
+                        content_id=content.id, original_filename=asset.original_filename, reason="; ".join(shop_errors),
+                        reasons=list(dict.fromkeys(approval.short(e) for e in shop_errors))))
+                    refused.append((content.id, manual.is_manual(content), shop_errors))
+                else:
+                    shop_listing.approve_in(content, shop)
+                    result.approved_for_shop += 1
             continue
         await rescan(session, content)
         validation = await _validation(session, content)
+        if validation.valid and shop_errors:
+            validation = schemas.ValidationInfo(valid=False, errors=shop_errors, warnings=validation.warnings)
         hand_written = manual.is_manual(content)
         if not validation.valid:
             result.skipped.append(
@@ -766,6 +813,8 @@ async def approve_all(
         if validation.warnings:
             noted.append((content.id, hand_written, validation.warnings))
         approval.set_approved(content, True, approval.VIA_APPROVE_ALL)
+        if shop is not None:
+            shop_listing.approve_in(content, shop)
         result.approved += 1
     await session.commit()
     # One line per reason with how many, not the same long list for every listing.

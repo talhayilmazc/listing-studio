@@ -394,8 +394,9 @@ export const api = {
   /** Where the batch's listings stand in each shop, and their SKU and profile per shop. */
   batchShops: (id: string) => req<BatchShops>(`/batches/${id}/shops`),
   /** "Publish in another shop": what it would do (nothing is kept). */
-  anotherShopPreview: (id: string, body: AnotherShopRequest) =>
-    req<AnotherShopPreview>(`/batches/${id}/another-shop/preview`, { method: "POST", body: JSON.stringify(body) }),
+  /** The workspace's rows for one shop; with ``contentIds``, the send summary for those. A read. */
+  workspaceRows: (id: string, shopId: string, contentIds: string[] = []) =>
+    req<AnotherShopPreview>(`/batches/${id}/shops/${shopId}/rows${contentIds.length ? "?" + contentIds.map((c) => `content_ids=${c}`).join("&") : ""}`),
   /** "Rewrite for this shop": kept as that shop's text; a rewrite of the design (allowance rule). */
   anotherShopRewrite: (id: string, body: { connection_id: string; content_ids: string[]; profile_id?: string | null }) =>
     req<RewriteResult>(`/batches/${id}/another-shop/rewrite`, { method: "POST", body: JSON.stringify(body) }),
@@ -701,15 +702,16 @@ export const api = {
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */
   previewChecklist: (id: string, body: Partial<Pick<Content, "title" | "tags" | "description">>) =>
     req<Checklist>(`/content/${id}/checklist`, { method: "POST", body: JSON.stringify(body) }),
-  approve: (id: string, approved: boolean) =>
+  /** With the shop in view, approving also approves its text there. */
+  approve: (id: string, approved: boolean, shopId: string | null = null) =>
     req<ContentUpdateResult>(`/content/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ approved }),
+      body: JSON.stringify({ approved, connection_id: shopId }),
     }),
   /** With `shop`, also that shop's share of today's requests (display only). */
   /** Approve every listing in the batch that passes validation; the rest are listed with why. */
-  approveAll: (batchId: string) =>
-    req<ApproveAllResult>(`/batches/${batchId}/approve-all`, { method: "POST" }),
+  approveAll: (batchId: string, shopId: string | null = null) =>
+    req<ApproveAllResult>(`/batches/${batchId}/approve-all`, { method: "POST", body: JSON.stringify({ connection_id: shopId }) }),
   /** Scheduled go-lives, soonest first (v6 §G). */
   // --- The Scheduled page (B8) ---
   scheduled: () => req<ScheduledData>("/scheduled"),

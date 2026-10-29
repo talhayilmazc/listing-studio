@@ -1331,6 +1331,8 @@ export interface ApproveGroup {
 export interface ApproveAllResult {
   approved: number;
   already_approved: number;
+  /** Already approved, approved again for the shop in view (their text there changed). */
+  approved_for_shop?: number;
   /** ``reasons``: the same, short, as the card shows it ("needs a title"). */
   skipped: { content_id: string; original_filename: string; reason: string; reasons?: string[] }[];
   /** One line for the whole result; null when nothing was skipped. */

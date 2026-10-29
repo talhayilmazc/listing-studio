@@ -310,10 +310,23 @@ export function ReviewCard({
   async function toggleApprove() {
     if (!(await saveNow())) return; // approving what is on the card, never older text
     try {
-      const res = await api.approve(initial.id, !approved);
+      const res = await api.approve(initial.id, !approved, textShop?.id ?? null);
       setApproved(res.content.approved);
       onChange?.({ id: initial.id, approved: res.content.approved });
       setMessage(res.content.approved ? "Approved" : "Approval cleared");
+    } catch (e: any) {
+      setMessage(approveError(e.message ?? String(e)));
+    }
+  }
+
+  // "Edited for <shop>: approve again": approves its text there; the listing stays approved.
+  async function approveForShop() {
+    if (!textShop || !(await saveNow())) return;
+    try {
+      const res = await api.approve(initial.id, true, textShop.id);
+      setApproved(res.content.approved);
+      onChange?.({ id: initial.id, approved: res.content.approved, edited_for: res.content.edited_for });
+      setMessage(`Approved for ${textShop.name}`);
     } catch (e: any) {
       setMessage(approveError(e.message ?? String(e)));
     }
@@ -558,8 +571,11 @@ export function ReviewCard({
                     <span className="font-medium" translate="no">{textShop.name}</span>
                     <span>: the listing&apos;s own text, and the shops it is already in, stay as they are.</span>
                     {(initial.edited_for ?? []).includes(textShop.id) && (
-                      <span key="again" className="mt-1 block font-medium text-amber-900" data-testid="card-approve-again">
+                      <span key="again" className="mt-1 flex flex-wrap items-center gap-2 font-medium text-amber-900" data-testid="card-approve-again">
                         <span translate="no">{`Edited for ${textShop.name}: approve again.`}</span>
+                        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={approveForShop} data-testid="card-approve-for-shop">
+                          <span translate="no">{`Approve for ${textShop.name}`}</span>
+                        </button>
                       </span>
                     )}
                   </span>

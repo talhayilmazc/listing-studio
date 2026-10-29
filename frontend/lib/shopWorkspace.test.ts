@@ -35,6 +35,21 @@ describe("the send summary", () => {
     assert.equal(s.ownSku, 1);
     assert.deepEqual(s.notGoing, ["PCS12: not approved yet", "PCS13: Etsy would refuse its text (tag has characters Etsy does not allow)"]);
   });
+  it("offers to approve, in one click, the rows stopped only by approval for this shop (never a dead end)", () => {
+    const rows = [
+      row({ content_id: "a", state: "cannot", reason: "Edited for ILC: approve again", approved: false }),
+      row({ content_id: "b", state: "cannot", reason: "not approved yet", approved: false }),
+      row({ content_id: "c", state: "cannot", reason: "not approved yet", approved: false, errors: ["title is empty"] }),
+      row({ content_id: "d" }),
+    ];
+    const s = sendSummary({ rows, refused: [] }, ["a", "b", "c", "d"]);
+    assert.deepEqual(s.toApprove, ["a", "b"]); // the one Etsy would refuse is fixed first, not approved
+    assert.equal(s.going, 1);
+    assert.equal(s.notGoing.length, 3);
+    const ws = read("components/ShopWorkspace.tsx");
+    for (const t of ["Approve these ${s.toApprove.length} for ${shop.name}", "Approve them for ${shop.name} first",
+      "Nothing here can go yet: see why above"]) assert.ok(ws.includes(t), t);
+  });
   it("lists SKUs the shop already uses", () => {
     assert.deepEqual(sendSummary({ rows: [row({})], refused: ["X1 (PCS10) is already used in ILC by listing 5."] }, ["x"]).notGoing,
       ["X1 (PCS10) is already used in ILC by listing 5."]);
@@ -90,7 +105,8 @@ describe("the workspace", () => {
     }
   });
   it("the summary comes first, then the drafts, then that shop's Where and when for the rows sent", () => {
-    assert.ok(ws.includes("api.anotherShopPreview(batchId, { connection_id: shopId, content_ids: chosen"));
+    assert.ok(ws.includes("api.workspaceRows(batchId, shopId, chosen)")); // a read, never POST another-shop/preview
+    assert.ok(!ws.includes("anotherShopPreview"));
     assert.ok(ws.includes("api.anotherShop(batchId, { connection_id: shopId, content_ids: ids"));
     assert.ok(ws.includes("api.sendPreview(batchId, when, when === \"spread\" ? schedule : null, only)"));
     assert.ok(ws.includes("Keep as drafts"));

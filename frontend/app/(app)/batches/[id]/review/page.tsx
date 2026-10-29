@@ -218,7 +218,7 @@ export default function ReviewPage() {
     try {
       // Every card saves what is typed on it first: approval reads the saved text.
       await flushAll();
-      setApproveResult(await api.approveAll(id));
+      setApproveResult(await api.approveAll(id, inView?.id ?? null));
       load();
     } catch (e: any) {
       setError(e.message ?? String(e));
@@ -296,6 +296,7 @@ export default function ReviewPage() {
   );
 
   const actions = reviewActions(items ?? [], chosenShops);
+  const editedHere = inView ? (items ?? []).filter((c) => c.approved && (c.edited_for ?? []).includes(inView.id)).length : 0;
   // Settings Etsy's API cannot make, still to be set on the drafts in Shop Manager.
   const manual = pendingManualSteps(items ?? []);
   const [marking, setMarking] = useState(false);
@@ -346,6 +347,12 @@ export default function ReviewPage() {
             {actions.approved < items.length && (
               <button key="button-225-12" className="btn-primary" onClick={approveAll} disabled={busy} data-testid="review-next">
                 <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
+              </button>
+            )}
+            {actions.approved === items.length && inView && editedHere > 0 && (
+              // Approved, but their text for the shop in view changed since: one click, never a dead end.
+              <button key="approve-shop" className="btn-secondary" onClick={approveAll} disabled={busy} data-testid="review-approve-shop">
+                <span translate="no">{`Approve again for ${inView.name} (${editedHere})`}</span>
               </button>
             )}
             {actions.toPublish > 0 && (
@@ -412,6 +419,8 @@ export default function ReviewPage() {
               <span><span>Approved </span><span>{approveResult.approved}</span>
               <Txt>{approveResult.already_approved > 0 &&
                 ` · ${approveResult.already_approved} already approved`}</Txt>
+              <Txt>{(approveResult.approved_for_shop ?? 0) > 0 && inView &&
+                ` · ${approveResult.approved_for_shop} approved again for ${inView.name}`}</Txt>
               <Txt>{approveResult.skipped.length > 0 &&
                 ` · ${approveResult.skipped.length} not approved, fix these first:`}</Txt></span>
             </p>

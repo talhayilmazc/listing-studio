@@ -49,7 +49,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -573,6 +573,19 @@ async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session
                                tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), body)
     await session.rollback()  # the preview never keeps the SKUs or profile it tried
+    return preview
+
+
+@router.get("/batches/{batch_id}/shops/{connection_id}/rows", response_model=AnotherShopPreview)
+async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
+                         content_ids: list[uuid.UUID] = Query(default_factory=list, max_length=2000),
+                         session: AsyncSession = Depends(get_session),
+                         tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
+    """The workspace's rows for one shop, and the send summary (``content_ids``: the selected
+    rows): a read, nothing kept. (The page used ``POST /another-shop/preview`` for both.)"""
+    preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id),
+                                AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None))
+    await session.rollback()
     return preview
 
 

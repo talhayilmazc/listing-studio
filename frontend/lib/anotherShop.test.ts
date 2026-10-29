@@ -31,6 +31,9 @@ describe("whose text the review card edits (production, 2026-10-28)", () => {
     assert.equal(editsShopText(data, "c", null), false);
     const page = readFileSync(join(root, "app/(app)/batches/[id]/review/page.tsx"), "utf8");
     assert.ok(page.includes("editsShopText(shopData, c.id, inView.id)"));
+    assert.ok(page.includes("api.approveAll(id, inView?.id ?? null)"));
+    const card = readFileSync(join(root, "components/ReviewCard.tsx"), "utf8");
+    assert.ok(card.includes("api.approve(initial.id, !approved, textShop?.id ?? null)") && card.includes("card-approve-for-shop"));
   });
 });
 

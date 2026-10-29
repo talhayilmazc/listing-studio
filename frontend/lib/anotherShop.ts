@@ -166,7 +166,11 @@ export function sendSummary(preview: { rows: WorkspaceRow[]; refused: string[] }
   const notGoing = rows
     .filter((r) => !going.includes(r))
     .map((r) => `${r.group_key || r.title.slice(0, 30)}: ${r.errors.length ? `Etsy would refuse its text (${r.errors[0]})` : r.reason ?? "cannot go"}`);
+  // Not going only because they are not approved for this shop: one click approves them there.
+  const toApprove = rows.filter((r) => !going.includes(r) && r.state === "cannot" && !r.approved && r.errors.length === 0)
+    .map((r) => r.content_id);
   return {
+    toApprove,
     going: going.length,
     profiles: [...profiles.entries()],
     skus: going.map((r) => r.sku ?? "no SKU"),

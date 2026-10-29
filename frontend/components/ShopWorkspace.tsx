@@ -79,7 +79,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
   const load = useCallback(async () => {
     if (!shopId) return setPreview(null);
     try {
-      setPreview(await api.anotherShopPreview(batchId, { connection_id: shopId, sku_mode: "keep" }));
+      setPreview(await api.workspaceRows(batchId, shopId));
     } catch (e: any) {
       setProblem(e.message ?? String(e));
     }
@@ -122,7 +122,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
     setBusy(true);
     setProblem(null);
     try {
-      setSummary(await api.anotherShopPreview(batchId, { connection_id: shopId, content_ids: chosen, sku_mode: "keep" }));
+      setSummary(await api.workspaceRows(batchId, shopId, chosen));
     } catch (e: any) {
       setProblem(e.message ?? String(e));
     } finally {
@@ -212,7 +212,11 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
       )}
 
       {summary && shop && (
-        <SendSummary key="summary" summary={summary} chosen={summary.rows.map((r) => r.content_id)} shop={shop} busy={busy} onCancel={() => setSummary(null)} onSend={send} />
+        <SendSummary key="summary" summary={summary} chosen={summary.rows.map((r) => r.content_id)} shop={shop} busy={busy} onCancel={() => setSummary(null)} onSend={send}
+          onApprove={(ids) => run(async () => {
+            await api.workspaceApprove(batchId, shop.id, ids);
+            setSummary(await api.workspaceRows(batchId, shop.id, summary.rows.map((r) => r.content_id)));
+          }, `Approved ${ids.length} for ${said(shop.name)}`)} />
       )}
     </section>
   );
@@ -513,15 +517,20 @@ function BulkBar({
   );
 }
 
-function SendSummary({ summary, chosen, shop, busy, onCancel, onSend }: {
+function SendSummary({ summary, chosen, shop, busy, onCancel, onSend, onApprove }: {
   summary: AnotherShopPreview;
   chosen: string[];
   shop: Shop;
   busy: boolean;
   onCancel: () => void;
   onSend: () => void;
+  onApprove: (ids: string[]) => void;
 }) {
   const s = sendSummary(summary, chosen);
+  // Never a dead end: what stops the button is said on it, with the one thing to do.
+  const blocked = summary.refused.length ? "Change the SKUs listed first"
+    : s.going === 0 && s.toApprove.length ? `Approve them for ${shop.name} first`
+    : s.going === 0 ? "Nothing here can go yet: see why above" : null;
   return (
     <div role="alertdialog" aria-label={`Send to ${shop.name}`} className="card space-y-2 border-2 border-brand-300 p-4 text-sm" data-testid="workspace-summary">
       <p className="font-medium text-slate-900" translate="no">{`${s.going} draft${s.going === 1 ? "" : "s"} in ${said(shop.name)} Nothing changes in your other shops.`}</p>
@@ -537,8 +546,14 @@ function SendSummary({ summary, chosen, shop, busy, onCancel, onSend }: {
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-primary" onClick={onSend} disabled={busy || s.going === 0 || summary.refused.length > 0} data-testid="workspace-summary-send">
-          <span translate="no">{summary.refused.length ? "Change the SKUs listed first" : summary.button}</span>
+        {s.toApprove.length > 0 && (
+          <button key="approve" type="button" className={s.going === 0 ? "btn-primary" : "btn-secondary"} onClick={() => onApprove(s.toApprove)} disabled={busy}
+            data-testid="workspace-summary-approve">
+            <span translate="no">{`Approve these ${s.toApprove.length} for ${shop.name}`}</span>
+          </button>
+        )}
+        <button type="button" className={s.going === 0 ? "btn-secondary" : "btn-primary"} onClick={onSend} disabled={busy || !!blocked} data-testid="workspace-summary-send">
+          <span translate="no">{blocked ?? summary.button}</span>
         </button>
         <button type="button" className="btn-secondary" onClick={onCancel}>Back</button>
       </div>
