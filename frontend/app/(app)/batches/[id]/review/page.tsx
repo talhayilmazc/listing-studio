@@ -28,7 +28,7 @@ import { anyUnsaved, flushAll } from "@/lib/cardSave";
 import { ReviewCard } from "@/components/ReviewCard";
 import { GenerateConfirm, WrittenElsewhere } from "@/components/GenerateConfirm";
 import { useShops } from "@/components/ShopProvider";
-import { stateIn } from "@/lib/anotherShop";
+import { editsShopText } from "@/lib/anotherShop";
 
 import { Txt } from "@/components/Txt";
 import { useSession } from "@/components/SessionProvider";
@@ -78,7 +78,7 @@ export default function ReviewPage() {
   const inView = (shops?.length ?? 0) > 1 && scope ? { id: scope.id, name: scope.name } : null;
   const [shopData, setShopData] = useState<BatchShops | null>(null);
   // A listing not in the shop picked yet: its card edits that shop's text (and remounts on switch).
-  const textShopOf = (c: Content) => (inView && shopData && stateIn(shopData, c.id, inView.id) === "not_sent" ? inView : null);
+  const textShopOf = (c: Content) => (inView && editsShopText(shopData, c.id, inView.id) ? inView : null);
   const loadShops = useCallback(() => {
     api.batchShops(id).then(setShopData).catch(() => setShopData(null));
   }, [id]);

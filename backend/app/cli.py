@@ -875,6 +875,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     sku_hist.add_argument("email")
     sku_hist.add_argument("--since", required=True, help="2026-10-28 or 2026-10-28T09:30 (UTC unless +03:00 is given)")
+    ltext = sub.add_parser(
+        "listing-text",
+        help="where each listing's title, tags and description are stored (the listing's and each shop's) and what "
+        "each screen shows; read only, no Etsy call",
+    )
+    ltext.add_argument("email")
+    ltext.add_argument("--batch", default=None, help="one batch's listings (its id)")
+    ltext.add_argument("--sku", default=None, help="only listings with this SKU")
     sku_rest = sub.add_parser(
         "sku-restore",
         help="write back the old SKU for SKU writes on Etsy NOT triggered by the seller's click; dry run unless --apply",
@@ -1023,6 +1031,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.all_accounts == bool(args.email):
             parser.error("requeue-stuck takes an email address or --all (one of them)")
         print(asyncio.run(requeue_stuck(sm, args.email, every=args.all_accounts, apply=args.apply)))
+    elif args.command == "listing-text":
+        from app.ops.listing_text import run as listing_text
+
+        print(asyncio.run(listing_text(sm, args.email, args.batch, args.sku)), end="")
     elif args.command in ("sku-history", "sku-restore"):
         from app.ops import sku_history
 

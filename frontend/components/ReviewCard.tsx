@@ -29,7 +29,7 @@ import { ShopBadge } from "./ShopPicker";
 import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
 import { SkuEditor } from "@/components/SkuEditor";
-import { profileIn, profileLocked, skuIn } from "@/lib/anotherShop";
+import { profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 import { textFor } from "@/lib/review";
 import type { BatchShops } from "@/lib/types";
 import { ListingPersonalization } from "./ListingPersonalization";
@@ -562,6 +562,12 @@ export function ReviewCard({
                         <span translate="no">{`Edited for ${textShop.name}: approve again.`}</span>
                       </span>
                     )}
+                  </span>
+                ) : inView && stateIn(shopData ?? null, initial.id, inView.id) === "not_sent" ? (
+                  <span key="none">
+                    <span>Editing the listing&apos;s text: it is in no shop yet, so it goes to </span>
+                    <span translate="no">{inView.name}</span>
+                    <span> and every other shop without text of its own.</span>
                   </span>
                 ) : inView ? (
                   <span key="in">

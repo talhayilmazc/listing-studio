@@ -98,6 +98,18 @@ def text_for(content: GeneratedContent, shop_id: uuid.UUID | str | None) -> tupl
             own.get("description", content.description or ""))
 
 
+def fill_listing_text(content: GeneratedContent, name: str, value: Any) -> bool:
+    """Text typed for a shop also becomes the listing's own when the listing has none in that
+    field (a hand-written listing's title and tags start empty). The listing's text is what
+    every other screen, check and shop reads; without this, text typed for one shop showed as
+    empty everywhere else (production, 2026-10-28; migration 0094 repaired the rows). The
+    shop keeps its own copy. Returns whether it filled."""
+    if not value or getattr(content, name):
+        return False
+    setattr(content, name, list(value) if name == "tags" else str(value))
+    return True
+
+
 def set_override(
     content: GeneratedContent, shop_id: uuid.UUID | str, *, profile_id: Any = _KEEP, sku: Any = _KEEP,
     title: Any = _KEEP, tags: Any = _KEEP, description: Any = _KEEP,
@@ -124,6 +136,7 @@ def set_override(
             mine.pop(name, None)
         else:
             mine[name] = [str(t) for t in value] if name == "tags" else str(value)
+            fill_listing_text(content, name, mine[name])
     if not any(k in mine for k in TEXT_FIELDS):
         mine.pop(TEXT_EDITED_AT, None)  # back to the listing's text: its approval holds
         mine.pop(SHOP_APPROVED_AT, None)

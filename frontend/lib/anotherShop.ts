@@ -60,6 +60,19 @@ export function profileLocked(data: BatchShops | null, contentId: string | null 
   return Object.values(states).some((s) => s !== "not_sent");
 }
 
+/**
+ * Whether the review card edits the shop in view's own text: only when the listing is on Etsy
+ * in another shop and not yet in this one (its text there is fixed; this shop may differ).
+ * A listing in no shop yet edits its own text, for every shop. (Before 2026-10-29 any shop
+ * picked in the menu made it that shop's text: typed text then showed as empty elsewhere.)
+ */
+export function editsShopText(data: BatchShops | null, contentId: string | null | undefined, inView: string | null): boolean {
+  if (!data || !contentId || !inView) return false;
+  const states = data.listings.find((l) => l.content_id === contentId)?.states ?? {};
+  if ((states[inView] ?? "not_sent") !== "not_sent") return false;
+  return Object.entries(states).some(([shop, s]) => shop !== inView && s !== "not_sent");
+}
+
 /** The listing's SKU in the shop in view (its own there, else the group's). */
 export function skuIn(data: BatchShops | null, contentId: string | null | undefined, inView: string | null, fallback: string | null): string | null {
   if (!data || !contentId || !inView) return fallback;

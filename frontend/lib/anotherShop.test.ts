@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { profileIn, profileLocked, replacePrefix, shopLine, shopsShown, skuIn, stateIn } from "./anotherShop.ts";
+import { editsShopText, profileIn, profileLocked, replacePrefix, shopLine, shopsShown, skuIn, stateIn } from "./anotherShop.ts";
 import type { BatchShops } from "./types.ts";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
@@ -22,6 +22,17 @@ const data: BatchShops = {
     { content_id: "c", group_key: "NEW1", states: {}, skus: { opa: "NEW1", pcs: "NEW1", ilc: "NEW1" }, profiles: {} },
   ],
 };
+
+describe("whose text the review card edits (production, 2026-10-28)", () => {
+  it("a shop's own only while the listing is on Etsy in another shop and not in this one", () => {
+    assert.equal(editsShopText(data, "a", "ilc"), true); // in OPA and PCS, not in ILC
+    assert.equal(editsShopText(data, "a", "pcs"), false); // already in PCS: edited on Etsy
+    assert.equal(editsShopText(data, "c", "ilc"), false); // in no shop yet: the listing's own text
+    assert.equal(editsShopText(data, "c", null), false);
+    const page = readFileSync(join(root, "app/(app)/batches/[id]/review/page.tsx"), "utf8");
+    assert.ok(page.includes("editsShopText(shopData, c.id, inView.id)"));
+  });
+});
 
 describe("replacing a SKU prefix (the server's pipeline/shop_listing.py::replace_prefix)", () => {
   it("replaces the leading prefix in any case and keeps the rest", () => {

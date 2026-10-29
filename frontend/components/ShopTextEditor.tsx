@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ShopText } from "@/lib/anotherShop";
 import { draftErrors, MAX_TITLE } from "@/lib/etsyText";
 import { TagEditor } from "./TagEditor";
@@ -56,14 +56,45 @@ export function ShopTextEditor({
     saved.current = text;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incoming]);
+  // Saved as it is typed; never silently: a failed save says so and keeps the text, closing the
+  // editor or leaving the page saves what is still waiting, and the browser asks while it is.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const pending = useRef<ShopText | null>(null);
+  const saveRef = useRef(onSave);
+  saveRef.current = onSave;
+  const flush = useCallback(async () => {
+    const text = pending.current;
+    if (!text) return;
+    try {
+      await saveRef.current(text);
+      if (pending.current === text) {
+        pending.current = null;
+        setDirty(false);
+      }
+      setSaveError(null);
+    } catch (e: any) {
+      setSaveError(`Not saved: ${e?.message ?? String(e)}`);
+    }
+  }, []);
   useEffect(() => {
     if (!dirty) return;
-    const t = setTimeout(async () => {
-      await onSave({ title, tags, description });
-      setDirty(false);
-    }, 800);
+    pending.current = { title, tags, description };
+    const t = setTimeout(() => void flush(), 800);
     return () => clearTimeout(t);
-  }, [title, tags, description, dirty, onSave]);
+  }, [title, tags, description, dirty, flush]);
+  useEffect(() => {
+    const ask = (e: BeforeUnloadEvent) => {
+      if (!pending.current) return;
+      void flush();
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", ask);
+    return () => {
+      window.removeEventListener("beforeunload", ask);
+      void flush(); // closed with text still waiting: saved, not dropped
+    };
+  }, [flush]);
 
   const local = draftErrors(title, tags, description);
   const shown = [...new Set([...local, ...(dirty ? [] : errors)])];
@@ -102,22 +133,28 @@ export function ShopTextEditor({
       <div className="flex flex-wrap items-center gap-2">
         {own.length > 0 && (
           <button key="keep" type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy}
-            onClick={async () => { setDirty(false); await onKeep(); }}>
+            onClick={async () => { pending.current = null; setDirty(false); await onKeep(); }}>
             Keep as it is
           </button>
         )}
         <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onClick={() => setAsking(true)}>
           <span translate="no">{`Rewrite for ${shopName}`}</span>
         </button>
-        <span className="text-xs text-slate-500" translate="no">{dirty ? "Saving…" : own.length ? `Own text for ${shopName}` : ""}</span>
+        <span className="text-xs text-slate-500" translate="no">{saveError ? "" : dirty ? "Saving…" : own.length ? `Own text for ${shopName}` : ""}</span>
       </div>
+      {saveError && (
+        <p key="save-error" role="alert" className="flex flex-wrap items-center gap-2 text-xs text-rose-700" data-testid="shop-text-save-error">
+          <span translate="no">{saveError}</span>
+          <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => void flush()}>Try again</button>
+        </p>
+      )}
       {asking && (
         <div key="ask" role="alertdialog" aria-label={`Rewrite for ${shopName}`} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <p><span>{rewriteRule}</span></p>
           <p className="mt-1" translate="no"><span>{freeRewritesLeft > 0 ? `${freeRewritesLeft} free left for this design.` : "No free rewrite left: this one counts as a listing."}</span></p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy}
-              onClick={async () => { setAsking(false); setDirty(false); await onRewrite(); }}>
+              onClick={async () => { setAsking(false); pending.current = null; setDirty(false); await onRewrite(); }}>
               Rewrite it
             </button>
             <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setAsking(false)}>Not now</button>
