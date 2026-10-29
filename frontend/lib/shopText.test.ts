@@ -46,12 +46,13 @@ describe("the workspace text editor and the card per shop", () => {
       assert.ok(editor.includes(s), s);
     }
   });
-  it("the card edits the picked shop's text when the listing is not there yet, and says whose text it is", () => {
+  it("the card edits the picked shop's text only while the listing is in another shop and not this one, and says whose text it is", () => {
     const card = read("components/ReviewCard.tsx");
     assert.ok(card.includes("Editing text for "));
     assert.ok(card.includes("...(textShop ? { shop: textShop.id } : {})"));
     assert.ok(card.includes("Editing the listing&apos;s text: it goes to every shop without text of its own."));
+    assert.ok(card.includes("Editing the listing&apos;s text: it is in no shop yet, so it goes to "));
     const page = read("app/(app)/batches/[id]/review/page.tsx");
-    assert.ok(page.includes('stateIn(shopData, c.id, inView.id) === "not_sent"'));
+    assert.ok(page.includes("editsShopText(shopData, c.id, inView.id)")); // 2026-10-28: never for a listing in no shop
   });
 });
