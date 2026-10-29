@@ -69,7 +69,7 @@ class PlanSummary(BaseModel):
 
 async def _batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID) -> UploadBatch:
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     return batch
 

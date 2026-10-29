@@ -74,8 +74,11 @@ async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
                                                           ListingPublication.state != "deleted_on_etsy")
     approve = int(await session.scalar(select(func.count()).select_from(GeneratedContent).where(
         GeneratedContent.tenant_id == tid, GeneratedContent.approved.is_(False),
-        GeneratedContent.id.not_in(drafted))) or 0)
-    batches = list((await session.execute(select(UploadBatch).where(UploadBatch.tenant_id == tid))).scalars())
+        GeneratedContent.id.not_in(drafted),
+        GeneratedContent.batch_id.not_in(select(UploadBatch.id).where(
+            UploadBatch.tenant_id == tid, UploadBatch.deleted_at.is_not(None))))) or 0)
+    batches = list((await session.execute(select(UploadBatch).where(
+        UploadBatch.tenant_id == tid, UploadBatch.deleted_at.is_(None)))).scalars())
     statuses = await batch_status.batch_statuses(session, tid, batches)
     failed = sum(1 for s in statuses.values() if "failed" in s)
     records = [r for r in await unfinished.records(session, tid, with_blocks=False)

@@ -3,6 +3,7 @@ import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import { UNREACHABLE, messageFor } from "./apiErrors";
 import { shareInFlight } from "./inFlight";
+import { report, worthReporting } from "./sellerEvents";
 import type { SkuOnEtsy } from "./skuOnEtsy";
 import type {
   AnotherShopPreview,
@@ -62,6 +63,7 @@ import type {
   ArchiveResult,
   BatchActionPreview,
   BatchDeleteResult,
+  DeletedBatch,
   Personalization,
   PatternListing,
   Schedule,
@@ -123,9 +125,16 @@ export const AUTH_START_URL = `${BASE}/auth/etsy/start`;
 /** The answer, or an ApiError in plain words (lib/apiErrors.ts). */
 async function send(url: string, init: RequestInit): Promise<Response> {
   let res: Response;
+  const method = (init.method ?? "GET").toUpperCase();
+  const failed = (status: number, message: string) => {
+    if (typeof window !== "undefined" && worthReporting(method, url, status)) {
+      report({ kind: "action_failed", page: window.location.pathname, action: `${method} ${url.split("?")[0]}`, message: `${status || "no answer"}: ${message}` });
+    }
+  };
   try {
     res = await fetch(url, init);
   } catch {
+    failed(0, UNREACHABLE);
     throw new ApiError(UNREACHABLE, 0);
   }
   if (!res.ok) {
@@ -135,7 +144,9 @@ async function send(url: string, init: RequestInit): Promise<Response> {
     } catch {
       body = undefined;
     }
-    throw new ApiError(messageFor(res.status, body, res.statusText), res.status);
+    const message = messageFor(res.status, body, res.statusText);
+    failed(res.status, message);
+    throw new ApiError(message, res.status);
   }
   return res;
 }
@@ -749,6 +760,9 @@ export const api = {
   resetCoverCrop: (assetId: string) => req<void>(`/assets/${assetId}/cover-crop`, { method: "DELETE" }),
   /** Delete batches: uploads and content here; nothing on Etsy is touched. */
   deleteBatch: (id: string) => req<BatchDeleteResult>(`/batches/${id}`, { method: "DELETE" }),
+  /** Batches deleted in the last 7 days, and bringing one back. */
+  deletedBatches: () => req<DeletedBatch[]>("/batches-deleted"),
+  restoreBatch: (id: string) => req<BatchDetail>(`/batches/${id}/restore`, { method: "POST" }),
   deleteBatches: (ids: string[]) =>
     req<BatchDeleteResult>("/batch-actions/delete", { method: "POST", body: JSON.stringify({ batch_ids: ids }) }),
   /** Refresh this shop's listings from Etsy now (upkeep, not the seller's quota). */

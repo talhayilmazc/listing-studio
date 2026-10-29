@@ -520,7 +520,7 @@ async def replace_listing_images_endpoint(
     cached = await session.get(ShopListingCache, (tenant.id, listing_id))
     connection = await _listing_shop(session, tenant, cached, shop)
     batch = await session.get(UploadBatch, body.batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     photos = select(Asset.id).where(Asset.batch_id == batch.id, Asset.files_removed_at.is_not(None))
     if body.group_key is not None:

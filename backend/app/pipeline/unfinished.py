@@ -64,6 +64,7 @@ from app.db.models import (
     ListingProfile,
     ListingPublication,
     ListingSnapshot,
+    UploadBatch,
 )
 from app.etsy.errors import foreign_setting
 from app.pipeline import design_match
@@ -317,7 +318,10 @@ async def records(
         for content, group, sku in (await session.execute(
             select(GeneratedContent, Asset.group_key, Asset.parsed_sku)
             .outerjoin(Asset, Asset.id == GeneratedContent.asset_id)
-            .where(GeneratedContent.tenant_id == tenant_id, GeneratedContent.id.in_(ids[start:start + 500]))
+            .join(UploadBatch, UploadBatch.id == GeneratedContent.batch_id)
+            # A deleted batch's listings count as gone ("Batch deleted"), Restore or not.
+            .where(GeneratedContent.tenant_id == tenant_id, GeneratedContent.id.in_(ids[start:start + 500]),
+                   UploadBatch.deleted_at.is_(None))
         )).all():
             contents[content.id] = (content, group, sku)
     pubs: dict[uuid.UUID, list[_Pub]] = defaultdict(list)

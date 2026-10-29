@@ -12,6 +12,7 @@ from app.api import (
     accounts,
     personalization_fix,
     another_shop,
+    events,
     admin,
     analytics,
     auth,
@@ -130,6 +131,7 @@ def create_app() -> FastAPI:
     application.include_router(schedules.router)
     application.include_router(personalization_fix.router)
     application.include_router(another_shop.router)
+    application.include_router(events.router)
     return application
 
 

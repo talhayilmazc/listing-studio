@@ -34,26 +34,70 @@ async def _batch_with_files(ctx, tmp_path, *, listing_id=None):  # noqa: F811
     return batch_id, content_id, tmp_path
 
 
-async def test_deleting_a_batch_removes_uploads_and_content_but_not_etsy_drafts(ctx, tmp_path) -> None:  # noqa: F811
+async def _purge_now(ctx, root, days: int = 8) -> int:  # noqa: ANN001
+    """The 15-minute clean-up, run ``days`` after the delete."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.pipeline import batch_delete
+
+    async with ctx["sm"]() as s:
+        return await batch_delete.purge_expired(s, LocalStorage(root), now=datetime.now(timezone.utc) + timedelta(days=days))
+
+
+async def test_deleting_a_batch_hides_it_restore_brings_it_back_then_it_goes_for_good(ctx, tmp_path) -> None:  # noqa: F811
     batch_id, content_id, root = await _batch_with_files(ctx, tmp_path, listing_id=777)
     resp = await ctx["client"].delete(f"/api/batches/{batch_id}")
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"deleted": 1, "files_removed": 1, "listings_left_on_etsy": 1, "jobs_cancelled": 1}
+    out = resp.json()
+    assert (out["deleted"], out["listings_left_on_etsy"], out["jobs_cancelled"], out["files_removed"]) == (1, 1, 1, 0)
+    assert out["restorable_until"]
+    # Hidden everywhere: 404 like a batch that does not exist; listed under "Recently deleted".
+    assert (await ctx["client"].get(f"/api/batches/{batch_id}")).status_code == 404
+    assert (await ctx["client"].get(f"/api/batches/{batch_id}/content")).status_code == 404
+    assert str(batch_id) not in {b["id"] for b in (await ctx["client"].get("/api/batches")).json()}
+    [deleted] = (await ctx["client"].get("/api/batches-deleted")).json()
+    assert deleted["id"] == str(batch_id)
     async with ctx["sm"]() as s:
-        assert await s.get(UploadBatch, batch_id) is None
-        assert await s.get(GeneratedContent, content_id) is None
-        # The record that a listing was created (and published) outlives the batch:
-        # detached from the content, with what it was still on the row.
-        [publication] = (await s.execute(select(ListingPublication))).scalars().all()
-        assert publication.content_id is None and publication.etsy_listing_id == 777
+        assert (await s.get(UploadBatch, batch_id)).deleted_at is not None
+        assert await s.get(GeneratedContent, content_id) is not None  # nothing removed yet
         [job] = (await s.execute(select(Job))).scalars().all()
         assert job.status is JobStatus.cancelled  # queued work for it will not run
         [entry] = (await s.execute(select(AuditLog).where(AuditLog.action == "batch.deleted"))).scalars().all()
         assert entry.details["publications_kept"] == 1 and entry.details["batch_id"] == str(batch_id)
+    assert (root / str(ctx["tenant_id"]) / str(batch_id)).exists()
+    # Restore: back as it was; the 15-minute clean-up does not touch it.
+    restored = await ctx["client"].post(f"/api/batches/{batch_id}/restore")
+    assert restored.status_code == 200 and restored.json()["id"] == str(batch_id)
+    assert (await ctx["client"].get(f"/api/batches/{batch_id}")).status_code == 200
+    assert (await ctx["client"].get("/api/batches-deleted")).json() == []
+    assert await _purge_now(ctx, root) == 0
+    # Deleted again and seven days pass: removed for good, files too; the publication record stays.
+    assert (await ctx["client"].delete(f"/api/batches/{batch_id}")).status_code == 200
+    assert await _purge_now(ctx, root, days=6) == 0  # still restorable
+    assert await _purge_now(ctx, root) == 1
+    assert (await ctx["client"].post(f"/api/batches/{batch_id}/restore")).status_code == 404
+    async with ctx["sm"]() as s:
+        assert await s.get(UploadBatch, batch_id) is None
+        assert await s.get(GeneratedContent, content_id) is None
+        [publication] = (await s.execute(select(ListingPublication))).scalars().all()
+        assert publication.content_id is None and publication.etsy_listing_id == 777
+        assert (await s.execute(select(AuditLog).where(AuditLog.action == "batch.purged"))).scalars().one()
     assert not (root / str(ctx["tenant_id"]) / str(batch_id)).exists()
     assert (root / str(ctx["tenant_id"]) / "other-batch" / "keep.jpg").exists()
     # Nothing was sent to Etsy: no job queued, no request made.
     assert ctx["enqueuer"].calls == []
+
+
+async def test_another_account_cannot_see_or_restore_a_deleted_batch(ctx, tmp_path) -> None:  # noqa: F811
+    batch_id, _, _ = await _batch_with_files(ctx, tmp_path)
+    assert (await ctx["client"].delete(f"/api/batches/{batch_id}")).status_code == 200
+    other = await make_tenant(ctx["sm"], "someone-else@example.com")
+    ctx["client"].cookies.clear()
+    authenticate(ctx["client"], await open_session(ctx["redis"], other))
+    assert (await ctx["client"].post(f"/api/batches/{batch_id}/restore")).status_code == 404
+    assert (await ctx["client"].get("/api/batches-deleted")).json() == []
+    async with ctx["sm"]() as s:
+        assert (await s.get(UploadBatch, batch_id)).deleted_at is not None
 
 
 async def test_bulk_delete_is_all_or_nothing_across_accounts(ctx, tmp_path) -> None:  # noqa: F811
@@ -89,6 +133,7 @@ async def test_published_history_and_counts_survive_deleting_every_batch(ctx, tm
         publication.published_at = datetime.now(timezone.utc)
         await s.commit()
     assert (await ctx["client"].delete(f"/api/batches/{batch_id}")).status_code == 200
+    assert await _purge_now(ctx, tmp_path) == 1
     async with ctx["sm"]() as s:
         assert (await s.execute(select(UploadBatch))).scalars().all() == []
         kept = (await s.execute(select(ListingPublication))).scalars().one()

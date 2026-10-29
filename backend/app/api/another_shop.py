@@ -261,7 +261,7 @@ class AnotherShopOut(BaseModel):
 
 async def _batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID) -> UploadBatch:
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     return batch
 
@@ -582,10 +582,16 @@ async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
                          session: AsyncSession = Depends(get_session),
                          tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """The workspace's rows for one shop, and the send summary (``content_ids``: the selected
-    rows): a read, nothing kept. (The page used ``POST /another-shop/preview`` for both.)"""
+    rows): nothing about the listings is kept; a summary's result is recorded as counts per
+    reason (``seller_event``). (The page used ``POST /another-shop/preview`` for both.)"""
+    tenant_id = tenant.id
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id),
                                 AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None))
     await session.rollback()
+    if content_ids:  # the send summary: its result is recorded, counts per reason only (api/events.py)
+        from app.api.events import record_summary
+
+        await record_summary(session, tenant_id, batch_id, connection_id, preview)
     return preview
 
 

@@ -56,6 +56,7 @@ from app.db.models import (
     SaleLine,
     SalesDaily,
     SalesSync,
+    SellerEvent,
     ShopListingCache,
     StatementImport,
     StatementListingFee,
@@ -128,6 +129,8 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     # Our own record of model calls: kept 25 months, so twelve months can be
     # compared with the twelve before them.
     await _bulk(session, delete(AiCall).where(AiCall.day < (now - timedelta(days=AiCall.RETENTION_DAYS)).date()))
+    # What sellers met on a page (api/events.py): counts and short messages, a month.
+    await _bulk(session, delete(SellerEvent).where(SellerEvent.at < now - timedelta(days=SellerEvent.RETENTION_DAYS)))
     # A shop's section list and its listing counts per state: other Etsy content,
     # kept on the shop's row for a day at most (the Privacy Policy says so), then cleared.
     stale = now - timedelta(seconds=OTHER_CONTENT_MAX_AGE_SECONDS)
@@ -261,4 +264,8 @@ async def purge_expired(ctx: dict[str, Any]) -> dict[str, int]:
         result = await purge_expired_rows(session)
         # Mockup ZIPs to download: deleted MockupZip.RETENTION_HOURS after they were ready.
         result["mockup_zips"] = await expire_zips(session, get_storage())
+        # Batches the seller deleted more than seven days ago ("Restore" is over): removed for good.
+        from app.pipeline import batch_delete
+
+        result["deleted_batches"] = await batch_delete.purge_expired(session, get_storage())
         return result

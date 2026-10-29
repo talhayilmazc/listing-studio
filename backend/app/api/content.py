@@ -196,7 +196,7 @@ async def mark_manual_steps_done(
     than ticking each draft. Live listings and unapproved content are left alone.
     """
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     rows = await session.execute(
         select(ListingPublication)
@@ -450,7 +450,7 @@ async def set_personalization_for_all(
     """"Set for all" on the review page: one personalization for every listing of
     the batch (or the ones named). Drafts made from now on get it, in every shop."""
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     setting = _clean_personalization(body.personalization)
     query = select(GeneratedContent).where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
@@ -497,6 +497,9 @@ async def _get(session: AsyncSession, tenant: Tenant, content_id: uuid.UUID) -> 
     content = await session.get(GeneratedContent, content_id)
     if content is None or content.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="content not found")
+    batch = await session.get(UploadBatch, content.batch_id)
+    if batch is not None and batch.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="content not found")  # its batch was deleted (Restore brings it back)
     return content
 
 
@@ -510,7 +513,7 @@ async def list_batch_content(
     # exist (B3). The query below is tenant-filtered too, so nothing leaks either
     # way, but an empty 200 would still confirm the id is well-formed and absent.
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
 
     rows = await session.execute(
@@ -768,7 +771,7 @@ async def approve_all(
     changed after it was approved ("Edited for <shop>: approve again") is approved there,
     so the send summary never stays stuck on it (production, 2026-10-28)."""
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     shop = await _shop_in_view(session, tenant, body.connection_id if body else None)
     rows = await session.execute(

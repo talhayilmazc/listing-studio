@@ -136,3 +136,43 @@ async def test_typed_text_is_never_lost_or_overwritten_by_a_shop_edit(tmp_path, 
     assert row.title == "Its own title here" and shop_listing.text_in(row, shop_a)["title"] == "For shop A only"
     assert shop_listing.text_in(row, shop_b) == {}
     await w["engine"].dispose()
+
+
+async def test_send_summaries_and_page_errors_are_recorded_without_personal_data(tmp_path, test_settings: Settings, monkeypatch) -> None:
+    """Every send summary's result (counts per reason) and every reported page error or failed
+    action is recorded; ``seller-events`` reads them; another account sees nothing."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import SellerEvent, Tenant
+    from app.ops import seller_events
+
+    w = await _hand_written_in_a(tmp_path, test_settings, monkeypatch)
+    a, batch, (shop_a, _, _) = w["client"], w["batch"], w["shops"]
+    c = [str(x) for x in w["contents"]]
+    since = datetime.now(timezone.utc) - timedelta(minutes=1)
+    await a.patch(f"/api/content/{c[0]}", json={"title": "Retro Camping Tee For Hikers", "tags": TAGS})
+    await a.post(f"/api/content/{c[0]}/approve", json={"approved": True})
+    query = "&".join(f"content_ids={x}" for x in c)
+    summary = (await a.get(f"/api/batches/{batch}/shops/{shop_a}/rows?{query}")).json()
+    assert summary["total"] == 1
+    await a.get(f"/api/batches/{batch}/shops/{shop_a}/rows")  # the rows alone: not a summary, not recorded
+    for kind, message in (("action_failed", "409: the SKU is taken, write to me at seller@example.com"),
+                          ("frontend_error", "Cannot read properties of undefined")):
+        res = await a.post("/api/events", json={"kind": kind, "page": f"/batches/{batch}?shop=x", "action": "PUT /api/x",
+                                                "message": message})
+        assert res.status_code == 204
+    async with w["sm"]() as s:
+        events = list((await s.execute(select(SellerEvent).order_by(SellerEvent.at))).scalars())
+        email = (await s.get(Tenant, w["tenant"])).email
+    assert [e.kind for e in events] == ["send_summary", "action_failed", "frontend_error"]
+    assert events[0].counts == {"chosen": 3, "going": 1, "text_etsy_would_refuse": 2}  # their titles are empty
+    assert events[1].page == f"/batches/{batch}" and "[email]" in events[1].message and "@" not in events[1].message
+    report = await seller_events.run(w["sm"], email, since)
+    assert "send summaries: 1 · listings chosen 3 · could go 1" in report and "could not go, text etsy would refuse: 2" in report
+    assert "failed actions: 1" in report and "frontend errors: 1" in report
+    # Flood-safe: at most 30 a minute are kept.
+    for _ in range(40):
+        await a.post("/api/events", json={"kind": "frontend_error", "page": "/x", "message": "boom"})
+    async with w["sm"]() as s:
+        assert len((await s.execute(select(SellerEvent))).scalars().all()) <= 33
+    await w["engine"].dispose()

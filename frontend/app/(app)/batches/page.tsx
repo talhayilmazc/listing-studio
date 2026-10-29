@@ -10,6 +10,7 @@ import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { relativeTime } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
 import { DeleteBatches } from "@/components/DeleteBatches";
+import { RecentlyDeleted } from "@/components/RecentlyDeleted";
 import { BATCH_STATUSES, counts, matches, parseStatuses, withStatuses } from "@/lib/batchStatus";
 
 /** Per-batch detail loaded after the list paints, so the page never waits on it. */
@@ -276,6 +277,7 @@ export default function Home() {
           />
         </>
       )}
+      <RecentlyDeleted reloadKey={reloadKey} onRestored={(message) => { setNotice(message); setReloadKey((k) => k + 1); }} />
     </div>
   );
 }

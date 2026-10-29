@@ -265,7 +265,7 @@ async def set_options_for_selected(
     A listing whose category does not offer a value, or that does not go to the
     shop, is left as it is and said why."""
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     fields = body.model_fields_set & {"occasion", "holiday"}
     sections = None

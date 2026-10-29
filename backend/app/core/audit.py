@@ -48,6 +48,7 @@ def record(
 DESTRUCTIVE = frozenset({
     "profile.deleted",
     "batch.deleted",
+    "batch.purged",
     "image.deleted",
     "shop.disconnected",
     "publication.deleted_on_etsy",

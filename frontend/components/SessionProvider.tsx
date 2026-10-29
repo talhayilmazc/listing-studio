@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { installErrorReporting } from "@/lib/sellerEvents";
 import { api, ApiError } from "@/lib/api";
 import { browserZone } from "@/lib/schedule";
 import type { Account } from "@/lib/types";
@@ -76,6 +77,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Page errors are reported (no personal data) while someone is signed in: lib/sellerEvents.ts.
+  useEffect(() => (account ? installErrorReporting() : undefined), [account?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // First sign-in: take the account's time zone from this computer. Only fills
   // an empty value; a zone chosen in Settings is never overridden.

@@ -417,7 +417,7 @@ export default function PrivacyPage() {
         <Table head={["Data", "Kept for"]}>
           <Row
             data="The image files you upload (the resized version)"
-            period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. Deleted at once when you delete the batch`}</span>}
+            period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. When you delete the batch it disappears at once and can be restored for ${R.deletedBatchDays} days; then its files and everything written for it are deleted`}</span>}
           />
           <Row
             data="The blank garment photos you save as mockup templates, with each one's outline, the map of where its garments are, the print area of each garment and its confirmation, front or back, the template it is in and the mask of what is in front of the garment"
@@ -438,6 +438,10 @@ export default function PrivacyPage() {
           <Row
             data="Etsy access tokens"
             period="Until you disconnect the shop or delete your account; deleted at once at that moment"
+          />
+          <Row
+            data="What you met on a page, so we can fix it: how many listings a send summary could and could not send (counted by reason), and the page, action and short message of an error or a failed action (no listing text, e-mail addresses removed)"
+            period={<span>{`${R.sellerEventDays} days, then deleted automatically; deleted with your account`}</span>}
           />
           <Row
             data="An invite request from the form on our site"

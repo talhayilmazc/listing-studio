@@ -26,10 +26,12 @@ export const LAST_UPDATED = "14 October 2026";
  * The Privacy Policy's own "Last updated": it changed since TERMS_VERSION in ways that tell sellers
  * more (how long draft records are kept; what happens to sales records; 20–21 October 2026: a
  * reference listing used in another of the seller's shops copies its main shop's shipping, return
- * and processing settings there) without asking them to agree again, so the version above stays.
+ * and processing settings there; 29 October 2026: a deleted batch can be restored for 7 days, and
+ * what a seller met on a page is kept 30 days) without asking them to agree again, so the version
+ * above stays.
  * Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "21 October 2026";
+export const PRIVACY_UPDATED = "29 October 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
@@ -50,6 +52,10 @@ export const RETENTION = {
   uploadsAfterDraftsDays: 3,
   /** Uploaded image files otherwise, after the last work on them: UNPUBLISHED_RETENTION_DAYS */
   uploadsOtherwiseDays: 30,
+  /** A deleted batch, restorable until it is removed for good: UploadBatch.RESTORE_DAYS */
+  deletedBatchDays: 7,
+  /** What a seller met on a page (send-summary counts, page errors): SellerEvent.RETENTION_DAYS */
+  sellerEventDays: 30,
   /** Analytics history, the default (an operator setting; /api/meta has the figure in force): ANALYTICS_MONTHS */
   analyticsMonths: 24,
   /** Copies of listings taken before the app changes them: ListingSnapshot.RETENTION_DAYS */

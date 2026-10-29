@@ -759,11 +759,24 @@ class BatchDeleteResult(BaseModel):
     """What deleting batches removed, and what it left alone on Etsy (v7 §E3)."""
 
     deleted: int = 0
-    files_removed: int = 0
     #: Drafts or live listings made from these batches: left on Etsy, untouched.
     listings_left_on_etsy: int = 0
     #: Queued jobs of these batches (drafts, go-lives, schedules) that were cancelled.
     jobs_cancelled: int = 0
+    #: Scheduled go-lives and group-schedule drafts not made yet, cancelled (Restore does not bring them back).
+    schedules_cancelled: int = 0
+    #: "Restore" brings the batch back until then; after it the batch is removed for good.
+    restorable_until: datetime | None = None
+    files_removed: int = 0  # kept for old clients: deleting removes no file now (they go after RESTORE_DAYS)
+
+
+class DeletedBatch(BaseModel):
+    """A batch deleted in the last seven days: "Restore" brings it back."""
+
+    id: uuid.UUID
+    name: str
+    deleted_at: datetime
+    restorable_until: datetime
 
 
 class BatchActionItem(BaseModel):

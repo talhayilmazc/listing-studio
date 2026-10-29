@@ -163,7 +163,7 @@ async def _summaries(
 
 async def _get_batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID) -> UploadBatch:
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     return batch
 
@@ -427,7 +427,7 @@ async def list_batches(
 
     batches = list((await session.execute(
         select(UploadBatch)
-        .where(UploadBatch.tenant_id == tenant.id)
+        .where(UploadBatch.tenant_id == tenant.id, UploadBatch.deleted_at.is_(None))
         .order_by(UploadBatch.created_at.desc())
     )).scalars())
     overviews = await batch_overviews(session, tenant.id, batches)
@@ -982,6 +982,9 @@ async def _own_asset(session: AsyncSession, tenant: Tenant, asset_id: uuid.UUID)
     asset = await session.get(Asset, asset_id)
     if asset is None or asset.tenant_id != tenant.id:
         raise HTTPException(status_code=404, detail="image not found")
+    batch = await session.get(UploadBatch, asset.batch_id)
+    if batch is not None and batch.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="image not found")
     return asset
 
 
@@ -1095,55 +1098,12 @@ async def _pattern_for(
 async def _delete_batch(
     session: AsyncSession, storage: Storage, tenant: Tenant, batch: UploadBatch, result: schemas.BatchDeleteResult
 ) -> None:
-    """Delete one batch: its uploads, their derivatives and previews, its generated
-    content and settings. Queued work for it is cancelled.
+    """Delete one batch: hidden at once, "Restore" for seven days, then removed for good
+    (pipeline/batch_delete.py). Only Listyro's records: the drafts and live listings on Etsy are
+    never touched. Its queued work and schedules are cancelled."""
+    from app.pipeline import batch_delete
 
-    What it does not delete: the drafts and live listings on Etsy, and the
-    record that they were created and published (``listing_publication``, job
-    history). Those records are detached from the content and kept; a schedule
-    still waiting on one of them is cancelled with the batch, since there is no
-    longer anything to review it against."""
-    content_ids = select(GeneratedContent.id).where(GeneratedContent.batch_id == batch.id)
-    kept = list(
-        (await session.execute(select(ListingPublication).where(ListingPublication.content_id.in_(content_ids)))).scalars()
-    )
-    on_etsy = len(kept)
-    for publication in kept:
-        if publication.scheduled_for is not None and publication.state != "active":
-            publication.scheduled_for, publication.schedule_job_id = None, None
-            publication.schedule_note = "cancelled: its batch was deleted"
-            record_cancel(session, publication, actor=tenant, reason="batch deleted")
-    # A group schedule's drafts not made yet are not made (v8 §B).
-    for slot in (await session.execute(select(PlannedSlot).where(
-        PlannedSlot.content_id.in_(content_ids), PlannedSlot.state == "waiting"
-    ))).scalars():
-        slot.state, slot.note = "cancelled", "its batch was deleted"
-    files = await session.scalar(select(func.count()).select_from(Asset).where(Asset.batch_id == batch.id))
-    queued = (
-        await session.execute(
-            select(Job).where(
-                Job.tenant_id == tenant.id,
-                Job.batch_id == batch.id,
-                Job.status == JobStatus.queued,
-            )
-        )
-    ).scalars().all()
-    now = datetime.now(timezone.utc)
-    for job in queued:
-        job.status = JobStatus.cancelled
-        job.finished_at = now
-        job.last_error = "cancelled: the batch was deleted"
-    audit.destructive(session, "batch.deleted", actor=tenant, tenant_id=tenant.id, shop_id=batch.connection_id,
-                      object_id=batch.id, batch_id=str(batch.id), files=int(files or 0),
-                      publications_kept=on_etsy, jobs_cancelled=len(queued))
-    # Assets, content and group settings cascade; publications are detached (content_id -> NULL).
-    await session.delete(batch)
-    await session.flush()
-    storage.delete_prefix(f"{tenant.id}/{batch.id}")
-    result.deleted += 1
-    result.files_removed += int(files or 0)
-    result.listings_left_on_etsy += int(on_etsy or 0)
-    result.jobs_cancelled += len(queued)
+    await batch_delete.soft_delete(session, tenant, batch, result)
 
 
 @router.delete("/batches/{batch_id}", response_model=schemas.BatchDeleteResult)
@@ -1174,6 +1134,40 @@ async def delete_batches(
         await _delete_batch(session, storage, tenant, batch, result)
     await session.commit()
     return result
+
+
+@router.get("/batches-deleted", response_model=list[schemas.DeletedBatch])
+async def deleted_batches(
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> list[schemas.DeletedBatch]:
+    """Batches deleted in the last seven days, newest first: each can be restored."""
+    from app.pipeline import batch_delete
+
+    now = datetime.now(timezone.utc)
+    rows = [b for b in (await session.execute(select(UploadBatch).where(
+        UploadBatch.tenant_id == tenant.id, UploadBatch.deleted_at.is_not(None)).order_by(UploadBatch.deleted_at.desc()))).scalars()
+        if (batch_delete.restore_until(b) or now) > now]
+    names = await names_for(session, rows) if rows else {}
+    return [schemas.DeletedBatch(id=b.id, name=names.get(b.id) or "Batch", deleted_at=b.deleted_at,
+                                 restorable_until=batch_delete.restore_until(b)) for b in rows]
+
+
+@router.post("/batches/{batch_id}/restore", response_model=schemas.BatchDetail)
+async def restore_batch(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.BatchDetail:
+    """"Restore": a batch deleted in the last seven days comes back as it was (what deleting
+    cancelled stays cancelled). Another account's batch, or one past the seven days, is 404."""
+    from app.pipeline import batch_delete
+
+    batch = await session.get(UploadBatch, batch_id)
+    if batch is None or batch.tenant_id != tenant.id or not await batch_delete.restore(session, tenant, batch):
+        raise HTTPException(status_code=404, detail="batch not found")
+    await session.commit()
+    return await get_batch(batch_id, session=session, tenant=tenant)
 
 
 # --- Deleting one image of a group ---------------------------------------------------

@@ -351,8 +351,14 @@ async def test_after_the_files_are_gone_the_app_shows_the_cover_and_refuses_what
     matrix = (await b.post(f"/api/batches/{old['batch_id']}/publish/preview", json={})).json()
     assert [(c["state"], c["reason"]) for c in matrix["rows"][0]["cells"]] == [("unavailable", publish.FILES_REMOVED)]
 
-    # Deleting the batch still works, and takes the kept thumbnail with it.
+    # Deleting the batch still works, and once Restore is over it takes the kept thumbnail with it.
     assert (await b.delete(f"/api/batches/{old['batch_id']}")).status_code in (200, 204)
+    from datetime import timedelta as _td
+
+    from app.pipeline import batch_delete
+
+    async with world["sm"]() as s:
+        assert await batch_delete.purge_expired(s, storage, now=datetime.now(timezone.utc) + _td(days=8)) == 1
     assert not storage.exists(f"{world['bob'].tenant_id}/{old['batch_id']}/kept/{cover}.jpg")
 
 

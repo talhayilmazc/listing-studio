@@ -330,7 +330,7 @@ async def _batch_contents(
     session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, only: list[uuid.UUID] | None
 ) -> list[GeneratedContent]:
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     query = select(GeneratedContent).where(GeneratedContent.batch_id == batch_id)
     if only:

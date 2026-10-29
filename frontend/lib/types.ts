@@ -1411,6 +1411,17 @@ export interface BatchDeleteResult {
   files_removed: number;
   listings_left_on_etsy: number;
   jobs_cancelled: number;
+  schedules_cancelled?: number;
+  /** Restore brings it back until then. */
+  restorable_until?: string | null;
+}
+
+/** A batch deleted in the last 7 days: "Restore" brings it back. */
+export interface DeletedBatch {
+  id: string;
+  name: string;
+  deleted_at: string;
+  restorable_until: string;
 }
 
 // --- Analytics (v7 §C, reworked) -----------------------------------------------------

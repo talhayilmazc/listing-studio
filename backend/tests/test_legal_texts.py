@@ -22,7 +22,8 @@ from app.api.item_options import SECTIONS_MAX_AGE
 from app.core import app_settings, terms
 from app.core.config import Settings
 from app.db.models import (
-    AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, ShopListingCache,
+    AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, SellerEvent,
+    ShopListingCache, UploadBatch,
 )
 from app.etsy import oauth
 from app.pipeline import sales as sales_pipeline
@@ -133,6 +134,8 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "otherEtsyContentHours": ListingProfile.CACHE_MAX_AGE_SECONDS // 3600,
         "uploadsAfterDraftsDays": settings.drafted_retention_days,
         "uploadsOtherwiseDays": settings.unpublished_retention_days,
+        "deletedBatchDays": UploadBatch.RESTORE_DAYS,
+        "sellerEventDays": SellerEvent.RETENTION_DAYS,
         "analyticsMonths": app_settings.ANALYTICS_MONTHS,
         "listingSnapshotDays": ListingSnapshot.RETENTION_DAYS,
         "draftAttemptDays": DraftAttempt.RETENTION_DAYS,

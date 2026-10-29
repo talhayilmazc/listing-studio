@@ -301,6 +301,28 @@ class InviteRequest(Base):
     invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"), index=True)
 
 
+class SellerEvent(Base):
+    """What a seller met on a page, recorded without personal data (api/events.py): the result
+    of each send summary (counts per reason a listing won't go) and each frontend error or
+    failed action (page path, action, a short message with e-mail addresses removed). Read by
+    ``python -m app.cli seller-events``. Kept ``RETENTION_DAYS``; deleted with the account."""
+
+    __tablename__ = "seller_event"
+    __table_args__ = (Index("ix_seller_event_tenant_at", "tenant_id", "at"),)
+    RETENTION_DAYS: ClassVar[int] = 30
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    #: send_summary | frontend_error | action_failed
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    page: Mapped[str | None] = mapped_column(Text)
+    action: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(Text)
+    #: send_summary: {"going": n, "<reason>": n, ...}
+    counts: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+
+
 class AiCall(Base):
     """One call to the AI provider: who for, what for, which model, the tokens of
     each billing class, whether it worked, and what it cost (core/ai_meter.py).
@@ -618,6 +640,11 @@ class UploadBatch(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    #: Deleted by the seller: hidden everywhere, "Restore" for RESTORE_DAYS, then removed
+    #: for good (pipeline/batch_delete.py; migration 0095). None: not deleted.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    RESTORE_DAYS = 7
 
 
 class ListingGroupSetting(Base):

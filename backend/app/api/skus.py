@@ -235,7 +235,7 @@ async def set_group_sku(
 ) -> schemas.SkuResult:
     """The group card's SKU field."""
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     key, sku, shop = await _shop_sku(session, tenant, batch_id, body.group_key or "", body.sku, body.connection_id)
     await session.commit()
@@ -275,7 +275,7 @@ async def set_sku_for_selected(
     prefix and/or suffix added ("-CC" on all). A SKU Etsy would refuse is left
     as it was and said why."""
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     if not (body.sku or body.prefix or body.suffix):
         raise HTTPException(status_code=422, detail="Enter a SKU, a prefix or a suffix.")
@@ -316,7 +316,7 @@ async def sku_on_etsy(
     """Each listing of the batch whose drafts on Etsy carry another SKU than the one it
     should have in their shop. Reads only our records: no Etsy call, nothing written."""
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.tenant_id != tenant.id:
+    if batch is None or batch.tenant_id != tenant.id or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail="batch not found")
     contents = list((await session.execute(select(GeneratedContent).where(
         GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id))).scalars())
