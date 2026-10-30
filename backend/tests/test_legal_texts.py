@@ -214,6 +214,7 @@ def test_no_external_script_or_tracker_is_loaded_by_any_page() -> None:
         hosts |= set(re.findall(r"https?://([a-zA-Z0-9.-]+)", text))
     known = {
         "listyro.com", "api.listyro.com",  # ours
+        "listyro.test",  # ours: the shop-connection browser test (e2e/oauth.spec.ts), mapped to this machine
         "www.etsy.com", "i.etsystatic.com", "etsy.com",  # links to Etsy and the seller's own listing images
         "www.anthropic.com",  # links in the Privacy Policy
         "api", "localhost", "www.w3.org", "nextjs.org", "example.com", "example.test",  # the API inside the network; XML namespaces; docs in comments

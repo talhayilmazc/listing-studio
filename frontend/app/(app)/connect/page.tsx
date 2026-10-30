@@ -8,41 +8,14 @@ import type { Shop, ShopsOut } from "@/lib/types";
 import { SCOPE_REASONS, TRADEMARK_NOTICE } from "@/lib/legal";
 import { disconnectedNotice } from "@/lib/shops";
 import { useShops } from "@/components/ShopProvider";
+import { connectBanner } from "@/lib/connectStatus";
 
 import { Txt } from "@/components/Txt";
 // Full literal class strings so Tailwind's JIT keeps them.
 const OK = "border-emerald-200 bg-emerald-50 text-emerald-700";
 const WARN = "border-amber-200 bg-amber-50 text-amber-700";
 const BAD = "border-rose-200 bg-rose-50 text-rose-700";
-const BANNERS: Record<string, { cls: string; text: string }> = {
-  connected: { cls: OK, text: "Shop connected. Its listings are being fetched now." },
-  error: { cls: BAD, text: "Something went wrong during authorization. Please try again." },
-  etsy_error: { cls: BAD, text: "Etsy refused the authorization." },
-  denied: { cls: WARN, text: "Authorization was cancelled." },
-  expired: { cls: WARN, text: "That authorization link expired. Please start again." },
-  unconfigured: { cls: BAD, text: "Etsy API credentials are not configured on the server." },
-  wrong_account: {
-    cls: WARN,
-    text: "That shop was not connected: this browser is not signed in to the account that started the connection. Sign in to that account here, then press Connect a shop again.",
-  },
-  unavailable: { cls: BAD, text: "This account cannot connect shops right now. Please contact support." },
-  taken: {
-    cls: BAD,
-    text: "That shop is already connected to another account here. A shop can belong to one account at a time.",
-  },
-  limit_account: {
-    cls: WARN,
-    text: "Your account has reached its limit of connected shops. Disconnect one, or ask us for a higher limit.",
-  },
-  limit_app: {
-    cls: WARN,
-    text: "The service has reached the number of shops it can serve right now, because every shop shares one daily Etsy request budget. Please ask us.",
-  },
-  limit_paused: {
-    cls: WARN,
-    text: "New shop connections are paused for now. Your existing shops keep working.",
-  },
-};
+const TONE = { ok: OK, warn: WARN, bad: BAD };
 
 export default function ConnectPage() {
   const { shops, slots, paused, refresh, select } = useShops();
@@ -51,6 +24,8 @@ export default function ConnectPage() {
   const [disconnected, setDisconnected] = useState<string | null>(null);
   // Etsy's own reason when it refused the authorization (shown as Etsy wrote it).
   const [etsyReason, setEtsyReason] = useState<string | null>(null);
+  // For "other_account": the account that started the connection, masked (t***@example.com).
+  const [who, setWho] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +33,7 @@ export default function ConnectPage() {
     const status = params.get("status");
     if (status) setBanner(status);
     setEtsyReason(params.get("reason"));
+    setWho(params.get("who"));
     const shop = params.get("shop");
     if (status === "connected" && shop) select(shop); // show the shop just connected
     refresh();
@@ -81,7 +57,7 @@ export default function ConnectPage() {
     run(() => api.orderShops(order));
   };
 
-  const b = banner ? BANNERS[banner] : null;
+  const b = connectBanner(banner, who);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -95,10 +71,16 @@ export default function ConnectPage() {
       </div>
 
       {b && (
-        <div key="div-77-6" className={`card p-3 text-sm ${b.cls}`}>
-          <span>{b.text}</span>
+        <div key="div-77-6" role="status" className={`card flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm ${TONE[b.tone]}`}
+          data-testid="connect-banner">
+          <span translate="no">{b.text}</span>
           {banner === "etsy_error" && etsyReason && (
             <span key="reason" translate="no">{` Etsy's reason: ${etsyReason}`}</span>
+          )}
+          {b.retry && (
+            <a key="retry" href={AUTH_START_URL} className="btn-secondary px-3 py-1.5 text-xs" data-testid="connect-retry">
+              Try again
+            </a>
           )}
         </div>
       )}

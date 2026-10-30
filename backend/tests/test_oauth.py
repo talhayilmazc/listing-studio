@@ -219,6 +219,12 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
     # autouse fixture) instead of touching the ambient environment / .env.
     test_settings.etsy_client_id = "test-keystring"
     test_settings.etsy_client_secret = "test-secret"
+    # The app and the callback on the test client's own host, so its cookie jar keeps the
+    # binding cookie as a browser would (production: listyro.com and api.listyro.com, its
+    # parent domain; tests/test_oauth.py::test_start_sets_the_binding_cookie_as_production_needs).
+    test_settings.frontend_url = "http://test"
+    test_settings.etsy_redirect_uri = "http://test/api/auth/etsy/callback"
+    test_settings.session_cookie_secure = False
 
     engine = create_async_engine(
         "sqlite+aiosqlite://",
@@ -435,31 +441,88 @@ async def _started(auth_client: httpx.AsyncClient) -> str:
     return parse_qs(urlparse(start.headers["location"]).query)["state"][0]
 
 
-async def test_callback_needs_the_browser_signed_in_to_the_account_that_started_it(
-    auth_client: httpx.AsyncClient,
-) -> None:
-    """Quality pass 2026-10, review R1: someone starts a connection, sends Etsy's consent link to a
-    seller, and the seller's shop must not land in that person's account. The browser finishing
-    the flow must be signed in to the account that started it; the code is not exchanged otherwise."""
+async def test_the_callback_on_another_host_connects_without_the_session_cookie(auth_client: httpx.AsyncClient) -> None:
+    """Production, 2026-10-23 to 2026-10-29: Etsy sends the seller back to api.listyro.com, where the
+    host-only session cookie of listyro.com never arrives; every connection was refused as
+    "wrong_account". The binding cookie set by /start is what the callback needs."""
+    from app.api.auth import BINDING_COOKIE
     from tests.auth_support import sign_out
 
     state = await _started(auth_client)
-    sign_out(auth_client)  # the seller's browser: not signed in to the starter's account
+    assert auth_client.cookies.get(BINDING_COOKIE)
+    sign_out(auth_client)  # as at api.listyro.com: no session cookie, only the binding cookie
     cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
-    assert cb.headers["location"].endswith("/connect?status=wrong_account")
+    assert "status=connected" in cb.headers["location"], cb.headers["location"]
+    assert f'{BINDING_COOKIE}=""' in cb.headers.get("set-cookie", "")  # cleared after use
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        shop = (await s.execute(select(EtsyConnection))).scalar_one()
+    assert shop.tenant_id == auth_client.tenant_id  # type: ignore[attr-defined]
+    # A state is used once: the same link again is refused as reused, not connected twice.
+    again = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    assert again.headers["location"].endswith("/connect?status=reused")
+
+
+async def test_a_consent_link_sent_to_someone_else_cannot_attach_their_shop(auth_client: httpx.AsyncClient) -> None:
+    """Quality pass 2026-10, review R1, kept: account A starts a connection and sends Etsy's consent
+    link to a seller signed in to account B. B's browser has no binding cookie for A's state (it
+    is HttpOnly, random, never in a URL), so the code is never exchanged; with B's own binding
+    cookie (B started a connection too) it does not match A's state."""
+    from app.api.auth import BINDING_COOKIE
+
+    state_a = await _started(auth_client)  # A's browser holds A's binding cookie
+    other = await make_tenant(auth_client.sm, "seller-b@example.com")  # type: ignore[attr-defined]
+    async with httpx.AsyncClient(transport=auth_client._transport, base_url="http://test",  # type: ignore[attr-defined]
+                                 follow_redirects=False, headers=BROWSER_HEADERS) as b:
+        authenticate(b, await open_session(auth_client.redis, other))  # type: ignore[attr-defined]
+        cb = await b.get(f"/api/auth/etsy/callback?state={state_a}&code=the-code")
+        assert cb.headers["location"].endswith("/connect?status=no_binding")
+        state_a2 = await _started(auth_client)
+        await b.get("/api/auth/etsy/start")  # B's own binding cookie, for B's own state
+        assert b.cookies.get(BINDING_COOKIE)
+        cb = await b.get(f"/api/auth/etsy/callback?state={state_a2}&code=the-code")
+        assert cb.headers["location"].endswith("/connect?status=state_mismatch")
     async with auth_client.sm() as s:  # type: ignore[attr-defined]
         assert (await s.execute(select(EtsyConnection))).scalars().first() is None
 
-    # Signed in to another account: refused the same way, and the state is used up.
+
+async def test_signed_in_to_another_account_meanwhile_is_said_with_the_starter_masked(auth_client: httpx.AsyncClient) -> None:
     other = await make_tenant(auth_client.sm, "other@example.com")  # type: ignore[attr-defined]
-    authenticate(auth_client, await open_session(auth_client.redis, auth_client.tenant_id))  # type: ignore[attr-defined]
-    state = await _started(auth_client)
+    state = await _started(auth_client)  # started by owner@example.com
     authenticate(auth_client, await open_session(auth_client.redis, other))  # type: ignore[attr-defined]
     cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
-    assert cb.headers["location"].endswith("/connect?status=wrong_account")
-    authenticate(auth_client, await open_session(auth_client.redis, auth_client.tenant_id))  # type: ignore[attr-defined]
-    again = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
-    assert again.headers["location"].endswith("/connect?status=expired")
+    assert cb.headers["location"].endswith("/connect?status=other_account&who=o%2A%2A%2A%40example.com")
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        assert (await s.execute(select(EtsyConnection))).scalars().first() is None
+
+
+async def test_an_expired_state_is_refused_clearly(auth_client: httpx.AsyncClient) -> None:
+    from app.api.auth import _state_key
+
+    state = await _started(auth_client)
+    await auth_client.redis.delete(_state_key(state))  # type: ignore[attr-defined]  # 15 minutes passed
+    cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
+    assert cb.headers["location"].endswith("/connect?status=expired")
+
+
+def test_the_binding_cookie_reaches_the_app_and_the_callback_host() -> None:
+    from app.api.auth import binding_domain
+
+    assert binding_domain("https://listyro.com", "https://api.listyro.com/api/auth/etsy/callback") == "listyro.com"
+    assert binding_domain("http://listyro.test:3000", "http://api.listyro.test:8000/x") == "listyro.test"
+    assert binding_domain("http://localhost:3000", "http://localhost:8000/x") is None  # one host: host-only
+    assert binding_domain("http://127.0.0.1:3000", "http://127.0.0.2:8000/x") is None
+    assert binding_domain("https://listyro.com", "https://example.com/x") is None
+
+
+async def test_start_sets_the_binding_cookie_as_production_needs(auth_client: httpx.AsyncClient, test_settings) -> None:
+    test_settings.frontend_url = "https://listyro.com"
+    test_settings.etsy_redirect_uri = "https://api.listyro.com/api/auth/etsy/callback"
+    test_settings.session_cookie_secure = True
+    start = await auth_client.get("/api/auth/etsy/start")
+    cookie = start.headers["set-cookie"].lower()
+    for part in ("listyro_oauth=", "domain=listyro.com", "path=/api/auth/etsy", "samesite=lax", "secure", "httponly",
+                 "max-age=900"):
+        assert part in cookie, (part, cookie)
 
 
 async def test_callback_refuses_an_account_suspended_or_being_deleted_meanwhile(auth_client: httpx.AsyncClient) -> None:
