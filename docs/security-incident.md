@@ -121,3 +121,30 @@ After rotating: run `bash deploy/preflight.sh`, sign in, connect the test shop a
 ## 5. If a secret was committed to the repository
 
 Rotating it is the fix; removing it from history is clean-up. Rotate first, then rewrite history and force-push from one clone, and tell the other developer to re-clone (see the note on dumps in `CLAUDE.md`). Check GitHub's secret scanning alert and close it with the rotation time.
+
+## 6. Why a shop cannot be connected to the wrong account (the OAuth binding cookie)
+
+The threat: someone starts "Connect a shop" in their own Listyro account, copies Etsy's consent
+link (it carries their `state`) and sends it to a seller. If the seller approves, Etsy sends the
+seller's browser back to our callback with a code for the seller's shop; without a check, that
+code would be exchanged for tokens and the seller's shop would land in the sender's account.
+
+The check (`backend/app/api/auth.py`, since 2026-10-30): `/start`, which needs a signed-in, active
+account, stores the state with the starting account and the SHA-256 of a random secret, and sets
+that secret as the cookie `listyro_oauth` (`Domain=listyro.com`, `Path=/api/auth/etsy`,
+`SameSite=Lax`, `Secure`, `HttpOnly`, 15 minutes). The callback exchanges the code only when the
+state exists and is unused, the browser presents a `listyro_oauth` cookie whose hash matches that
+state, and the starting account is still active. The sender's secret exists only in the sender's
+browser: it is HttpOnly (no script reads it), random, never in a URL, and nobody else can set a
+cookie for `listyro.com` in the seller's browser. The seller's browser therefore arrives without
+it (refused: `no_binding`) or with its own secret for its own connection (refused:
+`state_mismatch`), and the code is never exchanged. A state is used once (`reused`).
+
+Why a dedicated cookie and not the session cookie: Etsy's registered redirect URI is
+`https://api.listyro.com/api/auth/etsy/callback`, and the session cookie is host-only for
+`listyro.com`, so browsers never send it there. The first version of this check (28f4a66,
+2026-10-23) required the session cookie on the callback and refused every real connection until
+2026-10-30, while the API tests passed because their client sent cookies a browser does not. The
+browser test `frontend/e2e/oauth.spec.ts` (two hosts, a stub Etsy page, real cookie rules) runs
+with every layout run so this cannot ship broken again. No other flow lands on `api.listyro.com`:
+the tunnel answers only the callback and `/health` there (`deploy/cloudflared/config.yml`).

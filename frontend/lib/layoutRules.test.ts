@@ -77,4 +77,10 @@ test("the layout test in the browser can only be aimed at our own pages", () => 
   const spec = read("e2e/layout.spec.ts");
   assert.doesNotMatch(spec + config, /etsy\.com|etsystatic/i);
   assert.equal(JSON.parse(read("package.json")).scripts["test:layout"], "playwright test");
+  // The shop-connection test: our .test hosts mapped to this machine and a stub "Etsy" page only;
+  // any request to Etsy's real site is aborted.
+  const oauth = read("e2e/oauth.spec.ts");
+  for (const url of oauth.match(/https?:\/\/[a-z0-9.-]+/gi) ?? []) assert.match(url, /\.test$/, url);
+  assert.match(oauth, /context\.route\(\/\^https\?.*etsy.*route\.abort\(\)\)/);
+  assert.match(config, /MAP listyro\.test 127\.0\.0\.1, MAP api\.listyro\.test 127\.0\.0\.1, MAP etsy-stub\.test 127\.0\.0\.1/);
 });

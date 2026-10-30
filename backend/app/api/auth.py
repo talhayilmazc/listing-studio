@@ -4,15 +4,39 @@ Flow: ``/start`` builds an authorization URL (state + PKCE) and redirects the
 browser to Etsy; Etsy redirects back to ``/callback`` with a code; we exchange it
 for tokens and persist an encrypted :class:`EtsyConnection`. Tokens never reach
 the frontend.
+
+**Who may finish a connection (the binding cookie).** The callback is the redirect URI
+registered with Etsy, ``https://api.listyro.com/api/auth/etsy/callback``: another host than
+the app (``listyro.com``). The session cookie is host-only for ``listyro.com``
+(api/accounts.py::_set_session_cookie), so the browser never sends it to the callback; the
+check added in 28f4a66 required it and refused every real connection as "wrong_account"
+(production, 2026-10-23 to 2026-10-29). Now ``/start`` (which needs a signed-in, active account)
+sets a dedicated cookie, ``listyro_oauth``: a random secret whose hash is kept with the state
+record, for ``Domain`` = the common parent of the app's and the callback's hosts
+(``listyro.com``, so both get it), ``Path=/api/auth/etsy``, ``SameSite=Lax`` (sent on Etsy's
+top-level redirect back), ``Secure`` (as the session cookie), ``HttpOnly``, 15 minutes. The
+callback requires the state to exist and be unused, this cookie to match that state, and the
+starting account to be active; it does not need the session cookie, and it clears the binding
+cookie.
+
+Why this keeps 28f4a66's protection: someone who starts a connection in their own account and
+sends Etsy's consent link to a seller gets the binding cookie in *their* browser only. It is
+HttpOnly, random and never in a URL, and nobody else can set a cookie for ``listyro.com`` in the
+seller's browser, so the seller's browser arrives at the callback without it (or with the
+seller's own, which does not match the sender's state) and the code is never exchanged: the
+seller's shop cannot land in the sender's account (docs/security-incident.md).
 """
 
 from __future__ import annotations
 
+import hashlib
+import ipaddress
 import json
 import logging
+import secrets
 import uuid
 from collections.abc import Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -50,11 +74,90 @@ from app.etsy.oauth import (
 router = APIRouter(prefix="/api/auth/etsy", tags=["auth"])
 logger = logging.getLogger(__name__)
 
-_STATE_TTL = 600  # seconds a pending authorization may stay unclaimed
+_STATE_TTL = 900  # seconds a pending authorization may stay unclaimed (the binding cookie lives as long)
+BINDING_COOKIE = "listyro_oauth"
+BINDING_PATH = "/api/auth/etsy"
+
+#: Why a callback was refused: the Shops page says each in its own words (connect/page.tsx).
+NO_BINDING = "no_binding"  # no binding cookie: too long ago, or started in another browser
+MISMATCH = "state_mismatch"  # a binding cookie, but for another connection
+REUSED = "reused"  # this state was already used
+EXPIRED = "expired"  # no such state (too old)
+UNAVAILABLE = "unavailable"  # the starting account is suspended or being deleted
+OTHER_ACCOUNT = "other_account"  # this browser is signed in to another account than the one that started
 
 
 def _state_key(state: str) -> str:
     return f"oauth:state:{state}"
+
+
+def _used_key(state: str) -> str:
+    return f"oauth:used:{state}"
+
+
+def _pending_key(digest: str) -> str:
+    """The states still pending for one binding secret: two tabs (a reconnect and a second
+    shop) share the browser's secret, and its cookie is cleared only when none is left."""
+    return f"oauth:bind:{digest}"
+
+
+def _digest(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def binding_domain(frontend_url: str, redirect_uri: str) -> str | None:
+    """The cookie Domain that reaches both the app and the callback: their common parent
+    (``listyro.com`` for ``listyro.com`` and ``api.listyro.com``); None (host-only) when they are
+    the same host (cookies ignore the port: ``localhost:3000`` and ``localhost:8000`` share
+    them), an IP address, or share no parent of two labels or more."""
+    a = (urlparse(frontend_url).hostname or "").lower()
+    b = (urlparse(redirect_uri).hostname or "").lower()
+    if not a or not b or a == b:
+        return None
+    for host in (a, b):
+        try:
+            ipaddress.ip_address(host)
+            return None
+        except ValueError:
+            pass
+    left, right = a.split("."), b.split(".")
+    common: list[str] = []
+    while left and right and left[-1] == right[-1]:
+        common.insert(0, left.pop())
+        right.pop()
+    return ".".join(common) if len(common) >= 2 else None
+
+
+def _cookie_options() -> dict:
+    settings = get_settings()
+    return {"domain": binding_domain(settings.frontend_url, settings.etsy_redirect_uri), "path": BINDING_PATH}
+
+
+def _clear_binding(response: RedirectResponse) -> RedirectResponse:
+    response.delete_cookie(BINDING_COOKIE, httponly=True, secure=get_settings().session_cookie_secure,
+                           samesite="lax", **_cookie_options())
+    return response
+
+
+async def _done_with(redis: Redis, request: Request, state: str | None, response: RedirectResponse) -> RedirectResponse:
+    """After a callback: this state no longer needs the browser's binding cookie; the cookie is
+    cleared unless another connection started in this browser is still waiting for it."""
+    cookie = request.cookies.get(BINDING_COOKIE)
+    if not cookie:
+        return response
+    key = _pending_key(_digest(cookie))
+    if state:
+        await redis.srem(key, state)
+    if not await redis.scard(key):
+        await redis.delete(key)
+        return _clear_binding(response)
+    return response
+
+
+def mask_email(email: str) -> str:
+    """``talha@example.com`` -> ``t***@example.com``: says which account without the address."""
+    name, _, domain = (email or "").partition("@")
+    return f"{name[:1]}***@{domain}" if domain else "another account"
 
 
 def _redirect(url: str) -> RedirectResponse:
@@ -63,6 +166,7 @@ def _redirect(url: str) -> RedirectResponse:
 
 @router.get("/start")
 async def start(
+    request: Request,
     tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> RedirectResponse:
@@ -85,8 +189,14 @@ async def start(
     except ValueError as exc:
         logger.error("etsy oauth: %s", exc)
         return _redirect(f"{settings.frontend_url}/connect?status=unconfigured")
+    # One secret per browser: a second connection started meanwhile (another tab) shares it.
+    binding = request.cookies.get(BINDING_COOKIE) or secrets.token_urlsafe(32)
+    await redis.sadd(_pending_key(_digest(binding)), state)
+    await redis.expire(_pending_key(_digest(binding)), _STATE_TTL)
     await redis.set(
-        _state_key(state), json.dumps({"tenant": str(tenant.id), "verifier": verifier, "scopes": scopes}), ex=_STATE_TTL
+        _state_key(state),
+        json.dumps({"tenant": str(tenant.id), "verifier": verifier, "scopes": scopes, "binding": _digest(binding)}),
+        ex=_STATE_TTL,
     )
 
     try:
@@ -102,7 +212,11 @@ async def start(
         logger.error("etsy oauth: %s", exc)
         await redis.delete(_state_key(state))
         return _redirect(f"{settings.frontend_url}/connect?status=unconfigured")
-    return RedirectResponse(url, status_code=302)
+    response = RedirectResponse(url, status_code=302)
+    # This browser, and only this one, may finish this connection (see the module docstring).
+    response.set_cookie(BINDING_COOKIE, binding, max_age=_STATE_TTL, httponly=True,
+                        secure=settings.session_cookie_secure, samesite="lax", **_cookie_options())
+    return response
 
 
 def _refused(back: str, reason: str | None) -> RedirectResponse:
@@ -111,20 +225,30 @@ def _refused(back: str, reason: str | None) -> RedirectResponse:
     return _redirect(f"{back}?{query}")
 
 
-async def _finisher(request: Request, session: AsyncSession, sessions: SessionStore, started_by: uuid.UUID) -> str | None:
-    """Why this browser may not finish a connection, or None.
+async def _finisher(
+    request: Request, session: AsyncSession, sessions: SessionStore, started_by: uuid.UUID, binding: str | None,
+) -> tuple[str, str | None] | None:
+    """Why this browser may not finish a connection (the reason, and for ``other_account`` the
+    starting account's masked email), or None.
 
-    The tokens go to the account that started the flow (kept with the state), so the browser
-    finishing it must be signed in to that same account and the account must still be usable.
-    Without this, someone could start a connection, send the Etsy consent link to a seller and
-    receive the seller's shop in their own account (quality pass 2026-10, review R1).
+    The tokens go to the account that started the flow (kept with the state). The browser
+    finishing it must hold the binding cookie set for this state when it started (so a consent
+    link sent to someone else cannot hand their shop to the sender; quality pass 2026-10, review
+    R1), and the account must still be usable. The session cookie is not needed: it is host-only
+    for the app and never reaches the callback's host. When it is there and names another
+    account (this browser was signed in to someone else meanwhile), that is said, not guessed.
     """
-    record = await sessions.read(request.cookies.get(SESSION_COOKIE, ""))
-    if record is None or record.tenant_id != started_by:
-        return "wrong_account"
+    cookie = request.cookies.get(BINDING_COOKIE)
+    if not cookie:
+        return NO_BINDING, None
+    if binding is None or not secrets.compare_digest(_digest(cookie), binding):
+        return MISMATCH, None
     tenant = await session.get(Tenant, started_by)
     if tenant is None or tenant.status is not TenantStatus.active or tenant.deletion_requested_at is not None:
-        return "unavailable"
+        return UNAVAILABLE, None
+    record = await sessions.read(request.cookies.get(SESSION_COOKIE, ""))
+    if record is not None and record.tenant_id != started_by:
+        return OTHER_ACCOUNT, mask_email(tenant.email)
     return None
 
 
@@ -159,30 +283,38 @@ async def callback(
         if state:
             await redis.delete(_state_key(state))
         if error == "access_denied":
-            return _redirect(f"{back}?status=denied")
-        return _refused(back, reason)
+            return await _done_with(redis, request, state, _redirect(f"{back}?status=denied"))
+        return await _done_with(redis, request, state, _refused(back, reason))
     if not state or not code:
-        return _redirect(f"{back}?status=denied")
+        return await _done_with(redis, request, state, _redirect(f"{back}?status=denied"))
 
     stored = await redis.get(_state_key(state))
     if stored is None:
-        return _redirect(f"{back}?status=expired")
+        reason = REUSED if await redis.get(_used_key(state)) else EXPIRED
+        logger.warning("etsy oauth: callback refused (%s)", reason)
+        return await _done_with(redis, request, state, _redirect(f"{back}?status={reason}"))
+    # Used once: gone, and remembered as used for as long as it could have lived.
     await redis.delete(_state_key(state))
+    await redis.set(_used_key(state), "1", ex=_STATE_TTL)
 
     raw = stored.decode() if isinstance(stored, (bytes, bytearray)) else str(stored)
+    binding = None
     if raw.startswith("{"):
         pending = json.loads(raw)
         tenant_id, verifier = uuid.UUID(pending["tenant"]), pending["verifier"]
         asked = list(pending.get("scopes") or settings.etsy_scopes.split())
-    else:  # started before this version: "tenant:verifier"
+        binding = pending.get("binding")
+    else:  # started before this version: "tenant:verifier" (no binding: refused, start again)
         tenant_id_str, _, verifier = raw.partition(":")
         tenant_id, asked = uuid.UUID(tenant_id_str), settings.etsy_scopes.split()
 
     # Before the code is exchanged: the code is never turned into tokens for another account.
-    refused = await _finisher(request, session, sessions, tenant_id)
+    refused = await _finisher(request, session, sessions, tenant_id, binding)
     if refused is not None:
-        logger.warning("etsy oauth: callback refused (%s)", refused)
-        return _redirect(f"{back}?status={refused}")
+        reason, who = refused
+        logger.warning("etsy oauth: callback refused (%s)", reason)
+        where = f"{back}?status={reason}" + (f"&who={quote(who)}" if who else "")
+        return await _done_with(redis, request, state, _redirect(where))
 
     try:
         async with client_factory() as client:
@@ -201,13 +333,13 @@ async def callback(
     except OAuthError as exc:
         # Etsy's error and description only (never tokens, the code or the verifier).
         logger.warning("etsy oauth: token exchange refused: %s", exc.reason)
-        return _refused(back, exc.reason)
+        return await _done_with(redis, request, state, _refused(back, exc.reason))
     except ShopTaken:
-        return _redirect(f"{back}?status=taken")
+        return await _done_with(redis, request, state, _redirect(f"{back}?status=taken"))
     except ShopLimitReached as exc:
         # "account" / "app" (a ceiling), or "paused": new connections are paused
         # by the operator and this was not one of the account's connected shops.
-        return _redirect(f"{back}?status=limit_{exc.scope}")
+        return await _done_with(redis, request, state, _redirect(f"{back}?status=limit_{exc.scope}"))
 
     # Fetch the shop's name, listings and per-state counts straight away, through the
     # queue, and say so: until that read lands the shop's counts are "reading…", never 0.
@@ -229,7 +361,7 @@ async def callback(
     await join_all_shops(session, connection)
     marker, now = mark_reading(connection.id)
     await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
-    return _redirect(f"{back}?status=connected&shop={connection.id}")
+    return await _done_with(redis, request, state, _redirect(f"{back}?status=connected&shop={connection.id}"))
 
 
 @router.get("/status", response_model=schemas.ConnectionOut)

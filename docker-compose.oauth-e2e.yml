@@ -1,0 +1,103 @@
+# Shop connection in a real browser, with production's cookie rules and hosts
+# (frontend/e2e/oauth.spec.ts; started and stopped by frontend/e2e/oauth.global.ts).
+#
+#   docker compose -p listyro-oauth-e2e -f docker-compose.oauth-e2e.yml up -d --build --wait
+#   docker compose -p listyro-oauth-e2e -f docker-compose.oauth-e2e.yml down
+#
+# Three origins, as in production: the app (listyro.test:3811, the production frontend image,
+# which proxies /api to the API), the API on its own host for Etsy's redirect back
+# (api.listyro.test:8811, like api.listyro.com) and a stub "Etsy authorize" page on a third
+# origin (etsy-stub.test:9911). The browser maps *.test to 127.0.0.1.
+#
+# Self-contained and synthetic: its own Postgres and Redis on tmpfs (no volumes, nothing kept),
+# two synthetic accounts, keys generated at start (no secret in any file, no .env). Etsy is never
+# reached: every Etsy URL points at the stub and the API refuses to start otherwise
+# (backend/scripts/oauth_e2e_setup.py). ETSY_CALLS_BLOCKED is off only inside this stack, whose
+# "Etsy" is the stub.
+
+x-etsy: &etsy
+  ETSY_CLIENT_ID: stub-keystring
+  ETSY_CLIENT_SECRET: stub-shared-secret
+  ETSY_OAUTH_AUTHORIZE_URL: http://etsy-stub.test:9911/oauth/connect
+  ETSY_OAUTH_TOKEN_URL: http://oauth-stub:9911/v3/public/oauth/token
+  ETSY_REDIRECT_URI: http://api.listyro.test:8811/api/auth/etsy/callback
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e
+      POSTGRES_DB: listyro_oauth_e2e
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, e2e]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7
+    command: [redis-server, --save, "", --appendonly, "no"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      retries: 30
+
+  oauth-stub:
+    image: python:3.12-slim
+    command: [python, /stub/stub.py]
+    volumes:
+      - ./frontend/e2e/oauth:/stub:ro
+    ports: ["9911:9911"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9911/health')"]
+      interval: 2s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      <<: *etsy
+      APP_ENV: development
+      ETSY_CALLS_BLOCKED: "false"
+      DATABASE_URL: postgresql+asyncpg://e2e:e2e@postgres:5432/listyro_oauth_e2e
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: http://listyro.test:3811
+      CORS_ORIGINS: http://listyro.test:3811
+      SESSION_COOKIE_SECURE: "false"
+      STORAGE_DIR: /tmp/e2e-storage
+      AUTH_RATE_LIMIT_REQUESTS: "1000"
+      LLM_API_KEY: ""
+    command:
+      - sh
+      - -c
+      - >
+        export SECRET_KEY=$$(python -c 'import secrets; print(secrets.token_urlsafe(48))') &&
+        export ENCRYPTION_KEY=$$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())') &&
+        python scripts/oauth_e2e_setup.py &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./backend:/app:ro
+    ports: ["8811:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      oauth-stub: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 2s
+      retries: 60
+
+  frontend:
+    # The production image (docker compose -f docker-compose.prod.yml build frontend);
+    # it proxies /api to http://api:8000, which is the service above in this project.
+    image: listyro/frontend:latest
+    ports: ["3811:3000"]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      retries: 60
