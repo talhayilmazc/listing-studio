@@ -273,7 +273,65 @@ class _Pub:
     keys: design_match.Keys
 
 
+#: records(with_blocks=False) per account, kept while nothing it reads has changed: the batch
+#: list, every batch page and "Needs your attention" each read every draft job, snapshot and
+#: listing of the account (the load test, scripts/load_test.py, found the Overview page doing it
+#: three times at once). One small query of counts and latest times says whether the kept answer
+#: still holds; any new job, run, attempt, publication change, dismissal, snapshot, listing,
+#: deleted batch or shop change makes it read again. Per process; at most CACHE_SIZE accounts.
+CACHE_SIZE = 256
+_kept: dict[tuple, tuple[tuple, list]] = {}
+
+
+async def _fingerprint(session: AsyncSession, tenant_id: uuid.UUID) -> tuple:
+    from sqlalchemy import case, func
+
+    def one(*columns, where, table):  # noqa: ANN001, ANN202
+        return [select(c).select_from(table).where(*where).scalar_subquery() for c in columns]
+
+    failed = func.sum(case((Job.status == JobStatus.failed, 1), else_=0))
+    parts = [
+        *one(func.count(), func.max(Job.created_at), func.max(Job.started_at), func.max(Job.finished_at), failed,
+             where=[Job.tenant_id == tenant_id], table=Job),
+        *one(func.count(), func.count(DraftAttempt.etsy_listing_id), func.max(DraftAttempt.created_at),
+             func.max(DraftAttempt.create_sent_at), where=[DraftAttempt.tenant_id == tenant_id], table=DraftAttempt),
+        *one(func.count(), func.max(ListingPublication.updated_at), func.max(ListingPublication.deleted_on_etsy_at),
+             where=[ListingPublication.tenant_id == tenant_id], table=ListingPublication),
+        *one(func.count(), where=[DraftDismissal.tenant_id == tenant_id], table=DraftDismissal),
+        *one(func.count(), where=[ListingSnapshot.tenant_id == tenant_id], table=ListingSnapshot),
+        *one(func.count(), where=[GeneratedContent.tenant_id == tenant_id], table=GeneratedContent),
+        *one(func.count(), func.max(UploadBatch.deleted_at), where=[UploadBatch.tenant_id == tenant_id], table=UploadBatch),
+        *one(func.count(), func.sum(case((EtsyConnection.status == ConnectionStatus.active, 1), else_=0)),
+             where=[EtsyConnection.tenant_id == tenant_id], table=EtsyConnection),
+    ]
+    return tuple((await session.execute(select(*parts))).one())
+
+
 async def records(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    batch_id: uuid.UUID | None = None,
+    since: date | None = None,
+    with_blocks: bool = True,
+) -> list[DraftRecord]:
+    """:func:`_records`, answered from the kept copy when nothing it reads has changed
+    (``with_blocks=False`` and no ``since`` only: the shop setup is not in the fingerprint)."""
+    if with_blocks or since is not None:
+        return await _records(session, tenant_id, batch_id=batch_id, since=since, with_blocks=with_blocks)
+    key = (tenant_id, batch_id)
+    stamp = await _fingerprint(session, tenant_id)
+    kept = _kept.get(key)
+    if kept is not None and kept[0] == stamp:
+        return list(kept[1])
+    found = await _records(session, tenant_id, batch_id=batch_id, with_blocks=False)
+    if len(_kept) >= CACHE_SIZE:
+        _kept.clear()
+    _kept[key] = (stamp, found)
+    return list(found)
+
+
+async def _records(
     session: AsyncSession,
     tenant_id: uuid.UUID,
     *,

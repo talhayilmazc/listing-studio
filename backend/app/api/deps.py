@@ -33,8 +33,11 @@ from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage, Storage
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    from app.db.session import keep_loaded
+
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
+        keep_loaded(session)  # repeat gets in one request come from memory (app/db/session.py)
         yield session
 
 
@@ -123,14 +126,31 @@ class Enqueuer:
         self._url = redis_url
         self._pool = None
 
-    async def enqueue(self, function: str, *args: object, **options: object) -> None:
-        """``options`` are arq's own (e.g. ``_job_id``, so a job is queued once)."""
+    async def _ready(self):  # noqa: ANN202
         if self._pool is None:
             from arq import create_pool
             from arq.connections import RedisSettings
 
             self._pool = await create_pool(RedisSettings.from_dsn(self._url))
-        await self._pool.enqueue_job(function, *args, **options)
+        return self._pool
+
+    async def enqueue(self, function: str, *args: object, **options: object) -> None:
+        """``options`` are arq's own (e.g. ``_job_id``, so a job is queued once)."""
+        await (await self._ready()).enqueue_job(function, *args, **options)
+
+    async def redis(self):  # noqa: ANN201
+        """The queue's Redis, for the fair turns between accounts (workers/fair.py)."""
+        return await self._ready()
+
+
+async def submit_draft(enqueuer: object, tenant_id: object, job_id: object) -> None:
+    """A draft job to the worker, in the account's fair turn (workers/fair.py). A stub enqueuer
+    without a Redis (tests) gets it at once."""
+    from app.workers import fair
+
+    get = getattr(enqueuer, "redis", None)
+    redis = await get() if get is not None else None
+    await fair.submit(redis, enqueuer.enqueue, tenant_id, job_id)  # type: ignore[attr-defined]
 
 
 @lru_cache

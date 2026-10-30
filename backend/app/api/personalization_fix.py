@@ -322,8 +322,10 @@ async def requeue_held(
     await _next_allowed(session, tenant, moved, now)
     out.listings = [ids[c].id for c in ids if c in touched]
     await session.commit()
+    from app.api.deps import submit_draft
+
     for job_id in to_run:
-        await enqueuer.enqueue("run_publish_job", str(job_id))
+        await submit_draft(enqueuer, tenant.id, job_id)  # in the account's fair turn
     return out
 
 

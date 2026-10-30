@@ -44,6 +44,7 @@ from app.workers.profiles import (
 )
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.reconcile import reconcile_all_shops, reconcile_listings
+from app.workers.fair import top_up as fair_top_up
 from app.workers.recovery import recover_interrupted_jobs
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
@@ -155,6 +156,8 @@ class WorkerSettings:
         cron(release_scheduled_publishes, second=30, run_at_startup=True),
         # Group schedules (v8 §B): each planned draft when its time comes.
         cron(release_planned_drafts, second=40, run_at_startup=True),
+        # Drafts held for each account's fair turn: what a lost worker never handed over (workers/fair.py).
+        cron(fair_top_up, second=50, run_at_startup=True),
         # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
         cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).

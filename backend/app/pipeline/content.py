@@ -8,6 +8,7 @@ then reported as failed.
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -114,9 +115,15 @@ def policy_for(content_template: str) -> ContentPolicy:
     return _POLICIES.get(content_template, ContentPolicy())
 
 
+@functools.lru_cache(maxsize=4096)
+def _term_pattern(term: str) -> re.Pattern[str]:
+    return re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+
+
 def _has_term(text: str, term: str) -> bool:
-    """Whole-word (case-insensitive) match, so 'png' won't fire inside 'opening'."""
-    return re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE) is not None
+    """Whole-word (case-insensitive) match, so 'png' won't fire inside 'opening'. Each term is
+    compiled once (a page checks every listing against every term: the load test)."""
+    return _term_pattern(term).search(text) is not None
 
 
 # A title that repeats this many consecutive words of the design's printed text

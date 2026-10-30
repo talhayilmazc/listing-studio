@@ -24,3 +24,20 @@ def get_engine() -> AsyncEngine:
 def get_sessionmaker() -> async_sessionmaker:
     """Return a cached async session factory."""
     return async_sessionmaker(get_engine(), expire_on_commit=False)
+
+
+def keep_loaded(session) -> None:  # noqa: ANN001
+    """Hold every object this session loads until the session ends.
+
+    SQLAlchemy's identity map keeps loaded objects by weak reference: a helper that loads a
+    listing's profile, uses it and drops it lets it be collected, and the next row's
+    ``session.get`` queries the same profile again (a page of 150 listings ran 300 such
+    lookups; the load test, scripts/load_test.py). An API request's session is short, so
+    holding what it loaded costs little and every repeat ``get`` is answered from memory."""
+    from sqlalchemy import event
+
+    kept: list = session.sync_session.info.setdefault("kept", [])
+
+    @event.listens_for(session.sync_session, "loaded_as_persistent")
+    def _keep(_session, instance) -> None:  # noqa: ANN001
+        kept.append(instance)

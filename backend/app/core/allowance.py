@@ -232,6 +232,30 @@ async def free_rewrites_left(
     return max(0, FREE_REWRITES - int(made or 0) - waiting)
 
 
+async def free_rewrites_left_many(
+    session: AsyncSession, tenant: Tenant, designs: list[str], current: AllowanceStatus | None = None
+) -> dict[str, int]:
+    """:func:`free_rewrites_left` for many designs in two queries (a page of 150 listings ran
+    two queries for each)."""
+    if not designs:
+        return {}
+    current = current or await status(session, tenant)
+    made = dict((await session.execute(
+        select(AllowanceUse.design, func.count()).where(
+            AllowanceUse.tenant_id == tenant.id,
+            AllowanceUse.kind == REWRITE,
+            AllowanceUse.design.in_(list(set(designs))),
+            AllowanceUse.at >= current.period_start,
+            AllowanceUse.at < current.resets_at,
+        ).group_by(AllowanceUse.design)
+    )).all())
+    waiting: dict[str, int] = {}
+    for payload in await _waiting_rewrites(session, tenant.id):
+        if not payload.get("counts", True):
+            waiting[payload.get("design")] = waiting.get(payload.get("design"), 0) + 1
+    return {d: max(0, FREE_REWRITES - int(made.get(d, 0)) - waiting.get(d, 0)) for d in designs}
+
+
 async def written_before(session: AsyncSession, tenant: Tenant, design: str) -> bool:
     """Whether a listing's text was ever recorded for ``design`` (at any time)."""
     found = await session.execute(

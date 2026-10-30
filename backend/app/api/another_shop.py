@@ -326,7 +326,7 @@ def _apply_text(content: GeneratedContent, shop_id: uuid.UUID, text: ShopTextIn 
 
 
 async def _why_not_here(session: AsyncSession, content: GeneratedContent, shop: EtsyConnection,
-                        profile: ListingProfile | None, row: AnotherShopRow) -> str | None:
+                        profile: ListingProfile | None, row: AnotherShopRow, *, reading: bool = False) -> str | None:
     """Why this listing cannot go to that shop now: not approved (or edited for that shop since),
     its files gone, its text there (the shop's own, else the listing's) refused, or a production
     partner Etsy requires. None: it can go."""
@@ -337,7 +337,7 @@ async def _why_not_here(session: AsyncSession, content: GeneratedContent, shop: 
     asset = await session.get(Asset, content.asset_id)
     if asset is not None and asset.files_removed_at is not None:
         return "its image files were deleted after the retention period"
-    problem = await listing_problem(session, content, shop.id)
+    problem = await listing_problem(session, content, shop.id, scan=not reading)
     if problem:
         return problem
     if row.partner == shop_listing.PARTNER_REQUIRED:
@@ -383,10 +383,11 @@ def _new_sku(body: AnotherShopIn, content: GeneratedContent, current: str | None
 
 
 async def _work(
-    session: AsyncSession, tenant: Tenant, batch: UploadBatch, body: AnotherShopIn
+    session: AsyncSession, tenant: Tenant, batch: UploadBatch, body: AnotherShopIn, *, reading: bool = False
 ) -> tuple[AnotherShopPreview, list[tuple[GeneratedContent, str | None]], EtsyConnection]:
     """What sending would do. Sets the new profile and SKUs on the listings in the session
-    (never committed here) so each listing is checked as it would be drafted."""
+    (never committed here) so each listing is checked as it would be drafted. ``reading``: only
+    shown (the workspace rows): compliance findings are read as they are, not scanned again."""
     shop = await _target_shop(session, tenant, body.connection_id)
     choices = await _shop_profiles(session, tenant, shop)
     if body.profile_id is not None and all(p.id != body.profile_id for p in choices):
@@ -403,7 +404,14 @@ async def _work(
     given: dict[str, list[str]] = {}
     text_problems = 0
     chosen_profile = await session.get(ListingProfile, body.profile_id) if body.profile_id else None
+    if reading:
+        from app.compliance.check import prefetch_blocking
+
+        await prefetch_blocking(session, contents)
     period = await allowance.status(session, tenant)
+    free_left = await allowance.free_rewrites_left_many(session, tenant, [
+        allowance.design_key(c.batch_id, (assets[c.asset_id].group_key if c.asset_id in assets else None) or "")
+        for c in contents], period)
     publications = {p.content_id: p for p in (await session.execute(select(ListingPublication).where(
         ListingPublication.connection_id == shop.id, ListingPublication.content_id.in_([c.id for c in contents]),
         ListingPublication.state != "deleted_on_etsy"))).scalars()} if contents else {}
@@ -430,8 +438,7 @@ async def _work(
         row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
         row.own_text = bool(shop_listing.text_in(content, shop.id))
         row.text_own = sorted(shop_listing.text_in(content, shop.id))
-        row.free_rewrites_left = await allowance.free_rewrites_left(
-            session, tenant, allowance.design_key(content.batch_id, key), period)
+        row.free_rewrites_left = free_left.get(allowance.design_key(content.batch_id, key), allowance.FREE_REWRITES)
         profile = await _profile_there(session, content, shop.id, chosen_profile)
         row.profile_name = profile.name if profile is not None else None
         check = await check_text(session, content, profile, row.title, row.tags, row.description)
@@ -444,7 +451,7 @@ async def _work(
         link = await profile_shops.link_for(session, profile, shop.id) if profile is not None else None
         row.partner = shop_listing.partner_state(profile, link)
         row.partner_profile_id = profile.id if profile is not None and row.partner != shop_listing.PARTNER_OK else None
-        why = await _why_not_here(session, content, shop, profile, row)
+        why = await _why_not_here(session, content, shop, profile, row, reading=reading)
         if why:
             row.state, row.reason = "cannot", why
             continue
@@ -586,7 +593,7 @@ async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
     reason (``seller_event``). (The page used ``POST /another-shop/preview`` for both.)"""
     tenant_id = tenant.id
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id),
-                                AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None))
+                                AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None), reading=True)
     await session.rollback()
     if content_ids:  # the send summary: its result is recorded, counts per reason only (api/events.py)
         from app.api.events import record_summary
@@ -877,7 +884,8 @@ async def workspace_texts(batch_id: uuid.UUID, connection_id: uuid.UUID, body: W
 
 
 async def _rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, shop_id: uuid.UUID) -> AnotherShopPreview:
-    preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), AnotherShopIn(connection_id=shop_id))
+    preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), AnotherShopIn(connection_id=shop_id),
+                                reading=True)
     await session.rollback()
     return preview
 

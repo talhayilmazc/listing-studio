@@ -47,18 +47,38 @@ def _pattern(term: str) -> re.Pattern[str] | None:
     return re.compile(r"(?<![a-z0-9])" + _JOIN.join(parts) + r"(?![a-z0-9])")
 
 
+#: Texts remembered per list (tags and a profile's description repeat across a page's listings).
+MEMO_SIZE = 20000
+
+
 @dataclass(frozen=True)
 class Blocklist:
-    """Compiled terms. Empty when the filter is off."""
+    """Compiled terms. Empty when the filter is off.
+
+    ``find`` is called several times for every listing a page shows (the load test,
+    scripts/load_test.py, found it the most expensive thing on the review page): one combined
+    pattern answers the usual "none of them" in one search, and answers are remembered."""
 
     terms: tuple[tuple[str, re.Pattern[str]], ...] = field(default=())
+    _any: re.Pattern[str] | None = field(default=None, compare=False, hash=False, repr=False)
+    _memo: dict = field(default_factory=dict, compare=False, hash=False, repr=False)
 
     def find(self, text: str) -> list[str]:
         """The listed terms that appear in ``text``, as written in the list."""
         if not text or not self.terms:
             return []
+        known = self._memo.get(text)
+        if known is not None:
+            return list(known)
         folded = _fold(text)
-        return [term for term, pattern in self.terms if pattern.search(folded)]
+        if self._any is not None and self._any.search(folded) is None:
+            found: tuple[str, ...] = ()
+        else:
+            found = tuple(term for term, pattern in self.terms if pattern.search(folded))
+        if len(self._memo) >= MEMO_SIZE:
+            self._memo.clear()
+        self._memo[text] = found
+        return list(found)
 
     def __bool__(self) -> bool:
         return bool(self.terms)
@@ -75,7 +95,8 @@ def compile_blocklist(terms: Iterable[str]) -> Blocklist:
         if pattern is not None:
             seen.add(_fold(term))
             compiled.append((term, pattern))
-    return Blocklist(tuple(compiled))
+    combined = re.compile("|".join(f"(?:{p.pattern})" for _, p in compiled)) if compiled else None
+    return Blocklist(tuple(compiled), combined)
 
 
 def read_terms(path: Path) -> list[str]:

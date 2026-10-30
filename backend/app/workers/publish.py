@@ -259,6 +259,14 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
         except asyncio.CancelledError:
             await recovery.interrupted(ctx, None, uuid.UUID(job_id), "run_publish_job")
             raise
+        finally:
+            # The account's next held draft gets its turn (workers/fair.py).
+            from app.workers import fair
+
+            try:
+                await fair.after_run(ctx, job_id)
+            except Exception:  # noqa: BLE001 - the minute's top-up hands it over instead
+                logger.warning("fair turn hand-over failed for a draft job", exc_info=True)
 
 
 async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:

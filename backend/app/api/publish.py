@@ -313,7 +313,12 @@ async def _enqueue(
     session.add(job)
     await session.commit()
     await session.refresh(job)
-    await enqueuer.enqueue(function, str(job.id))
+    if function == "run_publish_job":
+        from app.api.deps import submit_draft
+
+        await submit_draft(enqueuer, tenant.id, job.id)  # in the account's fair turn
+    else:
+        await enqueuer.enqueue(function, str(job.id))
     return job
 
 

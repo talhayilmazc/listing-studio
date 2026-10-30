@@ -156,12 +156,17 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
 
 
 async def prepare_mockup_template(ctx: dict[str, Any], photo_id: str) -> str:
-    """arq entrypoint (the job keeps its name: a photo queued before an update still runs)."""
+    """arq entrypoint (the job keeps its name: a photo queued before an update still runs).
+    A heavy job: one of HEAVY_LIMIT turns (workers/fair.py)."""
     from app.api.deps import get_storage
+    from app.workers.fair import heavy
 
-    async with ctx["sessionmaker"]() as session:
-        done = await prepare(session, get_storage(), uuid.UUID(photo_id))
-        return done.status if done is not None else "missing"
+    async with heavy(ctx, "prepare_mockup_template", photo_id) as turn:
+        if not turn:
+            return "waiting_turn"
+        async with ctx["sessionmaker"]() as session:
+            done = await prepare(session, get_storage(), uuid.UUID(photo_id))
+            return done.status if done is not None else "missing"
 
 
 _KEEP = object()
@@ -826,12 +831,16 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
 
 
 async def generate_mockups(ctx: dict[str, Any], run_id: str) -> str:
-    """arq entrypoint."""
+    """arq entrypoint. A heavy job: one of HEAVY_LIMIT turns (workers/fair.py)."""
     from app.api.deps import get_storage
+    from app.workers.fair import heavy
 
-    async with ctx["sessionmaker"]() as session:
-        done = await run(session, get_storage(), uuid.UUID(run_id))
-        return done.status if done is not None else "missing"
+    async with heavy(ctx, "generate_mockups", run_id) as turn:
+        if not turn:
+            return "waiting_turn"
+        async with ctx["sessionmaker"]() as session:
+            done = await run(session, get_storage(), uuid.UUID(run_id))
+            return done.status if done is not None else "missing"
 
 
 async def rerender_mockups(ctx: dict[str, Any], run_id: str, pairs: list[list[str]] | None = None) -> str:
@@ -1024,12 +1033,16 @@ async def build_zip(session: AsyncSession, storage: Storage, zip_id: uuid.UUID) 
 
 
 async def build_mockup_zip(ctx: dict[str, Any], zip_id: str) -> str:
-    """arq entrypoint."""
+    """arq entrypoint. A heavy job: one of HEAVY_LIMIT turns (workers/fair.py)."""
     from app.api.deps import get_storage
+    from app.workers.fair import heavy
 
-    async with ctx["sessionmaker"]() as session:
-        done = await build_zip(session, get_storage(), uuid.UUID(zip_id))
-        return done.status if done is not None else "missing"
+    async with heavy(ctx, "build_mockup_zip", zip_id) as turn:
+        if not turn:
+            return "waiting_turn"
+        async with ctx["sessionmaker"]() as session:
+            done = await build_zip(session, get_storage(), uuid.UUID(zip_id))
+            return done.status if done is not None else "missing"
 
 
 async def expire_zips(session: AsyncSession, storage: Storage, now: datetime | None = None) -> int:
