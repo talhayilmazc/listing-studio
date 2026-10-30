@@ -253,3 +253,16 @@ test("front or back per photo, a run on front, back or both, and several garment
   assert.match(api, /sides: Literal\["front", "back", "both"\] = "both"/);
   assert.match(api, /garment_mode: Literal\["same", "order"\] = "same"/);
 });
+
+test("a waiting mockup job says its real place; nothing when it is next or running", async () => {
+  const { queueLine } = await import("./mockups.ts");
+  assert.equal(queueLine(null), "");
+  assert.equal(queueLine(undefined), "");
+  assert.equal(queueLine({ ahead: 0, minutes: 0 }), "");
+  assert.equal(queueLine({ ahead: 3, minutes: 1 }), "3 ahead, about 1 minute");
+  assert.equal(queueLine({ ahead: 12, minutes: 8 }), "12 ahead, about 8 minutes");
+  const page = fs.readFileSync(path.join(process.cwd(), "app/(app)/templates/page.tsx"), "utf8");
+  const upload = fs.readFileSync(path.join(process.cwd(), "components/MockupUpload.tsx"), "utf8");
+  assert.match(page, /queueLine\(photo\.queue\)/);
+  assert.match(upload, /queueLine\(run\.queue\)/);
+});

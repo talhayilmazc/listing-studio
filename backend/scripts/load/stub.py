@@ -23,6 +23,7 @@ import json
 import os
 import random
 import re
+import sys
 import time
 from collections import Counter
 from typing import Any
@@ -86,8 +87,6 @@ VISION = {"themes": ["mountains", "sunset"], "theme": "mountains", "embedded_tex
 
 
 async def _model(request: httpx2.Request) -> httpx2.Response:
-    if not _counting:
-        _counting.append(asyncio.get_running_loop().create_task(_publish_counts()))
     body = json.loads(request.content)
     await asyncio.sleep(rnd.uniform(*MODEL_S))
     is_vision = any(b.get("type") == "image" for b in body["messages"][0]["content"])
@@ -114,6 +113,19 @@ def _listing(lid: int) -> dict[str, Any]:
 
 def _public(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if k not in ("images", "inventory", "personalization")}
+
+
+#: The server's uplink: 14 Mbps. Images sent to Etsy take turns on it, as on the real line.
+UPLINK_BYTES_PER_SECOND = 14e6 / 8
+_uplink_free_at = 0.0
+
+
+async def _through_the_uplink(size: int) -> None:
+    global _uplink_free_at
+    now = time.monotonic()
+    _uplink_free_at = max(_uplink_free_at, now) + size / UPLINK_BYTES_PER_SECOND
+    counts["uplink_wait_ms"] += int((_uplink_free_at - now) * 1000)
+    await asyncio.sleep(_uplink_free_at - now)
 
 
 async def _etsy(request: httpx.Request) -> httpx.Response:
@@ -151,6 +163,7 @@ async def _etsy(request: httpx.Request) -> httpx.Response:
         row = _listing(int(m.group(1)))
         counts["etsy_image_bytes"] += len(request.content)
         counts["etsy_images"] += 1
+        await _through_the_uplink(len(request.content))
         image = {"listing_image_id": next(_ids), "url_fullxfull": "http://stub.invalid/i.jpg", "rank": len(row["images"]) + 1}
         row["images"].append(image)
         return httpx.Response(201, json=image)
@@ -200,8 +213,6 @@ async def _etsy(request: httpx.Request) -> httpx.Response:
 
 
 async def _handle(request: httpx.Request) -> httpx.Response:
-    if not _counting:
-        _counting.append(asyncio.get_running_loop().create_task(_publish_counts()))
     if "/v3/application" in request.url.path:
         return await _etsy(request)
     counts["refused_other"] += 1
@@ -235,17 +246,34 @@ httpx2.AsyncClient.__init__ = _init2  # type: ignore[method-assign]
 
 
 async def _publish_counts() -> None:
-    """Every 5 s, what this process's stub saw, for the driver (Redis hash ``load:stub``)."""
+    """Every 5 s, what this process saw, for the driver (Redis hash ``load:stub``): the stub's counts,
+    and per minute the event loop's worst lag (is the CPU the limit?) and the most database
+    connections taken from the pool (is the pool the limit?)."""
     from redis.asyncio import Redis
+
+    from app.db.session import get_engine
 
     redis = Redis.from_url(_settings.redis_url)
     me = str(os.getpid())
+    role = "worker" if any("arq" in a for a in sys.argv) else "api"
+    minutes: dict[int, dict[str, float]] = {}
+    pool = get_engine().sync_engine.pool
+    tick = 0
     while True:
-        await asyncio.sleep(5)
+        started = time.perf_counter()
+        await asyncio.sleep(1)
+        lag = time.perf_counter() - started - 1
+        minute = minutes.setdefault(int(time.time()) // 60, {"lag": 0.0, "out": 0, "limit": pool.size() + pool._max_overflow})
+        minute["lag"] = max(minute["lag"], lag)
+        minute["out"] = max(minute["out"], pool.checkedout())
+        tick += 1
+        if tick % 5:
+            continue
         try:
             await redis.hset("load:stub", me, json.dumps({
-                "counts": dict(counts), "per_account": dict(per_account),
+                "role": role, "counts": dict(counts), "per_account": dict(per_account),
                 "seconds": {str(k): v for k, v in list(per_second.items())[-3600:]},
+                "minutes": {str(k): v for k, v in list(minutes.items())[-120:]},
             }))
         except Exception:  # noqa: BLE001 - a missed sample is only a missed sample
             pass
@@ -255,9 +283,20 @@ from app.main import app as _api  # noqa: E402
 from app.workers.settings import WorkerSettings as _Worker  # noqa: E402
 
 
-app = _api
+async def _count_from_the_start(scope: Any, receive: Any, send: Any) -> None:
+    if not _counting:
+        _counting.append(asyncio.get_running_loop().create_task(_publish_counts()))
+    await _api(scope, receive, send)
+
+
+app = _count_from_the_start
+
+
+async def _on_startup(ctx: dict[str, Any]) -> None:
+    await _Worker.on_startup(ctx)
+    _counting.append(asyncio.get_running_loop().create_task(_publish_counts()))
 
 
 # arq reads a settings class's own attributes only, not inherited ones.
 WorkerSettings = type("WorkerSettings", (), {
-    **{k: v for k, v in vars(_Worker).items() if not k.startswith("__")}})
+    **{k: v for k, v in vars(_Worker).items() if not k.startswith("__")}, "on_startup": _on_startup})

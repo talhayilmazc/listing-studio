@@ -33,6 +33,9 @@ x-load-env: &load-env
   LOAD_ACCOUNTS: ${LOAD_ACCOUNTS:-100}
   LOAD_SHOPS: ${LOAD_SHOPS:-3}
   LOAD_LISTINGS: ${LOAD_LISTINGS:-500}
+  # What the priority comparison changes (docs/load-test.md); left out: the app's own defaults.
+  WORKER_NICE: ${WORKER_NICE:-0}
+  IMAGE_WORK_NICE: ${IMAGE_WORK_NICE:-10}
 
 services:
   load-postgres:
@@ -98,11 +101,26 @@ services:
     volumes:
       - ./backend:/app:ro
     cpuset: ${LOAD_CPUSET:-0-1}
-    networks: [load]
+    networks:
+      load:
+        aliases: [api]  # the production frontend image proxies to http://api:8000
     depends_on:
       load-setup: {condition: service_completed_successfully}
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10)"]
+      interval: 5s
+      retries: 60
+
+  load-frontend:
+    # The production image (docker compose -f docker-compose.prod.yml build frontend): its memory is
+    # part of the total, and each page view asks it for its document.
+    image: listyro/frontend:latest
+    cpuset: ${LOAD_CPUSET:-0-1}
+    networks: [load]
+    depends_on:
+      load-app: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       retries: 60
 
@@ -112,6 +130,7 @@ services:
     environment:
       <<: *load-env
       LOAD_API: http://load-app:8000
+      LOAD_FRONTEND: http://load-frontend:3000
     # The sellers' side runs on other CPUs, so it does not take the app's.
     cpuset: ${LOAD_DRIVER_CPUSET:-6-11}
     volumes:

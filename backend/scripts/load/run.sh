@@ -36,7 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${COMPOSE[@]}" up -d --build --wait load-app || { "${COMPOSE[@]}" logs --no-color --tail 60; exit 1; }
+"${COMPOSE[@]}" up -d --build --wait load-app load-frontend || { "${COMPOSE[@]}" logs --no-color --tail 60; exit 1; }
 
 (
   while :; do

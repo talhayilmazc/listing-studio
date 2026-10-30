@@ -44,6 +44,7 @@ from app.core.config import get_settings
 from app.core.sessions import SESSION_COOKIE, SessionStore
 
 API = os.environ.get("LOAD_API", "http://load-app:8000")
+FRONTEND = os.environ.get("LOAD_FRONTEND", "")
 ORIGIN = "http://load-frontend"
 DESIGNS, PHOTOS, LIVE = 5, 3, 12
 SLOW_MS = 500
@@ -148,11 +149,24 @@ class Seller:
         while self.working:
             page, urls = self.rnd.choice(list(pages().items()))
             t0 = time.perf_counter()
-            await asyncio.gather(*(self.call("GET", u, key) for u, key in urls))
+            await asyncio.gather(*(self.call("GET", u, key) for u, key in urls), self.document(page))
             self.meter.pages[page].append((time.perf_counter() - t0) * 1000)
             if page.startswith("Review") and self.batch:
                 await self.thumbnails(self.batch)
             await asyncio.sleep(self.rnd.uniform(4, 12))  # reading it
+
+    async def document(self, page: str) -> None:
+        """The page itself, from the production frontend (its memory is part of the total)."""
+        if not FRONTEND:
+            return
+        path = {"Overview": "/dashboard", "Batches": "/batches", "Scheduled": "/scheduled"}.get(page, "/batches")
+        assert self.client is not None
+        t0 = time.perf_counter()
+        try:
+            res = await self.client.get(FRONTEND + path, follow_redirects=False)
+            self.meter.add("page document (frontend)", (time.perf_counter() - t0) * 1000, res.status_code)
+        except httpx.HTTPError as exc:
+            self.meter.add("page document (frontend)", (time.perf_counter() - t0) * 1000, 599, type(exc).__name__)
 
     async def thumbnails(self, batch: str) -> None:
         """The review page's pictures, at most four at a time, once each (the browser keeps them)."""
@@ -328,6 +342,7 @@ class Watch:
         self.conns_by_state: Counter[str] = Counter()
         self.lines: list[str] = []
         self.stop = False
+        self.long: dict[str, list[float]] = {}
 
     async def run(self) -> None:
         started = time.time()
@@ -341,6 +356,14 @@ class Watch:
                 self.waiting = max(self.waiting, sum(r[2] for r in rows))
                 for r in rows:
                     self.conns_by_state[str(r[0])] = max(self.conns_by_state[str(r[0])], r[1])
+                async with engine.connect() as c:
+                    for age, query in (await c.execute(text(
+                            "SELECT extract(epoch FROM now() - xact_start)::float, left(regexp_replace(query, '\\s+', ' ', 'g'), 130) "
+                            "FROM pg_stat_activity WHERE datname = 'listyro_load' AND state LIKE 'idle in%' "
+                            "AND now() - xact_start > interval '2 seconds'"))).all():
+                        seen = self.long.setdefault(query, [0, 0.0])
+                        seen[0] += 1
+                        seen[1] = max(seen[1], age)
                 queue = await self.redis.zcard("arq:queue")
                 self.queue = max(self.queue, queue)
                 info = await self.redis.info("memory")
@@ -357,12 +380,17 @@ async def stub_totals(redis: Redis) -> dict:
     total: Counter[str] = Counter()
     accounts: Counter[str] = Counter()
     seconds: Counter[str] = Counter()
+    minutes: dict[str, dict[int, dict[str, float]]] = {"api": {}, "worker": {}}
     for raw in (await redis.hgetall("load:stub")).values():
         data = json.loads(raw)
         total.update(data["counts"])
         accounts.update(data["per_account"])
         seconds.update(data["seconds"])
-    return {"counts": total, "accounts": accounts, "seconds": seconds}
+        for key, value in data.get("minutes", {}).items():
+            row = minutes[data.get("role", "api")].setdefault(int(key), {"lag": 0.0, "out": 0, "limit": value["limit"]})
+            row["lag"] = max(row["lag"], value["lag"])
+            row["out"] = max(row["out"], value["out"])
+    return {"counts": total, "accounts": accounts, "seconds": seconds, "minutes": minutes}
 
 
 async def proc_samples(redis: Redis, since: float) -> list[dict]:
@@ -389,6 +417,13 @@ async def job_figures(since: datetime) -> dict[str, Any]:
     return {"by_type": by_type, "drafts": drafts, "live": live, "failures": failures}
 
 
+async def mockup_figures(since: datetime) -> tuple[int, int, int]:
+    async with engine.connect() as c:
+        ready = (await c.execute(text("SELECT count(*) FILTER (WHERE status = 'ready'), count(*) FILTER (WHERE status = 'failed') FROM mockup_photo WHERE created_at >= :s"), {"s": since})).one()
+        outputs = (await c.execute(text("SELECT count(*) FROM mockup_output WHERE created_at >= :s"), {"s": since})).scalar_one()
+    return int(ready[0]), int(ready[1]), int(outputs)
+
+
 async def drain(redis: Redis, since: datetime, seconds: float) -> float:
     """Wait for the drafts and go-lives of this step to finish; returns how long it took."""
     t0 = time.perf_counter()
@@ -410,11 +445,11 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
     started_at = datetime.now(timezone.utc)
     started = time.time()
     before = await stub_totals(redis)
-    planted = await plant_go_lives([w["tenant"] for w in chosen], started_at + timedelta(minutes=args.live_minutes))
-    # The hourly reconcile fires as the step starts.
-    shops = [s for w in chosen for s in w["shops"]]
-    for shop in shops:
-        await pool.enqueue_job("reconcile_listings", shop)
+    planted = await plant_go_lives([w["tenant"] for w in chosen], started_at + timedelta(minutes=args.live_minutes)) if args.scenario == "all" else 0
+    # The hourly reconcile fires as the step starts (spread as workers/reconcile.py spreads it).
+    shops = [s for w in chosen for s in w["shops"]] if args.scenario == "all" else []
+    for i, shop in enumerate(shops):
+        await pool.enqueue_job("reconcile_listings", shop, _defer_by=i * 3000 / len(shops))
     watch = Watch(redis)
     watching = asyncio.create_task(watch.run())
     sellers = [Seller(i, w, meter, photos, designs, redis) for i, w in enumerate(chosen)]
@@ -424,7 +459,15 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
         await asyncio.sleep(s.n * args.ramp / max(count, 1))  # all within the first ramp seconds
         await s.session()
 
-    await asyncio.gather(*(staggered(s) for s in sellers))
+    if args.scenario == "mockups":
+        # Only mockups: the first sellers make them while everyone reads pages until they are done.
+        reading = [asyncio.create_task(s.read_pages()) for s in sellers]
+        await asyncio.gather(*(s.mockups() for s in sellers[:args.mockup_sellers]))
+        for s in sellers:
+            s.working = False
+        await asyncio.gather(*reading)
+    else:
+        await asyncio.gather(*(staggered(s) for s in sellers))
     worked = time.time() - started
     drained = await drain(redis, started_at, args.drain_seconds)
     watch.stop = True
@@ -461,7 +504,8 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
         for key, n in meter.errors.most_common(14):
             lines.append(f"  {n:>6} × {key}")
     if meter.samples:
-        lines.append("\nminute by minute (when it got slow, and how much the server sent; its uplink is 14 Mbps = 105 MB a minute):")
+        lines.append("\nminute by minute (when it got slow, how much the server sent [its uplink is 14 Mbps = 105 MB a minute], CPU cores used, "
+                     "worst event-loop lag and most pooled connections of an API process and the worker):")
         minutes: dict[int, list[float]] = defaultdict(list)
         bytes_out: Counter[int] = Counter()
         for at, ms in meter.samples:
@@ -470,7 +514,19 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
             bytes_out[int(at - started) // 60] += n
         for minute in sorted(minutes):
             values = minutes[minute]
-            lines.append(f"  min {minute:>3}: {len(values):>5} requests  p50 {pct(values, 50):>6.0f} ms  p95 {pct(values, 95):>6.0f} ms  sent {bytes_out[minute] / 1e6:>6.1f} MB")
+            base = int(started) // 60 + minute
+            api, wrk = after["minutes"]["api"].get(base, {}), after["minutes"]["worker"].get(base, {})
+            rows = [s for s in samples if int(s["at"] - started) // 60 == minute]
+            used = ""
+            if len(rows) > 1:
+                span = max(rows[-1]["at"] - rows[0]["at"], 1)
+                used = f"  cpu api {(rows[-1]['api_cpu'] - rows[0]['api_cpu']) / span:.2f} worker {(rows[-1]['worker_cpu'] - rows[0]['worker_cpu']) / span:.2f}"
+            lines.append(f"  min {minute:>3}: {len(values):>5} requests  p50 {pct(values, 50):>6.0f} ms  p95 {pct(values, 95):>6.0f} ms  sent {bytes_out[minute] / 1e6:>6.1f} MB"
+                         f"{used}  lag api {api.get('lag', 0):>5.2f}s wkr {wrk.get('lag', 0):>5.2f}s  pool api {int(api.get('out', 0)):>2}/{int(api.get('limit', 0))} wkr {int(wrk.get('out', 0)):>2}/{int(wrk.get('limit', 0))}")
+    if args.scenario == "mockups":
+        made = await mockup_figures(started_at)
+        lines.append(f"\nmockups: {made[0]} photos prepared, {made[1]} failed, {made[2]} mockups made in {worked:.0f} s = "
+                     f"{60 * made[0] / max(worked, 1):.1f} photos a minute, {60 * made[2] / max(worked, 1):.1f} mockups a minute")
     lines.append("\nworker:")
     for jtype, status, n in jobs["by_type"]:
         lines.append(f"  {jtype:<28}{status:<12}{n:>6}")
@@ -507,6 +563,12 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
         lines.append(f"  API (2 processes + parent): {max(api) / 1e6:.0f} MB; worker: {max(work) / 1e6:.0f} MB")
         lines.append(f"  CPU over the step: API {(samples[-1]['api_cpu'] - samples[0]['api_cpu']) / span:.2f} cores, worker {(samples[-1]['worker_cpu'] - samples[0]['worker_cpu']) / span:.2f} cores")
     lines.append(f"  database connections {watch.conns} ({dict(watch.conns_by_state)}), waiting on a lock {watch.waiting}")
+    if watch.long:
+        lines.append("  transactions left idle over 2 s (pg_stat_activity, every 5 s: samples, longest, the last query):")
+        for query, (n, longest) in sorted(watch.long.items(), key=lambda kv: -kv[1][1])[:12]:
+            lines.append(f"    {n:>4} × {longest:>6.1f} s  {query}")
+    else:
+        lines.append("  transactions left idle over 2 s: none seen")
     lines.append(f"  Redis memory {watch.redis_used / 1e6:.0f} MB (limit 256 MB); arq queue depth {watch.queue}")
     lines.extend(watch.lines[:25])
     lines.append(f"\nstep total {elapsed:.0f} s")
@@ -565,4 +627,6 @@ if __name__ == "__main__":
     parser.add_argument("--live-minutes", type=float, default=10.0)
     parser.add_argument("--drain-seconds", type=float, default=1200.0)
     parser.add_argument("--label", default="run")
+    parser.add_argument("--scenario", choices=("all", "mockups"), default="all")
+    parser.add_argument("--mockup-sellers", type=int, default=12)
     raise SystemExit(asyncio.run(main(parser.parse_args())))
