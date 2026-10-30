@@ -100,6 +100,7 @@ class Seller:
         self.batch: str | None = None
         self.working = True
         self.seen: set[str] = set()
+        self.think: tuple[float, float] = (4.0, 12.0)
 
     async def open(self) -> None:
         token = await SessionStore(self.redis).create(uuid.UUID(self.world["tenant"]))
@@ -153,7 +154,7 @@ class Seller:
             self.meter.pages[page].append((time.perf_counter() - t0) * 1000)
             if page.startswith("Review") and self.batch:
                 await self.thumbnails(self.batch)
-            await asyncio.sleep(self.rnd.uniform(4, 12))  # reading it
+            await asyncio.sleep(self.rnd.uniform(*self.think))  # reading it
 
     async def document(self, page: str) -> None:
         """The page itself, from the production frontend (its memory is part of the total)."""
@@ -455,6 +456,8 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
     watch = Watch(redis)
     watching = asyncio.create_task(watch.run())
     sellers = [Seller(i, w, meter, photos, designs, redis) for i, w in enumerate(chosen)]
+    for s in sellers:
+        s.think = args.think
     await asyncio.gather(*(s.open() for s in sellers))
 
     async def staggered(s: Seller) -> None:
@@ -616,6 +619,7 @@ async def main(args: argparse.Namespace) -> int:
     designs = [_design(i) for i in range(5)]
     report = [f"Listyro load test {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC. CPU set of the app, Postgres and Redis: {os.environ.get('LOAD_CPUSET_SHOWN', '?')}. "
               f"Etsy answers in {os.environ.get('LOAD_ETSY_MS')} ms, the model in {os.environ.get('LOAD_MODEL_MS')} ms. "
+              f"A seller reads a page for {args.think[0]:.0f}-{args.think[1]:.0f} s. "
               f"Photos {len(photos[0]) / 1e6:.2f} MB, designs {len(designs[0]) / 1e6:.2f} MB."]
     async with engine.connect() as c:
         size = (await c.execute(text("SELECT pg_size_pretty(pg_database_size('listyro_load'))"))).scalar_one()
@@ -647,6 +651,8 @@ if __name__ == "__main__":
     parser.add_argument("--live-minutes", type=float, default=10.0)
     parser.add_argument("--drain-seconds", type=float, default=1200.0)
     parser.add_argument("--label", default="run")
+    parser.add_argument("--think", type=lambda s: tuple(float(x) for x in s.split(",")), default=(4.0, 12.0),
+                        help="seconds a seller reads a page before the next, low,high")
     parser.add_argument("--scenario", choices=("all", "mockups"), default="all")
     parser.add_argument("--mockup-sellers", type=int, default=12)
     raise SystemExit(asyncio.run(main(parser.parse_args())))

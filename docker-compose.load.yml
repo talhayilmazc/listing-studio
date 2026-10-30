@@ -96,7 +96,7 @@ services:
         mkdir -p /tmp/load-storage &&
         (python -m scripts.load.sampler &
         arq scripts.load.stub.WorkerSettings &
-        IMAGE_WORK_THREADS=1 uvicorn scripts.load.stub:app --host 0.0.0.0 --port 8000 --workers 2 --no-server-header --timeout-keep-alive 75 &
+        uvicorn scripts.load.stub:app --host 0.0.0.0 --port 8000 --workers 2 --no-server-header --timeout-keep-alive 75 &
         wait -n)
     volumes:
       - ./backend:/app:ro

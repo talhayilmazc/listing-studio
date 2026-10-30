@@ -5,8 +5,9 @@ a template photo for several. A seller's Upload page sends three at once; 25 sel
 together gave each API process six threads resizing (the default thread pool), and pages waited
 behind them for seconds (the load test, docs/load-test.md).
 
-So this work has its own threads: at most ``settings.image_work_threads`` per process (production's
-API processes run one each, the worker two), at a lower CPU priority (``settings.image_work_nice``). The rest wait their turn without holding a thread or a database
+So this work has its own threads: at most ``settings.image_work_threads`` per process, at a lower CPU
+priority (``settings.image_work_nice``). (One per API process made uploads 3.5 times slower and pages no
+faster: the load test.) The rest wait their turn without holding a thread or a database
 connection (``core/db_release.py``). When the CPUs are free it runs at full speed; when they are
 busy, pages and Etsy requests go first and it takes the time that is left. Only these threads are
 lowered: the worker's own event loop keeps its priority, so its drafts and go-lives keep pace.

@@ -189,7 +189,7 @@ class Settings(BaseSettings):
     worker_nice: int = 0
     # The image threads' priority, in the API and the worker (core/image_work.py).
     image_work_nice: int = 10
-    # Its threads per process (IMAGE_WORK_THREADS=1 on the API in production).
+    # Its threads per process.
     image_work_threads: int = 2
     # Database connections per process: kept open (pool) and extra under load (overflow).
     db_pool_size: int = 10
