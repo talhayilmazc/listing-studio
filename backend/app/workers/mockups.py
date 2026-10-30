@@ -695,6 +695,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             return loaded[cache]
 
         template_groups = await template_subgroups(session, {p.template_id for p, _ in photos})
+        await session.commit()  # colours measured above: saved, and no connection across the image work
         for design in designs:
             try:
                 images[design.id] = await image_of(design, False)
@@ -743,6 +744,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                                              photo.size, adj, W, H)
                     if r:
                         reach.append(r)
+            await session.commit()  # (a total or a colour changed above: no connection across the maps)
             maps = await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
@@ -777,6 +779,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     if not refreshing:
                         job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue
+                await session.commit()
                 try:
                     jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:

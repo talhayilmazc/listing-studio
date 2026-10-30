@@ -384,12 +384,12 @@ def _sentence(changes: list[R.Change], removed: list[str], op: str) -> str:
 
 
 @router.get("", response_model=ScheduledOut)
-async def scheduled(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> ScheduledOut:
+async def scheduled(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> ScheduledOut:
     return await _out(session, tenant)
 
 
 @router.post("/preview", response_model=PreviewOut)
-async def preview(body: EditIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> PreviewOut:
+async def preview(body: EditIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> PreviewOut:
     w = await _world(session, tenant)
     zone = _zone(tenant)
     changes, removed = _plan(w, body, datetime.now(timezone.utc))
@@ -437,7 +437,7 @@ async def _remove(session: AsyncSession, tenant: Tenant, row: Any) -> None:
 
 
 @router.post("/apply", response_model=ApplyOut)
-async def apply(body: EditIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+async def apply(body: EditIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
                 enqueuer: Enqueuer = Depends(get_enqueuer)) -> ApplyOut:
     w = await _world(session, tenant)
     now = datetime.now(timezone.utc)
@@ -470,7 +470,7 @@ async def apply(body: EditIn, session: AsyncSession = Depends(get_session), tena
 
 
 @router.post("/restore", response_model=ApplyOut)
-async def restore(body: RestoreIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> ApplyOut:
+async def restore(body: RestoreIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> ApplyOut:
     """Undo: each listing back to its time (and onto the schedule, if it was removed). One that
     has gone live, or whose draft is being made, meanwhile stays as it is."""
     now = datetime.now(timezone.utc)
@@ -505,7 +505,7 @@ async def restore(body: RestoreIn, session: AsyncSession = Depends(get_session),
 
 
 @router.put("/paused", response_model=ScheduledOut)
-async def pause_all(body: PausedIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> ScheduledOut:
+async def pause_all(body: PausedIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> ScheduledOut:
     tenant.schedules_paused = body.paused
     audit.record(session, "schedule.paused" if body.paused else "schedule.resumed", actor=tenant, target_tenant_id=tenant.id,
                  scope="all")
@@ -521,7 +521,7 @@ async def _group(session: AsyncSession, tenant: Tenant, group_id: uuid.UUID) -> 
 
 
 @router.put("/groups/{group_id}", response_model=ScheduledOut)
-async def set_group(group_id: uuid.UUID, body: GroupIn, session: AsyncSession = Depends(get_session),
+async def set_group(group_id: uuid.UUID, body: GroupIn, session: AsyncSession = Depends(get_session, scope="function"),
                     tenant: Tenant = Depends(active_tenant)) -> ScheduledOut:
     group = await _group(session, tenant, group_id)
     data = dict(group.schedule or {})
@@ -539,7 +539,7 @@ async def set_group(group_id: uuid.UUID, body: GroupIn, session: AsyncSession = 
 
 
 @router.post("/groups/{group_id}/reflow", response_model=PreviewOut)
-async def reflow(group_id: uuid.UUID, body: ReflowIn, session: AsyncSession = Depends(get_session),
+async def reflow(group_id: uuid.UUID, body: ReflowIn, session: AsyncSession = Depends(get_session, scope="function"),
                  tenant: Tenant = Depends(active_tenant)) -> PreviewOut:
     """The group's new settings applied to its shops' upcoming listings: old -> new first, and
     with ``apply`` saved (the settings with them)."""

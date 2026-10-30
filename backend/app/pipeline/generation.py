@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import db_release
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import characters_seen
 from app.core.llm_status import LLMUnavailable
@@ -106,6 +107,7 @@ async def generate_listing_content(
         await _record_failure(session, asset_id, SELLER_FAILURE)
         return GenerationOutcome(status="failed", usages=usages, analysis=analysis, error=SELLER_FAILURE)
 
+    await db_release.ready_to_save(session)  # the model's answer is paid for: a busy pool must not lose it
     listing = result.listing
     # Sum content attempts so the stored per-listing figure reflects retries too.
     input_tokens = sum(u.input_tokens for u in result.usages)

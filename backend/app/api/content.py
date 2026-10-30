@@ -151,7 +151,7 @@ async def tick_manual_step(
     connection_id: uuid.UUID,
     key: str,
     body: schemas.ManualStepTick,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.PublicationOut:
     """The seller confirms (or un-confirms) making one setting on one draft by hand."""
@@ -187,7 +187,7 @@ async def tick_manual_step(
 @router.post("/batches/{batch_id}/manual-steps/done", response_model=schemas.ManualStepsDone)
 async def mark_manual_steps_done(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ManualStepsDone:
     """'Mark all as done': every setting on every approved draft of this batch.
@@ -443,7 +443,7 @@ def _clean_personalization(value: dict | None) -> dict | None:
 async def set_personalization_for_all(
     batch_id: uuid.UUID,
     body: schemas.BulkPersonalization,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.ContentOut]:
@@ -506,7 +506,7 @@ async def _get(session: AsyncSession, tenant: Tenant, content_id: uuid.UUID) -> 
 @router.get("/batches/{batch_id}/content", response_model=list[schemas.ContentOut])
 async def list_batch_content(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.ContentOut]:
     # A batch the caller does not own must look exactly like one that does not
@@ -536,7 +536,7 @@ async def list_batch_content(
 async def update_content(
     content_id: uuid.UUID,
     body: schemas.ContentUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ContentUpdateResult:
@@ -650,7 +650,7 @@ def _changed_elsewhere(
 async def preview_checklist(
     content_id: uuid.UUID,
     body: schemas.ChecklistPreview,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ChecklistOut:
     """The checklist for the text on the card as the seller edits it, before it is
@@ -668,7 +668,7 @@ async def preview_checklist(
 @router.get("/content/{content_id}/reference-text", response_model=schemas.ReferenceText)
 async def reference_text(
     content_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ReferenceText:
@@ -703,7 +703,7 @@ async def reference_text(
 async def approve_content(
     content_id: uuid.UUID,
     body: schemas.ApproveUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ContentUpdateResult:
     content = await _get(session, tenant, content_id)
@@ -761,7 +761,7 @@ async def _shop_text_errors(session: AsyncSession, content: GeneratedContent, sh
 async def approve_all(
     batch_id: uuid.UUID,
     body: schemas.ApproveAllRequest | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ApproveAllResult:
     """'Approve all' (docs/duzeltmeler-v6.md §D): every listing in the batch that

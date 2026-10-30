@@ -80,7 +80,7 @@ class ShortenOut(BaseModel):
 @router.post("/personalization/shorten", response_model=ShortenOut)
 async def shorten(
     body: ShortenIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> ShortenOut:
@@ -188,7 +188,7 @@ async def following(session: AsyncSession, profile: ListingProfile) -> list[Gene
 async def fix_profile(
     profile_id: uuid.UUID,
     body: FixIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> ProfileFixOut:
@@ -211,7 +211,7 @@ async def fix_profile(
 async def fix_content(
     content_id: uuid.UUID,
     body: FixIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> ContentFixOut:

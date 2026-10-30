@@ -48,7 +48,7 @@ class EventIn(BaseModel):
 @router.post("/events", status_code=204)
 async def record_event(
     body: EventIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> Response:

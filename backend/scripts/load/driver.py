@@ -381,16 +381,18 @@ async def stub_totals(redis: Redis) -> dict:
     accounts: Counter[str] = Counter()
     seconds: Counter[str] = Counter()
     minutes: dict[str, dict[int, dict[str, float]]] = {"api": {}, "worker": {}}
+    held: Counter[str] = Counter()
     for raw in (await redis.hgetall("load:stub")).values():
         data = json.loads(raw)
         total.update(data["counts"])
         accounts.update(data["per_account"])
         seconds.update(data["seconds"])
+        held.update(data.get("held", {}))
         for key, value in data.get("minutes", {}).items():
             row = minutes[data.get("role", "api")].setdefault(int(key), {"lag": 0.0, "out": 0, "limit": value["limit"]})
             row["lag"] = max(row["lag"], value["lag"])
             row["out"] = max(row["out"], value["out"])
-    return {"counts": total, "accounts": accounts, "seconds": seconds, "minutes": minutes}
+    return {"counts": total, "accounts": accounts, "seconds": seconds, "minutes": minutes, "held": held}
 
 
 async def proc_samples(redis: Redis, since: float) -> list[dict]:
@@ -520,13 +522,31 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
             used = ""
             if len(rows) > 1:
                 span = max(rows[-1]["at"] - rows[0]["at"], 1)
-                used = f"  cpu api {(rows[-1]['api_cpu'] - rows[0]['api_cpu']) / span:.2f} worker {(rows[-1]['worker_cpu'] - rows[0]['worker_cpu']) / span:.2f}"
+                used = (f"  cpu api {(rows[-1]['api_cpu'] - rows[0]['api_cpu']) / span:.2f}"
+                        f" (image {(rows[-1].get('api_image_cpu', 0) - rows[0].get('api_image_cpu', 0)) / span:.2f})"
+                        f" worker {(rows[-1]['worker_cpu'] - rows[0]['worker_cpu']) / span:.2f}"
+                        f" (image {(rows[-1].get('worker_image_cpu', 0) - rows[0].get('worker_image_cpu', 0)) / span:.2f})")
             lines.append(f"  min {minute:>3}: {len(values):>5} requests  p50 {pct(values, 50):>6.0f} ms  p95 {pct(values, 95):>6.0f} ms  sent {bytes_out[minute] / 1e6:>6.1f} MB"
                          f"{used}  lag api {api.get('lag', 0):>5.2f}s wkr {wrk.get('lag', 0):>5.2f}s  pool api {int(api.get('out', 0)):>2}/{int(api.get('limit', 0))} wkr {int(wrk.get('out', 0)):>2}/{int(wrk.get('limit', 0))}")
     if args.scenario == "mockups":
         made = await mockup_figures(started_at)
         lines.append(f"\nmockups: {made[0]} photos prepared, {made[1]} failed, {made[2]} mockups made in {worked:.0f} s = "
                      f"{60 * made[0] / max(worked, 1):.1f} photos a minute, {60 * made[2] / max(worked, 1):.1f} mockups a minute")
+    base_minute = int(started) // 60
+    surge: Counter[str] = Counter()
+    steady: Counter[str] = Counter()
+    for key, seconds_held in after["held"].items():
+        minute, route = key.split(" ", 1)
+        offset = int(minute) - base_minute
+        if offset >= 0:
+            (surge if offset < 4 else steady)[route] += seconds_held
+    for title, table in (("first 4 minutes", surge), ("after that", steady)):
+        total_held = sum(table.values()) or 1
+        lines.append(f"\nwho holds database connections, {title} (connection-seconds, share, per request):")
+        for route, value in table.most_common(10):
+            shape = route.split(" ", 1)[-1]
+            calls = next((len(v) for k, v in meter.times.items() if k == shape), 0)
+            lines.append(f"  {value:>8.0f} s  {100 * value / total_held:>3.0f}%  {route}")
     lines.append("\nworker:")
     for jtype, status, n in jobs["by_type"]:
         lines.append(f"  {jtype:<28}{status:<12}{n:>6}")

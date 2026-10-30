@@ -172,7 +172,7 @@ async def _get_batch(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID)
 @router.post("/batches", response_model=schemas.BatchSummary, status_code=201)
 async def create_batch(
     body: schemas.BatchCreate | None = Body(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.BatchSummary:
@@ -202,7 +202,7 @@ async def add_asset(
     file: UploadFile,
     group_key: str | None = Form(None),
     grouping_mode: str | None = Form(None, alias="grouping"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.AssetOut:
@@ -263,7 +263,7 @@ async def add_archive(
     batch_id: uuid.UUID,
     file: UploadFile,
     grouping_mode: str | None = Form(None, alias="grouping"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.ArchiveResult:
@@ -334,7 +334,7 @@ async def add_archive(
 async def set_size_chart_profile(
     batch_id: uuid.UUID,
     body: schemas.SizeChartProfileUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchSummary:
     """Choose which profile's size charts (fixed images) to append for this batch (Task 4)."""
@@ -359,7 +359,7 @@ def _mode(value: str | None) -> str | None:
 async def regroup_batch(
     batch_id: uuid.UUID,
     body: schemas.GroupingChoice,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.BatchSummary:
@@ -382,7 +382,7 @@ async def regroup_batch(
 @router.post("/batches/{batch_id}/finalize", response_model=schemas.BatchSummary)
 async def finalize_batch(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
 ) -> schemas.BatchSummary:
@@ -395,7 +395,7 @@ async def finalize_batch(
 async def rename_batch(
     batch_id: uuid.UUID,
     body: schemas.BatchRename,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchSummary:
     """Name a batch, so it can be found again. An empty name goes back to the
@@ -409,7 +409,7 @@ async def rename_batch(
 @router.get("/batches/{batch_id}/summary", response_model=schemas.BatchSummary)
 async def batch_summary(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchSummary:
     """The batch without its files: its name, shop, counts and statuses (page headers)."""
@@ -420,7 +420,7 @@ async def batch_summary(
 # --- Reading batches --------------------------------------------------------
 @router.get("/batches", response_model=list[schemas.BatchSummary])
 async def list_batches(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.BatchSummary]:
     from app.pipeline.batch_status import batch_overviews
@@ -453,7 +453,7 @@ async def _with_statuses(session: AsyncSession, tenant: Tenant, batch: UploadBat
 @router.get("/batches/{batch_id}", response_model=schemas.BatchDetail)
 async def get_batch(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     batch = await _get_batch(session, tenant, batch_id)
@@ -501,7 +501,7 @@ async def get_asset_image(
         ),
     ),
     v: str | None = Query(None, max_length=40, description="The image version (frontend IMAGE_VERSION): kept for a year."),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -525,6 +525,7 @@ async def get_asset_image(
         raise HTTPException(status_code=400, detail="ar requires a size")
     if ar is not None and ar not in PREVIEW_ASPECTS:
         raise HTTPException(status_code=400, detail=f"ar must be one of {sorted(PREVIEW_ASPECTS)}")
+    await session.commit()  # no connection while a copy is made or the file is read
     return await images.send_stored(request, storage, key=key, url_version=str(thumbs.VERSION), asked=v,
                                     size=chosen, aspect=ar, media_type=media_type)
 
@@ -695,7 +696,7 @@ def _size_charts(profile: ListingProfile) -> list[schemas.SizeChartOut]:
 async def set_chart_slots(
     batch_id: uuid.UUID,
     body: schemas.GroupChartSlots,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     """Save where a group's size charts sit among its photos (dragged in its strip);
@@ -740,7 +741,7 @@ async def set_chart_slots(
 @router.get("/batches/{batch_id}/groups", response_model=list[schemas.GroupOut])
 async def list_groups(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     await _get_batch(session, tenant, batch_id)
@@ -839,7 +840,7 @@ async def _follow_profile(
 async def set_batch_shop(
     batch_id: uuid.UUID,
     body: schemas.BatchShop,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     """Choose the shop the batch is for. Groups the seller has not set themselves
@@ -864,7 +865,7 @@ async def set_batch_shop(
 async def assign_group_profile(
     batch_id: uuid.UUID,
     body: schemas.GroupAssign,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.GroupOut]:
@@ -1000,7 +1001,7 @@ def _files_needed(*assets: Asset) -> None:
 async def set_cover_crop(
     asset_id: uuid.UUID,
     body: schemas.CoverCrop,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.CoverCrop:
     """Save where the cover photo is cut: a square on the processed image.
@@ -1029,7 +1030,7 @@ async def set_cover_crop(
 @router.delete("/assets/{asset_id}/cover-crop", status_code=204)
 async def reset_cover_crop(
     asset_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> None:
     """Back to the automatic square."""
@@ -1043,7 +1044,7 @@ async def reset_cover_crop(
 async def assign_group_pattern(
     batch_id: uuid.UUID,
     body: schemas.PatternAssign,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.GroupOut]:
     """Model one group's listing on one of the seller's OWN listings, or clear it.
@@ -1109,7 +1110,7 @@ async def _delete_batch(
 @router.delete("/batches/{batch_id}", response_model=schemas.BatchDeleteResult)
 async def delete_batch(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> schemas.BatchDeleteResult:
@@ -1123,7 +1124,7 @@ async def delete_batch(
 @router.post("/batch-actions/delete", response_model=schemas.BatchDeleteResult)
 async def delete_batches(
     body: schemas.BatchDeleteRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> schemas.BatchDeleteResult:
@@ -1138,7 +1139,7 @@ async def delete_batches(
 
 @router.get("/batches-deleted", response_model=list[schemas.DeletedBatch])
 async def deleted_batches(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.DeletedBatch]:
     """Batches deleted in the last seven days, newest first: each can be restored."""
@@ -1156,7 +1157,7 @@ async def deleted_batches(
 @router.post("/batches/{batch_id}/restore", response_model=schemas.BatchDetail)
 async def restore_batch(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     """"Restore": a batch deleted in the last seven days comes back as it was (what deleting
@@ -1174,7 +1175,7 @@ async def restore_batch(
 @router.delete("/assets/{asset_id}", response_model=schemas.ImageDeleteResult)
 async def delete_image(
     asset_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> schemas.ImageDeleteResult:
@@ -1281,7 +1282,7 @@ async def delete_image(
 async def order_group(
     batch_id: uuid.UUID,
     body: schemas.GroupOrder,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     """Save one group's image order as ``rank``; the first image is the cover.
@@ -1346,7 +1347,7 @@ async def _refuse_unsorted(session: AsyncSession, batch_id: uuid.UUID, body: sch
 async def write_manually(
     batch_id: uuid.UUID,
     body: schemas.ManualRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.GenerateResult:
@@ -1434,7 +1435,7 @@ WRITING_ELSEWHERE = ("Listings are being written in another tab or window right 
 async def generate_content(
     batch_id: uuid.UUID,
     body: schemas.GenerateRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
     enqueuer: Enqueuer = Depends(get_enqueuer),

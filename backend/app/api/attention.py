@@ -107,5 +107,5 @@ async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
 
 
 @router.get("/attention", response_model=AttentionOut)
-async def get_attention(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> AttentionOut:
+async def get_attention(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> AttentionOut:
     return await attention(session, tenant)

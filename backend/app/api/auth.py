@@ -259,7 +259,7 @@ async def callback(
     code: str | None = None,
     error: str | None = None,
     error_description: str | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     redis: Redis = Depends(get_redis),
     service: ConnectionService = Depends(get_connection_service),
     client_factory: Callable[[], httpx.AsyncClient] = Depends(get_token_http_factory),
@@ -367,7 +367,7 @@ async def callback(
 @router.get("/status", response_model=schemas.ConnectionOut)
 async def status(
     tenant: Tenant = Depends(active_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> schemas.ConnectionOut:
     """Whether any shop is connected; the first shop's details. See /api/shops for all."""
     shops = await active_shops(session, tenant.id)

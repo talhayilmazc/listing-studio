@@ -141,7 +141,7 @@ async def _summary(session: AsyncSession, plan: GroupPlan, batch_name: str | Non
 
 
 @router.get("/plans", response_model=list[PlanSummary])
-async def list_plans(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> list[PlanSummary]:
+async def list_plans(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> list[PlanSummary]:
     plans = list((await session.execute(
         select(GroupPlan).where(GroupPlan.tenant_id == tenant.id).order_by(GroupPlan.created_at.desc()).limit(50)
     )).scalars())
@@ -150,7 +150,7 @@ async def list_plans(session: AsyncSession = Depends(get_session), tenant: Tenan
 
 
 @router.delete("/plans/{plan_id}", response_model=PlanSummary)
-async def cancel_plan(plan_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> PlanSummary:
+async def cancel_plan(plan_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> PlanSummary:
     """Withdraw what has not happened yet: drafts not started are not made, and
     go-lives not yet released are withdrawn. Drafts already made stay drafts."""
     from app.etsy.publisher import publication_for

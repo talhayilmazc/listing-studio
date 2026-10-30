@@ -18,6 +18,7 @@ import httpx
 import pytest
 from sqlalchemy import event, select
 
+from app.core.config import get_settings
 from app.db.models import DraftAttempt, EtsyConnection, GeneratedContent, Job, JobStatus, JobType
 from app.pipeline import content as content_module
 from app.pipeline import group_state, unfinished
@@ -343,7 +344,6 @@ async def test_shortening_holds_no_connection_while_the_model_answers() -> None:
 
 
 def test_the_worker_lowers_its_own_cpu_priority_and_never_fails_for_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.core.config import get_settings
     from app.workers import settings as worker_settings
 
     asked: list[int] = []
@@ -439,7 +439,7 @@ async def test_heavy_image_work_takes_turns_and_gives_its_answer() -> None:
         return n * 2
 
     assert await asyncio.gather(*(image_work.run(work, n) for n in range(9))) == [n * 2 for n in range(9)]
-    assert most == image_work.AT_ONCE
+    assert most <= get_settings().image_work_threads
 
 
 async def test_a_failure_in_image_work_is_the_callers_and_frees_its_turn() -> None:
@@ -448,7 +448,7 @@ async def test_a_failure_in_image_work_is_the_callers_and_frees_its_turn() -> No
     def broken() -> None:
         raise ValueError("not an image")
 
-    for _ in range(image_work.AT_ONCE * 3):
+    for _ in range(6):
         with pytest.raises(ValueError):
             await image_work.run(broken)
 

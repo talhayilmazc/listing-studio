@@ -502,13 +502,13 @@ async def join_all_shops(session: AsyncSession, connection: EtsyConnection) -> N
 
 
 @router.get("/batches/{batch_id}/send", response_model=SendStateOut)
-async def send_state(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def send_state(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                      tenant: Tenant = Depends(active_tenant)) -> SendStateOut:
     return await _state(session, tenant, await _batch(session, tenant, batch_id))
 
 
 @router.put("/batches/{batch_id}/send-to", response_model=SendStateOut)
-async def set_send_to(batch_id: uuid.UUID, body: SendToIn, session: AsyncSession = Depends(get_session),
+async def set_send_to(batch_id: uuid.UUID, body: SendToIn, session: AsyncSession = Depends(get_session, scope="function"),
                       tenant: Tenant = Depends(active_tenant)) -> SendStateOut:
     """Where the batch's listings go, or one listing's own exception. Nothing is sent."""
     batch = await _batch(session, tenant, batch_id)
@@ -526,7 +526,7 @@ async def set_send_to(batch_id: uuid.UUID, body: SendToIn, session: AsyncSession
 
 
 @router.post("/batches/{batch_id}/send-to/all-shops", response_model=SendStateOut)
-async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                             tenant: Tenant = Depends(active_tenant)) -> SendStateOut:
     """"Make a group of all my shops": one group with every connected shop, chosen for the batch.
     A group of that name is reused when it has exactly those shops; otherwise a free name."""
@@ -555,14 +555,14 @@ async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends
 
 
 @router.post("/batches/{batch_id}/send/preview", response_model=SendPreviewOut)
-async def send_preview(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session),
+async def send_preview(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session, scope="function"),
                        tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota)) -> SendPreviewOut:
     out, _, _ = await _preview(session, tenant, quota, await _batch(session, tenant, batch_id), body)
     return out
 
 
 @router.post("/batches/{batch_id}/send", response_model=SendOut)
-async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session),
+async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session, scope="function"),
                tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota),
                enqueuer: Enqueuer = Depends(get_enqueuer)) -> SendOut:
     batch = await _batch(session, tenant, batch_id)

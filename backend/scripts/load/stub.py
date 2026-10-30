@@ -19,6 +19,7 @@ it is sent. The model answers in LOAD_MODEL_MS (default 6-16 s: an assumption, n
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import os
 import random
@@ -245,6 +246,29 @@ def _init2(self: httpx2.AsyncClient, *args: Any, **kwargs: Any) -> None:
 httpx2.AsyncClient.__init__ = _init2  # type: ignore[method-assign]
 
 
+#: Connection-seconds per (minute, endpoint): who holds the pool.
+held: Counter[tuple[int, str]] = Counter()
+_route: contextvars.ContextVar[str] = contextvars.ContextVar("load_route", default="(worker or background)")
+
+
+def _shape(path: str) -> str:
+    return re.sub(r"[0-9a-f]{8}-[0-9a-f-]{27}", "{id}", path.split("?")[0]).removeprefix("/api/")
+
+
+def _watch_pool(pool: Any) -> None:
+    from sqlalchemy import event
+
+    @event.listens_for(pool, "checkout")
+    def _out(dbapi_connection: Any, record: Any, proxy: Any) -> None:
+        record.info["load_out"] = (time.monotonic(), _route.get())
+
+    @event.listens_for(pool, "checkin")
+    def _in(dbapi_connection: Any, record: Any) -> None:
+        began = record.info.pop("load_out", None)
+        if began is not None:
+            held[(int(time.time()) // 60, began[1])] += time.monotonic() - began[0]
+
+
 async def _publish_counts() -> None:
     """Every 5 s, what this process saw, for the driver (Redis hash ``load:stub``): the stub's counts,
     and per minute the event loop's worst lag (is the CPU the limit?) and the most database
@@ -258,6 +282,7 @@ async def _publish_counts() -> None:
     role = "worker" if any("arq" in a for a in sys.argv) else "api"
     minutes: dict[int, dict[str, float]] = {}
     pool = get_engine().sync_engine.pool
+    _watch_pool(pool)
     tick = 0
     while True:
         started = time.perf_counter()
@@ -274,6 +299,7 @@ async def _publish_counts() -> None:
                 "role": role, "counts": dict(counts), "per_account": dict(per_account),
                 "seconds": {str(k): v for k, v in list(per_second.items())[-3600:]},
                 "minutes": {str(k): v for k, v in list(minutes.items())[-120:]},
+                "held": {f"{m} {k}": round(v, 2) for (m, k), v in list(held.items())[-4000:]},
             }))
         except Exception:  # noqa: BLE001 - a missed sample is only a missed sample
             pass
@@ -286,6 +312,8 @@ from app.workers.settings import WorkerSettings as _Worker  # noqa: E402
 async def _count_from_the_start(scope: Any, receive: Any, send: Any) -> None:
     if not _counting:
         _counting.append(asyncio.get_running_loop().create_task(_publish_counts()))
+    if scope.get("type") == "http":
+        _route.set(f"{scope['method']} {_shape(scope['path'])}")
     await _api(scope, receive, send)
 
 

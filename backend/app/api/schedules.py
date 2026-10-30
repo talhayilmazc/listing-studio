@@ -90,7 +90,7 @@ async def _draft(
 @router.get("/schedules", response_model=list[schemas.ScheduleOut])
 async def list_schedules(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[schemas.ScheduleOut]:
     """Every scheduled listing, soonest first: upcoming ones and the last week's."""
@@ -119,7 +119,7 @@ async def list_schedules(
 @router.post("/schedules", response_model=schemas.ScheduleResult)
 async def schedule(
     body: schemas.ScheduleRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ScheduleResult:
     """Schedule (or move) drafts going live. Each must be the existing draft of a
@@ -176,7 +176,7 @@ async def schedule(
 async def cancel_schedule(
     content_id: uuid.UUID,
     connection_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> None:
     found = await _draft(session, tenant, content_id, connection_id)

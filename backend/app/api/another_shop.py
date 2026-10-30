@@ -59,6 +59,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.distribution import _contents
 from app.compliance.check import listing_problem
 from app.api.shops import shop_label
+from app.core import db_release
 from app.core import allowance, audit
 from app.db.models import (
     Asset,
@@ -512,7 +513,7 @@ async def _work(
 
 
 @router.get("/batches/{batch_id}/shops", response_model=BatchShopsOut)
-async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                       tenant: Tenant = Depends(active_tenant)) -> BatchShopsOut:
     """Where the batch's listings stand in each connected shop."""
     batch = await _batch(session, tenant, batch_id)
@@ -576,7 +577,7 @@ async def _written_elsewhere(session: AsyncSession, tenant: Tenant, batch: Uploa
 
 
 @router.post("/batches/{batch_id}/another-shop/preview", response_model=AnotherShopPreview)
-async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session),
+async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session, scope="function"),
                                tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), body)
     await session.rollback()  # the preview never keeps the SKUs or profile it tried
@@ -586,7 +587,7 @@ async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session
 @router.get("/batches/{batch_id}/shops/{connection_id}/rows", response_model=AnotherShopPreview)
 async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
                          content_ids: list[uuid.UUID] = Query(default_factory=list, max_length=2000),
-                         session: AsyncSession = Depends(get_session),
+                         session: AsyncSession = Depends(get_session, scope="function"),
                          tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """The workspace's rows for one shop, and the send summary (``content_ids``: the selected
     rows): nothing about the listings is kept; a summary's result is recorded as counts per
@@ -603,7 +604,7 @@ async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
 
 
 @router.post("/batches/{batch_id}/another-shop", response_model=AnotherShopOut)
-async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session),
+async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session, scope="function"),
                        tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota),
                        enqueuer: Enqueuer = Depends(get_enqueuer)) -> AnotherShopOut:
     """Drafts of these listings in that shop, with its profile and these SKUs. Listings
@@ -661,6 +662,7 @@ async def _write(
     async with ai_meter.scope(tenant.id, session) as meter:
         vision = await analyzer.analyze(storage.get(asset.processed_key), asset.mime_type or "image/jpeg")
         result = await generator.generate(vision.analysis, asset.parsed_sku)
+        await db_release.ready_to_save(session)  # the model's answer is paid for
         meter.listing_written()
     body = str((profile.cached_payload or {}).get("description", ""))
     listing = result.listing
@@ -669,7 +671,7 @@ async def _write(
 
 
 @router.post("/batches/{batch_id}/another-shop/rewrite", response_model=RewriteOut)
-async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncSession = Depends(get_session),
+async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncSession = Depends(get_session, scope="function"),
                            tenant: Tenant = Depends(active_tenant),
                            storage: Storage = Depends(get_storage)) -> RewriteOut:
     """"Rewrite for this shop": each listing written again in that shop's profile style and
@@ -784,7 +786,7 @@ async def _open_rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID,
 
 @router.put("/batches/{batch_id}/shops/{connection_id}/profile", response_model=AnotherShopPreview)
 async def workspace_profile(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceProfileIn,
-                            session: AsyncSession = Depends(get_session),
+                            session: AsyncSession = Depends(get_session, scope="function"),
                             tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """The profile these listings go to that shop with (that shop's own, or each listing's own
     through the shop link). Nothing else changes; the listing's own profile stays."""
@@ -835,7 +837,7 @@ async def _sku_refusals(session: AsyncSession, tenant: Tenant, shop: EtsyConnect
 
 @router.post("/batches/{batch_id}/shops/{connection_id}/skus/check", response_model=WorkspaceSkusOut)
 async def workspace_skus_check(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceSkusIn,
-                               session: AsyncSession = Depends(get_session),
+                               session: AsyncSession = Depends(get_session, scope="function"),
                                tenant: Tenant = Depends(active_tenant)) -> WorkspaceSkusOut:
     """As the seller types: what saving these SKUs for that shop would refuse. Nothing is saved."""
     shop, contents, assets = await _open_rows(session, tenant, batch_id, connection_id, list(body.skus))
@@ -845,7 +847,7 @@ async def workspace_skus_check(batch_id: uuid.UUID, connection_id: uuid.UUID, bo
 
 @router.put("/batches/{batch_id}/shops/{connection_id}/skus", response_model=WorkspaceSkusOut)
 async def workspace_skus(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceSkusIn,
-                         session: AsyncSession = Depends(get_session),
+                         session: AsyncSession = Depends(get_session, scope="function"),
                          tenant: Tenant = Depends(active_tenant)) -> WorkspaceSkusOut:
     """These listings' SKUs in that shop, saved at once, or none of them (409 with the list) when
     one is already used there, given twice, or not allowed by Etsy. Other shops keep theirs."""
@@ -865,7 +867,7 @@ async def workspace_skus(batch_id: uuid.UUID, connection_id: uuid.UUID, body: Wo
 
 @router.put("/batches/{batch_id}/shops/{connection_id}/texts", response_model=list[WorkspaceTextRow])
 async def workspace_texts(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceTextsIn,
-                          session: AsyncSession = Depends(get_session),
+                          session: AsyncSession = Depends(get_session, scope="function"),
                           tenant: Tenant = Depends(active_tenant)) -> list[WorkspaceTextRow]:
     """These listings' title, tags and description for that shop (a field equal to the
     listing's follows it; ``reset``: the listing's text again), with what Etsy would refuse and
@@ -897,7 +899,7 @@ class WorkspaceApproveIn(BaseModel):
 
 @router.post("/batches/{batch_id}/shops/{connection_id}/approve", response_model=AnotherShopPreview)
 async def workspace_approve(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceApproveIn,
-                            session: AsyncSession = Depends(get_session),
+                            session: AsyncSession = Depends(get_session, scope="function"),
                             tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """"Approve selected" in the workspace: each listing approved (if it was not) and approved for
     that shop (its text there edited since approval). A listing whose text for that shop Etsy

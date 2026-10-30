@@ -45,6 +45,7 @@ def get_engine() -> AsyncEngine:
             "pool_size": settings.db_pool_size,
             "max_overflow": settings.db_pool_overflow,
             "pool_recycle": 3600,
+            "pool_timeout": settings.db_pool_timeout,
             "connect_args": {"server_settings": {
                 "idle_in_transaction_session_timeout": str(settings.db_idle_transaction_seconds * 1000)}},
         }

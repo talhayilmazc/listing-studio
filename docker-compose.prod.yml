@@ -125,7 +125,7 @@ services:
       - -c
       - >-
         alembic upgrade head &&
-        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+        IMAGE_WORK_THREADS=1 exec uvicorn app.main:app --host 0.0.0.0 --port 8000
         --workers 2 --no-server-header --timeout-keep-alive 75
     healthcheck:
       test:

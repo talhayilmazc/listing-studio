@@ -89,7 +89,7 @@ async def _shops_out(
 
 @router.get("", response_model=schemas.ShopsOut)
 async def list_shops(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ShopsOut:
     return await _shops_out(session, tenant)
@@ -99,7 +99,7 @@ async def list_shops(
 async def rename_shop(
     shop_id: uuid.UUID,
     body: schemas.ShopUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ShopOut:
     connection = await owned_shop(session, tenant.id, shop_id)
@@ -113,7 +113,7 @@ async def rename_shop(
 @router.post("/order", response_model=schemas.ShopsOut)
 async def order_shops(
     body: schemas.ShopOrder,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ShopsOut:
     """Set the switcher order. Ids that are not this account's shops are ignored."""
@@ -129,7 +129,7 @@ async def order_shops(
 @router.post("/{shop_id}/disconnect", response_model=schemas.ShopsOut)
 async def disconnect_shop(
     shop_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
 ) -> schemas.ShopsOut:

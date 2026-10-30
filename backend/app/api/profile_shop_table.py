@@ -106,14 +106,14 @@ async def _table(session: AsyncSession, tenant: Tenant, profile: ListingProfile,
 
 
 @router.get("/profiles/{profile_id}/shops", response_model=ShopTableOut)
-async def shop_table(profile_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def shop_table(profile_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                      tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer)) -> ShopTableOut:
     return await _table(session, tenant, await _profile(session, tenant, profile_id), enqueuer)
 
 
 @router.put("/profiles/{profile_id}/shops/{connection_id}", response_model=ShopTableOut)
 async def set_shop_value(profile_id: uuid.UUID, connection_id: uuid.UUID, body: ShopValueIn,
-                         session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+                         session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
                          enqueuer: Enqueuer = Depends(get_enqueuer)) -> ShopTableOut:
     profile = await _profile(session, tenant, profile_id)
     if connection_id not in {s.id for s in await _shops(session, tenant, profile)}:
@@ -129,7 +129,7 @@ async def set_shop_value(profile_id: uuid.UUID, connection_id: uuid.UUID, body: 
 
 
 @router.put("/shops/{connection_id}/daily-limit", response_model=DailyLimitOut)
-async def set_daily_limit(connection_id: uuid.UUID, body: DailyLimitIn, session: AsyncSession = Depends(get_session),
+async def set_daily_limit(connection_id: uuid.UUID, body: DailyLimitIn, session: AsyncSession = Depends(get_session, scope="function"),
                           tenant: Tenant = Depends(active_tenant)) -> DailyLimitOut:
     shop = await owned_shop(session, tenant.id, connection_id)
     if shop is None:

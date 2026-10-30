@@ -33,6 +33,10 @@ from app.pipeline.sku import SkuParser
 from app.pipeline.storage import LocalStorage, Storage
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    """Every route takes it with ``scope="function"``: it ends once the answer is built, before it
+    is sent. (By default FastAPI ends it after the answer has gone out: a connection held for a
+    client's whole download, on a server with a 14 Mbps uplink; part of the pool running out in the
+    load test.)"""
     from app.db.session import keep_loaded
 
     sessionmaker = get_sessionmaker()
@@ -49,7 +53,7 @@ def get_session_store() -> SessionStore:
 
 async def current_tenant(
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> Tenant:
     """The tenant owning this request, from its session cookie.

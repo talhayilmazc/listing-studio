@@ -389,7 +389,7 @@ async def _publish(
 async def publish_one(
     content_id: uuid.UUID,
     request: schemas.PublishRequest | None = Body(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -405,7 +405,7 @@ async def publish_one(
 async def publish_batch(
     batch_id: uuid.UUID,
     request: schemas.PublishRequest | None = Body(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -607,7 +607,7 @@ async def _matrix(
 async def publish_preview(
     batch_id: uuid.UUID,
     request: schemas.PublishRequest | None = Body(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
 ) -> schemas.PublishPreviewOut:
@@ -654,7 +654,7 @@ async def publish_preview(
 async def tick_shop(
     batch_id: uuid.UUID,
     body: schemas.ShopTick,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ShopTickOut:
@@ -775,7 +775,7 @@ async def _publish_live(
 async def publish_one_live(
     content_id: uuid.UUID,
     request: schemas.LiveRequest | None = Body(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.BatchPublishResult:
@@ -799,7 +799,7 @@ async def publish_one_live(
 async def publish_batch_live(
     batch_id: uuid.UUID,
     request: schemas.LiveRequest | None = Body(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.BatchPublishResult:
@@ -862,7 +862,7 @@ def _item(
 @router.post("/batch-actions/preview", response_model=schemas.BatchActionPreview)
 async def batch_action_preview(
     body: schemas.BatchActionRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -900,7 +900,7 @@ async def batch_action_preview(
 @router.post("/batch-actions/run", response_model=schemas.BatchPublishResult)
 async def batch_action_run(
     body: schemas.BatchActionRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -916,7 +916,7 @@ async def batch_action_run(
 @router.get("/jobs/{job_id}", response_model=schemas.JobStatusOut)
 async def job_status(
     job_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.JobStatusOut:
     job = await session.get(Job, job_id)

@@ -825,11 +825,12 @@ async def _templates_out(session: AsyncSession, tenant: Tenant) -> list[Template
 
 @router.get("/mockup-templates", response_model=list[TemplateOut])
 async def list_templates(
-    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> list[TemplateOut]:
     templates = await _templates_out(session, tenant)
     if any(p.status == "preparing" for t in templates for p in t.photos):
+        await session.commit()  # polled every few seconds while photos wait: no connection across this
         standing = await _queue_positions(redis, tenant)
         for t in templates:
             for p in t.photos:
@@ -840,7 +841,7 @@ async def list_templates(
 
 @router.post("/mockup-templates/{template_id}/subgroups", response_model=TemplateOut, status_code=201)
 async def add_subgroup(
-    template_id: uuid.UUID, body: SubgroupIn, session: AsyncSession = Depends(get_session),
+    template_id: uuid.UUID, body: SubgroupIn, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
     """A subgroup of the template ("Comfort Colors White"), with "Use on" and the file-name
@@ -867,7 +868,7 @@ async def _own_subgroup(session: AsyncSession, tenant: Tenant, subgroup_id: uuid
 
 @router.patch("/mockup-subgroups/{subgroup_id}", response_model=TemplateOut)
 async def update_subgroup(
-    subgroup_id: uuid.UUID, body: SubgroupUpdate, session: AsyncSession = Depends(get_session),
+    subgroup_id: uuid.UUID, body: SubgroupUpdate, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
     group = await _own_subgroup(session, tenant, subgroup_id)
@@ -888,7 +889,7 @@ async def update_subgroup(
 
 @router.delete("/mockup-subgroups/{subgroup_id}", response_model=TemplateOut)
 async def delete_subgroup(
-    subgroup_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    subgroup_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
     """Remove a subgroup: its photos go to the template's first remaining subgroup; area
     links to it fall back to the default. A template keeps at least one."""
@@ -913,7 +914,7 @@ async def delete_subgroup(
 
 @router.get("/mockup-placement", response_model=PlacementOut)
 async def get_placement(
-    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> PlacementOut:
     """The seller's own print placement, learnt from the photos they confirmed (theirs only)."""
     return PlacementOut(**await placement.summary(session, tenant.id))
@@ -921,7 +922,7 @@ async def get_placement(
 
 @router.delete("/mockup-placement", response_model=PlacementOut)
 async def reset_placement(
-    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> PlacementOut:
     """"Reset": forget the seller's placement; new photos are suggested from the standard
     again. Areas already on photos stay as they are."""
@@ -934,7 +935,7 @@ async def reset_placement(
 
 @router.post("/mockup-templates", response_model=TemplateOut, status_code=201)
 async def create_template(
-    body: TemplateIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    body: TemplateIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> TemplateOut:
     """A new, empty template; photos are uploaded into it."""
     count = await session.scalar(select(func.count()).select_from(MockupTemplate).where(MockupTemplate.tenant_id == tenant.id))
@@ -955,7 +956,7 @@ async def create_template(
 
 @router.get("/mockup-templates/{template_id}", response_model=TemplateOut)
 async def get_template(
-    template_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    template_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> TemplateOut:
     template = await _own_template(session, tenant, template_id)
     return await _template_full(session, template)
@@ -963,7 +964,7 @@ async def get_template(
 
 @router.patch("/mockup-templates/{template_id}", response_model=TemplateOut)
 async def update_template(
-    template_id: uuid.UUID, body: TemplateUpdate, session: AsyncSession = Depends(get_session),
+    template_id: uuid.UUID, body: TemplateUpdate, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
     """Rename a template, or set what its back areas print without a back design. (Each
@@ -999,12 +1000,12 @@ async def _own_preset(session: AsyncSession, tenant: Tenant, preset_id: uuid.UUI
 
 
 @router.get("/mockup-subgroup-presets", response_model=list[PresetOut])
-async def list_presets(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> list[PresetOut]:
+async def list_presets(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> list[PresetOut]:
     return [_preset_out(p) for p in await _presets(session, tenant.id)]
 
 
 @router.post("/mockup-subgroup-presets", response_model=PresetOut, status_code=201)
-async def add_preset(body: PresetIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> PresetOut:
+async def add_preset(body: PresetIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> PresetOut:
     """A subgroup defined once for the account ("White design", suffix "-white", use on dark garments)."""
     presets = await _presets(session, tenant.id)
     if len(presets) >= MockupSubgroupPreset.MAX_PER_ACCOUNT:
@@ -1020,7 +1021,7 @@ async def add_preset(body: PresetIn, session: AsyncSession = Depends(get_session
 
 
 @router.patch("/mockup-subgroup-presets/{preset_id}", response_model=PresetOut)
-async def update_preset(preset_id: uuid.UUID, body: PresetUpdate, session: AsyncSession = Depends(get_session),
+async def update_preset(preset_id: uuid.UUID, body: PresetUpdate, session: AsyncSession = Depends(get_session, scope="function"),
                         tenant: Tenant = Depends(active_tenant)) -> PresetOut:
     preset = await _own_preset(session, tenant, preset_id)
     if body.name is not None:
@@ -1038,7 +1039,7 @@ async def update_preset(preset_id: uuid.UUID, body: PresetUpdate, session: Async
 
 
 @router.delete("/mockup-subgroup-presets/{preset_id}", status_code=204)
-async def delete_preset(preset_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def delete_preset(preset_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                         tenant: Tenant = Depends(active_tenant)) -> None:
     """Remove a preset (templates that took it keep their own subgroups)."""
     preset = await _own_preset(session, tenant, preset_id)
@@ -1047,7 +1048,7 @@ async def delete_preset(preset_id: uuid.UUID, session: AsyncSession = Depends(ge
 
 
 @router.post("/mockup-templates/{template_id}/presets", response_model=TemplateOut)
-async def assign_presets(template_id: uuid.UUID, body: AssignPresets, session: AsyncSession = Depends(get_session),
+async def assign_presets(template_id: uuid.UUID, body: AssignPresets, session: AsyncSession = Depends(get_session, scope="function"),
                          tenant: Tenant = Depends(active_tenant)) -> TemplateOut:
     """"Assign subgroups to this template": each chosen preset becomes a subgroup of it (one of
     the same name is updated, not doubled). A template still on its untouched default subgroup
@@ -1074,7 +1075,7 @@ async def assign_presets(template_id: uuid.UUID, body: AssignPresets, session: A
 
 
 @router.post("/mockup-subgroups/{subgroup_id}/preset", response_model=PresetOut, status_code=201)
-async def save_as_preset(subgroup_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def save_as_preset(subgroup_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                          tenant: Tenant = Depends(active_tenant)) -> PresetOut:
     """"Save as preset": a template's subgroup kept for the account (one of the same name is updated)."""
     group = await _own_subgroup(session, tenant, subgroup_id)
@@ -1112,7 +1113,7 @@ def resuggest(photo: MockupPhoto, layout: str) -> bool:
 
 @router.put("/mockup-templates/order", response_model=list[TemplateOut])
 async def order_templates(
-    body: Order, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    body: Order, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> list[TemplateOut]:
     """The seller's order of templates."""
     rows = {t.id: t for t in (await session.execute(
@@ -1129,7 +1130,7 @@ async def order_templates(
 @router.delete("/mockup-templates/{template_id}", status_code=204)
 async def delete_template(
     template_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -1157,7 +1158,7 @@ async def add_photo(
     file: UploadFile,
     name: str = Form("", max_length=1000),
     rights_confirmed: bool = Form(False),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -1207,7 +1208,7 @@ async def add_photo(
 
 @router.put("/mockup-templates/{template_id}/photos/order", response_model=TemplateOut)
 async def order_photos(
-    template_id: uuid.UUID, body: Order, session: AsyncSession = Depends(get_session),
+    template_id: uuid.UUID, body: Order, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
     """The order of a template's photos: a design's mockups follow it, the first is the cover."""
@@ -1225,14 +1226,14 @@ async def order_photos(
 
 @router.get("/mockup-photos/{photo_id}", response_model=PhotoOut)
 async def get_photo(
-    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> PhotoOut:
     return _photo_out(await _own_photo(session, tenant, photo_id))
 
 
 @router.patch("/mockup-photos/{photo_id}", response_model=PhotoOut)
 async def update_photo(
-    photo_id: uuid.UUID, body: PhotoUpdate, session: AsyncSession = Depends(get_session),
+    photo_id: uuid.UUID, body: PhotoUpdate, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> PhotoOut:
     photo = await _own_photo(session, tenant, photo_id)
@@ -1267,7 +1268,7 @@ async def update_photo(
 
 @router.put("/mockup-photos/{photo_id}/areas", response_model=PhotoOut)
 async def save_areas(
-    photo_id: uuid.UUID, body: AreasUpdate, session: AsyncSession = Depends(get_session),
+    photo_id: uuid.UUID, body: AreasUpdate, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> PhotoOut:
     """The editor's print areas, in the seller's order. ``confirm`` ("Looks right") marks
@@ -1317,7 +1318,7 @@ async def save_areas(
 
 @router.post("/mockup-photos/{photo_id}/find", response_model=FindOut)
 async def find_garment(
-    photo_id: uuid.UUID, body: FindRequest, session: AsyncSession = Depends(get_session),
+    photo_id: uuid.UUID, body: FindRequest, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
 ) -> FindOut:
     """"Add area": the garment under the seller's tap, alone (the other areas keep their
@@ -1349,7 +1350,7 @@ async def find_garment(
 
 @router.post("/mockup-photos/{photo_id}/copy", response_model=list[PhotoOut])
 async def copy_areas(
-    photo_id: uuid.UUID, body: CopyRequest, session: AsyncSession = Depends(get_session),
+    photo_id: uuid.UUID, body: CopyRequest, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[PhotoOut]:
     """This photo's print areas, size and fold strength, given to other photos of its
@@ -1401,7 +1402,7 @@ async def copy_areas(
 
 @router.post("/mockup-templates/{template_id}/confirm", response_model=TemplateOut)
 async def confirm_photos(
-    template_id: uuid.UUID, body: ConfirmRequest, session: AsyncSession = Depends(get_session),
+    template_id: uuid.UUID, body: ConfirmRequest, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> TemplateOut:
     """"Confirm selected": these photos' print areas, as they are, are confirmed in one step
@@ -1424,7 +1425,7 @@ async def confirm_photos(
 async def save_front_brush(
     photo_id: uuid.UUID,
     file: UploadFile,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> PhotoOut:
@@ -1456,7 +1457,7 @@ async def save_front_brush(
 
 @router.delete("/mockup-photos/{photo_id}/front", response_model=PhotoOut)
 async def clear_front_brush(
-    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> PhotoOut:
     """The brush goes; what is in front is the analysis's map again."""
@@ -1474,7 +1475,7 @@ async def front_mask(
     layer: Literal["combined", "brush", "cutout"] = Query("combined"),
     w: int | None = Query(None),
     v: str | None = Query(None, max_length=40),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -1511,7 +1512,7 @@ async def front_mask(
 @router.delete("/mockup-photos/{photo_id}", status_code=204)
 async def delete_photo(
     photo_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -1533,7 +1534,7 @@ async def photo_image(
     size: str | None = Query(None, description=f"A smaller copy for a screen; one of {sorted(thumbs.SIZES)}. Omit for the full file."),
     w: int | None = Query(None, description="Widths from before (112, 224, 448, 896): mapped to a size."),
     v: str | None = Query(None, max_length=40),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -1549,7 +1550,7 @@ async def photo_image(
 async def preview_photo(
     photo_id: uuid.UUID,
     body: PreviewRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -1620,7 +1621,7 @@ async def _written(session: AsyncSession, batch_id: uuid.UUID) -> bool:
 
 @router.get("/batches/{batch_id}/designs", response_model=list[DesignOut])
 async def list_designs(
-    batch_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> list[DesignOut]:
     await _own_batch(session, tenant, batch_id)
     rows = list((await session.execute(
@@ -1662,7 +1663,7 @@ async def add_design(
     file: UploadFile,
     subgroup: str | None = Form(None),
     subgroups_json: str | None = Form(None, alias="subgroups"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignOut:
@@ -1688,7 +1689,7 @@ async def add_design_archive(
     batch_id: uuid.UUID,
     file: UploadFile,
     subgroups_json: str | None = Form(None, alias="subgroups"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignArchiveOut:
@@ -1853,7 +1854,7 @@ async def _own_design(session: AsyncSession, tenant: Tenant, design_id: uuid.UUI
 async def set_design_back(
     design_id: uuid.UUID,
     file: UploadFile,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignOut:
@@ -1884,7 +1885,7 @@ async def set_design_back(
 
 @router.delete("/mockup-designs/{design_id}/back", response_model=DesignOut)
 async def delete_design_back(
-    design_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    design_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignOut:
     design = await _own_design(session, tenant, design_id)
@@ -1899,7 +1900,7 @@ async def delete_design_back(
 
 @router.patch("/mockup-designs/{design_id}", response_model=DesignOut)
 async def update_design(
-    design_id: uuid.UUID, body: DesignUpdate, session: AsyncSession = Depends(get_session),
+    design_id: uuid.UUID, body: DesignUpdate, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> DesignOut:
     """The design's SKU (Etsy's SKU rules, pipeline/skus.py); its group follows it.
@@ -2058,7 +2059,7 @@ def _drop_files(storage: Storage, keys: list[str | None]) -> None:
 async def delete_design(
     design_id: uuid.UUID,
     only_file: bool = Query(False),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignDeleted:
@@ -2101,7 +2102,7 @@ async def delete_design(
 
 @router.delete("/mockup-design-versions/{version_id}", response_model=DesignOut)
 async def delete_design_version(
-    version_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    version_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> DesignOut:
     """Delete one of a design's files for another subgroup (the design keeps its others).
@@ -2125,7 +2126,7 @@ async def delete_design_version(
 
 @router.patch("/mockup-design-versions/{version_id}", response_model=DesignOut)
 async def update_design_version(
-    version_id: uuid.UUID, body: VersionUpdate, session: AsyncSession = Depends(get_session),
+    version_id: uuid.UUID, body: VersionUpdate, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> DesignOut:
     """Move one of a design's files to another subgroup's slot (the design keeps one listing)."""
@@ -2152,7 +2153,7 @@ async def mockup_settings(tenant: Tenant = Depends(active_tenant)) -> MockupSett
 
 @router.put("/mockup-settings", response_model=MockupSettingsOut)
 async def set_mockup_settings(
-    body: MockupSettingsIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    body: MockupSettingsIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> MockupSettingsOut:
     """What a variant suffix names, remembered for the account (the upload page's setting)."""
     tenant.variant_suffix = body.variant_suffix
@@ -2164,7 +2165,7 @@ async def set_mockup_settings(
 async def mockup_plan(
     batch_id: uuid.UUID,
     body: PlanRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> PlanOut:
@@ -2201,7 +2202,7 @@ async def mockup_plan(
 async def start_run(
     batch_id: uuid.UUID,
     body: RunRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     storage: Storage = Depends(get_storage),
@@ -2264,12 +2265,13 @@ async def start_run(
 
 @router.get("/mockup-runs/{run_id}", response_model=RunOut)
 async def get_run(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> RunOut:
     run = await _own_run(session, tenant, run_id)
     out = await _run_out(session, run, redis)
     if out.status == "queued":
+        await session.commit()
         out.queue = (await _queue_positions(redis, tenant)).get(str(run.id))
     return out
 
@@ -2282,7 +2284,7 @@ async def output_image(
     size: str | None = Query(None, description=f"A smaller copy for a screen; one of {sorted(thumbs.SIZES)}. Omit for the full file."),
     w: int | None = Query(None),
     v: str | None = Query(None, max_length=40),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:
@@ -2301,7 +2303,7 @@ async def output_image(
 
 @router.post("/mockup-runs/{run_id}/listings", response_model=ListingsOut)
 async def use_for_listings(
-    run_id: uuid.UUID, body: ListingsRequest, session: AsyncSession = Depends(get_session),
+    run_id: uuid.UUID, body: ListingsRequest, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> ListingsOut:
     """"Use for listings": each chosen design becomes a listing group, all its
@@ -2321,7 +2323,7 @@ async def use_for_listings(
 
 @router.post("/mockup-runs/{run_id}/zip", response_model=ZipOut, status_code=202)
 async def request_zip(
-    run_id: uuid.UUID, body: ZipRequest, session: AsyncSession = Depends(get_session),
+    run_id: uuid.UUID, body: ZipRequest, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> ZipOut:
     """"Download": a ZIP built in the worker, private to the account, deleted 24 hours after it is ready."""
@@ -2345,7 +2347,7 @@ async def _own_zip(session: AsyncSession, tenant: Tenant, zip_id: uuid.UUID) -> 
 
 @router.get("/mockup-zips/{zip_id}", response_model=ZipOut)
 async def get_zip(
-    zip_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    zip_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> ZipOut:
     return _zip_out(await _own_zip(session, tenant, zip_id))
 
@@ -2353,7 +2355,7 @@ async def get_zip(
 @router.get("/mockup-zips/{zip_id}/download")
 async def download_zip(
     zip_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     storage: Storage = Depends(get_storage),
 ) -> Response:

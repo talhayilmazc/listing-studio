@@ -36,6 +36,11 @@ def main() -> None:
                 fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
                 sample[f"{role}_cpu"] += (int(fields[11]) + int(fields[12])) / TICK
                 sample[f"{role}_rss"] += int(fields[21]) * PAGE
+                # The image threads run at a lower priority: their CPU, apart from the rest.
+                for task in os.listdir(f"/proc/{pid}/task"):
+                    t = Path(f"/proc/{pid}/task/{task}/stat").read_text().rsplit(")", 1)[1].split()
+                    if int(t[16]) > 0:
+                        sample[f"{role}_image_cpu"] = sample.get(f"{role}_image_cpu", 0.0) + (int(t[11]) + int(t[12])) / TICK
             except OSError:
                 continue
         try:

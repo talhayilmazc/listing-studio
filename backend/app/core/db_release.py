@@ -25,6 +25,7 @@ import weakref
 from typing import Any
 
 from sqlalchemy import event
+from sqlalchemy.exc import TimeoutError
 from sqlalchemy.orm import Session
 from sqlalchemy.util import greenlet_spawn
 
@@ -89,3 +90,16 @@ async def before_slow() -> int:
             await greenlet_spawn(session.commit)
             released += 1
     return released
+
+
+async def ready_to_save(session: Any, tries: int = 5) -> None:
+    """Take a connection before saving what cannot be had again (a listing the model has written, and
+    been paid for), waiting through a busy pool instead of failing. Once this returns, saving needs
+    no further connection. Nothing is pending yet, so a try that times out loses nothing."""
+    for attempt in range(tries):
+        try:
+            await session.connection()
+            return
+        except TimeoutError:
+            if attempt == tries - 1:
+                raise

@@ -5,8 +5,8 @@ a template photo for several. A seller's Upload page sends three at once; 25 sel
 together gave each API process six threads resizing (the default thread pool), and pages waited
 behind them for seconds (the load test, docs/load-test.md).
 
-So this work has its own threads: at most :data:`AT_ONCE` per process, at a lower CPU priority
-(``settings.image_work_nice``). The rest wait their turn without holding a thread or a database
+So this work has its own threads: at most ``settings.image_work_threads`` per process (production's
+API processes run one each, the worker two), at a lower CPU priority (``settings.image_work_nice``). The rest wait their turn without holding a thread or a database
 connection (``core/db_release.py``). When the CPUs are free it runs at full speed; when they are
 busy, pages and Etsy requests go first and it takes the time that is left. Only these threads are
 lowered: the worker's own event loop keeps its priority, so its drafts and go-lives keep pace.
@@ -30,9 +30,6 @@ from app.core.config import get_settings
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
-#: Threads per process (two API processes and a worker in production).
-AT_ONCE = 2
-
 _pool: ThreadPoolExecutor | None = None
 _pool_lock = threading.Lock()
 
@@ -49,7 +46,8 @@ def _executor() -> ThreadPoolExecutor:
     global _pool
     with _pool_lock:
         if _pool is None:
-            _pool = ThreadPoolExecutor(max_workers=AT_ONCE, thread_name_prefix="image-work", initializer=_lower_priority)
+            _pool = ThreadPoolExecutor(max_workers=get_settings().image_work_threads, thread_name_prefix="image-work",
+                                       initializer=_lower_priority)
         return _pool
 
 

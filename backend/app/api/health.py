@@ -27,7 +27,7 @@ CHECK_TIMEOUT = 1.5
 
 
 @router.get("/health")
-async def health(session: AsyncSession = Depends(get_session), redis: Redis = Depends(get_redis)) -> JSONResponse:
+async def health(session: AsyncSession = Depends(get_session, scope="function"), redis: Redis = Depends(get_redis)) -> JSONResponse:
     failed = []
     try:
         await asyncio.wait_for(session.execute(text("SELECT 1")), CHECK_TIMEOUT)

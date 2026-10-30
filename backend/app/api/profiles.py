@@ -216,7 +216,7 @@ async def _get(session: AsyncSession, tenant: Tenant, profile_id: uuid.UUID) -> 
 async def list_profiles(
     shop: uuid.UUID | None = None,
     refresh: bool = False,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.ProfileOut]:
@@ -256,7 +256,7 @@ async def list_profiles(
 @router.post("/how-made", response_model=schemas.HowMadeBulkOut)
 async def how_made_for_many(
     body: schemas.HowMadeBulk,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.HowMadeBulkOut:
     """"Apply to all profiles…": the same How it's made answers on the profiles named, or on
@@ -281,7 +281,7 @@ async def how_made_for_many(
 @router.post("", response_model=schemas.ProfileOut, status_code=201)
 async def create_profile(
     body: schemas.ProfileCreate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
@@ -317,7 +317,7 @@ async def create_profile(
 @router.get("/{profile_id}", response_model=schemas.ProfileOut)
 async def get_profile(
     profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     return await _out(session, tenant, await _get(session, tenant, profile_id))
@@ -335,7 +335,7 @@ def _chart_placement(profile: ListingProfile) -> list[schemas.ChartPlacement]:
 async def update_profile(
     profile_id: uuid.UUID,
     body: schemas.ProfileUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
@@ -416,7 +416,7 @@ async def update_profile(
 @router.post("/{profile_id}/confirm", response_model=schemas.ProfileOut)
 async def confirm_profile(
     profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     """Confirm an auto-detected profile for use (never used silently before this)."""
@@ -430,7 +430,7 @@ async def confirm_profile(
 @router.delete("/{profile_id}", status_code=204)
 async def delete_profile(
     profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> None:
     profile = await _get(session, tenant, profile_id)
@@ -445,7 +445,7 @@ async def delete_profile(
 @router.post("/{profile_id}/refresh", response_model=schemas.ProfileOut)
 async def refresh_profile_endpoint(
     profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:

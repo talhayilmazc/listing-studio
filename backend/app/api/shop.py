@@ -131,7 +131,7 @@ async def _shop_rows(
 @router.get("/listings", response_model=schemas.ShopListingsOut)
 async def list_shop_listings(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ShopListingsOut:
@@ -162,7 +162,7 @@ def has_feature(tenant: Tenant, name: str) -> bool:
 async def pattern_listings(
     shop: uuid.UUID | None = None,
     q: str = "",
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> list[schemas.PatternListingOut]:
@@ -221,7 +221,7 @@ async def pattern_listings(
 @router.post("/listings/sync", status_code=202)
 async def sync_shop_listings_now(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, bool]:
@@ -239,7 +239,7 @@ async def sync_shop_listings_now(
 async def shop_summary(
     shop: uuid.UUID | None = None,
     all_shops: bool = Query(False, alias="all"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Redis = Depends(get_redis),
@@ -283,7 +283,7 @@ def add_up(rows: list[schemas.ShopSummaryOut]) -> schemas.ShopSummaryOut:
 
 @router.get("/overview", response_model=schemas.ShopsOverviewOut)
 async def shops_overview(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Redis = Depends(get_redis),
@@ -426,7 +426,7 @@ def mark_reading(connection_id: uuid.UUID) -> tuple[str, int]:
 @router.post("/detect-profiles", status_code=202)
 async def detect_profiles_endpoint(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, str]:
@@ -465,7 +465,7 @@ async def _listing_shop(
 async def use_listing_as_profile(
     listing_id: int,
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
@@ -506,7 +506,7 @@ async def replace_listing_images_endpoint(
     listing_id: int,
     body: schemas.ReplaceImagesRequest,
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),

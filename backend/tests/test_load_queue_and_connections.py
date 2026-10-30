@@ -554,3 +554,114 @@ async def test_reconcile_writes_what_did_not_change_in_one_statement(tmp_path, t
         rows = list((await s.execute(select(ListingPublication))).scalars())
     assert all(r.etsy_checked_at is not None and r.state == "draft" for r in rows)
     await w["engine"].dispose()
+
+
+# -- connections are for queries, not for answers ---------------------------------------------------
+
+
+def test_every_route_ends_its_session_before_the_answer_is_sent() -> None:
+    """A slow client must not keep a pooled connection (the load test): with the default scope
+    the session lasted until the response had been sent."""
+    from pathlib import Path
+
+    import app.api
+
+    sources = {f.name: f.read_text(encoding="utf-8") for f in Path(app.api.__file__).parent.glob("*.py")}
+    assert not [name for name, text in sources.items() if "Depends(get_session)" in text]
+    assert sum(text.count('Depends(get_session, scope="function")') for text in sources.values()) > 100
+
+
+async def test_the_session_is_closed_when_the_answer_is_sent(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    from fastapi import Depends, FastAPI
+    from fastapi.responses import JSONResponse
+    from httpx import ASGITransport, AsyncClient
+
+    from app.api.deps import get_session
+
+    engine, sm = await _sessions(tmp_path)
+    open_when_sending: list[bool] = []
+    used: list[AsyncSession] = []
+
+    async def session_dep():  # noqa: ANN202
+        async with sm() as s:
+            used.append(s)
+            yield s
+
+    class Watching(JSONResponse):
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            open_when_sending.append(used[0].in_transaction())
+            await super().__call__(scope, receive, send)
+
+    app = FastAPI()
+    app.dependency_overrides[get_session] = session_dep
+
+    @app.get("/x", response_class=Watching)
+    async def route(session: AsyncSession = Depends(get_session, scope="function")) -> dict:
+        await session.execute(select(Tenant))
+        assert session.in_transaction()
+        return {"name": "n"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        assert (await client.get("/x")).json() == {"name": "n"}
+    assert open_when_sending == [False]
+    await engine.dispose()
+
+
+async def test_a_written_listing_waits_through_a_busy_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+    class Session:
+        tries = 0
+
+        async def connection(self) -> None:
+            Session.tries += 1
+            if Session.tries < 3:
+                raise PoolTimeout("QueuePool limit reached")
+
+    await db_release.ready_to_save(Session())
+    assert Session.tries == 3
+
+    class Never:
+        async def connection(self) -> None:
+            raise PoolTimeout("QueuePool limit reached")
+
+    with pytest.raises(PoolTimeout):
+        await db_release.ready_to_save(Never(), tries=2)
+
+
+def test_the_listing_is_saved_only_after_a_connection_is_held() -> None:
+    import inspect
+
+    from app.api import another_shop
+    from app.pipeline import generation
+
+    source = inspect.getsource(generation.generate_listing_content)
+    assert source.index("ready_to_save") < source.index("session.add(content)")
+    assert "ready_to_save" in inspect.getsource(another_shop._write)
+
+
+async def test_quota_uses_no_transaction_across_its_redis_reads(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    from app.api import meta
+    from app.core import limits
+
+    engine, sm = await _sessions(tmp_path)
+    tid = await _tenant(sm)
+    during: list[bool] = []
+    real = limits.etsy_ceiling
+    async with sm() as s:
+        tenant = await s.get(Tenant, tid)
+
+        async def watching(quota: Any, t: Any, now: Any = None) -> Any:
+            during.append(s.in_transaction())
+            return await real(quota, t, now)
+
+        monkeypatch.setattr(limits, "etsy_ceiling", watching)
+        from fakeredis import FakeAsyncRedis as Fake
+
+        from app.etsy.rate_limiter import DailyQuota
+
+        redis = Fake()
+        out = await meta.get_quota_status(None, tenant, DailyQuota(redis, global_daily_limit=100, pause_percent=90), s, redis)
+    assert during == [False]
+    assert out.history[-1].count == out.ceiling.used
+    await engine.dispose()

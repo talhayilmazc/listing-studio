@@ -454,7 +454,7 @@ async def month_report(session: AsyncSession, connection: EtsyConnection, month:
 async def import_statement(
     file: UploadFile = File(...),
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> MonthOut:
     """Read a monthly statement CSV, keep its totals and per-order amounts, and
@@ -479,7 +479,7 @@ async def import_statement(
 async def import_ads(
     file: UploadFile = File(...),
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[MonthOut]:
     """Read an Etsy Ads report (daily totals for the shop), keep the days, and
@@ -504,7 +504,7 @@ async def import_ads(
 @router.get("/status", response_model=StatusOut)
 async def import_status(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> StatusOut:
     """Every month's state for one shop: the last 13 months and anything imported."""
@@ -549,7 +549,7 @@ async def import_status(
 async def import_month(
     month: str,
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> MonthOut:
     connection = await _shop(session, tenant, shop)
@@ -560,7 +560,7 @@ async def import_month(
 async def delete_month(
     month: str,
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> None:
     """Remove what was imported for one month of one of the caller's shops."""
