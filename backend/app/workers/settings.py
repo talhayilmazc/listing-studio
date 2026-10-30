@@ -87,6 +87,8 @@ async def flush_usage(ctx: dict[str, Any]) -> None:
 
 def _give_way_to_the_api(settings: Any) -> None:
     """Pages first when the CPUs are busy: threads started from here on inherit this."""
+    if not settings.worker_nice:
+        return
     try:
         os.nice(settings.worker_nice)
     except (OSError, AttributeError):  # not on this platform: only a priority

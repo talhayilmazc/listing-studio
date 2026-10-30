@@ -38,7 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session, submit_draft
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
 from app.compliance.check import personalization_hold
 from app.pipeline.personalization import HELD_NOTE
@@ -608,7 +608,8 @@ async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depend
         await enqueuer.enqueue("link_profile", str(profile.id))
     from app.workers.plans import release_due
 
-    await release_due(session, enqueuer.enqueue, tenant_id=tenant.id)
+    await release_due(session, enqueuer.enqueue, tenant_id=tenant.id,
+                      submit=lambda t, j: submit_draft(enqueuer, t, j))
     message = (f"{_plural(len(slots), 'listing')} {'goes' if len(slots) == 1 else 'go'} live in the next few minutes."
                if body.when == "publish" else
                f"{_plural(len(slots), 'listing')} scheduled" + (f", {_day(out.first_day)} – {_day(out.finishes_on)}."

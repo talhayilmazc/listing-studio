@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import image_work
 from app.core import storage_cap
 from app.db.models import (
     Asset,
@@ -85,7 +86,7 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
     try:
         source = storage.get(photo.source_key)
         personal = await placement.personal(session, photo.tenant_id)  # the seller's own placement
-        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", photo.name, personal)
+        prepared = await image_work.run(mockups.prepare_blank, source, "default", "default", photo.name, personal)
     except (FileNotFoundError, ImageProcessingError, mockups.MockupError) as exc:
         logger.info("mockup photo %s could not be prepared: %s", photo.id, exc)
         photo.status, photo.error = "failed", PREPARE_FAILED
@@ -689,7 +690,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             regions = None if back else regions
             cache = ("back" if back else "front", file.id, json.dumps(regions, sort_keys=True) if regions else "")
             if cache not in loaded:
-                loaded[cache] = await asyncio.to_thread(
+                loaded[cache] = await image_work.run(
                     mockups.load_design, storage.get(key), (file.trims or {}).get("back" if back else "front"), regions)
             return loaded[cache]
 
@@ -721,11 +722,11 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             fallback = _BACK_FALLBACK.get(photo.template_id, "front")
             # Each area's subgroup: the seller's link, the garment's tone (measured from the
             # photo for an area the analysis did not find), else the photo's.
-            tones = await asyncio.to_thread(measured_tones, blank, garments)
+            tones = await image_work.run(measured_tones, blank, garments)
             area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []), tones)
             # Each area's colour group: a design's light/dark variant goes on its own group only.
             if photo.colour is None and photo.colour_source is None:
-                await asyncio.to_thread(measure_colour, photo, blank)
+                await image_work.run(measure_colour, photo, blank)
             colours = photo_colours(photo, tones)
             meaning = job.variant_suffix or variants.SHIRT
             if not any(prints_on(d, versions.get(d.id, []), area_names, colours, meaning) for d in usable):
@@ -742,7 +743,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                                              photo.size, adj, W, H)
                     if r:
                         reach.append(r)
-            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments, reach)
+            maps = await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
@@ -777,7 +778,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                         job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue
                 try:
-                    jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)
+                    jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
                     if not refreshing:
                         job.failed += len(group)

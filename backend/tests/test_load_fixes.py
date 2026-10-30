@@ -348,14 +348,18 @@ def test_the_worker_lowers_its_own_cpu_priority_and_never_fails_for_it(monkeypat
 
     asked: list[int] = []
     monkeypatch.setattr(worker_settings.os, "nice", asked.append, raising=False)
+    worker_settings._give_way_to_the_api(get_settings().model_copy(update={"worker_nice": 7}))
+    assert asked == [7]
+    # The default keeps the worker's own priority: only its image threads give way.
+    assert get_settings().worker_nice == 0
     worker_settings._give_way_to_the_api(get_settings())
-    assert asked == [get_settings().worker_nice] and asked[0] > 0
+    assert asked == [7]
 
     def refused(_: int) -> None:
         raise OSError("not allowed")
 
     monkeypatch.setattr(worker_settings.os, "nice", refused, raising=False)
-    worker_settings._give_way_to_the_api(get_settings())  # only a priority: the worker still starts
+    worker_settings._give_way_to_the_api(get_settings().model_copy(update={"worker_nice": 7}))  # only a priority: it still starts
 
 
 # -- remembered keywords stay correct ------------------------------------------------------------

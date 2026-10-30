@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session, submit_draft
 from app.api.shops import shop_label
 from app.core import audit
 from app.core.timezones import valid_zone, zone_abbreviation
@@ -462,7 +462,8 @@ async def apply(body: EditIn, session: AsyncSession = Depends(get_session), tena
     if body.op == "publish_now":
         from app.workers.plans import release_due
 
-        await release_due(session, enqueuer.enqueue, tenant_id=tenant.id)
+        await release_due(session, enqueuer.enqueue, tenant_id=tenant.id,
+                      submit=lambda t, j: submit_draft(enqueuer, t, j))
     assert w.rules is not None
     return ApplyOut(changed=len(undo), sentence=_sentence(changes, removed, body.op),
                     moved_line=R.moved_line(changes, _items(w), w.rules), undo=undo)

@@ -255,6 +255,12 @@ export interface MockupArea {
   occlusion_note?: string | null;
 }
 
+/** Where a waiting mockup job stands: every account's jobs ahead of it, and about how long. */
+export interface MockupQueue {
+  ahead: number;
+  minutes: number;
+}
+
 /** One blank photo of a template (backend api/mockups.py PhotoOut). */
 export interface MockupPhoto {
   id: string;
@@ -263,6 +269,8 @@ export interface MockupPhoto {
   position: number;
   /** "preparing" while the server finds the outline, then "ready" or "failed". */
   status: "preparing" | "ready" | "failed" | string;
+  /** While preparing: where it stands in the queue (backend workers/fair.py). */
+  queue?: MockupQueue | null;
   error?: string | null;
   width: number | null;
   height: number | null;
@@ -449,6 +457,8 @@ export interface MockupRun {
   id: string;
   batch_id: string;
   status: "queued" | "running" | "succeeded" | "failed" | string;
+  /** While it waits: where it stands in the queue. */
+  queue?: MockupQueue | null;
   total: number;
   done: number;
   failed: number;

@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 
+from app.core import db_release
 from app.core import ai_meter, alerts
 from app.core.llm_status import classify
 
@@ -269,6 +270,7 @@ class AnthropicLLMClient:
         )
         # Every call is metered here, where every call passes: the ones that
         # worked, the ones refused, the ones whose answer could not be used.
+        await db_release.before_slow()  # tens of seconds: no database connection held for them
         started = time.monotonic()
         try:
             try:

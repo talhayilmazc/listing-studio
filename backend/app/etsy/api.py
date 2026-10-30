@@ -33,6 +33,7 @@ from typing import Any
 import httpx
 from redis.asyncio import Redis
 
+from app.core import db_release
 from app.etsy.client import ETSY_API_BASE, auth_headers
 from app.etsy.calllog import CallLog, current_job
 from app.etsy.categories import category_of
@@ -161,6 +162,7 @@ class EtsyApiClient:
         """``repeat`` overrides whether no-answer/5xx is retried here (default: by method)."""
         # Development switch: nothing leaves for Etsy, and no quota or bucket is spent.
         guard.check(f"{method.upper()} {path}")
+        await db_release.before_slow()  # the bucket's wait and Etsy's answer: no connection held for them
         repeatable = (method.upper() in REPEATABLE) if repeat is None else repeat
         access_token = self._renewed or access_token
         renewed = False  # a 401 renews the token once per request

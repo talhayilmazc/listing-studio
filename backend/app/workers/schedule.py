@@ -11,7 +11,7 @@ is published and the reason is kept for the seller.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -48,6 +48,10 @@ async def _unfinished_job(session, publication: ListingPublication) -> Job | Non
         if (job.payload or {}).get("content_id") == str(publication.content_id):
             return job
     return None
+
+
+#: How far in the past a go-live is dated, to come before everything already queued.
+FRONT_OF_QUEUE = timedelta(hours=1)
 
 
 async def release_scheduled_publishes(ctx: dict[str, Any]) -> dict[str, int]:
@@ -116,4 +120,6 @@ async def _enqueue(ctx: dict[str, Any], function: str, *args: Any) -> None:
     if enqueue is not None:
         await enqueue(function, *args)
         return
-    await ctx["redis"].enqueue_job(function, *args)
+    # To the front of the queue (arq goes by score, and a time past is an early score): a go-live
+    # has a time to keep, and whatever else is queued can wait a minute more.
+    await ctx["redis"].enqueue_job(function, *args, _defer_until=datetime.now(timezone.utc) - FRONT_OF_QUEUE)

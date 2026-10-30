@@ -2,11 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
+from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _watch_idle_timeout(engine: AsyncEngine) -> None:
+    """Says so in the log when a connection is gone from under an open transaction. Postgres ends one
+    left idle past ``db_idle_transaction_seconds`` (something held it across slow work:
+    core/db_release.py) and closes the connection; asyncpg only sees a closed connection, at the next
+    statement. Postgres's own log names it: "terminating connection due to idle-in-transaction timeout"."""
+
+    @event.listens_for(engine.sync_engine, "handle_error")
+    def _on_error(context: Any) -> None:
+        if context.is_disconnect:
+            logger.error(
+                "idle_in_transaction_session_timeout fired, or the database restarted: a connection was lost with a "
+                "transaction open (limit %s s). Next statement: %s",
+                get_settings().db_idle_transaction_seconds, " ".join(str(context.statement or "").split())[:200])
 
 
 @lru_cache
@@ -15,9 +35,22 @@ def get_engine() -> AsyncEngine:
     # hide_parameters keeps bound values out of exception text: an IntegrityError
     # on registration would otherwise carry the email and password hash into
     # whatever logs the traceback.
-    return create_async_engine(
-        get_settings().database_url, pool_pre_ping=True, hide_parameters=True
-    )
+    settings = get_settings()
+    options: dict[str, Any] = {}
+    if settings.database_url.startswith("postgresql"):
+        # Connections are kept, not closed and reopened: with SQLAlchemy's default of 5 kept and 10
+        # thrown away after each use, every request beyond five opened a new connection, and asyncpg
+        # asks the server about its types on each (42,294 times in one load test run).
+        options = {
+            "pool_size": settings.db_pool_size,
+            "max_overflow": settings.db_pool_overflow,
+            "pool_recycle": 3600,
+            "connect_args": {"server_settings": {
+                "idle_in_transaction_session_timeout": str(settings.db_idle_transaction_seconds * 1000)}},
+        }
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True, hide_parameters=True, **options)
+    _watch_idle_timeout(engine)
+    return engine
 
 
 @lru_cache

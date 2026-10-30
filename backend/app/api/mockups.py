@@ -34,7 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import images
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage, submit_heavy
 from app.core import image_work
 from app.core import audit, storage_cap
 from app.core.config import get_settings
@@ -132,12 +132,22 @@ class AreaOut(BaseModel):
     axis_angle: float | None = None
 
 
+class QueueOut(BaseModel):
+    """Where a waiting heavy job stands (workers/fair.py): every account's jobs ahead of it, and
+    about how long that is, from how long these jobs have been taking."""
+
+    ahead: int
+    minutes: int
+
+
 class PhotoOut(BaseModel):
     id: uuid.UUID
     template_id: uuid.UUID
     name: str
     position: int
     status: str
+    #: While "preparing": where it stands in the queue.
+    queue: QueueOut | None = None
     error: str | None = None
     width: int | None = None
     height: int | None = None
@@ -535,6 +545,8 @@ class RunOut(BaseModel):
     id: uuid.UUID
     batch_id: uuid.UUID
     status: str
+    #: While it waits: where it stands in the queue.
+    queue: QueueOut | None = None
     total: int
     done: int
     failed: int
@@ -775,6 +787,16 @@ async def _resized(data: bytes, what: str) -> mockups.Source:
         raise HTTPException(status_code=422, detail=f"This file could not be read as {what}.") from exc
 
 
+async def _queue_positions(redis: Any, tenant: Tenant) -> dict[str, QueueOut]:
+    """Where this account's heavy jobs stand; nothing to say when it cannot be read."""
+    from app.workers import fair
+
+    try:
+        return {ref: QueueOut(ahead=at.ahead, minutes=at.minutes) for ref, at in (await fair.positions(redis, tenant.id)).items()}
+    except Exception:  # noqa: BLE001 - a line of information: never the reason a page fails
+        return {}
+
+
 # --- templates ------------------------------------------------------------------------------
 
 
@@ -803,9 +825,17 @@ async def _templates_out(session: AsyncSession, tenant: Tenant) -> list[Template
 
 @router.get("/mockup-templates", response_model=list[TemplateOut])
 async def list_templates(
-    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    redis: Redis = Depends(get_redis),
 ) -> list[TemplateOut]:
-    return await _templates_out(session, tenant)
+    templates = await _templates_out(session, tenant)
+    if any(p.status == "preparing" for t in templates for p in t.photos):
+        standing = await _queue_positions(redis, tenant)
+        for t in templates:
+            for p in t.photos:
+                if p.status == "preparing":
+                    p.queue = standing.get(str(p.id))
+    return templates
 
 
 @router.post("/mockup-templates/{template_id}/subgroups", response_model=TemplateOut, status_code=201)
@@ -1171,7 +1201,7 @@ async def add_photo(
     audit.record(session, "mockup_photo.created", actor=tenant, target_tenant_id=tenant.id, by="seller",
                  object_id=str(photo_id), rights_confirmed=True)
     await session.commit()
-    await enqueuer.enqueue("prepare_mockup_template", str(photo_id), _job_id=f"mockup-photo:{photo_id}")
+    await submit_heavy(enqueuer, tenant.id, "prepare_mockup_template", photo_id, job_id=f"mockup-photo:{photo_id}")
     return _photo_out(photo)
 
 
@@ -2228,7 +2258,7 @@ async def start_run(
                     design_ids=[str(d.id) for d in chosen] if body.design_ids is not None else None)
     session.add(run)
     await session.commit()
-    await enqueuer.enqueue("generate_mockups", str(run.id), _job_id=f"mockups:{run.id}")
+    await submit_heavy(enqueuer, tenant.id, "generate_mockups", run.id, job_id=f"mockups:{run.id}")
     return await _run_out(session, run)
 
 
@@ -2237,7 +2267,11 @@ async def get_run(
     run_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> RunOut:
-    return await _run_out(session, await _own_run(session, tenant, run_id), redis)
+    run = await _own_run(session, tenant, run_id)
+    out = await _run_out(session, run, redis)
+    if out.status == "queued":
+        out.queue = (await _queue_positions(redis, tenant)).get(str(run.id))
+    return out
 
 
 @router.get("/mockup-runs/{run_id}/outputs/{output_id}/image")
@@ -2298,7 +2332,7 @@ async def request_zip(
                         design_ids=[str(d) for d in body.design_ids] if body.design_ids is not None else None)
     session.add(archive)
     await session.commit()
-    await enqueuer.enqueue("build_mockup_zip", str(archive.id), _job_id=f"mockup-zip:{archive.id}")
+    await submit_heavy(enqueuer, tenant.id, "build_mockup_zip", archive.id, job_id=f"mockup-zip:{archive.id}")
     return _zip_out(archive)
 
 

@@ -53,8 +53,9 @@ async def _unfinished_draft(session: AsyncSession, content_id: uuid.UUID, connec
 
 
 async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UUID | None = None,
-                      now: datetime | None = None) -> int:
-    """Queue the draft of every slot that is due. Commits."""
+                      now: datetime | None = None, submit: Any = None) -> int:
+    """Queue the draft of every slot that is due. Commits. ``submit(tenant, job)``: how a draft
+    joins the queue (the fair turns of workers/fair.py); without it, ``enqueue`` at once."""
     now = now or datetime.now(timezone.utc)
     query = select(PlannedSlot).where(PlannedSlot.state == "waiting", PlannedSlot.draft_at <= now)
     if tenant_id is not None:
@@ -67,6 +68,16 @@ async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UU
     for slot in due:
         if is_paused(slot.tenant_id, slot.connection_id, paused):
             continue  # paused on the Scheduled page: held, not cancelled
+        # One release per slot, whatever else is running. The cron ran late under load and two
+        # of its runs overlapped: both queued a draft job for one slot, and the second failed
+        # (the load test). Locked by another run, or released meanwhile: not this run's.
+        await session.commit()
+        locked = await session.scalar(
+            select(PlannedSlot).where(PlannedSlot.id == slot.id, PlannedSlot.state == "waiting")
+            .with_for_update(skip_locked=True).execution_options(populate_existing=True))
+        if locked is None:
+            await session.commit()  # (nothing was written; a rollback would expire every slot of this loop)
+            continue
         content = await session.get(GeneratedContent, slot.content_id) if slot.content_id else None
         shop = await session.get(EtsyConnection, slot.connection_id)
         if content is None or shop is None or content.tenant_id != slot.tenant_id or shop.tenant_id != slot.tenant_id:
@@ -98,7 +109,10 @@ async def release_due(session: AsyncSession, enqueue: Any, *, tenant_id: uuid.UU
         await session.flush()
         slot.job_id, slot.state = job.id, "drafting"
         await session.commit()
-        await enqueue("run_publish_job", str(job.id))
+        if submit is not None:
+            await submit(slot.tenant_id, job.id)
+        else:
+            await enqueue("run_publish_job", str(job.id))
         released += 1
     # Drafts that failed for good: the slot says why (the card offers the retry). A draft that
     # finished but whose go-live was never set (the worker stopped between the two): set it now,
@@ -154,6 +168,8 @@ async def after_draft(session: AsyncSession, content_id: uuid.UUID, connection_i
 
 async def release_planned_drafts(ctx: dict[str, Any]) -> int:
     """arq cron."""
+    from app.workers import fair
+
     async def enqueue(function: str, *args: Any) -> None:
         hook = ctx.get("enqueue")
         if hook is not None:
@@ -161,8 +177,11 @@ async def release_planned_drafts(ctx: dict[str, Any]) -> int:
         else:
             await ctx["redis"].enqueue_job(function, *args)
 
+    async def submit(tenant_id: Any, job_id: Any) -> None:
+        await fair.submit(ctx.get("redis"), enqueue, tenant_id, job_id)
+
     async with ctx["sessionmaker"]() as session:
-        released = await release_due(session, enqueue)
+        released = await release_due(session, enqueue, submit=submit)
     if released:
         logger.info("group schedules: released %d draft(s)", released)
     return released

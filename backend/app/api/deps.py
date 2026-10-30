@@ -153,6 +153,16 @@ async def submit_draft(enqueuer: object, tenant_id: object, job_id: object) -> N
     await fair.submit(redis, enqueuer.enqueue, tenant_id, job_id)  # type: ignore[attr-defined]
 
 
+async def submit_heavy(enqueuer: object, tenant_id: object, function: str, ref: object, *, job_id: str) -> None:
+    """A heavy mockup job to the worker, in the account's fair turn (workers/fair.py). A stub
+    enqueuer without a Redis (tests) gets it at once."""
+    from app.workers import fair
+
+    get = getattr(enqueuer, "redis", None)
+    redis = await get() if get is not None else None
+    await fair.submit_heavy(redis, enqueuer.enqueue, tenant_id, function, str(ref), job_id=job_id)  # type: ignore[attr-defined]
+
+
 @lru_cache
 def get_enqueuer() -> Enqueuer:
     return Enqueuer(get_settings().redis_url)

@@ -580,6 +580,82 @@ test.describe("signed in", () => {
     await noFalseAlarms(page, "Never sent: working on Northwind");
   });
 
+  // The production sequence of 2026-10-28 (backend/tests/test_seller_replay_2026_10_28.py, here in a
+  // browser): drafts in A, one listing's text edited for B, then on C a SKU prefix, one listing's own
+  // text, the summary, approve for C from the summary, send. A and B stay as they were.
+  test("replay of 2026-10-28: hand-written listings from one shop to a third, with nothing a dead end", async ({ page }) => {
+    test.skip(test.info().project.name !== "desktop-1366", "sends drafts to the demo's third shop: once per run");
+    const href = await openBatch(page, "Hand-written in Northwind");
+    test.skip(href === null, "no demo batch: seed-demo again");
+    const bar = page.getByTestId("shop-bar-select");
+    test.skip((await bar.count()) === 0, "one shop: nothing to send elsewhere");
+    const names = (await bar.locator("option").allInnerTexts()).map((t) => t.trim()).filter(Boolean);
+    const third = names.find((n) => n !== "Northwind Tees" && n !== "Juniper Print Co." && !/^(All shops|Choose)/.test(n));
+    test.skip(!third, "fewer than three shops");
+    const countsIn = async (shop: string): Promise<string> => {
+      await workOn(page, shop);
+      return page.getByTestId("shop-bar-counts").innerText();
+    };
+    const before = await countsIn("Northwind Tees");
+
+    // One listing's text edited for B: "approve again" there, and only there.
+    await workOn(page, "Juniper Print Co.");
+    const inB = page.getByTestId("workspace-row").first();
+    await inB.getByTestId("workspace-text-toggle").click();
+    const titleB = inB.getByLabel(/^Title in Juniper/);
+    await titleB.fill(`${await titleB.inputValue()} Juniper`.slice(0, 140));
+    await expect(inB.getByTestId("workspace-row-why")).toContainText("Edited for Juniper Print Co.: approve again", { timeout: 15_000 });
+
+    // On C: every listing's text is there (never "no title yet"), and one gets its own.
+    await workOn(page, third!);
+    await noFalseAlarms(page, "replay: working on the third shop");
+    const rows = page.getByTestId("workspace-row");
+    const n = await rows.count();
+    test.skip(!(await page.getByTestId("shop-bar-counts").innerText()).includes(`${n} not sent`), "already sent in an earlier run");
+    await expect(rows.first().getByTestId("workspace-row-why")).toHaveCount(0); // B's edit is not C's
+    await rows.first().getByTestId("workspace-text-toggle").click();
+    const titleC = rows.first().getByLabel(/^Title in /);
+    await titleC.fill(`${await titleC.inputValue()} Third`.slice(0, 140));
+    await expect(rows.first().getByTestId("workspace-row-why")).toContainText("approve again", { timeout: 15_000 });
+
+    // The SKU prefix for C, saved as typed: it asks for no approval and nothing goes to Etsy for it.
+    await page.getByTestId("select-not-in-shop").click();
+    const bulk = page.getByTestId("workspace-bulk");
+    await bulk.getByRole("button", { name: "Bulk actions" }).click();
+    await bulk.getByLabel("SKU prefix to replace").fill("PCS");
+    await bulk.getByLabel("New SKU prefix").fill("ILC");
+    await expect(bulk.getByTestId("bulk-sku-preview")).toContainText("ILC");
+    await expect(bulk.getByTestId("bulk-sku-refused")).toHaveCount(0);
+    await bulk.getByRole("button", { name: "Apply" }).first().click();
+    await expect(rows.first()).toContainText("ILC", { timeout: 15_000 });
+    expect(await page.getByRole("button", { name: /Update SKU on Etsy/ }).count()).toBe(0);
+
+    // The summary: the one listing stopped says why and offers its one fix. Never a dead end.
+    await page.getByTestId("workspace-send").click();
+    const summary = page.getByTestId("workspace-summary");
+    await expect(summary).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("workspace-summary-refused")).toContainText("approve again");
+    await expect(summary).toContainText(`${n - 1} draft`);
+    await page.getByTestId("workspace-summary-approve").click();
+    await expect(page.getByTestId("workspace-summary-refused")).toHaveCount(0, { timeout: 15_000 });
+    await expect(summary).toContainText(`${n} draft`);
+    await noFalseAlarms(page, "replay: the send summary");
+
+    // Sent: C's Where and when opens for those rows; nothing is published by this.
+    await page.getByTestId("workspace-summary-send").click();
+    await expect(page.getByTestId("workspace-when")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("workspace-when")).toContainText(`${n} sent`);
+
+    // A and B are as they were; B's edit is still B's alone (put back for the next run).
+    expect(await countsIn("Northwind Tees")).toBe(before);
+    await workOn(page, "Juniper Print Co.");
+    const backInB = page.getByTestId("workspace-row").first();
+    await expect(backInB.getByTestId("workspace-row-why")).toContainText("approve again", { timeout: 15_000 });
+    await backInB.getByTestId("workspace-text-toggle").click();
+    await backInB.getByRole("button", { name: "Keep as it is" }).click();
+    await expect(backInB.getByTestId("workspace-row-why")).toHaveCount(0, { timeout: 15_000 });
+  });
+
   test("a profile's Shops table opens wide, one row per shop, and closes", async ({ page }) => {
     await page.goto("/profiles");
     await settle(page);
