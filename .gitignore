@@ -46,3 +46,6 @@ backend/evals/data/
 *.rdb
 backup_*
 acts-*.json
+
+# The load test's reports (backend/scripts/load/run.sh)
+load-output/

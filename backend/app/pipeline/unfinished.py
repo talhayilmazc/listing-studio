@@ -350,25 +350,35 @@ async def _records(
     )).scalars()}
     if not shops:
         return []
-    jobs = list((await session.execute(
-        select(Job).where(Job.tenant_id == tenant_id, Job.type == JobType.create_draft, Job.connection_id.in_(list(shops)))
-        .order_by(Job.created_at)
-    )).scalars())
+    attempts = {(a.connection_id, str(a.content_id)): a for a in (await session.execute(
+        select(DraftAttempt).where(DraftAttempt.tenant_id == tenant_id, DraftAttempt.connection_id.in_(list(shops)))
+    )).scalars()}
+    # Only the designs with something to say: a failed draft job or a draft attempt. Every other
+    # draft job (one per draft ever made: thousands for a busy account) is never a record, so it
+    # is not read (the load test, scripts/load_test.py: this ran on every batch page and Overview).
+    draft_jobs = (Job.tenant_id == tenant_id, Job.type == JobType.create_draft, Job.connection_id.in_(list(shops)))
+    jobs = list((await session.execute(select(Job).where(*draft_jobs, Job.status == JobStatus.failed))).scalars())
+    wanted = sorted(({str((j.payload or {}).get("content_id")) for j in jobs} | {c for _, c in attempts}) - {"None"})
+    content_key = Job.payload["content_id"].as_string()
+    for start in range(0, len(wanted), 500):
+        jobs += (await session.execute(select(Job).where(
+            *draft_jobs, Job.status != JobStatus.failed, content_key.in_(wanted[start:start + 500])))).scalars()
+    if not jobs and not attempts:
+        return []
+    jobs.sort(key=lambda j: _aware(j.created_at) or datetime.min.replace(tzinfo=timezone.utc))
     by_pair: dict[tuple[uuid.UUID, str], list[Job]] = defaultdict(list)
     for job in jobs:
         by_pair[(job.connection_id, str((job.payload or {}).get("content_id")))].append(job)
     # Create snapshots: the listing id the moment Etsy returned it, per job (survive the batch).
     snaps: dict[uuid.UUID, ListingSnapshot] = {}
-    for snap in (await session.execute(
-        select(ListingSnapshot).join(Job, Job.id == ListingSnapshot.job_id)
-        .where(ListingSnapshot.tenant_id == tenant_id, Job.tenant_id == tenant_id, Job.type == JobType.create_draft)
-        .order_by(ListingSnapshot.taken_at)
-    )).scalars():
+    job_ids = [j.id for j in jobs]
+    found_snaps: list[ListingSnapshot] = []
+    for start in range(0, len(job_ids), 500):
+        found_snaps += (await session.execute(select(ListingSnapshot).where(
+            ListingSnapshot.tenant_id == tenant_id, ListingSnapshot.job_id.in_(job_ids[start:start + 500])))).scalars()
+    for snap in sorted(found_snaps, key=lambda x: _aware(x.taken_at) or datetime.min.replace(tzinfo=timezone.utc)):
         if (snap.payload or {}).get("operation") == "create_draft":
             snaps[snap.job_id] = snap
-    attempts = {(a.connection_id, str(a.content_id)): a for a in (await session.execute(
-        select(DraftAttempt).where(DraftAttempt.tenant_id == tenant_id, DraftAttempt.connection_id.in_(list(shops)))
-    )).scalars()}
     content_ids = {uuid.UUID(c) for _, c in set(by_pair) | set(attempts) if _is_uuid(c)}
     contents: dict[uuid.UUID, tuple[GeneratedContent, str | None, str | None]] = {}
     ids = sorted(content_ids)
@@ -390,7 +400,7 @@ async def _records(
         .outerjoin(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
         .outerjoin(Asset, Asset.id == GeneratedContent.asset_id)
         .where(ListingPublication.tenant_id == tenant_id, ListingPublication.state != "deleted_on_etsy",
-               ListingPublication.connection_id.in_(list(shops)))
+               ListingPublication.connection_id.in_({shop for shop, _ in set(by_pair) | set(attempts)}))
     )).all():
         lid = int(pub.etsy_listing_id)
         published_ids[pub.connection_id].add(lid)

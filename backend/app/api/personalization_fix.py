@@ -104,6 +104,7 @@ async def shorten(
         return ShortenOut(text=cached.decode() if isinstance(cached, bytes) else str(cached))
     if await llm_status.current(redis):
         return ShortenOut(message=llm_status.SELLER_MESSAGE)
+    await session.commit()  # no connection is held while the model answers (see batches._write_listings)
     try:
         async with ai_meter.scope(tenant.id, session):
             offer = await F.shorten(client_for(get_settings(), "content"), text, body.field)

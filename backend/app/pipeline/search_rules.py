@@ -16,6 +16,7 @@ Pure checks only; :mod:`app.pipeline.content` decides when they apply.
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass
 
@@ -134,8 +135,14 @@ def stem(word: str) -> str:
     return word
 
 
+@functools.lru_cache(maxsize=8192)
+def _keywords(text: str) -> tuple[str, ...]:
+    return tuple(stem(w) for w in words(text) if w not in _STOP)
+
+
 def keywords(text: str) -> list[str]:
-    return [stem(w) for w in words(text) if w not in _STOP]
+    """(Remembered per text: a page's checks ask about each title and tag many times; the load test.)"""
+    return list(_keywords(text))
 
 
 def phrases(title: str) -> list[str]:

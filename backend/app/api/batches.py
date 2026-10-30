@@ -1648,6 +1648,10 @@ async def _write_listings(
             _fail(allowance_now.message())
             continue
 
+        # Nothing here needs the transaction while the model answers (tens of seconds), and it
+        # would hold a database connection all that time: 25 sellers writing at once took every
+        # connection of the pool, so every page of every seller waited (the load test).
+        await session.commit()
         data = storage.get(primary.processed_key)
         outcome = None
         # Every model call made for this group is metered for this seller, and

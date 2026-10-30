@@ -594,10 +594,10 @@ async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
     tenant_id = tenant.id
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id),
                                 AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None), reading=True)
-    await session.rollback()
     if content_ids:  # the send summary: its result is recorded, counts per reason only (api/events.py)
         from app.api.events import record_summary
 
+        await session.rollback()  # (else nothing is committed: the session just closes)
         await record_summary(session, tenant_id, batch_id, connection_id, preview)
     return preview
 
@@ -651,6 +651,7 @@ async def _write(
     asset = await session.get(Asset, content.asset_id)
     if asset is None or asset.files_removed_at is not None or not asset.processed_key:
         raise ValueError("its image files were deleted after the retention period")
+    await session.commit()  # no connection is held while the model answers (see batches._write_listings)
     settings = get_settings()
     generator = AnthropicContentGenerator(
         client_for(settings, "content"), template=load_template(content_template_for(profile)),

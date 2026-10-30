@@ -27,8 +27,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
@@ -46,6 +47,19 @@ from app.db.models import (
     ShopGroupMember,
     UploadBatch,
 )
+
+class _Listing(NamedTuple):
+    """What group_states reads of a listing (and destination_shops: send_to, target_shops)."""
+
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    batch_id: uuid.UUID
+    asset_id: uuid.UUID | None
+    created_at: datetime
+    listing_profile_id: uuid.UUID | None
+    send_to: dict | None
+    target_shops: list | None
+
 
 DRAFTED, PENDING, IN_REVIEW, REMOVED = "drafted", "pending", "in_review", "removed"
 GroupKey = tuple[uuid.UUID, str]
@@ -110,9 +124,11 @@ async def group_states(
     group_profile = {(s.batch_id, s.group_key or ""): s.profile_id for s in settings}
     from app.pipeline.shop_targets import destination_shops
 
-    contents = list((await session.execute(
-        select(GeneratedContent).where(GeneratedContent.batch_id.in_(batches))
-    )).scalars())
+    # Only the columns read here (and by destination_shops): a listing's text, tags and JSON are
+    # not needed to know where it goes (the load test, scripts/load_test.py).
+    contents = [_Listing(*row) for row in (await session.execute(
+        select(*(getattr(GeneratedContent, c) for c in _Listing._fields)).where(GeneratedContent.batch_id.in_(batches))
+    )).all()]
     tenant_ids = {c.tenant_id for c in contents}
     chosen_shops: dict[uuid.UUID, list[uuid.UUID] | None] = {}
     for tid in tenant_ids:
@@ -152,8 +168,13 @@ async def group_states(
 
     if cids:
         for pub in (await session.execute(
-            select(ListingPublication).where(ListingPublication.content_id.in_(cids))
-        )).scalars():
+            select(ListingPublication.content_id, ListingPublication.state, ListingPublication.created_at,
+                   ListingPublication.connection_id, ListingPublication.scheduled_for, ListingPublication.schedule_note)
+            .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
+            .where(GeneratedContent.batch_id.in_(batches))  # (a join, not 1,000s of ids to bind)
+        )).all():
+            if pub.content_id not in content_group:
+                continue
             g = groups[content_group[pub.content_id]]
             if pub.state == "deleted_on_etsy":
                 continue
@@ -166,8 +187,12 @@ async def group_states(
             if pub.scheduled_for is not None and pub.state != "active" and pub.schedule_note is None:
                 g.why_pending = g.why_pending or "a go-live is scheduled"
         for slot in (await session.execute(
-            select(PlannedSlot).where(PlannedSlot.content_id.in_(cids))
-        )).scalars():
+            select(PlannedSlot.content_id, PlannedSlot.state, PlannedSlot.connection_id)
+            .join(GeneratedContent, GeneratedContent.id == PlannedSlot.content_id)
+            .where(GeneratedContent.batch_id.in_(batches))
+        )).all():
+            if slot.content_id not in content_group:
+                continue
             g = groups[content_group[slot.content_id]]
             if slot.state != "cancelled":  # a failed one still names a shop it was meant for
                 g.targets.add(slot.connection_id)
@@ -175,10 +200,11 @@ async def group_states(
                 g.why_pending = g.why_pending or "a group schedule has a draft or go-live to come"
         # Distributed to a shop group: meant for every connected shop in it.
         sent = (await session.execute(
-            select(DesignDistribution.content_id, DesignDistribution.group_id).where(
-                DesignDistribution.content_id.in_(cids), DesignDistribution.group_id.is_not(None)
-            )
+            select(DesignDistribution.content_id, DesignDistribution.group_id)
+            .join(GeneratedContent, GeneratedContent.id == DesignDistribution.content_id)
+            .where(GeneratedContent.batch_id.in_(batches), DesignDistribution.group_id.is_not(None))
         )).all()
+        sent = [(cid, gid) for cid, gid in sent if cid in content_group]
         if sent:
             members: dict[uuid.UUID, set[uuid.UUID]] = {}
             for shop_id, gid in (await session.execute(
@@ -194,11 +220,16 @@ async def group_states(
                 groups[content_group[cid]].targets |= members.get(gid, set())
 
     # Work queued or running on the batch may still read the files.
+    # (Of these batches only: every queued job of every account was read here, so one seller's
+    # 3,000 queued drafts slowed every other seller's batch list.)
     busy: set[uuid.UUID] = set()
-    for job in (await session.execute(
-        select(Job).where(Job.status.in_([JobStatus.queued, JobStatus.running]))
-    )).scalars():
-        for value in (job.batch_id, (job.payload or {}).get("batch_id")):
+    queued = select(Job.batch_id, Job.payload["batch_id"].as_string()).where(
+        Job.status.in_([JobStatus.queued, JobStatus.running]))
+    if batch_ids is not None:
+        keys = [str(b) for b in batches]
+        queued = queued.where(or_(Job.batch_id.in_(batches), Job.payload["batch_id"].as_string().in_(keys)))
+    for job_batch, payload_batch in (await session.execute(queued)).all():
+        for value in (job_batch, payload_batch):
             try:
                 busy.add(uuid.UUID(str(value)))
             except (TypeError, ValueError):

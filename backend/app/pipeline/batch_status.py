@@ -34,6 +34,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,9 +128,21 @@ async def batch_overviews(session: AsyncSession, tenant_id: uuid.UUID, batches: 
     }
 
 
+class _Row(NamedTuple):
+    """What batch_statuses reads of a listing (and destination_shops: send_to, target_shops)."""
+
+    id: uuid.UUID
+    batch_id: uuid.UUID
+    asset_id: uuid.UUID | None
+    listing_profile_id: uuid.UUID | None
+    approved: bool
+    send_to: dict | None
+    target_shops: list | None
+
+
 @dataclass
 class _Listing:
-    content: GeneratedContent
+    content: _Row
     shops: set[uuid.UUID] = field(default_factory=set)
     live: set[uuid.UUID] = field(default_factory=set)
     drafts: set[uuid.UUID] = field(default_factory=set)  # a draft there (not live)
@@ -157,8 +170,11 @@ async def batch_statuses(
     active = {c.id for c in (await session.execute(select(EtsyConnection).where(
         EtsyConnection.tenant_id == tenant_id, EtsyConnection.status == ConnectionStatus.active))).scalars()}
 
-    contents = list((await session.execute(select(GeneratedContent).where(
-        GeneratedContent.tenant_id == tenant_id, GeneratedContent.batch_id.in_(ids)))).scalars())
+    # Only the columns read here (a listing's text and JSON are not: the load test,
+    # scripts/load_test.py, found the batch list decoding every listing of the account).
+    contents = [_Row(*row) for row in (await session.execute(select(
+        *(getattr(GeneratedContent, c) for c in _Row._fields)).where(
+        GeneratedContent.tenant_id == tenant_id, GeneratedContent.batch_id.in_(ids)))).all()]
     listings = {c.id: _Listing(c) for c in contents}
     # The shop each listing was written for: its group's, else its batch's, else its profile's main shop.
     assets = dict((await session.execute(select(Asset.id, Asset.group_key).where(Asset.batch_id.in_(ids)))).all())
@@ -179,9 +195,14 @@ async def batch_statuses(
         item.shops = {s for s in ticked if s in active}
 
     if listings:
-        for pub in (await session.execute(select(ListingPublication).where(
-                ListingPublication.tenant_id == tenant_id, ListingPublication.content_id.in_(list(listings))))).scalars():
-            item = listings[pub.content_id]
+        for pub in (await session.execute(select(
+                ListingPublication.content_id, ListingPublication.state, ListingPublication.connection_id,
+                ListingPublication.scheduled_for).where(
+                ListingPublication.tenant_id == tenant_id, GeneratedContent.batch_id.in_(ids))
+                .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id))).all():
+            item = listings.get(pub.content_id)
+            if item is None:
+                continue
             if pub.state == "deleted_on_etsy":
                 item.deleted.add(pub.connection_id)
                 continue
@@ -194,8 +215,10 @@ async def batch_statuses(
                     item.scheduled.add(pub.connection_id)
         for content_id, shop in (await session.execute(select(PlannedSlot.content_id, PlannedSlot.connection_id).where(
                 PlannedSlot.tenant_id == tenant_id, PlannedSlot.state.in_(("waiting", "drafting")),
-                PlannedSlot.content_id.in_(list(listings))))).all():
-            item = listings[content_id]
+                GeneratedContent.batch_id.in_(ids)).join(GeneratedContent, GeneratedContent.id == PlannedSlot.content_id))).all():
+            item = listings.get(content_id)
+            if item is None:
+                continue
             item.shops.add(shop)
             item.scheduled.add(shop)
         for record in await unfinished.records(session, tenant_id, with_blocks=False):

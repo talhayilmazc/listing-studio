@@ -1154,10 +1154,11 @@ async def publish_live(
         if not await _became_active(
             client, listing_id, ctx, attempts=confirm_attempts, wait=confirm_wait
         ):
-            raise ValueError(
-                "Etsy did not confirm the listing went live; it is still a draft. "
-                "Try Publish now again."
-            ) from exc
+            # Read back: still a draft, so going again cannot publish twice. Etsy being down for a
+            # moment is not the seller's failure: the job waits and runs again like any other
+            # (workers/recovery.py), and says why only when its attempts run out. It failed for
+            # good here before: 1 in 200 go-lives at Etsy's usual 5xx rate (the load test).
+            raise
         logger.info("publish-live: listing %s confirmed active after %s", listing_id, type(exc).__name__)
     except EtsyClientError as exc:
         if exc.status_code not in (404, 410):

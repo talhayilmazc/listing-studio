@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 import logging
+import os
 from typing import Any
 
 from arq import cron
@@ -84,8 +85,17 @@ async def flush_usage(ctx: dict[str, Any]) -> None:
         await ctx["usage"].flush(session)
 
 
+def _give_way_to_the_api(settings: Any) -> None:
+    """Pages first when the CPUs are busy: threads started from here on inherit this."""
+    try:
+        os.nice(settings.worker_nice)
+    except (OSError, AttributeError):  # not on this platform: only a priority
+        logger.info("could not lower the worker's CPU priority")
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
+    _give_way_to_the_api(settings)
     # Said at every start, so the log shows which way this worker is running.
     if settings.etsy_calls_blocked:
         logger.warning("ETSY_CALLS_BLOCKED is on: this worker sends nothing to Etsy (no API call, token refresh or image fetch)")
