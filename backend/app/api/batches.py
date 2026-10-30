@@ -118,10 +118,10 @@ async def _summaries(
     # Every shop a batch's listings go to (their profiles' main shops, the shops chosen for
     # them) and where they have drafts. No batch shop decides anything any more (B3).
     shop_ids: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
-    for (batch_id, _), state in (await group_states(session, batch_ids=set(ids), with_removed=True)).items():
+    for (batch_id, _), state in (await group_states(session, batch_ids=set(ids), with_removed=True, targets_only=True)).items():
         shop_ids[batch_id] |= state.targets
     for batch_id, connection_id in (await session.execute(
-        select(GeneratedContent.batch_id, ListingPublication.connection_id)
+        select(GeneratedContent.batch_id, ListingPublication.connection_id).distinct()
         .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
         .where(GeneratedContent.batch_id.in_(ids))
     )).all():

@@ -92,10 +92,16 @@ class GroupState:
 
 
 async def group_states(
-    session: AsyncSession, *, batch_ids: set[uuid.UUID] | None = None, with_removed: bool = False
+    session: AsyncSession, *, batch_ids: set[uuid.UUID] | None = None, with_removed: bool = False,
+    targets_only: bool = False,
 ) -> dict[GroupKey, GroupState]:
-    """Every group's state (of ``batch_ids``, else all), keyed by (batch, group_key)."""
-    query = select(Asset, UploadBatch.created_at, UploadBatch.connection_id).join(UploadBatch, UploadBatch.id == Asset.batch_id)
+    """Every group's state (of ``batch_ids``, else all), keyed by (batch, group_key).
+
+    ``targets_only``: only ``targets`` is worked out, and without the shops drafted in, which the
+    caller reads itself (the batch list, every page view: it read each listing's photos and
+    publications three times over for the names of a few shops; the load test)."""
+    columns = (Asset.id, Asset.batch_id, Asset.tenant_id, Asset.group_key) if targets_only else (Asset,)
+    query = select(*columns, UploadBatch.created_at, UploadBatch.connection_id).join(UploadBatch, UploadBatch.id == Asset.batch_id)
     if batch_ids is not None:
         query = query.where(Asset.batch_id.in_(batch_ids))
     if not with_removed:
@@ -106,10 +112,12 @@ async def group_states(
     groups: dict[GroupKey, GroupState] = {}
     group_of: dict[uuid.UUID, GroupKey] = {}
     batch_shop: dict[uuid.UUID, uuid.UUID | None] = {}
-    for asset, created, shop in rows:
+    for row in rows:
+        asset, created, shop = (row if targets_only else row[0]), row[-2], row[-1]
         key = (asset.batch_id, asset.group_key or "")
         g = groups.setdefault(key, GroupState(asset.batch_id, asset.group_key or "", asset.tenant_id, worked_at=_utc(created)))
-        g.assets.append(asset)
+        if not targets_only:
+            g.assets.append(asset)
         group_of[asset.id] = key
         batch_shop[asset.batch_id] = shop
     batches = set(batch_shop)
@@ -167,7 +175,7 @@ async def group_states(
     cids = list(content_group)
 
     if cids:
-        for pub in (await session.execute(
+        for pub in () if targets_only else (await session.execute(
             select(ListingPublication.content_id, ListingPublication.state, ListingPublication.created_at,
                    ListingPublication.connection_id, ListingPublication.scheduled_for, ListingPublication.schedule_note)
             .join(GeneratedContent, GeneratedContent.id == ListingPublication.content_id)
@@ -218,6 +226,9 @@ async def group_states(
                 members.setdefault(gid, set()).add(shop_id)
             for cid, gid in sent:
                 groups[content_group[cid]].targets |= members.get(gid, set())
+
+    if targets_only:
+        return groups
 
     # Work queued or running on the batch may still read the files.
     # (Of these batches only: every queued job of every account was read here, so one seller's

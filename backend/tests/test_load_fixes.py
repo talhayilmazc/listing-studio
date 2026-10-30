@@ -18,7 +18,7 @@ import httpx
 import pytest
 from sqlalchemy import event, select
 
-from app.db.models import DraftAttempt, GeneratedContent, Job, JobStatus, JobType
+from app.db.models import DraftAttempt, EtsyConnection, GeneratedContent, Job, JobStatus, JobType
 from app.pipeline import content as content_module
 from app.pipeline import group_state, unfinished
 from app.pipeline.content import GeneratedListing, _hits, _policy_errors, policy_for
@@ -368,3 +368,109 @@ def test_keywords_are_a_fresh_list_each_time() -> None:
     first.append("changed")
     assert "changed" not in search_rules.keywords("Nurses love cats")
     assert search_rules.keywords("Nurses love cats") == [search_rules.stem(w) for w in search_rules.words("Nurses love cats") if w not in search_rules._STOP]
+
+
+# -- the batch list's light read -----------------------------------------------------------------
+
+
+async def test_the_light_read_names_the_same_shops_as_the_full_one(world) -> None:  # noqa: ANN001, F811
+    from app.db.models import ListingPublication, UploadBatch
+
+    batch, contents = await _batch(world, [("D1", "SKU1"), ("D2", "SKU2")])
+    async with world["sm"]() as s:
+        s.add(ListingPublication(tenant_id=world["alice"], content_id=contents[0], connection_id=world["a2"], etsy_listing_id=99,
+                                 state="draft", title="t", sku="SKU1"))
+        (await s.get(UploadBatch, batch)).send_to = {"group_ids": [], "connection_ids": [str(world["a1"])]}
+        await s.commit()
+    async with world["sm"]() as s:
+        full = await group_state.group_states(s, batch_ids={batch}, with_removed=True)
+    async with world["sm"]() as s:
+        light = await group_state.group_states(s, batch_ids={batch}, with_removed=True, targets_only=True)
+    assert set(full) == set(light)
+    # The light read leaves out only the shops drafted in; the batch list reads those itself.
+    assert light[(batch, "D1")].targets == {world["a1"]}
+    assert full[(batch, "D1")].targets == {world["a1"], world["a2"]}
+    assert light[(batch, "D2")].targets == full[(batch, "D2")].targets
+
+
+async def test_the_batch_list_names_every_shop_a_batch_goes_to(world) -> None:  # noqa: ANN001, F811
+    from app.api.batches import _summaries
+    from app.db.models import ListingPublication, UploadBatch
+
+    batch, contents = await _batch(world, [("D1", "SKU1")])
+    async with world["sm"]() as s:
+        s.add(ListingPublication(tenant_id=world["alice"], content_id=contents[0], connection_id=world["a2"], etsy_listing_id=99,
+                                 state="draft", title="t", sku="SKU1"))
+        (await s.get(UploadBatch, batch)).send_to = {"group_ids": [], "connection_ids": [str(world["a1"])]}
+        await s.commit()
+    async with world["sm"]() as s:
+        one, two = await s.get(EtsyConnection, world["a1"]), await s.get(EtsyConnection, world["a2"])
+        names = {one.shop_name, two.shop_name}
+        summary = (await _summaries(s, world["alice"], [await s.get(UploadBatch, batch)]))[batch]
+    assert set(summary.shop_names) == names
+
+
+# -- heavy image work takes turns ----------------------------------------------------------------
+
+
+async def test_heavy_image_work_takes_turns_and_gives_its_answer() -> None:
+    import asyncio
+    import threading
+    import time
+
+    from app.core import image_work
+
+    running = 0
+    most = 0
+    lock = threading.Lock()
+
+    def work(n: int) -> int:
+        nonlocal running, most
+        with lock:
+            running += 1
+            most = max(most, running)
+        time.sleep(0.02)
+        with lock:
+            running -= 1
+        return n * 2
+
+    assert await asyncio.gather(*(image_work.run(work, n) for n in range(9))) == [n * 2 for n in range(9)]
+    assert most == image_work.AT_ONCE
+
+
+async def test_a_failure_in_image_work_is_the_callers_and_frees_its_turn() -> None:
+    from app.core import image_work
+
+    def broken() -> None:
+        raise ValueError("not an image")
+
+    for _ in range(image_work.AT_ONCE * 3):
+        with pytest.raises(ValueError):
+            await image_work.run(broken)
+
+
+async def test_an_upload_holds_no_connection_while_its_image_is_processed(ctx, open_transactions, monkeypatch, tmp_path) -> None:  # noqa: ANN001, F811
+    import io
+
+    from PIL import Image
+
+    from app.api import deps
+    from app.core import image_work
+    from app.pipeline.storage import LocalStorage
+
+    seen: list[int] = []
+    real = image_work.run
+
+    async def watching(function: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(len(open_transactions))
+        return await real(function, *args, **kwargs)
+
+    monkeypatch.setattr(image_work, "run", watching)
+    ctx["app"].dependency_overrides[deps.get_storage] = lambda: LocalStorage(tmp_path)
+    created = await ctx["client"].post("/api/batches", json={})
+    assert created.status_code == 201, created.text
+    buf = io.BytesIO()
+    Image.new("RGB", (900, 900), "orange").save(buf, "JPEG")
+    res = await ctx["client"].post(f"/api/batches/{created.json()['id']}/assets", files={"file": ("A1.jpg", buf.getvalue(), "image/jpeg")})
+    assert res.status_code == 201, res.text
+    assert seen == [0], "a transaction was open while the image was processed: it holds a pooled connection"

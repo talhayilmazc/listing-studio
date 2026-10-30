@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import images
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
+from app.core import image_work
 from app.core import audit, storage_cap
 from app.core.config import get_settings
 from app.db.models import (
@@ -769,7 +770,7 @@ def _admitted(data: bytes) -> None:
 
 async def _resized(data: bytes, what: str) -> mockups.Source:
     try:
-        return await asyncio.to_thread(mockups.resize_upload, data)
+        return await image_work.run(mockups.resize_upload, data)
     except (ImageProcessingError, mockups.MockupError) as exc:
         raise HTTPException(status_code=422, detail=f"This file could not be read as {what}.") from exc
 
@@ -1148,6 +1149,7 @@ async def add_photo(
     await limits()  # before any work on the file: a full template says so at once
     data = await file.read()
     _admitted(data)
+    await session.commit()  # no connection is held while the photo is resized (core/image_work.py)
     source = await _resized(data, "a photo")
     # Photos of a template arrive three at a time (the page's upload queue): the limits are
     # checked again and each photo's position taken under the template's row lock.
@@ -1303,8 +1305,8 @@ async def find_garment(
     ground = storage.get(photo.foreground_key) if photo.foreground_key else storage.get(photo.mask_key or "")
     occluder = storage.get(photo.occluder_key) if photo.occluder_key else None
     personal = await placement.personal(session, tenant.id)
-    found = await asyncio.to_thread(work.find_at, blank, ground, occluder, (body.x, body.y), others, photo.name,
-                                    personal)
+    await session.commit()
+    found = await image_work.run(work.find_at, blank, ground, occluder, (body.x, body.y), others, photo.name, personal)
     if found is not None:
         corners, confidence, kind = found
         return FindOut(found=True, print_area=corners, confidence=confidence, kind=kind)
@@ -1548,7 +1550,7 @@ async def preview_photo(
             quality=80)
 
     try:
-        data = await asyncio.to_thread(draw)
+        data = await image_work.run(draw)
     except mockups.MockupError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
@@ -1709,18 +1711,19 @@ async def _store_design(session: AsyncSession, storage: Storage, tenant: Tenant,
     design of the batch has the same name without the suffix, a version of that design."""
     batch_id = batch.id
     _admitted(data)
+    await session.commit()  # no connection is held while the design is prepared (core/image_work.py)
     try:
-        prepared = await asyncio.to_thread(mockups.prepare_design, data)
+        prepared = await image_work.run(mockups.prepare_design, data)
     except mockups.DesignTooSmall as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (ImageProcessingError, mockups.MockupError) as exc:
         raise HTTPException(status_code=422, detail="This file could not be read as a design.") from exc
     await _room(session, storage, tenant, len(prepared.image))
     # Its trim box (transparent padding left out), kept with it; the file stays as uploaded.
-    trim = await asyncio.to_thread(mockups.design_trim, prepared.image)
+    trim = await image_work.run(mockups.design_trim, prepared.image)
     slots = slots or []
     base, by_suffix = subgroups.split_name(filename, slots)
-    ink = await asyncio.to_thread(subgroups.ink_of, prepared.image)
+    ink = await image_work.run(subgroups.ink_of, prepared.image)
     chosen = None
     if slots:
         named = next((g["name"] for g in slots if subgroups.same(g["name"], subgroup)), None) if subgroup else None

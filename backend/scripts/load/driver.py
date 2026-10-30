@@ -82,6 +82,7 @@ class Meter:
         self.pages: dict[str, list[float]] = defaultdict(list)
         self.steps: dict[str, list[float]] = defaultdict(list)
         self.samples: list[tuple[float, float]] = []
+        self.sent: list[tuple[float, int]] = []  # what the server sent, as on the wire (gzip)
 
     def add(self, key: str, ms: float, status: int, detail: str = "") -> None:
         self.times[key].append(ms)
@@ -97,6 +98,7 @@ class Seller:
         self.client: httpx.AsyncClient | None = None
         self.batch: str | None = None
         self.working = True
+        self.seen: set[str] = set()
 
     async def open(self) -> None:
         token = await SessionStore(self.redis).create(uuid.UUID(self.world["tenant"]))
@@ -113,6 +115,7 @@ class Seller:
             self.meter.add(key, (time.perf_counter() - t0) * 1000, 599, type(exc).__name__)
             return None
         self.meter.add(key, (time.perf_counter() - t0) * 1000, res.status_code, res.text if res.status_code >= 400 else "")
+        self.meter.sent.append((time.time(), res.num_bytes_downloaded))
         return res
 
     # -- reading pages ------------------------------------------------------------------------
@@ -147,7 +150,24 @@ class Seller:
             t0 = time.perf_counter()
             await asyncio.gather(*(self.call("GET", u, key) for u, key in urls))
             self.meter.pages[page].append((time.perf_counter() - t0) * 1000)
+            if page.startswith("Review") and self.batch:
+                await self.thumbnails(self.batch)
             await asyncio.sleep(self.rnd.uniform(4, 12))  # reading it
+
+    async def thumbnails(self, batch: str) -> None:
+        """The review page's pictures, at most four at a time, once each (the browser keeps them)."""
+        res = await self.call("GET", f"/api/batches/{batch}", "batches/{id}")
+        if res is None or res.status_code != 200:
+            return
+        limit = asyncio.Semaphore(4)
+        new = [a["id"] for a in res.json().get("assets", []) if a["id"] not in self.seen]
+
+        async def one(asset: str) -> None:
+            async with limit:
+                await self.call("GET", f"/api/assets/{asset}/image?size=thumb&v=1", "thumbnail")
+
+        await asyncio.gather(*(one(a) for a in new))
+        self.seen.update(new)
 
     # -- a working session -------------------------------------------------------------------
 
@@ -440,6 +460,17 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
         lines.append("\nerrors:")
         for key, n in meter.errors.most_common(14):
             lines.append(f"  {n:>6} × {key}")
+    if meter.samples:
+        lines.append("\nminute by minute (when it got slow, and how much the server sent; its uplink is 14 Mbps = 105 MB a minute):")
+        minutes: dict[int, list[float]] = defaultdict(list)
+        bytes_out: Counter[int] = Counter()
+        for at, ms in meter.samples:
+            minutes[int(at - started) // 60].append(ms)
+        for at, n in meter.sent:
+            bytes_out[int(at - started) // 60] += n
+        for minute in sorted(minutes):
+            values = minutes[minute]
+            lines.append(f"  min {minute:>3}: {len(values):>5} requests  p50 {pct(values, 50):>6.0f} ms  p95 {pct(values, 95):>6.0f} ms  sent {bytes_out[minute] / 1e6:>6.1f} MB")
     lines.append("\nworker:")
     for jtype, status, n in jobs["by_type"]:
         lines.append(f"  {jtype:<28}{status:<12}{n:>6}")
