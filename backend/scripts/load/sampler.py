@@ -36,6 +36,10 @@ def main() -> None:
                 fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
                 sample[f"{role}_cpu"] += (int(fields[11]) + int(fields[12])) / TICK
                 sample[f"{role}_rss"] += int(fields[21]) * PAGE
+                # RSS counts pages the processes share once each; what the container is charged is closer to this.
+                for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+                    if line.startswith("RssAnon:"):
+                        sample[f"{role}_anon"] = sample.get(f"{role}_anon", 0) + int(line.split()[1]) * 1024
                 # The image threads run at a lower priority: their CPU, apart from the rest.
                 for task in os.listdir(f"/proc/{pid}/task"):
                     t = Path(f"/proc/{pid}/task/{task}/stat").read_text().rsplit(")", 1)[1].split()

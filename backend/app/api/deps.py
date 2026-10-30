@@ -19,7 +19,7 @@ from collections.abc import Callable
 
 import httpx
 
-from app.core import terms
+from app.core import redis_pool, terms
 from app.core.config import get_settings
 from app.core.crypto import get_cipher
 from app.core.sessions import SESSION_COOKIE, SessionStore
@@ -106,6 +106,9 @@ def get_ingestor() -> BatchIngestor:
         processor=ImageProcessor(),
         sku_parser=SkuParser(),
     )
+
+
+redis_pool.install()
 
 
 @lru_cache

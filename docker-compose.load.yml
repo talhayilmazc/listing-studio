@@ -36,6 +36,7 @@ x-load-env: &load-env
   # What the priority comparison changes (docs/load-test.md); left out: the app's own defaults.
   WORKER_NICE: ${WORKER_NICE:-0}
   IMAGE_WORK_NICE: ${IMAGE_WORK_NICE:-10}
+  LOAD_PROFILE_SECONDS: ${LOAD_PROFILE_SECONDS:-0}
 
 services:
   load-postgres:
@@ -49,6 +50,7 @@ services:
     command: [postgres, -c, shared_preload_libraries=pg_stat_statements, -c, pg_stat_statements.track=all]
     # The image's VOLUME path gets a tmpfs so no anonymous volume is made; data is in PGDATA.
     tmpfs: [/var/lib/postgresql/data]
+    mem_limit: 800m  # production's (docker-compose.prod.yml)
     cpuset: ${LOAD_CPUSET:-0-1}
     networks: [load]
     healthcheck:
@@ -88,6 +90,8 @@ services:
     # One container for the API and the worker, so they share the storage folder with no volume.
     # The commands are production's, with the app module swapped for the one with the stub.
     build: *load-build
+    # Production's limits together: api + worker (docker-compose.prod.yml).
+    mem_limit: ${LOAD_APP_MEMORY:-3900m}
     environment: *load-env
     command:
       - bash
@@ -115,6 +119,7 @@ services:
     # The production image (docker compose -f docker-compose.prod.yml build frontend): its memory is
     # part of the total, and each page view asks it for its document.
     image: listyro/frontend:latest
+    mem_limit: 200m  # production's (docker-compose.prod.yml)
     cpuset: ${LOAD_CPUSET:-0-1}
     networks: [load]
     depends_on:

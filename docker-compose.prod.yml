@@ -18,6 +18,13 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# Memory (docs/load-test.md): each container has a ceiling, so a leak or a bad job kills that
+# container, which restarts by itself, and not the VM (5.8 GB). They add up to 5,412 MB and leave
+# 388 MB for the OS; tests/test_memory_limits.py keeps it so. Peaks with 100 sellers at once:
+# worker 2,103 MB, API 1,460 MB, Postgres 812 MB (mostly reclaimable file cache; the rest is
+# measured in the load test too), frontend 98 MB, Redis 10 MB. cloudflared cannot be measured off
+# the server.
+
 x-backend: &backend
   build:
     context: .
@@ -43,6 +50,7 @@ x-backend: &backend
 services:
   postgres:
     image: postgres:16
+    mem_limit: 800m
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -119,6 +127,7 @@ services:
 
   api:
     <<: *backend
+    mem_limit: 1600m
     # Migrations run once, before any worker process starts serving. No --reload.
     command:
       - sh
@@ -140,6 +149,7 @@ services:
 
   worker:
     <<: *backend
+    mem_limit: 2300m
     command: ["arq", "app.workers.settings.WorkerSettings"]
     healthcheck:
       # arq records a heartbeat in Redis; --check fails if it has gone stale.
@@ -150,6 +160,7 @@ services:
       start_period: 30s
 
   frontend:
+    mem_limit: 200m
     build:
       context: .
       dockerfile: docker/frontend.prod.Dockerfile
@@ -173,6 +184,7 @@ services:
     logging: *logging
 
   cloudflared:
+    mem_limit: 128m
     # Pinned: a tunnel client that updates itself underneath production is a
     # change nobody reviewed. Bump deliberately (docs/deploy.md uses the same tag).
     image: cloudflare/cloudflared:2026.10.3

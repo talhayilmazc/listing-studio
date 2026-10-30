@@ -339,7 +339,7 @@ class Watch:
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
         self.conns = self.waiting = 0
-        self.queue = self.redis_used = self.redis_peak = 0
+        self.queue = self.redis_used = self.redis_peak = self.redis_clients = 0
         self.conns_by_state: Counter[str] = Counter()
         self.lines: list[str] = []
         self.stop = False
@@ -370,6 +370,7 @@ class Watch:
                 info = await self.redis.info("memory")
                 self.redis_used = max(self.redis_used, info["used_memory"])
                 self.redis_peak = max(self.redis_peak, info["used_memory_peak"])
+                self.redis_clients = max(self.redis_clients, (await self.redis.info("clients"))["connected_clients"])
                 if int(time.time() - started) % 60 < 5:
                     self.lines.append(f"    t+{int(time.time() - started):>4}s  queue {queue:>5}  db connections {total:>3} ({dict((str(r[0]), r[1]) for r in rows)})")
             except Exception as exc:  # noqa: BLE001 - a missed sample is only a missed sample
@@ -383,17 +384,21 @@ async def stub_totals(redis: Redis) -> dict:
     seconds: Counter[str] = Counter()
     minutes: dict[str, dict[int, dict[str, float]]] = {"api": {}, "worker": {}}
     held: Counter[str] = Counter()
+    profile: dict[str, Counter[str]] = {"cpu_route": Counter(), "cpu_function": Counter(), "waiting": Counter()}
     for raw in (await redis.hgetall("load:stub")).values():
         data = json.loads(raw)
         total.update(data["counts"])
         accounts.update(data["per_account"])
         seconds.update(data["seconds"])
         held.update(data.get("held", {}))
+        if data.get("role") == "api":
+            for name, table in profile.items():
+                table.update(data.get(name, {}))
         for key, value in data.get("minutes", {}).items():
             row = minutes[data.get("role", "api")].setdefault(int(key), {"lag": 0.0, "out": 0, "limit": value["limit"]})
             row["lag"] = max(row["lag"], value["lag"])
             row["out"] = max(row["out"], value["out"])
-    return {"counts": total, "accounts": accounts, "seconds": seconds, "minutes": minutes, "held": held}
+    return {"counts": total, "accounts": accounts, "seconds": seconds, "minutes": minutes, "held": held, "profile": profile}
 
 
 async def proc_samples(redis: Redis, since: float) -> list[dict]:
@@ -550,6 +555,15 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
             shape = route.split(" ", 1)[-1]
             calls = next((len(v) for k, v in meter.times.items() if k == shape), 0)
             lines.append(f"  {value:>8.0f} s  {100 * value / total_held:>3.0f}%  {route}")
+    profile = after["profile"]
+    if profile["cpu_route"]:
+        total_cpu = sum(profile["cpu_route"].values())
+        lines.append("\nthe API's CPU in the profiled minutes, per endpoint (share of samples):")
+        lines += [f"  {100 * n / total_cpu:>5.1f}%  {route}" for route, n in profile["cpu_route"].most_common(25)]
+        lines.append("\nthe API's CPU, per function, cumulative (share of samples):")
+        lines += [f"  {100 * n / total_cpu:>5.1f}%  {name}" for name, n in profile["cpu_function"].most_common(120)]
+        lines.append("\nwhere requests in progress were suspended (request-seconds; endpoint | our last line <- what it waits in):")
+        lines += [f"  {n:>7}  {name}" for name, n in profile["waiting"].most_common(60)]
     lines.append("\nworker:")
     for jtype, status, n in jobs["by_type"]:
         lines.append(f"  {jtype:<28}{status:<12}{n:>6}")
@@ -584,6 +598,7 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
         work = [s["worker_rss"] for s in samples]
         span = max(samples[-1]["at"] - samples[0]["at"], 1)
         lines.append(f"  API (2 processes + parent): {max(api) / 1e6:.0f} MB; worker: {max(work) / 1e6:.0f} MB")
+        lines.append(f"  of which private (RSS counts shared pages once per process): API {max(s.get('api_anon', 0) for s in samples) / 1e6:.0f} MB; worker {max(s.get('worker_anon', 0) for s in samples) / 1e6:.0f} MB")
         lines.append(f"  CPU over the step: API {(samples[-1]['api_cpu'] - samples[0]['api_cpu']) / span:.2f} cores, worker {(samples[-1]['worker_cpu'] - samples[0]['worker_cpu']) / span:.2f} cores")
     lines.append(f"  database connections {watch.conns} ({dict(watch.conns_by_state)}), waiting on a lock {watch.waiting}")
     if watch.long:
@@ -592,7 +607,7 @@ async def step(count: int, all_worlds: list[dict], redis: Redis, pool: ArqRedis,
             lines.append(f"    {n:>4} × {longest:>6.1f} s  {query}")
     else:
         lines.append("  transactions left idle over 2 s: none seen")
-    lines.append(f"  Redis memory {watch.redis_used / 1e6:.0f} MB (limit 256 MB); arq queue depth {watch.queue}")
+    lines.append(f"  Redis memory {watch.redis_used / 1e6:.0f} MB (limit 256 MB), {watch.redis_clients} clients; arq queue depth {watch.queue}")
     lines.extend(watch.lines[:25])
     lines.append(f"\nstep total {elapsed:.0f} s")
     ok = not meter.errors and p95_all <= SLOW_MS

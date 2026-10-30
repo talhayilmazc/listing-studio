@@ -25,6 +25,7 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 from collections import Counter
 from typing import Any
@@ -69,6 +70,7 @@ listings: dict[int, dict[str, Any]] = {}
 _ids = iter(range(5_000_000_000 + os.getpid() * 100_000, 10**12))
 
 _counting: list[asyncio.Task] = []
+_profiling: list[asyncio.Task] = []
 #: Every shop's own settings: the seed's main-shop ids and other-shop ids (scripts/load/seed.py).
 _SETTINGS = {
     "shipping-profiles": [{"shipping_profile_id": i, "title": "Standard", "origin_country_iso": "US"} for i in (55, 155)],
@@ -269,6 +271,71 @@ def _watch_pool(pool: Any) -> None:
             held[(int(time.time()) // 60, began[1])] += time.monotonic() - began[0]
 
 
+#: Where an API process's time goes in the first LOAD_PROFILE_SECONDS after its first request: CPU
+#: per endpoint and per function, and where the requests in progress are suspended.
+PROFILE_SECONDS = float(os.environ.get("LOAD_PROFILE_SECONDS", "0"))
+cpu_route: Counter[str] = Counter()
+cpu_function: Counter[str] = Counter()
+waiting: Counter[str] = Counter()
+_NO_ROUTE = "(worker or background)"
+
+
+def _short(path: str) -> str:
+    return path.split("/site-packages/")[-1].split("/app/app/")[-1].split("/usr/local/lib/python3.12/")[-1]
+
+
+def _ours(path: str) -> bool:
+    return "/site-packages/" not in path and "/lib/python3" not in path and "scripts/load" not in path
+
+
+def _sample_cpu(loop: asyncio.AbstractEventLoop, main_thread: int, until: float) -> None:
+    while time.monotonic() < until:
+        time.sleep(0.02)
+        frame = sys._current_frames().get(main_thread)
+        # Waiting for something to do: in select, or with uvloop in C under the runner. (This thread
+        # gets the GIL when the main one lets go, so calls that release it are over-counted.)
+        if frame is None or frame.f_code.co_name in ("select", "run_until_complete") or (frame.f_code.co_name == "run" and "runners" in frame.f_code.co_filename):
+            continue
+        task = asyncio.current_task(loop)
+        cpu_route[task.get_context().get(_route, _NO_ROUTE) if task is not None else "(the event loop itself)"] += 1
+        seen: set[str] = set()
+        for _ in range(100):
+            if frame is None:
+                break
+            seen.add(f"{_short(frame.f_code.co_filename)}:{frame.f_code.co_name}")
+            frame = frame.f_back
+        cpu_function.update(seen)
+
+
+def _suspended_at(task: asyncio.Task) -> str:
+    """The last line of ours, and what it is waiting in."""
+    ours = last = ""
+    coro: Any = task.get_coro()
+    for _ in range(100):
+        frame = getattr(coro, "cr_frame", None) or getattr(coro, "gi_frame", None) or getattr(coro, "ag_frame", None)
+        if frame is not None:
+            path = frame.f_code.co_filename
+            last = f"{_short(path)}:{frame.f_code.co_name}"
+            if _ours(path):
+                ours = f"{_short(path)}:{frame.f_lineno} {frame.f_code.co_name}"
+        coro = getattr(coro, "cr_await", None) or getattr(coro, "gi_yieldfrom", None) or getattr(coro, "ag_await", None)
+        if coro is None:
+            break
+    return f"{ours or '-'} <- {last}"
+
+
+async def _profile() -> None:
+    loop = asyncio.get_running_loop()
+    until = time.monotonic() + PROFILE_SECONDS
+    threading.Thread(target=_sample_cpu, args=(loop, threading.get_ident(), until), daemon=True).start()
+    while time.monotonic() < until:
+        await asyncio.sleep(1)
+        for task in asyncio.all_tasks(loop):
+            route = task.get_context().get(_route, _NO_ROUTE)
+            if route != _NO_ROUTE and task is not asyncio.current_task():
+                waiting[f"{route} | {_suspended_at(task)}"] += 1
+
+
 async def _publish_counts() -> None:
     """Every 5 s, what this process saw, for the driver (Redis hash ``load:stub``): the stub's counts,
     and per minute the event loop's worst lag (is the CPU the limit?) and the most database
@@ -300,6 +367,8 @@ async def _publish_counts() -> None:
                 "seconds": {str(k): v for k, v in list(per_second.items())[-3600:]},
                 "minutes": {str(k): v for k, v in list(minutes.items())[-120:]},
                 "held": {f"{m} {k}": round(v, 2) for (m, k), v in list(held.items())[-4000:]},
+                "cpu_route": dict(cpu_route), "cpu_function": dict(cpu_function.most_common(300)),
+                "waiting": dict(waiting.most_common(300)),
             }))
         except Exception:  # noqa: BLE001 - a missed sample is only a missed sample
             pass
@@ -313,7 +382,11 @@ async def _count_from_the_start(scope: Any, receive: Any, send: Any) -> None:
     if not _counting:
         _counting.append(asyncio.get_running_loop().create_task(_publish_counts()))
     if scope.get("type") == "http":
-        _route.set(f"{scope['method']} {_shape(scope['path'])}")
+        path = scope["path"]
+        if PROFILE_SECONDS and not _profiling and path != "/health":
+            # Outside the request's context, or every task it spawns would count as this request.
+            _profiling.append(asyncio.get_running_loop().create_task(_profile(), context=contextvars.Context()))
+        _route.set(f"{scope['method']} {_shape(path)}")
     await _api(scope, receive, send)
 
 

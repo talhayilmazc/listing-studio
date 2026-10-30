@@ -18,11 +18,13 @@ from __future__ import annotations
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
 
 SESSION_COOKIE = "session"
+TOUCH_EVERY = timedelta(seconds=60)
+EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc)
 SESSION_TTL_SECONDS = 30 * 24 * 3600  # 30 days, rolling (A3)
 
 # Failed-login lockout (A2): 5 attempts per 15 minutes, per email and per IP.
@@ -92,10 +94,14 @@ class SessionStore:
             return None
 
         now = datetime.now(timezone.utc)
-        if touch:
-            await self._redis.hset(key, "last_seen", now.isoformat())
-            await self._redis.expire(key, self._ttl)
-            await self._redis.expire(_tenant_key(tenant_id), self._ttl)
+        # Each request reads the session, and a page is many requests: once a minute is enough to
+        # keep a session of 30 days alive, in one round trip.
+        if touch and now - _parse(decoded.get("last_seen"), EPOCH) >= TOUCH_EVERY:
+            pipe = self._redis.pipeline(transaction=False)
+            pipe.hset(key, "last_seen", now.isoformat())
+            pipe.expire(key, self._ttl)
+            pipe.expire(_tenant_key(tenant_id), self._ttl)
+            await pipe.execute()
 
         return SessionRecord(
             token=token,

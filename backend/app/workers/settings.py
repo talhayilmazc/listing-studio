@@ -19,6 +19,7 @@ from typing import Any
 from arq import cron
 from arq.connections import RedisSettings
 
+from app.core import redis_pool
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
 from app.core.logsafety import configure_app_logging, install_log_redaction
@@ -57,6 +58,7 @@ from app.workers.upkeep import daily_upkeep
 from app.workers.etsy_spec import check_etsy_spec
 
 logger = logging.getLogger(__name__)
+redis_pool.install()
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()

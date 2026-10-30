@@ -21,7 +21,8 @@ import functools
 import logging
 import os
 import threading
-from collections.abc import Callable
+import weakref
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeVar
 
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _pool: ThreadPoolExecutor | None = None
 _pool_lock = threading.Lock()
+_turns: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
 
 
 def _lower_priority() -> None:
@@ -50,6 +52,19 @@ def _executor() -> ThreadPoolExecutor:
             _pool = ThreadPoolExecutor(max_workers=get_settings().image_work_threads, thread_name_prefix="image-work",
                                        initializer=_lower_priority)
         return _pool
+
+
+async def upload_turn() -> AsyncIterator[None]:
+    """A dependency of a route that reads a whole file and processes it: at most
+    ``2 * image_work_threads`` files in this process's memory at once. A waiting upload is on disk
+    (over 1 MB: the multipart parser spools it), so 300 sellers' photos of 30 MB cannot fill the API's
+    memory while they wait for their thread. List it before the session: nothing is held waiting."""
+    loop = asyncio.get_running_loop()
+    turns = _turns.get(loop)
+    if turns is None:
+        turns = _turns[loop] = asyncio.Semaphore(2 * get_settings().image_work_threads)
+    async with turns:
+        yield
 
 
 async def run(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:

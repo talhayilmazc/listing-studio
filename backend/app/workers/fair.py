@@ -274,17 +274,23 @@ async def positions(redis: Any, tenant_id: uuid.UUID | str) -> dict[str, Positio
         return {}
     tenant = str(tenant_id)
     # Pages poll this while photos wait: as few round trips as can be, whatever the queue's size.
-    mine = [json.loads(x) for x in await redis.lrange(HEAVY_HELD.format(tenant), 0, -1)]
-    running = {_s(k): json.loads(v) for k, v in (await redis.hgetall(HEAVY_OUT)).items()}
+    first = redis.pipeline(transaction=False)
+    first.lrange(HEAVY_HELD.format(tenant), 0, -1)
+    first.hgetall(HEAVY_OUT)
+    first.lrange(HEAVY_ROTATION, 0, -1)
+    first.hgetall(HEAVY_SECONDS)
+    held_here, out, turns, took = await first.execute()
+    mine = [json.loads(x) for x in held_here]
+    running = {_s(k): json.loads(v) for k, v in out.items()}
     found = {k.split(":", 1)[1]: Position(0, 0) for k, v in running.items() if v.get("tenant") == tenant}
     if not mine:
         return found
-    rotation = [_s(t) for t in await redis.lrange(HEAVY_ROTATION, 0, -1) if _s(t) != tenant]
+    rotation = [_s(t) for t in turns if _s(t) != tenant]
     pipe = redis.pipeline(transaction=False)
     for other in rotation:
         pipe.lrange(HEAVY_HELD.format(other), 0, len(mine))  # (no more of theirs can come before ours)
     others = [[json.loads(x) for x in held] for held in await pipe.execute()]
-    seconds = {_s(k): float(v) for k, v in (await redis.hgetall(HEAVY_SECONDS)).items()}
+    seconds = {_s(k): float(v) for k, v in took.items()}
 
     def lasts(job: dict) -> float:
         return seconds.get(job["function"], HEAVY_FIRST_GUESS_SECONDS)

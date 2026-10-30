@@ -23,7 +23,7 @@ from app.api.deps import (
 )
 from app.api.shops import shop_label
 from app.compliance.trademarks import blocklist_for_tenant
-from app.core import ai_meter, allowance, audit, llm_status, storage_cap
+from app.core import ai_meter, allowance, audit, image_work, llm_status, storage_cap
 from app.core.config import get_settings
 from app.core.llm_status import LLMUnavailable
 from app.db.models import (
@@ -202,6 +202,7 @@ async def add_asset(
     file: UploadFile,
     group_key: str | None = Form(None),
     grouping_mode: str | None = Form(None, alias="grouping"),
+    _turn: None = Depends(image_work.upload_turn, scope="function"),
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
@@ -263,6 +264,7 @@ async def add_archive(
     batch_id: uuid.UUID,
     file: UploadFile,
     grouping_mode: str | None = Form(None, alias="grouping"),
+    _turn: None = Depends(image_work.upload_turn, scope="function"),
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     ingestor: BatchIngestor = Depends(get_ingestor),
@@ -1456,6 +1458,7 @@ async def generate_content(
             status_code=503,
             detail="Writing listings is not available right now. Please try again later.",
         )
+    await session.commit()  # nothing was written: no connection held across Redis (core/db_release.py)
     # Our account with the AI provider is refused (usage limit, credit): do not
     # try, do not fail anything, say so. Checked again by itself in a few minutes.
     if await llm_status.current(redis):
