@@ -19,7 +19,7 @@ from app.core.config import get_settings
 from app.api.deps import active_tenant, get_connection_service, get_session
 from app.db.models import EtsyConnection, Tenant
 from app.etsy.connection import ConnectionService
-from app.etsy.shops import active_shops, owned_shop, shop_groups_of, shop_slots
+from app.etsy.shops import active_shops, lost_shops, owned_shop, shop_groups_of, shop_slots
 
 router = APIRouter(prefix="/api/shops", tags=["shops"])
 
@@ -84,6 +84,8 @@ async def _shops_out(
         connections_paused=slots.paused,
         pause_notice=app_settings.PAUSE_NOTICE if slots.paused else None,
         disconnected=disconnected,
+        lost=[schemas.LostShopOut(id=c.id, name=c.display_name or c.shop_name or "A shop")
+              for c in await lost_shops(session, tenant.id)],
     )
 
 

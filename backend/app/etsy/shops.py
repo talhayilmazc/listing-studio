@@ -52,6 +52,14 @@ def tenant_shop_limit(tenant: Tenant) -> int:
     return tenant.max_shops if tenant.max_shops is not None else get_settings().max_shops_per_tenant
 
 
+async def lost_shops(session: AsyncSession, tenant_id: uuid.UUID) -> list[EtsyConnection]:
+    """Shops whose sign-in Etsy no longer accepts: connecting them again brings everything back."""
+    rows = await session.execute(select(EtsyConnection).where(
+        EtsyConnection.tenant_id == tenant_id, EtsyConnection.status == ConnectionStatus.expired,
+    ).order_by(EtsyConnection.position, EtsyConnection.connected_at))
+    return list(rows.scalars())
+
+
 async def active_shops(session: AsyncSession, tenant_id: uuid.UUID) -> list[EtsyConnection]:
     rows = await session.execute(
         select(EtsyConnection)

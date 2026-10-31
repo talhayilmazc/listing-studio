@@ -36,6 +36,7 @@ import logging
 import secrets
 import uuid
 from collections.abc import Callable
+from typing import Any
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -58,6 +59,7 @@ from app.api.deps import (
 from app.core.config import get_settings
 from app.core.sessions import SESSION_COOKIE, SessionStore
 from app.db.models import Tenant, TenantStatus
+from app.monitor import connections
 from app.etsy import guard
 from app.etsy.connection import ConnectionService
 from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops
@@ -139,6 +141,20 @@ def _clear_binding(response: RedirectResponse) -> RedirectResponse:
     return response
 
 
+async def _refused_by(redis: Redis, tenant_id: Any, reason: str | None) -> None:
+    """Said to us as well as to the seller (monitor/rules.py): every connection refused for a week
+    was found out from a customer once."""
+    await connections.record(redis, connections.REFUSED, tenant_id, reason)
+
+
+async def _started_by(redis: Redis, state: str | None) -> str | None:
+    if not state:
+        return None
+    raw = await redis.get(_state_key(state))
+    text = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw or "")
+    return json.loads(text).get("tenant") if text.startswith("{") else None
+
+
 async def _done_with(redis: Redis, request: Request, state: str | None, response: RedirectResponse) -> RedirectResponse:
     """After a callback: this state no longer needs the browser's binding cookie; the cookie is
     cleared unless another connection started in this browser is still waiting for it."""
@@ -199,6 +215,7 @@ async def start(
         ex=_STATE_TTL,
     )
 
+    await connections.record(redis, connections.ATTEMPT, tenant.id)
     try:
         url = build_authorize_url(
             authorize_url=settings.etsy_oauth_authorize_url,
@@ -280,6 +297,7 @@ async def callback(
         # Only Etsy's error and description are logged: never a code or verifier.
         reason = etsy_reason(error, error_description)
         logger.warning("etsy oauth: authorization refused: %s", reason)
+        await _refused_by(redis, await _started_by(redis, state), "denied" if error == "access_denied" else f"etsy_error: {reason}")
         if state:
             await redis.delete(_state_key(state))
         if error == "access_denied":
@@ -292,6 +310,7 @@ async def callback(
     if stored is None:
         reason = REUSED if await redis.get(_used_key(state)) else EXPIRED
         logger.warning("etsy oauth: callback refused (%s)", reason)
+        await _refused_by(redis, None, reason)
         return await _done_with(redis, request, state, _redirect(f"{back}?status={reason}"))
     # Used once: gone, and remembered as used for as long as it could have lived.
     await redis.delete(_state_key(state))
@@ -313,6 +332,7 @@ async def callback(
     if refused is not None:
         reason, who = refused
         logger.warning("etsy oauth: callback refused (%s)", reason)
+        await _refused_by(redis, tenant_id, reason)
         where = f"{back}?status={reason}" + (f"&who={quote(who)}" if who else "")
         return await _done_with(redis, request, state, _redirect(where))
 
@@ -333,6 +353,7 @@ async def callback(
     except OAuthError as exc:
         # Etsy's error and description only (never tokens, the code or the verifier).
         logger.warning("etsy oauth: token exchange refused: %s", exc.reason)
+        await _refused_by(redis, tenant_id, f"token exchange: {exc.reason}")
         return await _done_with(redis, request, state, _refused(back, exc.reason))
     except ShopTaken:
         return await _done_with(redis, request, state, _redirect(f"{back}?status=taken"))
@@ -359,6 +380,10 @@ async def callback(
     from app.api.send import join_all_shops
 
     await join_all_shops(session, connection)
+    await connections.record(redis, connections.CONNECTED, connection.tenant_id)
+    from app.workers.preflight import forget
+
+    await forget(redis, connection.tenant_id, connection.id)  # reconnected: the next check decides afresh
     marker, now = mark_reading(connection.id)
     await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
     return await _done_with(redis, request, state, _redirect(f"{back}?status=connected&shop={connection.id}"))

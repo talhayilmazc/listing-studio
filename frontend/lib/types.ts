@@ -655,6 +655,8 @@ export interface ShopsOut {
   pause_notice?: string | null;
   /** Only in the answer to a disconnect: what was cancelled with the shop. */
   disconnected?: Disconnected | null;
+  /** Shops whose sign-in Etsy no longer accepts: the seller connects them again. */
+  lost?: { id: string; name: string }[];
 }
 
 export interface Disconnected {

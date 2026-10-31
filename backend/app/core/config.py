@@ -222,6 +222,8 @@ class Settings(BaseSettings):
     # Where the app tells the operator that something needs them (the same
     # address the deploy scripts use, from ops.env). Empty: logged only.
     alert_webhook_url: str = ""
+    #: The monitoring loop in the API (monitor/tick.py). It always runs in production.
+    monitor_enabled: bool = False
 
     # Who operates the service, as named in the Terms and Privacy Policy.
     # Production refuses to start while any is empty, so the published legal

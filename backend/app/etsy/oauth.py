@@ -33,9 +33,10 @@ class OAuthError(Exception):
     code or verifier), safe to log and to show the seller.
     """
 
-    def __init__(self, message: str, reason: str | None = None) -> None:
+    def __init__(self, message: str, reason: str | None = None, status_code: int | None = None) -> None:
         super().__init__(message)
         self.reason = reason
+        self.status_code = status_code
 
 
 #: Every scope Etsy's OAuth server knows (Etsy Open API v3, "Scopes"). A scope
@@ -209,5 +210,5 @@ async def refresh_tokens(
         },
     )
     if resp.status_code != 200:
-        raise OAuthError(f"token refresh failed (status {resp.status_code})", _error_reason(resp))
+        raise OAuthError(f"token refresh failed (status {resp.status_code})", _error_reason(resp), resp.status_code)
     return _parse_token(resp.json())

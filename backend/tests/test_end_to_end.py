@@ -194,18 +194,22 @@ class _Httpx:
         return httpx.AsyncClient(transport=self._transport, **kwargs)
 
 
-async def _world(tmp_path, test_settings: Settings, monkeypatch: pytest.MonkeyPatch, *, shops: int, listings: int) -> dict:
+async def _world(tmp_path, test_settings: Settings, monkeypatch: pytest.MonkeyPatch, *, shops: int, listings: int,
+                 database_url: str | None = None) -> dict:
     set_settings_override(test_settings.model_copy(update={
         "storage_dir": str(tmp_path / "storage"), "thumbnail_size": 300, "etsy_client_id": "k", "etsy_client_secret": "s",
         "max_shops_per_tenant": 20, "max_shops_app_wide": 50,
     }))
-    engine = create_async_engine("sqlite+aiosqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    if database_url:  # a real server, for what really happens at once
+        engine = create_async_engine(database_url)
+    else:
+        engine = create_async_engine("sqlite+aiosqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
-    @event.listens_for(engine.sync_engine, "connect")
-    def _fk(dbapi_conn, _):  # noqa: ANN001
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.close()
+        @event.listens_for(engine.sync_engine, "connect")
+        def _fk(dbapi_conn, _):  # noqa: ANN001
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

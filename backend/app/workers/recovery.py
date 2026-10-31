@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.models import EtsyConnection, Job, JobStatus, JobType, Tenant
 from app.etsy.api import RateLimitExceeded
+from app.etsy.connection import TokenRenewalDown, TokenUnavailable, reconnect_message
 from app.etsy.errors import EtsyError, EtsyRateLimited, EtsyServerError
 from app.etsy.errors import record as etsy_record
 from app.etsy.publisher import SETUP_GIVE_UP_SECONDS, NotYet, PersonalizationHeld, SetupPending
@@ -189,7 +190,15 @@ async def after_failure(
                       "listing: try again and it carries on where it stopped.",
         )
 
-    if isinstance(exc, (httpx.TransportError, EtsyServerError, NotYet)):
+    if isinstance(exc, TokenUnavailable):
+        # Etsy no longer accepts this shop's sign-in, or the shop went meanwhile: no try will help.
+        shop = await session.get(EtsyConnection, job.connection_id) if job.connection_id else None
+        job.status, job.paused_reason, job.finished_at = JobStatus.failed, None, _now()
+        job.last_error = reconnect_message(shop.shop_name if shop is not None else None)
+        await session.commit()
+        return "failed"
+
+    if isinstance(exc, (httpx.TransportError, EtsyServerError, NotYet, TokenRenewalDown)):
         delay = exc.seconds if isinstance(exc, NotYet) else outage_wait((job.attempts or 0) + 1)
         return await _again(
             ctx, session, job, function, reason=WAIT_ETSY_DOWN, delay=delay,

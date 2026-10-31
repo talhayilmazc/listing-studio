@@ -29,6 +29,7 @@ _BY_JOB: dict[str, str] = {
     "backfill_ledger": "ledger",
     "read_listing_stats": "listing_stats",
     "reconcile_listings": "reconcile",
+    "preflight_shop": "reconcile",
     "run_publish_job": "drafts",
     "run_publish_live_job": "publishing",
     "run_replace_images_job": "replace_images",

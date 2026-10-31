@@ -269,6 +269,10 @@ refuses to run without `--i-understand-this-replaces-production`.
   Every service except the tunnel also has a health check.
 - **Uptime.** Point an external monitor (UptimeRobot, healthchecks.io, and the
   like) at `https://api.listyro.com/health` every 5 minutes.
+- **Alerts and the daily digest.** `docs/monitoring.md`. The API watches itself, the worker and the
+  sellers' runs. Cron runs `deploy/watch.sh` every minute for what only the host can see: each
+  container's memory, restarts and OOM kills, and a dead API. `python -m app.cli alert-test` checks the
+  webhook; `python -m app.cli health-digest` prints the digest.
 - **Disk.** Cron runs `deploy/disk-check.sh` hourly and posts to
   `ALERT_WEBHOOK_URL` above `DISK_ALERT_PERCENT` (75) or under
   `DISK_ALERT_FREE_GB` (8) free. `deploy/preflight.sh` warns from 70% and

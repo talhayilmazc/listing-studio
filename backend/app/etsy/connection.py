@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import audit
 from app.core.crypto import TokenCipher
 from app.db.models import ConnectionStatus, EtsyConnection, Tenant
-from app.etsy.oauth import TokenResponse, refresh_tokens
+from app.etsy.oauth import OAuthError, TokenResponse, refresh_tokens
 from app.etsy.shops import ShopLimitReached, ShopTaken, active_shops, shop_slots
 
 #: Why a job, a go-live or a planned draft of a disconnected shop did not happen.
@@ -39,6 +39,26 @@ def _parse_user_id(access_token: str) -> int | None:
 
 class TokenUnavailable(Exception):
     """The shop has no token to renew (disconnected meanwhile)."""
+
+
+class TokenRefused(TokenUnavailable):
+    """Etsy no longer accepts this shop's sign-in (the seller took the app's access away, or it
+    lapsed). The shop is marked expired, and the seller has to connect it again."""
+
+
+class TokenRenewalDown(Exception):
+    """Etsy did not renew the token for a reason of its own: nothing is wrong with the shop."""
+
+
+def refused_for_good(error: OAuthError) -> bool:
+    """Etsy's own word that this refresh token is finished. Anything else (Etsy down, or our own
+    key refused after a bad deploy) must not take every seller's shop away."""
+    return error.status_code in (400, 401) and "invalid_grant" in (error.reason or "")
+
+
+def reconnect_message(shop: str | None) -> str:
+    return (f"Etsy no longer accepts the sign-in of {shop or 'this shop'}. Connect the shop again on Shops & groups, "
+            "then try again.")
 
 
 def renewer(sessionmaker: Callable, connection_id: uuid.UUID) -> Callable[[str], object]:
@@ -199,13 +219,21 @@ class ConnectionService:
             await session.commit()  # release the lock
             return current  # type: ignore[return-value]
         refresh_token = self._cipher.decrypt(connection.refresh_token_enc)
-        async with self._client_factory() as client:
-            tokens = await refresh_tokens(
-                client,
-                token_url=self._token_url,
-                client_id=self._client_id,
-                refresh_token=refresh_token,
-            )
+        try:
+            async with self._client_factory() as client:
+                tokens = await refresh_tokens(
+                    client,
+                    token_url=self._token_url,
+                    client_id=self._client_id,
+                    refresh_token=refresh_token,
+                )
+        except OAuthError as exc:
+            if refused_for_good(exc):
+                connection.status = ConnectionStatus.expired
+                await session.commit()
+                raise TokenRefused("Etsy refused the shop's refresh token") from None
+            await session.rollback()
+            raise TokenRenewalDown("Etsy did not renew the token") from None
         connection.access_token_enc = self._cipher.encrypt(tokens.access_token)
         connection.refresh_token_enc = self._cipher.encrypt(tokens.refresh_token)
         connection.token_expires_at = now + timedelta(seconds=tokens.expires_in)

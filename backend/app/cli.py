@@ -918,6 +918,9 @@ def main(argv: list[str] | None = None) -> int:
     originals_cmd = sub.add_parser("storage-originals", help="delete the original uploads stored before only processed copies were kept (dry run unless --apply)")
     originals_cmd.add_argument("--apply", action="store_true", help="delete them (default: only count)")
     sub.add_parser("storage-report", help="stored image files per account and kind, their ages and whether they are still needed")
+    digest_cmd = sub.add_parser("health-digest", help="the daily digest, now: prints it; --send also sends it")
+    digest_cmd.add_argument("--send", action="store_true")
+    sub.add_parser("alert-test", help="send one test alert to ALERT_WEBHOOK_URL")
     sub.add_parser("draft-cost", help="Etsy requests per draft: measured average, the estimate used, the worst case")
     llm_cmd = sub.add_parser(
         "llm-check",
@@ -971,6 +974,14 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(storage_originals(sm, apply=args.apply)))
     elif args.command == "storage-report":
         print(asyncio.run(storage_report(sm)))
+    elif args.command == "health-digest":
+        from app.ops.health_digest import run_digest
+
+        return run_digest(args.send)
+    elif args.command == "alert-test":
+        from app.ops.health_digest import run_alert_test
+
+        return run_alert_test()
     elif args.command == "draft-cost":
         print(asyncio.run(draft_cost(sm)))
     elif args.command == "mockup-occluders":

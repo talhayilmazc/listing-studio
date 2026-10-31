@@ -27,6 +27,11 @@ export default function ConnectPage() {
   // For "other_account": the account that started the connection, masked (t***@example.com).
   const [who, setWho] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lost, setLost] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    api.shops().then((d) => setLost(d.lost ?? [])).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -90,6 +95,14 @@ export default function ConnectPage() {
           {disconnected}
         </div>
       )}
+      {lost.map((shop) => (
+        <div key={shop.id} role="alert" className={`card flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm ${BAD}`} data-testid="shop-lost">
+          <span className="min-w-0 flex-1" translate="no">
+            {`Etsy no longer accepts the sign-in of ${shop.name}. Its scheduled listings will not go until you connect it again; nothing else is lost.`}
+          </span>
+          <a href={AUTH_START_URL} className="btn-primary px-3 py-1.5 text-xs">Connect it again</a>
+        </div>
+      ))}
       {paused && (
         // Set by the operator in Admin; shops already connected are unaffected.
         <div key="paused" role="status" className={`card p-3 text-sm ${WARN}`} data-testid="connections-paused">

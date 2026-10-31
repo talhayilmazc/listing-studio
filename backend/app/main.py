@@ -1,6 +1,8 @@
 """FastAPI application entrypoint."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -58,6 +60,25 @@ CORS_HEADERS = ["Content-Type"]
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def _monitoring(_: FastAPI) -> AsyncIterator[None]:
+    """The monitoring loop lives with the API (monitor/tick.py). Production only: elsewhere there is
+    nobody to tell, and development's database is not to be watched."""
+    settings = get_settings()
+    task = None
+    if settings.app_env == "production" or settings.monitor_enabled:
+        from app.api.deps import get_redis
+        from app.db.session import get_sessionmaker
+        from app.monitor.tick import start
+
+        task = start(get_sessionmaker(), get_redis())
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     install_log_redaction()
@@ -77,6 +98,7 @@ def create_app() -> FastAPI:
         redoc_url=None if production else "/redoc",
         openapi_url=None if production else "/openapi.json",
         dependencies=[Depends(rate_limit)],
+        lifespan=_monitoring,
     )
 
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]

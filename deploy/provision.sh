@@ -117,6 +117,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 15 3 * * * root cd $APP_DIR && bash deploy/backup.sh 2>&1 | logger -t listyro-backup
 5 * * * *  root cd $APP_DIR && bash deploy/disk-check.sh 2>&1 | logger -t listyro-disk
+* * * * *  root cd $APP_DIR && bash deploy/watch.sh 2>&1 | logger -t listyro-watch
 # Build cache from every deploy accumulates until the disk is full; a week is plenty.
 30 4 * * 0 root docker builder prune -f --filter until=168h 2>&1 | logger -t listyro-prune
 EOF

@@ -11,9 +11,12 @@ Each item says what it is, how many, and where to go:
 * failed drafts        listings whose draft or go-live failed in a shop (the Batches
                        "Failed" status, pipeline/batch_status.py);
 * unfinished drafts    drafts created on Etsy and not finished, and extra drafts to delete
-                       there (pipeline/unfinished.py, the seller's list on Overview).
+                       there (pipeline/unfinished.py, the seller's list on Overview);
+* a shop to connect    Etsy no longer accepts its sign-in;
+* a run that will fail what the check an hour before a scheduled run found, with the fix
+                       (workers/preflight.py).
 
-The caller's own account only; counts only, from our own database (no Etsy call).
+The caller's own account only; from our own database and Redis (no Etsy call).
 """
 
 from __future__ import annotations
@@ -21,9 +24,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import active_tenant, get_session
+from app.api.deps import active_tenant, get_redis, get_session
+from app.etsy.shops import lost_shops
 from app.db.models import (
     GeneratedContent,
     ListingProfile,
@@ -57,7 +62,8 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
-async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
+async def attention(session: AsyncSession, tenant: Tenant, redis: Redis | None = None) -> AttentionOut:
+    from app.monitor.rules import preflight_results
     from app.pipeline import batch_status, unfinished
 
     tid = tenant.id
@@ -99,6 +105,15 @@ async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
         AttentionItem(key="unfinished", label=_plural(len(records), "draft on Etsy to finish or delete", "drafts on Etsy to finish or delete"),
                       count=len(records), href="/dashboard#unfinished-drafts", nav="/dashboard"),
     ]
+    lost = await lost_shops(session, tid)
+    items += [AttentionItem(key=f"lost:{shop.id}", count=1, href="/connect", nav="/connect", label=(
+        f"Etsy no longer accepts the sign-in of {shop.display_name or shop.shop_name or 'a shop'}. Connect it again."))
+        for shop in lost]
+    if redis is not None:
+        # The check an hour before a scheduled run (workers/preflight.py). A shop already said to be lost is said once.
+        said = {str(shop.id) for shop in lost}
+        items += [AttentionItem(key=f"run:{p['shop']}:{p['kind']}", label=p["line"], count=p["count"], href=p["href"], nav="/scheduled")
+                  for p in await preflight_results(redis, tid) if not (p["kind"] == "token" and p["shop"] in said)]
     items = [i for i in items if i.count > 0]
     nav: dict[str, int] = {}
     for i in items:
@@ -107,5 +122,6 @@ async def attention(session: AsyncSession, tenant: Tenant) -> AttentionOut:
 
 
 @router.get("/attention", response_model=AttentionOut)
-async def get_attention(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> AttentionOut:
-    return await attention(session, tenant)
+async def get_attention(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
+                        redis: Redis = Depends(get_redis)) -> AttentionOut:
+    return await attention(session, tenant, redis)

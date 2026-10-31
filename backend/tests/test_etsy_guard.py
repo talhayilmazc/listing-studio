@@ -146,6 +146,7 @@ HTTP_CLIENTS = {
     "ops/draft_failures.py": "draft-failures --check-etsy: hands the client to EtsyApiClient, reads only (guarded)",
     "ops/publish_report.py": "publish-report --check-etsy: hands the client to EtsyApiClient, one getListing per listing (guarded)",
     "ops/reconcile_etsy.py": "reconcile-etsy: hands the client to EtsyApiClient, reads drafts' states only (guarded)",
+    "workers/preflight.py": "the check before a scheduled run: hands the client to EtsyApiClient (guarded)",
     "workers/reconcile.py": "the upkeep check of drafts against Etsy: hands the client to EtsyApiClient, reads only (guarded)",
     "workers/etsy_spec.py": "the weekly read of Etsy's public OpenAPI document (no token, no quota); guard.check first",
     "ops/raw_listing.py": "etsy-raw-listing: hands the client to EtsyApiClient (cli._client_for_check), three GETs (guarded)",

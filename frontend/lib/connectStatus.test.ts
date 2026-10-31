@@ -23,3 +23,10 @@ test("a signed-in seller is never told they are not signed in", () => {
   assert.ok(!page.toLowerCase().includes("not signed in"));
   assert.ok(page.includes("connectBanner(banner, who)") && page.includes('data-testid="connect-retry"'));
 });
+
+test("a shop whose sign-in Etsy no longer accepts says so, with the way back", () => {
+  const page = readFileSync(new URL("../app/(app)/connect/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /data-testid="shop-lost"/);
+  assert.match(page, /Etsy no longer accepts the sign-in of \$\{shop\.name\}/);
+  assert.match(page, /<a href=\{AUTH_START_URL\}[^>]*>Connect it again<\/a>/);
+});

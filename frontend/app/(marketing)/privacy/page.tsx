@@ -365,8 +365,11 @@ export default function PrivacyPage() {
           </WhenErrorTracking>
           <li>
             <strong>Our alert channel</strong>: short operational messages (a deploy failed, the disk is
-            filling) reach us through a private messaging channel. They carry no seller data and no
-            Etsy data; the one exception is the invite-request notification described above.
+            filling, a draft or a shop connection failed) reach us through a private messaging channel, so
+            we can fix a problem before you meet it. When a problem is in an account they say which: its
+            email address masked, the shop&rsquo;s name, how many listings, and the reason Etsy or the app
+            gave. They never carry a token or anything about your buyers. The invite-request notification
+            described above is the one message with a full email address.
           </li>
           <li>
             <strong>Authorities</strong>: only where the law requires us to disclose information.

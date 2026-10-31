@@ -11,6 +11,7 @@ all boot and run.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 import logging
 import os
@@ -45,6 +46,7 @@ from app.workers.profiles import (
     sync_shop_listings,
 )
 from app.workers.publish import run_publish_job, run_publish_live_job
+from app.workers.preflight import preflight_scheduled, preflight_shop
 from app.workers.reconcile import reconcile_all_shops, reconcile_listings
 from app.workers.fair import top_up as fair_top_up
 from app.workers.recovery import recover_interrupted_jobs
@@ -55,6 +57,7 @@ from app.workers.schedule import release_scheduled_publishes
 from app.workers.sections import create_shop_section, sync_shop_sections
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
+from app.monitor import signals
 from app.workers.etsy_spec import check_etsy_spec
 
 logger = logging.getLogger(__name__)
@@ -79,6 +82,18 @@ async def process_job(ctx: dict[str, Any], job_id: str) -> str:
     ):
         await ctx["redis"].enqueue_job("process_job", job_id, _defer_by=outcome.delay)
     return outcome.result.value
+
+
+async def scheduler_beat(ctx: dict[str, Any]) -> None:
+    await signals.beat(ctx["redis"], signals.SCHEDULER_BEAT)
+    await signals.flush(ctx["redis"], "worker")
+
+
+async def _worker_beat(redis: Any) -> None:
+    """Said by the worker itself, not a job: it goes on while every job slot is busy."""
+    while True:
+        await signals.beat(redis, signals.WORKER_BEAT)
+        await asyncio.sleep(30)
 
 
 async def flush_usage(ctx: dict[str, Any]) -> None:
@@ -106,6 +121,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     else:
         logger.info("Etsy calls are enabled (ETSY_CALLS_BLOCKED is off)")
     redis = ctx["redis"]  # arq provides the pool
+    ctx["beat"] = asyncio.create_task(_worker_beat(redis), name="worker-beat")
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["usage"] = UsageRecorder()
     # ETSY_REQUESTS_PER_SECOND (10), no bursts (docs/duzeltmeler-v5.md §A); Redis clock shared by all workers.
@@ -149,6 +165,7 @@ class WorkerSettings:
         refresh_shop_links,
         read_listing_stats,
         reconcile_listings,
+        preflight_shop,
         sync_shop_sections,
         create_shop_section,
         update_sku_on_etsy,
@@ -183,6 +200,10 @@ class WorkerSettings:
         # The app's drafts against their state on Etsy: published or deleted by the seller in
         # Shop Manager (workers/reconcile.py). Hourly; each draft at most every 6 hours.
         cron(reconcile_all_shops, minute={25}, second=0, run_at_startup=False),
+        # The check an hour before each scheduled run, at most once per shop per hour (workers/preflight.py).
+        cron(preflight_scheduled, minute={4, 14, 24, 34, 44, 54}, second=20, run_at_startup=False),
+        # "The scheduler is running": a job the scheduler started, when it started it (monitor/rules.py).
+        cron(scheduler_beat, second={10}, run_at_startup=True),
         # Image files past their time are deleted and the day's disk summary is
         # sent (workers/upkeep.py). At most once a day; also at startup, so a
         # worker that was down at the hour catches up.

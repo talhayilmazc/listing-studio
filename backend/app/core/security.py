@@ -27,12 +27,14 @@ import logging
 import re
 import secrets
 import sys
+import time
 from urllib.parse import urlsplit
 
 from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.monitor import signals
 from app.core.config import get_settings
 from app.core.errortracking import capture
 from app.core.sessions import SESSION_COOKIE
@@ -180,11 +182,14 @@ class SecurityMiddleware:
 
         request_id = secrets.token_hex(8)
         started = False
+        began = time.perf_counter()
+        answered = {"status": 500}  # (a request that ends in an exception answers 500 below)
 
         async def send_with_headers(message: Message) -> None:
             nonlocal started
             if message["type"] == "http.response.start":
                 started = True
+                answered["status"] = message["status"]
                 message.setdefault("headers", [])
                 message["headers"] = list(message["headers"])
                 headers = MutableHeaders(scope=message)
@@ -234,6 +239,7 @@ class SecurityMiddleware:
 
         try:
             await self.app(scope, counted_receive, send_with_headers)
+            signals.request_done(path, answered["status"], time.perf_counter() - began)
         except BodyTooLarge:
             if not started:
                 if _file_limit(path) is not None:
@@ -243,6 +249,7 @@ class SecurityMiddleware:
             # Full trace to the log (scrubbed by logsafety); nothing internal
             # to the caller beyond an id they can quote to support.
             logger.exception("unhandled error in %s %s [%s]", method, path, request_id)
+            signals.request_done(path, 500, time.perf_counter() - began)
             # This handler catches the exception before Sentry's ASGI hooks can,
             # so report it explicitly (a no-op when error tracking is off).
             capture(sys.exc_info()[1])

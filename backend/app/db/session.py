@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.monitor import signals
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,22 @@ def _say_connection_lost(context: Any) -> None:
 
     A statement cancelled on our side also counts as a disconnect to SQLAlchemy, and is neither."""
     if context.is_disconnect and isinstance(context.original_exception, Exception):
+        signals.idle_timeout_fired()
         logger.error(
             "idle_in_transaction_session_timeout fired, or the database restarted: a connection was lost with a "
             "transaction open (limit %s s). Next statement: %s",
             get_settings().db_idle_transaction_seconds, " ".join(str(context.statement or "").split())[:200])
+
+
+def _watch_pool(engine: AsyncEngine, options: dict[str, Any]) -> None:
+    """Each process remembers the fullest its pool got, for the monitor."""
+    capacity = int(options.get("pool_size") or 0) + int(options.get("max_overflow") or 0)
+    if not capacity:
+        return
+
+    @event.listens_for(engine.sync_engine, "checkout")
+    def _out(*_: Any) -> None:
+        signals.pool_in_use(engine.pool.checkedout(), capacity)
 
 
 def _watch_idle_timeout(engine: AsyncEngine) -> None:
@@ -71,6 +84,7 @@ def get_engine() -> AsyncEngine:
         }
     engine = create_async_engine(settings.database_url, pool_pre_ping=True, hide_parameters=True, **options)
     _watch_idle_timeout(engine)
+    _watch_pool(engine, options)
     return engine
 
 

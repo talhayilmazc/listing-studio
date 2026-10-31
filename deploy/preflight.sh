@@ -265,6 +265,11 @@ if grep -qs "docker builder prune" /etc/cron.d/listyro; then
 else
   warn "no weekly 'docker builder prune' in /etc/cron.d/listyro: build cache will fill the disk (deploy/provision.sh adds it)"
 fi
+if grep -qs "deploy/watch.sh" /etc/cron.d/listyro; then
+  pass "the container watch is scheduled"
+else
+  warn "no deploy/watch.sh in /etc/cron.d/listyro: memory, restarts, OOM kills and a dead API are not seen (deploy/provision.sh)"
+fi
 if command -v ufw >/dev/null 2>&1; then
   ufw status 2>/dev/null | grep -q "Status: active" && pass "ufw active" || warn "ufw is not active (deploy/provision.sh)"
 fi

@@ -1316,6 +1316,11 @@ class DisconnectedOut(BaseModel):
     planned_drafts: int = 0
 
 
+class LostShopOut(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class ShopsOut(BaseModel):
     shops: list[ShopOut]
     slots: ShopSlotsOut
@@ -1324,6 +1329,8 @@ class ShopsOut(BaseModel):
     pause_notice: str | None = None
     # Only in the answer to a disconnect: what was cancelled with the shop.
     disconnected: DisconnectedOut | None = None
+    #: Shops whose sign-in Etsy no longer accepts: the seller connects them again.
+    lost: list[LostShopOut] = Field(default_factory=list)
 
 
 class ShopUpdate(BaseModel):
