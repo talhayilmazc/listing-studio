@@ -654,7 +654,7 @@ test.describe("signed in", () => {
     await expect(bulk.getByTestId("bulk-sku-preview")).toContainText("ILC");
     await expect(bulk.getByTestId("bulk-sku-refused")).toHaveCount(0);
     await bulk.getByRole("button", { name: "Apply" }).first().click();
-    await expect(rows.first()).toContainText("ILC", { timeout: 15_000 });
+    await expect(rows.first().getByLabel(/^SKU in /)).toHaveValue(/^ILC/, { timeout: 15_000 });
     expect(await page.getByRole("button", { name: /Update SKU on Etsy/ }).count()).toBe(0);
 
     // The summary: the one listing stopped says why and offers its one fix. Never a dead end.
