@@ -175,29 +175,29 @@ class WorkerSettings:
         # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
         cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).
-        cron(sync_all_sales, hour={2}, minute={30}, second=0, run_at_startup=False),
+        cron(sync_all_sales, hour={2}, minute={33}, second=0, run_at_startup=False),
         # The shop's fees and ad spend from its payment ledger, likewise.
-        cron(sync_all_ledgers, hour={2}, minute={40}, second=0, run_at_startup=False),
+        cron(sync_all_ledgers, hour={2}, minute={43}, second=0, run_at_startup=False),
         # Views and favourites of the listings the app published (Part D).
-        cron(read_all_listing_stats, hour={3}, minute={10}, second=0, run_at_startup=False),
+        cron(read_all_listing_stats, hour={3}, minute={13}, second=0, run_at_startup=False),
         # The app's drafts against their state on Etsy: published or deleted by the seller in
         # Shop Manager (workers/reconcile.py). Hourly; each draft at most every 6 hours.
         cron(reconcile_all_shops, minute={25}, second=0, run_at_startup=False),
         # Image files past their time are deleted and the day's disk summary is
         # sent (workers/upkeep.py). At most once a day; also at startup, so a
         # worker that was down at the hour catches up.
-        cron(daily_upkeep, hour={1}, minute={15}, second=0, run_at_startup=True),
+        cron(daily_upkeep, hour={1}, minute={18}, second=0, run_at_startup=True),
         # Accounts whose deletion was asked for and is not finished (workers/accounts.py):
         # the request queues the job itself; this is what catches one that was lost.
-        cron(finish_account_deletions, hour={4}, minute={5}, second=0, run_at_startup=True),
+        cron(finish_account_deletions, hour={4}, minute={8}, second=0, run_at_startup=True),
         # Once after the deploy that added the shop setting map (migration 0082): every
         # account's profile links filled from it, what is still missing resolved again. A
         # Redis marker keeps it to one run; later starts return at once.
-        cron(resolve_shop_settings_once, hour={4}, minute={25}, second=0, run_at_startup=True),
+        cron(resolve_shop_settings_once, hour={4}, minute={28}, second=0, run_at_startup=True),
         # Once after the deploy that sends a reference's weight and size (calculated shipping).
-        cron(read_reference_sizes_once, hour={4}, minute={35}, second=0, run_at_startup=True),
+        cron(read_reference_sizes_once, hour={4}, minute={38}, second=0, run_at_startup=True),
         # Etsy's OpenAPI document, weekly: How it's made fields yet? (workers/etsy_spec.py)
-        cron(check_etsy_spec, weekday={0}, hour={5}, minute={10}, second=0, run_at_startup=False),
+        cron(check_etsy_spec, weekday={0}, hour={5}, minute={13}, second=0, run_at_startup=False),
     ]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

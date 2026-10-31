@@ -69,7 +69,7 @@ That listing alone fails. Every other listing in a scheduled run goes live as pl
 - **Ready to send** the day Etsy adds the field: every draft path calls `how_made.draft_fields(profile)`, in every shop. Its source order:
   1. the reference listing's own answers, read when the profile is refreshed (`cached_payload["how_made"]`);
   2. else the profile's selection.
-- **Watched**: every Monday at 05:10 UTC, `workers/etsy_spec.py` downloads the document. If a production, tools or AI field appears on createDraftListing, updateListing or getListing, it alerts `ALERT_WEBHOOK_URL` once with the field names. Nothing changes automatically.
+- **Watched**: every Monday at 05:13 UTC, `workers/etsy_spec.py` downloads the document. If a production, tools or AI field appears on createDraftListing, updateListing or getListing, it alerts `ALERT_WEBHOOK_URL` once with the field names. Nothing changes automatically.
 
 ## Turning on sending, once Etsy adds the fields
 

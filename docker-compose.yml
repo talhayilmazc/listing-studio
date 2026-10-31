@@ -75,6 +75,13 @@ services:
     entrypoint: ["python", "-m", "pytest", "-p", "no:cacheprovider"]
     command: ["-q"]
     environment:
+      # The whole run starts at this moment, for Python and SQLite alike (not file times), so a date worked
+      # out at import and "today" in a test are one day: no run crosses midnight UTC (30 tests in 18
+      # files failed when one did). It keeps ticking; only monotonic time is left real.
+      LD_PRELOAD: /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1
+      FAKETIME: "@2026-11-04 12:00:00"
+      FAKETIME_DONT_FAKE_MONOTONIC: "1"
+      TZ: UTC
       STORAGE_DIR: /tmp/test-storage
       ETSY_CALLS_BLOCKED: "true"
       UPLOAD_RETENTION_APPLY: "false"
@@ -94,6 +101,7 @@ services:
       - ./CLAUDE.md:/CLAUDE.md:ro
       - ./docker-compose.yml:/docker-compose.yml:ro
       - ./docker-compose.prod.yml:/docker-compose.prod.yml:ro
+      - ./docker-compose.oauth-e2e.yml:/docker-compose.oauth-e2e.yml:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -18,12 +18,31 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
-# Memory (docs/load-test.md): each container has a ceiling, so a leak or a bad job kills that
-# container, which restarts by itself, and not the VM (5.8 GB). They add up to 5,412 MB and leave
-# 388 MB for the OS; tests/test_memory_limits.py keeps it so. Peaks with 100 sellers at once:
-# worker 2,136 MB, API 1,668 MB (its RSS counts pages its processes share; private: 1,528 MB),
-# Postgres 812 MB (334 MB its own, the rest file cache the kernel takes back at the ceiling),
-# frontend 99 MB, Redis 11 MB. cloudflared and the OS cannot be measured off the server.
+# Every memory limit, in one place (MB; docs/load-test.md, tests/test_memory_limits.py). A container
+# that reaches its limit is killed inside itself and restarts; the others keep running.
+#
+# Measured at 100 sellers at once, 2 CPUs. "Can't be given back" is what the limit really has to
+# hold: the API's RSS counts shared pages once per process and the kernel charges them once;
+# Postgres's peak includes file cache, which the kernel takes back at the limit.
+#
+#                peak measured   can't be given back   this VM (5.8 GB)   an 8 GB VM
+#   api               1,668            1,575                1815             2400
+#   worker            2,136            2,136                2460             3000
+#   postgres            812              462                 585             1000
+#   frontend            104              104                 120              200
+#   redis                11               11                 120              384  (maxmemory 96mb; 256mb on 8 GB)
+#   together                                                5100             6984
+#   cloudflared          29 idle                             128              128  (from what is left for the OS)
+#
+# On this VM the limits leave 700 MB for cloudflared and the OS, and 15% over what can't be given
+# back. 15% over the plain peaks does not fit: 5,441 MB + 700 MB is more than 5,800 MB.
+x-memory:
+  api: &memory-api 1815m
+  worker: &memory-worker 2460m
+  postgres: &memory-postgres 585m
+  frontend: &memory-frontend 120m
+  redis: &memory-redis 120m
+  cloudflared: &memory-cloudflared 128m
 
 x-backend: &backend
   build:
@@ -50,7 +69,7 @@ x-backend: &backend
 services:
   postgres:
     image: postgres:16
-    mem_limit: 700m
+    mem_limit: *memory-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -113,8 +132,8 @@ services:
         fi
         echo $$((tries + 1)) > /data/.starts
         (sleep 30; echo 0 > /data/.starts) &
-        exec redis-server --appendonly yes --aof-load-truncated yes --maxmemory 256mb --maxmemory-policy volatile-lru
-    mem_limit: 384m
+        exec redis-server --appendonly yes --aof-load-truncated yes --maxmemory 96mb --maxmemory-policy volatile-lru
+    mem_limit: *memory-redis
     volumes:
       - redisdata:/data
     healthcheck:
@@ -127,7 +146,7 @@ services:
 
   api:
     <<: *backend
-    mem_limit: 1800m
+    mem_limit: *memory-api
     # Migrations run once, before any worker process starts serving. No --reload.
     command:
       - sh
@@ -149,7 +168,7 @@ services:
 
   worker:
     <<: *backend
-    mem_limit: 2200m
+    mem_limit: *memory-worker
     command: ["arq", "app.workers.settings.WorkerSettings"]
     healthcheck:
       # arq records a heartbeat in Redis; --check fails if it has gone stale.
@@ -160,7 +179,7 @@ services:
       start_period: 30s
 
   frontend:
-    mem_limit: 200m
+    mem_limit: *memory-frontend
     build:
       context: .
       dockerfile: docker/frontend.prod.Dockerfile
@@ -184,7 +203,7 @@ services:
     logging: *logging
 
   cloudflared:
-    mem_limit: 128m
+    mem_limit: *memory-cloudflared
     # Pinned: a tunnel client that updates itself underneath production is a
     # change nobody reviewed. Bump deliberately (docs/deploy.md uses the same tag).
     image: cloudflare/cloudflared:2026.10.3

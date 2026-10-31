@@ -26,6 +26,6 @@ export default async function globalSetup(): Promise<(() => void) | void> {
   }
   docker([...COMPOSE, "up", "-d", "--build", "--wait"], 900_000);
   return () => {
-    docker([...COMPOSE, "down"], 120_000);
+    docker([...COMPOSE, "down", "--volumes"], 120_000);
   };
 }

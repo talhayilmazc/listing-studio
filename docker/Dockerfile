@@ -26,6 +26,8 @@ ARG EXTRAS=""
 COPY backend/pyproject.toml ./pyproject.toml
 # sympy (and mpmath) come with onnxruntime only for its model-conversion tools; running a
 # model does not need them (pipeline/garments.py), so they are removed (~80 MB).
+# Test images only: the suite runs on a fixed clock, Python and SQLite alike (docker-compose.yml, tests).
+RUN if [ -n "$EXTRAS" ]; then apt-get update && apt-get install -y --no-install-recommends faketime && rm -rf /var/lib/apt/lists/*; fi
 RUN pip install --upgrade pip \
     && if [ -n "$EXTRAS" ]; then pip install ".[$EXTRAS]"; else pip install .; fi \
     && pip uninstall -y sympy mpmath

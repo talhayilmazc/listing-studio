@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 
 from app.api import images
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session, get_storage, submit_heavy
 from app.api.mockups import WRITTEN, RunOut, _active, _own_design, _own_photo, _own_run, _run_out, _written, output_stamp
 from app.db.models import (
     MockupAdjustment,
@@ -428,5 +428,5 @@ async def rerender(
         run.status, run.error = "queued", None
         await session.commit()
         # The job takes the pairs from the run's queue (these and any asked for meanwhile).
-        await enqueuer.enqueue("rerender_mockups", str(run.id), _job_id=f"rerender:{run.id}:{uuid.uuid4().hex[:8]}")
+        await submit_heavy(enqueuer, run.tenant_id, "rerender_mockups", run.id, job_id=f"rerender:{run.id}:{uuid.uuid4().hex[:8]}")
     return await _run_out(session, run, redis)

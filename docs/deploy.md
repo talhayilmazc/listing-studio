@@ -295,7 +295,7 @@ refuses to run without `--i-understand-this-replaces-production`.
   Backups and Docker read "not measured" until the hourly disk check has run
   once after the update that added this.
 - **Upload cleanup.** Uploads are what fills the disk (about 1 GB a day). Once a
-  day (01:15 UTC) the worker deletes a listing's image files 14 days after it is
+  day (01:18 UTC) the worker deletes a listing's image files 14 days after it is
   published through the app, and 30 days after a group nobody published was
   last worked on; the days are set in Admin → Usage → Disk. The listing's text,
   its publication record and a small cover thumbnail stay, and nothing on Etsy
@@ -313,7 +313,7 @@ refuses to run without `--i-understand-this-replaces-production`.
   `ALERT_WEBHOOK_URL`: what was freed, free space, and the size of each
   category. It is sent every day, also when nothing was due, so a day without
   it means the worker's daily job did not run.
-- **Redis.** It holds sessions, queues and the day's counters, capped at 256 MB.
+- **Redis.** It holds sessions, queues and the day's counters, capped at 96 MB (its peak with 100 sellers at once was 11 MB).
   If a write is cut off (a full disk, a hard stop) it repairs its append-only
   file at start and comes back with everything up to the damage; if the file
   cannot be repaired it is moved to `appendonlydir.broken.<time>` in the Redis

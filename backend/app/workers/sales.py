@@ -57,6 +57,7 @@ from app.db.models import ConnectionStatus, EtsyConnection, SaleLine, SalesDaily
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.sales import REFRESH_DAYS, aggregate, history_floor, lines as order_lines, sale_day, sale_key
 from app.workers import gate
+from app.workers.reconcile import spread_seconds
 from app.workers.profiles import (
     ShopAccessLost,
     _active_shop,
@@ -706,8 +707,8 @@ async def sync_all_sales(ctx: dict[str, Any]) -> int:
             if state == "complete" or (state in ("reading", "waiting") and now - updated > timedelta(hours=1)):
                 due.append(cid)
     day = now.date().isoformat()
-    for cid in due:
-        await _enqueue_job(ctx, "sync_sales", str(cid), _job_id=f"sales:{cid}:{day}")
+    for n, cid in enumerate(due):
+        await _enqueue_job(ctx, "sync_sales", str(cid), _job_id=f"sales:{cid}:{day}", _defer_by=spread_seconds(n, len(due)))
     # Shops read before order lines were kept are read once more, so orders on an
     # imported statement can be tied to their listings: one shop at a time, inside
     # the nightly share. Each shop that finishes hands the turn to the next.

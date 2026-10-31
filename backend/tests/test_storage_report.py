@@ -39,7 +39,10 @@ async def test_the_report_counts_by_account_kind_age_and_state(world) -> None:  
         await s.execute(update(ListingPublication).where(ListingPublication.id == scheduled["publication_id"])
                         .values(scheduled_for=NOW + DAY))
         await s.commit()
-    # Make the drafted group's files 5 days old.
+    # Make the drafted group's files 5 days old, and the others new (file times are the machine's own).
+    for pair in (*review["keys"], *scheduled["keys"]):
+        for key in pair:
+            os.utime(storage._path(key), (time.time(),) * 2)
     for pair in drafted["keys"]:
         for key in pair:
             os.utime(storage._path(key), (time.time() - 5 * 86400,) * 2)

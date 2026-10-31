@@ -99,7 +99,8 @@ async def _drain(ctx: dict[str, Any]) -> list[tuple[str, str]]:
     while queue:
         function, args, options = queue.pop(0)
         key = options.get("_job_id")
-        if "_defer_by" in options or function != "sync_sales" or (key and key in seen):
+        # (A night's jobs are spread over under an hour; a wait for the reset is many hours.)
+        if options.get("_defer_by", 0) > 3600 or function != "sync_sales" or (key and key in seen):
             continue
         seen.add(key)
         ran.append((args[0], await worker.sync_sales(ctx, args[0])))

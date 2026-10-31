@@ -223,4 +223,4 @@ async def test_the_series_is_admin_only_and_carries_nothing_of_the_work(world) -
     assert (await world["a"].get("/api/admin/ai-cost/series?seller=bob")).status_code == 422
     # Counts and cost only: nothing of the seller's work is in it.
     assert str(world["bob"].batch_id) not in seen.text
-    assert set(seen.json()["sellers"][0]) == {"id", "email", "slot", "total", "share", "cells"}
+    assert set(body["sellers"][0]) == {"id", "email", "slot", "total", "share", "cells"}

@@ -38,6 +38,8 @@ services:
   redis:
     image: redis:7
     command: [redis-server, --save, "", --appendonly, "no"]
+    # The image declares /data a volume: without this each run leaves an anonymous volume behind.
+    tmpfs: [/data]
     healthcheck:
       test: [CMD, redis-cli, ping]
       interval: 2s

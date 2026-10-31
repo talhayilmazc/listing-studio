@@ -43,6 +43,7 @@ from app.pipeline.ledger import aggregate
 from app.pipeline.sales import REFRESH_DAYS
 from app.workers import gate
 from app.workers.profiles import ShopAccessLost, _active_shop, _enqueue_job, _run_gated
+from app.workers.reconcile import spread_seconds
 from app.workers.sales import SCOPE, _open
 
 logger = logging.getLogger(__name__)
@@ -531,8 +532,8 @@ async def sync_all_ledgers(ctx: dict[str, Any]) -> int:
                 LedgerSync.state == "complete", LedgerSync.backfill_state.in_(("none", "reading", "waiting")))
         )).scalars().all()
     day = _now().date().isoformat()
-    for cid in due:
-        await _enqueue_job(ctx, "sync_ledger", str(cid), _job_id=f"ledger:{cid}:{day}")
+    for n, cid in enumerate(due):
+        await _enqueue_job(ctx, "sync_ledger", str(cid), _defer_by=spread_seconds(n, len(due)), _job_id=f"ledger:{cid}:{day}")
     # History last: after every shop's update has had its turn.
     for cid in unfinished:
         if cid in due:

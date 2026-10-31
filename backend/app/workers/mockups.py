@@ -853,7 +853,17 @@ async def rerender_mockups(ctx: dict[str, Any], run_id: str, pairs: list[list[st
     One job per run takes the run's queue (pipeline/mockup_refresh.py) in turns until it is
     empty: pairs asked for while it works are made in the next turn, never refused. A pair stays
     in the queue (the tile says "Updating…") until its turn is over; a pair whose mockup did not
-    get a new file is recorded with the reason (the tile says so, with "Try again")."""
+    get a new file is recorded with the reason (the tile says so, with "Try again"). It takes its
+    turn with every account's heavy jobs (workers/fair.py): each mockup is a CPU's work."""
+    from app.workers.fair import heavy
+
+    async with heavy(ctx, "rerender_mockups", run_id) as turn:
+        if not turn:
+            return "deferred"
+        return await _rerender(ctx, run_id, pairs)
+
+
+async def _rerender(ctx: dict[str, Any], run_id: str, pairs: list[list[str]] | None) -> str:
     from app.api.deps import get_redis, get_storage
 
     redis = ctx.get("redis") or get_redis()

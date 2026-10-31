@@ -35,6 +35,7 @@ from app.db.models import (
     ShopListingCache,
     Tenant,
 )
+from app.workers.reconcile import spread_seconds
 from app.workers.profiles import (
     _active_shop,
     _build_client,
@@ -192,8 +193,8 @@ async def read_all_listing_stats(ctx: dict[str, Any]) -> int:
             ))
         )).scalars())
     day = datetime.now(timezone.utc).date().isoformat()
-    for cid in shops:
-        await _enqueue_job(ctx, "read_listing_stats", str(cid), _job_id=f"stats:{cid}:{day}")
+    for n, cid in enumerate(shops):
+        await _enqueue_job(ctx, "read_listing_stats", str(cid), _defer_by=spread_seconds(n, len(shops)), _job_id=f"stats:{cid}:{day}")
     return len(shops)
 
 

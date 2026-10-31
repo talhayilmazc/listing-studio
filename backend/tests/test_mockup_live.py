@@ -27,7 +27,7 @@ from tests.test_multi_shop import world  # noqa: F401  (fixture)
 
 
 def _ctx(mw) -> dict:  # noqa: F811
-    return {"sessionmaker": mw["sm"], "redis": mw["redis"]}
+    return {"sessionmaker": mw["sm"], "redis": mw["redis"], "enqueue": mw["queue"].enqueue}
 
 
 async def _run_json(mw, run_id) -> dict:  # noqa: F811

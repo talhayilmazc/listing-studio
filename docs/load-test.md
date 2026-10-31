@@ -138,25 +138,36 @@ CPU, between two statements. At 25 and 50 sellers none lasted over 2 s.
 
 ## Memory
 
-| Container | Limit | Highest measured |
-|---|---|---|
-| api | 1,800 MB | 1,668 MB RSS (1,528 MB private) |
-| worker | 2,200 MB | 2,136 MB RSS |
-| postgres | 700 MB | 756 MB including file cache, which the kernel gives back at the limit |
-| redis | 384 MB | 11 MB |
-| frontend | 200 MB | 104 MB |
-| cloudflared | 128 MB | not measurable here |
+The limits live in one block at the top of `docker-compose.prod.yml` (`x-memory`).
 
-The limits total 5,412 MB of 5,800 MB, leaving 388 MB for the OS and Docker. A container that reaches
-its limit is killed inside itself and restarts; the rest keep running.
+| Container | Peak measured | Can't be given back | Limit, 5.8 GB VM | Headroom | Limit, 8 GB VM |
+|---|---|---|---|---|---|
+| api | 1,668 MB RSS | 1,575 MB | 1,815 MB | 15% | 2,400 MB |
+| worker | 2,136 MB | 2,136 MB | 2,460 MB | 15% | 3,000 MB |
+| postgres | 812 MB with file cache | 462 MB | 585 MB | 27% | 1,000 MB |
+| frontend | 104 MB | 104 MB | 120 MB | 15% | 200 MB |
+| redis | 11 MB | 11 MB | 120 MB (maxmemory 96 MB) | over 900% | 384 MB (maxmemory 256 MB) |
+| together | | | 5,100 MB | | 6,984 MB |
+| cloudflared | 29 MB idle | | 128 MB | | 128 MB |
 
-The busiest moment of the final runs, without the driver: 4,466 MB (app 3,727, postgres 626, frontend
-103, redis 10). That leaves about 1,330 MB for cloudflared and the OS, which this test cannot measure.
-On the server: `free -m` and `docker stats --no-stream`.
+"Can't be given back" is what a limit really has to hold. The API's RSS counts shared pages once for each
+of its three processes, and the kernel charges them once. Postgres's peak is mostly file cache, which the
+kernel takes back at the limit (334 MB its own + 128 MB shared buffers remain).
 
-In this test the API and worker share one container limit (4,000 MB), so their separate limits were
-not tested by reaching them. Photos were small, and the worker's margin is the thinnest. If it is
-killed, its jobs recover on their own (`workers/recovery.py`).
+**15% over the plain peaks does not fit 5.8 GB:** 4,731 MB × 1.15 = 5,441 MB, plus 700 MB for cloudflared
+and the OS, is 6,141 MB. So on this VM the 15% is over what can't be given back. What that costs:
+
+- Postgres's limit is under its measured peak: less room for file cache, so reads may be slower under load.
+  Not measured at this limit.
+- Redis's `maxmemory` falls from 256 MB to 96 MB, about 9× its peak.
+
+The 5.8 GB limits leave 700 MB for cloudflared and the OS. A container that reaches its limit is killed
+inside itself and restarts; the others keep running. With 4 GB of swap a container can also swap before it
+is killed (Docker's default allows swap equal to the limit), so it slows down first.
+
+The busiest moment of the final runs, without the driver: 4,466 MB (app 3,727, postgres 626, frontend 103,
+redis 10). In this test the API and worker shared one container limit, so their separate limits were not
+tested by reaching them, and photos were small.
 
 ## Mockups
 
