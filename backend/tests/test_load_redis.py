@@ -155,6 +155,10 @@ def test_a_client_is_not_shared_across_event_loops() -> None:
     assert asyncio.run(one()) is not asyncio.run(one())
 
 
+def test_outside_an_event_loop_a_client_is_still_made() -> None:
+    assert llm.client_for(_Settings, "vision").model == "claude-sonnet-5-5"
+
+
 def test_a_template_is_read_once(tmp_path: Path) -> None:
     folder = tmp_path / "content" / "x"
     folder.mkdir(parents=True)

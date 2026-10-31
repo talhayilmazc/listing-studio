@@ -322,7 +322,11 @@ def client_for(settings: Any, role: str) -> AnthropicLLMClient:
     CONTENT_MODEL (each falls back to LLM_MODEL). One per event loop and model: making one builds a
     TLS context, about 20 ms of CPU, and a shared one keeps its connections to the provider."""
     model = (settings.vision_model if role == "vision" else settings.content_model) or settings.llm_model
-    return _shared_client(asyncio.get_running_loop(), settings.llm_api_key, model, settings.llm_thinking, settings.llm_effort)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # a script, outside any event loop: nothing to share with
+        return AnthropicLLMClient(api_key=settings.llm_api_key, model=model, thinking=settings.llm_thinking, effort=settings.llm_effort)
+    return _shared_client(loop, settings.llm_api_key, model, settings.llm_thinking, settings.llm_effort)
 
 
 def _parse_json(response: Any) -> dict[str, Any]:

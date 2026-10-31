@@ -886,9 +886,13 @@ async def test_a_late_answer_is_not_a_failure_when_the_listing_is_live(async_sm:
     assert fake.calls.count("get_listing") == 1  # confirmed by reading it back
 
 
-async def test_a_late_answer_with_the_listing_still_a_draft_is_reported(async_sm: async_sessionmaker) -> None:
+async def test_a_late_answer_with_the_listing_still_a_draft_goes_again(async_sm: async_sessionmaker) -> None:
+    """Etsy did not take it, so going again cannot publish twice: the job waits and runs again
+    (workers/recovery.py; tests/test_load_fixes.py), and the listing is never recorded as live."""
+    import httpx
+
     fake = SlowActivation(live=False)
-    with pytest.raises(ValueError, match="still a draft"):
+    with pytest.raises(httpx.ReadTimeout):
         await _go_live(async_sm, fake)
     # Read once before the go-live (still a draft: etsy/reconcile.py), then a few times after.
     assert fake.calls.count("get_listing") == 4
