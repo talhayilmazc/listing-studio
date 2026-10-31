@@ -926,6 +926,8 @@ export interface JobStatus {
 export interface Validation {
   valid: boolean;
   errors: string[];
+  /** Brands in the text the filter did not stop: the seller decides (never blocking). */
+  brand_warnings?: string[];
   /** A listing the seller wrote: the app's quality rules it does not meet (never blocking). */
   warnings?: string[];
 }
@@ -2115,6 +2117,8 @@ export interface SendPreview {
   first_day: string | null;
   finishes_on: string | null;
   notes: string[];
+  /** Brands in what is being sent that the filter did not stop: the seller decides. */
+  brand_warnings?: string[];
   time_zone: string;
   schedule: GroupSchedule | null;
 }
@@ -2340,6 +2344,8 @@ export interface AnotherShopPreview {
     /** What Etsy would refuse (it is not sent until fixed) and the app's notes (never a stop). */
     errors: string[];
     warnings: string[];
+    /** Brands in this shop's text the filter did not stop: the seller decides. */
+    brand_warnings?: string[];
     free_rewrites_left: number;
     /** The profile chosen for it in that shop only (null: its own via the shop link), and the name it goes with. */
     profile_id: string | null;

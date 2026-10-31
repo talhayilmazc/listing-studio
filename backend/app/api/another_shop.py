@@ -185,6 +185,8 @@ class AnotherShopRow(BaseModel):
     own_text: bool = False
     #: What Etsy would refuse (or the trademark filter stops): it is not sent until fixed.
     errors: list[str] = Field(default_factory=list)
+    #: Brands in this shop's text the filter did not stop: the seller decides (never stops the row).
+    brand_warnings: list[str] = Field(default_factory=list)
     #: The app's quality notes: they never stop it.
     warnings: list[str] = Field(default_factory=list)
     #: Free rewrites of this design left this period ("Rewrite for this shop").
@@ -443,7 +445,7 @@ async def _work(
         profile = await _profile_there(session, content, shop.id, chosen_profile)
         row.profile_name = profile.name if profile is not None else None
         check = await check_text(session, content, profile, row.title, row.tags, row.description)
-        row.errors, row.warnings = list(check.errors), list(check.warnings)
+        row.errors, row.warnings, row.brand_warnings = list(check.errors), list(check.warnings), list(check.brands)
         if row.errors:
             text_problems += 1  # said whatever else stops it (approval, files, partner)
         row.approved = shop_listing.approved_in(content, shop.id)
@@ -766,6 +768,7 @@ class WorkspaceTextRow(BaseModel):
     text_own: list[str]
     errors: list[str]
     warnings: list[str]
+    brand_warnings: list[str] = Field(default_factory=list)
 
 
 async def _open_rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, shop_id: uuid.UUID,
@@ -882,7 +885,8 @@ async def workspace_texts(batch_id: uuid.UUID, connection_id: uuid.UUID, body: W
         check = await check_text(session, content, await _profile_there(session, content, shop.id, None), title, tags, description)
         out.append(WorkspaceTextRow(content_id=content.id, title=title, tags=tags, description=description,
                                     text_own=sorted(shop_listing.text_in(content, shop.id)),
-                                    errors=list(check.errors), warnings=list(check.warnings)))
+                                    errors=list(check.errors), warnings=list(check.warnings),
+                                    brand_warnings=list(check.brands)))
     return out
 
 

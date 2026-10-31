@@ -255,6 +255,8 @@ class BatchDetail(BatchSummary):
 class ValidationInfo(BaseModel):
     valid: bool
     errors: list[str]
+    #: Not blocking: brands in the text the account's filter did not stop (trademarks.brand_warnings).
+    brand_warnings: list[str] = Field(default_factory=list)
     #: Not blocking: the app's quality rules on a listing the seller wrote (content.check_listing).
     warnings: list[str] = Field(default_factory=list)
 

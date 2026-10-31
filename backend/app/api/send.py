@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session, submit_draft
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
+from app.compliance.trademarks import brand_warnings, tenant_blocklist
 from app.compliance.check import personalization_hold
 from app.pipeline.personalization import HELD_NOTE
 from app.api.publish import _budget, _Plan, _publish, auto_setup
@@ -62,7 +63,7 @@ from app.db.models import (
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, group_shops
 from app.pipeline import group_plan as G
-from app.pipeline import profile_shops, shop_targets
+from app.pipeline import profile_shops, shop_listing, shop_targets
 from app.pipeline.targets import resolve_cached
 
 router = APIRouter(prefix="/api", tags=["send"])
@@ -161,6 +162,8 @@ class SendPreviewOut(BaseModel):
     first_day: date | None = None
     finishes_on: date | None = None
     notes: list[str] = Field(default_factory=list)
+    #: Brands in what is being sent that the filter did not stop: the seller decides.
+    brand_warnings: list[str] = Field(default_factory=list)
     time_zone: str
     #: The schedule used for "spread" (the seller's, else the defaults), to show and change.
     schedule: ScheduleIn | None = None
@@ -401,6 +404,16 @@ async def _spread(session: AsyncSession, tenant: Tenant, quota: DailyQuota, work
     return G.plan(settings, listings, plan_shops, capacity=capacity, now=now, draft_requests=per_draft)
 
 
+async def _brands_going(session: AsyncSession, tenant: Tenant, work: _Work) -> list[str]:
+    """Each brand once, over everything this send would make, each listing as it goes to that shop."""
+    in_force = await tenant_blocklist(session, tenant.id)
+    lines: dict[str, None] = {}
+    for content, shop, _ in work.actions:
+        title, tags, description = shop_listing.text_for(content, shop.id)
+        lines.update(dict.fromkeys(brand_warnings(title, list(tags), description, in_force)))
+    return list(lines)
+
+
 async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, batch: UploadBatch,
                    body: SendIn) -> tuple[SendPreviewOut, _Work, G.Plan | None]:
     zone = tenant.time_zone if valid_zone(tenant.time_zone) else "UTC"
@@ -462,6 +475,7 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
     return SendPreviewOut(
         when=body.when, rows=work.rows, left_out=work.left_out, listings=listings, shops=shops, total=total,
         sentence=sentence, button=button, disabled=disabled, first_day=first, finishes_on=last, notes=notes,
+        brand_warnings=await _brands_going(session, tenant, work),
         time_zone=zone, schedule=schedule,
     ), work, plan
 

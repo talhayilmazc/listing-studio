@@ -574,6 +574,41 @@ test.describe("signed in", () => {
     await noFalseAlarms(page, "Never sent: working on Northwind");
   });
 
+  test("a brand the filter lets through is said on the card, the workspace row and the send summary, and can still be sent", async ({ page }) => {
+    const WARNING = "Disney is a trademark. Etsy often removes listings that use it without permission, and repeated removals can suspend a shop.";
+    // BRAND_SHOTS=1: also the pictures in docs/screens/ (375 and 1366 px).
+    const shot = async (name: string) => {
+      const width = page.viewportSize()?.width;
+      if (process.env.BRAND_SHOTS && (width === 375 || width === 1366)) {
+        await page.screenshot({ path: `../docs/screens/brand-warning-${name}-${width}.png` });
+      }
+    };
+    const href = await openBatch(page, "Brand names");
+    test.skip(href === null, "no demo batch: seed-demo again");
+    await page.goto(`${href}/review`);
+    await settle(page);
+    const card = page.getByTestId("brand-warnings").first();
+    await expect(card).toContainText(WARNING);
+    await card.scrollIntoViewIfNeeded();
+    await shot("card");
+    await page.goto(href!);
+    await settle(page);
+    test.skip(!(await workOn(page, "Juniper Print Co.")), "one shop: no workspace rows to look at");
+    const row = page.getByTestId("workspace-row-brands").first();
+    await expect(row).toContainText(WARNING);
+    await row.scrollIntoViewIfNeeded();
+    await shot("row");
+    await page.getByTestId("select-not-in-shop").click();
+    await page.getByTestId("workspace-send").click();
+    const summary = page.getByTestId("workspace-summary-brands");
+    await expect(summary).toContainText(WARNING, { timeout: 15_000 });
+    await summary.scrollIntoViewIfNeeded();
+    await shot("summary");
+    // We warn; the seller decides: the way to send is open.
+    await expect(page.getByTestId("workspace-summary-send")).toBeEnabled();
+    await expect(page.getByTestId("workspace-summary-refused")).toHaveCount(0);
+  });
+
   test("text typed for one shop stays with that shop when the seller switches at once", async ({ page }) => {
     test.skip(test.info().project.name !== "desktop-1366", "changes the demo's text: once per run");
     const href = await openBatch(page, "Never sent");

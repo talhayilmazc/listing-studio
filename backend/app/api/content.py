@@ -366,7 +366,8 @@ async def contents_out(
                 trademarks=marks,
                 title_rules=bounds_for(profile),
             )
-            by_id[c.id].validation = schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings)
+            by_id[c.id].validation = schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings,
+                                                            brand_warnings=check.brands)
     # The search-readiness checklist: from what is stored here; nothing read from Etsy.
     from app.api.checklist import checklists_for
 
@@ -490,7 +491,7 @@ async def _validation(
         title_rules=bounds_for(profile),
         for_seller=True,
     )
-    return schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings)
+    return schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings, brand_warnings=check.brands)
 
 
 async def _get(session: AsyncSession, tenant: Tenant, content_id: uuid.UUID) -> GeneratedContent:
@@ -621,7 +622,8 @@ async def _update_shop_text(
     profile = await session.get(ListingProfile, content.listing_profile_id) if content.listing_profile_id else None
     check = await check_text(session, content, profile, title, tags, description, source=profile)
     return schemas.ContentUpdateResult(
-        content=out, validation=schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings))
+        content=out, validation=schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings,
+                                                       brand_warnings=check.brands))
 
 
 def _changed_elsewhere(
@@ -800,7 +802,8 @@ async def approve_all(
         await rescan(session, content)
         validation = await _validation(session, content)
         if validation.valid and shop_errors:
-            validation = schemas.ValidationInfo(valid=False, errors=shop_errors, warnings=validation.warnings)
+            validation = schemas.ValidationInfo(valid=False, errors=shop_errors, warnings=validation.warnings,
+                                                brand_warnings=validation.brand_warnings)
         hand_written = manual.is_manual(content)
         if not validation.valid:
             result.skipped.append(

@@ -342,6 +342,11 @@ function WorkspaceRow({
               {`Note: ${row.profile_name ?? "its profile"} names no production partner; only needed if a partner makes it.`}
             </p>
           )}
+          {(row.brand_warnings ?? []).length > 0 && (
+            <ul key="brands" role="status" className="space-y-0.5 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-amber-950 sm:col-span-full" translate="no" data-testid="workspace-row-brands">
+              {(row.brand_warnings ?? []).map((b) => <li key={b}>{b}</li>)}
+            </ul>
+          )}
           {row.errors.length > 0 && !textOpen && (
             <p key="err" role="alert" className="text-rose-700 sm:col-span-full" translate="no">{`Etsy would refuse its text: ${row.errors[0]}`}</p>
           )}
@@ -547,6 +552,11 @@ function SendSummary({ summary, chosen, shop, busy, onCancel, onSend, onApprove 
         <li>{`SKUs: ${s.skus.slice(0, 8).join(", ")}${s.skus.length > 8 ? ` and ${s.skus.length - 8} more` : ""}${s.ownSku ? ` (${s.ownSku} with a SKU of their own for ${shop.name})` : ""}`}</li>
         <li>{`${s.ownText} with text of their own for ${shop.name}; the rest go with the listing's text`}</li>
       </ul>
+      {s.brands.length > 0 && (
+        <ul key="brands" role="status" className="space-y-0.5 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-xs text-amber-950" translate="no" data-testid="workspace-summary-brands">
+          {s.brands.map((b) => <li key={b}>{b}</li>)}
+        </ul>
+      )}
       {s.notGoing.length > 0 && (
         <div key="not" className="text-xs text-amber-900" data-testid="workspace-summary-refused">
           <p className="font-medium">Not sent:</p>

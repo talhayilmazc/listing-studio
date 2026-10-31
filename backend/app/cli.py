@@ -863,6 +863,11 @@ def main(argv: list[str] | None = None) -> int:
         "lists what would change, --apply changes only our records; reads only, never writes to Etsy",
     )
     reconciles.add_argument("email")
+    scan = sub.add_parser(
+        "trademark-scan",
+        help="the brands in one seller's listings, where they are, and what the seller sees with the filter on and off; read only, no Etsy call",
+    )
+    scan.add_argument("email")
     workspace = sub.add_parser(
         "workspace-check",
         help="a batch's listings as the shop workspace sees them for one shop: text and where it comes from, SKU, "
@@ -1066,6 +1071,10 @@ def main(argv: list[str] | None = None) -> int:
             print(asyncio.run(sku_history.history(sm, args.email, since)), end="")
         else:
             print(asyncio.run(sku_history.restore(sm, args.email, since, apply=args.apply)), end="")
+    elif args.command == "trademark-scan":
+        from app.ops.trademark_scan import run as trademark_scan
+
+        print(asyncio.run(trademark_scan(sm, args.email)))
     elif args.command == "workspace-check":
         from app.ops.workspace_check import run as workspace_check
 

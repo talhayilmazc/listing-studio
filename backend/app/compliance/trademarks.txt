@@ -1,82 +1,84 @@
-# Trademarked brand and character names refused in titles, tags and descriptions
-# while TRADEMARK_FILTER is on (docs/duzeltmeler-v6.md §B).
+# Reviewed: 2026-10-31
 #
-# One term per line; lines starting with # are comments. Matching ignores case
-# and accents ("Pokemon" also catches "Pokémon") and matches whole words only
-# ("Marvel" does not catch "marvelous"). Words of a multi-word term may be joined
-# by spaces, hyphens or nothing ("Star Wars", "star-wars", "starwars").
+# Brand and character names, with who holds them. Used by app/compliance/trademarks.py, the one
+# module the app and our tools read this through:
+#   - written whole, they stop a listing while the account's trademark filter is on;
+#   - in any form (joined, spaced, letters swapped), they get a warning, filter on or off.
 #
-# Edits take effect on the next check, without a restart.
+# One per line: Name | who holds it. Lines starting with # are comments. Matching ignores case and
+# accents ("Pokemon" also catches "Pokémon"). The notes are who a seller would hear from, from general
+# knowledge: not legal advice and not a register search.
 #
-# Deliberately NOT listed: blank-garment brands a seller prints on and names
-# truthfully (Comfort Colors, Bella+Canvas, Gildan); they describe the product.
+# Edits take effect on the next check, without a restart. Change the Reviewed date when you review it.
+#
+# Deliberately NOT listed: blank-garment brands a seller prints on and names truthfully (Comfort
+# Colors, Bella+Canvas, Gildan); they describe the product.
 
 # Disney and its franchises
-Disney
-Pixar
-Mickey
-Minnie Mouse
-Star Wars
-Mandalorian
-Baby Yoda
-Grogu
-Marvel
-Avengers
-Spider-Man
-Spiderman
-Lilo and Stitch
-Winnie the Pooh
-Toy Story
-Lion King
-Disneyland
-Magic Kingdom
-Epcot
-World Showcase
+Disney | The Walt Disney Company
+Pixar | Pixar, The Walt Disney Company
+Mickey | The Walt Disney Company (Mickey Mouse)
+Minnie Mouse | The Walt Disney Company
+Star Wars | Lucasfilm, The Walt Disney Company
+Mandalorian | Lucasfilm, The Walt Disney Company
+Baby Yoda | Lucasfilm, The Walt Disney Company
+Grogu | Lucasfilm, The Walt Disney Company
+Marvel | Marvel, The Walt Disney Company
+Avengers | Marvel, The Walt Disney Company
+Spider-Man | Marvel, The Walt Disney Company (also Spiderman, spider man)
+Lilo and Stitch | The Walt Disney Company
+Winnie the Pooh | The Walt Disney Company (Disney's versions)
+Toy Story | Pixar, The Walt Disney Company
+Lion King | The Walt Disney Company
+Disneyland | The Walt Disney Company (park)
+Magic Kingdom | The Walt Disney Company (park)
+Epcot | The Walt Disney Company (park)
+World Showcase | The Walt Disney Company (park)
 
 # Warner Bros. / DC
-Harry Potter
-Hogwarts
-DC Comics
-Batman
-Superman
-Wonder Woman
-Looney Tunes
-Scooby Doo
+Harry Potter | Warner Bros.; J.K. Rowling
+Hogwarts | Warner Bros.; J.K. Rowling
+DC Comics | DC, Warner Bros. Discovery
+Batman | DC, Warner Bros. Discovery
+Superman | DC, Warner Bros. Discovery
+Wonder Woman | DC, Warner Bros. Discovery
+Looney Tunes | Warner Bros. Discovery
+Scooby Doo | Warner Bros. Discovery
 
 # Games
-Nintendo
-Super Mario
-Legend of Zelda
-Pokemon
-Pikachu
-Minecraft
-Fortnite
+Nintendo | Nintendo
+Super Mario | Nintendo
+Legend of Zelda | Nintendo
+Pokemon | The Pokémon Company, Nintendo
+Pikachu | The Pokémon Company, Nintendo
+Minecraft | Mojang, Microsoft
+Fortnite | Epic Games
 
 # Toys and characters
-Barbie
-Hello Kitty
-Sanrio
-Snoopy
-Grinch
-Dr Seuss
-Sesame Street
-Paw Patrol
-Bluey
+Barbie | Mattel
+Hello Kitty | Sanrio
+Sanrio | Sanrio
+Snoopy | Peanuts Worldwide
+Grinch | Dr. Seuss Enterprises
+Dr Seuss | Dr. Seuss Enterprises
+Sesame Street | Sesame Workshop
+Paw Patrol | Spin Master
+Bluey | Ludo Studio, BBC Studios
 
 # Sportswear and fashion
-Nike
-Adidas
-Under Armour
-Louis Vuitton
-Gucci
-Chanel
+Nike | Nike
+Adidas | Adidas
+Under Armour | Under Armour
+Louis Vuitton | LVMH
+Gucci | Kering
+Chanel | Chanel
 
 # Leagues
-NFL
-NBA
-MLB
-NHL
+NFL | National Football League
+NBA | National Basketball Association
+MLB | Major League Baseball
+NHL | National Hockey League
 
 # Drinks and food
-Coca-Cola
-Starbucks
+Coca-Cola | The Coca-Cola Company
+Starbucks | Starbucks

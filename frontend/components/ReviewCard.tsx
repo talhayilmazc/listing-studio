@@ -173,6 +173,7 @@ export function ReviewCard({
   const errors = useMemo(() => draftErrors(title, tags, description), [title, tags, description]);
   const valid = errors.length === 0;
   const [notes, setNotes] = useState<string[]>(initial.validation?.warnings ?? []);
+  const [brands, setBrands] = useState<string[]>(initial.validation?.brand_warnings ?? []);
 
   // The search-readiness checklist. The server works it out with the app's own
   // rules (pipeline/checklist.py); while the seller edits, the unsaved text is
@@ -243,6 +244,8 @@ export function ReviewCard({
         setTags(next.tags);
         setDescription(next.description);
         setNotes(res.validation.warnings ?? []);
+      setBrands(res.validation.brand_warnings ?? []);
+        setBrands(res.validation.brand_warnings ?? []);
         if (res.content.checklist) {
           checkRun.current += 1; // the saved text's checklist wins over one still on its way
           checkedText.current = JSON.stringify([server.title, server.tags, server.description]);
@@ -764,6 +767,14 @@ export function ReviewCard({
                   <li key={i}>{e}</li>
                 ))}
               </ul>
+            )}
+            {brands.length > 0 && (
+              // A brand the filter did not stop: said before sending; the seller decides.
+              <div key="brands" role="status" className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-950" data-testid="brand-warnings">
+                <ul className="space-y-1" translate="no">
+                  {brands.map((b) => <li key={b}>{b}</li>)}
+                </ul>
+              </div>
             )}
             {notes.length > 0 && (
               // The app's quality rules: notes on any listing, never a reason it cannot be approved.

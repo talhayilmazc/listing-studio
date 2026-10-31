@@ -209,6 +209,23 @@ async def main():
                 if published:
                     s.add(ListingPublication(tenant_id=t.id, content_id=c.id, connection_id=shops[0].id, etsy_listing_id=7300 + n,
                                              state="active", profile_id=prof.id, title=title, sku=code, published_at=now - timedelta(days=1)))
+        # A listing whose text names a brand in a form the filter lets through: the warning on the
+        # card, the workspace row and the send summary (frontend/e2e/layout.spec.ts).
+        fb = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=1, connection_id=shops[0].id, name="Brand names")
+        s.add(fb); await s.flush()
+        _sku, art, _title, tags = DESIGNS[0]
+        key = f"demo-shots/{fb.id}/BRAND601-front.jpg"
+        storage.put(key, jpg(art, "front"), "image/jpeg")
+        a = Asset(batch_id=fb.id, tenant_id=t.id, original_filename="BRAND601/front.jpg", storage_key=key, processed_key=key,
+                  status=AssetStatus.processed, rank=1, group_key="BRAND601", parsed_sku="BRAND601", mime_type="image/jpeg")
+        s.add(a)
+        prof = profs[("Northwind Tees", "Standard Tee")]
+        s.add(ListingGroupSetting(tenant_id=t.id, batch_id=fb.id, group_key="BRAND601", connection_id=shops[0].id, profile_id=prof.id))
+        await s.flush()
+        s.add(GeneratedContent(tenant_id=t.id, batch_id=fb.id, asset_id=a.id, approved=True, approved_at=now - timedelta(days=1),
+                               listing_profile_id=prof.id, source="manual", title="DisneyWorld Family Trip Tee", tags=tags,
+                               description="A soft cotton tee for a family trip."))
+        await s.flush()
         for n in range(12):
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,

@@ -219,6 +219,11 @@ export function WhereAndWhen({
       {preview && (
         <div key="summary" className="space-y-1 text-sm">
           <p translate="no" className="font-medium text-slate-900" data-testid="send-sentence"><span>{preview.sentence}</span></p>
+          {(preview.brand_warnings ?? []).length > 0 && (
+            <ul key="brands" role="status" className="space-y-0.5 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-xs text-amber-950" translate="no" data-testid="send-brands">
+              {(preview.brand_warnings ?? []).map((b) => <li key={b}>{b}</li>)}
+            </ul>
+          )}
           {preview.notes.map((n) => <p key={n} className="text-xs text-slate-600">{n}</p>)}
           {preview.left_out.length > 0 && (
             <p key="left" className="text-xs text-slate-600">

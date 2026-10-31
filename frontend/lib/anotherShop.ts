@@ -171,6 +171,8 @@ export function sendSummary(preview: { rows: WorkspaceRow[]; refused: string[] }
     .map((r) => r.content_id);
   return {
     toApprove,
+    // Said about what is going: the seller decides, and it never stops the button.
+    brands: [...new Set(going.flatMap((r) => r.brand_warnings ?? []))],
     going: going.length,
     profiles: [...profiles.entries()],
     skus: going.map((r) => r.sku ?? "no SKU"),

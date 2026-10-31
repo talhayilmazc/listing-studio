@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from app.compliance.trademarks import (
     Blocklist,
+    brand_warnings,
     configured_blocklist,
     trademark_errors,
     trademark_summary,
@@ -451,6 +452,9 @@ class ListingCheck:
 
     errors: list[str]
     warnings: list[str]
+    #: Brands in the text the account's filter did not stop (trademarks.brand_warnings): the
+    #: seller decides. Never stops anything, for whoever wrote the listing.
+    brands: list[str] = field(default_factory=list)
 
     @property
     def valid(self) -> bool:
@@ -502,9 +506,11 @@ def check_listing(
     errors = list(dict.fromkeys(etsy_text.draft_errors(listing.title, list(listing.tags), listing.description) + marks))
     blocked = set(errors)
     title_empty = not listing.title.strip()
+    brands = brand_warnings(listing.title, list(listing.tags), searchable, blocklist)
     if title_empty and not [t for t in listing.tags if t.strip()]:
-        # Nothing written yet: it needs a title, and that is all there is to say.
-        return ListingCheck(errors, [])
+        # Nothing written yet: it needs a title, and that is all there is to say (and what the
+        # profile's description says, if it names a brand).
+        return ListingCheck(errors, [], brands)
     warnings = [
         e for e in strict
         if e not in blocked
@@ -514,7 +520,7 @@ def check_listing(
         # No title yet: what a title should say is for when there is one.
         and not (title_empty and "title" in e)
     ]
-    return ListingCheck(errors, warnings)
+    return ListingCheck(errors, warnings, brands)
 
 
 def title_length_errors(title: str, title_rules: TitleRules) -> list[str]:
