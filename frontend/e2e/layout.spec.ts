@@ -24,6 +24,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 import { TRADEMARK_NOTICE } from "../lib/legal";
+import { signIn } from "./session";
 
 const PUBLIC = ["/", "/pricing", "/terms", "/privacy", "/request-invite", "/contact"];
 const SIGN_IN = ["/login", "/register"];
@@ -189,14 +190,7 @@ for (const path of ["/", "/terms", "/pricing"]) {
 test.describe("signed in", () => {
   test.skip(!EMAIL || !PASSWORD, "set LAYOUT_EMAIL and LAYOUT_PASSWORD (the demo admin from `seed-demo --admin`) to run these");
 
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.locator("#email").fill(EMAIL!);
-    await page.locator("#password").fill(PASSWORD!);
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/\/(dashboard|accept-terms|password)/, { timeout: 30_000 });
-    expect(new URL(page.url()).pathname, "the demo account signs straight in").toBe("/dashboard");
-  });
+  test.beforeEach(async ({ page }) => signIn(page, EMAIL!, PASSWORD!));
 
   test("the trademark notice is beside Connect a shop and in the footer, once in each", async ({ page }) => {
     await page.goto("/connect");
@@ -578,6 +572,39 @@ test.describe("signed in", () => {
     await expect(page.getByTestId("workspace-summary")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("workspace-summary-refused")).toHaveCount(0);
     await noFalseAlarms(page, "Never sent: working on Northwind");
+  });
+
+  test("text typed for one shop stays with that shop when the seller switches at once", async ({ page }) => {
+    test.skip(test.info().project.name !== "desktop-1366", "changes the demo's text: once per run");
+    const href = await openBatch(page, "Never sent");
+    test.skip(href === null, "no demo batch: seed-demo again");
+    test.skip(!(await workOn(page, "Juniper Print Co.")), "one shop: nothing to switch to");
+    const names = (await page.getByTestId("shop-bar-select").locator("option").allInnerTexts()).map((t) => t.trim()).filter(Boolean);
+    const other = names.find((n) => n !== "Juniper Print Co." && !/^(All shops|Choose)/.test(n));
+    test.skip(!other, "one shop: nothing to switch to");
+    const MARK = "Typed For Juniper";
+    const first = page.getByTestId("workspace-row").first();
+    await first.getByTestId("workspace-text-toggle").click();
+    const title = first.getByLabel(/^Title in Juniper/);
+    await title.fill(`${(await title.inputValue()).slice(0, 100)} ${MARK}`);
+    await workOn(page, other!); // inside the 800 ms before the save
+
+    const row = page.getByTestId("workspace-row").first();
+    await expect(row.getByTestId("workspace-text-toggle"), "a new row: its editor is closed").toHaveAttribute("aria-expanded", "false");
+    await row.getByTestId("workspace-text-toggle").click();
+    await expect(row.getByLabel(/^Title in /)).not.toHaveValue(new RegExp(MARK));
+
+    await page.waitForTimeout(1500);
+    await page.reload();
+    await settle(page);
+    await workOn(page, other!);
+    const again = page.getByTestId("workspace-row").first();
+    await again.getByTestId("workspace-text-toggle").click();
+    await expect(again.getByLabel(/^Title in /)).not.toHaveValue(new RegExp(MARK));
+    await workOn(page, "Juniper Print Co.");
+    const juniper = page.getByTestId("workspace-row").first();
+    await juniper.getByTestId("workspace-text-toggle").click();
+    await expect(juniper.getByLabel(/^Title in Juniper/), "what was typed is kept, in its own shop").toHaveValue(new RegExp(MARK));
   });
 
   // The production sequence of 2026-10-28 (backend/tests/test_seller_replay_2026_10_28.py, here in a

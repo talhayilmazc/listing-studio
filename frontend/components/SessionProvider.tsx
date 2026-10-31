@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { installErrorReporting } from "@/lib/sellerEvents";
+import { installErrorReporting, pageIsLeaving } from "@/lib/sellerEvents";
 import { api, ApiError } from "@/lib/api";
 import { browserZone } from "@/lib/schedule";
 import type { Account } from "@/lib/types";
@@ -67,7 +67,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setAccount(await api.me());
     } catch (e) {
       // 401 is the ordinary signed-out answer, not an error worth surfacing.
-      if (!(e instanceof ApiError) || e.status !== 401) console.error(e);
+      if ((!(e instanceof ApiError) || e.status !== 401) && !pageIsLeaving()) console.error(e);
       setAccount(null);
     } finally {
       setLoading(false);

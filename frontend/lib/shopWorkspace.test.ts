@@ -18,6 +18,18 @@ const row = (over: Partial<Row>): Row => ({
   profile_name: "Standard Tee", sku_own: false, text_own: [], approved: true, shop_state: "not_sent", listing_link: null, ...over,
 });
 
+describe("a row belongs to the shop it was read for", () => {
+  const source = read("components/ShopWorkspace.tsx");
+  it("is a new row in another shop, so its open editor and waiting save stay with the old shop", () => {
+    assert.match(source, /<WorkspaceRow key=\{`\$\{shopId\}:\$\{r\.content_id\}`\}/);
+  });
+  it("shows rows only under the shop they were read for, and a late answer for another shop is dropped", () => {
+    assert.match(source, /const preview = loaded && loaded\.shopId === shopId \? loaded\.rows : null;/);
+    assert.match(source, /if \(shopInView\.current === shopId\) setLoaded\(\{ shopId, rows \}\);/);
+    assert.match(source, /if \(shopInView\.current === shopId\) setSummary\(answer\);/);
+  });
+});
+
 describe("the send summary", () => {
   it("says the profiles used, the SKUs, the rows with their own text, and what is not sent with why", () => {
     const rows = [

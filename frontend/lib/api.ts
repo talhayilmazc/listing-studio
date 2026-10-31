@@ -3,7 +3,7 @@ import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
 import { UNREACHABLE, messageFor } from "./apiErrors";
 import { shareInFlight } from "./inFlight";
-import { report, worthReporting } from "./sellerEvents";
+import { pageIsLeaving, report, worthReporting } from "./sellerEvents";
 import type { SkuOnEtsy } from "./skuOnEtsy";
 import type {
   AnotherShopPreview,
@@ -134,7 +134,7 @@ async function send(url: string, init: RequestInit): Promise<Response> {
   try {
     res = await fetch(url, init);
   } catch {
-    failed(0, UNREACHABLE);
+    if (!pageIsLeaving()) failed(0, UNREACHABLE);
     throw new ApiError(UNREACHABLE, 0);
   }
   if (!res.ok) {
