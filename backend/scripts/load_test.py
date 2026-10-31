@@ -1,5 +1,6 @@
 """Load test: does Listyro hold with 100 accounts? Rerunnable; synthetic data only; never the
-development database, never Etsy.
+development database, never Etsy. It runs the API in one process, so its times say how a page's
+queries behave, not how many sellers the server holds: for that, ``scripts/load/run.sh`` (docs/load-test.md).
 
     docker compose run --rm --entrypoint python tests scripts/load_test.py
         [--accounts 100] [--shops 3] [--listings 500] [--seconds 30] [--sellers 20] [--keep]
