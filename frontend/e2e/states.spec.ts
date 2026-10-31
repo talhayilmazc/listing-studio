@@ -11,6 +11,7 @@
  * Runs with the layout test: playwright.config.ts. Skipped without LAYOUT_EMAIL / LAYOUT_PASSWORD.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { signIn } from "./session";
 
 const EMAIL = process.env.LAYOUT_EMAIL;
 const PASSWORD = process.env.LAYOUT_PASSWORD;
@@ -18,14 +19,6 @@ const PAGES = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "
   "/scheduled", "/analytics", "/connect", "/settings", "/admin"];
 /** What the app needs to draw its frame: these are never failed or slowed. */
 const FRAME = /\/api\/(account\/(me|session)|meta)(\?|$)/;
-
-async function signIn(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.locator("#email").fill(EMAIL!);
-  await page.locator("#password").fill(PASSWORD!);
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
-}
 
 /** JavaScript errors and React's own error messages while the page is open. */
 function watchErrors(page: Page): string[] {
@@ -45,10 +38,14 @@ async function quiet(page: Page): Promise<void> {
 
 test.describe("every page, every state", () => {
   test.skip(!EMAIL || !PASSWORD, "set LAYOUT_EMAIL and LAYOUT_PASSWORD (the demo admin from `seed-demo --admin`)");
-  test.beforeEach(async ({ page }) => signIn(page));
+  test.beforeEach(async ({ page }) => signIn(page, EMAIL!, PASSWORD!));
 
   test("no JavaScript errors and no broken internal links on any page", async ({ page }) => {
     const errors = watchErrors(page);
+    const reported: string[] = [];
+    page.on("request", (r) => {
+      if (new URL(r.url()).pathname === "/api/events") reported.push(r.postData() ?? "");
+    });
     const pages = [...PAGES];
     await page.goto("/batches");
     await quiet(page);
@@ -73,6 +70,7 @@ test.describe("every page, every state", () => {
       if (res.status() >= 400) broken.push(`${res.status()} ${href}`);
     }
     expect(errors, "JavaScript errors").toEqual([]);
+    expect(reported, "failures reported while only moving between working pages").toEqual([]);
     expect(failed, "server errors while the pages loaded").toEqual([]);
     expect(broken, "broken internal links").toEqual([]);
   });

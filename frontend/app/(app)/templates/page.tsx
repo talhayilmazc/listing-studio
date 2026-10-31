@@ -45,6 +45,7 @@ import {
   stillToCheck,
   templateNameFrom,
   waitingForCheck,
+  queueLine,
 } from "@/lib/mockups";
 
 /**
@@ -864,7 +865,11 @@ function PhotoTile({
           {photo.status === "failed" ? (
             <span key="failed" className="text-rose-700">{photo.error ?? "This photo could not be prepared."}</span>
           ) : (
-            <span key="preparing" className="animate-pulse text-slate-500">Preparing… finding the garment&apos;s outline</span>
+            queueLine(photo.queue) ? (
+              <span key="queued" className="text-slate-600" translate="no" data-testid="photo-queue">{`Waiting its turn: ${queueLine(photo.queue)}`}</span>
+            ) : (
+              <span key="preparing" className="animate-pulse text-slate-500">Preparing… finding the garment&apos;s outline</span>
+            )
           )}
         </div>
       )}

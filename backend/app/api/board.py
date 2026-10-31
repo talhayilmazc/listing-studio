@@ -189,7 +189,7 @@ async def _moving(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, id
 async def move_photos(
     batch_id: uuid.UUID,
     body: schemas.BoardMove,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     """Move photos to another group, to Unsorted, or into a new group."""
@@ -223,7 +223,7 @@ async def move_photos(
 async def merge_groups(
     batch_id: uuid.UUID,
     body: schemas.BoardMerge,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     """Put one group's photos into another. A listing written for the merged group
@@ -249,7 +249,7 @@ async def merge_groups(
 async def set_group_sku(
     batch_id: uuid.UUID,
     body: schemas.BoardSku,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.BatchDetail:
     """Set a group's SKU (Etsy's SKU rules, audited; api/skus.py). A group named

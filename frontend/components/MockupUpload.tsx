@@ -34,6 +34,7 @@ import {
   selectionLine,
   skippedLine,
   uploadSlots,
+  queueLine,
 } from "@/lib/mockups";
 
 import { Txt } from "@/components/Txt";
@@ -415,7 +416,7 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
             <div className="space-y-1.5" aria-live="polite">
               <div className="progress" aria-hidden><div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
               <p className="min-h-[1.25rem] text-xs text-slate-600" translate="no" data-testid="mockup-progress">
-                {run ? runLine(run) : ""}
+                {run ? (run.status === "queued" && queueLine(run.queue) ? `Waiting its turn: ${queueLine(run.queue)}` : runLine(run)) : ""}
               </p>
             </div>
             {stalled && (

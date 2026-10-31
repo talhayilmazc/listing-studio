@@ -91,7 +91,7 @@ async def _within(redis: Redis, key: str, limit: int, window: int) -> bool:
 async def request_invite(
     body: InviteRequestIn,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     redis: Redis = Depends(get_redis),
 ) -> Accepted:
     if body.website.strip():

@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import inspect, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import limits
@@ -38,12 +39,14 @@ from app.etsy.connection import ConnectionService
 from app.etsy.connection import renewer_for as _renewer
 from app.etsy.publisher import (
     SETUP_WAIT_SECONDS,
+    AlreadyDrafted,
     NothingToPublish,
     PersonalizationHeld,
     PublishConfig,
     PublishImage,
     SetupPending,
     ShopNotSetUp,
+    publication_for,
     publish_content,
     publish_live,
 )
@@ -259,6 +262,14 @@ async def run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
         except asyncio.CancelledError:
             await recovery.interrupted(ctx, None, uuid.UUID(job_id), "run_publish_job")
             raise
+        finally:
+            # The account's next held draft gets its turn (workers/fair.py).
+            from app.workers import fair
+
+            try:
+                await fair.after_run(ctx, job_id)
+            except Exception:  # noqa: BLE001 - the minute's top-up hands it over instead
+                logger.warning("fair turn hand-over failed for a draft job", exc_info=True)
 
 
 async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
@@ -448,6 +459,22 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     finishing=bool((job.payload or {}).get("finish")),
                 )
         except Exception as exc:  # noqa: BLE001 - wait and run again, or record why it failed
+            if isinstance(exc, (AlreadyDrafted, IntegrityError)):
+                # (Both come from writing the draft: its listing and shop are known by then. The
+                # rollback expires them, so their ids are taken without asking the database.)
+                content_id, connection_id = inspect(content).identity[0], inspect(connection).identity[0]
+                if await _draft_is_there(session, content_id, connection_id, exc):
+                    # Two jobs for one draft (a double click, an overlapping cron): the other one
+                    # made it, once. The seller has their draft: nothing here failed.
+                    logger.info("draft job %s: the draft is already there", job_id)
+                    job = await session.get(Job, uuid.UUID(job_id), populate_existing=True)
+                    job.payload = {**(job.payload or {}), "already_there": True}
+                    job.status, job.finished_at, job.last_error = JobStatus.succeeded, datetime.now(timezone.utc), None
+                    await session.commit()
+                    from app.workers.plans import after_draft
+
+                    await after_draft(session, content_id, connection_id)
+                    return "succeeded"
             return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_job")
 
         if over:
@@ -462,6 +489,15 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
 
         await after_draft(session, content.id, connection.id)
         return "succeeded"
+
+
+async def _draft_is_there(session: AsyncSession, content_id: Any, connection_id: Any, exc: Exception) -> bool:
+    """This job stopped because another finished the draft first: the "one draft per listing per
+    shop" check, or the same rule in the database when both got that far together."""
+    await session.rollback()
+    if isinstance(exc, IntegrityError) and "uq_publication_content_shop" not in str(exc):
+        return False
+    return await publication_for(session, content_id, connection_id) is not None
 
 
 async def run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:

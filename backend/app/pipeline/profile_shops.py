@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ListingProfile, ProfileShopLink
@@ -61,13 +61,36 @@ async def links_of(session: AsyncSession, profile_ids: list[uuid.UUID]) -> dict[
     return out
 
 
+def _link_cache(session: AsyncSession) -> dict:
+    """Links read in this session, by (profile, shop): a page of 150 listings asked for the same
+    three hundreds of times (scripts/load_test.py). Forgotten whenever a link is written."""
+    info = session.sync_session.info
+    if "link_for" not in info:
+        info["link_for"] = {}
+
+        @event.listens_for(session.sync_session, "before_flush")
+        def _forget(sess, *_: object) -> None:  # noqa: ANN001
+            if any(isinstance(o, ProfileShopLink) for o in (*sess.new, *sess.dirty, *sess.deleted)):
+                info["link_for"].clear()
+
+        @event.listens_for(session.sync_session, "after_rollback")
+        def _forget_all(*_: object) -> None:
+            info["link_for"].clear()
+    return info["link_for"]
+
+
 async def link_for(session: AsyncSession, profile: ListingProfile, connection_id: uuid.UUID) -> ProfileShopLink | None:
-    rows = await session.execute(
-        select(ProfileShopLink).where(
-            ProfileShopLink.profile_id == profile.id, ProfileShopLink.connection_id == connection_id
+    cache = _link_cache(session)
+    key = (profile.id, connection_id)
+    if key in cache:
+        link = cache[key]
+    else:
+        rows = await session.execute(
+            select(ProfileShopLink).where(
+                ProfileShopLink.profile_id == profile.id, ProfileShopLink.connection_id == connection_id
+            )
         )
-    )
-    link = rows.scalar_one_or_none()
+        link = cache[key] = rows.scalar_one_or_none()
     if link is None and connection_id == profile.connection_id:
         # The main shop is always linked. Read paths never write: a stand-in, not
         # added to the session (fifty drafts at once must not race to insert it).
@@ -185,6 +208,7 @@ async def detach_shop(session: AsyncSession, connection_id: uuid.UUID) -> dict[s
     cleared and it needs a reference listing in its new main shop before its
     shared data can be read again. A profile with no other shop is deleted.
     """
+    _link_cache(session).clear()
     links = await session.execute(delete(ProfileShopLink).where(ProfileShopLink.connection_id == connection_id))
     # The account's map of settings from and to this shop goes with it (pipeline/setting_map.py).
     from app.db.models import ShopSettingMap

@@ -12,10 +12,12 @@ import { defineConfig } from "@playwright/test";
  *   docker compose exec -T api python -m app.cli seed-demo --remove     (afterwards)
  *
  * LAYOUT_BASE_URL chooses the server (default: the development stack). A
- * production build is the better subject, because it is what is deployed:
+ * production build is the better subject, because it is what is deployed. It must be on a port
+ * the API trusts (CORS_ORIGINS, FRONTEND_URL): on any other, signing in is refused as cross-site
+ * and every signed-in test fails at the sign-in screen:
  *   docker compose -f docker-compose.prod.yml build frontend
- *   docker run --rm --network etsy-assistant_default -p 3100:3000 listyro/frontend:latest
- *   LAYOUT_BASE_URL=http://localhost:3100 npm run test:layout
+ *   docker run --rm --network etsy-assistant_default -p 3000:3000 listyro/frontend:latest
+ *   LAYOUT_BASE_URL=http://localhost:3000 npm run test:layout
  *
  * Every run also connects a shop in a real browser (e2e/oauth.spec.ts): oauth.global.ts starts
  * its own stack (docker-compose.oauth-e2e.yml: the production frontend image, the API on a second

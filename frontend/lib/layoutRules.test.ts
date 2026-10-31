@@ -18,6 +18,22 @@ test("the sign-in shell's footer is the frame's last child, not part of the cent
   assert.match(shell, /<footer className="[^"]*\bpb-10\b[^"]*"/);
 });
 
+test("the documented browser run serves the frontend on the origin the API trusts", () => {
+  const config = read("playwright.config.ts");
+  const trusted = /^CORS_ORIGINS=(.*)$/m.exec(read("../.env.example"))?.[1].split(",") ?? [];
+  const served = /-p (\d+):3000 listyro\/frontend/.exec(config)?.[1];
+  assert.ok(trusted.includes(`http://localhost:${served}`), `port ${served} is not in CORS_ORIGINS: sign-in would be refused`);
+  assert.equal(/LAYOUT_BASE_URL=http:\/\/localhost:(\d+) npm/.exec(config)?.[1], served);
+});
+
+test("the demo account's browser tests sign in once a run, not once a test", () => {
+  // 20 sign-ins in 15 minutes per address (core/ratelimit.py): one per test ran into the limit.
+  for (const spec of ["e2e/layout.spec.ts", "e2e/states.spec.ts"]) {
+    assert.doesNotMatch(read(spec), /#password/, `${spec} signs in by itself`);
+    assert.match(read(spec), /from "\.\/session"/);
+  }
+});
+
 test("every page's frame puts its footer last", () => {
   assert.match(read("app/(marketing)/layout.tsx"), /<main id="main" className="flex-1">\{children\}<\/main>\n\s*<SiteFooter \/>\n\s*<\/div>/);
   assert.match(read("components/AppShell.tsx"), /<\/main>\n\s*<Footer \/>\n\s*<\/div>/);

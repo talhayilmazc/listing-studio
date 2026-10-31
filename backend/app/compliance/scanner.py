@@ -90,6 +90,7 @@ async def rescan(session: AsyncSession, content: GeneratedContent) -> list[Findi
 
     The caller commits. Run whenever the text changes or is about to be used.
     """
+    session.sync_session.info.get("blocking", {}).pop(content.id, None)  # compliance/check.py::prefetch_blocking
     vision = (content.attributes or {}).get("vision") or {}
     findings = scan(
         content.title or "",

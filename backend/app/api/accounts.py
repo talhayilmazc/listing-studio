@@ -230,7 +230,7 @@ async def _require_bootstrap_token(session: AsyncSession, token: str | None) -> 
 
 async def bootstrap_token(
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> None:
     """The bootstrap guard as a dependency: it runs before the body is read, so a caller without
     the token gets 404 whatever it sends, never a 422 that would show the endpoint exists."""
@@ -257,7 +257,7 @@ async def _own_password(sessions: SessionStore, tenant: Tenant, password: str, *
 async def register(
     body: RegisterRequest,
     response: Response,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> AccountOut:
     """Create an account against a single-use invite code (A1)."""
@@ -316,7 +316,7 @@ async def login(
     body: LoginRequest,
     request: Request,
     response: Response,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> AccountOut:
     """Exchange credentials for a session cookie (A2)."""
@@ -379,7 +379,7 @@ async def logout(
 @router.get("/session", status_code=204)
 async def session_check(
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> Response:
     """204 if this cookie is a live session of an active account, else 401.
@@ -409,7 +409,7 @@ async def me(tenant: Tenant = Depends(current_tenant)) -> AccountOut:
 async def accept_terms(
     body: TermsAcceptRequest,
     tenant: Tenant = Depends(current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AccountOut:
     """The one-time screen: an existing account agrees to the current Terms of
     Service and Privacy Policy before it goes on. Recorded with the version."""
@@ -433,7 +433,7 @@ async def delete_account(
     request: Request,
     response: Response,
     tenant: Tenant = Depends(current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
     service: ConnectionService = Depends(get_connection_service),
     enqueuer: Enqueuer = Depends(get_enqueuer),
@@ -467,7 +467,7 @@ async def delete_account(
 async def set_time_zone(
     body: TimeZoneRequest,
     tenant: Tenant = Depends(current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AccountOut:
     """The account's time zone for scheduling. Existing schedules keep their instant;
     they are shown in the new zone from now on."""
@@ -484,7 +484,7 @@ async def set_time_zone(
 @router.get("/allowance", response_model=schemas.AllowanceOut)
 async def my_allowance(
     tenant: Tenant = Depends(current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> schemas.AllowanceOut:
     """What this seller has used of their allowance, what's left, and when it resets."""
     return schemas.AllowanceOut(**allowance.status_out(await allowance.status(session, tenant)))
@@ -494,7 +494,7 @@ async def my_allowance(
 async def set_trademark_filter(
     body: TrademarkFilterRequest,
     tenant: Tenant = Depends(current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AccountOut:
     """The seller's own trademark filter (v7 §A4), on by default.
 
@@ -534,7 +534,7 @@ async def change_password(
     body: ChangePasswordRequest,
     response: Response,
     tenant: Tenant = Depends(current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> AccountOut:
     """Replace the password, ending every existing session (A3)."""
@@ -561,7 +561,7 @@ async def change_password(
 async def create_invite(
     body: InviteCreateRequest,
     _: None = Depends(bootstrap_token),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> InviteCreated:
     """Mint a single-use invite code. Returned once; only its hash is stored."""
 
@@ -584,7 +584,7 @@ async def create_invite(
 async def admin_reset_password(
     body: ResetRequest,
     _: None = Depends(bootstrap_token),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> TempPasswordOut:
     """Issue a temporary password; the tenant must change it at next login (A4)."""

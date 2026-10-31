@@ -139,7 +139,7 @@ def _why_not(item: unfinished.DraftRecord) -> str | None:
 @router.get("/unfinished", response_model=list[UnfinishedOut])
 async def list_unfinished(
     batch_id: uuid.UUID | None = Query(None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[UnfinishedOut]:
     return [_out(i) for i in await unfinished.half_made(session, tenant.id, batch_id=batch_id)]
@@ -148,7 +148,7 @@ async def list_unfinished(
 @router.post("/unfinished/finish", response_model=FinishOut)
 async def finish_unfinished(
     body: FinishRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> FinishOut:
@@ -187,7 +187,7 @@ async def finish_unfinished(
 @router.post("/unfinished/{record_id}/dismiss", status_code=204)
 async def dismiss_replaced(
     record_id: str,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> None:
     """Take a draft to delete on Etsy off the list (the seller deleted it there, or will):

@@ -184,6 +184,22 @@ class Settings(BaseSettings):
     # takes ~0.2-0.5 s, so one job sends 2-5 a second: ten jobs can reach the bucket's
     # 10/s, and memory stays bounded (mockup analysis runs one at a time per process).
     worker_max_jobs: int = 10
+    # The worker's own CPU priority (Linux nice). 0: its drafts and go-lives keep pace; only its
+    # heavy image threads give way (IMAGE_WORK_NICE). Measured in docs/load-test.md.
+    worker_nice: int = 0
+    # The image threads' priority, in the API and the worker (core/image_work.py).
+    image_work_nice: int = 10
+    # Its threads per process.
+    image_work_threads: int = 2
+    # Uploaded files in one API process's memory at once; the rest wait on disk (core/image_work.py).
+    upload_memory_mb: int = 100
+    # Database connections per process: kept open (pool) and extra under load (overflow).
+    db_pool_size: int = 10
+    db_pool_overflow: int = 5
+    # How long a request waits for a connection before it fails.
+    db_pool_timeout: int = 60
+    # Postgres ends a transaction left idle this long (and the log says so: db/session.py).
+    db_idle_transaction_seconds: int = 60
     # Etsy allows 150 requests/second under Commercial Access. 10, spaced evenly with
     # no burst (the bucket holds one token), stays far below it; Etsy counts bursts
     # (a 4-token burst once made 429s, docs/duzeltmeler-v5.md §A). Never above Etsy's 150.

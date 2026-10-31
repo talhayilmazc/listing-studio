@@ -38,7 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session, submit_draft
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
 from app.compliance.check import personalization_hold
 from app.pipeline.personalization import HELD_NOTE
@@ -502,13 +502,13 @@ async def join_all_shops(session: AsyncSession, connection: EtsyConnection) -> N
 
 
 @router.get("/batches/{batch_id}/send", response_model=SendStateOut)
-async def send_state(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def send_state(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                      tenant: Tenant = Depends(active_tenant)) -> SendStateOut:
     return await _state(session, tenant, await _batch(session, tenant, batch_id))
 
 
 @router.put("/batches/{batch_id}/send-to", response_model=SendStateOut)
-async def set_send_to(batch_id: uuid.UUID, body: SendToIn, session: AsyncSession = Depends(get_session),
+async def set_send_to(batch_id: uuid.UUID, body: SendToIn, session: AsyncSession = Depends(get_session, scope="function"),
                       tenant: Tenant = Depends(active_tenant)) -> SendStateOut:
     """Where the batch's listings go, or one listing's own exception. Nothing is sent."""
     batch = await _batch(session, tenant, batch_id)
@@ -526,7 +526,7 @@ async def set_send_to(batch_id: uuid.UUID, body: SendToIn, session: AsyncSession
 
 
 @router.post("/batches/{batch_id}/send-to/all-shops", response_model=SendStateOut)
-async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                             tenant: Tenant = Depends(active_tenant)) -> SendStateOut:
     """"Make a group of all my shops": one group with every connected shop, chosen for the batch.
     A group of that name is reused when it has exactly those shops; otherwise a free name."""
@@ -555,14 +555,14 @@ async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends
 
 
 @router.post("/batches/{batch_id}/send/preview", response_model=SendPreviewOut)
-async def send_preview(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session),
+async def send_preview(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session, scope="function"),
                        tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota)) -> SendPreviewOut:
     out, _, _ = await _preview(session, tenant, quota, await _batch(session, tenant, batch_id), body)
     return out
 
 
 @router.post("/batches/{batch_id}/send", response_model=SendOut)
-async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session),
+async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session, scope="function"),
                tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota),
                enqueuer: Enqueuer = Depends(get_enqueuer)) -> SendOut:
     batch = await _batch(session, tenant, batch_id)
@@ -608,7 +608,8 @@ async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depend
         await enqueuer.enqueue("link_profile", str(profile.id))
     from app.workers.plans import release_due
 
-    await release_due(session, enqueuer.enqueue, tenant_id=tenant.id)
+    await release_due(session, enqueuer.enqueue, tenant_id=tenant.id,
+                      submit=lambda t, j: submit_draft(enqueuer, t, j))
     message = (f"{_plural(len(slots), 'listing')} {'goes' if len(slots) == 1 else 'go'} live in the next few minutes."
                if body.when == "publish" else
                f"{_plural(len(slots), 'listing')} scheduled" + (f", {_day(out.first_day)} – {_day(out.finishes_on)}."

@@ -21,14 +21,19 @@ keeps the concrete Anthropic SDK out of the unit tests — they pass a fake.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Protocol
 
+import anthropic  # here, not at the first call: importing it stops the event loop for a second or two
 
+
+from app.core import db_release
 from app.core import ai_meter, alerts
 from app.core.llm_status import classify
 
@@ -194,9 +199,6 @@ class AnthropicLLMClient:
         if messages_client is not None:
             self._messages = messages_client
         else:
-            # Imported lazily so tests (which inject a fake) don't need the SDK.
-            import anthropic
-
             self._messages = anthropic.AsyncAnthropic(api_key=api_key).messages
 
     def build_params(
@@ -269,6 +271,7 @@ class AnthropicLLMClient:
         )
         # Every call is metered here, where every call passes: the ones that
         # worked, the ones refused, the ones whose answer could not be used.
+        await db_release.before_slow()  # tens of seconds: no database connection held for them
         started = time.monotonic()
         try:
             try:
@@ -309,16 +312,21 @@ class AnthropicLLMClient:
         return LLMResult(data=data, usage=usage)
 
 
+@lru_cache(maxsize=16)
+def _shared_client(loop: asyncio.AbstractEventLoop, api_key: str, model: str, thinking: str, effort: str) -> AnthropicLLMClient:
+    return AnthropicLLMClient(api_key=api_key, model=model, thinking=thinking, effort=effort)
+
+
 def client_for(settings: Any, role: str) -> AnthropicLLMClient:
     """The client for ``role`` ("vision" or "content"), per VISION_MODEL /
-    CONTENT_MODEL (each falls back to LLM_MODEL)."""
+    CONTENT_MODEL (each falls back to LLM_MODEL). One per event loop and model: making one builds a
+    TLS context, about 20 ms of CPU, and a shared one keeps its connections to the provider."""
     model = (settings.vision_model if role == "vision" else settings.content_model) or settings.llm_model
-    return AnthropicLLMClient(
-        api_key=settings.llm_api_key,
-        model=model,
-        thinking=settings.llm_thinking,
-        effort=settings.llm_effort,
-    )
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # a script, outside any event loop: nothing to share with
+        return AnthropicLLMClient(api_key=settings.llm_api_key, model=model, thinking=settings.llm_thinking, effort=settings.llm_effort)
+    return _shared_client(loop, settings.llm_api_key, model, settings.llm_thinking, settings.llm_effort)
 
 
 def _parse_json(response: Any) -> dict[str, Any]:

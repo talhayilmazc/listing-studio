@@ -231,7 +231,7 @@ async def _apply(session: AsyncSession, tenant: Tenant, content: GeneratedConten
 @router.get("/content/{content_id}/options", response_model=schemas.ItemOptionsOut)
 async def get_options(
     content_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ItemOptionsOut:
@@ -242,7 +242,7 @@ async def get_options(
 async def set_options(
     content_id: uuid.UUID,
     body: schemas.ItemOptionsUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ItemOptionsOut:
@@ -258,7 +258,7 @@ async def set_options(
 async def set_options_for_selected(
     batch_id: uuid.UUID,
     body: schemas.ItemOptionsBulk,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ItemOptionsBulkOut:
     """"Set for selected": the same Occasion / Holiday / Section for each listing.
@@ -295,7 +295,7 @@ async def set_options_for_selected(
 async def create_section(
     connection_id: uuid.UUID,
     body: schemas.SectionCreate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.SectionCreateOut:

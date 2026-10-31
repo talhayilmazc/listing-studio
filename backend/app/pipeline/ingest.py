@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core import image_work
 from app.core import storage_cap
 from app.core.config import get_settings
 from app.db.models import Asset, AssetStatus, Tenant, UploadBatch, UploadBatchStatus
@@ -147,6 +148,8 @@ class BatchIngestor:
 
         room = await self._room(session, tenant_id)
         batch = await session.get(UploadBatch, batch_id)
+        # No connection is held while the image is processed (see core/image_work.py).
+        await session.commit()
         asset = await self._ingest_one(
             tenant_id, batch_id, 0, upload, admitted, group_key, room,
             mode=mode if mode is not None else (batch.grouping_mode if batch is not None else None),
@@ -256,7 +259,7 @@ class BatchIngestor:
         # processed copy is written; a file that cannot be processed stores nothing.
         try:
             # Image work is CPU-bound; keep the event loop free.
-            processed = await asyncio.to_thread(
+            processed = await image_work.run(
                 self._processor.process, upload.data, self._config.processing
             )
         except ImageProcessingError:

@@ -37,6 +37,25 @@ export function worthReporting(method: string, path: string, status: number): bo
   return status === 0 || status >= 500;
 }
 
+/** How long after the browser starts leaving a page a request that fails is its doing, not an outage. */
+const LEAVING_MS = 3000;
+let leftAt = -Infinity;
+
+export function noteLeaving(now: number = Date.now()): void {
+  leftAt = now;
+}
+
+/** The browser cuts off what is in flight when a page is left, and that looks like a lost
+ * connection: false "could not reach" reports each time a seller moved on before a page finished. */
+export function pageIsLeaving(now: number = Date.now()): boolean {
+  return now - leftAt < LEAVING_MS;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => noteLeaving());
+  window.addEventListener("pagehide", () => noteLeaving());
+}
+
 const allowed = throttle();
 
 export function report(event: SellerEvent): void {

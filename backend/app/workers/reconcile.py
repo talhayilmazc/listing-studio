@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from app.core import limits
 from app.core.config import get_settings
@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 MAX_LISTINGS = 300
 #: Drafts a run reads one by one at most (those the batch read did not return).
 SINGLES = 50
+#: The hourly look at every shop is spread over this much of the hour.
+SPREAD_OVER_SECONDS = 3000.0
 
 
 def due_query(now: datetime, connection_id: uuid.UUID | None = None):  # noqa: ANN201
@@ -45,6 +47,12 @@ def due_query(now: datetime, connection_id: uuid.UUID | None = None):  # noqa: A
     if connection_id is not None:
         query = query.where(ListingPublication.connection_id == connection_id)
     return query
+
+
+def spread_seconds(n: int, shops: int) -> float:
+    """When the ``n``-th of ``shops`` shops is looked at, within the hour: 300 shops queued at once
+    sat in front of everything else for minutes (the load test)."""
+    return n * SPREAD_OVER_SECONDS / max(shops, 1)
 
 
 async def reconcile_listings(ctx: dict[str, Any], connection_id: str) -> str:
@@ -78,14 +86,22 @@ async def _run(ctx: dict[str, Any], connection_id: str) -> str:
             client = _build_client(ctx, http, settings, shop=connection.id)
             reading = await reconcile.read_states(client, [p.etsy_listing_id for p in due], kw, singles=SINGLES)
         changes: dict[str, int] = {}
+        unchanged: list[uuid.UUID] = []
         for publication in due:
             state = reading.states.get(publication.etsy_listing_id)
             if state is None:
                 continue  # not read this time: the next run tries again
+            if state != "unknown" and reconcile.decide(publication, state) is None:
+                unchanged.append(publication.id)  # all of these in one statement, below
+                continue
             change = await reconcile.apply(session, publication, state, reading.listings.get(publication.etsy_listing_id),
                                            now=now)
             if change:
                 changes[change] = changes.get(change, 0) + 1
+        # One UPDATE, not one per row: 45,751 of them took 187 s of the database in a load test.
+        if unchanged:
+            await session.execute(update(ListingPublication).where(ListingPublication.id.in_(unchanged))
+                                  .values(etsy_checked_at=now).execution_options(synchronize_session=False))
         await session.commit()
     if changes:
         logger.info("reconcile: shop %s, %s, %d request(s)", connection_id, changes, reading.requests)
@@ -102,6 +118,7 @@ async def reconcile_all_shops(ctx: dict[str, Any]) -> int:
             .where(EtsyConnection.id.in_(due_query(now).with_only_columns(ListingPublication.connection_id)))
         )).scalars())
     hour = now.strftime("%Y-%m-%dT%H")
-    for cid in shops:
-        await _enqueue_job(ctx, "reconcile_listings", str(cid), _job_id=f"reconcile:{cid}:{hour}")
+    for n, cid in enumerate(shops):
+        await _enqueue_job(ctx, "reconcile_listings", str(cid), _job_id=f"reconcile:{cid}:{hour}",
+                           _defer_by=spread_seconds(n, len(shops)))
     return len(shops)

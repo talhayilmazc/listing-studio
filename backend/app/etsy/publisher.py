@@ -42,6 +42,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import db_release
 from app.core import audit
 from app.db.models import (
     Asset,
@@ -400,6 +401,7 @@ async def _became_active(
     """Read the listing back until it shows active, a few times, spaced out."""
     for attempt in range(attempts):
         if attempt:
+            await db_release.before_slow()
             await asyncio.sleep(wait)
         try:
             listing = await client.get_listing(listing_id, **ctx)
@@ -408,6 +410,10 @@ async def _became_active(
         if listing.get("state") == "active":
             return True
     return False
+
+
+class AlreadyDrafted(ValueError):
+    """Another job finished this draft first. Nothing failed and nothing was sent."""
 
 
 async def publication_for(
@@ -551,7 +557,7 @@ async def publish_content(
     if await _has_blocking_finding(session, content.id):
         raise PublishBlocked("content has a blocking compliance finding")
     if await publication_for(session, content.id, connection.id) is not None:
-        raise ValueError("this listing already has a draft in this shop")
+        raise AlreadyDrafted("this listing already has a draft in this shop")
     attempt = await attempt_for(session, content.id, connection.id)
 
     # 2) Resolve the shop id.
@@ -782,6 +788,7 @@ async def publish_content(
             raise
         except UNCERTAIN as exc:
             # No answer, or a 5xx: Etsy may have made the draft anyway. Look for it.
+            await db_release.before_slow()
             await asyncio.sleep(ADOPT_WAIT_SECONDS)
             found = await _find_unanswered_draft(session, client, shop_id, attempt, ctx)
             if found is None:
@@ -1154,10 +1161,11 @@ async def publish_live(
         if not await _became_active(
             client, listing_id, ctx, attempts=confirm_attempts, wait=confirm_wait
         ):
-            raise ValueError(
-                "Etsy did not confirm the listing went live; it is still a draft. "
-                "Try Publish now again."
-            ) from exc
+            # Read back: still a draft, so going again cannot publish twice. Etsy being down for a
+            # moment is not the seller's failure: the job waits and runs again like any other
+            # (workers/recovery.py), and says why only when its attempts run out. It failed for
+            # good here before: 1 in 200 go-lives at Etsy's usual 5xx rate (the load test).
+            raise
         logger.info("publish-live: listing %s confirmed active after %s", listing_id, type(exc).__name__)
     except EtsyClientError as exc:
         if exc.status_code not in (404, 410):

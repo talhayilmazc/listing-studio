@@ -80,7 +80,7 @@ class ShortenOut(BaseModel):
 @router.post("/personalization/shorten", response_model=ShortenOut)
 async def shorten(
     body: ShortenIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     redis: Redis = Depends(get_redis),
 ) -> ShortenOut:
@@ -104,6 +104,7 @@ async def shorten(
         return ShortenOut(text=cached.decode() if isinstance(cached, bytes) else str(cached))
     if await llm_status.current(redis):
         return ShortenOut(message=llm_status.SELLER_MESSAGE)
+    await session.commit()  # no connection is held while the model answers (see batches._write_listings)
     try:
         async with ai_meter.scope(tenant.id, session):
             offer = await F.shorten(client_for(get_settings(), "content"), text, body.field)
@@ -187,7 +188,7 @@ async def following(session: AsyncSession, profile: ListingProfile) -> list[Gene
 async def fix_profile(
     profile_id: uuid.UUID,
     body: FixIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> ProfileFixOut:
@@ -210,7 +211,7 @@ async def fix_profile(
 async def fix_content(
     content_id: uuid.UUID,
     body: FixIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> ContentFixOut:
@@ -322,8 +323,10 @@ async def requeue_held(
     await _next_allowed(session, tenant, moved, now)
     out.listings = [ids[c].id for c in ids if c in touched]
     await session.commit()
+    from app.api.deps import submit_draft
+
     for job_id in to_run:
-        await enqueuer.enqueue("run_publish_job", str(job_id))
+        await submit_draft(enqueuer, tenant.id, job_id)  # in the account's fair turn
     return out
 
 

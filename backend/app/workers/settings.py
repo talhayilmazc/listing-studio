@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import uuid
 import logging
+import os
 from typing import Any
 
 from arq import cron
 from arq.connections import RedisSettings
 
+from app.core import redis_pool
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
 from app.core.logsafety import configure_app_logging, install_log_redaction
@@ -44,6 +46,7 @@ from app.workers.profiles import (
 )
 from app.workers.publish import run_publish_job, run_publish_live_job
 from app.workers.reconcile import reconcile_all_shops, reconcile_listings
+from app.workers.fair import top_up as fair_top_up
 from app.workers.recovery import recover_interrupted_jobs
 from app.workers.replace import run_replace_images_job
 from app.workers.retention import purge_expired
@@ -55,6 +58,7 @@ from app.workers.upkeep import daily_upkeep
 from app.workers.etsy_spec import check_etsy_spec
 
 logger = logging.getLogger(__name__)
+redis_pool.install()
 
 # The worker logs job failures with full tracebacks; scrub them like the API does.
 install_log_redaction()
@@ -83,8 +87,19 @@ async def flush_usage(ctx: dict[str, Any]) -> None:
         await ctx["usage"].flush(session)
 
 
+def _give_way_to_the_api(settings: Any) -> None:
+    """Pages first when the CPUs are busy: threads started from here on inherit this."""
+    if not settings.worker_nice:
+        return
+    try:
+        os.nice(settings.worker_nice)
+    except (OSError, AttributeError):  # not on this platform: only a priority
+        logger.info("could not lower the worker's CPU priority")
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
+    _give_way_to_the_api(settings)
     # Said at every start, so the log shows which way this worker is running.
     if settings.etsy_calls_blocked:
         logger.warning("ETSY_CALLS_BLOCKED is on: this worker sends nothing to Etsy (no API call, token refresh or image fetch)")
@@ -155,6 +170,8 @@ class WorkerSettings:
         cron(release_scheduled_publishes, second=30, run_at_startup=True),
         # Group schedules (v8 §B): each planned draft when its time comes.
         cron(release_planned_drafts, second=40, run_at_startup=True),
+        # Drafts held for each account's fair turn: what a lost worker never handed over (workers/fair.py).
+        cron(fair_top_up, second=50, run_at_startup=True),
         # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
         cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).

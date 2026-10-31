@@ -8,6 +8,7 @@ then reported as failed.
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -114,9 +115,28 @@ def policy_for(content_template: str) -> ContentPolicy:
     return _POLICIES.get(content_template, ContentPolicy())
 
 
+@functools.lru_cache(maxsize=4096)
+def _term_pattern(term: str) -> re.Pattern[str]:
+    return re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+
+
 def _has_term(text: str, term: str) -> bool:
-    """Whole-word (case-insensitive) match, so 'png' won't fire inside 'opening'."""
-    return re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE) is not None
+    """Whole-word (case-insensitive) match, so 'png' won't fire inside 'opening'. Each term is
+    compiled once (a page checks every listing against every term: the load test)."""
+    return _term_pattern(term).search(text) is not None
+
+
+@functools.lru_cache(maxsize=256)
+def _any_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
+    return re.compile(r"\b(?:" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
+
+
+def _hits(text: str, terms: tuple[str, ...]) -> set[str]:
+    """The terms found whole-word in ``text``: one search for the whole list first, since almost
+    no text has any (a page of 150 listings ran ~60,000 term searches: the load test)."""
+    if not terms or not text or _any_pattern(tuple(terms)).search(text) is None:
+        return set()
+    return {t for t in terms if _has_term(text, t)}
 
 
 # A title that repeats this many consecutive words of the design's printed text
@@ -549,12 +569,16 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
     title = listing.title
     tags = listing.tags
 
+    tag_hits = {t: _hits(t, policy.forbidden_terms) | _hits(t, policy.forbidden_tag_terms)
+                | _hits(t, policy.forbidden_filler_terms) for t in tags}
+    title_hits = _hits(title, policy.forbidden_terms) | _hits(title, policy.forbidden_filler_terms)
+
     for term in policy.forbidden_terms:
-        if _has_term(title, term):
+        if term in title_hits:
             errors.append(
                 f"remove '{term}' from the title — not allowed for this product type"
             )
-        bad = [t for t in tags if _has_term(t, term)]
+        bad = [t for t in tags if term in tag_hits[t]]
         if bad:
             errors.append(
                 f"remove '{term}' from these tags: {bad} — not allowed for this product type"
@@ -562,7 +586,7 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
 
     # Generic design adjectives carry no search value -> rejected as tags (v4 §H).
     for term in policy.forbidden_tag_terms:
-        bad = [t for t in tags if _has_term(t, term)]
+        bad = [t for t in tags if term in tag_hits[t]]
         if bad:
             errors.append(
                 f"replace the generic tag(s) {bad}: '{term}' has no search value — "
@@ -571,12 +595,12 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
 
     # Filler with no search value, in the title or a tag (v6 §B).
     for term in policy.forbidden_filler_terms:
-        if _has_term(title, term):
+        if term in title_hits:
             errors.append(
                 f"remove '{term}' from the title: it has no search value and wastes "
                 "space; use a phrase a buyer would type (subject, occasion, recipient)"
             )
-        bad = [t for t in tags if _has_term(t, term)]
+        bad = [t for t in tags if term in tag_hits[t]]
         if bad:
             errors.append(
                 f"replace the tag(s) {bad}: '{term}' has no search value — each tag "
@@ -585,9 +609,9 @@ def _policy_errors(listing: GeneratedListing, policy: ContentPolicy) -> list[str
 
     if policy.required_type_terms:
         options = ", ".join(policy.required_type_terms)
-        if not any(_has_term(title, term) for term in policy.required_type_terms):
+        if not _hits(title, policy.required_type_terms):
             errors.append(f"title must name the product type (one of: {options})")
-        if not any(_has_term(tag, term) for tag in tags for term in policy.required_type_terms):
+        if not any(_hits(tag, policy.required_type_terms) for tag in tags):
             errors.append(f"at least one tag must name the product type (e.g. {options})")
 
     return errors

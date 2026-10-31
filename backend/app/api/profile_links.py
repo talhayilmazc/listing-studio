@@ -266,7 +266,7 @@ async def _scope_shops(session: AsyncSession, tenant: Tenant, body: UseIn) -> li
 async def use_in(
     profile_id: uuid.UUID,
     body: UseIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> UseInOut:
@@ -285,7 +285,7 @@ async def use_in(
 @router.get("/{profile_id}/setup", response_model=SetupOut)
 async def setup(
     profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     redis: Any = Depends(get_redis),
 ) -> SetupOut:
@@ -414,7 +414,7 @@ async def _link(session: AsyncSession, profile: ListingProfile, shop_id: uuid.UU
 async def create_in_shops(
     profile_id: uuid.UUID,
     body: CreateIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Any = Depends(get_redis),
@@ -450,7 +450,7 @@ async def pick_in_shop(
     profile_id: uuid.UUID,
     connection_id: uuid.UUID,
     body: PickIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     redis: Any = Depends(get_redis),
 ) -> schemas.ProfileOut:
@@ -475,7 +475,7 @@ async def pick_in_shop(
 async def apply_setup(
     profile_id: uuid.UUID,
     body: ApplyIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Any = Depends(get_redis),
@@ -537,7 +537,7 @@ async def apply_setup(
 async def check_shop_again(
     profile_id: uuid.UUID,
     connection_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Any = Depends(get_redis),
@@ -560,7 +560,7 @@ async def check_shop_again(
 async def stop_using_in_shop(
     profile_id: uuid.UUID,
     connection_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)
@@ -580,7 +580,7 @@ async def stop_using_in_shop(
 async def set_reference(
     profile_id: uuid.UUID,
     body: ReferenceIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
@@ -617,7 +617,7 @@ def _costs(tenant: Tenant, profile_id: uuid.UUID) -> Any:
 
 @router.get("/link-suggestions", response_model=list[Suggestion])
 async def link_suggestions(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> list[Suggestion]:
     """Profiles with the same name whose main shops differ: one profile could serve them."""
@@ -644,7 +644,7 @@ async def link_suggestions(
 async def link_profiles(
     profile_id: uuid.UUID,
     body: LinkProfileIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:

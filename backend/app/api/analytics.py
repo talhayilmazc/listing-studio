@@ -115,7 +115,7 @@ async def get_costs(tenant: Tenant = Depends(active_tenant)) -> CostsOut:
 @router.put("/costs", response_model=CostsOut)
 async def put_costs(
     body: CostsIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> CostsOut:
     """The seller's fee rates and costs; every rate is theirs to change (Etsy's change)."""
@@ -301,7 +301,7 @@ async def _sales_shop(session: AsyncSession, tenant: Tenant, shop: uuid.UUID | N
 @router.get("/sales/status", response_model=SalesSyncOut)
 async def sales_status(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> SalesSyncOut:
     connection = await selected_shop(session, tenant, shop)
@@ -313,7 +313,7 @@ async def sales_status(
 @router.post("/sales/estimate", response_model=SalesSyncOut, status_code=202)
 async def estimate_sales(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> SalesSyncOut:
@@ -344,7 +344,7 @@ async def estimate_sales(
 @router.post("/sales/start", response_model=SalesSyncOut, status_code=202)
 async def start_sales_read(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> SalesSyncOut:
@@ -368,7 +368,7 @@ async def start_sales_read(
 @router.post("/sales/resume", response_model=SalesSyncOut, status_code=202)
 async def resume_sales_read(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> SalesSyncOut:
@@ -400,7 +400,7 @@ async def resume_sales_read(
 @router.post("/ledger/estimate", response_model=SalesSyncOut, status_code=202)
 async def estimate_ledger(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> SalesSyncOut:
@@ -422,7 +422,7 @@ async def estimate_ledger(
 @router.post("/ledger/start", response_model=SalesSyncOut, status_code=202)
 async def start_ledger_read(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> SalesSyncOut:
@@ -439,7 +439,7 @@ async def start_ledger_read(
 
 @router.get("/sales/reread", response_model=sales_reread.RereadReport)
 async def sales_reread_status(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> sales_reread.RereadReport:
     """Where the one-time second read of the sales stands, for each of the
@@ -455,7 +455,7 @@ def _now_stamp() -> str:
 async def delete_sales_history(
     body: HistoryDeleteIn,
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> HistoryDeletedOut:
     """"Delete my sales history" for one of the seller's own shops: its order lines, daily sales
@@ -480,7 +480,7 @@ async def delete_sales_history(
 @router.post("/sales/refresh", status_code=202)
 async def refresh_sales(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, bool]:
@@ -753,7 +753,7 @@ async def summary(
     shop: uuid.UUID | None = None,
     days: int = 30,
     compare: str = "previous",
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -791,7 +791,7 @@ async def listings(
     shop: uuid.UUID | None = None,
     days: int = 30,
     compare: str = "previous",
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -819,7 +819,7 @@ async def listing_detail(
     listing_id: int,
     shop: uuid.UUID | None = None,
     days: int = 30,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -938,7 +938,7 @@ async def breakdown(
     metric: str,
     shop: uuid.UUID | None = None,
     days: int = 30,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -964,7 +964,7 @@ async def export(
     days: int = 30,
     compare: str = "previous",
     metric: str | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> Response:

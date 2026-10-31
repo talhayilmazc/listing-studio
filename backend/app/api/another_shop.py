@@ -59,6 +59,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.distribution import _contents
 from app.compliance.check import listing_problem
 from app.api.shops import shop_label
+from app.core import db_release
 from app.core import allowance, audit
 from app.db.models import (
     Asset,
@@ -326,7 +327,7 @@ def _apply_text(content: GeneratedContent, shop_id: uuid.UUID, text: ShopTextIn 
 
 
 async def _why_not_here(session: AsyncSession, content: GeneratedContent, shop: EtsyConnection,
-                        profile: ListingProfile | None, row: AnotherShopRow) -> str | None:
+                        profile: ListingProfile | None, row: AnotherShopRow, *, reading: bool = False) -> str | None:
     """Why this listing cannot go to that shop now: not approved (or edited for that shop since),
     its files gone, its text there (the shop's own, else the listing's) refused, or a production
     partner Etsy requires. None: it can go."""
@@ -337,7 +338,7 @@ async def _why_not_here(session: AsyncSession, content: GeneratedContent, shop: 
     asset = await session.get(Asset, content.asset_id)
     if asset is not None and asset.files_removed_at is not None:
         return "its image files were deleted after the retention period"
-    problem = await listing_problem(session, content, shop.id)
+    problem = await listing_problem(session, content, shop.id, scan=not reading)
     if problem:
         return problem
     if row.partner == shop_listing.PARTNER_REQUIRED:
@@ -383,10 +384,11 @@ def _new_sku(body: AnotherShopIn, content: GeneratedContent, current: str | None
 
 
 async def _work(
-    session: AsyncSession, tenant: Tenant, batch: UploadBatch, body: AnotherShopIn
+    session: AsyncSession, tenant: Tenant, batch: UploadBatch, body: AnotherShopIn, *, reading: bool = False
 ) -> tuple[AnotherShopPreview, list[tuple[GeneratedContent, str | None]], EtsyConnection]:
     """What sending would do. Sets the new profile and SKUs on the listings in the session
-    (never committed here) so each listing is checked as it would be drafted."""
+    (never committed here) so each listing is checked as it would be drafted. ``reading``: only
+    shown (the workspace rows): compliance findings are read as they are, not scanned again."""
     shop = await _target_shop(session, tenant, body.connection_id)
     choices = await _shop_profiles(session, tenant, shop)
     if body.profile_id is not None and all(p.id != body.profile_id for p in choices):
@@ -403,7 +405,14 @@ async def _work(
     given: dict[str, list[str]] = {}
     text_problems = 0
     chosen_profile = await session.get(ListingProfile, body.profile_id) if body.profile_id else None
+    if reading:
+        from app.compliance.check import prefetch_blocking
+
+        await prefetch_blocking(session, contents)
     period = await allowance.status(session, tenant)
+    free_left = await allowance.free_rewrites_left_many(session, tenant, [
+        allowance.design_key(c.batch_id, (assets[c.asset_id].group_key if c.asset_id in assets else None) or "")
+        for c in contents], period)
     publications = {p.content_id: p for p in (await session.execute(select(ListingPublication).where(
         ListingPublication.connection_id == shop.id, ListingPublication.content_id.in_([c.id for c in contents]),
         ListingPublication.state != "deleted_on_etsy"))).scalars()} if contents else {}
@@ -430,8 +439,7 @@ async def _work(
         row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
         row.own_text = bool(shop_listing.text_in(content, shop.id))
         row.text_own = sorted(shop_listing.text_in(content, shop.id))
-        row.free_rewrites_left = await allowance.free_rewrites_left(
-            session, tenant, allowance.design_key(content.batch_id, key), period)
+        row.free_rewrites_left = free_left.get(allowance.design_key(content.batch_id, key), allowance.FREE_REWRITES)
         profile = await _profile_there(session, content, shop.id, chosen_profile)
         row.profile_name = profile.name if profile is not None else None
         check = await check_text(session, content, profile, row.title, row.tags, row.description)
@@ -444,7 +452,7 @@ async def _work(
         link = await profile_shops.link_for(session, profile, shop.id) if profile is not None else None
         row.partner = shop_listing.partner_state(profile, link)
         row.partner_profile_id = profile.id if profile is not None and row.partner != shop_listing.PARTNER_OK else None
-        why = await _why_not_here(session, content, shop, profile, row)
+        why = await _why_not_here(session, content, shop, profile, row, reading=reading)
         if why:
             row.state, row.reason = "cannot", why
             continue
@@ -505,7 +513,7 @@ async def _work(
 
 
 @router.get("/batches/{batch_id}/shops", response_model=BatchShopsOut)
-async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
                       tenant: Tenant = Depends(active_tenant)) -> BatchShopsOut:
     """Where the batch's listings stand in each connected shop."""
     batch = await _batch(session, tenant, batch_id)
@@ -569,7 +577,7 @@ async def _written_elsewhere(session: AsyncSession, tenant: Tenant, batch: Uploa
 
 
 @router.post("/batches/{batch_id}/another-shop/preview", response_model=AnotherShopPreview)
-async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session),
+async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session, scope="function"),
                                tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), body)
     await session.rollback()  # the preview never keeps the SKUs or profile it tried
@@ -579,24 +587,24 @@ async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session
 @router.get("/batches/{batch_id}/shops/{connection_id}/rows", response_model=AnotherShopPreview)
 async def workspace_rows(batch_id: uuid.UUID, connection_id: uuid.UUID,
                          content_ids: list[uuid.UUID] = Query(default_factory=list, max_length=2000),
-                         session: AsyncSession = Depends(get_session),
+                         session: AsyncSession = Depends(get_session, scope="function"),
                          tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """The workspace's rows for one shop, and the send summary (``content_ids``: the selected
     rows): nothing about the listings is kept; a summary's result is recorded as counts per
     reason (``seller_event``). (The page used ``POST /another-shop/preview`` for both.)"""
     tenant_id = tenant.id
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id),
-                                AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None))
-    await session.rollback()
+                                AnotherShopIn(connection_id=connection_id, content_ids=content_ids or None), reading=True)
     if content_ids:  # the send summary: its result is recorded, counts per reason only (api/events.py)
         from app.api.events import record_summary
 
+        await session.rollback()  # (else nothing is committed: the session just closes)
         await record_summary(session, tenant_id, batch_id, connection_id, preview)
     return preview
 
 
 @router.post("/batches/{batch_id}/another-shop", response_model=AnotherShopOut)
-async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session),
+async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session, scope="function"),
                        tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota),
                        enqueuer: Enqueuer = Depends(get_enqueuer)) -> AnotherShopOut:
     """Drafts of these listings in that shop, with its profile and these SKUs. Listings
@@ -644,6 +652,7 @@ async def _write(
     asset = await session.get(Asset, content.asset_id)
     if asset is None or asset.files_removed_at is not None or not asset.processed_key:
         raise ValueError("its image files were deleted after the retention period")
+    await session.commit()  # no connection is held while the model answers (see batches._write_listings)
     settings = get_settings()
     generator = AnthropicContentGenerator(
         client_for(settings, "content"), template=load_template(content_template_for(profile)),
@@ -653,6 +662,7 @@ async def _write(
     async with ai_meter.scope(tenant.id, session) as meter:
         vision = await analyzer.analyze(storage.get(asset.processed_key), asset.mime_type or "image/jpeg")
         result = await generator.generate(vision.analysis, asset.parsed_sku)
+        await db_release.ready_to_save(session)  # the model's answer is paid for
         meter.listing_written()
     body = str((profile.cached_payload or {}).get("description", ""))
     listing = result.listing
@@ -661,7 +671,7 @@ async def _write(
 
 
 @router.post("/batches/{batch_id}/another-shop/rewrite", response_model=RewriteOut)
-async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncSession = Depends(get_session),
+async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncSession = Depends(get_session, scope="function"),
                            tenant: Tenant = Depends(active_tenant),
                            storage: Storage = Depends(get_storage)) -> RewriteOut:
     """"Rewrite for this shop": each listing written again in that shop's profile style and
@@ -776,7 +786,7 @@ async def _open_rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID,
 
 @router.put("/batches/{batch_id}/shops/{connection_id}/profile", response_model=AnotherShopPreview)
 async def workspace_profile(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceProfileIn,
-                            session: AsyncSession = Depends(get_session),
+                            session: AsyncSession = Depends(get_session, scope="function"),
                             tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """The profile these listings go to that shop with (that shop's own, or each listing's own
     through the shop link). Nothing else changes; the listing's own profile stays."""
@@ -827,7 +837,7 @@ async def _sku_refusals(session: AsyncSession, tenant: Tenant, shop: EtsyConnect
 
 @router.post("/batches/{batch_id}/shops/{connection_id}/skus/check", response_model=WorkspaceSkusOut)
 async def workspace_skus_check(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceSkusIn,
-                               session: AsyncSession = Depends(get_session),
+                               session: AsyncSession = Depends(get_session, scope="function"),
                                tenant: Tenant = Depends(active_tenant)) -> WorkspaceSkusOut:
     """As the seller types: what saving these SKUs for that shop would refuse. Nothing is saved."""
     shop, contents, assets = await _open_rows(session, tenant, batch_id, connection_id, list(body.skus))
@@ -837,7 +847,7 @@ async def workspace_skus_check(batch_id: uuid.UUID, connection_id: uuid.UUID, bo
 
 @router.put("/batches/{batch_id}/shops/{connection_id}/skus", response_model=WorkspaceSkusOut)
 async def workspace_skus(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceSkusIn,
-                         session: AsyncSession = Depends(get_session),
+                         session: AsyncSession = Depends(get_session, scope="function"),
                          tenant: Tenant = Depends(active_tenant)) -> WorkspaceSkusOut:
     """These listings' SKUs in that shop, saved at once, or none of them (409 with the list) when
     one is already used there, given twice, or not allowed by Etsy. Other shops keep theirs."""
@@ -857,7 +867,7 @@ async def workspace_skus(batch_id: uuid.UUID, connection_id: uuid.UUID, body: Wo
 
 @router.put("/batches/{batch_id}/shops/{connection_id}/texts", response_model=list[WorkspaceTextRow])
 async def workspace_texts(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceTextsIn,
-                          session: AsyncSession = Depends(get_session),
+                          session: AsyncSession = Depends(get_session, scope="function"),
                           tenant: Tenant = Depends(active_tenant)) -> list[WorkspaceTextRow]:
     """These listings' title, tags and description for that shop (a field equal to the
     listing's follows it; ``reset``: the listing's text again), with what Etsy would refuse and
@@ -877,7 +887,8 @@ async def workspace_texts(batch_id: uuid.UUID, connection_id: uuid.UUID, body: W
 
 
 async def _rows(session: AsyncSession, tenant: Tenant, batch_id: uuid.UUID, shop_id: uuid.UUID) -> AnotherShopPreview:
-    preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), AnotherShopIn(connection_id=shop_id))
+    preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), AnotherShopIn(connection_id=shop_id),
+                                reading=True)
     await session.rollback()
     return preview
 
@@ -888,7 +899,7 @@ class WorkspaceApproveIn(BaseModel):
 
 @router.post("/batches/{batch_id}/shops/{connection_id}/approve", response_model=AnotherShopPreview)
 async def workspace_approve(batch_id: uuid.UUID, connection_id: uuid.UUID, body: WorkspaceApproveIn,
-                            session: AsyncSession = Depends(get_session),
+                            session: AsyncSession = Depends(get_session, scope="function"),
                             tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
     """"Approve selected" in the workspace: each listing approved (if it was not) and approved for
     that shop (its text there edited since approval). A listing whose text for that shop Etsy

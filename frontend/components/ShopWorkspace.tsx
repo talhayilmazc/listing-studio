@@ -68,7 +68,12 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
   }));
   const shop = shops.find((s) => s.id === shopId) ?? null;
   const colour = shopColour(Math.max(0, shops.findIndex((s) => s.id === shopId)));
-  const [preview, setPreview] = useState<AnotherShopPreview | null>(null);
+  // Rows belong to the shop they were read for. Shown under another shop, or kept mounted across a
+  // switch, a row's waiting save went to the new shop: one shop's text written into the next.
+  const [loaded, setLoaded] = useState<{ shopId: string; rows: AnotherShopPreview } | null>(null);
+  const preview = loaded && loaded.shopId === shopId ? loaded.rows : null;
+  const shopInView = useRef(shopId);
+  shopInView.current = shopId;
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,11 +82,12 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
   const [sent, setSent] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
-    if (!shopId) return setPreview(null);
+    if (!shopId) return setLoaded(null);
     try {
-      setPreview(await api.workspaceRows(batchId, shopId));
+      const rows = await api.workspaceRows(batchId, shopId);
+      if (shopInView.current === shopId) setLoaded({ shopId, rows });
     } catch (e: any) {
-      setProblem(e.message ?? String(e));
+      if (shopInView.current === shopId) setProblem(e.message ?? String(e));
     }
   }, [batchId, shopId]);
   useEffect(() => {
@@ -89,6 +95,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
     setSummary(null);
     setSent(null);
     setNotice(null);
+    setProblem(null);
     load();
   }, [load]);
   useEffect(() => {
@@ -122,7 +129,8 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
     setBusy(true);
     setProblem(null);
     try {
-      setSummary(await api.workspaceRows(batchId, shopId, chosen));
+      const answer = await api.workspaceRows(batchId, shopId, chosen);
+      if (shopInView.current === shopId) setSummary(answer);
     } catch (e: any) {
       setProblem(e.message ?? String(e));
     } finally {
@@ -190,7 +198,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
           {problem && <p key="problem" role="alert" className="text-sm text-rose-700">{problem}</p>}
           <ul className="space-y-2">
             {rows.map((r) => (
-              <WorkspaceRow key={r.content_id} row={r} shop={shop} colour={colour} batchId={batchId}
+              <WorkspaceRow key={`${shopId}:${r.content_id}`} row={r} shop={shop} colour={colour} batchId={batchId}
                 cover={coverOf[r.content_id]} profiles={shopProfiles} picked={chosen.includes(r.content_id)}
                 rewriteRule={preview.rewrite_rule} busy={busy}
                 onPick={(on) => setPicked((cur) => (on ? [...cur, r.content_id] : cur.filter((x) => x !== r.content_id)))}

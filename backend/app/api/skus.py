@@ -230,7 +230,7 @@ async def _shop_sku(
 async def set_group_sku(
     batch_id: uuid.UUID,
     body: schemas.GroupSku,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.SkuResult:
     """The group card's SKU field."""
@@ -254,7 +254,7 @@ async def _own_content(session: AsyncSession, tenant: Tenant, content_id: uuid.U
 async def set_listing_sku(
     content_id: uuid.UUID,
     body: schemas.ListingSku,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.SkuResult:
     """The review card's SKU field."""
@@ -268,7 +268,7 @@ async def set_listing_sku(
 async def set_sku_for_selected(
     batch_id: uuid.UUID,
     body: schemas.SkuBulk,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.SkuBulkOut:
     """"Set SKU for selected": one SKU for each, or each listing's own with a
@@ -310,7 +310,7 @@ async def set_sku_for_selected(
 @router.get("/batches/{batch_id}/sku-etsy", response_model=schemas.SkuOnEtsyOut)
 async def sku_on_etsy(
     batch_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> schemas.SkuOnEtsyOut:
     """Each listing of the batch whose drafts on Etsy carry another SKU than the one it
@@ -356,7 +356,7 @@ NOT_CONFIRMED = ("Nothing was sent to Etsy: press \"Update SKU on Etsy\", check 
 async def update_sku_on_etsy(
     content_id: uuid.UUID,
     body: schemas.SkuEtsyRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.SkuEtsyOut:

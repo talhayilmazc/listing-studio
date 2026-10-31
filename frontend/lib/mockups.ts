@@ -363,3 +363,9 @@ export function designSlotsLine(design: MockupDesign): string {
   const names = [design.subgroup ?? "Every subgroup", ...(design.versions ?? []).map((v) => v.subgroup)];
   return names.join(", ");
 }
+
+/** A waiting mockup job's place, in words ("3 ahead, about 2 minutes"); "" when it is next or running. */
+export function queueLine(queue: { ahead: number; minutes: number } | null | undefined): string {
+  if (!queue || queue.ahead <= 0) return "";
+  return `${queue.ahead} ahead, about ${queue.minutes} minute${queue.minutes === 1 ? "" : "s"}`;
+}

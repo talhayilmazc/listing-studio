@@ -194,7 +194,7 @@ def _trim(trims: dict | None) -> tuple[list[int] | None, list[int] | None]:
 
 @router.get("/mockup-runs/{run_id}/edits", response_model=EditsOut)
 async def get_edits(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> EditsOut:
     run = await _own_run(session, tenant, run_id)
     photos = await _run_photos(session, run)
@@ -232,7 +232,7 @@ async def get_edits(
 @router.get("/mockup-designs/{design_id}/file")
 async def design_file(
     design_id: uuid.UUID, request: Request, version: uuid.UUID | None = Query(None), v: str | None = Query(None, max_length=40),
-    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
+    session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
 ) -> Response:
     """A design file as stored (never changed): the editor previews recolouring on it. Full
     size, as the editor's arithmetic needs its pixels; kept by the browser with its ``stamp``."""
@@ -284,7 +284,7 @@ def _clean(data: dict[str, Any] | None) -> dict[str, Any] | None:
 
 @router.put("/mockup-adjustments", response_model=AdjustmentOut)
 async def put_adjustment(
-    body: AdjustmentIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    body: AdjustmentIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> AdjustmentOut:
     await _check_place(session, tenant, body)
     data = _clean(body.data)
@@ -295,7 +295,7 @@ async def put_adjustment(
 
 @router.post("/mockup-adjustments/apply", response_model=ApplyOut)
 async def apply_adjustment(
-    body: ApplyIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    body: ApplyIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> ApplyOut:
     """The change from ``before`` to ``after`` on the source placement, given to every other
     placement in the scope as a change on top of its own adjustment (its own fit and earlier
@@ -328,7 +328,7 @@ async def apply_adjustment(
 
 @router.post("/mockup-adjustments/restore", response_model=ApplyOut)
 async def restore_adjustments(
-    body: RestoreIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    body: RestoreIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> ApplyOut:
     """Undo "Apply this change to…": each row back to what it was."""
     for row in body.rows:
@@ -358,7 +358,7 @@ async def _store_recolour(session: AsyncSession, tenant_id: uuid.UUID, design_id
 
 @router.put("/mockup-designs/{design_id}/recolour", response_model=RecolourOut)
 async def put_recolour(
-    design_id: uuid.UUID, body: RecolourIn, session: AsyncSession = Depends(get_session),
+    design_id: uuid.UUID, body: RecolourIn, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> RecolourOut:
     """A design's recoloured regions for one subgroup ("" = every subgroup without its own); with
@@ -384,7 +384,7 @@ async def put_recolour(
 
 @router.post("/mockup-recolours/restore", response_model=RecolourOut)
 async def restore_recolours(
-    body: RecolourRestoreIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    body: RecolourRestoreIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> RecolourOut:
     for row in body.rows:
         design = await _own_design(session, tenant, row.design_id)
@@ -404,7 +404,7 @@ async def restore_recolours(
 
 @router.post("/mockup-runs/{run_id}/rerender", status_code=202, response_model=RunOut)
 async def rerender(
-    run_id: uuid.UUID, body: RerenderIn, session: AsyncSession = Depends(get_session),
+    run_id: uuid.UUID, body: RerenderIn, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Redis = Depends(get_redis),
 ) -> RunOut:

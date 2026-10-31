@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.api import (
     accounts,
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
 
     application.add_exception_handler(RequestValidationError, _validation_error)
     application.add_exception_handler(FileNotFoundError, _file_missing)
+    application.add_exception_handler(SQLAlchemyTimeoutError, _pool_busy)
 
     application.include_router(health.router)
     application.include_router(accounts.router)
@@ -161,6 +163,15 @@ async def _file_missing(_: Request, exc: FileNotFoundError) -> JSONResponse:
     404 in plain words, not a 500. The path is not echoed."""
     logger.info("stored file missing: %s", type(exc).__name__)
     return JSONResponse(status_code=404, content={"detail": "This file is no longer stored."})
+
+
+async def _pool_busy(_: Request, exc: SQLAlchemyTimeoutError) -> JSONResponse:
+    """Every database connection stayed busy for the whole wait (``db_pool_timeout``): the request
+    got nowhere, and the same one a moment later works. Not an internal error (docs/load-test.md)."""
+    logger.warning("database pool busy: a request gave up waiting for a connection")
+    return JSONResponse(
+        status_code=503, headers={"Retry-After": "5"},
+        content={"detail": "Listyro is very busy right now. Try again in a moment."})
 
 
 async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

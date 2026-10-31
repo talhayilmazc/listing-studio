@@ -111,13 +111,13 @@ async def _name_free(session: AsyncSession, tenant: Tenant, name: str, but: uuid
 
 
 @router.get("", response_model=GroupsOut)
-async def list_groups(session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)) -> GroupsOut:
+async def list_groups(session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)) -> GroupsOut:
     return await groups_out(session, tenant)
 
 
 @router.post("", response_model=GroupsOut, status_code=201)
 async def create_group(
-    body: GroupIn, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    body: GroupIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> GroupsOut:
     await _name_free(session, tenant, body.name)
     count = await session.scalar(select(func.count()).select_from(ShopGroup).where(ShopGroup.tenant_id == tenant.id))
@@ -132,7 +132,7 @@ async def create_group(
 @router.patch("/{group_id}", response_model=GroupsOut)
 async def update_group(
     group_id: uuid.UUID, body: GroupPatch,
-    session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant),
+    session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
 ) -> GroupsOut:
     group = await _own(session, tenant, group_id)
     if body.name is not None:
@@ -146,7 +146,7 @@ async def update_group(
 
 @router.delete("/{group_id}", response_model=GroupsOut)
 async def delete_group(
-    group_id: uuid.UUID, session: AsyncSession = Depends(get_session), tenant: Tenant = Depends(active_tenant)
+    group_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant)
 ) -> GroupsOut:
     """The group goes; its shops stay (in their other groups, if any)."""
     group = await _own(session, tenant, group_id)

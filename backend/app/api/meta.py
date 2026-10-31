@@ -31,7 +31,7 @@ HISTORY_DAYS = 7
 
 
 async def _usage_history(
-    session: AsyncSession, tenant_id, today: date, used_today: int
+    session: AsyncSession, tenant_id, today: date, used_today: int | None
 ) -> list[schemas.QuotaDay]:
     """The last :data:`HISTORY_DAYS` days of usage, oldest first, gaps zero-filled.
 
@@ -49,7 +49,7 @@ async def _usage_history(
     return [
         schemas.QuotaDay(
             date=day.isoformat(),
-            count=used_today if day == today else int(counts.get(day, 0)),
+            count=(used_today or 0) if day == today else int(counts.get(day, 0)),
         )
         for day in (start + timedelta(days=i) for i in range(HISTORY_DAYS))
     ]
@@ -60,7 +60,7 @@ async def get_quota_status(
     shop: uuid.UUID | None = None,
     tenant: Tenant = Depends(active_tenant),
     quota: DailyQuota = Depends(get_quota),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     redis: Redis = Depends(get_redis),
 ) -> schemas.QuotaOut:
     """The account's Etsy requests today (ToU requires the remaining quota be
@@ -69,13 +69,19 @@ async def get_quota_status(
     The sidebar, the batch page's metric and the review page all show this same
     object (core/limits.py). The app's shared budget is not in it.
     """
-    ceiling = await limits.etsy_ceiling(quota, tenant)
     today = datetime.now(timezone.utc).date()
+    # The database first, then Redis with no transaction open: every page asks for this, and held
+    # across the eight Redis reads it took 3.5 s of a connection per call in the load test.
+    history = await _usage_history(session, tenant.id, today, None)
+    shop_used = await _shop_used(session, quota, tenant, shop)
+    await session.commit()
+    ceiling = await limits.etsy_ceiling(quota, tenant)
+    history[-1].count = ceiling.used
     return schemas.QuotaOut(
         ceiling=schemas.EtsyCeilingOut(**ceiling.out()),
         usage_date=today.strftime("%Y-%m-%d"),
-        history=await _usage_history(session, tenant.id, today, ceiling.used),
-        shop_used=await _shop_used(session, quota, tenant, shop),
+        history=history,
+        shop_used=shop_used,
         pause=pause_out(await _pause_reason(quota, tenant, ceiling), tenant=tenant, ceiling=ceiling),
         generation_pause=llm_status.SELLER_MESSAGE if await llm_status.current(redis) else None,
     )
@@ -109,7 +115,7 @@ async def _pause_reason(quota: DailyQuota, tenant: Tenant, ceiling: limits.EtsyC
 
 
 @router.get("/meta", response_model=schemas.MetaOut)
-async def get_meta(session: AsyncSession = Depends(get_session)) -> schemas.MetaOut:
+async def get_meta(session: AsyncSession = Depends(get_session, scope="function")) -> schemas.MetaOut:
     settings = get_settings()
     return schemas.MetaOut(
         support_email=settings.support_email,

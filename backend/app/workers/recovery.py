@@ -30,6 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 import httpx
+from sqlalchemy.exc import DBAPIError, InterfaceError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -178,6 +179,15 @@ async def after_failure(
                           "try again")
         await session.commit()
         return "failed"
+
+    if isinstance(exc, DBAPIError) and exc.connection_invalidated or isinstance(exc, InterfaceError):
+        # Its database connection was lost (a restart, or a transaction left idle past
+        # db_idle_transaction_seconds): nothing is wrong with the listing. It carries on where it stopped.
+        return await _again(
+            ctx, session, job, function, reason=WAIT_INTERRUPTED, delay=INTERRUPTED_WAIT,
+            exhausted="The connection to our database kept dropping, so this stopped. Nothing is wrong with the "
+                      "listing: try again and it carries on where it stopped.",
+        )
 
     if isinstance(exc, (httpx.TransportError, EtsyServerError, NotYet)):
         delay = exc.seconds if isinstance(exc, NotYet) else outage_wait((job.attempts or 0) + 1)

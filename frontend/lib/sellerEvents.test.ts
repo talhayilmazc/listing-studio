@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { throttle, worthReporting } from "./sellerEvents.ts";
+import { noteLeaving, pageIsLeaving, throttle, worthReporting } from "./sellerEvents.ts";
 
 test("every failed change is reported; loads only when the server failed or could not be reached", () => {
   assert.equal(worthReporting("POST", "/api/batches/b/another-shop", 409), true);
@@ -12,6 +12,14 @@ test("every failed change is reported; loads only when the server failed or coul
   assert.equal(worthReporting("GET", "/api/batches/x", 404), false);
   assert.equal(worthReporting("POST", "/api/account/login", 401), false); // signed out is not an error
   assert.equal(worthReporting("POST", "/api/events", 500), false); // never reports its own report
+});
+
+test("a request cut off by leaving the page is no failure; one a few seconds later is", () => {
+  noteLeaving(10_000);
+  assert.equal(pageIsLeaving(10_000), true);
+  assert.equal(pageIsLeaving(12_999), true);
+  assert.equal(pageIsLeaving(13_000), false); // the seller stayed (the browser asked first): failures count again
+  assert.match(readFileSync(new URL("./api.ts", import.meta.url), "utf8"), /if \(!pageIsLeaving\(\)\) failed\(0, UNREACHABLE\);/);
 });
 
 test("at most twenty a minute from one tab", () => {

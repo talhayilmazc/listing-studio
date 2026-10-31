@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import image_work
 from app.core import storage_cap
 from app.db.models import (
     Asset,
@@ -85,7 +86,7 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
     try:
         source = storage.get(photo.source_key)
         personal = await placement.personal(session, photo.tenant_id)  # the seller's own placement
-        prepared = await asyncio.to_thread(mockups.prepare_blank, source, "default", "default", photo.name, personal)
+        prepared = await image_work.run(mockups.prepare_blank, source, "default", "default", photo.name, personal)
     except (FileNotFoundError, ImageProcessingError, mockups.MockupError) as exc:
         logger.info("mockup photo %s could not be prepared: %s", photo.id, exc)
         photo.status, photo.error = "failed", PREPARE_FAILED
@@ -156,12 +157,17 @@ async def prepare(session: AsyncSession, storage: Storage, photo_id: uuid.UUID) 
 
 
 async def prepare_mockup_template(ctx: dict[str, Any], photo_id: str) -> str:
-    """arq entrypoint (the job keeps its name: a photo queued before an update still runs)."""
+    """arq entrypoint (the job keeps its name: a photo queued before an update still runs).
+    A heavy job: one of HEAVY_LIMIT turns (workers/fair.py)."""
     from app.api.deps import get_storage
+    from app.workers.fair import heavy
 
-    async with ctx["sessionmaker"]() as session:
-        done = await prepare(session, get_storage(), uuid.UUID(photo_id))
-        return done.status if done is not None else "missing"
+    async with heavy(ctx, "prepare_mockup_template", photo_id) as turn:
+        if not turn:
+            return "waiting_turn"
+        async with ctx["sessionmaker"]() as session:
+            done = await prepare(session, get_storage(), uuid.UUID(photo_id))
+            return done.status if done is not None else "missing"
 
 
 _KEEP = object()
@@ -684,11 +690,12 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             regions = None if back else regions
             cache = ("back" if back else "front", file.id, json.dumps(regions, sort_keys=True) if regions else "")
             if cache not in loaded:
-                loaded[cache] = await asyncio.to_thread(
+                loaded[cache] = await image_work.run(
                     mockups.load_design, storage.get(key), (file.trims or {}).get("back" if back else "front"), regions)
             return loaded[cache]
 
         template_groups = await template_subgroups(session, {p.template_id for p, _ in photos})
+        await session.commit()  # colours measured above: saved, and no connection across the image work
         for design in designs:
             try:
                 images[design.id] = await image_of(design, False)
@@ -716,11 +723,11 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             fallback = _BACK_FALLBACK.get(photo.template_id, "front")
             # Each area's subgroup: the seller's link, the garment's tone (measured from the
             # photo for an area the analysis did not find), else the photo's.
-            tones = await asyncio.to_thread(measured_tones, blank, garments)
+            tones = await image_work.run(measured_tones, blank, garments)
             area_names = area_subgroup_names(photo, template_groups.get(photo.template_id, []), tones)
             # Each area's colour group: a design's light/dark variant goes on its own group only.
             if photo.colour is None and photo.colour_source is None:
-                await asyncio.to_thread(measure_colour, photo, blank)
+                await image_work.run(measure_colour, photo, blank)
             colours = photo_colours(photo, tones)
             meaning = job.variant_suffix or variants.SHIRT
             if not any(prints_on(d, versions.get(d.id, []), area_names, colours, meaning) for d in usable):
@@ -737,7 +744,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                                              photo.size, adj, W, H)
                     if r:
                         reach.append(r)
-            maps = await asyncio.to_thread(mockups.build_maps, blank, mask, occluder, garments, reach)
+            await session.commit()  # (a total or a colour changed above: no connection across the maps)
+            maps = await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
@@ -771,8 +779,9 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     if not refreshing:
                         job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue
+                await session.commit()
                 try:
-                    jpeg = await asyncio.to_thread(mockups.render_many, maps, placements, settings)
+                    jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
                     if not refreshing:
                         job.failed += len(group)
@@ -826,12 +835,16 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
 
 
 async def generate_mockups(ctx: dict[str, Any], run_id: str) -> str:
-    """arq entrypoint."""
+    """arq entrypoint. A heavy job: one of HEAVY_LIMIT turns (workers/fair.py)."""
     from app.api.deps import get_storage
+    from app.workers.fair import heavy
 
-    async with ctx["sessionmaker"]() as session:
-        done = await run(session, get_storage(), uuid.UUID(run_id))
-        return done.status if done is not None else "missing"
+    async with heavy(ctx, "generate_mockups", run_id) as turn:
+        if not turn:
+            return "waiting_turn"
+        async with ctx["sessionmaker"]() as session:
+            done = await run(session, get_storage(), uuid.UUID(run_id))
+            return done.status if done is not None else "missing"
 
 
 async def rerender_mockups(ctx: dict[str, Any], run_id: str, pairs: list[list[str]] | None = None) -> str:
@@ -1024,12 +1037,16 @@ async def build_zip(session: AsyncSession, storage: Storage, zip_id: uuid.UUID) 
 
 
 async def build_mockup_zip(ctx: dict[str, Any], zip_id: str) -> str:
-    """arq entrypoint."""
+    """arq entrypoint. A heavy job: one of HEAVY_LIMIT turns (workers/fair.py)."""
     from app.api.deps import get_storage
+    from app.workers.fair import heavy
 
-    async with ctx["sessionmaker"]() as session:
-        done = await build_zip(session, get_storage(), uuid.UUID(zip_id))
-        return done.status if done is not None else "missing"
+    async with heavy(ctx, "build_mockup_zip", zip_id) as turn:
+        if not turn:
+            return "waiting_turn"
+        async with ctx["sessionmaker"]() as session:
+            done = await build_zip(session, get_storage(), uuid.UUID(zip_id))
+            return done.status if done is not None else "missing"
 
 
 async def expire_zips(session: AsyncSession, storage: Storage, now: datetime | None = None) -> int:

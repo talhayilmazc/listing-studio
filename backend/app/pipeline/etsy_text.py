@@ -20,6 +20,7 @@ copy is ``frontend/lib/etsyText.ts``; both read ``tests/fixtures/etsy_text_cases
 
 from __future__ import annotations
 
+import functools
 import unicodedata
 
 #: Etsy's title limit and tag limits (documented; not in the spec's text).
@@ -42,6 +43,7 @@ def _title_char_ok(ch: str) -> bool:
     return cat[0] in ("L", "P") or cat in ("Nd", "Sm", "Zs")
 
 
+@functools.lru_cache(maxsize=2048)
 def _tag_char_ok(ch: str) -> bool:
     if ch in _MARKS or ch in ("-", "'"):
         return True

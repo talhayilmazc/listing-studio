@@ -9,6 +9,7 @@ render time).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from string import Template
 
@@ -26,6 +27,7 @@ class PromptTemplate:
         return Template(self.user).safe_substitute(variables)
 
 
+@lru_cache(maxsize=64)
 def load_template(path: str, base_dir: Path | None = None) -> PromptTemplate:
     """Load ``<base>/<path>/{system.md,user.md}`` (e.g. ``content/digital_products``)."""
     directory = (base_dir or _PROMPTS_DIR) / path

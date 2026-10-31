@@ -69,7 +69,7 @@ _NOT_FOUND = HTTPException(status_code=404, detail="not found")
 # --- Guard --------------------------------------------------------------------
 async def require_admin(
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> Tenant:
     """The signed-in admin, or 404 for absolutely everyone else.
@@ -209,7 +209,7 @@ class TempPasswordIssued(BaseModel):
 @router.get("/users", response_model=list[AdminUserOut])
 async def list_users(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> list[AdminUserOut]:
     tenants = (await session.execute(select(Tenant).order_by(Tenant.created_at))).scalars().all()
@@ -221,7 +221,7 @@ async def list_users(
 async def suspend_user(
     tenant_id: uuid.UUID,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
@@ -259,7 +259,7 @@ async def suspend_user(
 async def reactivate_user(
     tenant_id: uuid.UUID,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     target = await _target(session, tenant_id)
@@ -277,7 +277,7 @@ async def reactivate_user(
 async def issue_temporary_password(
     tenant_id: uuid.UUID,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     sessions: SessionStore = Depends(get_session_store),
 ) -> TempPasswordIssued:
     """Replace the password with a one-off; they must choose their own at next login."""
@@ -297,7 +297,7 @@ async def set_user_quota(
     tenant_id: uuid.UUID,
     body: QuotaUpdate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     """Give one account its own Etsy requests per day, or (None) put it back on
@@ -328,7 +328,7 @@ async def set_storage_cap(
     tenant_id: uuid.UUID,
     body: StorageCapUpdate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     """Give one account its own cap on stored image files, or (None) put it back on
@@ -393,7 +393,7 @@ async def set_user_allowance(
     tenant_id: uuid.UUID,
     body: AllowanceUpdate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     """One seller's product allowance: an amount and a period (None = the default).
@@ -421,7 +421,7 @@ async def set_user_allowance(
 @router.get("/allowance-default", response_model=AllowanceDefault)
 async def get_allowance_default(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AllowanceDefault:
     amount, period = await allowance.system_default(session)
     return AllowanceDefault(amount=amount, period=period)
@@ -431,7 +431,7 @@ async def get_allowance_default(
 async def set_allowance_default(
     body: AllowanceDefault,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AllowanceDefault:
     """The allowance of every seller without their own. Applies at once, audited."""
     amount, period = await allowance.system_default(session)
@@ -453,7 +453,7 @@ async def set_user_shop_limit(
     tenant_id: uuid.UUID,
     body: ShopLimitUpdate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     """How many shops this account may connect (v5 §E).
@@ -488,7 +488,7 @@ async def set_user_features(
     tenant_id: uuid.UUID,
     body: FeaturesUpdate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     """Turn features on or off for one account (v7 §B), audited."""
@@ -517,7 +517,7 @@ async def set_user_trademark_filter(
     tenant_id: uuid.UUID,
     body: TrademarkFilterUpdate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> AdminUserOut:
     """Override the trademark filter for one account (v7 §A4).
@@ -610,7 +610,7 @@ async def _invite_out(session: AsyncSession, invite: InviteCode) -> InviteOut:
 @router.get("/invites", response_model=list[InviteOut])
 async def list_invites(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> list[InviteOut]:
     rows = (
         await session.execute(select(InviteCode).order_by(InviteCode.created_at.desc()))
@@ -622,7 +622,7 @@ async def list_invites(
 async def create_invite(
     body: InviteCreate,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> InviteIssued:
     if body.email is not None:
         taken = await session.scalar(
@@ -662,7 +662,7 @@ async def create_invite(
 async def revoke_invite(
     invite_id: uuid.UUID,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> InviteOut:
     invite = await session.get(InviteCode, invite_id)
     if invite is None:
@@ -763,7 +763,7 @@ async def _pending(session: AsyncSession, request_id: uuid.UUID) -> InviteReques
 @router.get("/invite-requests", response_model=list[InviteRequestOut])
 async def list_invite_requests(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> list[InviteRequestOut]:
     """Pending first (oldest waiting longest), then the recently decided."""
     rows = (
@@ -780,7 +780,7 @@ async def list_invite_requests(
 async def approve_invite_request(
     request_id: uuid.UUID,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> InviteRequestApproved:
     """Make an invite code that only this address can redeem (30 days)."""
     row = await _pending(session, request_id)
@@ -816,7 +816,7 @@ async def approve_invite_request(
 @router.get("/invite-requests/pending", response_model=PendingCount)
 async def pending_invite_requests(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> PendingCount:
     """How many requests wait for a decision: the badge on Admin → Invites."""
     count = await session.scalar(select(func.count()).select_from(InviteRequest).where(InviteRequest.status == "pending"))
@@ -827,7 +827,7 @@ async def pending_invite_requests(
 @router.get("/analytics-retention", response_model=AnalyticsRetention)
 async def get_analytics_retention(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AnalyticsRetention:
     return AnalyticsRetention(months=await app_settings.analytics_months(session))
 
@@ -836,7 +836,7 @@ async def get_analytics_retention(
 async def set_analytics_retention(
     body: AnalyticsRetention,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AnalyticsRetention:
     """How many months of analytics history are kept. Applies at the next
     retention run (every 15 minutes); shortening it deletes what is older, and
@@ -852,7 +852,7 @@ async def set_analytics_retention(
 @router.get("/connections-paused", response_model=ConnectionsPaused)
 async def get_connections_paused(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> ConnectionsPaused:
     return ConnectionsPaused(on=await app_settings.connections_paused(session))
 
@@ -861,7 +861,7 @@ async def get_connections_paused(
 async def set_connections_paused(
     body: ConnectionsPaused,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> ConnectionsPaused:
     """Pause (or allow again) connecting new shops. Shops already connected keep
     working and can be reconnected; the Shops page shows the notice while it is on."""
@@ -877,7 +877,7 @@ async def set_connections_paused(
 async def decline_invite_request(
     request_id: uuid.UUID,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> InviteRequestOut:
     row = await _pending(session, request_id)
     row.status, row.decided_at, row.decided_by_tenant_id = "declined", datetime.now(timezone.utc), admin.id
@@ -1004,7 +1004,7 @@ async def _prices_out(session: AsyncSession) -> list[AiPriceOut]:
 @router.get("/ai-cost", response_model=AiCostOut)
 async def ai_cost(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> AiCostOut:
     """What the AI provider's work is costing us, live: today and this month,
     per seller and per purpose, per listing, and day by day per model so the
@@ -1113,7 +1113,7 @@ async def ai_cost_series(
     period: ai_series.Period = "daily",
     seller: str = "all",
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> ai_series.AiSeriesOut:
     """AI cost over time, per seller: hourly, daily, weekly or monthly buckets in
     Istanbul time, for every seller or one ("none": our own runs), with the
@@ -1129,7 +1129,7 @@ async def ai_cost_series(
 async def set_ai_price(
     body: AiPriceIn,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> list[AiPriceOut]:
     """Set one model's rates (USD per million tokens). Calls already costed keep
     their cost; calls of that model that had no price are costed now."""
@@ -1162,7 +1162,7 @@ async def set_ai_price(
 async def reset_ai_price(
     model: str,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> list[AiPriceOut]:
     """Back to the built-in rates for this model (or no price, if it has none)."""
     row = await session.get(AppSetting, ai_prices.KEY)
@@ -1250,7 +1250,7 @@ def _days(policy: upload_retention.Policy) -> UploadRetentionDays:
 @router.get("/sales-reread", response_model=sales_reread.RereadAdminReport)
 async def sales_reread_progress(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> sales_reread.RereadAdminReport:
     """The one-time sales re-read across all accounts: tonight's share of the
     budget, and each shop's progress. Counts and dates only."""
@@ -1260,7 +1260,7 @@ async def sales_reread_progress(
 @router.get("/disk", response_model=DiskOut)
 async def disk_usage(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     storage: Storage = Depends(get_storage),
     redis: Redis = Depends(get_redis),
 ) -> DiskOut:
@@ -1316,7 +1316,7 @@ async def _account_storage(session: AsyncSession, by_folder: dict[str, int]) -> 
 async def set_upload_retention(
     body: UploadRetentionDays,
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> UploadRetentionDays:
     """How long image files are kept. Applies from the next daily run; audited.
     Shortening it deletes more at that run, and deleted files do not come back."""
@@ -1376,7 +1376,7 @@ class UsageOut(BaseModel):
 @router.get("/usage", response_model=UsageOut)
 async def usage(
     admin: Tenant = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     quota: DailyQuota = Depends(get_quota),
 ) -> UsageOut:
     """The scarce resource: today's app-wide Etsy budget, per tenant, and 7 days of it."""

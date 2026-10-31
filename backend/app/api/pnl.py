@@ -159,7 +159,7 @@ def _row_out(row: pnl.ListingRow, shop: finance.Shop, cls: tuple[str, str], tren
 @router.get("/shops")
 async def shops_view(
     month: str | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -206,7 +206,7 @@ async def shops_view(
 async def month_view(
     shop: uuid.UUID | None = None,
     month: str | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -302,7 +302,7 @@ STYLE_PERIOD_DAYS = 90
 async def title_styles(
     shop: uuid.UUID | None = None,
     days: int = STYLE_PERIOD_DAYS,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> dict[str, Any]:
@@ -366,7 +366,7 @@ async def _costs_out(session: AsyncSession, tenant: Tenant, connection: EtsyConn
 @router.get("/product-costs")
 async def get_product_costs(
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> dict[str, Any]:
     connection = await imports_api._shop(session, tenant, shop)
@@ -377,7 +377,7 @@ async def get_product_costs(
 async def put_product_costs(
     body: ProductCostsIn,
     shop: uuid.UUID | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
 ) -> dict[str, Any]:
     """What each profile costs to make and what the provider charges to ship it.
