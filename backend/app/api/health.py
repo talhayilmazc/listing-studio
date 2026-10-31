@@ -14,10 +14,10 @@ import logging
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_redis, get_session
+from app.db.session import database_answers
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ CHECK_TIMEOUT = 1.5
 async def health(session: AsyncSession = Depends(get_session, scope="function"), redis: Redis = Depends(get_redis)) -> JSONResponse:
     failed = []
     try:
-        await asyncio.wait_for(session.execute(text("SELECT 1")), CHECK_TIMEOUT)
+        await asyncio.wait_for(database_answers(session), CHECK_TIMEOUT)
     except Exception as exc:  # noqa: BLE001 - any failure means not healthy
         logger.warning("health: database unreachable (%s)", type(exc).__name__)
         failed.append("database")

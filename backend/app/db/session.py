@@ -6,27 +6,47 @@ import logging
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def _watch_idle_timeout(engine: AsyncEngine) -> None:
+def _say_connection_lost(context: Any) -> None:
     """Says so in the log when a connection is gone from under an open transaction. Postgres ends one
     left idle past ``db_idle_transaction_seconds`` (something held it across slow work:
     core/db_release.py) and closes the connection; asyncpg only sees a closed connection, at the next
-    statement. Postgres's own log names it: "terminating connection due to idle-in-transaction timeout"."""
+    statement. Postgres's own log names it: "terminating connection due to idle-in-transaction timeout".
 
-    @event.listens_for(engine.sync_engine, "handle_error")
-    def _on_error(context: Any) -> None:
-        if context.is_disconnect:
-            logger.error(
-                "idle_in_transaction_session_timeout fired, or the database restarted: a connection was lost with a "
-                "transaction open (limit %s s). Next statement: %s",
-                get_settings().db_idle_transaction_seconds, " ".join(str(context.statement or "").split())[:200])
+    A statement cancelled on our side also counts as a disconnect to SQLAlchemy, and is neither."""
+    if context.is_disconnect and isinstance(context.original_exception, Exception):
+        logger.error(
+            "idle_in_transaction_session_timeout fired, or the database restarted: a connection was lost with a "
+            "transaction open (limit %s s). Next statement: %s",
+            get_settings().db_idle_transaction_seconds, " ".join(str(context.statement or "").split())[:200])
+
+
+def _watch_idle_timeout(engine: AsyncEngine) -> None:
+    event.listen(engine.sync_engine, "handle_error", _say_connection_lost)
+
+
+@lru_cache
+def _probe_engine(url: str) -> AsyncEngine:
+    return create_async_engine(url, poolclass=NullPool, hide_parameters=True)
+
+
+async def database_answers(session: AsyncSession) -> None:
+    """Asks the database itself, on a connection of its own (the health check). Waiting for a free
+    connection from the pool says how busy the app is, not whether the database is up: in the load
+    test /health said "database unreachable" while the pool was busy and the database answering."""
+    if session.bind is None:
+        await session.execute(text("SELECT 1"))
+        return
+    probe = _probe_engine(session.bind.engine.url.render_as_string(hide_password=False))
+    await session.execute(text("SELECT 1"), bind_arguments={"bind": probe.sync_engine})
 
 
 @lru_cache
