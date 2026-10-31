@@ -21,7 +21,7 @@ x-logging: &logging
 # Memory (docs/load-test.md): each container has a ceiling, so a leak or a bad job kills that
 # container, which restarts by itself, and not the VM (5.8 GB). They add up to 5,412 MB and leave
 # 388 MB for the OS; tests/test_memory_limits.py keeps it so. Peaks with 100 sellers at once:
-# worker 2,136 MB, API 1,597 MB (its RSS counts pages its processes share; private: 1,187 MB),
+# worker 2,136 MB, API 1,668 MB (its RSS counts pages its processes share; private: 1,528 MB),
 # Postgres 812 MB (334 MB its own, the rest file cache the kernel takes back at the ceiling),
 # frontend 99 MB, Redis 11 MB. cloudflared and the OS cannot be measured off the server.
 
@@ -50,7 +50,7 @@ x-backend: &backend
 services:
   postgres:
     image: postgres:16
-    mem_limit: 800m
+    mem_limit: 700m
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -127,7 +127,7 @@ services:
 
   api:
     <<: *backend
-    mem_limit: 1600m
+    mem_limit: 1800m
     # Migrations run once, before any worker process starts serving. No --reload.
     command:
       - sh
@@ -149,7 +149,7 @@ services:
 
   worker:
     <<: *backend
-    mem_limit: 2300m
+    mem_limit: 2200m
     command: ["arq", "app.workers.settings.WorkerSettings"]
     healthcheck:
       # arq records a heartbeat in Redis; --check fails if it has gone stale.

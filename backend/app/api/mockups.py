@@ -1447,10 +1447,10 @@ async def save_front_brush(
     except UploadRejected as exc:
         raise HTTPException(status_code=422, detail="The brush could not be read.") from exc
     try:
-        brush = await asyncio.to_thread(mockups.brush_png, data, photo.width or 1, photo.height or 1)
+        brush = await image_work.run(mockups.brush_png, data, photo.width or 1, photo.height or 1)
     except Exception as exc:  # noqa: BLE001 - one message for every unreadable mask
         raise HTTPException(status_code=422, detail="The brush could not be read.") from exc
-    await asyncio.to_thread(work.save_front, storage, photo, brush=brush)
+    await image_work.run(work.save_front, storage, photo, brush=brush)
     storage_cap.forget(tenant.id)
     await session.commit()
     return _photo_out(photo)
@@ -1464,7 +1464,7 @@ async def clear_front_brush(
     """The brush goes; what is in front is the analysis's map again."""
     photo = await _own_photo(session, tenant, photo_id)
     _ready(photo)
-    await asyncio.to_thread(work.save_front, storage, photo, brush=None)
+    await image_work.run(work.save_front, storage, photo, brush=None)
     await session.commit()
     return _photo_out(photo)
 
@@ -1870,19 +1870,20 @@ async def set_design_back(
     data = await file.read()
     _admitted(data)
     try:
-        prepared = await asyncio.to_thread(mockups.prepare_design, data)
+        prepared = await image_work.run(mockups.prepare_design, data)
     except mockups.DesignTooSmall as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (ImageProcessingError, mockups.MockupError) as exc:
         raise HTTPException(status_code=422, detail="This file could not be read as a design.") from exc
     await _room(session, storage, tenant, len(prepared.image))
+    trim = await image_work.run(mockups.design_trim, prepared.image)
     if design.back_key:
         storage.delete_with_derivatives(design.back_key)
     key = f"{tenant.id}/{design.batch_id}/designs/{design.id}-back-{uuid.uuid4().hex[:8]}.png"
     storage.put(key, prepared.image, "image/png")
     storage_cap.added(tenant.id, len(prepared.image))
     design.back_key = key
-    design.trims = {**(design.trims or {}), "back": await asyncio.to_thread(mockups.design_trim, prepared.image)}
+    design.trims = {**(design.trims or {}), "back": trim}
     await session.commit()
     return _design_out(design)
 

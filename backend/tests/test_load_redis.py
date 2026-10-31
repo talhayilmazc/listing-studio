@@ -3,7 +3,7 @@
 * Redis commands of a process do not wait for each other (the pool's lock, core/redis_pool.py);
 * reading a session takes one round trip, and touching it one more, once a minute;
 * a model client and a prompt template are made once;
-* only so many uploaded files are in memory at once.
+* only so many bytes of uploaded files are in memory at once, and uploads are not cut to a trickle.
 """
 
 from __future__ import annotations
@@ -12,10 +12,13 @@ import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fakeredis import FakeAsyncRedis
+from fastapi import Depends, FastAPI, UploadFile
+from httpx import ASGITransport, AsyncClient
 from redis.asyncio.connection import ConnectionPool
 
 from app.core import image_work, redis_pool
@@ -173,26 +176,105 @@ def test_a_template_is_read_once(tmp_path: Path) -> None:
 # -- uploaded files in memory --------------------------------------------------------------------
 
 
-async def test_only_so_many_uploads_are_in_memory_at_once() -> None:
-    from app.core.config import get_settings
+MB = 1024 * 1024
 
-    limit = 2 * get_settings().image_work_threads
+
+async def _turn_of(size: int) -> Any:
+    turn = image_work.upload_turn(SimpleNamespace(size=size))
+    await turn.__anext__()
+    return turn
+
+
+async def _end(turn: Any) -> None:
+    with pytest.raises(StopAsyncIteration):
+        await turn.__anext__()
+
+
+async def test_a_flood_of_ordinary_photos_all_go_at_once() -> None:
+    """A count of four per process, held through a full pool, timed 1,104 of 1,500 uploads out."""
+    turns = await asyncio.wait_for(asyncio.gather(*(_turn_of(MB // 2) for _ in range(150))), 1)
+    assert image_work._budget().free == image_work._budget().total - 150 * (MB // 2)
+    await asyncio.gather(*(_end(t) for t in turns))
+    assert image_work._budget().free == image_work._budget().total
+
+
+async def test_only_so_many_bytes_are_in_memory_at_once() -> None:
+    size = 30 * MB
     inside = most = done = 0
 
     async def upload() -> None:
         nonlocal inside, most, done
-        turn = image_work.upload_turn()
-        await turn.__anext__()
+        turn = await _turn_of(size)
         inside += 1
         most = max(most, inside)
         await asyncio.sleep(0.005)
         inside -= 1
         done += 1
-        with pytest.raises(StopAsyncIteration):
-            await turn.__anext__()
+        await _end(turn)
 
     await asyncio.gather(*(upload() for _ in range(20)))
-    assert done == 20 and most == limit
+    assert done == 20 and most == image_work._budget().total // size
+
+
+async def test_a_file_larger_than_the_budget_goes_alone_and_is_not_stuck() -> None:
+    budget = image_work._budget()
+    small = await _turn_of(MB)
+    huge = asyncio.create_task(_turn_of(budget.total * 3))
+    await asyncio.sleep(0)
+    assert not huge.done(), "it waits for the whole budget"
+    await _end(small)
+    turn = await asyncio.wait_for(huge, 1)
+    assert budget.free == 0
+    await _end(turn)
+    assert budget.free == budget.total
+
+
+async def test_first_come_first_served() -> None:
+    """Small files arriving later do not starve a large one waiting."""
+    budget = image_work._budget()
+    first = await _turn_of(budget.total)
+    large = asyncio.create_task(_turn_of(budget.total))
+    await asyncio.sleep(0)
+    small = asyncio.create_task(_turn_of(MB))
+    await asyncio.sleep(0)
+    await _end(first)
+    await asyncio.sleep(0)
+    assert large.done() and not small.done()
+    await _end(large.result())
+    await _end(await asyncio.wait_for(small, 1))
+    assert budget.free == budget.total
+
+
+async def test_an_upload_cancelled_while_waiting_gives_way_and_keeps_nothing() -> None:
+    budget = image_work._budget()
+    first = await _turn_of(budget.total - MB)
+    large = asyncio.create_task(_turn_of(budget.total))
+    await asyncio.sleep(0)
+    behind = asyncio.create_task(_turn_of(MB))
+    await asyncio.sleep(0)
+    assert not behind.done()
+    large.cancel()
+    await asyncio.gather(large, return_exceptions=True)
+    await _end(await asyncio.wait_for(behind, 1))
+    await _end(first)
+    assert budget.free == budget.total
+
+
+async def test_a_route_reads_the_size_of_the_real_upload_and_gives_it_back() -> None:
+    app = FastAPI()
+    seen: list[int] = []
+
+    @app.post("/up")
+    async def up(file: UploadFile, _turn: None = Depends(image_work.upload_turn, scope="function")) -> dict:
+        budget = image_work._budget()
+        seen.append(budget.total - budget.free)
+        return {"read": len(await file.read())}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        answer = await client.post("/up", files={"file": ("a.jpg", b"x" * 12345, "image/jpeg")})
+    assert answer.status_code == 200 and answer.json() == {"read": 12345}
+    assert seen == [12345]
+    assert image_work._budget().free == image_work._budget().total
 
 
 def test_each_route_that_reads_a_whole_file_takes_a_turn_before_its_session() -> None:
@@ -204,3 +286,11 @@ def test_each_route_that_reads_a_whole_file_takes_a_turn_before_its_session() ->
             head = body[:body.index(") ->")]
             assert "upload_turn" in head, name
             assert head.index("upload_turn") < head.index("get_session"), f"{name} would hold its session while it waits"
+
+
+def test_no_route_does_image_work_on_a_thread_of_its_own() -> None:
+    """``asyncio.to_thread`` keeps the session's connection for as long as the work takes;
+    ``image_work.run`` gives it back first, and queues behind pages. The photo routes included."""
+    source = (APP / "api" / "mockups.py").read_text(encoding="utf-8")
+    for call in ("mockups.prepare_design", "mockups.design_trim", "mockups.brush_png", "work.save_front"):
+        assert f"to_thread({call}" not in source, call

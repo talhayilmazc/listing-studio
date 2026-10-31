@@ -19,7 +19,7 @@ OS_MB = 350  # at least this much stays for the OS, Docker itself and the file c
 #: The most each used in the load test, 100 sellers at once (load-output/report-*.txt): a ceiling
 #: under this would kill a container in normal work. Postgres's figure includes its file cache,
 #: which the kernel reclaims at the ceiling, so its ceiling may sit under it.
-MEASURED_MB = {"api": 1597, "worker": 2136, "frontend": 99, "redis": 11}
+MEASURED_MB = {"api": 1668, "worker": 2136, "frontend": 99, "redis": 11}
 
 
 def _services() -> dict:

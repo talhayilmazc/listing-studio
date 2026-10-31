@@ -50,7 +50,7 @@ services:
     command: [postgres, -c, shared_preload_libraries=pg_stat_statements, -c, pg_stat_statements.track=all]
     # The image's VOLUME path gets a tmpfs so no anonymous volume is made; data is in PGDATA.
     tmpfs: [/var/lib/postgresql/data]
-    mem_limit: 800m  # production's (docker-compose.prod.yml)
+    mem_limit: 700m  # production's (docker-compose.prod.yml)
     cpuset: ${LOAD_CPUSET:-0-1}
     networks: [load]
     healthcheck:
@@ -91,7 +91,7 @@ services:
     # The commands are production's, with the app module swapped for the one with the stub.
     build: *load-build
     # Production's limits together: api + worker (docker-compose.prod.yml).
-    mem_limit: ${LOAD_APP_MEMORY:-3900m}
+    mem_limit: ${LOAD_APP_MEMORY:-4000m}
     environment: *load-env
     command:
       - bash

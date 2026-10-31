@@ -191,6 +191,8 @@ class Settings(BaseSettings):
     image_work_nice: int = 10
     # Its threads per process.
     image_work_threads: int = 2
+    # Uploaded files in one API process's memory at once; the rest wait on disk (core/image_work.py).
+    upload_memory_mb: int = 100
     # Database connections per process: kept open (pool) and extra under load (overflow).
     db_pool_size: int = 10
     db_pool_overflow: int = 5

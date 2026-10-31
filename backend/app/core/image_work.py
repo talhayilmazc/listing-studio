@@ -22,9 +22,12 @@ import logging
 import os
 import threading
 import weakref
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeVar
+
+from fastapi import UploadFile
 
 from app.core import db_release
 from app.core.config import get_settings
@@ -34,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 _pool: ThreadPoolExecutor | None = None
 _pool_lock = threading.Lock()
-_turns: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
+_budgets: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _Budget]" = weakref.WeakKeyDictionary()
 
 
 def _lower_priority() -> None:
@@ -54,17 +57,69 @@ def _executor() -> ThreadPoolExecutor:
         return _pool
 
 
-async def upload_turn() -> AsyncIterator[None]:
-    """A dependency of a route that reads a whole file and processes it: at most
-    ``2 * image_work_threads`` files in this process's memory at once. A waiting upload is on disk
-    (over 1 MB: the multipart parser spools it), so 300 sellers' photos of 30 MB cannot fill the API's
-    memory while they wait for their thread. List it before the session: nothing is held waiting."""
+class _Budget:
+    """So many bytes, handed out first come, first served. A file larger than the whole budget
+    waits until it can have all of it, and then goes alone."""
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self.free = total
+        self._waiting: deque[tuple[int, asyncio.Future[None]]] = deque()
+
+    async def take(self, size: int) -> int:
+        size = min(size, self.total)
+        if not self._waiting and self.free >= size:
+            self.free -= size
+            return size
+        turn: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        entry = (size, turn)
+        self._waiting.append(entry)
+        try:
+            await turn
+        except asyncio.CancelledError:
+            if entry in self._waiting:
+                self._waiting.remove(entry)
+                self._next()  # those behind it may fit now
+            elif not turn.cancelled():  # given its bytes in the same moment it was cancelled
+                self.give(size)
+            raise
+        return size
+
+    def give(self, size: int) -> None:
+        self.free += size
+        self._next()
+
+    def _next(self) -> None:
+        while self._waiting and self.free >= self._waiting[0][0]:
+            size, turn = self._waiting.popleft()
+            if not turn.done():
+                self.free -= size
+                turn.set_result(None)
+
+
+def _budget() -> _Budget:
     loop = asyncio.get_running_loop()
-    turns = _turns.get(loop)
-    if turns is None:
-        turns = _turns[loop] = asyncio.Semaphore(2 * get_settings().image_work_threads)
-    async with turns:
+    budget = _budgets.get(loop)
+    if budget is None:
+        budget = _budgets[loop] = _Budget(get_settings().upload_memory_mb * 1024 * 1024)
+    return budget
+
+
+async def upload_turn(file: UploadFile) -> AsyncIterator[None]:
+    """A dependency of a route that reads a whole file and processes it: at most
+    ``settings.upload_memory_mb`` of uploaded files in this process's memory at once. A waiting upload
+    is on disk (over 1 MB: the multipart parser spools it), so 300 sellers' photos of 30 MB cannot fill
+    the API's memory while they wait for a thread. List it before the session: nothing is held waiting.
+
+    Bytes, not a number of files: the route holds its turn through its waits for a database
+    connection too, and with four files per process at a turn a full pool cut uploads to a trickle
+    (the load test: 1,104 of 1,500 timed out at 120 s, docs/load-test.md)."""
+    budget = _budget()
+    size = await budget.take(file.size or 0)
+    try:
         yield
+    finally:
+        budget.give(size)
 
 
 async def run(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
