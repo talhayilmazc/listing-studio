@@ -6,7 +6,7 @@
  * Like the app's warning this never stops anything, and a plain substring is never a name:
  * "marvelous" and "Blue Y Neck" are not brands.
  */
-import { JOINED_AFTER_FROM, JOINED_BEFORE_FROM, LOOSE_FROM, ORDINARY_WORDS, TRADEMARKS } from "./listingRuleData.ts";
+import { BRAND_WARNING, JOINED_AFTER_FROM, JOINED_BEFORE_FROM, LOOSE_FROM, ORDINARY_WORDS, TRADEMARKS } from "./listingRuleData.ts";
 
 const JOIN = "[\\s\\-_.'’]*";
 const INSIDE = "[\\s\\-_.'’#]{0,2}";
@@ -114,3 +114,10 @@ export function spotBrands(text: string): string[] {
     return whole.includes(term) || !names.some((other) => squeezed(other) !== own && squeezed(other).includes(own));
   });
 }
+
+/** The sentence the app says about a brand: written from trademarks.BRAND_WARNING. */
+export const brandWarning = (brand: string): string => BRAND_WARNING.replace("{brand}", brand);
+
+/** What a title and tags are warned about, each brand once: trademarks.brand_warnings with no filter in force. */
+export const brandWarnings = (title: string, tags: string[]): string[] =>
+  [...new Set([title, ...tags].flatMap((text) => spotBrands(text)))].map(brandWarning);

@@ -28,5 +28,7 @@ export const READ = {
   feesAndTaxes: { label: "Etsy Help: What are the Fees and Taxes for Selling on Etsy?", url: `${HELP_CENTER}/115014483627-What-are-the-Fees-and-Taxes-for-Selling-on-Etsy-` },
   paymentFees: { label: "Etsy Help: What are Payment Processing Fees for Selling on Etsy?", url: `${HELP_CENTER}/115015628847-Fees-and-Payments` },
   offsiteAds: { label: "Etsy Help: How Etsy's Offsite Ads Work", url: `${HELP_CENTER}/360000338367` },
+  feesPolicy: { label: "Etsy: Fees & Payments Policy (page last updated 5 October 2026)", url: "https://www.etsy.com/legal/fees" },
+  etsyPayments: { label: "Etsy: Etsy Payments Policy (page last updated 31 July 2026)", url: "https://www.etsy.com/legal/etsy-payments" },
   regulatoryFee: { label: "Etsy Help: What is a Regulatory Operating Fee?", url: "https://help.etsy.com/hc/articles/1500011073202" },
 } satisfies Record<string, Source>;

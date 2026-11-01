@@ -10,6 +10,7 @@ export const MAX_TITLE_PHRASES = 4;
 export const MIN_MULTI_WORD_TAGS = 9;
 export const TRADEMARKS = ["Disney", "Pixar", "Mickey", "Minnie Mouse", "Star Wars", "Mandalorian", "Baby Yoda", "Grogu", "Marvel", "Avengers", "Spider-Man", "Lilo and Stitch", "Winnie the Pooh", "Toy Story", "Lion King", "Disneyland", "Magic Kingdom", "Epcot", "World Showcase", "Harry Potter", "Hogwarts", "DC Comics", "Batman", "Superman", "Wonder Woman", "Looney Tunes", "Scooby Doo", "Nintendo", "Super Mario", "Legend of Zelda", "Pokemon", "Pikachu", "Minecraft", "Fortnite", "Barbie", "Hello Kitty", "Sanrio", "Snoopy", "Grinch", "Dr Seuss", "Sesame Street", "Paw Patrol", "Bluey", "Nike", "Adidas", "Under Armour", "Louis Vuitton", "Gucci", "Chanel", "NFL", "NBA", "MLB", "NHL", "Coca-Cola", "Starbucks"] as const;
 export const TRADEMARKS_REVIEWED = "2026-10-31";
+export const BRAND_WARNING = "{brand} is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"";
 export const ORDINARY_WORDS = ["chanelle", "lionkingdom", "lionkingdoms", "marveled", "marveling", "marvelled", "marvelling", "marvellous", "marvellously", "marvelous", "marvelously", "marvelousness", "marvels", "scavenger", "scavengers"] as const;
 export const JOINED_AFTER_FROM = 5;
 export const JOINED_BEFORE_FROM = 6;

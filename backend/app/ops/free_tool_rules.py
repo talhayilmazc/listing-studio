@@ -31,6 +31,7 @@ def rule_data() -> dict[str, Any]:
         "MIN_MULTI_WORD_TAGS": search_rules.MIN_MULTI_WORD_TAGS,
         "TRADEMARKS": trademarks.read_terms(trademarks.DEFAULT_LIST_PATH),
         "TRADEMARKS_REVIEWED": trademarks.list_date(),
+        "BRAND_WARNING": trademarks.BRAND_WARNING,
         "ORDINARY_WORDS": sorted(trademarks.ORDINARY_WORDS),
         "JOINED_AFTER_FROM": trademarks.JOINED_AFTER_FROM,
         "JOINED_BEFORE_FROM": trademarks.JOINED_BEFORE_FROM,

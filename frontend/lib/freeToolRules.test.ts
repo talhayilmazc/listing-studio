@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { spotBrands } from "./brandSpot.ts";
-import { tagErrors, titleErrors } from "./etsyText.ts";
+import { brandWarnings, spotBrands } from "./brandSpot.ts";
+import { tagErrors, tagsStartingBadly, titleErrors } from "./etsyText.ts";
 import { MAX_TITLE_WORDS } from "./listingRuleData.ts";
 import { commerceIn, garmentsIn, giftIn, itemFirst, keywords, phraseCount, phrases, repeatedWords, sameSearchTags, subjectiveIn, tagsOnlyInTitle, wordCount } from "./listingRules.ts";
 
@@ -24,6 +24,7 @@ for (const c of cases.titles) {
     assert.equal(wordCount(c.text) <= MAX_TITLE_WORDS, c.report.words);
     assert.deepEqual(!repeatedWords(c.text).length, c.report.repeats);
     assert.deepEqual([...spotBrands(c.text)].sort(), c.brands);
+    assert.deepEqual(brandWarnings(c.text, []), c.brand_warnings); // the same sentence, word for word, in the same order
   });
 }
 
@@ -34,6 +35,8 @@ for (const c of cases.tag_sets) {
     assert.deepEqual(tagsOnlyInTitle(c.tags, c.title), c.only_title_words);
     assert.equal(phraseCount(c.tags), c.phrases);
     assert.deepEqual([...new Set(c.tags.flatMap((t: string) => spotBrands(t)))].sort(), c.brands);
+    assert.deepEqual(brandWarnings(c.title, c.tags), c.brand_warnings);
+    assert.deepEqual(tagsStartingBadly(c.tags), c.starting_badly);
   });
 }
 

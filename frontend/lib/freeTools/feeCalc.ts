@@ -14,6 +14,8 @@ export type FeeInput = {
   place: string;
   price: number | null;
   shippingCharged: number | null;
+  /** Gift wrap the buyer pays. A personalization charge is part of ``price``. */
+  giftWrap: number | null;
   salesTax: number | null;
   baseCost: number | null;
   shippingCost: number | null;
@@ -31,7 +33,7 @@ export type FeeResult = {
   totalFees: number;
   costs: number;
   profit: number;
-  /** Profit as a percent of what the buyer paid for item and shipping, one decimal. */
+  /** Profit as a percent of what the buyer paid for item, shipping and gift wrap, one decimal. */
   margin: number | null;
 };
 
@@ -48,24 +50,28 @@ export function calculate(input: FeeInput): FeeOutcome {
   const place = placeOf(input.place);
   if (!place) return { ok: false, needs: "Choose where your bank account is." };
   if (input.price === null || !(input.price > 0)) return { ok: false, needs: "Enter your item's price." };
-  const amounts = [input.shippingCharged, input.salesTax, input.baseCost, input.shippingCost];
+  const amounts = [input.shippingCharged, input.giftWrap, input.salesTax, input.baseCost, input.shippingCost];
   if (amounts.some((n) => n !== null && n < 0)) return { ok: false, needs: "Amounts cannot be below zero." };
   const usd = place.currency === "USD" ? 1 : input.usdRate;
   if (usd === null || !(usd > 0)) return { ok: false, needs: `Enter what 1 USD is in ${place.currency}: Etsy sets the listing fee and the Offsite Ads cap in US dollars.` };
 
-  const revenue = cents(input.price) + cents(input.shippingCharged ?? 0);
+  // What the transaction fee, the regulatory fee and Offsite Ads are all charged on: item (with any
+  // personalization) + shipping + gift wrap. Sales tax added at checkout is not in it, and only payment
+  // processing is charged on that. Outside the US tax is inside the price the seller enters, so nothing
+  // more is needed there.
+  const revenue = cents(input.price) + cents(input.shippingCharged ?? 0) + cents(input.giftWrap ?? 0);
   const withTax = revenue + cents(input.salesTax ?? 0);
   const regulatory = regulatoryPercent(place.place);
 
   const fees: FeeLine[] = [
     { id: "listing", name: "Listing fee", how: `$${LISTING_FEE_USD.toFixed(2)} USD`, amount: cents(LISTING_FEE_USD * usd) },
-    { id: "transaction", name: "Transaction fee", how: `${TRANSACTION_PERCENT}% of item and shipping`, amount: percentOf(revenue, TRANSACTION_PERCENT) },
-    { id: "processing", name: "Payment processing", how: `${place.percent}% + ${place.flat} ${place.currency}, on item, shipping and sales tax`, amount: percentOf(withTax, place.percent) + cents(place.flat) },
+    { id: "transaction", name: "Transaction fee", how: `${TRANSACTION_PERCENT}% of item, shipping and gift wrap`, amount: percentOf(revenue, TRANSACTION_PERCENT) },
+    { id: "processing", name: "Payment processing", how: `${place.percent}% + ${place.flat} ${place.currency}, on item, shipping, gift wrap and sales tax`, amount: percentOf(withTax, place.percent) + cents(place.flat) },
   ];
-  if (regulatory > 0) fees.push({ id: "regulatory", name: "Regulatory operating fee", how: `${regulatory}% of item and shipping`, amount: percentOf(revenue, regulatory) });
+  if (regulatory > 0) fees.push({ id: "regulatory", name: "Regulatory operating fee", how: `${regulatory}% of item, shipping and gift wrap`, amount: percentOf(revenue, regulatory) });
   if (input.offsite !== "none") {
     const percent = OFFSITE_ADS[input.offsite];
-    fees.push({ id: "offsite", name: "Offsite Ads", how: `${percent}% of the order, at most $${OFFSITE_ADS.capUsd} USD`, amount: Math.min(percentOf(revenue, percent), cents(OFFSITE_ADS.capUsd * usd)) });
+    fees.push({ id: "offsite", name: "Offsite Ads", how: `${percent}% of item, shipping and gift wrap, at most $${OFFSITE_ADS.capUsd} USD`, amount: Math.min(percentOf(revenue, percent), cents(OFFSITE_ADS.capUsd * usd)) });
   }
 
   const totalFees = fees.reduce((sum, fee) => sum + fee.amount, 0);

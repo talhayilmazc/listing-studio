@@ -25,7 +25,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Nurse Shirt, Retro Nurse Life Tee",
@@ -53,7 +54,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Nurses shirt for nurse life",
@@ -79,7 +81,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Cute Nurse T-Shirt, Perfect Gift for Her, Free Shipping",
@@ -114,7 +117,8 @@
     "gift": false,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Retro Sunset Sweatshirt, Vintage Beach Crewneck, Summer Tee, Soft Cotton Top, Mountain Lake Pullover",
@@ -145,7 +149,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Sunset Mountain Lake Design",
@@ -167,7 +172,8 @@
     "gift": true,
     "item_first": false
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "T Shirt t-shirt Tshirts",
@@ -195,7 +201,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Mug for Teachers, High Quality Coffee Cup on Sale, 20% off",
@@ -227,7 +234,8 @@
     "gift": false,
     "item_first": false
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Handmade Ceramic Mug",
@@ -249,7 +257,8 @@
     "gift": true,
     "item_first": false
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Shirt",
@@ -273,7 +282,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Café Crème T-Shirt – Women's Größe (S/M)",
@@ -297,7 +307,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Cutest Gifted Presenter Shirt",
@@ -321,7 +332,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Best Seller Mom's Shirt & Dad's Shirt",
@@ -350,7 +362,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Marvelous Scavenger Hunt Shirt",
@@ -374,7 +387,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "DisneyWorld Family Trip Shirt",
@@ -400,6 +414,9 @@
    },
    "brands": [
     "Disney"
+   ],
+   "brand_warnings": [
+    "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -426,6 +443,9 @@
    },
    "brands": [
     "Mickey"
+   ],
+   "brand_warnings": [
+    "Mickey is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -452,6 +472,9 @@
    },
    "brands": [
     "Disney"
+   ],
+   "brand_warnings": [
+    "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -478,6 +501,9 @@
    },
    "brands": [
     "Disney"
+   ],
+   "brand_warnings": [
+    "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -502,7 +528,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Baby-Yoda Lover Shirt",
@@ -528,6 +555,9 @@
    },
    "brands": [
     "Baby Yoda"
+   ],
+   "brand_warnings": [
+    "Baby Yoda is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -554,6 +584,9 @@
    },
    "brands": [
     "Star Wars"
+   ],
+   "brand_warnings": [
+    "Star Wars is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -580,6 +613,9 @@
    },
    "brands": [
     "Pokemon"
+   ],
+   "brand_warnings": [
+    "Pokemon is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -606,6 +642,9 @@
    },
    "brands": [
     "Disney"
+   ],
+   "brand_warnings": [
+    "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -632,6 +671,9 @@
    },
    "brands": [
     "NFL"
+   ],
+   "brand_warnings": [
+    "NFL is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -656,7 +698,8 @@
     "gift": true,
     "item_first": true
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   },
   {
    "text": "Lilo & Stitch Beach Shirt",
@@ -682,6 +725,9 @@
    },
    "brands": [
     "Lilo and Stitch"
+   ],
+   "brand_warnings": [
+    "Lilo and Stitch is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -708,6 +754,9 @@
    },
    "brands": [
     "Disneyland"
+   ],
+   "brand_warnings": [
+    "Disneyland is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ]
   },
   {
@@ -730,7 +779,8 @@
     "gift": true,
     "item_first": false
    },
-   "brands": []
+   "brands": [],
+   "brand_warnings": []
   }
  ],
  "tag_sets": [
@@ -771,7 +821,9 @@
     "frog"
    ],
    "phrases": 10,
-   "brands": []
+   "brands": [],
+   "brand_warnings": [],
+   "starting_badly": []
   },
   {
    "title": "",
@@ -790,7 +842,9 @@
    "same_search": [],
    "only_title_words": [],
    "phrases": 1,
-   "brands": []
+   "brands": [],
+   "brand_warnings": [],
+   "starting_badly": []
   },
   {
    "title": "Retro Sunset Tee",
@@ -809,7 +863,9 @@
     "sunset"
    ],
    "phrases": 4,
-   "brands": []
+   "brands": [],
+   "brand_warnings": [],
+   "starting_badly": []
   },
   {
    "title": "",
@@ -830,7 +886,14 @@
     "Mickey",
     "NFL",
     "Star Wars"
-   ]
+   ],
+   "brand_warnings": [
+    "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"",
+    "Mickey is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"",
+    "Star Wars is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"",
+    "NFL is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
+   ],
+   "starting_badly": []
   },
   {
    "title": "",
@@ -846,7 +909,12 @@
    "same_search": [],
    "only_title_words": [],
    "phrases": 6,
-   "brands": []
+   "brands": [],
+   "brand_warnings": [],
+   "starting_badly": [
+    "- dash first",
+    "'quote first"
+   ]
   },
   {
    "title": "",
@@ -870,7 +938,30 @@
    "same_search": [],
    "only_title_words": [],
    "phrases": 14,
-   "brands": []
+   "brands": [],
+   "brand_warnings": [],
+   "starting_badly": []
+  },
+  {
+   "title": "Disney Family Trip Shirt",
+   "tags": [
+    "star-wars fan",
+    "disney tee",
+    "plain tag"
+   ],
+   "etsy_ok": true,
+   "same_search": [],
+   "only_title_words": [],
+   "phrases": 3,
+   "brands": [
+    "Disney",
+    "Star Wars"
+   ],
+   "brand_warnings": [
+    "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"",
+    "Star Wars is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
+   ],
+   "starting_badly": []
   }
  ]
 }

@@ -2,6 +2,7 @@
  * What one line of a checker's answer looks like. A rule is either Etsy's, with the words quoted and
  * the page that states them, or ours, and it says so. Nothing here predicts how a listing will do.
  */
+import { BRAND_WARNING } from "../listingRuleData.ts";
 import type { Source } from "../marketing/content.ts";
 import { READ } from "../marketing/sources.ts";
 
@@ -36,10 +37,9 @@ export function summary(lines: Line[]): string {
 }
 
 /*
- * The brand warning. It finds what the app finds (lib/brandSpot.ts), but on the public site a claim
- * about Etsy rests on a page that states it, so these are Etsy's own words, not the app's sentence.
+ * The brand warning: what the app says (trademarks.BRAND_WARNING), and with no brand found, the part of it
+ * about reports. Written once, so the tools and the app cannot drift apart.
  */
 export const BRAND_SOURCES = [READ.ipReport, READ.ipNotice];
-export const BRAND_RULE = `If a report complies with Etsy's policies, its Help says "we will remove the reported content", and "Repeat reports of infringement may result in the loss of account privileges."`;
-export const brandLine = (brand: string): string => `${brand} is a trademark, on the list of names the Listyro app warns about.`;
+export const BRAND_RULE = BRAND_WARNING.replace("{brand} is a trademark. ", "");
 export const BRAND_LIMITS = "The list is ours and short, and this is not legal advice. No warning here does not mean a name is free to use.";

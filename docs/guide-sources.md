@@ -135,6 +135,7 @@ https://help.etsy.com/hc/en-us/articles/115015628847-Fees-and-Payments
 
 - "The fees are taken from the item's total sale price, including its shipping fees, and any applicable sales tax."
 - "Payment processing fees are in addition to the 6.5% transaction fee that applies to the cost of the entire order."
+- Its deposit table (minimum / fee threshold / deposit fee) has: Türkiye 50.00 TRY / 600.00 TRY / 42.00 TRY.
 - The table, "Fees for Etsy Payments (% of total sale price + flat fee per order)":
   - Argentina: 6.5% + 0.3 USD
   - Australia (domestic orders): 3% + 0.25 AUD
@@ -199,7 +200,7 @@ https://help.etsy.com/hc/en-us/articles/115015628847-Fees-and-Payments
   - United Arab Emirates: 6.5% + 0.3 USD
   - United Kingdom: 4% + 0.2 GBP
   - United States: 3% + 0.25 USD
-  - Vietnam: 4.5% + 11500 VND
+  - Vietnam: 4.5% + 11550 VND (this table showed 11500 VND when read; the Etsy Payments Policy below says 11,550, and the policy is what the calculator uses)
 
 ### How Etsy's Offsite Ads Work
 https://help.etsy.com/hc/en-us/articles/360000338367
@@ -219,6 +220,14 @@ The published schema, read directly: https://www.etsy.com/openapi/generated/oas/
 
 - Title: "valid title strings contain only letters, numbers, punctuation marks, mathematical symbols, whitespace characters, ™, ©, and ®. (regex: /[^\p{L}\p{Nd}\p{P}\p{Sm}\p{Zs}™©®]/u) You can only use the %, :, & and + characters once each."
 - Tags: "valid tag strings contain only letters, numbers, whitespace characters, -, ', ™, ©, and ®. (regex: /[^\p{L}\p{Nd}\p{Zs}\-'™©®]/u)"
+
+### Fees & Payments Policy, and Etsy Payments Policy
+https://www.etsy.com/legal/fees (page last updated 5 October 2026) and https://www.etsy.com/legal/etsy-payments (page last updated 31 July 2026). Read by the owner, who compared every fee in `frontend/lib/freeTools/fees.ts` with them on 1 November 2026; automated requests get 403.
+
+- Vietnam's payment processing flat fee is 11,550 VND.
+- Offsite Ads is charged on item price including personalization, shipping and gift wrap. For US sellers it excludes sales tax; outside the US, tax is already inside the listing price.
+- All Etsy fees are listed exclusive of VAT.
+- For the countries that pay a regulatory operating fee, the Fees Policy defers to the Help article above, which lists Hungary.
 
 ### Seller Policy, section 1c item 7
 https://www.etsy.com/legal/sellers (page last updated 5 October 2026). Read by the owner, who gave the wording on 1 November 2026; automated requests get 403.

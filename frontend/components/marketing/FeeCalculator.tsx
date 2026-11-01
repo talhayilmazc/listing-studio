@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import { SourceLinks } from "@/components/marketing/ToolParts";
 import { longDate } from "@/lib/marketing/content";
 import { calculate, parseAmount, placeOf, showMoney, type OffsiteChoice } from "@/lib/freeTools/feeCalc";
-import { DEFAULT_PLACE, FEES, FEES_CHECKED, NOT_INCLUDED, NOT_INCLUDED_SOURCES, OFFSITE_ADS, PROCESSING } from "@/lib/freeTools/fees";
+import { CHECKED_AGAINST, DEFAULT_PLACE, FEES, FEES_CHECKED, NOT_INCLUDED, NOT_INCLUDED_SOURCES, OFFSITE_ADS, PROCESSING } from "@/lib/freeTools/fees";
 
+/** An amount and its currency stay on one line; the result's box scrolls by itself if one ever does not fit. */
+const AMOUNT = "whitespace-nowrap";
 const LINK = "font-medium text-brand-700 underline decoration-brand-100 underline-offset-4 hover:decoration-brand-600";
 
 function Amount({ id, label, value, onChange, hint }: { id: string; label: string; value: string; onChange: (value: string) => void; hint?: string }) {
@@ -23,6 +25,7 @@ export function FeeCalculator() {
   const [place, setPlace] = useState(DEFAULT_PLACE);
   const [price, setPrice] = useState("");
   const [shippingCharged, setShippingCharged] = useState("");
+  const [giftWrap, setGiftWrap] = useState("");
   const [salesTax, setSalesTax] = useState("");
   const [baseCost, setBaseCost] = useState("");
   const [shippingCost, setShippingCost] = useState("");
@@ -33,11 +36,12 @@ export function FeeCalculator() {
     place, offsite,
     price: parseAmount(price),
     shippingCharged: parseAmount(shippingCharged),
+    giftWrap: parseAmount(giftWrap),
     salesTax: parseAmount(salesTax),
     baseCost: parseAmount(baseCost),
     shippingCost: parseAmount(shippingCost),
     usdRate: parseAmount(usdRate),
-  }), [place, offsite, price, shippingCharged, salesTax, baseCost, shippingCost, usdRate]);
+  }), [place, offsite, price, shippingCharged, giftWrap, salesTax, baseCost, shippingCost, usdRate]);
 
   return (
     <div className="space-y-4">
@@ -49,11 +53,12 @@ export function FeeCalculator() {
           </select>
           <p className="mt-1 text-sm text-slate-600" translate="no" data-testid="fee-currency">{`Enter every amount in ${currency}.`}</p>
         </div>
-        <Amount id="fee-price" label="Your item price" value={price} onChange={setPrice} />
+        <Amount id="fee-price" label="Your item price" value={price} onChange={setPrice} hint="Include any personalization charge." />
         <Amount id="fee-shipping-charged" label="Shipping the buyer pays" value={shippingCharged} onChange={setShippingCharged} />
+        <Amount id="fee-gift-wrap" label="Gift wrap the buyer pays (optional)" value={giftWrap} onChange={setGiftWrap} />
         <Amount id="fee-base" label="Print-on-demand base cost" value={baseCost} onChange={setBaseCost} />
         <Amount id="fee-shipping-cost" label="Shipping you pay" value={shippingCost} onChange={setShippingCost} />
-        <Amount id="fee-tax" label="Sales tax on the order (optional)" value={salesTax} onChange={setSalesTax} hint="Used only for payment processing. It is not your income." />
+        <Amount id="fee-tax" label="Sales tax on the order (optional)" value={salesTax} onChange={setSalesTax} hint="For tax added at checkout: it counts only for payment processing, and it is not your income. If tax is already inside your price, leave this empty; the profit below then still includes that tax." />
         {currency !== "USD" && <Amount key="fee-rate" id="fee-rate" label={`1 USD in ${currency}`} value={usdRate} onChange={setUsdRate} hint="Etsy sets the listing fee and the Offsite Ads cap in US dollars." />}
         <div className="sm:col-span-2">
           <label htmlFor="fee-offsite" className="label">Did this order come from an Offsite Ad?</label>
@@ -65,25 +70,25 @@ export function FeeCalculator() {
         </div>
       </div>
 
-      <section aria-label="What this sale leaves" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" translate="no" data-testid="fee-result">
+      <section aria-label="What this sale leaves" className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" tabIndex={0} translate="no" data-testid="fee-result">
         {outcome.ok ? (
           <div key="result">
             <dl className="grid grid-cols-2 gap-3">
-              <div><dt className="text-sm text-slate-600">Profit</dt><dd className="font-display text-3xl text-slate-900" data-testid="fee-profit">{showMoney(outcome.result.profit, outcome.result.currency)}</dd></div>
+              <div><dt className="text-sm text-slate-600">Profit</dt><dd className={"font-display text-3xl text-slate-900 " + AMOUNT} data-testid="fee-profit">{showMoney(outcome.result.profit, outcome.result.currency)}</dd></div>
               <div><dt className="text-sm text-slate-600">Margin</dt><dd className="font-display text-3xl text-slate-900" data-testid="fee-margin">{`${outcome.result.margin}%`}</dd></div>
             </dl>
             <table className="mt-4 w-full border-collapse text-left text-[0.9375rem]">
               <caption className="sr-only">How the profit is worked out</caption>
               <tbody>
-                <tr className="border-t border-slate-100"><th scope="row" className="py-2 pr-3 font-medium text-slate-900">Item and shipping the buyer pays</th><td className="py-2 text-right text-slate-800">{showMoney(outcome.result.revenue, outcome.result.currency)}</td></tr>
+                <tr className="border-t border-slate-100"><th scope="row" className="py-2 pr-3 font-medium text-slate-900">Item, shipping and gift wrap the buyer pays</th><td className={"py-2 text-right text-slate-800 " + AMOUNT}>{showMoney(outcome.result.revenue, outcome.result.currency)}</td></tr>
                 {outcome.result.fees.map((fee) => (
                   <tr key={fee.id} className="border-t border-slate-100" data-testid={`fee-line-${fee.id}`}>
                     <th scope="row" className="py-2 pr-3 font-normal text-slate-800"><span className="block">{fee.name}</span><span className="block text-sm text-slate-600">{fee.how}</span></th>
-                    <td className="py-2 text-right align-top text-slate-800">{`-${showMoney(fee.amount, outcome.result.currency)}`}</td>
+                    <td className={"py-2 text-right align-top text-slate-800 " + AMOUNT}>{`-${showMoney(fee.amount, outcome.result.currency)}`}</td>
                   </tr>
                 ))}
-                <tr className="border-t border-slate-200"><th scope="row" className="py-2 pr-3 font-medium text-slate-900">All Etsy fees above</th><td className="py-2 text-right font-medium text-slate-900" data-testid="fee-total">{showMoney(outcome.result.totalFees, outcome.result.currency)}</td></tr>
-                <tr className="border-t border-slate-200"><th scope="row" className="py-2 pr-3 font-normal text-slate-800">Base cost and shipping you pay</th><td className="py-2 text-right text-slate-800">{`-${showMoney(outcome.result.costs, outcome.result.currency)}`}</td></tr>
+                <tr className="border-t border-slate-200"><th scope="row" className="py-2 pr-3 font-medium text-slate-900">All Etsy fees above</th><td className={"py-2 text-right font-medium text-slate-900 " + AMOUNT} data-testid="fee-total">{showMoney(outcome.result.totalFees, outcome.result.currency)}</td></tr>
+                <tr className="border-t border-slate-200"><th scope="row" className="py-2 pr-3 font-normal text-slate-800">Base cost and shipping you pay</th><td className={"py-2 text-right text-slate-800 " + AMOUNT}>{`-${showMoney(outcome.result.costs, outcome.result.currency)}`}</td></tr>
               </tbody>
             </table>
           </div>
@@ -110,6 +115,8 @@ export function FeeCalculator() {
           <span>{`Not included: ${NOT_INCLUDED.join(", ")}.`}</span>
         </p>
         <SourceLinks sources={NOT_INCLUDED_SOURCES} />
+        <p className="mt-3 text-sm text-slate-700">Figures confirmed against:</p>
+        <SourceLinks sources={CHECKED_AGAINST} />
       </section>
     </div>
   );

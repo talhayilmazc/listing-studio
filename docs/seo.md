@@ -49,6 +49,7 @@ and (
   or starts_with(http.request.uri.path, "/features/")
   or starts_with(http.request.uri.path, "/guides/")
   or starts_with(http.request.uri.path, "/compare/")
+  or http.request.uri.path eq "/free-tools"
   or starts_with(http.request.uri.path, "/free-tools/")
   or starts_with(http.request.uri.path, "/screens/")
   or starts_with(http.request.uri.path, "/og/")

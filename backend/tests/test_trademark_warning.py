@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 
 from app.compliance import trademarks as tm
-from app.compliance.trademarks import Blocklist, all_marks, brand_warnings, bundled_blocklist, compile_blocklist, read_entries
+from app.compliance.trademarks import BRAND_WARNING, Blocklist, all_marks, brand_warnings, bundled_blocklist, compile_blocklist, read_entries
 from app.core.config import Settings
 from app.db.models import GeneratedContent, Tenant
 from app.ops.trademark_scan import run as trademark_scan
@@ -28,7 +28,7 @@ def _terms(text: str) -> list[str]:
 
 
 def warning(brand: str) -> str:
-    return f"{brand} is a trademark. Etsy often removes listings that use it without permission, and repeated removals can suspend a shop."
+    return BRAND_WARNING.format(brand=brand)
 
 
 # --- the forms that were missed ------------------------------------------------------------------

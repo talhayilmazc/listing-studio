@@ -1,13 +1,12 @@
 /**
  * Every fee the calculator uses: one dated file, a source page per fee.
  *
- * The figures were read on Etsy's Help pages on FEES_CHECKED, and each quote below is word for word
- * (docs/guide-sources.md). Etsy's legal fee page (https://www.etsy.com/legal/fees) answers automated
- * requests with 403, so a person still has to compare them with it: docs/free-tools.md lists each one.
- * Until then every fee is "to confirm" and the page says "coming soon" (FEE_CALCULATOR_CONFIRMED).
+ * Read on Etsy's Help pages, each quote word for word (docs/guide-sources.md), and confirmed by the owner on
+ * FEES_CHECKED against Etsy's Fees Policy and Etsy Payments Policy, which answer automated requests with 403.
+ * Where the two differed the policy won: Vietnam's flat fee is 11,550 VND.
  *
- * To confirm: correct any figure here, set each status to "confirmed", set FEES_CHECKED to that day,
- * and set FEE_CALCULATOR_CONFIRMED=true in .env for the next build.
+ * The page opens when FEE_CALCULATOR_CONFIRMED=true is set in .env at build time; otherwise it says "coming
+ * soon" and carries no figure. If a fee changes, correct it here and set FEES_CHECKED to the day you checked.
  */
 import type { Source } from "../marketing/content.ts";
 import { READ } from "../marketing/sources.ts";
@@ -25,21 +24,23 @@ export const TRANSACTION_PERCENT = 6.5;
 export const OFFSITE_ADS = { under: 15, over: 12, capUsd: 100, thresholdUsd: 10000 };
 
 export const FEES: Fee[] = [
-  { id: "listing", name: "Listing fee", quote: "The listing fee is a flat rate charge of $0.20 USD per listing.", source: READ.feeBasics, status: "to confirm" },
-  { id: "transaction", name: "Transaction fee", quote: "This fee applies to the total cost of the item, along with shipping and gift wrap (if you charge your customers for those).", source: READ.feeBasics, status: "to confirm" },
-  { id: "processing", name: "Payment processing", quote: "The fees are taken from the item's total sale price, including its shipping fees, and any applicable sales tax.", source: READ.paymentFees, status: "to confirm" },
-  { id: "regulatory", name: "Regulatory operating fee", quote: "Sellers in these countries will be charged the following Regulatory Operating fees, which are charged on the item price plus shipping cost and gift wrap:", source: READ.regulatoryFee, status: "to confirm" },
-  { id: "offsite", name: "Offsite Ads", quote: "The Offsite Ads fee for any individual order will never exceed $100 USD, regardless of the order total.", source: READ.offsiteAds, status: "to confirm" },
+  { id: "listing", name: "Listing fee", quote: "The listing fee is a flat rate charge of $0.20 USD per listing.", source: READ.feeBasics, status: "confirmed" },
+  { id: "transaction", name: "Transaction fee", quote: "This fee applies to the total cost of the item, along with shipping and gift wrap (if you charge your customers for those).", source: READ.feeBasics, status: "confirmed" },
+  { id: "processing", name: "Payment processing", quote: "The fees are taken from the item's total sale price, including its shipping fees, and any applicable sales tax.", source: READ.paymentFees, status: "confirmed" },
+  { id: "regulatory", name: "Regulatory operating fee", quote: "Sellers in these countries will be charged the following Regulatory Operating fees, which are charged on the item price plus shipping cost and gift wrap:", source: READ.regulatoryFee, status: "confirmed" },
+  { id: "offsite", name: "Offsite Ads", quote: "The Offsite Ads fee for any individual order will never exceed $100 USD, regardless of the order total.", source: READ.offsiteAds, status: "confirmed" },
 ];
 
 export const NOT_INCLUDED = [
+  "VAT on Etsy's fees (all Etsy fees are listed exclusive of VAT)",
+  "deposit fees in some countries (in Türkiye, for example, 42 TRY on deposits under 600 TRY)",
   "currency conversion (Etsy charges 2.5% when it is needed)",
-  "VAT on Etsy's fees",
   "Etsy Ads",
   "Etsy shipping labels",
-  "deposit fees in some countries",
 ];
 export const NOT_INCLUDED_SOURCES = [READ.feesAndTaxes, READ.paymentFees];
+/** What the figures were confirmed against. */
+export const CHECKED_AGAINST = [READ.feesPolicy, READ.etsyPayments];
 
 /** A row of Etsy's table: where your bank account is, percent, flat fee and its currency. */
 export type Processing = { place: string; percent: number; flat: number; currency: string };
@@ -111,7 +112,7 @@ export const PROCESSING: Processing[] = [
   row("United Arab Emirates", 6.5, 0.3, "USD"),
   row("United Kingdom", 4, 0.2, "GBP"),
   row("United States", 3, 0.25, "USD"),
-  row("Vietnam", 4.5, 11500, "VND"),
+  row("Vietnam", 4.5, 11550, "VND"),
 ];
 
 /** Etsy's table of Regulatory Operating fees, percent. Countries not here pay none. */

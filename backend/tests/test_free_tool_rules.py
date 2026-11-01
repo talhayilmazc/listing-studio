@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 from app.compliance import trademarks
@@ -51,5 +52,32 @@ def test_the_cases_really_exercise_the_rules() -> None:
     tag_sets = stored["tag_sets"]
     assert any(c["same_search"] for c in tag_sets) and any(c["only_title_words"] for c in tag_sets)
     assert {c["etsy_ok"] for c in tag_sets} == {True, False}
+    assert any(c["starting_badly"] for c in tag_sets)
+    assert any(len(c["brand_warnings"]) > 1 for c in tag_sets)
+    assert {t["text"]: t["brand_warnings"] for t in titles}["D1sney Castle Tee"] == [trademarks.BRAND_WARNING.format(brand="Disney")]
     # The brand list the browser spots from is the bundled one, whatever an account's filter says.
     assert trademarks.bundled_blocklist().spot("Disney")
+
+
+def test_the_brand_warning_says_only_what_a_page_we_read_states() -> None:
+    ledger = " ".join((ROOT / "docs/guide-sources.md").read_text(encoding="utf-8").split())
+    quotes = re.findall(r'"([^"]+)"', trademarks.BRAND_WARNING)
+    assert len(quotes) == 2
+    for quote in quotes:
+        assert quote in ledger, quote
+    for path in (ROOT / "backend/app").rglob("*.py") if (ROOT / "backend/app").exists() else Path(__file__).parents[1].joinpath("app").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        assert "often removes" not in text and "repeated removals" not in text, path
+
+
+def test_a_tag_starting_badly_is_a_note_and_stops_nothing() -> None:
+    from app.pipeline.content import GeneratedListing, check_listing
+
+    tags = ["-dash first", "'quote first", *(f"good tag {i}" for i in range(11))]
+    listing = GeneratedListing(title="Frog Reading Club Shirt", tags=tags, description="A shirt with a frog on it.")
+    check = check_listing(listing, trademarks=trademarks.Blocklist())
+    assert check.valid, check.errors
+    notes = [w for w in check.warnings if "cannot start" in w]
+    assert len(notes) == 2 and "-dash first" in notes[0] and "quote first" in notes[1]
+    clean = GeneratedListing(title="Frog Reading Club Shirt", tags=["mom's t-shirt"], description="A shirt.")
+    assert not [w for w in check_listing(clean, trademarks=trademarks.Blocklist()).warnings if "cannot start" in w]

@@ -34,6 +34,8 @@ _MARKS = {"™", "©", "®"}
 TITLE_EMPTY = "title is empty"
 DESCRIPTION_EMPTY = "description is empty"
 TAG_EMPTY = "a tag is empty"
+#: What Etsy's Help says a tag cannot start with.
+TAG_BAD_START = ("'", "-")
 
 
 def _title_char_ok(ch: str) -> bool:
@@ -113,6 +115,12 @@ def tag_errors(tags: list[str]) -> list[str]:
         if bad:
             errors.append(f"tag has characters Etsy does not allow: {tag!r} ({_shown(bad)}): {_fix(bad, tag=True)}")
     return list(dict.fromkeys(errors))
+
+
+def tags_starting_badly(tags: list[str]) -> list[str]:
+    """The tags that start with ' or -. Etsy's Help says a tag "cannot start" with them; the API schema
+    does not say so, so this is a note on the listing and never stops it (``content.check_listing``)."""
+    return [tag for tag in tags if tag.strip().startswith(TAG_BAD_START)]
 
 
 def draft_errors(title: str, tags: list[str], description: str) -> list[str]:

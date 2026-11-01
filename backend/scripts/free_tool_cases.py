@@ -50,6 +50,7 @@ TAG_SETS = [
     {"title": "", "tags": ["disneyworld shirt", "mick ey tee", "marvelous mom", "star-wars fan", "nfl dad", "plain tag"]},
     {"title": "", "tags": ["a much too long tag for etsy", "tag & more", "- dash first", "'quote first", "curly’s tag", "fine tag"]},
     {"title": "", "tags": [f"tag {i}" for i in range(14)]},
+    {"title": "Disney Family Trip Shirt", "tags": ["star-wars fan", "disney tee", "plain tag"]},
 ]
 
 
@@ -68,6 +69,7 @@ def _title(text: str) -> dict:
         "garments": [w for w in search_rules.words(text) if w in search_rules._TYPES],
         "report": {k: report[k] for k in ("words", "repeats", "subjective", "commerce", "gift", "item_first")},
         "brands": sorted({s.term for s in trademarks.bundled_blocklist().spot(text)}),
+        "brand_warnings": trademarks.brand_warnings(text, [], "", trademarks.Blocklist()),
     }
 
 
@@ -83,6 +85,8 @@ def _tags(case: dict) -> dict:
         "only_title_words": [t for t in tags if search_rules.keywords(t) and set(search_rules.keywords(t)) <= in_title],
         "phrases": sum(1 for t in tags if len(t.split()) >= 2),
         "brands": sorted({s.term for tag in tags for s in known.spot(tag)}),
+        "brand_warnings": trademarks.brand_warnings(title, tags, "", trademarks.Blocklist()),
+        "starting_badly": etsy_text.tags_starting_badly(tags),
     }
 
 

@@ -5,12 +5,12 @@ import { IDEAS_PATH } from "../lib/marketing/routes.mjs";
  * The free tools in a real browser. The public pages' metadata, layout and headers are checked with every
  * other public page (marketing, layout and headers specs); here is what only a browser can show.
  *
- * Two builds: by default the switches are off, as deployed. With TOOLS_ON=1, against an image built with
- * FEE_CALCULATOR_CONFIRMED=true and run with FREE_TOOL_AI_ENABLED=true, the calculator and the ideas page
- * are tested. Cloudflare's script and our API are stubbed in the browser: nothing leaves this machine.
+ * The switches are the image's, and these say which it has: FEE_ON=1 for one built with
+ * FEE_CALCULATOR_CONFIRMED=true, IDEAS_ON=1 for one built and run with FREE_TOOL_AI_ENABLED=true. Cloudflare's script and our API are stubbed in the browser: nothing leaves this machine.
  */
 
-const ON = process.env.TOOLS_ON === "1";
+const FEE_ON = process.env.FEE_ON === "1";
+const IDEAS_ON = process.env.IDEAS_ON === "1";
 const SHOTS = process.env.TOOL_SHOTS ? "../load-output/tool-shots" : null;
 
 async function shot(page: Page, name: string, project: string) {
@@ -67,9 +67,9 @@ test("the tag checker counts, marks long tags and warns about brands, offline", 
 
 test("the free tools page leads to each tool, and a tool leads to its guide and the invitation", async ({ page }, info) => {
   await page.goto("/free-tools");
-  await expect(page.getByTestId("free-tool")).toHaveCount(ON ? 4 : 3);
+  await expect(page.getByTestId("free-tool")).toHaveCount(IDEAS_ON ? 4 : 3);
   await expect(page.getByRole("link", { name: "Title checker" })).toHaveAttribute("href", "/free-tools/title-checker");
-  await expect(page.getByTestId("tool-status")).toHaveCount(ON ? 0 : 1);
+  await expect(page.getByTestId("tool-status")).toHaveCount(FEE_ON ? 0 : 1);
   await shot(page, "free-tools", info.project.name);
   await page.goto("/free-tools/title-checker");
   await expect(page.getByTestId("tool-guide")).toHaveAttribute("href", "/guides/etsy-title-rules-2026");
@@ -78,7 +78,7 @@ test("the free tools page leads to each tool, and a tool leads to its guide and 
 });
 
 test("the fee calculator: coming soon, with no figure on the page", async ({ page, request }, info) => {
-  test.skip(ON, "this build has the calculator on");
+  test.skip(FEE_ON, "this build has the calculator on");
   await page.goto("/free-tools/fee-calculator");
   await expect(page.getByTestId("fee-coming-soon")).toContainText("Coming soon");
   await expect(page.getByTestId("fee-result")).toHaveCount(0);
@@ -89,7 +89,7 @@ test("the fee calculator: coming soon, with no figure on the page", async ({ pag
 });
 
 test("the ideas page does not exist while its flag is off, and nothing about it is public", async ({ request }) => {
-  test.skip(ON, "this build has the page on");
+  test.skip(IDEAS_ON, "this build has the page on");
   const page = await request.get(IDEAS_PATH);
   expect(page.status()).toBe(404);
   expect(page.headers()["cache-control"]).toMatch(/^private/);
@@ -98,7 +98,7 @@ test("the ideas page does not exist while its flag is off, and nothing about it 
 });
 
 test("the fee calculator works it out, line by line", async ({ page }, info) => {
-  test.skip(!ON, "needs a build with FEE_CALCULATOR_CONFIRMED=true");
+  test.skip(!FEE_ON, "needs a build with FEE_CALCULATOR_CONFIRMED=true");
   const sent: string[] = [];
   await page.goto("/free-tools/fee-calculator");
   await page.waitForLoadState("networkidle");
@@ -115,18 +115,33 @@ test("the fee calculator works it out, line by line", async ({ page }, info) => 
   await page.getByTestId("fee-offsite").selectOption("under");
   await expect(page.getByTestId("fee-line-offsite")).toContainText("-4.50 USD");
   await expect(page.getByTestId("fees-checked")).toContainText("Fees checked on 1 November 2026. Etsy can change its fees");
-  await expect(page.getByTestId("fee-source-listing")).toContainText("To confirm");
+  await expect(page.getByTestId("fee-sources")).not.toContainText("To confirm");
+  await expect(page.getByTestId("fee-sources")).toContainText("exclusive of VAT");
+  await expect(page.getByTestId("fee-sources")).toContainText("42 TRY on deposits under 600 TRY");
+  await page.getByTestId("fee-gift-wrap").fill("10");
+  await expect(page.getByTestId("fee-line-offsite")).toContainText("-6.00 USD"); // 15% of 40
+  await page.getByTestId("fee-gift-wrap").fill("");
+  // An amount and its currency stay on one line.
+  const lineHeight = await page.getByTestId("fee-total").evaluate((el) => ({ wrap: getComputedStyle(el).whiteSpace, tall: el.getBoundingClientRect().height }));
+  expect(lineHeight.wrap).toBe("nowrap");
+  expect(lineHeight.tall).toBeLessThan(50);
   await shot(page, "fee-calculator", info.project.name);
   await page.getByTestId("fee-place").selectOption("United Kingdom");
   await expect(page.getByTestId("fee-needs")).toContainText("1 USD is in GBP");
   await page.getByTestId("fee-rate").fill("0.8");
   await expect(page.getByTestId("fee-line-regulatory")).toContainText("-0.14 GBP");
+  // The longest amounts there are: the page itself still does not scroll sideways on a phone.
+  await page.getByTestId("fee-place").selectOption("Vietnam");
+  await page.getByTestId("fee-rate").fill("25000");
+  await page.getByTestId("fee-price").fill("12500000");
+  await expect(page.getByTestId("fee-line-processing")).toContainText("11550 VND");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   expect(sent).toEqual([]);
   expect(await page.context().cookies()).toEqual([]);
 });
 
 test("the ideas page: private, checked by Turnstile, and it says when it runs out", async ({ page, request }, info) => {
-  test.skip(!ON, "needs FREE_TOOL_AI_ENABLED=true");
+  test.skip(!IDEAS_ON, "needs FREE_TOOL_AI_ENABLED=true");
   const direct = await request.get(IDEAS_PATH);
   expect(direct.status()).toBe(200);
   expect(direct.headers()["cache-control"]).toMatch(/^private/);

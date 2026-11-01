@@ -4,9 +4,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { BRAND_RULE, BRAND_SOURCES, KIND_WORDS, brandLine, summary, type Line } from "./freeTools/check.ts";
+import { brandWarning } from "./brandSpot.ts";
+import { BRAND_RULE, BRAND_SOURCES, KIND_WORDS, summary, type Line } from "./freeTools/check.ts";
 import { calculate, parseAmount, showMoney, type FeeInput } from "./freeTools/feeCalc.ts";
-import { DEFAULT_PLACE, FEES, FEES_CHECKED, LISTING_FEE_USD, NOT_INCLUDED_SOURCES, OFFSITE_ADS, PROCESSING, REGULATORY, TRANSACTION_PERCENT, feeCalculatorOpen, regulatoryPercent } from "./freeTools/fees.ts";
+import { CHECKED_AGAINST, DEFAULT_PLACE, FEES, FEES_CHECKED, LISTING_FEE_USD, NOT_INCLUDED, NOT_INCLUDED_SOURCES, OFFSITE_ADS, PROCESSING, REGULATORY, TRANSACTION_PERCENT, feeCalculatorOpen, regulatoryPercent } from "./freeTools/fees.ts";
 import { TAG_EXAMPLE, TAG_RULES, checkTags, parseTags, tagBrands } from "./freeTools/tagCheck.ts";
 import { TITLE_EXAMPLE, TITLE_RULES, checkTitle, titleBrands } from "./freeTools/titleCheck.ts";
 import { jsonLdNames } from "./marketing/brandRule.ts";
@@ -88,9 +89,10 @@ test("title and tags: the brand warning finds what the app finds, and stops noth
   assert.deepEqual(checkTitle("Disney Shirt").map((l) => l.verdict), checkTitle("Frogs Shirt").map((l) => l.verdict));
   for (const source of BRAND_SOURCES) assert.ok(READ_URLS.has(source.url));
   for (const quote of [...BRAND_RULE.matchAll(/"([^"]+)"/g)].map((m) => m[1])) assert.ok(LEDGER.includes(flat(quote)), quote);
-  assert.match(brandLine("Disney"), /^Disney is a trademark/);
-  // The app's sentence names a claim no page we read states: it stays out of the public tools.
-  for (const file of ["lib/freeTools/check.ts", "components/marketing/ToolParts.tsx"]) assert.doesNotMatch(read(file), /often removes/);
+  assert.match(brandWarning("Disney"), /^Disney is a trademark\. If a report complies/);
+  // One sentence, written from the app's: nobody types it again here, and the claim no page states is gone.
+  assert.match(read("components/marketing/ToolParts.tsx"), /brandWarning\(brand\)/);
+  for (const file of ["lib/freeTools/check.ts", "components/marketing/ToolParts.tsx", "lib/listingRuleData.ts"]) assert.doesNotMatch(read(file), /often removes|repeated removals/, file);
 });
 
 // --- The tag checker -----------------------------------------------------------------------------
@@ -112,8 +114,9 @@ test("tags: each of Etsy's limits", () => {
   assert.match(line(checkTags(["tag & more"]), "characters").detail, /write "and"/);
   assert.match(line(checkTags(["curly’s tag"]), "characters").detail, /straight apostrophe/);
   assert.equal(line(checkTags(["mom's tag", "t-shirt ™"]), "characters").verdict, "pass");
-  assert.equal(line(checkTags(["'quote first"]), "start").verdict, "fail");
-  assert.equal(line(checkTags(["-dash first"]), "start").verdict, "fail");
+  // A note, as in the app: Etsy's Help states it and the API schema does not.
+  assert.equal(line(checkTags(["'quote first"]), "start").verdict, "warn");
+  assert.equal(line(checkTags(["-dash first"]), "start").verdict, "warn");
   assert.equal(line(checkTags(["mom's t-shirt"]), "start").verdict, "pass");
 });
 
@@ -168,7 +171,7 @@ test("the checkers send nothing and use no AI", () => {
 
 // --- The fee calculator --------------------------------------------------------------------------
 
-const SALE: FeeInput = { place: "United States", price: 25, shippingCharged: 5, salesTax: null, baseCost: 12, shippingCost: 4.5, offsite: "none", usdRate: null };
+const SALE: FeeInput = { place: "United States", price: 25, shippingCharged: 5, giftWrap: null, salesTax: null, baseCost: 12, shippingCost: 4.5, offsite: "none", usdRate: null };
 const sum = (input: Partial<FeeInput>) => {
   const outcome = calculate({ ...SALE, ...input });
   assert.ok(outcome.ok, JSON.stringify(outcome));
@@ -219,6 +222,41 @@ test("a country with a regulatory fee, its own processing rate, and dollars conv
   assert.equal(regulatoryPercent("Germany"), 0);
 });
 
+test("gift wrap and personalization are in the base of the transaction fee, the regulatory fee and Offsite Ads", () => {
+  const r = sum({ place: "United Kingdom", usdRate: 0.8, price: 25, shippingCharged: 5, giftWrap: 10, offsite: "under" });
+  assert.equal(r.revenue, 40);
+  assert.equal(fee(r, "transaction"), 2.6); // 6.5% of 40
+  assert.equal(fee(r, "regulatory"), 0.19); // 0.48% of 40 = 0.192
+  assert.equal(fee(r, "offsite"), 6); // 15% of 40
+  assert.equal(fee(r, "processing"), 1.8); // 4% of 40 = 1.60, + 0.20
+  // A personalization charge is part of the price the seller enters.
+  assert.deepEqual(sum({ price: 20 + 5 }).fees, sum({ price: 25 }).fees);
+  assert.match(read("components/marketing/FeeCalculator.tsx"), /Include any personalization charge/);
+});
+
+test("US sales tax is outside the Offsite Ads base; only payment processing is charged on it", () => {
+  const without = sum({ offsite: "under" });
+  const taxed = sum({ offsite: "under", salesTax: 2.4 });
+  assert.equal(fee(taxed, "offsite"), 4.5);
+  assert.equal(fee(taxed, "offsite"), fee(without, "offsite"));
+  assert.equal(fee(taxed, "transaction"), fee(without, "transaction"));
+  assert.equal(fee(taxed, "processing"), 1.22);
+  assert.equal(taxed.revenue, without.revenue);
+});
+
+test("Vietnam's flat fee is what the Etsy Payments Policy says", () => {
+  assert.equal(PROCESSING.find((p) => p.place === "Vietnam")!.flat, 11550);
+  const r = sum({ place: "Vietnam", usdRate: 25000, price: 1000000, shippingCharged: 0, baseCost: 0, shippingCost: 0 });
+  assert.equal(fee(r, "processing"), 56550); // 4.5% of 1,000,000 = 45,000, + 11,550
+  assert.equal(fee(r, "regulatory"), 12400); // 1.24%
+  assert.match(r.fees.find((f) => f.id === "processing")!.how, /11550 VND/);
+});
+
+test("Hungary stays at 1.97%: the Fees Policy defers to the Help article, and the article lists it", () => {
+  assert.equal(REGULATORY.Hungary, 1.97);
+  assert.equal(regulatoryPercent("Hungary"), 1.97);
+});
+
 test("a loss is a loss", () => {
   const r = sum({ price: 10, shippingCharged: 0, baseCost: 15, shippingCost: 5 });
   assert.ok(r.profit < 0);
@@ -249,15 +287,23 @@ test("the lines add up to the total, for every country", () => {
   }
 });
 
-test("the fee file: dated, one page per fee, every fee still to confirm, the figures as read", () => {
-  assert.match(FEES_CHECKED, /^\d{4}-\d{2}-\d{2}$/);
+test("the fee file: dated, one page per fee, every fee confirmed, and what is left out is said", () => {
+  assert.equal(FEES_CHECKED, "2026-11-01");
   assert.deepEqual(FEES.map((f) => f.id), ["listing", "transaction", "processing", "regulatory", "offsite"]);
   for (const f of FEES) {
-    assert.equal(f.status, "to confirm", f.id); // until the owner has compared them with Etsy's fee page
+    assert.equal(f.status, "confirmed", f.id); // against Etsy's Fees Policy and Etsy Payments Policy
     assert.ok(READ_URLS.has(f.source.url), f.id);
     assert.ok(LEDGER.includes(flat(f.quote)), `${f.id}: not in docs/guide-sources.md: ${f.quote}`);
   }
-  for (const s of NOT_INCLUDED_SOURCES) assert.ok(READ_URLS.has(s.url));
+  for (const s of [...NOT_INCLUDED_SOURCES, ...CHECKED_AGAINST]) assert.ok(READ_URLS.has(s.url));
+  const left = NOT_INCLUDED.join(" ");
+  assert.match(left, /all Etsy fees are listed exclusive of VAT/);
+  assert.match(left, /42 TRY on deposits under 600 TRY/);
+  assert.ok(LEDGER.includes("Türkiye 50.00 TRY / 600.00 TRY / 42.00 TRY"));
+  assert.ok(LEDGER.includes("exclusive of VAT"));
+  assert.match(read("components/marketing/FeeCalculator.tsx"), /NOT_INCLUDED\.join/);
+  // An amount and its currency never part on a phone.
+  assert.equal(read("components/marketing/FeeCalculator.tsx").match(/\+ AMOUNT\}/g)?.length, 5);
   assert.equal(LISTING_FEE_USD, 0.2);
   assert.equal(TRANSACTION_PERCENT, 6.5);
   assert.deepEqual(OFFSITE_ADS, { under: 15, over: 12, capUsd: 100, thresholdUsd: 10000 });
@@ -322,6 +368,7 @@ test("the checkers are public like any page; the ideas page is never in the publ
   // docs/seo.md's Cloudflare rule keeps it out by name too.
   const seo = read("../docs/seo.md");
   assert.match(seo, /starts_with\(http\.request\.uri\.path, "\/free-tools\/"\)/);
+  assert.match(seo, /or http\.request\.uri\.path eq "\/free-tools"/);
   assert.match(seo, /not starts_with\(http\.request\.uri\.path, "\/free-tools\/listing-ideas"\)/);
 });
 

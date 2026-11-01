@@ -6,7 +6,7 @@ Written for whoever runs listyro.com. How the tools work, what is switched off, 
 |---|---|---|---|
 | Title checker | `/free-tools/title-checker` | In the visitor's browser | Live |
 | Tag checker | `/free-tools/tag-checker` | In the visitor's browser | Live |
-| Fee calculator | `/free-tools/fee-calculator` | In the visitor's browser | "Coming soon" until you confirm the fees |
+| Fee calculator | `/free-tools/fee-calculator` | In the visitor's browser | Fees confirmed; open when `FEE_CALCULATOR_CONFIRMED=true` is set at build time |
 | Title and tag ideas | `/free-tools/listing-ideas` | Our server and Anthropic | Off; its page is a 404 |
 
 Screenshots at 1366 and 375 px are in `docs/screens/tools/`. The fee calculator's and the ideas tool's are from a build with their switches on. In the ideas picture Cloudflare's check and the API are stubbed, so the word "checked" is the test's stand-in, not the real widget.
@@ -22,43 +22,30 @@ The app's rules are in Python, and a page with no server behind it needs them in
 
 Each rule on the page is either Etsy's, quoted with a link, or labelled "Our advice". The quotes must be in `docs/guide-sources.md`, and a test fails if they are not.
 
-**Two differences from the app, on purpose:**
-
-- **The brand warning finds the same names but uses different words.** The app says "Etsy often removes listings that use it without permission", and no page we have read says that. The public tools quote Etsy's Help pages instead.
-- **The tag checker also applies "cannot start your tag with these characters".** Etsy's Help page says this about ' and -. The app does not stop on it, because the API schema does not state it.
+**The app and the tools now say the same thing.** The brand warning is one sentence (`trademarks.BRAND_WARNING`, quoting Etsy's Help), and a tag starting with ' or - is a note in both and stops nothing.
 
 ## The fee calculator
 
-`frontend/lib/freeTools/fees.ts` is the one dated file. While `FEE_CALCULATOR_CONFIRMED` is off the page says "Coming soon" and carries no figure.
+`frontend/lib/freeTools/fees.ts` is the one dated file. The owner confirmed every fee on 1 November 2026 against Etsy's [Fees & Payments Policy](https://www.etsy.com/legal/fees) (updated 5 October 2026) and [Etsy Payments Policy](https://www.etsy.com/legal/etsy-payments) (updated 31 July 2026).
 
-**To turn it on, after checking the list below:**
+The page opens when `FEE_CALCULATOR_CONFIRMED=true` is in `.env` at build time. Without it the page says "Coming soon" and carries no figure.
 
-1. In `fees.ts`, correct any figure that differs.
-2. Set each fee's `status` to `"confirmed"`. A fee left as `"to confirm"` shows that tag on the public page.
-3. Set `FEES_CHECKED` to the day you checked.
-4. Add `FEE_CALCULATOR_CONFIRMED=true` to `.env` on the server. It is read when the site is built.
-5. Deploy with `bash deploy/update.sh`, then purge the Cloudflare cache.
-
-### Fees to confirm by hand
-
-Read on Etsy's Help pages on 1 November 2026. Etsy's own fee page, **https://www.etsy.com/legal/fees**, refuses automated requests, so please compare each of these with it.
+**If a fee changes:** correct it in `fees.ts`, set `FEES_CHECKED` to the day you checked, and deploy. A fee whose `status` is set back to `"to confirm"` shows that tag on the public page.
 
 | Fee | Value used | Etsy page |
 |---|---|---|
 | Listing fee | $0.20 USD per listing | https://help.etsy.com/hc/en-us/articles/360035902374 |
-| Transaction fee | 6.5% of item price, shipping and gift wrap | https://help.etsy.com/hc/en-us/articles/360035902374 |
-| Payment processing | By country: a percent plus a flat fee, on item, shipping and sales tax (full table below) | https://help.etsy.com/hc/en-us/articles/115015628847-Fees-and-Payments |
-| Regulatory operating fee | Canada 0.50%, France 1.14%, Hungary 1.97%, Italy 0.80%, India 0.05%, Spain 0.88%, Türkiye 1.67%, United Kingdom 0.48%, Vietnam 1.24%; on item, shipping and gift wrap | https://help.etsy.com/hc/articles/1500011073202 |
-| Offsite Ads | 15% under $10,000 in 365 days, 12% at $10,000 or more, at most $100 USD an order | https://help.etsy.com/hc/en-us/articles/360000338367 |
+| Transaction fee | 6.5% of item price (with personalization), shipping and gift wrap | https://help.etsy.com/hc/en-us/articles/360035902374 |
+| Payment processing | By country: a percent plus a flat fee, on item, shipping, gift wrap and sales tax (full table below) | https://help.etsy.com/hc/en-us/articles/115015628847-Fees-and-Payments |
+| Regulatory operating fee | Canada 0.50%, France 1.14%, Hungary 1.97%, Italy 0.80%, India 0.05%, Spain 0.88%, Türkiye 1.67%, United Kingdom 0.48%, Vietnam 1.24%; on item (with personalization), shipping and gift wrap | https://help.etsy.com/hc/articles/1500011073202 |
+| Offsite Ads | 15% under $10,000 in 365 days, 12% at $10,000 or more, at most $100 USD an order; on item (with personalization), shipping and gift wrap, without US sales tax | https://help.etsy.com/hc/en-us/articles/360000338367 |
 
-**Please look at these in particular:**
-
-- **Hungary.** The regulatory fee article lists Hungary at 1.97%. The [fees overview](https://help.etsy.com/hc/en-us/articles/115014483627-What-are-the-Fees-and-Taxes-for-Selling-on-Etsy-) lists the countries without Hungary. The calculator follows the article.
-- **What Offsite Ads is charged on.** Etsy says "the order total" and "the amount you made from your sale before the advertising fee was applied", and defines neither. The calculator uses item plus shipping, without tax.
+- **Personalization** has no field of its own: the price field says to include it, so it is in every base.
+- **Tax outside the US** is inside the price the seller enters, so the profit shown still includes it. The tax field's hint says so.
 - **The fixed amounts in other currencies.** The listing fee and the Offsite Ads cap are in US dollars and Etsy converts them, so a seller outside the US types an exchange rate. We do not assume one.
 - **Rounding.** Etsy does not say how it rounds. The calculator rounds each fee to the cent, so a real statement can differ by a cent.
 
-**Not included, and the page says so:** currency conversion (2.5%), VAT on Etsy's fees, Etsy Ads, shipping labels, and deposit fees in some countries.
+**Not included, and the page says so:** VAT on Etsy's fees (all Etsy fees are listed exclusive of VAT), deposit fees (in Türkiye, for example, 42 TRY on deposits under 600 TRY), currency conversion (2.5%), Etsy Ads and shipping labels.
 
 ### Payment processing, as read
 
@@ -72,7 +59,7 @@ Read on Etsy's Help pages on 1 November 2026. Etsy's own fee page, **https://www
 | Denmark / Norway | 4% + 2.50 DKK / 4% + 2.50 NOK |
 | Hong Kong / Singapore | 4.4% + 2.00 HKD / 4.4% + 0.35 SGD |
 | India | 5% + 25 INR |
-| Indonesia / Vietnam | 4.5% + 7000 IDR / 4.5% + 11500 VND |
+| Indonesia / Vietnam | 4.5% + 7000 IDR / 4.5% + 11550 VND |
 | Israel / Malaysia | 4.5% + 2 ILS / 4.5% + 2 MYR |
 | Japan / Thailand / Ukraine | 6% + 0.30 USD |
 | Mexico / South Africa | 4.5% + 8 MXN / 4.5% + 8 ZAR |

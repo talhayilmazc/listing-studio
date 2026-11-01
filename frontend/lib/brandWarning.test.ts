@@ -4,9 +4,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sendSummary } from "./anotherShop.ts";
+import { brandWarning } from "./brandSpot.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const WARNING = "Disney is a trademark. Etsy often removes listings that use it without permission, and repeated removals can suspend a shop.";
+const WARNING = brandWarning("Disney");
 
 function row(over: object) {
   return { content_id: "a", state: "new", errors: [], warnings: [], approved: true, sku: "A1", sku_own: false, text_own: [], title: "T", group_key: "A1", profile_name: "P", ...over };

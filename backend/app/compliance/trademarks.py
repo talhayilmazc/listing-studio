@@ -57,9 +57,14 @@ def _pattern(term: str) -> re.Pattern[str] | None:
 #: Texts remembered per list (tags and a profile's description repeat across a page's listings).
 MEMO_SIZE = 20000
 
-#: What the seller reads about a brand the filter did not stop.
-BRAND_WARNING = ("{brand} is a trademark. Etsy often removes listings that use it without permission, "
-                 "and repeated removals can suspend a shop.")
+#: What the seller reads about a brand the filter did not stop, in the app and the free tools alike
+#: (``frontend/lib/brandSpot.ts`` reads it through ``listingRuleData.ts``). The quoted words are Etsy's
+#: Help Center's, on record in docs/guide-sources.md: we say nothing here that a page we read does not state.
+BRAND_WARNING = (
+    "{brand} is a trademark. If a report complies with Etsy's policies, its Help says "
+    '"we will remove the reported content", and "Repeat reports of infringement may result in the loss of '
+    'account privileges."'
+)
 
 #: Inside a brand, for :meth:`Blocklist.spot`: "mick ey", "dis-ney", "star_wars", "#".
 _INSIDE = r"[\s\-_.'’#]{0,2}"

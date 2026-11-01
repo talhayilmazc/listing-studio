@@ -1,5 +1,6 @@
 import type { Source } from "@/lib/marketing/content";
-import { BRAND_LIMITS, BRAND_RULE, BRAND_SOURCES, KIND_WORDS, VERDICT_WORDS, brandLine, type Line, type Verdict } from "@/lib/freeTools/check";
+import { brandWarning } from "@/lib/brandSpot";
+import { BRAND_LIMITS, BRAND_RULE, BRAND_SOURCES, KIND_WORDS, VERDICT_WORDS, type Line, type Verdict } from "@/lib/freeTools/check";
 
 /** The parts both checkers are made of. They hold no state, so the static page shows every rule. */
 
@@ -47,7 +48,7 @@ export function SourceLinks({ sources }: { sources: Source[] }) {
   );
 }
 
-/** The trademark warning: it warns, and it stops nothing. */
+/** The trademark warning, in the app's own sentence: it warns, and it stops nothing. */
 export function BrandWarning({ brands }: { brands: string[] }) {
   return (
     <section aria-label="Brand names" className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 sm:px-5" data-testid="brand-warning" data-brands={brands.length}>
@@ -56,11 +57,9 @@ export function BrandWarning({ brands }: { brands: string[] }) {
         <span translate="no" className={"rounded border px-1.5 text-xs leading-5 " + VERDICT_STYLE[brands.length ? "warn" : "pass"]}>{brands.length ? VERDICT_WORDS.warn : "None found"}</span>
       </p>
       <div translate="no">
-        {brands.map((brand) => <p key={brand} className="mt-1 text-[0.9375rem] leading-relaxed text-slate-800">{brandLine(brand)}</p>)}
+        {brands.map((brand) => <p key={brand} className="mt-1 text-[0.9375rem] leading-relaxed text-slate-800">{brandWarning(brand)}</p>)}
       </div>
-      <p className="mt-1 text-sm leading-relaxed text-slate-600">
-        <span>{`${BRAND_RULE} `}</span>
-      </p>
+      {brands.length === 0 ? <p key="rule" className="mt-1 text-sm leading-relaxed text-slate-600">{BRAND_RULE}</p> : null}
       <SourceLinks sources={BRAND_SOURCES} />
       <p className="mt-1 text-sm leading-relaxed text-slate-600">{BRAND_LIMITS}</p>
     </section>

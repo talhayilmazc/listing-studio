@@ -3,7 +3,7 @@
  * lib/brandSpot.ts. Nothing is sent anywhere, and no AI is involved.
  */
 import { spotBrands } from "../brandSpot.ts";
-import { MAX_TAG, MAX_TAGS, tagParts } from "../etsyText.ts";
+import { MAX_TAG, MAX_TAGS, tagParts, tagsStartingBadly } from "../etsyText.ts";
 import { MIN_MULTI_WORD_TAGS } from "../listingRuleData.ts";
 import { phraseCount, sameSearchTags, tagsOnlyInTitle } from "../listingRules.ts";
 import { READ } from "../marketing/sources.ts";
@@ -33,8 +33,9 @@ function answer(id: string, tags: string[], title: string): Answer {
     case "characters":
       return parts.bad.length ? fail(parts.bad.map(({ tag, chars, fix }) => `"${tag}" has ${shownChars(chars)}. Fix: ${fix}.`).join(" ")) : pass("Every character is allowed.");
     case "start": {
-      const starts = tags.filter((tag) => /^['-]/.test(tag));
-      return starts.length ? fail(`These start with one: ${quoted(starts)}.`) : pass("None of them does.");
+      // The app's finding, and like the app a note: Etsy's Help states it, the API schema does not.
+      const starts = tagsStartingBadly(tags);
+      return starts.length ? warn(`These start with one: ${quoted(starts)}.`) : pass("None of them does.");
     }
     case "duplicates": {
       const lower = tags.map((tag) => tag.toLowerCase());

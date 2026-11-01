@@ -520,6 +520,10 @@ def check_listing(
         # No title yet: what a title should say is for when there is one.
         and not (title_empty and "title" in e)
     ]
+    warnings += [
+        f"the tag {tag!r} starts with {tag.strip()[0]}: Etsy's Help says a tag cannot start with ' or -"
+        for tag in etsy_text.tags_starting_badly(list(listing.tags))
+    ]
     return ListingCheck(errors, warnings, brands)
 
 

@@ -24,6 +24,7 @@
  */
 import { MARKETING_PAGES } from "../lib/marketing/routes.mjs";
 import { expect, test, type Page } from "@playwright/test";
+import { brandWarning } from "../lib/brandSpot";
 import { TRADEMARK_NOTICE } from "../lib/legal";
 import { signIn } from "./session";
 
@@ -578,7 +579,7 @@ test.describe("signed in", () => {
   });
 
   test("a brand the filter lets through is said on the card, the workspace row and the send summary, and can still be sent", async ({ page }) => {
-    const WARNING = "Disney is a trademark. Etsy often removes listings that use it without permission, and repeated removals can suspend a shop.";
+    const WARNING = brandWarning("Disney");
     // BRAND_SHOTS=1: also the pictures in docs/screens/ (375 and 1366 px).
     const shot = async (name: string) => {
       const width = page.viewportSize()?.width;

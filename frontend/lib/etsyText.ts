@@ -66,6 +66,9 @@ export function tagParts(tags: string[]): { long: string[]; bad: { tag: string; 
   };
 }
 
+/** The tags that start with ' or -. A note, never a stop: backend etsy_text.tags_starting_badly. */
+export const tagsStartingBadly = (tags: string[]): string[] => tags.filter((tag) => /^['-]/.test(tag.trim()));
+
 /** Why Etsy would refuse these tags (none: it would not). */
 export function tagErrors(tags: string[]): string[] {
   const errors: string[] = [];
