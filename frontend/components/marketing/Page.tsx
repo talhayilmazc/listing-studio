@@ -1,3 +1,4 @@
+import { jsonLdNames, refuseEtsy } from "@/lib/marketing/brandRule";
 import type { Block, Source } from "@/lib/marketing/content";
 import { linksIn, longDate } from "@/lib/marketing/content";
 import { trail } from "@/lib/marketing/pages";
@@ -14,6 +15,7 @@ const LINK = "font-medium text-brand-700 underline decoration-brand-100 underlin
 
 /** One block of JSON-LD. "<" is escaped so no text can end the script element. */
 export function JsonLd({ data }: { data: unknown }) {
+  for (const name of jsonLdNames(data)) refuseEtsy(name, "a JSON-LD name or headline");
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }} />;
 }
 
@@ -56,6 +58,7 @@ export function Crumbs({ path }: { path: string }) {
 }
 
 export function PageHead({ path, h1, lead, children }: { path: string; h1: string; lead: string; children?: React.ReactNode }) {
+  refuseEtsy(h1, `the h1 of ${path}`);
   return (
     <header className="pb-8 pt-8 sm:pb-10 sm:pt-12">
       <Crumbs path={path} />
@@ -136,6 +139,21 @@ export function Sources({ sources, checked }: { sources: Source[]; checked: stri
       <ul className="mt-3 space-y-1.5 text-[0.9375rem]">
         {sources.map((source) => (
           <li key={source.url}><a href={source.url} rel="noopener" className={LINK}>{source.label}</a></li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Etsy's own pages on the subject. A guide relies on them for nothing, so they are not its sources. */
+export function AlsoRead({ pages }: { pages: Source[] }) {
+  return (
+    <section aria-labelledby="also-read-title" className="mt-8" data-testid="also-read">
+      <h2 id="also-read-title" className="font-display text-2xl text-slate-900">Also read on Etsy</h2>
+      <p className="mt-2 text-sm text-slate-600">Etsy&apos;s own pages on this subject. Nothing above relies on them, and where they differ from our advice, follow Etsy.</p>
+      <ul className="mt-3 space-y-1.5 text-[0.9375rem]">
+        {pages.map((page) => (
+          <li key={page.url}><a href={page.url} rel="noopener" className={LINK}>{page.label}</a></li>
         ))}
       </ul>
     </section>

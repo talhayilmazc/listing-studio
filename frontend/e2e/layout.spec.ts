@@ -212,6 +212,8 @@ test.describe("signed in", () => {
       await page.goto(path);
       await settle(page);
       await expectSound(page, path.replace(/[0-9a-f-]{36}/, "<batch>"));
+      const heads = await page.evaluate(() => [document.title, ...[...document.querySelectorAll("h1")].map((el) => el.textContent ?? "")]);
+      for (const head of heads) expect(head, `${path}: "Etsy" in a title or h1`).not.toMatch(/etsy/i);
     }
   });
 

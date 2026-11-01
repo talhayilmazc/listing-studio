@@ -67,7 +67,7 @@ export default function ConnectPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Your Etsy shops</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">Shops &amp; groups</h1>
         <p className="mt-1 text-sm text-slate-500">
           Authorize Listyro to create draft listings in your shops. You stay in control:
           nothing is ever published without your approval, and drafts are only created when you

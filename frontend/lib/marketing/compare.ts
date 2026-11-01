@@ -53,7 +53,7 @@ export const COMPARES: Compare[] = [
     slug: "listyro-vs-listadum",
     them: "Listadum",
     url: "https://listadum.com/",
-    title: "Listyro vs Listadum: Etsy listing tools compared | Listyro",
+    title: "Listyro vs Listadum: listing tools compared | Listyro",
     description: "A factual comparison of Listyro and Listadum for Etsy sellers: mockups, AI writing, bulk editing, keyword research, scheduling and price, with sources.",
     h1: "Listyro vs Listadum",
     lead: "Both work with Etsy through its API. Listadum is a broad shop and listing manager with research tools. Listyro is narrower: it takes new designs from files to approved listings.",
@@ -141,7 +141,7 @@ export const COMPARES: Compare[] = [
     slug: "listyro-vs-vela",
     them: "Vela",
     url: "https://getvela.com/",
-    title: "Listyro vs Vela: Etsy listing tools compared | Listyro",
+    title: "Listyro vs Vela: listing tools compared | Listyro",
     description: "A factual comparison of Listyro and Vela for Etsy sellers: bulk editing, copying between channels, AI, scheduling, mockups and price, with sources.",
     h1: "Listyro vs Vela",
     lead: "Vela is a listing editor for several marketplaces, strong on editing and copying existing listings in bulk. Listyro starts earlier, on Etsy only: from your design files to new listings.",
@@ -185,7 +185,7 @@ export const COMPARES: Compare[] = [
 
 export const ALTERNATIVES = {
   slug: "alternatives",
-  title: "Listyro alternatives for Etsy print-on-demand sellers | Listyro",
+  title: "Listyro alternatives for print-on-demand sellers | Listyro",
   description: "Other ways to do what Listyro does: Etsy's own Shop Manager, Listadum, MyDesigns and Vela. When each one fits better, with sources and a last-checked date.",
   h1: "Listyro alternatives",
   lead: "Listyro is not for everyone, and it is invite-only today. Here are other ways to get listings done, and when each fits better.",
@@ -200,7 +200,7 @@ export const ALTERNATIVES = {
 };
 
 export const COMPARE_PAGE = {
-  title: "Compare Listyro with other Etsy listing tools | Listyro",
+  title: "Compare Listyro with other listing tools | Listyro",
   description: "Factual comparisons of Listyro with Listadum, MyDesigns and Vela: what each does, what each costs and when each fits, from their own public pages.",
   h1: "Compare Listyro",
   lead: "Taken from each product's own public pages, with links and the day we checked. Prices and features change, so check their page before deciding.",

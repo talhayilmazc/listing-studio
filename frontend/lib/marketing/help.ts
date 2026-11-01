@@ -19,15 +19,15 @@ export const HELP = {
       title: "Drafts and publishing",
       items: [
         { q: "Will anything go live without me?", a: "No. Every listing is created as a draft. A draft is published only when you press Publish, or at the time you scheduled for a listing you approved." },
-        { q: "Why was my listing not approved?", a: "Only what Etsy would refuse stops a listing, along with the trademark filter if it is on. The card says what to change. Other points appear as notes and do not stop anything." },
+        { q: "Why was my listing not approved?", a: "Only what [Etsy would refuse](https://developers.etsy.com/documentation/reference/#operation/createDraftListing) stops a listing, along with the trademark filter if it is on. The card says what to change. Other points appear as notes and do not stop anything." },
         { q: "A draft is half made. What now?", a: "Open the review page or Overview. Unfinished drafts are listed with the step that failed and Etsy's reason. Finish draft carries on with the same listing; it never makes a second one." },
-        { q: "Does Listyro delete anything on Etsy?", a: "No. Listyro never deletes anything in your shop. If it finds a draft that has been replaced, it lists it for you to delete on Etsy." },
+        { q: "Does Listyro delete anything in my shop?", a: "No. Listyro never deletes anything in your shop. If it finds a draft that has been replaced, it lists it for you to delete on Etsy." },
       ],
     },
     {
       title: "Trademarks",
       items: [
-        { q: "What does the trademark warning mean?", a: "The text names a brand or character that Etsy often removes for intellectual property reasons. You decide what to do. See [the trademark warning](/features/ai-listing-writer#trademark-warning)." },
+        { q: "What does the trademark warning mean?", a: "The text names a well-known brand or character. [Etsy's help](https://help.etsy.com/hc/en-us/articles/360000344448-How-to-Report-Intellectual-Property-Infringement) says that if an owner's report complies with its policies, it will remove the reported content. You decide what to do. See [the trademark warning](/features/ai-listing-writer#trademark-warning)." },
         { q: "Can I turn the trademark filter off?", a: "Yes, in Settings, after accepting the risk. Listings naming a brand then get a warning instead of being stopped. You remain responsible for what you list." },
       ],
     },
@@ -43,21 +43,21 @@ export const HELP = {
       title: "Plans",
       items: [
         { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken. The plans we intend to offer after launch are on the [pricing page](/pricing) and may change before launch." },
-        { q: "Is Listyro made by Etsy?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or certified by Etsy." },
+        { q: "Who makes Listyro?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or certified by Etsy." },
       ],
     },
   ],
 };
 
 export const FREE_TOOLS = {
-  title: "Free tools for Etsy sellers: title checker, fee calculator | Listyro",
-  description: "Free tools we are building for Etsy sellers: an Etsy title checker and an Etsy fee calculator. They are not ready yet; our guides cover the same rules today.",
-  h1: "Free tools for Etsy sellers",
+  title: "Free tools for sellers: title checker, fee calculator | Listyro",
+  description: "Free tools we are building for Etsy sellers: a title checker, a tag checker and a fee calculator. They are not ready yet; our guides cover the same rules today.",
+  h1: "Free tools for sellers",
   lead: "We are building small tools that need no account. They are not ready yet, and this page will say so plainly until they are.",
   planned: [
-    { name: "Etsy title checker", body: "Paste a title and see it against Etsy's published guidance: length, word count, repeated words, and brand names. It will not predict ranking.", guide: { href: "/guides/etsy-title-rules-2026", label: "Read the title rules" } },
-    { name: "Etsy tag checker", body: "Paste your tags and see which are too long, repeated or use characters Etsy refuses.", guide: { href: "/guides/etsy-tags-13-tags-20-characters", label: "Read the tag rules" } },
-    { name: "Etsy fee calculator", body: "Enter a price and costs, and see what a sale leaves after Etsy's fees. It will show its rates and where they came from.", guide: { href: "/features/profit-report", label: "See the profit report" } },
+    { name: "Title checker", body: "Paste a title and see it against Etsy's limits and our title advice: length, word count, repeated words, and brand names. It will not predict ranking.", guide: { href: "/guides/etsy-title-rules-2026", label: "Read the title rules" } },
+    { name: "Tag checker", body: "Paste your tags and see which are too long, repeated or use characters Etsy refuses.", guide: { href: "/guides/etsy-tags-13-tags-20-characters", label: "Read the tag rules" } },
+    { name: "Fee calculator", body: "Enter a price and costs, and see what a sale leaves after Etsy's fees. It will show its rates and where they came from.", guide: { href: "/features/profit-report", label: "See the profit report" } },
   ],
   status: "Not built yet",
 };
