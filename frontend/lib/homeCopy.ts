@@ -5,7 +5,8 @@
  * are checked on the text itself (lib/homeCopy.test.ts):
  *   - each claim is something the product does today; no invented numbers,
  *     quotes, logos, ratings or user counts, and no other product is named;
- *   - "Etsy" may describe who the product is for, and nothing says or implies that
+ *   - "Etsy" is not in a title, share title, JSON-LD name or headline, or the h1 (lib/marketing/brandRule.ts).
+ *     Elsewhere it may describe who the product is for, and nothing says or implies that
  *     Etsy runs, stands behind or works with Listyro. Listyro is the only product name;
  *   - no promise of volume or of one listing copied across shops, and no promise of ranking;
  *   - prices are not typed here: the teaser reads lib/plans.ts.
@@ -14,13 +15,13 @@
  */
 
 export const HOME = {
-  title: "Listyro: AI listing assistant for Etsy sellers",
+  title: "Listyro: AI listing writer and mockups for print-on-demand sellers",
   description:
     "From design files to scheduled Etsy listings. A listing assistant for print-on-demand sellers: Listyro makes the mockups, writes each listing from its design, and you approve every one.",
 
   hero: {
     eyebrow: "AI listing assistant for Etsy sellers",
-    heading: "From design files to scheduled Etsy listings.",
+    heading: "From design files to scheduled listings.",
     headingAccent: "You approve every one.",
     primary: { label: "Request an invite", href: "/request-invite" },
     secondary: { label: "See how it works", href: "#how-it-works" },
@@ -85,7 +86,7 @@ export const HOME = {
     contact: { label: "See the help center", href: "/help" },
     items: [
       { q: "Will anything go live without me?", a: "No. Every listing is created as a draft. A draft is published only when you press Publish, or at the time you set for it." },
-      { q: "Is Listyro made by Etsy?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or sponsored by Etsy." },
+      { q: "Who makes Listyro?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or sponsored by Etsy." },
       { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken, and there is no checkout on this site. The plans we intend to offer after launch may change before launch." },
       { q: "What do I need to start?", a: "An Etsy shop you own, with at least one listing set up the way you like it. That listing becomes the model for new ones." },
       { q: "What happens to my designs?", a: "Uploads are working copies. Their files are deleted 3 days after a listing has a draft in every shop it is meant for, and after 30 days otherwise. To write a listing's text, the design image is sent to Anthropic, with the title and tags of one of your own listings if you chose it as an example. Under its commercial terms they are not used to train its models." },

@@ -4,6 +4,8 @@ Research behind the "Short, clear title" listing style (Part C; shown as "Etsy r
 own Seller Handbook is used; nothing here comes from other sellers' listings (rule 2).
 Read on 2026-10-06; the dates are the articles' own.
 
+> Note, 1 November 2026: `www.etsy.com` answers automated requests with 403, so these articles were seen through search-engine summaries, not read directly. The public guides no longer rely on them (`docs/guide-sources.md`). What is below still describes why the app's short style works as it does; a person should open S1 to S4 and confirm it.
+
 ## Sources
 
 | # | Article | Date |

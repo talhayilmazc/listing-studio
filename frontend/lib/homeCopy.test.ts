@@ -42,13 +42,12 @@ function violations(text: string): string[] {
   return FORBIDDEN.filter(([, pattern]) => pattern.test(cleaned)).map(([name]) => name);
 }
 
-test("Etsy's name only describes who it is for; Listyro is the product's name and leads the title", () => {
-  // Descriptive use is allowed (CLAUDE.md): "AI listing assistant for Etsy sellers".
-  assert.equal(HOME.title, "Listyro: AI listing assistant for Etsy sellers");
-  for (const heading of headings()) {
-    assert.doesNotMatch(heading, /etsy('s)? (official|partner|approved|certified)|(official|approved|certified|partnered with|by) etsy/i, heading);
-  }
-  assert.doesNotMatch(HOME.title.split(":")[0], /etsy/i);
+test("Listyro is the product's name and leads the title; Etsy is in no heading the page opens with", () => {
+  // What the approved application promised (CLAUDE.md, docs/commercial-application.md). Below the
+  // headings, "for Etsy sellers" may describe who it is for.
+  assert.equal(HOME.title, "Listyro: AI listing writer and mockups for print-on-demand sellers");
+  for (const heading of headings()) assert.doesNotMatch(heading, /etsy/i, heading);
+  assert.match(HOME.description, /Etsy/);
   // The page takes its title from the registry, which reads it from here, and its h1 from here.
   const page = read("app/(marketing)/page.tsx");
   assert.match(page, /metadataFor\("\/"\)/);

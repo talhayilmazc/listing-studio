@@ -219,7 +219,7 @@ def test_no_external_script_or_tracker_is_loaded_by_any_page() -> None:
     assert counter_in == {"frontend/app/(marketing)/layout.tsx", "frontend/next.config.mjs"}, sorted(counter_in)
     known = {
         "static.cloudflareinsights.com", "cloudflareinsights.com",  # the visit counter, checked just above
-        "help.etsy.com", "schema.org",  # the guides' sources; JSON-LD's vocabulary
+        "help.etsy.com", "developers.etsy.com", "schema.org",  # the guides' sources; JSON-LD's vocabulary
         "listadum.com", "www.listadum.com", "mydesigns.io", "getvela.com", "apps.shopify.com",  # links: what the compare pages cite
         "listyro.com", "api.listyro.com",  # ours
         "listyro.test",  # ours: the shop-connection browser test (e2e/oauth.spec.ts), mapped to this machine

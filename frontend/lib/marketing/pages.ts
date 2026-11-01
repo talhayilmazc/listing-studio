@@ -9,6 +9,7 @@ import { FEATURES, FEATURES_PAGE } from "./features.ts";
 import { GUIDES, GUIDES_PAGE } from "./guides.ts";
 import { FREE_TOOLS, HELP } from "./help.ts";
 import { HOME } from "../homeCopy.ts";
+import { refuseEtsy } from "./brandRule.ts";
 import { PRICING_HEADING } from "../plans.ts";
 
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://listyro.com";
@@ -72,6 +73,8 @@ export function trail(path: string): Page[] {
 /** A page's own title, description, canonical address and share card. */
 export function metadataFor(path: string, extra: Partial<Metadata> = {}): Metadata {
   const page = pageAt(path);
+  refuseEtsy(page.title, `the title of ${path}`);
+  refuseEtsy(page.card, `the heading on the share card of ${path}`);
   const image = { url: `/og/${cardSlug(path)}.png`, width: 1200, height: 630, alt: page.card };
   return {
     title: { absolute: page.title },

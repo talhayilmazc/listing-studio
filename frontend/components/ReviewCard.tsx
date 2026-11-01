@@ -520,7 +520,7 @@ export function ReviewCard({
             <Meta label="File" value={initial.original_filename} truncate />
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
           </dl>
-          <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-600" data-testid="card-profile">
+          <div className="border-t border-slate-200 px-4 py-3 text-xs text-slate-600" data-testid="card-profile">
             <span className="mb-1 block">
               <span>{inView ? "Profile in " : "Profile"}</span>
               {inView && <span key="shop" translate="no">{inView.name}</span>}
@@ -547,7 +547,7 @@ export function ReviewCard({
                 Price, variations, shipping, returns, size charts and the description come from it.
               </span>
             )}
-          </p>
+          </div>
           <div className="border-t border-slate-200 px-4 py-3">
             <SkuEditor
               value={skuIn(shopData, initial.id, inView?.id ?? null, sku)}

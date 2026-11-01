@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Blocks, InviteCta, JsonLd, PageHead, PROSE, Sources } from "@/components/marketing/Page";
+import { AlsoRead, Blocks, InviteCta, JsonLd, PageHead, PROSE, Sources } from "@/components/marketing/Page";
 import { longDate } from "@/lib/marketing/content";
 import { GUIDES } from "@/lib/marketing/guides";
 import { article, breadcrumbs } from "@/lib/marketing/jsonld";
@@ -33,6 +33,7 @@ export default async function GuidePage({ params }: Props) {
       </PageHead>
       <Blocks blocks={guide.body} />
       <Sources sources={guide.sources} checked={guide.checked} />
+      <AlsoRead pages={guide.alsoRead} />
       <InviteCta line={`${guide.feature.line} See [${guide.feature.label}](${guide.feature.href}).`} />
     </article>
   );

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { TRADEMARK_NOTICE } from "../lib/legal";
+import { jsonLdNames } from "../lib/marketing/brandRule";
 import { MARKETING_PAGES } from "../lib/marketing/routes.mjs";
 
 /** Every public page, rendered: what a search engine and a visitor actually get. */
@@ -16,6 +17,7 @@ async function rendered(page: Page) {
       canonical: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "",
       ogImage: document.querySelector('meta[property="og:image"]')?.getAttribute("content") ?? "",
       ogTitle: document.querySelector('meta[property="og:title"]')?.getAttribute("content") ?? "",
+      twitterTitle: document.querySelector('meta[name="twitter:title"]')?.getAttribute("content") ?? "",
       noAlt: [...document.querySelectorAll("img")].filter((img) => !img.getAttribute("alt")).map((img) => img.getAttribute("src")),
       unsized: [...document.querySelectorAll("img")].filter((img) => !img.getAttribute("width") || !img.getAttribute("height")).map((img) => img.getAttribute("src")),
       jsonLd: [...document.querySelectorAll('script[type="application/ld+json"]')].map((el) => el.textContent ?? ""),
@@ -51,6 +53,10 @@ for (const path of MARKETING_PAGES) {
     expect(new URL(r.canonical, "https://listyro.com").pathname).toBe(path);
     expect(r.ogImage).toMatch(/\/og\/[a-z0-9-]+\.png$/);
     expect(r.ogTitle).toBe(r.title);
+    expect(r.twitterTitle).toBe(r.title);
+    for (const text of [r.title, r.ogTitle, r.twitterTitle, ...r.h1, ...r.jsonLd.flatMap((block) => jsonLdNames(JSON.parse(block)))]) {
+      expect(text, `${path}: "Etsy" in a title, h1 or JSON-LD name`).not.toMatch(/etsy/i);
+    }
     expect(r.noAlt, `${path}: images without alt text`).toEqual([]);
     expect(r.unsized, `${path}: images with no size move the page`).toEqual([]);
     expect(r.jsonLd.length, `${path}: structured data`).toBeGreaterThan(0);
@@ -118,6 +124,18 @@ test("a page that does not exist helps, says 404 and stays out of search", async
   await expect(page.getByRole("link", { name: "Help center" }).first()).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/); // exactly one: Next adds it to a 404
   if (SHOTS && info.project.name !== "tablet-768") await picture(page, `${SHOTS}/not-found-${info.project.name}.png`);
+});
+
+test("a guide: the holiday dates lead, and its unread Etsy pages are kept apart from its sources", async ({ page }) => {
+  await page.goto("/guides/holiday-listing-calendar-pod");
+  await expect(page.locator("article table").first().locator("tbody tr").first()).toContainText("26 Nov 2026");
+  await expect(page.locator("article table").first()).not.toContainText("31 Oct 2026");
+  await expect(page.getByText("This season, already passed: Halloween (31 Oct 2026)")).toBeVisible();
+  await expect(page.getByTestId("also-read")).toContainText("Nothing above relies on them");
+  await page.goto("/guides/running-more-than-one-etsy-shop");
+  await expect(page.locator("article")).toContainText(`"for the purpose of shilling, manipulating search or circumventing Etsy's policies"`);
+  await page.locator('article a[href="/features/multi-shop-publishing#per-shop-text"]').click();
+  await expect(page.locator("#per-shop-text")).toBeVisible();
 });
 
 test("robots and the sitemap say what they should", async ({ request }) => {
