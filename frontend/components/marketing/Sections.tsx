@@ -34,7 +34,7 @@ export function VideoSlot() {
   }
   return (
     <div data-testid="demo-video-slot">
-      <Shot screen={SCREENS.review} priority sizes="(min-width: 1024px) 620px, 100vw" />
+      <Shot screen={SCREENS.mockups} priority sizes="(min-width: 1024px) 620px, 100vw" />
       <p className="mt-3 text-sm leading-relaxed text-slate-600">{v.label}</p>
     </div>
   );

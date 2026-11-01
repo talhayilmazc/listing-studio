@@ -203,15 +203,13 @@ async def test_every_api_route_answers_private(sec) -> None:
     """Nothing the API says may be kept by a shared cache, whatever the route or the answer."""
     import re
 
-    from fastapi.routing import APIRoute
-
     from app.api.images import IMMUTABLE, REVALIDATE
 
     seen = 0
-    for route in sec["app"].routes:
-        if not isinstance(route, APIRoute) or "GET" not in route.methods:
+    for route, operations in sec["app"].openapi()["paths"].items():
+        if "get" not in operations or route == "/api/_boom":
             continue
-        path = re.sub(r"\{[^}]+\}", "00000000-0000-4000-8000-000000000000", route.path)
+        path = re.sub(r"\{[^}]+\}", "00000000-0000-4000-8000-000000000000", route)
         control = (await sec["browser"].get(path)).headers.get("cache-control", "")
         assert control.startswith("private") and "public" not in control and "s-maxage" not in control, (path, control)
         seen += 1

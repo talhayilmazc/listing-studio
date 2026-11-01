@@ -4,10 +4,10 @@ import { MARKETING_PAGES } from "../lib/marketing/routes.mjs";
 
 /** Every public page, rendered: what a search engine and a visitor actually get. */
 
-const SHOTS = process.env.SITE_SHOTS ? "../docs/screens/site" : null;
+const SHOTS = process.env.SITE_SHOTS ? "../load-output/site-shots" : null;
 
 async function rendered(page: Page) {
-  return page.evaluate(() => {
+  return page.evaluate((trademark) => {
     const flat = (t: string | null) => (t ?? "").replace(/\s+/g, " ").trim();
     return {
       h1: [...document.querySelectorAll("h1")].map((el) => flat(el.textContent)),
@@ -19,12 +19,23 @@ async function rendered(page: Page) {
       noAlt: [...document.querySelectorAll("img")].filter((img) => !img.getAttribute("alt")).map((img) => img.getAttribute("src")),
       unsized: [...document.querySelectorAll("img")].filter((img) => !img.getAttribute("width") || !img.getAttribute("height")).map((img) => img.getAttribute("src")),
       jsonLd: [...document.querySelectorAll('script[type="application/ld+json"]')].map((el) => el.textContent ?? ""),
-      notice: flat(document.body.innerText).split("The term 'Etsy' is a trademark of Etsy, Inc.").length - 1,
+      notice: flat(document.body.innerText).split(trademark).length - 1,
       links: [...new Set([...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")!))],
       topNav: [...document.querySelectorAll('[data-testid="top-nav"] a')].length,
       wide: document.documentElement.scrollWidth - window.innerWidth,
     };
+  }, TRADEMARK_NOTICE);
+}
+
+/** A whole page, once every image has really been drawn: a lazy image can be fetched and still blank. */
+async function picture(page: Page, file: string) {
+  await page.evaluate(async () => {
+    const images = [...document.querySelectorAll("img")];
+    for (const img of images) { img.loading = "eager"; img.decoding = "sync"; }
+    await Promise.all(images.map((img) => img.decode().catch(() => undefined)));
   });
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: file, fullPage: true });
 }
 
 for (const path of MARKETING_PAGES) {
@@ -48,11 +59,9 @@ for (const path of MARKETING_PAGES) {
     if (path !== "/") expect(r.jsonLd.join(" ")).toContain("BreadcrumbList");
     expect(r.notice, `${path}: the trademark notice`).toBeGreaterThanOrEqual(1);
     expect(r.wide, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
-    if (SHOTS) {
+    if (SHOTS && info.project.name !== "tablet-768") {
       const name = path === "/" ? "home" : path.slice(1).replace(/\//g, "-");
-      await page.evaluate(() => { for (const img of document.querySelectorAll("img")) img.loading = "eager"; });
-      await page.waitForLoadState("networkidle");
-      await page.screenshot({ path: `${SHOTS}/${name}-${info.project.name}.png`, fullPage: true });
+      await picture(page, `${SHOTS}/${name}-${info.project.name}.png`);
     }
   });
 }
@@ -102,12 +111,13 @@ test("the home page: four steps with real screenshots, three differentiators, th
   await expect(page.getByTestId("testimonials")).toHaveCount(0);
 });
 
-test("a page that does not exist helps, says 404 and stays out of search", async ({ page }) => {
+test("a page that does not exist helps, says 404 and stays out of search", async ({ page }, info) => {
   const response = await page.goto("/no-such-page");
   expect(response!.status()).toBe(404);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("can't find that page");
   await expect(page.getByRole("link", { name: "Help center" }).first()).toBeVisible();
-  expect(await page.locator('meta[name="robots"]').getAttribute("content")).toMatch(/noindex/);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/); // exactly one: Next adds it to a 404
+  if (SHOTS && info.project.name !== "tablet-768") await picture(page, `${SHOTS}/not-found-${info.project.name}.png`);
 });
 
 test("robots and the sitemap say what they should", async ({ request }) => {

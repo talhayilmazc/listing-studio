@@ -4,7 +4,6 @@ import { SiteFooter, SiteHeader } from "@/components/marketing/Site";
 export const metadata: Metadata = {
   title: { absolute: "Page not found | Listyro" },
   description: "This page does not exist. Find what you were looking for from here.",
-  robots: { index: false },
 };
 
 const PLACES = [
