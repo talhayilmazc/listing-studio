@@ -96,7 +96,7 @@ def test_the_notice_is_in_every_footer_beside_connect_and_in_the_terms() -> None
     # criteria): in the hero, before the first section below it.
     home = (ROOT / "frontend/app/(marketing)/page.tsx").read_text(encoding="utf-8")
     assert uses("app/(marketing)/page.tsx")
-    hero = home[home.index('aria-labelledby="hero-title"'): home.index("<Apart />")]
+    hero = home[home.index('aria-labelledby="hero-title"'): home.index("<How />")]
     assert 'data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>' in hero
     # Once in each place, never twice (e2e/layout.spec.ts checks the rendered pages too).
     for place in ("components/marketing/Site.tsx", "components/Footer.tsx", "components/AuthShell.tsx",

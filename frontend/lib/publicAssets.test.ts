@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { HOME } from "./homeCopy.ts";
+import { SCREENS } from "./marketing/screens.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
 const REPO = path.join(FRONTEND, "..");
@@ -22,15 +22,11 @@ test("every image a page points at is a file in public/, and public/ holds nothi
   assert.deepEqual(found.missing, []);
   // A picture no page uses is dead weight in every image and every deploy: remove it with the page.
   assert.deepEqual(found.unused, []);
-  // The scan sees what the home page uses: its screenshots and the share image.
-  const screens = HOME.apart.cards.flatMap((card) => (card.visual.kind === "screen" ? [card.visual.src] : []));
-  assert.ok(screens.length >= 4);
+  // The scan sees what the site uses: every screenshot, in both widths. Share cards are drawn at build time.
+  const screens = Object.values(SCREENS).flatMap((screen) => [screen.src, screen.small]);
+  assert.ok(screens.length >= 8);
   for (const src of screens) assert.ok(found.referenced.includes(src), src);
-  const share = found.referenced.filter((asset) => /^\/og-[\w.-]+\.png$/.test(asset));
-  assert.equal(share.length, 1, "one share image, named in one spelling everywhere");
-  for (const file of ["app/layout.tsx", "app/(marketing)/page.tsx"]) {
-    assert.ok(fs.readFileSync(path.join(FRONTEND, file), "utf8").includes(`"${share[0]}"`), file);
-  }
+  assert.deepEqual(found.referenced.filter((asset) => asset.startsWith("/og")), []);
 });
 
 test("the build and the production image check the same list, and name no picture themselves", () => {

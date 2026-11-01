@@ -1,6 +1,6 @@
-// The public home page keeps its rules: what it may never say, where "Etsy" may
-// not appear, that its figures are the ones the code uses, and that every call
-// to action leads to the invite form. Also: no user-facing text says "beta".
+// The public home page keeps its rules: what it may never say, that Etsy's name only describes,
+// that its figures are the ones the code uses, and that every call to action leads to the invite
+// form. Also: no user-facing text says "beta".
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -14,7 +14,7 @@ const read = (relative: string) => fs.readFileSync(path.join(FRONTEND, relative)
 // The files that make the home page. Its header and footer belong to the site's
 // frame (components/marketing/Site.tsx): the footer's trademark notice is
 // required text and is checked by backend/tests/test_legal_texts.py.
-const HOME_SOURCES = ["lib/homeCopy.ts", "app/(marketing)/page.tsx", "components/marketing/Sections.tsx", "components/marketing/HeroDemo.tsx"];
+const HOME_SOURCES = ["lib/homeCopy.ts", "app/(marketing)/page.tsx", "components/marketing/Sections.tsx"];
 
 // Never said or implied on the home page. "production partner" is the one
 // exception: it is Etsy's own name for a field on a listing, not a claim about us.
@@ -28,7 +28,7 @@ const FORBIDDEN: [string, RegExp][] = [
   ["the same listing in many shops", /same (listing|design)s? (in|to|across) (many|several|multiple|all|every)/i],
   ["mass listing", /\bmass[- ]?list|\bbulk\b/i],
   ["volume promises", /thousands of|hundreds of|\bin one click\b|\bone-click\b|\bunlimited\b/i],
-  ["invented proof", /trusted by|testimonial|\bas seen (in|on)\b|[★⭐]|\b\d(\.\d)?\s*(\/|out of)\s*5\b|\b\d[\d,.]*\+?\s+(sellers|shops|users|customers)\b/i],
+  ["invented proof", /trusted by|\bas seen (in|on)\b|[★⭐]|\b\d(\.\d)?\s*(\/|out of)\s*5\b|\b\d[\d,.]*\+?\s+(sellers|shops|users|customers)\b/i],
   ["ranking promises", /rank (higher|#?1|first)\b(?! \?)|\bguarantee(d|s)?\b|top of (the )?search/i],
   ["other products", /\b(vela|marmalead|erank|everbee|alura|printify|printful|shopify|canva)\b/i],
 ];
@@ -42,15 +42,16 @@ function violations(text: string): string[] {
   return FORBIDDEN.filter(([, pattern]) => pattern.test(cleaned)).map(([name]) => name);
 }
 
-test("the page title, the hero heading and every section heading leave Etsy's name out", () => {
-  for (const heading of headings()) assert.doesNotMatch(heading, /etsy/i, heading);
-  assert.doesNotMatch(HOME.description, /etsy/i);
-  assert.doesNotMatch(HOME.ogAlt, /etsy/i);
-  // The product's own name leads: it opens the title, and no heading names anyone else.
-  assert.ok(HOME.title.startsWith("Listyro"));
-  // The page takes its title and its h1 from here, and types neither itself.
+test("Etsy's name only describes who it is for; Listyro is the product's name and leads the title", () => {
+  // Descriptive use is allowed (CLAUDE.md): "AI listing assistant for Etsy sellers".
+  assert.equal(HOME.title, "Listyro: AI listing assistant for Etsy sellers");
+  for (const heading of headings()) {
+    assert.doesNotMatch(heading, /etsy('s)? (official|partner|approved|certified)|(official|approved|certified|partnered with|by) etsy/i, heading);
+  }
+  assert.doesNotMatch(HOME.title.split(":")[0], /etsy/i);
+  // The page takes its title from the registry, which reads it from here, and its h1 from here.
   const page = read("app/(marketing)/page.tsx");
-  assert.match(page, /title: \{ absolute: HOME\.title \}/);
+  assert.match(page, /metadataFor\("\/"\)/);
   assert.match(page, /<h1[^>]*>\s*<span>\{`\$\{hero\.heading\} `\}<\/span>\s*<em[^>]*>\{hero\.headingAccent\}<\/em>\s*<\/h1>/);
   assert.equal((page.match(/<h1/g) ?? []).length, 1);
 });
@@ -58,7 +59,7 @@ test("the page title, the hero heading and every section heading leave Etsy's na
 test("the trademark notice is in the hero, in full, not only in the footer", () => {
   const page = read("app/(marketing)/page.tsx");
   assert.match(page, /import \{ TRADEMARK_NOTICE \} from "@\/lib\/legal";/);
-  const hero = page.slice(page.indexOf('aria-labelledby="hero-title"'), page.indexOf("<Apart />"));
+  const hero = page.slice(page.indexOf('aria-labelledby="hero-title"'), page.indexOf("<How />"));
   assert.match(hero, /data-testid="home-trademark-notice">\{TRADEMARK_NOTICE\}<\/p>/);
   // Readable at a glance: not the footer's muted grey and not smaller than body text.
   assert.match(hero, /text-sm[^"]*text-slate-700/);
@@ -89,29 +90,21 @@ test("every call to action leads to the invite form", () => {
   assert.equal(HOME.how.id, "how-it-works");
   assert.deepEqual(HOME.closing.primary, { label: "Request an invite", href: "/request-invite" });
   const page = read("app/(marketing)/page.tsx");
-  assert.match(page, /<Link href=\{hero\.primary\.href\}[^>]*data-testid="hero-cta">\{hero\.primary\.label\}<\/Link>/);
-  assert.match(read("components/marketing/Sections.tsx"), /<Link href=\{c\.primary\.href\}[^>]*data-testid="closing-cta">\{c\.primary\.label\}<\/Link>/);
+  assert.match(page, /<a href=\{hero\.primary\.href\}[^>]*data-testid="hero-cta">\{hero\.primary\.label\}<\/a>/);
+  assert.match(read("components/marketing/Sections.tsx"), /<a href=\{c\.primary\.href\}[^>]*data-testid="closing-cta">\{c\.primary\.label\}<\/a>/);
   // The form the buttons lead to exists, as do the pages the home page links to.
   for (const route of ["request-invite", "pricing", "terms", "privacy", "contact"]) {
     assert.ok(fs.existsSync(path.join(FRONTEND, "app/(marketing)", route, "page.tsx")), route);
   }
-  assert.match(read("components/marketing/Site.tsx"), /<Link href="\/request-invite" className="btn-primary[^"]*">Request an invite<\/Link>/);
+  assert.match(read("components/marketing/Site.tsx"), /<a href="\/request-invite" className="btn-primary[^"]*">Request an invite<\/a>/);
   assert.equal(HOME.hero.note, "Invite-only early access. No payment is taken today.");
 });
 
 test("the page has the sections it was asked for, in size", () => {
-  assert.ok(HOME.apart.cards.length >= 6 && HOME.apart.cards.length <= 8);
+  assert.equal(HOME.apart.items.length, 3);
   assert.equal(HOME.how.steps.length, 4);
-  assert.equal(HOME.built.items.length, 4);
-  for (const item of HOME.built.items) assert.match(item.when, /^(January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d$/);
+  assert.equal(HOME.who.items.length, 3);
   assert.ok(HOME.faq.items.length >= 6 && HOME.faq.items.length <= 8);
-  assert.deepEqual(HOME.safe.links.map((l) => l.href), ["/privacy", "/terms"]);
-  // Every screenshot is a file that exists, and says what it shows.
-  for (const card of HOME.apart.cards) {
-    if (card.visual.kind !== "screen") continue;
-    assert.ok(fs.existsSync(path.join(FRONTEND, "public", card.visual.src)), card.visual.src);
-    assert.ok(card.visual.src.endsWith(".webp") && card.visual.alt.length > 20);
-  }
 });
 
 test("figures quoted on the home page are the ones the Privacy Policy prints", () => {

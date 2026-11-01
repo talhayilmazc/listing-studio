@@ -16,7 +16,7 @@ from tests.test_admin import world  # noqa: F401  (fixture)
 async def test_a_live_session_is_204_and_not_cached(world) -> None:  # noqa: F811
     r = await world["b"].get("/api/account/session")
     assert r.status_code == 204 and r.content == b""
-    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["cache-control"] == "private, no-store"
 
 
 async def test_no_cookie_an_unknown_one_or_an_ended_one_is_401(world) -> None:  # noqa: F811

@@ -22,11 +22,12 @@
  * How to run them: playwright.config.ts. Without LAYOUT_EMAIL and LAYOUT_PASSWORD
  * (the synthetic demo admin) the signed-in tests are skipped, not failed.
  */
+import { MARKETING_PAGES } from "../lib/marketing/routes.mjs";
 import { expect, test, type Page } from "@playwright/test";
 import { TRADEMARK_NOTICE } from "../lib/legal";
 import { signIn } from "./session";
 
-const PUBLIC = ["/", "/pricing", "/terms", "/privacy", "/request-invite", "/contact"];
+const PUBLIC = [...MARKETING_PAGES];
 const SIGN_IN = ["/login", "/register"];
 const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs", "/scheduled", "/analytics", "/connect", "/settings"];
 const ADMIN_TABS = ["Users", "Invites", "Usage"];

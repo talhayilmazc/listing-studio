@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import {
   CUSTOM, PLANS, YEARLY_NOTE, addonFact, hasSchedulingAddon, listingsFact, priceFact, schedulingFact, shopsFact, yearlyPerMonthFact, yearlyPriceFact,
@@ -73,7 +72,7 @@ export function PlanCards() {
           <p className="font-display text-3xl text-slate-900">{CUSTOM.name}</p>
           <p className="mt-4 max-w-[34rem] text-[0.9375rem] leading-relaxed text-slate-600">{CUSTOM.body}</p>
           <div className="mt-auto pt-8">
-            <Link href={CUSTOM.cta.href} className="btn-secondary px-5 py-3" data-testid="custom-cta">{CUSTOM.cta.label}</Link>
+            <a href={CUSTOM.cta.href} className="btn-secondary px-5 py-3" data-testid="custom-cta">{CUSTOM.cta.label}</a>
           </div>
         </li>
       </ul>

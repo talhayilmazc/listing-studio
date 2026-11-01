@@ -199,8 +199,30 @@ async def test_every_kind_of_response_is_hardened(sec) -> None:
     _assert_hardened(await raw.get("/health"))
 
 
+async def test_every_api_route_answers_private(sec) -> None:
+    """Nothing the API says may be kept by a shared cache, whatever the route or the answer."""
+    import re
+
+    from fastapi.routing import APIRoute
+
+    from app.api.images import IMMUTABLE, REVALIDATE
+
+    seen = 0
+    for route in sec["app"].routes:
+        if not isinstance(route, APIRoute) or "GET" not in route.methods:
+            continue
+        path = re.sub(r"\{[^}]+\}", "00000000-0000-4000-8000-000000000000", route.path)
+        control = (await sec["browser"].get(path)).headers.get("cache-control", "")
+        assert control.startswith("private") and "public" not in control and "s-maxage" not in control, (path, control)
+        seen += 1
+    assert seen > 50
+    # A deliberately browser-cached image is still private: no shared cache may keep it.
+    assert IMMUTABLE.startswith("private") and REVALIDATE.startswith("private")
+    assert (await sec["browser"].get("/api/no-such-route")).headers["cache-control"] == "private, no-store"
+
+
 async def test_tenant_data_is_not_cacheable_by_default(sec) -> None:
-    assert (await sec["browser"].get("/api/batches")).headers["cache-control"] == "no-store"
+    assert (await sec["browser"].get("/api/batches")).headers["cache-control"] == "private, no-store"
 
 
 # --- Error hygiene ----------------------------------------------------------

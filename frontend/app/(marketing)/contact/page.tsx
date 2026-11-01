@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { SupportAddress } from "@/components/marketing/SupportAddress";
+import { metadataFor } from "@/lib/marketing/pages";
+import { JsonLd } from "@/components/marketing/Page";
+import { breadcrumbs } from "@/lib/marketing/jsonld";
 
-export const metadata: Metadata = {
-  title: "Contact",
-  description: "How to reach the people behind Listyro: support, privacy requests and invites.",
-  alternates: { canonical: "/contact" },
-};
+export const metadata: Metadata = metadataFor("/contact");
 
 const WAYS: { title: string; body: React.ReactNode }[] = [
   {
@@ -23,9 +21,9 @@ const WAYS: { title: string; body: React.ReactNode }[] = [
     body: (
       <>
         <span>Use the </span>
-        <Link href="/request-invite" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
+        <a href="/request-invite" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
           invite request form
-        </Link>
+        </a>
         <span>. Each request is read by a person; an invite code comes by email.</span>
       </>
     ),
@@ -35,9 +33,9 @@ const WAYS: { title: string; body: React.ReactNode }[] = [
     body: (
       <>
         <span>To have your account deleted, or to ask what we hold about you, write from the address you signed up with. The </span>
-        <Link href="/privacy" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
+        <a href="/privacy" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
           Privacy Policy
-        </Link>
+        </a>
         <span> says what we keep and for how long.</span>
       </>
     ),
@@ -46,6 +44,8 @@ const WAYS: { title: string; body: React.ReactNode }[] = [
 
 export default function Contact() {
   return (
+    <>
+    <JsonLd data={breadcrumbs("/contact")} />
     <div className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-12 sm:px-6 sm:pt-16">
       <div className="max-w-[46rem]">
         <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Contact</p>
@@ -65,5 +65,6 @@ export default function Contact() {
         ))}
       </dl>
     </div>
+    </>
   );
 }

@@ -119,7 +119,7 @@ test("the page opens with the invitation, then the planned-prices notice, then t
   const order = ["<h1", "{PRICING_HEADING}", 'href="/request-invite"', "{PRICING_LINE}", "{PLANNED_NOTICE}", "<PlanCards />", "{LISTING_LINE}"].map((piece) => page.indexOf(piece));
   assert.ok(order.every((at) => at !== -1), String(order));
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
-  assert.match(page, /<Link href="\/request-invite"[^>]*>Request an invite<\/Link>/);
+  assert.match(page, /<a href="\/request-invite"[^>]*>Request an invite<\/a>/);
   // The early-access card is gone: nothing on the page is offered at a price of nothing.
   assert.doesNotMatch(page + code(read(CARDS)), /plan-early-access|Early access<|>Now</);
   // Each planned card says it is planned, in both views of the switch.
@@ -141,7 +141,7 @@ test('"free" is not a headline or a badge on the pricing page or the home page',
   // The home page: its headings, the line under the hero's buttons, and the hero walkthrough's labels.
   for (const heading of headings()) assert.doesNotMatch(heading, /\bfree\b/i, heading);
   assert.equal(HOME.hero.note, "Invite-only early access. No payment is taken today.");
-  for (const text of [HOME.hero.eyebrow, HOME.hero.body, HOME.closing.body, ...Object.values(HOME.demo.pills), HOME.demo.label]) assert.doesNotMatch(text, /\bfree\b/i, text);
+  for (const text of [HOME.hero.eyebrow, HOME.hero.heading, HOME.video.label, HOME.closing.body]) assert.doesNotMatch(text, /\bfree\b/i, text);
   // That no payment is taken is still said plainly, in each place a visitor looks for it.
   assert.match(PRICING_LINE, /No payment is taken today/);
   assert.match(PLANNED_NOTICE, /No payment is taken today/);
@@ -153,7 +153,6 @@ test("the pricing page has no checkout and no payment form", () => {
   const cards = code(read(CARDS));
   for (const source of [page, cards]) {
     assert.doesNotMatch(source, /<form\b|<input\b|<select\b|<textarea\b|type="submit"|onSubmit|action=|method=/);
-    assert.doesNotMatch(source, /<a\b/);
     assert.doesNotMatch(source, /stripe|paddle|paypal|lemon ?squeezy|braintree|iyzico|checkout\.|\/checkout|\/pay\b|\/billing|\/subscribe|buy now|add to cart|start (free )?trial|subscribe now|fetch\(|api\./i);
   }
   // The only buttons are the two halves of the Monthly / Yearly switch: plain state, nothing sent anywhere.
@@ -162,7 +161,7 @@ test("the pricing page has no checkout and no payment form", () => {
   assert.equal((cards.match(/<button type="button" aria-pressed=\{!?yearly\} onClick=\{\(\) => setYearly\((?:true|false)\)\}/g) ?? []).length, 2);
   assert.match(cards, /const \[yearly, setYearly\] = useState\(false\);/, "Monthly is what is shown first");
   // Every link leads to the invite form, with or without the quote request.
-  const links = [...(page + cards).matchAll(/<Link href=(?:"([^"]+)"|\{([^}]+)\})/g)].map((m) => m[1] ?? m[2]);
+  const links = [...(page + cards).matchAll(/<a href=(?:"([^"]+)"|\{([^}]+)\})/g)].map((m) => m[1] ?? m[2]);
   assert.deepEqual(links, ["/request-invite", "CUSTOM.cta.href"]);
   assert.equal(CUSTOM.cta.href, "/request-invite?plan=custom");
   // Nor is there a payment library anywhere in the frontend.
@@ -205,12 +204,13 @@ test("the application to Etsy lists the same plans, and the home page and the Te
   }
   assert.ok(compliance.includes("our largest planned plan (500 listings a month) needs about 600 calls a day per seller"));
   assert.ok(compliance.includes("about 33 to 40 requests for a listing with 13 photos"));
-  // No prices on the home page or in the Terms: both point to the pricing page.
+  // The home page's words type no price: its teaser reads this file (with the notice beside it),
+  // and the Terms point to the pricing page.
   for (const text of allCopy()) assert.doesNotMatch(text, /\$\s?\d/, text);
   const cost = HOME.faq.items.find((item) => item.q === "What does it cost?")!;
-  assert.match(cost.a, /The plans we intend to offer after launch are shown on the pricing page/);
-  assert.deepEqual(cost.link, { label: "See pricing", href: "/pricing" });
+  assert.match(cost.a, /The plans we intend to offer after launch may change before launch/);
+  assert.deepEqual(HOME.pricing.link, { label: "See every plan", href: "/pricing" });
   const terms = read("app/(marketing)/terms/page.tsx").replace(/\s+/g, " ");
   assert.doesNotMatch(terms, /\$\s?\d(?!\d*\))/, "the Terms name no plan price");
-  assert.match(terms, /The plans we intend to offer after launch are shown on the\{" "\} <Link href="\/pricing"/);
+  assert.match(terms, /The plans we intend to offer after launch are shown on the\{" "\} <a href="\/pricing"/);
 });

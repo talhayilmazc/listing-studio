@@ -1585,7 +1585,7 @@ async def preview_photo(
         data = await image_work.run(draw)
     except mockups.MockupError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
 # --- designs --------------------------------------------------------------------------------

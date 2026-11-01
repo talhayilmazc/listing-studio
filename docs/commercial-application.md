@@ -148,6 +148,10 @@ It does not manage Etsy Ads, handle checkout or payments, direct buyers away fro
 
 Checked before sending: the trademark notice matches Etsy's API Terms word for word; support@listyro.com is a working, read mailbox.
 
+## Change after approval: "Etsy" in the public site's titles (1 November 2026)
+
+The text above is what was approved and says "Etsy" does not appear in page titles. Since 1 November 2026 the public site uses "Etsy" descriptively in titles, headings and copy, for example "AI listing assistant for Etsy sellers". The product name, logo and domain are unchanged and never contain it; no Etsy logo or colour is used; nothing suggests Etsy runs, endorses or works with Listyro; the notice is unchanged and in the same places.
+
 ## API features we would like Etsy to expose (added 23 October 2026, after approval)
 
 - Etsy's "How it's made" answers ("How does your shop produce this item?" and "What tools are used to make this item?") on getListing, createDraftListing and updateListing, so a seller's answer can be copied to their new drafts instead of set by hand in Shop Manager (requested publicly in etsy/open-api discussion #1630).

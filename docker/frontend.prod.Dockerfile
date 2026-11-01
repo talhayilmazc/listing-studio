@@ -15,7 +15,9 @@ COPY frontend/ ./
 # Rewrites are resolved at build time, so the backend's in-network address is
 # a build argument, not a runtime variable.
 ARG API_PROXY_TARGET=http://api:8000
-ENV API_PROXY_TARGET=$API_PROXY_TARGET \
+# The public site's visit counter. Not a secret (it is in every page's HTML); empty means no counter.
+ARG NEXT_PUBLIC_CF_ANALYTICS_TOKEN=
+ENV API_PROXY_TARGET=$API_PROXY_TARGET     NEXT_PUBLIC_CF_ANALYTICS_TOKEN=$NEXT_PUBLIC_CF_ANALYTICS_TOKEN \
     NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
 # "prebuild" (scripts/public-assets.cjs) fails the build if a page points at an

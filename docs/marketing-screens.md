@@ -1,58 +1,44 @@
 # Product screenshots on the public site
 
 The screenshots in `frontend/public/screens/` are crops of the real app, signed
-in to a **synthetic demo account that holds sample data only**: designs drawn by
-us (`components/marketing/Mockup.tsx`), fictional shops ("Northwind Tees",
-"Juniper Print Co."), generated sales and fee totals. No real seller's shop,
-design or figure appears in them, and they must stay that way. On the home page
-each one carries the label "Sample data"; the two feature cards that are
-drawings, not captures, are labelled "Illustration".
+in to a **synthetic demo account that holds sample data only**: sample designs,
+fictional shops ("Northwind Tees", "Juniper Print Co."), generated sales and fee
+totals. No real seller's shop, design or figure appears in them, and they must
+stay that way. Each one carries the label "Sample data".
 
 ## Retaking them
 
-1. Seed the demo account (local development stack, never production):
+`frontend/scripts/marketing-shots.mjs` takes all eight, 4:3, at 1120 and 560 wide,
+as WebP. It refuses any account but the demo one and any server but a local one, and
+hides the app's footer, which prints the support address of the machine it runs on.
+Nothing in a crop may show a real e-mail address.
 
-   ```bash
-   docker compose exec -T api python -m app.cli seed-demo
-   ```
+```bash
+docker compose -f docker-compose.prod.yml build frontend
+docker compose up -d --no-deps api
+docker compose exec -T api python -m app.cli seed-demo --admin --shops 15   # prints the password
+docker run -d --rm --name listyro-layout-frontend --network etsy-assistant_default -p 3000:3000 listyro/frontend:latest
+cd frontend
+LAYOUT_EMAIL=demo-shots@example.test LAYOUT_PASSWORD=<printed> node scripts/marketing-shots.mjs
+cd ..
+docker rm -f listyro-layout-frontend
+docker compose exec -T api python -m app.cli seed-demo --remove
+```
 
-   It creates `demo-shots@example.test` with one batch ("Summer drop"), two
-   shops, two profiles, one scheduled listing and a year of generated fee
-   totals, and prints a password to sign in with.
+The last line matters: nothing about the demo account may be left in a database that
+holds real sellers. Look at each picture before committing it.
 
-2. Capture each crop below. Every file is **4:3**, saved as WebP (quality about
-   80) at 1120×840, cut from the top-left of the region named. Use the app's
-   phone layout where a width is given, so the text is large enough to read in
-   a card; the browser's time zone is set to the account's (America/Chicago).
+Where they are used, with their alt text, is one file: `frontend/lib/marketing/screens.ts`.
+If a picture changes materially, give the file a new name there so no cache serves the
+old one (`/screens/*` may be kept for a week at the edge).
 
-   | File | Page | Width, scale | The region |
-   |---|---|---|---|
-   | `feature-text-2.webp` | `/batches/<id>/review` | 1366, 2x | first listing card: Title, Tags and Attributes |
-   | `feature-approve.webp` | `/batches/<id>/review` | 430 (phone), 3x | first listing card, from "Saved / Approved" down: the draft, "Publish now", the scheduled time |
-   | `feature-shops.webp` | `/batches/<id>/review` | 430 (phone), 3x | "Shops for these drafts", from the first shop's tick box |
-   | `feature-schedule.webp` | `/scheduled` | 520 (phone), 3x | from the calendar down to the scheduled listing |
-   | `feature-uploads.webp` | `/batches/<id>`, "Arrange photos" open | 700 (phone), 2x | the first four listing groups |
-   | `feature-report.webp` | `/analytics`, Month tab | 430 (phone), 3x | the "Etsy fees" lines |
+## The share cards
 
-   If a picture changes, give the file a new name and update
-   `frontend/lib/homeCopy.ts`, so no image cache serves the old one. Nothing in a
-   crop may show a real e-mail address: the app's footer (which prints the
-   support address of the machine it runs on) is outside every region above.
+Each public page has its own card, drawn at build time from the page's heading by
+`frontend/app/og/[slug]/route.tsx`, in our own name and colours. There is nothing to draw
+by hand. A heading changes, its card changes with the next build.
 
-3. Delete the demo account afterwards:
+## The demo video
 
-   ```bash
-   docker compose exec -T api python -m app.cli seed-demo --remove
-   ```
-
-   It removes the demo account with everything of its own, its sample image
-   files (`demo-shots/` in storage) and the sample invite requests. Nothing
-   about it may be left in a database that holds real sellers.
-
-## The Open Graph image
-
-`frontend/public/og-v3.png` (1200×630) is drawn from the home page's own words
-(`HOME.hero` in `frontend/lib/homeCopy.ts`) and the same sample designs: the
-wordmark, the hero heading and four sample cards. It names no one but Listyro.
-If the hero heading changes, draw it again under a new file name and update
-`app/layout.tsx` and `app/(marketing)/page.tsx`.
+`frontend/lib/marketing/video.ts`. Until the file is set, the home page shows a screenshot
+and says the video is coming.

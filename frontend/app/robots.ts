@@ -1,14 +1,15 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/marketing/pages";
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://listyro.com";
+/** Every folder in app/(app), and the API (lib/marketingSite.test.ts compares this with the folders). */
+export const APP_PATHS = [
+  "/accept-terms", "/admin", "/analytics", "/batches", "/connect", "/dashboard", "/login", "/password",
+  "/profiles", "/register", "/scheduled", "/settings", "/templates", "/upload",
+];
 
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: {
-      userAgent: "*",
-      allow: ["/", "/pricing", "/request-invite", "/contact", "/terms", "/privacy"],
-      disallow: ["/api/", "/dashboard", "/batches", "/upload", "/profiles", "/templates", "/scheduled", "/analytics", "/settings", "/admin", "/connect"],
-    },
-    sitemap: `${SITE}/sitemap.xml`,
+    rules: { userAgent: "*", allow: "/", disallow: ["/api/", ...APP_PATHS] },
+    sitemap: `${SITE_URL}/sitemap.xml`,
   };
 }

@@ -28,10 +28,10 @@ export const LAST_UPDATED = "14 October 2026";
  * reference listing used in another of the seller's shops copies its main shop's shipping, return
  * and processing settings there; 29 October 2026: a deleted batch can be restored for 7 days, and
  * what a seller met on a page is kept 30 days; 31 October 2026: what our alerts say about an
- * account) without asking them to agree again, so the version above stays.
+ * account; 1 November 2026: a cookieless visit counter on the public site) without asking them to agree again, so the version above stays.
  * Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "31 October 2026";
+export const PRIVACY_UPDATED = "1 November 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";

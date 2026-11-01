@@ -1,13 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { PlanCards } from "@/components/marketing/PlanCards";
 import { INCLUDED, LISTING_LINE, PLANNED_NOTICE, PRICING_HEADING, PRICING_LINE } from "@/lib/plans";
+import { metadataFor } from "@/lib/marketing/pages";
+import { JsonLd } from "@/components/marketing/Page";
+import { breadcrumbs, softwareApplication } from "@/lib/marketing/jsonld";
 
-export const metadata: Metadata = {
-  title: "Pricing",
-  description: "Listyro is in invite-only early access and no payment is taken today. The plans planned for after launch are shown; prices may change before launch.",
-  alternates: { canonical: "/pricing" },
-};
+export const metadata: Metadata = metadataFor("/pricing");
 
 // The planned plans are laid out from lib/plans.ts (components/marketing/PlanCards.tsx)
 // and nowhere typed here. They are plans, not an offer: there is no sign-up for one,
@@ -17,12 +15,15 @@ const DOT = "mt-[0.55rem] h-1 w-1 shrink-0 rounded-full";
 
 export default function Pricing() {
   return (
+    <>
+    <JsonLd data={breadcrumbs("/pricing")} />
+    <JsonLd data={softwareApplication()} />
     <div className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-12 sm:px-6 sm:pt-16">
       <div className="max-w-[46rem]">
         <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Pricing</p>
         <h1 className="mt-3 font-display text-[clamp(2.4rem,5.4vw,3.9rem)] leading-[1.04] text-slate-900">{PRICING_HEADING}</h1>
         <div className="mt-7">
-          <Link href="/request-invite" className="btn-primary px-5 py-3 text-[0.9375rem]" data-testid="pricing-cta">Request an invite</Link>
+          <a href="/request-invite" className="btn-primary px-5 py-3 text-[0.9375rem]" data-testid="pricing-cta">Request an invite</a>
         </div>
         <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-600" data-testid="pricing-line">{PRICING_LINE}</p>
       </div>
@@ -71,5 +72,6 @@ export default function Pricing() {
         </div>
       </div>
     </div>
+    </>
   );
 }
