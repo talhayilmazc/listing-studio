@@ -186,7 +186,12 @@ services:
       args:
         API_PROXY_TARGET: http://api:8000
         NEXT_PUBLIC_CF_ANALYTICS_TOKEN: ${NEXT_PUBLIC_CF_ANALYTICS_TOKEN:-}
+        FEE_CALCULATOR_CONFIRMED: ${FEE_CALCULATOR_CONFIRMED:-false}
+        FREE_TOOL_AI_ENABLED: ${FREE_TOOL_AI_ENABLED:-false}
     image: listyro/frontend:latest
+    environment:
+      # The AI ideas page asks at request time, so it can never outlive the API's own switch by a build.
+      FREE_TOOL_AI_ENABLED: ${FREE_TOOL_AI_ENABLED:-false}
     depends_on:
       api:
         condition: service_healthy

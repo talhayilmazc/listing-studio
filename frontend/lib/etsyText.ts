@@ -37,18 +37,33 @@ function fix(bad: string[], tag: boolean): string {
   return hints.join("; ");
 }
 
+/** What is wrong with a title, piece by piece (the free title checker shows each on its own line). */
+export function titleParts(title: string): { length: number; bad: string[]; fix: string; twice: string[] } {
+  const chars = [...title];
+  const bad = chars.filter((ch) => !TITLE_OK.test(ch));
+  return { length: chars.length, bad, fix: bad.length ? fix(bad, false) : "", twice: ONCE.filter((ch) => chars.filter((c) => c === ch).length > 1) };
+}
+
 /** Why Etsy would refuse this title (none: it would not). */
 export function titleErrors(title: string): string[] {
   if (!title.trim()) return ["Title is empty"];
   const errors: string[] = [];
-  const chars = [...title];
-  if (chars.length > MAX_TITLE) errors.push(`Title is over Etsy's ${MAX_TITLE} characters (${chars.length})`);
-  const bad = chars.filter((ch) => !TITLE_OK.test(ch));
+  const { length, bad, twice } = titleParts(title);
+  if (length > MAX_TITLE) errors.push(`Title is over Etsy's ${MAX_TITLE} characters (${length})`);
   if (bad.length) errors.push(`Title has characters Etsy does not allow: ${shown(bad)}: ${fix(bad, false)}`);
-  const twice = ONCE.filter((ch) => chars.filter((c) => c === ch).length > 1);
   if (twice.length)
     errors.push(`Title uses ${twice.join(" ")} more than once; Etsy allows %, :, & and + once each${twice.includes("&") ? ' (write "and" for the other &)' : ""}`);
   return errors;
+}
+
+const badInTag = (tag: string): string[] => [...tag].filter((ch) => ch !== "," && !TAG_OK.test(ch));
+
+/** What is wrong with a set of tags, piece by piece (the free tag checker shows each on its own line). */
+export function tagParts(tags: string[]): { long: string[]; bad: { tag: string; chars: string[]; fix: string }[] } {
+  return {
+    long: tags.filter((tag) => [...tag].length > MAX_TAG),
+    bad: tags.filter((tag) => badInTag(tag).length).map((tag) => ({ tag, chars: badInTag(tag), fix: fix(badInTag(tag), true) })),
+  };
 }
 
 /** Why Etsy would refuse these tags (none: it would not). */
@@ -62,7 +77,7 @@ export function tagErrors(tags: string[]): string[] {
     }
     if ([...tag].length > MAX_TAG) errors.push(`Tag over ${MAX_TAG} characters: "${tag}"`);
     if (tag.includes(",")) errors.push(`Tag has a comma: "${tag}"`);
-    const bad = [...tag].filter((ch) => ch !== "," && !TAG_OK.test(ch));
+    const bad = badInTag(tag);
     if (bad.length) errors.push(`Tag has characters Etsy does not allow: "${tag}" (${shown(bad)}): ${fix(bad, true)}`);
   }
   return [...new Set(errors)];

@@ -1,4 +1,4 @@
-/** The help center and the free-tools placeholder. Each answer is what the product does today. */
+/** The help center and the Free tools page's words. Each answer is what the product does today. */
 
 export const HELP = {
   title: "Help center: getting started with Listyro | Listyro",
@@ -51,13 +51,7 @@ export const HELP = {
 
 export const FREE_TOOLS = {
   title: "Free tools for sellers: title checker, fee calculator | Listyro",
-  description: "Free tools we are building for Etsy sellers: a title checker, a tag checker and a fee calculator. They are not ready yet; our guides cover the same rules today.",
+  description: "Free tools for Etsy sellers: a title checker and a tag checker that run in your browser with no account, and a fee calculator on the way.",
   h1: "Free tools for sellers",
-  lead: "We are building small tools that need no account. They are not ready yet, and this page will say so plainly until they are.",
-  planned: [
-    { name: "Title checker", body: "Paste a title and see it against Etsy's limits and our title advice: length, word count, repeated words, and brand names. It will not predict ranking.", guide: { href: "/guides/etsy-title-rules-2026", label: "Read the title rules" } },
-    { name: "Tag checker", body: "Paste your tags and see which are too long, repeated or use characters Etsy refuses.", guide: { href: "/guides/etsy-tags-13-tags-20-characters", label: "Read the tag rules" } },
-    { name: "Fee calculator", body: "Enter a price and costs, and see what a sale leaves after Etsy's fees. It will show its rates and where they came from.", guide: { href: "/features/profit-report", label: "See the profit report" } },
-  ],
-  status: "Not built yet",
+  lead: "Small tools that need no account. They run in your browser, and what you type stays there.",
 };

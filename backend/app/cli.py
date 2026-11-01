@@ -863,6 +863,10 @@ def main(argv: list[str] | None = None) -> int:
         "lists what would change, --apply changes only our records; reads only, never writes to Etsy",
     )
     reconciles.add_argument("email")
+    sub.add_parser(
+        "free-tool-rules",
+        help="print frontend/lib/listingRuleData.ts: the words and limits the free tools share with the app's rules",
+    )
     scan = sub.add_parser(
         "trademark-scan",
         help="the brands in one seller's listings, where they are, and what the seller sees with the filter on and off; read only, no Etsy call",
@@ -955,6 +959,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from app.db.session import get_sessionmaker
 
+    if args.command == "free-tool-rules":
+        from app.ops.free_tool_rules import render
+
+        sys.stdout.write(render())
+        return 0
     sm = get_sessionmaker()
     if args.command == "llm-check":
         from app.pipeline.llm import SUPPORTED_MODELS

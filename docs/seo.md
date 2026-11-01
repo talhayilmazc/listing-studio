@@ -14,7 +14,8 @@ hand in the Cloudflare, Google and Bing dashboards.
 
 | Route | `Cache-Control` | Notes |
 |---|---|---|
-| Marketing pages, signed out | `public, s-maxage=3600, stale-while-revalidate=86400` | Static HTML; no `Set-Cookie` |
+| Marketing pages, signed out, the free tools included | `public, s-maxage=3600, stale-while-revalidate=86400` | Static HTML; no `Set-Cookie` |
+| `/free-tools/listing-ideas` (the AI tool) | `private, no-store`; a 404 while its flag is off | Not in `routes.mjs` on purpose (`docs/free-tools.md`), and kept out of the rule by name |
 | Marketing pages with the `session` cookie | `private, no-store` | Any cookie value |
 | Marketing pages with an `RSC` header or `?_rsc=` | `private, no-store` | The router's payload must never replace the page |
 | `/` with a live session | `private, no-store` | 307 to `/dashboard` |
@@ -48,13 +49,15 @@ and (
   or starts_with(http.request.uri.path, "/features/")
   or starts_with(http.request.uri.path, "/guides/")
   or starts_with(http.request.uri.path, "/compare/")
+  or starts_with(http.request.uri.path, "/free-tools/")
   or starts_with(http.request.uri.path, "/screens/")
   or starts_with(http.request.uri.path, "/og/")
 )
+and not starts_with(http.request.uri.path, "/free-tools/listing-ideas")
 and not http.request.uri.query contains "_rsc"
 ```
 
-No app path appears in it, and `/api/` is shut out twice. An app route that is added later stays out
+`/free-tools/listing-ideas` is excluded by name: it spends money per visitor and must never be stored. No app path appears in it, and `/api/` is shut out twice. An app route that is added later stays out
 unless someone adds it here.
 
 **Then:**

@@ -1,0 +1,876 @@
+{
+ "_about": "What the app's own rules answer (pipeline/search_rules.py, pipeline/etsy_text.py, compliance/trademarks.py). Written by scripts/free_tool_cases.py; read by tests/test_free_tool_rules.py and frontend/lib/freeToolRules.test.ts.",
+ "titles": [
+  {
+   "text": "Frog Reading Club Shirt, Book Lover Tee",
+   "etsy_ok": true,
+   "word_count": 7,
+   "phrases": [
+    "Frog Reading Club Shirt",
+    "Book Lover Tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt",
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Nurse Shirt, Retro Nurse Life Tee",
+   "etsy_ok": true,
+   "word_count": 6,
+   "phrases": [
+    "Nurse Shirt",
+    "Retro Nurse Life Tee"
+   ],
+   "repeated": [
+    "nurse"
+   ],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt",
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": false,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Nurses shirt for nurse life",
+   "etsy_ok": true,
+   "word_count": 5,
+   "phrases": [
+    "Nurses shirt for nurse life"
+   ],
+   "repeated": [
+    "nurse"
+   ],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": false,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Cute Nurse T-Shirt, Perfect Gift for Her, Free Shipping",
+   "etsy_ok": true,
+   "word_count": 9,
+   "phrases": [
+    "Cute Nurse T-Shirt",
+    "Perfect Gift for Her",
+    "Free Shipping"
+   ],
+   "repeated": [],
+   "subjective": [
+    "cute",
+    "perfect"
+   ],
+   "commerce": [
+    "free shipping",
+    "shipping"
+   ],
+   "gift": [
+    "gift",
+    "for her"
+   ],
+   "garments": [
+    "tshirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": false,
+    "commerce": false,
+    "gift": false,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Retro Sunset Sweatshirt, Vintage Beach Crewneck, Summer Tee, Soft Cotton Top, Mountain Lake Pullover",
+   "etsy_ok": true,
+   "word_count": 14,
+   "phrases": [
+    "Retro Sunset Sweatshirt",
+    "Vintage Beach Crewneck",
+    "Summer Tee",
+    "Soft Cotton Top",
+    "Mountain Lake Pullover"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "sweatshirt",
+    "crewneck",
+    "tee",
+    "pullover"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Sunset Mountain Lake Design",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "Sunset Mountain Lake Design"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": false
+   },
+   "brands": []
+  },
+  {
+   "text": "T Shirt t-shirt Tshirts",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "T Shirt t-shirt Tshirts"
+   ],
+   "repeated": [
+    "tshirt"
+   ],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tshirt",
+    "tshirt",
+    "tshirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": false,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Mug for Teachers, High Quality Coffee Cup on Sale, 20% off",
+   "etsy_ok": true,
+   "word_count": 11,
+   "phrases": [
+    "Mug for Teachers",
+    "High Quality Coffee Cup on Sale",
+    "20% off"
+   ],
+   "repeated": [],
+   "subjective": [
+    "high quality"
+   ],
+   "commerce": [
+    "sale",
+    "on sale",
+    "% off"
+   ],
+   "gift": [
+    "for teachers"
+   ],
+   "garments": [],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": false,
+    "commerce": false,
+    "gift": false,
+    "item_first": false
+   },
+   "brands": []
+  },
+  {
+   "text": "Handmade Ceramic Mug",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "Handmade Ceramic Mug"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": false
+   },
+   "brands": []
+  },
+  {
+   "text": "One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Shirt",
+   "etsy_ok": true,
+   "word_count": 16,
+   "phrases": [
+    "One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": false,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Café Crème T-Shirt – Women's Größe (S/M)",
+   "etsy_ok": true,
+   "word_count": 6,
+   "phrases": [
+    "Café Crème T-Shirt – Women's Größe (S/M)"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tshirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Cutest Gifted Presenter Shirt",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "Cutest Gifted Presenter Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Best Seller Mom's Shirt & Dad's Shirt",
+   "etsy_ok": true,
+   "word_count": 6,
+   "phrases": [
+    "Best Seller Mom's Shirt & Dad's Shirt"
+   ],
+   "repeated": [
+    "shirt"
+   ],
+   "subjective": [],
+   "commerce": [
+    "best seller"
+   ],
+   "gift": [],
+   "garments": [
+    "shirt",
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": false,
+    "subjective": true,
+    "commerce": false,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Marvelous Scavenger Hunt Shirt",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "Marvelous Scavenger Hunt Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "DisneyWorld Family Trip Shirt",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "DisneyWorld Family Trip Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Disney"
+   ]
+  },
+  {
+   "text": "Mick Ey Mouse Ears Tee",
+   "etsy_ok": true,
+   "word_count": 5,
+   "phrases": [
+    "Mick Ey Mouse Ears Tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Mickey"
+   ]
+  },
+  {
+   "text": "#Disney Vacation Hoodie",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "#Disney Vacation Hoodie"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "hoodie"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Disney"
+   ]
+  },
+  {
+   "text": "D1sney Castle Tee",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "D1sney Castle Tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Disney"
+   ]
+  },
+  {
+   "text": "Blue Y Neck Tee",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "Blue Y Neck Tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Baby-Yoda Lover Shirt",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "Baby-Yoda Lover Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Baby Yoda"
+   ]
+  },
+  {
+   "text": "star_wars fan tank",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "star_wars fan tank"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tank"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Star Wars"
+   ]
+  },
+  {
+   "text": "Pokémon Trainer Tee",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "Pokémon Trainer Tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Pokemon"
+   ]
+  },
+  {
+   "text": "ILoveDisney Tank Top",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "ILoveDisney Tank Top"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tank"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Disney"
+   ]
+  },
+  {
+   "text": "NFL Sunday Tee",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "NFL Sunday Tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "NFL"
+   ]
+  },
+  {
+   "text": "nhi mib tee",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "nhi mib tee"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "tee"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": []
+  },
+  {
+   "text": "Lilo & Stitch Beach Shirt",
+   "etsy_ok": true,
+   "word_count": 4,
+   "phrases": [
+    "Lilo & Stitch Beach Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Lilo and Stitch"
+   ]
+  },
+  {
+   "text": "Disneyland Castle Shirt",
+   "etsy_ok": true,
+   "word_count": 3,
+   "phrases": [
+    "Disneyland Castle Shirt"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [
+    "shirt"
+   ],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": true
+   },
+   "brands": [
+    "Disneyland"
+   ]
+  },
+  {
+   "text": "A plain title that names nothing in particular",
+   "etsy_ok": true,
+   "word_count": 8,
+   "phrases": [
+    "A plain title that names nothing in particular"
+   ],
+   "repeated": [],
+   "subjective": [],
+   "commerce": [],
+   "gift": [],
+   "garments": [],
+   "report": {
+    "words": true,
+    "repeats": true,
+    "subjective": true,
+    "commerce": true,
+    "gift": true,
+    "item_first": false
+   },
+   "brands": []
+  }
+ ],
+ "tag_sets": [
+  {
+   "title": "Frog Reading Club Shirt",
+   "tags": [
+    "frog shirt",
+    "frogs shirts",
+    "shirt frog",
+    "reading club",
+    "book lover",
+    "club shirt",
+    "frog",
+    "gift for reader",
+    "library tee",
+    "nerdy top",
+    "cute reader",
+    "cottagecore",
+    "toad"
+   ],
+   "etsy_ok": true,
+   "same_search": [
+    [
+     "frog shirt",
+     "frogs shirts"
+    ],
+    [
+     "frog shirt",
+     "shirt frog"
+    ]
+   ],
+   "only_title_words": [
+    "frog shirt",
+    "frogs shirts",
+    "shirt frog",
+    "reading club",
+    "club shirt",
+    "frog"
+   ],
+   "phrases": 10,
+   "brands": []
+  },
+  {
+   "title": "",
+   "tags": [
+    "nurse",
+    "nursing",
+    "scrubs",
+    "rn",
+    "doctor",
+    "hospital",
+    "medical",
+    "healthcare",
+    "er nurse tee"
+   ],
+   "etsy_ok": true,
+   "same_search": [],
+   "only_title_words": [],
+   "phrases": 1,
+   "brands": []
+  },
+  {
+   "title": "Retro Sunset Tee",
+   "tags": [
+    "sunset retro",
+    "retro tee",
+    "sunset",
+    "beach sunset shirt",
+    "summer vibes"
+   ],
+   "etsy_ok": true,
+   "same_search": [],
+   "only_title_words": [
+    "sunset retro",
+    "retro tee",
+    "sunset"
+   ],
+   "phrases": 4,
+   "brands": []
+  },
+  {
+   "title": "",
+   "tags": [
+    "disneyworld shirt",
+    "mick ey tee",
+    "marvelous mom",
+    "star-wars fan",
+    "nfl dad",
+    "plain tag"
+   ],
+   "etsy_ok": true,
+   "same_search": [],
+   "only_title_words": [],
+   "phrases": 6,
+   "brands": [
+    "Disney",
+    "Mickey",
+    "NFL",
+    "Star Wars"
+   ]
+  },
+  {
+   "title": "",
+   "tags": [
+    "a much too long tag for etsy",
+    "tag & more",
+    "- dash first",
+    "'quote first",
+    "curly’s tag",
+    "fine tag"
+   ],
+   "etsy_ok": false,
+   "same_search": [],
+   "only_title_words": [],
+   "phrases": 6,
+   "brands": []
+  },
+  {
+   "title": "",
+   "tags": [
+    "tag 0",
+    "tag 1",
+    "tag 2",
+    "tag 3",
+    "tag 4",
+    "tag 5",
+    "tag 6",
+    "tag 7",
+    "tag 8",
+    "tag 9",
+    "tag 10",
+    "tag 11",
+    "tag 12",
+    "tag 13"
+   ],
+   "etsy_ok": false,
+   "same_search": [],
+   "only_title_words": [],
+   "phrases": 14,
+   "brands": []
+  }
+ ]
+}

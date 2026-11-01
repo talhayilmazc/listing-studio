@@ -151,6 +151,14 @@ export default function PrivacyPage() {
           that we answer it. The form also counts requests per connection for an hour to stop abuse;
           your IP address is used for that count and is not stored with your request.
         </p>
+        <p data-testid="free-tools-privacy">
+          <strong>If you use a free tool on our site.</strong> The title checker, the tag checker and the fee
+          calculator run in your browser: what you type is not sent to us. The optional title and tag ideas tool,
+          when it is available, is different: what you type goes to our server and to Anthropic to write the ideas,
+          and we do not store it. Cloudflare Turnstile checks that you are a person first. We count your uses per
+          connection to keep a daily limit, using a scrambled form of your IP address that we delete after{" "}
+          <span>{R.freeToolVisitorDays}</span> days.
+        </p>
         <p>
           <strong>Usage and security records.</strong> A daily count of the Etsy API requests made for
           your account (Etsy caps these, so we must track them); records of the tasks we ran for you

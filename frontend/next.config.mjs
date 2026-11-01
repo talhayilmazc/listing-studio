@@ -1,4 +1,4 @@
-import { MARKETING_PAGES, cacheRules } from "./lib/marketing/routes.mjs";
+import { IDEAS_PATH, MARKETING_PAGES, cacheRules } from "./lib/marketing/routes.mjs";
 
 /** @type {import('next').NextConfig} */
 const target = process.env.API_PROXY_TARGET || "http://localhost:8000";
@@ -16,7 +16,7 @@ const dev = process.env.NODE_ENV !== "production";
  * Images: our own /api (proxied, same-origin), blob: for local upload previews,
  * and the Etsy CDN for the seller's own listing and reference images.
  */
-const buildCsp = (scripts = "", connections = "") => [
+const buildCsp = (scripts = "", connections = "", frames = "") => [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}${scripts}`,
   "style-src 'self' 'unsafe-inline'",
@@ -24,6 +24,7 @@ const buildCsp = (scripts = "", connections = "") => [
   "font-src 'self'",
   // Dev only: Next's hot reload talks over a websocket.
   `connect-src 'self'${dev ? " ws: wss:" : ""}${connections}`,
+  ...(frames ? [`frame-src${frames}`] : []),
   "object-src 'none'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
@@ -36,6 +37,15 @@ const buildCsp = (scripts = "", connections = "") => [
  */
 const analytics = Boolean(process.env.NEXT_PUBLIC_CF_ANALYTICS_TOKEN);
 const marketingCsp = buildCsp(" https://static.cloudflareinsights.com", " https://cloudflareinsights.com");
+
+/**
+ * The AI ideas tool's page alone may load Cloudflare Turnstile, which proves a visitor is a person
+ * before the tool spends anything (docs/free-tools.md). No other page gets this.
+ */
+const TURNSTILE = " https://challenges.cloudflare.com";
+const ideasCsp = analytics
+  ? buildCsp(` https://static.cloudflareinsights.com${TURNSTILE}`, ` https://cloudflareinsights.com${TURNSTILE}`, TURNSTILE)
+  : buildCsp(TURNSTILE, TURNSTILE, TURNSTILE);
 
 const securityHeaders = [
   { key: "Content-Security-Policy", value: buildCsp() },
@@ -73,6 +83,7 @@ const nextConfig = {
     return [
       { source: "/((?!api/).*)", headers: securityHeaders },
       ...(analytics ? MARKETING_PAGES.map((source) => ({ source, headers: [{ key: "Content-Security-Policy", value: marketingCsp }] })) : []),
+      { source: IDEAS_PATH, headers: [{ key: "Content-Security-Policy", value: ideasCsp }] },
       // Who may keep each response: private unless lib/marketing/routes.mjs lists it (docs/seo.md).
       ...cacheRules(),
     ];

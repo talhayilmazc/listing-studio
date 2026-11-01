@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from app.api import schemas
+from app.api import free_tools, schemas
 from app.api.item_options import SECTIONS_MAX_AGE
 from app.core import app_settings, terms
 from app.core.config import Settings
@@ -141,6 +141,7 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "draftAttemptDays": DraftAttempt.RETENTION_DAYS,
         "draftDismissalDays": DraftDismissal.RETENTION_DAYS,
         "salesRefreshDays": sales_pipeline.REFRESH_DAYS,
+        "freeToolVisitorDays": free_tools.VISITOR_DAYS,
         "inviteRequestDays": InviteRequest.PENDING_RETENTION_DAYS,
         "backupDays": _backup_days(),
         "sessionDays": settings.session_ttl_days,
@@ -208,6 +209,7 @@ def test_no_external_script_or_tracker_is_loaded_by_any_page() -> None:
     cookieless visit counter, on public pages only and only when its token is set (docs/seo.md)."""
     hosts: set[str] = set()
     counter_in: set[str] = set()
+    turnstile_in: set[str] = set()
     for path in (ROOT / "frontend").rglob("*"):
         if path.suffix not in (".ts", ".tsx", ".js", ".mjs", ".css") or {"node_modules", ".next"} & set(path.parts):
             continue
@@ -216,9 +218,14 @@ def test_no_external_script_or_tracker_is_loaded_by_any_page() -> None:
         hosts |= set(re.findall(r"https?://([a-zA-Z0-9.-]+)", text))
         if "cloudflareinsights.com" in text and not path.name.endswith(".test.ts"):
             counter_in.add(path.relative_to(ROOT).as_posix())
+        if "challenges.cloudflare.com" in text and not path.name.endswith((".test.ts", ".spec.ts")):
+            turnstile_in.add(path.relative_to(ROOT).as_posix())
     assert counter_in == {"frontend/app/(marketing)/layout.tsx", "frontend/next.config.mjs"}, sorted(counter_in)
+    # Cloudflare's person check: the optional AI tool's page alone, and only while its flag is on.
+    assert turnstile_in == {"frontend/components/marketing/ListingIdeas.tsx", "frontend/next.config.mjs"}, sorted(turnstile_in)
     known = {
         "static.cloudflareinsights.com", "cloudflareinsights.com",  # the visit counter, checked just above
+        "challenges.cloudflare.com",  # Turnstile, checked just above
         "help.etsy.com", "developers.etsy.com", "schema.org",  # the guides' sources; JSON-LD's vocabulary
         "listadum.com", "www.listadum.com", "mydesigns.io", "getvela.com", "apps.shopify.com",  # links: what the compare pages cite
         "listyro.com", "api.listyro.com",  # ours

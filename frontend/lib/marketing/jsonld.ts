@@ -6,6 +6,7 @@
 import { PLANNED_NOTICE, PLANS, listingsFact, shopsFact, type Plan } from "../plans.ts";
 import { GUIDES, type Guide } from "./guides.ts";
 import { SITE_URL, cardSlug, pageAt, trail } from "./pages.ts";
+import type { Tool } from "./tools.ts";
 
 const CONTEXT = "https://schema.org";
 const url = (path: string) => `${SITE_URL}${path === "/" ? "" : path}`;
@@ -72,5 +73,18 @@ export const article = (guide: Guide) => {
     publisher: { "@type": "Organization", name: "Listyro", url: url("/") },
   };
 };
+
+/** A tool that runs on the page. Nothing to buy and no rating: only what the page itself says. */
+export const toolApplication = (tool: Tool) => ({
+  "@context": CONTEXT,
+  "@type": "WebApplication",
+  name: tool.name,
+  url: url(`/free-tools/${tool.slug}`),
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  description: tool.description,
+  isAccessibleForFree: true,
+  provider: { "@type": "Organization", name: "Listyro", url: url("/") },
+});
 
 export const guideCount = GUIDES.length;

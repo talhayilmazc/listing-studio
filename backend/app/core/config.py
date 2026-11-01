@@ -158,6 +158,15 @@ class Settings(BaseSettings):
     llm_thinking: str = "off"
     llm_effort: str = ""
 
+    # The optional AI title and tag ideas on the public site (api/free_tools.py, docs/free-tools.md).
+    # Off by default; on, it also needs both Turnstile keys. The cap is US dollars per UTC day.
+    free_tool_ai_enabled: bool = False
+    free_tool_ai_daily_cap_usd: float = Field(default=2.0, ge=0)
+    free_tool_ai_per_visitor: int = Field(default=3, ge=1)
+    free_tool_ai_model: str = "claude-haiku-5-5"
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
+
     # Object storage root for uploaded originals + processed derivatives.
     storage_dir: str = "./storage"
     # Upload retention (pipeline/upload_retention.py): the server's disk cannot
