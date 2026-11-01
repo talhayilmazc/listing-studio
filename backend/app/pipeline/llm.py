@@ -318,10 +318,11 @@ def _shared_client(loop: asyncio.AbstractEventLoop, api_key: str, model: str, th
 
 
 def client_for(settings: Any, role: str) -> AnthropicLLMClient:
-    """The client for ``role`` ("vision" or "content"), per VISION_MODEL /
-    CONTENT_MODEL (each falls back to LLM_MODEL). One per event loop and model: making one builds a
+    """The client for ``role`` ("vision", "content" or "free_tool"), per VISION_MODEL / CONTENT_MODEL /
+    FREE_TOOL_AI_MODEL (each falls back to LLM_MODEL). One per event loop and model: making one builds a
     TLS context, about 20 ms of CPU, and a shared one keeps its connections to the provider."""
-    model = (settings.vision_model if role == "vision" else settings.content_model) or settings.llm_model
+    named = settings.vision_model if role == "vision" else settings.free_tool_ai_model if role == "free_tool" else settings.content_model
+    model = named or settings.llm_model
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:  # a script, outside any event loop: nothing to share with

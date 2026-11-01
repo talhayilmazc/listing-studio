@@ -112,6 +112,108 @@ https://help.etsy.com/hc/en-us/articles/115015588087-How-to-Set-Processing-Times
 - "Select which holidays you'll process orders on (US and CA only)."
 - "Removing a holiday from your schedule means you're not able to package or prepare orders on that day, and it won't be counted as a processing day."
 
+### Etsy Fee Basics
+https://help.etsy.com/hc/en-us/articles/360035902374
+
+- "The listing fee is a flat rate charge of $0.20 USD per listing."
+- "Etsy charges 6.5% of the total order amount in your designated listing currency."
+- "This fee applies to the total cost of the item, along with shipping and gift wrap (if you charge your customers for those)."
+
+### Fees and Listing Multiple Quantities
+https://help.etsy.com/hc/en-us/articles/360000344908-What-Are-the-Fees-and-Taxes-for-Selling-on-Etsy
+
+- "Etsy converts listing fees from USD to your Payment account currency at the market rate at the time the listing fee is reflected in your Payment account."
+
+### What are the Fees and Taxes for Selling on Etsy?
+https://help.etsy.com/hc/en-us/articles/115014483627-What-are-the-Fees-and-Taxes-for-Selling-on-Etsy-
+
+- "A 2.5% fee is assessed when currency conversion is required."
+- Its Regulatory Operating fee row names the UK, France, Italy, India, Spain, Türkiye, Vietnam and Canada: not Hungary, which the page below lists.
+
+### What are Payment Processing Fees for Selling on Etsy?
+https://help.etsy.com/hc/en-us/articles/115015628847-Fees-and-Payments
+
+- "The fees are taken from the item's total sale price, including its shipping fees, and any applicable sales tax."
+- "Payment processing fees are in addition to the 6.5% transaction fee that applies to the cost of the entire order."
+- The table, "Fees for Etsy Payments (% of total sale price + flat fee per order)":
+  - Argentina: 6.5% + 0.3 USD
+  - Australia (domestic orders): 3% + 0.25 AUD
+  - Australia (international orders): 4% + 0.25 AUD
+  - Austria: 4% + 0.3 EUR
+  - Belgium: 4% + 0.3 EUR
+  - Brazil: 6.5% + 0.3 USD
+  - Bulgaria: 4% + 0.3 EUR
+  - Canada (domestic orders or orders from the US): 3% + 0.25 CAD
+  - Canada (international orders): 4% + 0.25 CAD
+  - Chile: 6.5% + 0.3 USD
+  - China: 6.5% + 0.3 USD
+  - Croatia: 4% + 0.3 EUR
+  - Cyprus: 4% + 0.3 EUR
+  - Czech Republic: 4% + 0.3 EUR
+  - Denmark: 4% + 2.5 DKK
+  - Egypt: 6.5% + 0.3 USD
+  - Estonia: 4% + 0.3 EUR
+  - Finland: 4% + 0.3 EUR
+  - France: 4% + 0.3 EUR
+  - Georgia: 6.5% + 0.3 USD
+  - Germany: 4% + 0.3 EUR
+  - Greece: 4% + 0.3 EUR
+  - Hong Kong: 4.4% + 2 HKD
+  - Hungary: 4% + 0.3 EUR
+  - India: 5% + 25 INR
+  - Indonesia: 4.5% + 7000 IDR
+  - Ireland: 4% + 0.3 EUR
+  - Israel: 4.5% + 2 ILS
+  - Italy: 4% + 0.3 EUR
+  - Japan: 6% + 0.3 USD
+  - Kazakhstan: 6.5% + 0.3 USD
+  - Latvia: 4% + 0.3 EUR
+  - Lithuania: 4% + 0.3 EUR
+  - Luxembourg: 4% + 0.3 EUR
+  - Malaysia: 4.5% + 2 MYR
+  - Malta: 4% + 0.3 EUR
+  - Mexico: 4.5% + 8 MXN
+  - Morocco: 4.5% + 5 MAD
+  - Netherlands: 4% + 0.3 EUR
+  - New Zealand (domestic orders): 3% + 0.3 NZD
+  - New Zealand (international orders): 4% + 0.3 NZD
+  - Norway: 4% + 2.5 NOK
+  - Pakistan: 6.5% + 0.3 USD
+  - Peru: 6.5% + 0.3 USD
+  - Philippines: 4.5% + 25 PHP
+  - Poland: 4% + 0.3 EUR
+  - Portugal: 4% + 0.3 EUR
+  - Romania: 4% + 0.3 EUR
+  - Serbia: 6.5% + 0.3 USD
+  - Singapore: 4.4% + 0.35 SGD
+  - Slovakia: 4% + 0.3 EUR
+  - Slovenia: 4% + 0.3 EUR
+  - South Africa: 4.5% + 8 ZAR
+  - South Korea: 6.5% + 0.3 USD
+  - Spain: 4% + 0.3 EUR
+  - Sweden: 4% + 3 SEK
+  - Switzerland: 4% + 0.5 CHF
+  - Thailand: 6% + 0.3 USD
+  - Türkiye: 6.5% + 14 TRY
+  - Ukraine: 6% + 0.3 USD
+  - United Arab Emirates: 6.5% + 0.3 USD
+  - United Kingdom: 4% + 0.2 GBP
+  - United States: 3% + 0.25 USD
+  - Vietnam: 4.5% + 11500 VND
+
+### How Etsy's Offsite Ads Work
+https://help.etsy.com/hc/en-us/articles/360000338367
+
+- "Charged a 15% fee for orders attributed to an Offsite Ad (on the amount you made from your sale before the advertising fee was applied)"
+- "Charged a discounted 12% fee for orders attributed to an Offsite Ad (on the amount you made from your sale before the advertising fee was applied)"
+- "The Offsite Ads fee for any individual order will never exceed $100 USD, regardless of the order total."
+
+### What is a Regulatory Operating Fee?
+https://help.etsy.com/hc/articles/1500011073202
+
+- "Sellers in these countries will be charged the following Regulatory Operating fees, which are charged on the item price plus shipping cost and gift wrap:"
+- Canada: 0.5%, France: 1.14%, Hungary: 1.97%, Italy: 0.8%, India: 0.05%, Spain: 0.88%, Türkiye: 1.67%, United Kingdom: 0.48%, Vietnam: 1.24%. (Etsy writes 0.50% and 0.80%.)
+
 ### Etsy Open API v3, createDraftListing
 The published schema, read directly: https://www.etsy.com/openapi/generated/oas/3.0.0.json. The guides link the reference page generated from it, https://developers.etsy.com/documentation/reference/#operation/createDraftListing, which needs a browser to render.
 

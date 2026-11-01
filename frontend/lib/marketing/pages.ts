@@ -8,6 +8,8 @@ import { COMPARES, ALTERNATIVES, COMPARE_PAGE } from "./compare.ts";
 import { FEATURES, FEATURES_PAGE } from "./features.ts";
 import { GUIDES, GUIDES_PAGE } from "./guides.ts";
 import { FREE_TOOLS, HELP } from "./help.ts";
+import { IDEAS_PATH } from "./routes.mjs";
+import { IDEAS_TOOL, TOOLS } from "./tools.ts";
 import { HOME } from "../homeCopy.ts";
 import { refuseEtsy } from "./brandRule.ts";
 import { PRICING_HEADING } from "../plans.ts";
@@ -40,6 +42,7 @@ export const PAGES: Page[] = [
   ...FEATURES.map((f) => simple(`/features/${f.slug}`, f.title, f.description, f.h1, f.name, "/features")),
   simple("/pricing", "Pricing: planned plans after launch | Listyro", "Listyro is in invite-only early access and no payment is taken today. The plans planned for after launch are shown; prices may change before launch.", PRICING_HEADING, "Pricing", "/"),
   simple("/free-tools", FREE_TOOLS.title, FREE_TOOLS.description, FREE_TOOLS.h1, "Free tools", "/"),
+  ...[...TOOLS, IDEAS_TOOL].map((t) => simple(`/free-tools/${t.slug}`, t.title, t.description, t.h1, t.name, "/free-tools")),
   simple("/compare", COMPARE_PAGE.title, COMPARE_PAGE.description, COMPARE_PAGE.h1, "Compare", "/"),
   ...COMPARES.map((c) => simple(`/compare/${c.slug}`, c.title, c.description, c.h1, c.h1, "/compare")),
   simple(`/compare/${ALTERNATIVES.slug}`, ALTERNATIVES.title, ALTERNATIVES.description, ALTERNATIVES.h1, "Alternatives", "/compare"),
@@ -51,6 +54,12 @@ export const PAGES: Page[] = [
   simple("/terms", "Terms of Service | Listyro", "The terms for using Listyro, including what you are responsible for in your own shop.", "Terms of Service", "Terms of Service", "/"),
   simple("/privacy", "Privacy Policy | Listyro", "What Listyro collects, why, how long it is kept, and how to delete it.", "Privacy Policy", "Privacy Policy", "/"),
 ];
+
+/** The AI ideas tool is switched on by FREE_TOOL_AI_ENABLED. While it is off its page is a 404. */
+export const ideasOn = (flag: string | undefined = process.env.FREE_TOOL_AI_ENABLED): boolean => flag === "true";
+
+/** What the sitemap lists: every page that answers, so the ideas page only while it is on. */
+export const sitemapPages = (flag?: string): Page[] => PAGES.filter((page) => page.path !== IDEAS_PATH || ideasOn(flag));
 
 const byPath = new Map(PAGES.map((page) => [page.path, page]));
 

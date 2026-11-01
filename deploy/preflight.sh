@@ -158,6 +158,14 @@ case "$(get LLM_EFFORT)" in
   ""|low|medium|high) ;;
   *) warn "LLM_EFFORT is '$(get LLM_EFFORT)'; with thinking off the models take low, medium or high (the app sends high instead)" ;;
 esac
+# The free AI ideas tool stays closed without both Turnstile keys (docs/free-tools.md).
+if [ "$(get FREE_TOOL_AI_ENABLED)" = "true" ]; then
+  if [ -n "$(get TURNSTILE_SITE_KEY)" ] && [ -n "$(get TURNSTILE_SECRET_KEY)" ]; then
+    pass "FREE_TOOL_AI_ENABLED is on, with both Turnstile keys"
+  else
+    warn "FREE_TOOL_AI_ENABLED is on but a Turnstile key is missing: the tool stays closed"
+  fi
+fi
 
 echo "== tunnel"
 if grep -q '<TUNNEL_ID>' "$TUNNEL_CONFIG"; then

@@ -14,9 +14,10 @@ import { CALENDAR_AS_OF, CALENDAR_DATES, FOR_THE_SELLER_TO_READ, GUIDES, GUIDES_
 import { FREE_TOOLS, HELP } from "./marketing/help.ts";
 import { article, breadcrumbs, faqPage, organization, softwareApplication } from "./marketing/jsonld.ts";
 import { PAGES, SITE_URL, cardSlug, metadataFor, pageAt, trail } from "./marketing/pages.ts";
-import { CACHE_FILE, CACHE_PAGE, CACHE_PRIVATE, COMPARE_SLUGS, FEATURE_SLUGS, GUIDE_SLUGS, MARKETING_PAGES, PRIVATE_WHEN_PRESENT, PUBLIC_FILES, SESSION_COOKIE, cacheRules } from "./marketing/routes.mjs";
+import { CACHE_FILE, CACHE_PAGE, CACHE_PRIVATE, COMPARE_SLUGS, FEATURE_SLUGS, GUIDE_SLUGS, IDEAS_PATH, MARKETING_PAGES, PRIVATE_WHEN_PRESENT, PUBLIC_FILES, SESSION_COOKIE, cacheRules } from "./marketing/routes.mjs";
 import { TESTIMONIALS } from "./marketing/testimonials.ts";
 import { DEMO_VIDEO } from "./marketing/video.ts";
+import { TOOLS, IDEAS_TOOL } from "./marketing/tools.ts";
 import { HOME, allCopy } from "./homeCopy.ts";
 import { TRADEMARK_NOTICE } from "./legal.ts";
 import { PLANS, PRICING_HEADING, priceFact } from "./plans.ts";
@@ -36,19 +37,20 @@ function pageFiles(dir: string): string[] {
 }
 
 const OUR_COPY = [
-  ...allCopy(), ...allText(FEATURES), ...allText(FEATURES_PAGE), ...allText(HELP), ...allText(FREE_TOOLS), ...allText(GUIDES_PAGE),
+  ...allCopy(), ...allText(FEATURES), ...allText(FEATURES_PAGE), ...allText(HELP), ...allText(FREE_TOOLS), ...allText(TOOLS), ...allText(IDEAS_TOOL), ...allText(GUIDES_PAGE),
   ...GUIDES.flatMap(guideText), ...allText(COMPARE_PAGE), ...allText(LISTYRO),
 ];
 const ALL_LINK_TEXT = [...OUR_COPY, ...allText(COMPARES), ...allText(ALTERNATIVES)];
 
 test("one list of pages: routes, registry and files agree", () => {
-  assert.deepEqual(PAGES.map((p) => p.path).sort(), [...MARKETING_PAGES].sort());
+  // The one page in the registry that is not public: it is private, and a 404 while its flag is off.
+  assert.deepEqual(PAGES.map((p) => p.path).filter((p) => p !== IDEAS_PATH).sort(), [...MARKETING_PAGES].sort());
   assert.deepEqual(FEATURES.map((f) => f.slug), FEATURE_SLUGS);
   assert.deepEqual(GUIDES.map((g) => g.slug), GUIDE_SLUGS);
   assert.deepEqual([...COMPARES.map((c) => c.slug), ALTERNATIVES.slug], COMPARE_SLUGS);
   const onDisk = pageFiles(MARKETING_DIR).map((file) => file.slice(MARKETING_DIR.length).replace(/\/page\.tsx$/, "") || "/");
   const expected = new Set(MARKETING_PAGES.map((p) => p.replace(/^\/features\/.+/, "/features/[slug]").replace(/^\/guides\/.+/, "/guides/[slug]").replace(/^\/compare\/.+/, "/compare/[slug]")));
-  assert.deepEqual(onDisk.sort(), [...expected].sort());
+  assert.deepEqual(onDisk.sort(), [...expected, IDEAS_PATH].sort());
 });
 
 test("the structure that was asked for", () => {
@@ -91,7 +93,7 @@ test("the keywords the site is written for are on the pages meant to carry them"
 
 test("sitemap and robots: the site's pages only; the app and the API are shut out", () => {
   const sitemap = read("app/sitemap.ts");
-  assert.match(sitemap, /PAGES\.map/);
+  assert.match(sitemap, /sitemapPages\(\)\.map/);
   assert.deepEqual(PAGES.filter((p) => /dashboard|batches|login|api/.test(p.path)), []);
   const robots = read("app/robots.ts");
   assert.match(robots, /"\/api\/"/);
@@ -165,12 +167,12 @@ test("every link goes somewhere real", () => {
   assert.ok(FEATURES.find((f) => f.slug === "ai-listing-writer")!.body.some((b) => "id" in b && b.id === "trademark-warning"));
   assert.match(read("app/(marketing)/privacy/page.tsx"), /id: "ai"/);
   for (const f of FEATURES) assert.ok(known.has(f.guide.href), f.guide.href);
-  for (const tool of FREE_TOOLS.planned) assert.ok(known.has(tool.guide.href), tool.guide.href);
+  for (const tool of TOOLS) assert.ok(known.has(tool.guide.href), tool.guide.href);
   for (const option of ALTERNATIVES.options) assert.ok(known.has(option.href) || allowed.test(option.href), option.href);
 });
 
 test("internal links are plain: no router and no image optimizer on the public site", () => {
-  for (const file of [...pageFiles(MARKETING_DIR), "components/marketing/Site.tsx", "components/marketing/Page.tsx", "components/marketing/Sections.tsx", "components/marketing/PlanCards.tsx", "components/marketing/InviteForm.tsx", "app/not-found.tsx"]) {
+  for (const file of [...pageFiles(MARKETING_DIR), "components/marketing/Site.tsx", "components/marketing/Page.tsx", "components/marketing/Sections.tsx", "components/marketing/PlanCards.tsx", "components/marketing/InviteForm.tsx", "components/marketing/ToolPage.tsx", "components/marketing/ToolParts.tsx", "components/marketing/TitleChecker.tsx", "components/marketing/TagChecker.tsx", "components/marketing/FeeCalculator.tsx", "components/marketing/ListingIdeas.tsx", "app/not-found.tsx"]) {
     assert.doesNotMatch(read(file), /next\/link|next\/image/, file);
   }
 });
@@ -259,7 +261,7 @@ test("structured data: valid, and only what the pages say", () => {
 
 test("Etsy is in no title, share title, JSON-LD name or headline, or h1", () => {
   const h1s = [
-    `${HOME.hero.heading} ${HOME.hero.headingAccent}`, PRICING_HEADING, FEATURES_PAGE.h1, GUIDES_PAGE.h1, COMPARE_PAGE.h1, HELP.h1, FREE_TOOLS.h1, ALTERNATIVES.h1,
+    `${HOME.hero.heading} ${HOME.hero.headingAccent}`, PRICING_HEADING, FEATURES_PAGE.h1, GUIDES_PAGE.h1, COMPARE_PAGE.h1, HELP.h1, FREE_TOOLS.h1, ALTERNATIVES.h1, ...TOOLS.map((t) => t.h1), IDEAS_TOOL.h1,
     ...FEATURES.map((f) => f.h1), ...GUIDES.map((g) => g.h1), ...COMPARES.map((c) => c.h1),
   ];
   for (const h1 of h1s) assert.doesNotMatch(h1, /etsy/i, h1);
@@ -504,9 +506,6 @@ test("the home page has what was asked for", () => {
   // The teaser's figures are read, not typed, and the notice stands beside them.
   assert.doesNotMatch(sections, /\$\d/);
   assert.match(sections, /\{PLANNED_NOTICE\}/);
-  // The tools page says they are not built yet.
-  assert.match(FREE_TOOLS.lead, /not ready yet/);
-  assert.equal(FREE_TOOLS.status, "Not built yet");
 });
 
 test("cache policy: private unless listed, and never public for a session or a router request", () => {

@@ -142,6 +142,7 @@ HTTP_CLIENTS = {
     "api/deps.py": "the token client's factory; used only by oauth.exchange_code (guarded)",
     "cli.py": "hands the client to EtsyApiClient (guarded)",
     "core/alerts.py": "the operator's own alert webhook, not Etsy",
+    "core/turnstile.py": "Cloudflare Turnstile for the free AI tool, not Etsy",
     "etsy/connection.py": "the default factory for oauth.refresh_tokens (guarded)",
     "ops/draft_failures.py": "draft-failures --check-etsy: hands the client to EtsyApiClient, reads only (guarded)",
     "ops/publish_report.py": "publish-report --check-etsy: hands the client to EtsyApiClient, one getListing per listing (guarded)",

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Lighthouse (mobile) on the public site's four sample pages, against a server that is already up:
+ * Lighthouse (mobile) on the public site's sample pages and its free tools, against a server that is already up:
  *
  *   docker run -d --rm --name listyro-lh --network etsy-assistant_default -p 3000:3000 listyro/frontend:latest
  *   node scripts/lighthouse.cjs [http://localhost:3000]
@@ -18,7 +18,9 @@ const BASE = process.argv[2] || "http://localhost:3000";
 const OURS = new Set(["localhost", "127.0.0.1", "listyro.com"]);
 if (!OURS.has(new URL(BASE).hostname)) throw new Error(`our own hosts only (${[...OURS].join(", ")}), not ${BASE}`);
 
-const PAGES = ["/", "/pricing", "/features/ai-listing-writer", "/guides/etsy-title-rules-2026"];
+const PAGES = ["/", "/pricing", "/features/ai-listing-writer", "/guides/etsy-title-rules-2026", "/free-tools", "/free-tools/title-checker", "/free-tools/tag-checker", "/free-tools/fee-calculator"];
+// LH_PAGES=/a,/b checks those instead: an image built with a tool switched on has pages of its own to check.
+if (process.env.LH_PAGES) PAGES.splice(0, PAGES.length, ...process.env.LH_PAGES.split(","));
 const TARGETS = { performance: 95, seo: 100, accessibility: 95 };
 const RUNS = 3;
 

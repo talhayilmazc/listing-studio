@@ -28,6 +28,15 @@ export const GUIDE_SLUGS = [
 
 export const COMPARE_SLUGS = ["listyro-vs-listadum", "listyro-vs-mydesigns", "listyro-vs-vela", "alternatives"];
 
+export const TOOL_SLUGS = ["title-checker", "tag-checker", "fee-calculator"];
+
+/**
+ * The AI ideas tool is the one page under /free-tools that is never cached: it spends money per visitor
+ * and only exists while its flag is on (docs/free-tools.md). It is not in MARKETING_PAGES, so it is private.
+ */
+export const IDEAS_SLUG = "listing-ideas";
+export const IDEAS_PATH = `/free-tools/${IDEAS_SLUG}`;
+
 /** Every public page. Same answer for everybody, and nothing about who is asking. */
 export const MARKETING_PAGES = [
   "/",
@@ -35,6 +44,7 @@ export const MARKETING_PAGES = [
   ...FEATURE_SLUGS.map((slug) => `/features/${slug}`),
   "/pricing",
   "/free-tools",
+  ...TOOL_SLUGS.map((slug) => `/free-tools/${slug}`),
   "/compare",
   ...COMPARE_SLUGS.map((slug) => `/compare/${slug}`),
   "/guides",

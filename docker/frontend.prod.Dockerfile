@@ -17,7 +17,12 @@ COPY frontend/ ./
 ARG API_PROXY_TARGET=http://api:8000
 # The public site's visit counter. Not a secret (it is in every page's HTML); empty means no counter.
 ARG NEXT_PUBLIC_CF_ANALYTICS_TOKEN=
+# The free tools' switches (docs/free-tools.md): static pages are decided when they are built.
+ARG FEE_CALCULATOR_CONFIRMED=false
+ARG FREE_TOOL_AI_ENABLED=false
 ENV API_PROXY_TARGET=$API_PROXY_TARGET     NEXT_PUBLIC_CF_ANALYTICS_TOKEN=$NEXT_PUBLIC_CF_ANALYTICS_TOKEN \
+    FEE_CALCULATOR_CONFIRMED=$FEE_CALCULATOR_CONFIRMED \
+    FREE_TOOL_AI_ENABLED=$FREE_TOOL_AI_ENABLED \
     NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
 # "prebuild" (scripts/public-assets.cjs) fails the build if a page points at an
