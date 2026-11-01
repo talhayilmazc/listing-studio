@@ -185,6 +185,7 @@ services:
       dockerfile: docker/frontend.prod.Dockerfile
       args:
         API_PROXY_TARGET: http://api:8000
+        NEXT_PUBLIC_CF_ANALYTICS_TOKEN: ${NEXT_PUBLIC_CF_ANALYTICS_TOKEN:-}
     image: listyro/frontend:latest
     depends_on:
       api:

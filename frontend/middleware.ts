@@ -13,7 +13,8 @@ import { SESSION_COOKIE, checkSession } from "./lib/session-check";
  *   no session behind it -> the landing page, and the dead cookie is cleared
  *   API did not answer   -> the landing page; the cookie is left alone
  *
- * None of these responses may be cached: they depend on who is asking.
+ * No cookie, no lookup: the page is served as the static file it is, and may be cached
+ * (lib/marketing/routes.mjs). Any request with the cookie is private, whatever the answer.
  */
 
 // Same as next.config.js: the API on the internal network.

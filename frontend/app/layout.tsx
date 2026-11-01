@@ -21,8 +21,8 @@ export const metadata: Metadata = {
   description:
     "A listing workflow and compliance assistant for print-on-demand and apparel sellers: a folder of mockups becomes review-ready drafts, and nothing goes live until you approve it.",
   applicationName: "Listyro",
-  openGraph: { type: "website", siteName: "Listyro", images: [{ url: "/og-v3.png", width: 1200, height: 630, alt: "Listyro: your own designs, listed properly, on your schedule. You approve every listing." }] },
-  twitter: { card: "summary_large_image", images: ["/og-v3.png"] },
+  openGraph: { type: "website", siteName: "Listyro", images: [{ url: "/og/home.png", width: 1200, height: 630, alt: "Listyro: from design files to scheduled listings. You approve every one." }] },
+  twitter: { card: "summary_large_image", images: ["/og/home.png"] },
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#fafaf9" };

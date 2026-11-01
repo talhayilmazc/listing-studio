@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { InviteForm } from "@/components/marketing/InviteForm";
+import { metadataFor } from "@/lib/marketing/pages";
+import { JsonLd } from "@/components/marketing/Page";
+import { breadcrumbs } from "@/lib/marketing/jsonld";
 
-export const metadata: Metadata = {
-  title: "Request an invite",
-  description: "Listyro is invite-only while we onboard sellers in small groups. Tell us about your shop and we'll email you when a spot opens.",
-  alternates: { canonical: "/request-invite" },
-};
+export const metadata: Metadata = metadataFor("/request-invite");
 
 export default function RequestInvite() {
   return (
+    <>
+    <JsonLd data={breadcrumbs("/request-invite")} />
     <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-12 px-4 pb-24 pt-12 sm:px-6 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-20">
       <div className="min-w-0">
         <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Invite-only</p>
@@ -36,5 +37,6 @@ export default function RequestInvite() {
         <InviteForm />
       </div>
     </div>
+    </>
   );
 }

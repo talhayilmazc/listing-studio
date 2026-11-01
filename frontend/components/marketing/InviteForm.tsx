@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 /**
@@ -68,9 +67,9 @@ export function InviteForm() {
           <span className="font-medium text-slate-900">{email.trim()}</span>, and it will work only for that address.
         </p>
         <p className="mt-6 text-sm text-slate-500">
-          <Link href="/" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
+          <a href="/" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
             Back to the home page
-          </Link>
+          </a>
         </p>
       </div>
     );
@@ -175,9 +174,9 @@ export function InviteForm() {
         </button>
         <p className="text-xs text-slate-500">
           <span>We use this only to decide on your request, and delete it after 90 days. </span>
-          <Link href="/privacy#collect" className="underline decoration-slate-300 underline-offset-2 hover:text-slate-800">
+          <a href="/privacy#collect" className="underline decoration-slate-300 underline-offset-2 hover:text-slate-800">
             Privacy Policy
-          </Link>
+          </a>
         </p>
       </div>
     </form>

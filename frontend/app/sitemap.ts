@@ -1,11 +1,10 @@
 import type { MetadataRoute } from "next";
+import { PAGES, SITE_URL } from "@/lib/marketing/pages";
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://listyro.com";
-
-/** The public pages only; everything behind sign-in stays out of search. */
+/** The public pages and guides only; everything behind sign-in stays out of search. */
 export default function sitemap(): MetadataRoute.Sitemap {
-  return ["", "/pricing", "/request-invite", "/contact", "/terms", "/privacy"].map((path) => ({
-    url: `${SITE}${path}`,
-    changeFrequency: path === "" ? "weekly" : "monthly",
+  return PAGES.map((page) => ({
+    url: `${SITE_URL}${page.path === "/" ? "" : page.path}`,
+    lastModified: page.updated,
   }));
 }

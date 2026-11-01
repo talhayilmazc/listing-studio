@@ -395,8 +395,8 @@ async def session_check(
     if record is not None:
         tenant = await session.get(Tenant, record.tenant_id)
         if tenant is not None and tenant.status is TenantStatus.active:
-            return Response(status_code=204, headers={"Cache-Control": "no-store"})
-    return Response(status_code=401, headers={"Cache-Control": "no-store"})
+            return Response(status_code=204, headers={"Cache-Control": "private, no-store"})
+    return Response(status_code=401, headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/me", response_model=AccountOut)

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   AnalyticsMonths,
   Fact,
@@ -9,12 +8,11 @@ import {
   WhenErrorTracking,
 } from "@/components/LegalShell";
 import { PRIVACY_UPDATED, PROVIDER_DISCLAIMER, RETENTION as R } from "@/lib/legal";
+import { metadataFor } from "@/lib/marketing/pages";
+import { JsonLd } from "@/components/marketing/Page";
+import { breadcrumbs } from "@/lib/marketing/jsonld";
 
-export const metadata = {
-  title: "Privacy Policy",
-  description: "What Listyro collects, why, where it goes, how long it is kept and how to have it deleted.",
-  alternates: { canonical: "/privacy" },
-};
+export const metadata = metadataFor("/privacy");
 
 // Written from the code. Every period below is printed from lib/legal.ts
 // (RETENTION), and backend/tests/test_legal_texts.py fails if one of those
@@ -78,6 +76,8 @@ function Table({ head, children }: { head: string[]; children: React.ReactNode }
 
 export default function PrivacyPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs("/privacy")} />
     <LegalShell title="Privacy Policy" updated={PRIVACY_UPDATED} sections={SECTIONS}>
       <Section id="who" n={1} title="Who we are">
         <p>
@@ -480,9 +480,9 @@ export default function PrivacyPage() {
       <Section id="disconnect" n={10} title="Disconnecting a shop">
         <p>
           You can disconnect any of your shops at any time on the{" "}
-          <Link href="/connect" className={link}>
+          <a href="/connect" className={link}>
             Shops
-          </Link>{" "}
+          </a>{" "}
           page. When you do, at once:
         </p>
         <Items>
@@ -516,9 +516,9 @@ export default function PrivacyPage() {
       <Section id="deletion" n={11} title="Deleting your account">
         <p>
           You can delete your account yourself in{" "}
-          <Link href="/settings" className={link}>
+          <a href="/settings" className={link}>
             Settings
-          </Link>
+          </a>
           , under <em>Delete account</em>. When you confirm with your password:
         </p>
         <Items>
@@ -573,6 +573,12 @@ export default function PrivacyPage() {
           conveniences on your own device: which of your shops you last had selected, and how you last
           chose to group an upload. There are no advertising, analytics or third-party cookies.</span>
         </p>
+        <p data-testid="visit-counter">
+          <strong>Counting visits to the public site.</strong> The public pages of this site (not the app you sign
+          in to) use Cloudflare Web Analytics to count page views and measure how fast pages load. It sets no
+          cookie, stores nothing in your browser and does not identify you, so no cookie banner is needed. Cloudflare
+          processes the request, including your IP address, as the network that serves this site; we see only totals.
+        </p>
       </Section>
 
       <Section id="changes" n={14} title="Changes to this policy">
@@ -587,5 +593,6 @@ export default function PrivacyPage() {
         </p>
       </Section>
     </LegalShell>
+    </>
   );
 }

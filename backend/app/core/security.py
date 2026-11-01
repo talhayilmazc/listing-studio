@@ -75,7 +75,7 @@ SECURITY_HEADERS: dict[str, str] = {
 
 # Set only when the handler did not: tenant data must not sit in a shared
 # cache (Cloudflare included), but the resized previews opt into caching.
-DEFAULT_HEADERS: dict[str, str] = {"Cache-Control": "no-store"}
+DEFAULT_HEADERS: dict[str, str] = {"Cache-Control": "private, no-store"}
 
 
 class BodyTooLarge(HTTPException):

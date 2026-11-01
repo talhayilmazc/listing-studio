@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   Conspicuous,
   Fact,
@@ -8,12 +7,11 @@ import {
   SupportEmail,
 } from "@/components/LegalShell";
 import { LAST_UPDATED, PROVIDER_DISCLAIMER, RETENTION, TRADEMARK_NOTICE } from "@/lib/legal";
+import { metadataFor } from "@/lib/marketing/pages";
+import { JsonLd } from "@/components/marketing/Page";
+import { breadcrumbs } from "@/lib/marketing/jsonld";
 
-export const metadata = {
-  title: "Terms of Service",
-  description: "The terms for using Listyro.",
-  alternates: { canonical: "/terms" },
-};
+export const metadata = metadataFor("/terms");
 
 // Every statement here describes what the code does (docs/etsy-compliance.md names
 // the file behind each). Changing one in a way sellers must agree to means a new
@@ -42,6 +40,8 @@ const link = "font-medium text-brand-700 hover:underline";
 
 export default function TermsPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs("/terms")} />
     <LegalShell title="Terms of Service" updated={LAST_UPDATED} sections={SECTIONS}>
       <Section id="provider" n={1} title="Who provides the Service">
         <Conspicuous>{PROVIDER_DISCLAIMER}</Conspicuous>
@@ -53,9 +53,9 @@ export default function TermsPage() {
         </p>
         <p>
           You agree to these terms and to our{" "}
-          <Link href="/privacy" className={link}>
+          <a href="/privacy" className={link}>
             Privacy Policy
-          </Link>{" "}
+          </a>{" "}
           by ticking the box when you create your account, or by pressing the button on the screen that
           asks you to when they change. Without that, an account cannot be created or used.
         </p>
@@ -161,9 +161,9 @@ export default function TermsPage() {
           later introduce paid plans, we will tell you the prices in advance, and you will not be
           charged without your separate, explicit agreement. The plans we intend to offer after launch
           are shown on the{" "}
-          <Link href="/pricing" className={link}>
+          <a href="/pricing" className={link}>
             pricing page
-          </Link>
+          </a>
           <span>; they are plans, not an offer, and may change before launch.</span>
         </p>
         <p>
@@ -264,9 +264,9 @@ export default function TermsPage() {
           Your designs, and the listing text written for you, remain yours. You give us a limited,
           non-exclusive permission to store, process and transmit them only to provide the Service to
           you, including sending design images to our AI provider for analysis, as described in the{" "}
-          <Link href="/privacy" className={link}>
+          <a href="/privacy" className={link}>
             Privacy Policy
-          </Link>
+          </a>
           . That permission ends when your content is deleted.
         </p>
         <p>
@@ -398,5 +398,6 @@ export default function TermsPage() {
         </p>
       </Section>
     </LegalShell>
+    </>
   );
 }

@@ -40,6 +40,8 @@ function referenced() {
     for (const match of fs.readFileSync(file, "utf8").matchAll(REFERENCE)) {
       // A file Next serves from app/ by convention (favicon.ico, icon.svg) is not in public/.
       if (fs.existsSync(path.join(ROOT, "app", match[1]))) continue;
+      // The share cards are drawn at build time by app/og/[slug]/route.tsx.
+      if (match[1].startsWith("/og/")) continue;
       if (!found.has(match[1])) found.set(match[1], path.relative(ROOT, file).replace(/\\/g, "/"));
     }
   }

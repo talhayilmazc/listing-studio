@@ -1,3 +1,5 @@
+import { MARKETING_PAGES, cacheRules } from "./lib/marketing/routes.mjs";
+
 /** @type {import('next').NextConfig} */
 const target = process.env.API_PROXY_TARGET || "http://localhost:8000";
 const dev = process.env.NODE_ENV !== "production";
@@ -14,22 +16,29 @@ const dev = process.env.NODE_ENV !== "production";
  * Images: our own /api (proxied, same-origin), blob: for local upload previews,
  * and the Etsy CDN for the seller's own listing and reference images.
  */
-const csp = [
+const buildCsp = (scripts = "", connections = "") => [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}${scripts}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://i.etsystatic.com",
   "font-src 'self'",
   // Dev only: Next's hot reload talks over a websocket.
-  `connect-src 'self'${dev ? " ws: wss:" : ""}`,
+  `connect-src 'self'${dev ? " ws: wss:" : ""}${connections}`,
   "object-src 'none'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join("; ");
 
+/**
+ * The public site's visit counter (Cloudflare Web Analytics, app/(marketing)/layout.tsx): only when
+ * its token is set at build time, and only on marketing pages. The app's pages keep the strict policy.
+ */
+const analytics = Boolean(process.env.NEXT_PUBLIC_CF_ANALYTICS_TOKEN);
+const marketingCsp = buildCsp(" https://static.cloudflareinsights.com", " https://cloudflareinsights.com");
+
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: csp },
+  { key: "Content-Security-Policy", value: buildCsp() },
   // Ignored by browsers over plain http, so harmless in development.
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -61,7 +70,12 @@ const nextConfig = {
   },
   async headers() {
     // Pages only: /api responses carry the backend's own, stricter headers.
-    return [{ source: "/((?!api/).*)", headers: securityHeaders }];
+    return [
+      { source: "/((?!api/).*)", headers: securityHeaders },
+      ...(analytics ? MARKETING_PAGES.map((source) => ({ source, headers: [{ key: "Content-Security-Policy", value: marketingCsp }] })) : []),
+      // Who may keep each response: private unless lib/marketing/routes.mjs lists it (docs/seo.md).
+      ...cacheRules(),
+    ];
   },
 };
 

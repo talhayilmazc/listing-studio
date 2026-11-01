@@ -96,7 +96,7 @@ def test_the_notice_is_in_every_footer_beside_connect_and_in_the_terms() -> None
     # criteria): in the hero, before the first section below it.
     home = (ROOT / "frontend/app/(marketing)/page.tsx").read_text(encoding="utf-8")
     assert uses("app/(marketing)/page.tsx")
-    hero = home[home.index('aria-labelledby="hero-title"'): home.index("<Apart />")]
+    hero = home[home.index('aria-labelledby="hero-title"'): home.index("<How />")]
     assert 'data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>' in hero
     # Once in each place, never twice (e2e/layout.spec.ts checks the rendered pages too).
     for place in ("components/marketing/Site.tsx", "components/Footer.tsx", "components/AuthShell.tsx",
@@ -204,15 +204,23 @@ def test_the_scope_reasons_shown_to_sellers_cover_the_scopes_asked_for() -> None
 
 
 def test_no_external_script_or_tracker_is_loaded_by_any_page() -> None:
-    """Item 11: fonts are self-hosted at build time; there is no analytics, pixel or CDN script."""
+    """Item 11: fonts are self-hosted at build time; no pixel or CDN script. The one exception is the
+    cookieless visit counter, on public pages only and only when its token is set (docs/seo.md)."""
     hosts: set[str] = set()
+    counter_in: set[str] = set()
     for path in (ROOT / "frontend").rglob("*"):
         if path.suffix not in (".ts", ".tsx", ".js", ".mjs", ".css") or {"node_modules", ".next"} & set(path.parts):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         assert "<script src=" not in text and "next/script" not in text, f"{path.relative_to(ROOT)} loads a script"
         hosts |= set(re.findall(r"https?://([a-zA-Z0-9.-]+)", text))
+        if "cloudflareinsights.com" in text and not path.name.endswith(".test.ts"):
+            counter_in.add(path.relative_to(ROOT).as_posix())
+    assert counter_in == {"frontend/app/(marketing)/layout.tsx", "frontend/next.config.mjs"}, sorted(counter_in)
     known = {
+        "static.cloudflareinsights.com", "cloudflareinsights.com",  # the visit counter, checked just above
+        "help.etsy.com", "schema.org",  # the guides' sources; JSON-LD's vocabulary
+        "listadum.com", "www.listadum.com", "mydesigns.io", "getvela.com", "apps.shopify.com",  # links: what the compare pages cite
         "listyro.com", "api.listyro.com",  # ours
         "listyro.test",  # ours: the shop-connection browser test (e2e/oauth.spec.ts), mapped to this machine
         "www.etsy.com", "i.etsystatic.com", "etsy.com",  # links to Etsy and the seller's own listing images
