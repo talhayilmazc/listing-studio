@@ -31,7 +31,7 @@ test("every image a page points at is a file in public/, and public/ holds nothi
 
 test("the build and the production image check the same list, and name no picture themselves", () => {
   const scripts = JSON.parse(fs.readFileSync(path.join(FRONTEND, "package.json"), "utf8")).scripts;
-  assert.equal(scripts.prebuild, "node scripts/public-assets.cjs");
+  assert.deepEqual(scripts.prebuild.split(" && "), ["node scripts/public-assets.cjs", "node scripts/heading-rule.cjs"]);
   const dockerfile = fs.readFileSync(path.join(REPO, "docker", "frontend.prod.Dockerfile"), "utf8");
   const code = dockerfile.split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n");
   // The list is written from the source at build time and read back in the final image.
