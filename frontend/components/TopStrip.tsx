@@ -24,6 +24,7 @@ const TITLES: [RegExp, string][] = [
   [/^\/templates\/designs$/, "Add designs"],
   [/^\/upload$/, "Upload"],
   [/^\/scheduled$/, "Scheduled"],
+  [/^\/season-planner$/, "Seasonal planner"],
   [/^\/analytics$/, "Analytics"],
   [/^\/analytics\/\d+$/, "Listing analytics"],
   [/^\/listing-health$/, "Listing health"],

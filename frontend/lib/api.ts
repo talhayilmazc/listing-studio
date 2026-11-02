@@ -1,4 +1,5 @@
 import type { Fix, HealthPage, PreviewAnswer, RewriteCheck } from "./listingHealth";
+import type { PlanPreview, PlannerChoice, PlannerState } from "./seasonPlan";
 import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
@@ -998,6 +999,10 @@ export const api = {
   shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),
   shopsOverview: () => req<ShopsOverview>("/shop/overview"),
   attention: () => req<Attention>("/attention"),
+  seasonPlanner: () => req<PlannerState>("/season-planner"),
+  seasonPreview: (body: PlannerChoice) => req<PlanPreview>("/season-planner/preview", { method: "POST", body: JSON.stringify(body) }),
+  seasonSave: (body: PlannerChoice & { fingerprint: string }) =>
+    req<{ message: string; plan_ids: string[]; scheduled: number }>("/season-planner/save", { method: "POST", body: JSON.stringify(body) }),
   listingHealth: (shop: string | null, page: number, show: string) =>
     req<HealthPage>(`/listing-health?page=${page}&show=${show}${shop ? `&shop=${encodeURIComponent(shop)}` : ""}`),
   listingFixes: (shop: string | null) => req<{ fixes: Fix[] }>(`/listing-health/fixes${shop ? `?shop=${encodeURIComponent(shop)}` : ""}`),

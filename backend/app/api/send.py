@@ -278,7 +278,8 @@ class _Work:
 
 
 async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when: str, zone: str,
-                only_shop: uuid.UUID | None = None, only: list[uuid.UUID] | None = None) -> _Work:
+                only_shop: uuid.UUID | None = None, only: list[uuid.UUID] | None = None,
+                only_shops: list[uuid.UUID] | None = None) -> _Work:
     work = _Work()
     connected = await active_shops(session, tenant.id)
     if only_shop is not None:
@@ -307,6 +308,9 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
         mine = await shop_targets.wanted(session, content, connected, members)
         if only_shop is not None:
             mine = [s for s in connected if s.id == only_shop]
+        if only_shops is not None:
+            # The seasonal planner: the shops the seller ticked there, whatever the batch's own choice says.
+            mine = [s for s in connected if s.id in only_shops]
         own = await shop_targets.own_shop(session, content) if dest is None else None
         label = names.label(dest, shop_label(own) if own else None)
         work.contents[content.id], work.dest[content.id], work.shops[content.id] = content, dest, mine

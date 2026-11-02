@@ -30,7 +30,7 @@ import { signIn } from "./session";
 
 const PUBLIC = [...MARKETING_PAGES];
 const SIGN_IN = ["/login", "/register"];
-const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs", "/scheduled", "/analytics", "/listing-health", "/connect", "/settings"];
+const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs", "/scheduled", "/season-planner", "/analytics", "/listing-health", "/connect", "/settings"];
 const ADMIN_TABS = ["Users", "Invites", "Usage"];
 
 const EMAIL = process.env.LAYOUT_EMAIL;
