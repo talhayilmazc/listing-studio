@@ -28,7 +28,7 @@ git clone <repo> /tmp/listyro && sudo /tmp/listyro/deploy/provision.sh
 ```
 
 This sets up:
-- Docker and rclone
+- Docker, and rclone from rclone.org (apt's is too old for Cloudflare R2)
 - `ufw` allowing SSH only
 - key-only SSH with no root login (it checks for your key first, so it cannot lock
   you out)

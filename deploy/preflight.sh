@@ -259,6 +259,27 @@ fi
 if [ -r "$OPS_ENV" ] || [ ! -f "$OPS_ENV" ]; then
   [ -n "$(ops HEALTHCHECK_URL)" ] && pass "HEALTHCHECK_URL is set" || warn "HEALTHCHECK_URL is not set: a backup that stops running will not be noticed"
   [ -n "$(ops BACKUP_REMOTE)" ] && pass "BACKUP_REMOTE is set" || warn "BACKUP_REMOTE is not set: the only backups are on this server's own disk"
+  # Ubuntu 24.04's apt package is v1.60, and Cloudflare R2 answers it "501 NotImplemented".
+  RCLONE_MIN=1.65
+  if [ -n "$(ops BACKUP_REMOTE)" ]; then
+    rclone_version="$(rclone version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    if [ -z "$rclone_version" ]; then
+      warn "BACKUP_REMOTE is set but rclone did not answer: no copy can leave this server (deploy/provision.sh installs it)"
+    elif [ "$(printf '%s\n%s\n' "$RCLONE_MIN" "$rclone_version" | sort -V | head -1)" = "$RCLONE_MIN" ]; then
+      pass "rclone $rclone_version"
+    else
+      warn "rclone is $rclone_version, older than $RCLONE_MIN: uploads to Cloudflare R2 fail with \"501 NotImplemented\". Install the current one (docs/ops-checklist.md, section 2)"
+    fi
+  fi
+fi
+# Two files name the alert address: the host scripts read ops.env, the app reads .env. Change one
+# and the other keeps the old address, silently. Never printed: an address can carry a secret.
+if [ -r "$OPS_ENV" ] && [ -n "$(ops ALERT_WEBHOOK_URL)" ] && [ -n "$(get ALERT_WEBHOOK_URL)" ]; then
+  if [ "$(ops ALERT_WEBHOOK_URL)" = "$(get ALERT_WEBHOOK_URL)" ]; then
+    pass "ALERT_WEBHOOK_URL is the same in $ENV_FILE and $OPS_ENV"
+  else
+    warn "ALERT_WEBHOOK_URL differs between $ENV_FILE and $OPS_ENV: the app and the host scripts (watch, backup, disk check) alert different addresses. Change both together (docs/ops-checklist.md, section 11)"
+  fi
 fi
 
 echo "== host"
@@ -281,7 +302,49 @@ fi
 if command -v ufw >/dev/null 2>&1; then
   ufw status 2>/dev/null | grep -q "Status: active" && pass "ufw active" || warn "ufw is not active (deploy/provision.sh)"
 fi
-if [ -r /etc/ssh/sshd_config.d/60-listyro.conf ]; then pass "ssh hardening in place"; else warn "ssh hardening not found (deploy/provision.sh)"; fi
+# What sshd really does, not whether our file exists: sshd takes the FIRST value it reads and reads
+# sshd_config.d in name order, so on Ubuntu's cloud images 50-cloud-init.conf ("PasswordAuthentication
+# yes") beat our 60-listyro.conf and passwords were still accepted while this line said all was well.
+SSHD_BIN="${SSHD_BIN:-$(command -v sshd 2>/dev/null || echo /usr/sbin/sshd)}"
+SSHD_CONFIG="${SSHD_CONFIG:-/etc/ssh/sshd_config}"
+SSHD_CONFIG_DIR="${SSHD_CONFIG_DIR:-/etc/ssh/sshd_config.d}"
+# The first file sshd reads that sets this keyword: the one that wins.
+ssh_setter() {
+  local file
+  for file in "$SSHD_CONFIG_DIR"/*.conf "$SSHD_CONFIG"; do
+    [ -r "$file" ] || continue
+    if grep -qiE "^[[:space:]]*$1[[:space:]]" "$file"; then
+      echo "$file"
+      return 0
+    fi
+  done
+}
+if [ ! -x "$SSHD_BIN" ]; then
+  warn "sshd not found, so the ssh settings could not be checked (deploy/provision.sh)"
+else
+  # sshd -T needs the host keys, so only root can run it.
+  ssh_effective="$("$SSHD_BIN" -T 2>/dev/null)"
+  if [ -z "$ssh_effective" ] && command -v sudo >/dev/null 2>&1; then
+    ssh_effective="$(sudo -n "$SSHD_BIN" -T 2>/dev/null)"
+  fi
+  if [ -z "$ssh_effective" ]; then
+    warn "cannot run sshd -T as $(id -un), so the ssh settings could not be checked; run: sudo bash deploy/preflight.sh"
+  else
+    ssh_wrong=0
+    for keyword in passwordauthentication kbdinteractiveauthentication permitrootlogin; do
+      value="$(printf '%s\n' "$ssh_effective" | grep -iE "^$keyword " | head -1 | cut -d' ' -f2)"
+      [ "$value" = "no" ] && continue
+      ssh_wrong=$((ssh_wrong + 1))
+      setter="$(ssh_setter "$keyword")"
+      if [ -n "$setter" ]; then
+        warn "ssh: $keyword is ${value:-not reported}, not no: $setter sets it, and sshd takes the first value it reads. Set it to no there, then: sudo systemctl reload ssh"
+      else
+        warn "ssh: $keyword is ${value:-not reported}, not no: no file sets it, so that is sshd's default. Add it to $SSHD_CONFIG_DIR/60-listyro.conf (deploy/provision.sh)"
+      fi
+    done
+    [ "$ssh_wrong" = 0 ] && pass "ssh: no passwords, no keyboard-interactive, no root login (sshd -T)"
+  fi
+fi
 
 echo
 if [ "$errors" -gt 0 ]; then

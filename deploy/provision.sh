@@ -5,7 +5,7 @@
 #
 # Run as your own sudo-capable user, logged in with an SSH key. Idempotent: safe
 # to run again. What it does:
-#   * installs Docker Engine + Compose from Docker's own repository, and rclone
+#   * installs Docker Engine + Compose from Docker's own repository, and rclone from rclone.org
 #   * firewall: deny everything inbound except SSH (the tunnel dials OUT, so
 #     neither 80 nor 443 needs to be open)
 #   * SSH: keys only, no passwords, no root login — after checking that your key
@@ -15,6 +15,40 @@
 #   * vm.overcommit_memory = 1, which Redis needs to save in the background
 #   * cron: nightly backup, hourly disk check, weekly build-cache prune
 set -euo pipefail
+
+# Ubuntu's cloud images ship 50-cloud-init.conf with "PasswordAuthentication yes". sshd takes the
+# first value it reads and reads these files in name order, so it beats our 60-listyro.conf, and
+# cloud-init writes it again on boot unless it is told ssh_pwauth is false.
+close_cloud_passwords() {
+  local ssh_dir="$1" cloud_dir="$2"
+  if [ -f "$ssh_dir/50-cloud-init.conf" ]; then
+    sed -i -E 's/^[[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication no/I' "$ssh_dir/50-cloud-init.conf"
+  fi
+  if [ -d "$cloud_dir" ]; then
+    printf '%s\n' '# Listyro: keys only. Without this a reboot can turn SSH passwords back on.' 'ssh_pwauth: false' \
+      > "$cloud_dir/99-listyro-ssh.cfg"
+  fi
+}
+
+# Ubuntu 24.04's apt package is v1.60, and Cloudflare R2 answers it "501 NotImplemented". rclone's
+# own installer exits 3 when the current version is already there, which is not a failure.
+install_rclone() {
+  local script status=0
+  if dpkg -s rclone >/dev/null 2>&1; then
+    apt-get remove -yq rclone
+  fi
+  script="$(mktemp)"
+  curl -fsSL https://rclone.org/install.sh -o "$script"
+  bash "$script" || status=$?
+  rm -f "$script"
+  case "$status" in
+    0|3) ;;
+    *) echo "rclone's installer failed with exit $status" >&2; return 1 ;;
+  esac
+}
+
+# Sourced by tests for the functions above; run for real otherwise.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run with sudo." >&2
@@ -50,7 +84,10 @@ step "packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get upgrade -yq
-apt-get install -yq ca-certificates curl gnupg ufw unattended-upgrades rclone
+apt-get install -yq ca-certificates curl gnupg ufw unattended-upgrades unzip
+
+step "rclone (current release, from rclone.org)"
+install_rclone
 
 step "docker (official repository)"
 if ! command -v docker >/dev/null 2>&1; then
@@ -82,8 +119,14 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
 EOF
+close_cloud_passwords /etc/ssh/sshd_config.d /etc/cloud/cloud.cfg.d
 sshd -t  # refuse to reload a broken configuration
 systemctl reload ssh
+# What sshd really does, not what these files were meant to do.
+if ! sshd -T | grep -qx 'passwordauthentication no'; then
+  echo "sshd still accepts passwords: another file in /etc/ssh/sshd_config.d sets it first." >&2
+  exit 1
+fi
 
 step "automatic security updates"
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'

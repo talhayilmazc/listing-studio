@@ -19,7 +19,9 @@ New since this release: `/health` answers 200 only when the API can reach Postgr
 
 ## 2. Off-site backups (BACKUP_REMOTE)
 
-Today the only copies of the database are on the server's own disk. The simplest off-site option is **Cloudflare R2**, through an rclone **crypt** remote:
+**Done on production on 2 November 2026:** Cloudflare R2 through a crypt remote named `offsite:`. These steps are what was done, for a rebuilt server.
+
+The simplest off-site option is **Cloudflare R2**, through an rclone **crypt** remote:
 
 - R2 is in the Cloudflare account you already use for the tunnel.
 - At this size (14 dumps of a few MB each) it costs nothing: the free tier is 10 GB.
@@ -31,11 +33,17 @@ A crypt remote encrypts each file before it leaves the server. That matters beca
    1. Create the bucket: R2 → Create bucket → name `listyro-backups` → location Automatic.
    2. Create its token: R2 → Manage R2 API tokens → Create API token, with permission **Object Read & Write** limited to the bucket `listyro-backups`.
    3. Note the **Access Key ID**, the **Secret Access Key** and the **S3 endpoint** (`https://<account-id>.r2.cloudflarestorage.com`).
-2. Install rclone on the server (if `rclone version` is not found):
+   The token is scoped to that one bucket on purpose: if the server is ever taken, it can reach nothing else in the account.
+2. Install rclone from rclone.org. **Not from apt:** Ubuntu 24.04's package is v1.60, and R2 answers it `501 NotImplemented`. `deploy/provision.sh` does this, and preflight warns when `BACKUP_REMOTE` is set and rclone is older than 1.65.
 
    ```bash
-   sudo apt-get install -y rclone
+   sudo apt-get remove -y rclone          # only if apt's is there
+   sudo apt-get install -y unzip curl
+   curl -fsSL https://rclone.org/install.sh | sudo bash
+   rclone version                         # v1.65 or newer
    ```
+
+   The installer exits 3 and says "already installed" when you have the current version. That is not a failure.
 
 3. Configure two remotes as root, because root runs the backup cron:
 
@@ -50,6 +58,7 @@ A crypt remote encrypts each file before it leaves the server. That matters beca
       - region `auto`; paste the endpoint;
       - ACL `private`;
       - leave the rest at the defaults.
+      - rclone's documentation adds that for "Object Read & Write" tokens "you may also need to add `no_check_bucket = true` for object uploads to work correctly". Add it to the `r2` section of the config if an upload is refused.
    2. Second remote (the encryption):
       - `n`, name `offsite`, storage `crypt`;
       - remote `r2:listyro-backups`;
@@ -57,24 +66,39 @@ A crypt remote encrypts each file before it leaves the server. That matters beca
       - choose your own password, then a second (salt) password.
    3. **Put both crypt passwords in the password manager now.** Without them the off-site copies cannot be read, by anyone.
 
-4. Tell the backup script about it:
+4. Test the remote against the bucket itself:
+
+   ```bash
+   echo test | sudo rclone rcat r2:listyro-backups/rclone-test.txt
+   sudo rclone lsf r2:listyro-backups
+   sudo rclone deletefile r2:listyro-backups/rclone-test.txt
+   ```
+
+   `rclone lsd r2:` is **refused, by design**: listing every bucket needs account-wide permission, and this token has one bucket. An access-denied answer there does not mean the setup is wrong.
+
+5. Tell the backup script about it:
 
    ```bash
    sudoedit /etc/listyro/ops.env      # add:  BACKUP_REMOTE=offsite:
    ```
 
-5. Run one backup by hand and check that the copy landed:
+6. Run one backup by hand and check that the copy landed, then that it matches:
 
    ```bash
    sudo bash deploy/backup.sh
    sudo rclone ls offsite: | head
+   sudo rclone cryptcheck /var/backups/listyro offsite:
    ```
+
+   `cryptcheck` compares each encrypted file with its local original. It should end with `0 differences found`. A plain `rclone check` cannot do this through a crypt remote.
 
    You should see `offsite:  synced to offsite:` at the end of the backup. The listing shows `db/db-<date>.dump` files with readable names (rclone decrypts them for you). In the R2 dashboard the same files have scrambled names. That is the encryption working.
 
 The remote keeps the same 14 days as the server, because `rclone sync` removes what the server removed. That's what the Privacy Policy promises (`RETENTION.backupDays`).
 
 ## 3. Backup heartbeat (HEALTHCHECK_URL)
+
+**Done on production on 2 November 2026.**
 
 Without a heartbeat, a backup that stops running is not noticed. Free option: healthchecks.io.
 
@@ -93,7 +117,9 @@ Without a heartbeat, a backup that stops running is not noticed. Free option: he
 
 ## 4. SSH hardening
 
-Preflight says "ssh hardening not found". These are the same settings `deploy/provision.sh` writes: keys only, no root login.
+**Done on production on 2 November 2026.** These are the same settings `deploy/provision.sh` writes: keys only, no root login.
+
+**What went wrong the first time:** preflight said "ssh hardening in place" because `60-listyro.conf` existed, while passwords were still accepted. sshd takes the **first** value it reads, and reads `sshd_config.d` in name order, so Ubuntu's `50-cloud-init.conf` ("PasswordAuthentication yes") won. Preflight now checks what sshd really does, with `sshd -T`, and names the file that wins. `sshd -T` needs root, so without sudo it says it could not check: run `sudo bash deploy/preflight.sh`.
 
 1. First make sure you can sign in **with your SSH key** in a second terminal (`ssh <operator>@<server>`), and keep that session open.
 2. Then:
@@ -106,11 +132,21 @@ Preflight says "ssh hardening not found". These are the same settings `deploy/pr
    PermitRootLogin no
    PubkeyAuthentication yes
    EOF
+   # Ubuntu's cloud images: 50 is read before 60 and wins, and cloud-init can write it again on boot.
+   sudo sed -i -E 's/^[[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication no/I' /etc/ssh/sshd_config.d/50-cloud-init.conf
+   printf 'ssh_pwauth: false\n' | sudo tee /etc/cloud/cloud.cfg.d/99-listyro-ssh.cfg >/dev/null
    sudo sshd -t && sudo systemctl reload ssh
    ```
 
    `sshd -t` prints nothing when the configuration is valid. If it prints an error, don't reload. Fix the file first.
-3. Open a **third** terminal and sign in again with your key. It must work before you close the second one.
+3. Check what sshd really does:
+
+   ```bash
+   sudo sshd -T | grep -E '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '
+   ```
+
+   All three must say `no`.
+4. Open a **third** terminal and sign in again with your key. It must work before you close the second one.
 
 ## 5. Prove a restore works (monthly)
 
@@ -229,6 +265,26 @@ findings stop it; the app's own quality rules are notes. Then:
 
    Listings that were never approved need the seller: their cards now say what stops them, if
    anything, and Approve all takes them.
+
+## 11. The alert address is in two files (2 November 2026)
+
+`ALERT_WEBHOOK_URL` is in two places, and **both must change together**:
+
+| File | Who reads it |
+|---|---|
+| `/etc/listyro/ops.env` | the host scripts: `watch.sh`, `backup.sh`, `disk-check.sh`, `reclaim.sh`, `update.sh` |
+| `.env` | the app: every alert from inside the containers |
+
+```bash
+sudoedit /etc/listyro/ops.env
+nano .env
+bash deploy/update.sh     # the app reads .env when it starts; the host scripts read ops.env on each run
+sudo bash deploy/preflight.sh
+```
+
+Preflight warns when the two differ (`sudo`, so it can read `ops.env`). It never prints either address.
+
+**Why two files, rather than making `watch.sh` read `.env`:** five host scripts use `ops.env`, so changing one would leave four with the same problem. `ops.env` also has to keep working when the app's folder or `.env` is the thing that is broken, which is exactly when these scripts need to alert.
 
 ## What is already in place (no action)
 
