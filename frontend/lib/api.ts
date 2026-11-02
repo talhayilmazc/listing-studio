@@ -1,3 +1,4 @@
+import type { Fix, HealthPage, PreviewAnswer, RewriteCheck } from "./listingHealth";
 import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
 import type { GroupingMode } from "./grouping";
@@ -997,6 +998,20 @@ export const api = {
   shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),
   shopsOverview: () => req<ShopsOverview>("/shop/overview"),
   attention: () => req<Attention>("/attention"),
+  listingHealth: (shop: string | null, page: number, show: string) =>
+    req<HealthPage>(`/listing-health?page=${page}&show=${show}${shop ? `&shop=${encodeURIComponent(shop)}` : ""}`),
+  listingFixes: (shop: string | null) => req<{ fixes: Fix[] }>(`/listing-health/fixes${shop ? `?shop=${encodeURIComponent(shop)}` : ""}`),
+  listingFixRewriteCheck: (shop: string, listingIds: number[]) =>
+    req<RewriteCheck>("/listing-health/rewrite-check", { method: "POST", body: JSON.stringify({ connection_id: shop, listing_ids: listingIds }) }),
+  listingFixPreview: (shop: string, listingIds: number[], kinds: string[], acceptRewrite = false, profileId: string | null = null) =>
+    req<PreviewAnswer>("/listing-health/preview", { method: "POST", body: JSON.stringify({ connection_id: shop, listing_ids: listingIds, kinds, accept_rewrite: acceptRewrite, profile_id: profileId }) }),
+  /** The seller's approval: the only thing that writes to a live listing. */
+  listingFixApprove: (fixIds: string[]) =>
+    req<{ started: number; expired: number; message: string }>("/listing-health/apply", { method: "POST", body: JSON.stringify({ fix_ids: fixIds, confirm: true }) }),
+  listingFixUndo: (fixIds: string[]) =>
+    req<{ started: number; message: string }>("/listing-health/undo", { method: "POST", body: JSON.stringify({ fix_ids: fixIds, confirm: true }) }),
+  listingFixDiscard: (fixIds: string[]) =>
+    req<{ started: number; message: string }>("/listing-health/discard", { method: "POST", body: JSON.stringify({ fix_ids: fixIds }) }),
   analyticsShops: (month?: string | null) =>
     req<AnalyticsShops>(`/analytics/shops${month ? `?month=${encodeURIComponent(month)}` : ""}`),
   useListingAsProfile: (listingId: number, shop?: string | null) =>

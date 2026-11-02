@@ -154,6 +154,7 @@ HTTP_CLIENTS = {
     "pipeline/fetch_models.py": "build time only (docker/Dockerfile): the bundled mockup analysis models, not Etsy; nothing at runtime imports it",
     "workers/ledger.py": "EtsyApiClient (guarded)",
     "workers/links.py": "EtsyApiClient (guarded)",
+    "workers/listing_fixes.py": "EtsyApiClient (guarded)",
     "workers/listing_stats.py": "EtsyApiClient (guarded)",
     "workers/profiles.py": "EtsyApiClient, and reference images (both guarded)",
     "workers/publish.py": "EtsyApiClient, and size chart images (both guarded)",

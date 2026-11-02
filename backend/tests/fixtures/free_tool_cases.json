@@ -26,7 +26,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "warn"
+   }
   },
   {
    "text": "Nurse Shirt, Retro Nurse Life Tee",
@@ -55,7 +67,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "warn",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "warn"
+   }
   },
   {
    "text": "Nurses shirt for nurse life",
@@ -82,7 +106,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "warn",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Cute Nurse T-Shirt, Perfect Gift for Her, Free Shipping",
@@ -118,7 +154,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "warn",
+    "commerce": "warn",
+    "gift": "warn",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Retro Sunset Sweatshirt, Vintage Beach Crewneck, Summer Tee, Soft Cotton Top, Mountain Lake Pullover",
@@ -150,7 +198,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "warn"
+   }
   },
   {
    "text": "Sunset Mountain Lake Design",
@@ -173,7 +233,19 @@
     "item_first": false
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "note",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "T Shirt t-shirt Tshirts",
@@ -202,7 +274,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "warn",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "warn"
+   }
   },
   {
    "text": "Mug for Teachers, High Quality Coffee Cup on Sale, 20% off",
@@ -235,7 +319,19 @@
     "item_first": false
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "note",
+    "repeats": "pass",
+    "subjective": "warn",
+    "commerce": "warn",
+    "gift": "warn",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Handmade Ceramic Mug",
@@ -258,7 +354,19 @@
     "item_first": false
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "note",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Shirt",
@@ -283,7 +391,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "warn",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Café Crème T-Shirt – Women's Größe (S/M)",
@@ -308,7 +428,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Cutest Gifted Presenter Shirt",
@@ -333,7 +465,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Best Seller Mom's Shirt & Dad's Shirt",
@@ -363,7 +507,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "warn",
+    "subjective": "pass",
+    "commerce": "warn",
+    "gift": "pass",
+    "shorter": "warn"
+   }
   },
   {
    "text": "Marvelous Scavenger Hunt Shirt",
@@ -388,7 +544,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "DisneyWorld Family Trip Shirt",
@@ -417,7 +585,19 @@
    ],
    "brand_warnings": [
     "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Mick Ey Mouse Ears Tee",
@@ -446,7 +626,19 @@
    ],
    "brand_warnings": [
     "Mickey is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "#Disney Vacation Hoodie",
@@ -475,7 +667,19 @@
    ],
    "brand_warnings": [
     "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "D1sney Castle Tee",
@@ -504,7 +708,19 @@
    ],
    "brand_warnings": [
     "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Blue Y Neck Tee",
@@ -529,7 +745,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Baby-Yoda Lover Shirt",
@@ -558,7 +786,19 @@
    ],
    "brand_warnings": [
     "Baby Yoda is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "star_wars fan tank",
@@ -587,7 +827,19 @@
    ],
    "brand_warnings": [
     "Star Wars is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Pokémon Trainer Tee",
@@ -616,7 +868,19 @@
    ],
    "brand_warnings": [
     "Pokemon is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "ILoveDisney Tank Top",
@@ -645,7 +909,19 @@
    ],
    "brand_warnings": [
     "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "NFL Sunday Tee",
@@ -674,7 +950,19 @@
    ],
    "brand_warnings": [
     "NFL is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "nhi mib tee",
@@ -699,7 +987,19 @@
     "item_first": true
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Lilo & Stitch Beach Shirt",
@@ -728,7 +1028,19 @@
    ],
    "brand_warnings": [
     "Lilo and Stitch is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "Disneyland Castle Shirt",
@@ -757,7 +1069,19 @@
    ],
    "brand_warnings": [
     "Disneyland is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
-   ]
+   ],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "pass",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   },
   {
    "text": "A plain title that names nothing in particular",
@@ -780,7 +1104,19 @@
     "item_first": false
    },
    "brands": [],
-   "brand_warnings": []
+   "brand_warnings": [],
+   "health": {
+    "length": "pass",
+    "characters": "pass",
+    "once": "pass",
+    "words": "pass",
+    "item_first": "note",
+    "repeats": "pass",
+    "subjective": "pass",
+    "commerce": "pass",
+    "gift": "pass",
+    "shorter": "pass"
+   }
   }
  ],
  "tag_sets": [
@@ -823,7 +1159,17 @@
    "phrases": 10,
    "brands": [],
    "brand_warnings": [],
-   "starting_badly": []
+   "starting_badly": [],
+   "health": {
+    "count": "pass",
+    "length": "pass",
+    "characters": "pass",
+    "start": "pass",
+    "duplicates": "warn",
+    "title_words": "warn",
+    "phrases": "pass",
+    "all": "pass"
+   }
   },
   {
    "title": "",
@@ -844,7 +1190,17 @@
    "phrases": 1,
    "brands": [],
    "brand_warnings": [],
-   "starting_badly": []
+   "starting_badly": [],
+   "health": {
+    "count": "pass",
+    "length": "pass",
+    "characters": "pass",
+    "start": "pass",
+    "duplicates": "pass",
+    "title_words": "pass",
+    "phrases": "warn",
+    "all": "warn"
+   }
   },
   {
    "title": "Retro Sunset Tee",
@@ -865,7 +1221,17 @@
    "phrases": 4,
    "brands": [],
    "brand_warnings": [],
-   "starting_badly": []
+   "starting_badly": [],
+   "health": {
+    "count": "pass",
+    "length": "pass",
+    "characters": "pass",
+    "start": "pass",
+    "duplicates": "pass",
+    "title_words": "warn",
+    "phrases": "pass",
+    "all": "warn"
+   }
   },
   {
    "title": "",
@@ -893,7 +1259,17 @@
     "Star Wars is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"",
     "NFL is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ],
-   "starting_badly": []
+   "starting_badly": [],
+   "health": {
+    "count": "pass",
+    "length": "pass",
+    "characters": "pass",
+    "start": "pass",
+    "duplicates": "pass",
+    "title_words": "pass",
+    "phrases": "pass",
+    "all": "warn"
+   }
   },
   {
    "title": "",
@@ -914,7 +1290,17 @@
    "starting_badly": [
     "- dash first",
     "'quote first"
-   ]
+   ],
+   "health": {
+    "count": "pass",
+    "length": "fail",
+    "characters": "fail",
+    "start": "warn",
+    "duplicates": "pass",
+    "title_words": "pass",
+    "phrases": "pass",
+    "all": "warn"
+   }
   },
   {
    "title": "",
@@ -940,7 +1326,17 @@
    "phrases": 14,
    "brands": [],
    "brand_warnings": [],
-   "starting_badly": []
+   "starting_badly": [],
+   "health": {
+    "count": "fail",
+    "length": "pass",
+    "characters": "pass",
+    "start": "pass",
+    "duplicates": "pass",
+    "title_words": "pass",
+    "phrases": "pass",
+    "all": "pass"
+   }
   },
   {
    "title": "Disney Family Trip Shirt",
@@ -961,7 +1357,17 @@
     "Disney is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\"",
     "Star Wars is a trademark. If a report complies with Etsy's policies, its Help says \"we will remove the reported content\", and \"Repeat reports of infringement may result in the loss of account privileges.\""
    ],
-   "starting_badly": []
+   "starting_badly": [],
+   "health": {
+    "count": "pass",
+    "length": "pass",
+    "characters": "pass",
+    "start": "pass",
+    "duplicates": "pass",
+    "title_words": "pass",
+    "phrases": "pass",
+    "all": "warn"
+   }
   }
  ]
 }

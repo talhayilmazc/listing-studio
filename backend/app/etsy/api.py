@@ -810,6 +810,25 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    async def delete_listing_property(
+        self,
+        shop_id: int,
+        listing_id: int,
+        property_id: int,
+        *,
+        access_token: str,
+        tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Clear one category attribute: Undo of a fix that filled an empty one (scope ``listings_w``)."""
+        return await self._request(
+            "DELETE",
+            f"/application/shops/{shop_id}/listings/{listing_id}/properties/{property_id}",
+            access_token=access_token,
+            tenant_id=tenant_id,
+            tenant_limit=tenant_limit,
+        )
+
     async def update_listing_property(
         self,
         shop_id: int,

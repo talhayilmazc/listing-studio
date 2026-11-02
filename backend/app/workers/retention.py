@@ -51,6 +51,7 @@ from app.db.models import (
     LedgerSync,
     ListingProfile,
     ListingPublication,
+    ListingFix,
     ListingSnapshot,
     ListingStatDaily,
     SaleLine,
@@ -83,6 +84,13 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     """Delete or clear every Etsy-sourced row past its maximum age. Commits."""
     now = now or datetime.now(timezone.utc)
 
+    # Listing health: a preview nobody approved holds listing content (six hours); a fix, its Undo copy.
+    await session.execute(delete(ListingFix).where(
+        ListingFix.state.in_(("writing", "proposed", "could_not_write")),
+        ListingFix.created_at < now - timedelta(hours=ListingFix.PREVIEW_HOURS),
+    ))
+    await session.execute(delete(ListingFix).where(ListingFix.created_at < now - timedelta(days=ListingFix.RETENTION_DAYS),
+                                                   or_(ListingFix.undo_until.is_(None), ListingFix.undo_until < now)))
     snapshots = await _bulk(session, 
         delete(ListingSnapshot).where(
             ListingSnapshot.taken_at < now - timedelta(days=ListingSnapshot.RETENTION_DAYS)
@@ -218,6 +226,7 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
         delete(ShopListingCache).where(ShopListingCache.connection_id == connection_id)
     )
     versions = await session.execute(delete(ContentVersion).where(ContentVersion.connection_id == connection_id))
+    await session.execute(delete(ListingFix).where(ListingFix.connection_id == connection_id))
     stats = await session.execute(delete(ListingStatDaily).where(ListingStatDaily.connection_id == connection_id))
     publications = await session.execute(
         delete(ListingPublication).where(ListingPublication.connection_id == connection_id)

@@ -37,6 +37,7 @@ const SECTIONS: { title: string; items: Item[] }[] = [
       { href: "/batches", label: "Batches", icon: IconLayers },
       { href: "/scheduled", label: "Scheduled", icon: IconClock },
       { href: "/analytics", label: "Analytics", icon: IconChart },
+      { href: "/listing-health", label: "Listing health", icon: IconTag },
     ],
   },
   {

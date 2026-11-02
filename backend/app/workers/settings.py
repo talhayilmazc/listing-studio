@@ -55,6 +55,7 @@ from app.workers.retention import purge_expired
 from app.workers.sales import estimate_sales, sync_all_sales, sync_sales
 from app.workers.schedule import release_scheduled_publishes
 from app.workers.sections import create_shop_section, sync_shop_sections
+from app.workers.listing_fixes import apply_listing_fix, read_listing_properties, undo_listing_fix, write_listing_fix_text
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
 from app.monitor import signals
@@ -169,6 +170,10 @@ class WorkerSettings:
         sync_shop_sections,
         create_shop_section,
         update_sku_on_etsy,
+        read_listing_properties,
+        write_listing_fix_text,
+        apply_listing_fix,
+        undo_listing_fix,
         generate_mockups,
         rerender_mockups,
         prepare_mockup_template,

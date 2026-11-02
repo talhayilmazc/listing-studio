@@ -104,6 +104,26 @@ async def replaced(
     return version
 
 
+async def health_fix(session: AsyncSession, publication: ListingPublication, at: datetime, *, title: str, tags: list[str]) -> ContentVersion:
+    """An approved listing health fix, or its Undo, changed the text on Etsy: the old version ends now."""
+    before = await current(session, publication.id)
+    if before is not None:
+        before.active_to = at
+    version = ContentVersion(
+        tenant_id=publication.tenant_id, connection_id=publication.connection_id, publication_id=publication.id,
+        etsy_listing_id=publication.etsy_listing_id, title=title, tags=list(tags or []),
+        description=before.description if before is not None else None,
+        attributes=dict(before.attributes or {}) if before is not None else None,
+        section=before.section if before is not None else None,
+        sku=before.sku if before is not None else publication.sku,
+        title_style=before.title_style if before is not None else LONG,
+        reason="health_fix", active_from=at if publication.published_at is not None else None,
+        source=before.source if before is not None else "ai",
+    )
+    session.add(version)
+    return version
+
+
 async def sku_changed(session: AsyncSession, publication: ListingPublication, at: datetime, sku: str) -> ContentVersion:
     """The seller changed the SKU on Etsy: the version in force ends now and a new
     one carries the same text with the new SKU (reason "sku_edited")."""

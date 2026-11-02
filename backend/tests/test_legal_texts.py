@@ -22,6 +22,7 @@ from app.api.item_options import SECTIONS_MAX_AGE
 from app.core import app_settings, terms
 from app.core.config import Settings
 from app.db.models import (
+    ListingFix,
     AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, SellerEvent,
     ShopListingCache, UploadBatch,
 )
@@ -142,6 +143,7 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "draftDismissalDays": DraftDismissal.RETENTION_DAYS,
         "salesRefreshDays": sales_pipeline.REFRESH_DAYS,
         "freeToolVisitorDays": free_tools.VISITOR_DAYS,
+        "listingFixDays": ListingFix.RETENTION_DAYS,
         "inviteRequestDays": InviteRequest.PENDING_RETENTION_DAYS,
         "backupDays": _backup_days(),
         "sessionDays": settings.session_ttl_days,

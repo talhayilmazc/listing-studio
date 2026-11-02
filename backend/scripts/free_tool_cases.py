@@ -8,7 +8,12 @@ import json
 from pathlib import Path
 
 from app.compliance import trademarks
-from app.pipeline import etsy_text, search_rules
+from app.pipeline import etsy_text, listing_health, search_rules
+
+#: Listing health's name for each of the title and tag checkers' rules.
+TITLE_IDS = {"title_length": "length", "title_characters": "characters", "title_once": "once", "title_words": "words"}
+TAG_IDS = {"tag_count": "count", "tag_length": "length", "tag_characters": "characters", "tag_start": "start", "tag_duplicates": "duplicates",
+           "tag_title_words": "title_words", "tag_phrases": "phrases", "tag_all": "all"}
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "free_tool_cases.json"
 
@@ -70,6 +75,7 @@ def _title(text: str) -> dict:
         "report": {k: report[k] for k in ("words", "repeats", "subjective", "commerce", "gift", "item_first")},
         "brands": sorted({s.term for s in trademarks.bundled_blocklist().spot(text)}),
         "brand_warnings": trademarks.brand_warnings(text, [], "", trademarks.Blocklist()),
+        "health": {TITLE_IDS.get(c.id, c.id): c.verdict for c in listing_health.title_checks(text)},
     }
 
 
@@ -87,6 +93,7 @@ def _tags(case: dict) -> dict:
         "brands": sorted({s.term for tag in tags for s in known.spot(tag)}),
         "brand_warnings": trademarks.brand_warnings(title, tags, "", trademarks.Blocklist()),
         "starting_badly": etsy_text.tags_starting_badly(tags),
+        "health": {TAG_IDS[c.id]: c.verdict for c in listing_health.tag_checks(tags, title)},
     }
 
 

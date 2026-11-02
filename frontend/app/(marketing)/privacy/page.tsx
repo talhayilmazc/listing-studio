@@ -151,6 +151,11 @@ export default function PrivacyPage() {
           that we answer it. The form also counts requests per connection for an hour to stop abuse;
           your IP address is used for that count and is not stored with your request.
         </p>
+        <p data-testid="listing-fixes-privacy">
+          <strong>If you fix a live listing from Listing health.</strong> We keep that listing&rsquo;s previous title, tags and
+          attributes so that you can undo the fix, and delete them <span>{R.listingFixDays}</span> days after it. A preview you
+          did not approve is deleted within hours. Both go at once if you disconnect the shop.
+        </p>
         <p data-testid="free-tools-privacy">
           <strong>If you use a free tool on our site.</strong> The title checker, the tag checker and the fee
           calculator run in your browser: what you type is not sent to us. The optional title and tag ideas tool,

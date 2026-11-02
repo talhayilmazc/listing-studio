@@ -226,10 +226,13 @@ async def main():
                                listing_profile_id=prof.id, source="manual", title="DisneyWorld Family Trip Tee", tags=tags,
                                description="A soft cotton tee for a family trip."))
         await s.flush()
+        await listing_health_demo(s, t, shops[0], prof, now)
         for n in range(12):
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,
                                    payload={"listing_id": lid, "state": "active", "title": d[2], "url": "https://www.etsy.com/listing/%d" % lid,
+                                            "tags": ["cotton tee", "soft graphic top", "unisex shirt", "everyday wear"], "taxonomy_id": 1623, "materials": ["cotton"], "images": [{}] * 6,
+                                            "description": "A soft cotton tee with a hand-drawn design, printed to order. " * 4, "shop_section_id": 1, "_properties": [],
                                             "skus": ["%s-%d" % (d[0], n)], "price": {"amount": 2400, "divisor": 100, "currency_code": "USD"},
                                             "original_creation_timestamp": int((now - timedelta(days=30 + n * 25)).timestamp()),
                                             "state_timestamp": int((now - timedelta(days=30 + n * 25)).timestamp())}))
@@ -272,6 +275,33 @@ SHOPS = ("Northwind Tees", "Juniper Print Co.", "Harbor Thread", "Maple & Ink",
 #: The main shop's own settings (what the Standard Tee profile's reference listing uses).
 SRC = {"shipping_profile": "Standard US shipping", "return_policy": "returns, exchanges, 30 days",
        "readiness_state": "Made to order, 2-4 days"}
+
+
+async def listing_health_demo(s, t, shop, prof, now):
+    """Active listings for Listing health: tidy ones and ones with something to fix, a preview waiting and a fix to undo."""
+    def row(lid, title, tags, **more):
+        payload = {"listing_id": lid, "state": "active", "title": title, "tags": tags, "url": "https://www.etsy.com/listing/%d" % lid,
+                   "description": "A soft cotton tee with a hand-drawn design across the chest, printed to order and shipped in a recycled mailer. " * 2,
+                   "materials": ["cotton"], "images": [{}] * 6, "shop_section_id": 1, "taxonomy_id": 1623, "personalization": None,
+                   "_properties": [{"property_id": 1, "property_name": "Style", "value_ids": [3], "values": ["Retro"]}], **more}
+        s.add(ShopListingCache(tenant_id=t.id, connection_id=shop.id, listing_id=lid, fetched_at=now, payload=payload))
+
+    full = ["retro nurse top", "scrub life", "hospital crew", "night shift", "er staff", "nursing school", "rn week", "clinic team",
+            "ward humor", "care worker", "medical team", "healing hands", "shift change"]
+    row(8101, "Cute Nurse Shirt, Perfect Nurse Gift for Her, Free Shipping", full[:5], materials=[], images=[{}] * 2, shop_section_id=None)
+    row(8102, "Personalized Name Sweatshirt, Teacher Crewneck", full[:9], description="Short.")
+    row(8103, "DisneyWorld Family Trip Tee", full[:13])
+    row(8104, "Frog Reading Club Shirt, Book Lover Tee", full[:6])
+    row(8105, "Mountain Trail Tee, Green Cotton Hiking Top", full[:13])
+    row(8106, "Sunset Lake Tee, Soft Cotton Summer Top", full[:13])
+    prof.cached_payload = {**(prof.cached_payload or {}), "taxonomy_id": 1623,
+                           "attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}
+    s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=8104, kinds=["tags"], state="proposed",
+                     before={"tags": full[:6]}, after={"tags": [*full[:6], "cotton tee", "soft graphic top"]}))
+    s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=8105, kinds=["tags", "attributes"], state="applied", applied_at=now - timedelta(hours=3),
+                     written_at=now - timedelta(hours=3), approved_at=now - timedelta(hours=3), undo_until=now + timedelta(days=7) - timedelta(hours=3),
+                     before={"tags": full[:11], "attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [], "values": []}]},
+                     after={"tags": full[:13], "attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}))
 
 
 async def profile_links(s, t, prof, shops, now):

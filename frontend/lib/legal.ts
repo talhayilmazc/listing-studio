@@ -28,10 +28,10 @@ export const LAST_UPDATED = "14 October 2026";
  * reference listing used in another of the seller's shops copies its main shop's shipping, return
  * and processing settings there; 29 October 2026: a deleted batch can be restored for 7 days, and
  * what a seller met on a page is kept 30 days; 31 October 2026: what our alerts say about an
- * account; 1 November 2026: a cookieless visit counter on the public site, and the free tools) without asking them to agree again, so the version above stays.
+ * account; 1 November 2026: a cookieless visit counter on the public site, and the free tools; 2 November 2026: fixes to live listings) without asking them to agree again, so the version above stays.
  * Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "1 November 2026";
+export const PRIVACY_UPDATED = "2 November 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
@@ -66,6 +66,8 @@ export const RETENTION = {
   draftAttemptDays: 30,
   /** A half-made draft the seller took off the list: DraftDismissal.RETENTION_DAYS */
   draftDismissalDays: 90,
+  /** A listing's previous title, tags and attributes, kept so a fix can be undone: ListingFix.RETENTION_DAYS */
+  listingFixDays: 7,
   /** The count of a free tool's AI uses per connection, hashed: VISITOR_DAYS in api/free_tools.py */
   freeToolVisitorDays: 2,
   /** An invite request, decided or not: InviteRequest.*_RETENTION_DAYS */
@@ -89,7 +91,7 @@ export const RETENTION = {
 /** Why each Etsy permission is asked for: the feature that uses it. */
 export const SCOPE_REASONS: { scope: string; reason: string }[] = [
   { scope: "listings_r", reason: "Read your own listings: to choose a reference listing for a profile, show your shop's listings, and read the views and favourites of listings made with Listyro." },
-  { scope: "listings_w", reason: "Create draft listings from your designs, upload their images, set their variations and SKUs, and publish a draft when you approve it." },
+  { scope: "listings_w", reason: "Create draft listings from your designs, upload their images, set their variations and SKUs, publish a draft when you approve it, and change a live listing's title, tags and attributes when you approve a listing health fix." },
   { scope: "shops_r", reason: "Read your shop's name, sections, shipping profiles, return policies and production partners, so drafts use your shop's own settings." },
   { scope: "shops_w", reason: "Create a shop section you confirm, and copy your main shop's shipping profile, return policy and processing profile into your other shops when a reference listing is used there (only where a shop has none, once per shop)." },
   { scope: "transactions_r", reason: "Read your own shop's sales and its payment account ledger for your profit, cost and ads reporting. Nothing about buyers is stored." },

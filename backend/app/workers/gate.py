@@ -84,6 +84,11 @@ JOB_COST: dict[str, int] = {
     "create_shop_section": 3,
     # shop, the draft's inventory read, written with the new SKU, read again
     "update_sku_on_etsy": 4,
+    # Listing health. Reading the attributes of the listings on screen, one request each (upkeep).
+    "read_listing_properties": 26,
+    # The listing and its attributes, the update, up to 15 attributes, and both read back.
+    "apply_listing_fix": 21,
+    "undo_listing_fix": 21,
     # shop, up to 10 pages of active listings (inventory included), taxonomy, and
     # up to 100 separate inventory reads for listings a page returned without it
     "detect_profiles": 112,
@@ -111,7 +116,7 @@ JOB_COST: dict[str, int] = {
 # listing work. Creating a shop section and updating a draft's SKU are the
 # seller's own changes on Etsy and still count toward their ceiling.
 UPKEEP = frozenset(
-    {"refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
+    {"read_listing_properties", "refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "preflight_shop", "reconcile_listings", "link_profile", "create_link_resources"}
 )
 

@@ -67,6 +67,12 @@ When a seller disconnects a shop, its tokens are deleted at once, its queued and
 
 Every scope requested is used; none is requested for future use.
 
+> **Changed after approval (2 November 2026), `listings_w`:** the table above is the text Etsy approved. Since 2
+> November 2026 the same scope also changes a live listing's title, tags and attributes, only from the seller's own
+> approval of a before-and-after preview in Listing health, at most 50 listings per approval, read back afterwards, with
+> Undo for 7 days. It is never done in the background and it never changes a listing's state. The current wording is in
+> `docs/etsy-compliance.md` and `backend/app/etsy/oauth.py::SCOPE_REASONS`; tell Etsy if it asks about scope use.
+
 > **Changed after approval (20 October 2026), `shops_w`:** the table above is the text Etsy approved. Since 20
 > October 2026 setting a profile up in a shop (the seller's own click: "Use in", "Finish setup", "Use all
 > reference listings here") creates there, without a second confirmation, the shipping profile, return policy or

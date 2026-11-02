@@ -301,6 +301,44 @@ class InviteRequest(Base):
     invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"), index=True)
 
 
+class ListingFix(Base):
+    """A fix to a seller's own live listing: what it was, what it becomes, and how that went
+    (api/listing_health.py, workers/listing_fixes.py).
+
+    ``before`` is the copy Undo writes back, so it is Etsy content on a clock: a preview nobody approved goes
+    after :attr:`PREVIEW_HOURS`, a fix after its :attr:`RETENTION_DAYS` of Undo, and a shop's go when it disconnects.
+
+    ``state``: writing, proposed, could_not_write, approved, applied, failed, changed, undoing, undone, undo_failed.
+    """
+
+    __tablename__ = "listing_fix"
+    __table_args__ = (Index("ix_listing_fix_tenant_listing", "tenant_id", "listing_id"),)
+
+    PREVIEW_HOURS: ClassVar[int] = 6
+    RETENTION_DAYS: ClassVar[int] = 7
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False, index=True)
+    listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kinds: Mapped[list[str]] = mapped_column(JSONB_TYPE, nullable=False)
+    before: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
+    after: Mapped[dict[str, Any]] = mapped_column(JSONB_TYPE, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    #: For a rewrite: the design it counts against, and how (allowance.GENERATION or REWRITE).
+    design: Mapped[str | None] = mapped_column(Text)
+    allowance_kind: Mapped[str | None] = mapped_column(Text)
+    approval_id: Mapped[uuid.UUID | None] = mapped_column(Uuid())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The first write was about to go: from here on Undo has something to do.
+    written_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undo_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SellerEvent(Base):
     """What a seller met on a page, recorded without personal data (api/events.py): the result
     of each send summary (counts per reason a listing won't go) and each frontend error or

@@ -55,6 +55,7 @@ PURPOSES = {
     "title_fit": "Title rewritten for another shop's prefix",
     "personalization_fix": "Personalization text shortened to Etsy's limit (an offer)",
     "free_tool": "Free title and tag ideas on the public site (no seller)",
+    "listing_fix": "Listing health: a suggested title and tags",
     "eval": "Evaluation runs (ours)",
     "backfill": "Before metering (listings that still existed)",
     "other": "Other",

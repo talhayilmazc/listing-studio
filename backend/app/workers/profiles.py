@@ -651,7 +651,8 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
                         state=state,
                         limit=SYNC_PAGE_SIZE,
                         offset=page * SYNC_PAGE_SIZE,
-                        includes=["Images"],
+                        # Personalization: listing health checks it, at no extra request.
+                        includes=["Images", "Personalization"],
                         **kw,
                     )
                     results = resp.get("results", [])
