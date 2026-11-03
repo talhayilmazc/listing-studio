@@ -17,6 +17,7 @@ import { useSession } from "./SessionProvider";
 
 const TITLES: [RegExp, string][] = [
   [/^\/dashboard$/, "Overview"],
+  [/^\/first-run$/, "Try it with a sample"],
   [/^\/batches$/, "Batches"],
   [/^\/batches\/[^/]+\/review$/, "Review"],
   [/^\/profiles$/, "Profiles"],

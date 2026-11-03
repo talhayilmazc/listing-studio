@@ -1,4 +1,5 @@
 import type { Fix, HealthPage, PreviewAnswer, RewriteCheck } from "./listingHealth";
+import type { Sample } from "./firstRunPath";
 import type { PlanPreview, PlannerChoice, PlannerState } from "./seasonPlan";
 import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
@@ -999,6 +1000,7 @@ export const api = {
   shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),
   shopsOverview: () => req<ShopsOverview>("/shop/overview"),
   attention: () => req<Attention>("/attention"),
+  firstRun: () => req<Sample>("/first-run"),
   seasonPlanner: () => req<PlannerState>("/season-planner"),
   seasonPreview: (body: PlannerChoice) => req<PlanPreview>("/season-planner/preview", { method: "POST", body: JSON.stringify(body) }),
   seasonSave: (body: PlannerChoice & { fingerprint: string }) =>

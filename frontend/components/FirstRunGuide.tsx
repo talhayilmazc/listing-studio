@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { closeHere, closedHere, steps, type Facts } from "@/lib/firstRun";
+import { sampleDoneHere } from "@/lib/firstRunPath";
 import { useShops } from "./ShopProvider";
 
 const SENT = new Set(["drafted", "partly_drafted", "scheduled", "partly_published", "published"]);
@@ -13,7 +14,8 @@ export function FirstRunGuide() {
   const { shops } = useShops();
   const [facts, setFacts] = useState<Facts | null>(null);
   const [closed, setClosed] = useState(true);
-  useEffect(() => setClosed(closedHere()), []);
+  const [tried, setTried] = useState(true);
+  useEffect(() => { setClosed(closedHere()); setTried(sampleDoneHere()); }, []);
   useEffect(() => {
     if (closed || shops === null) return;
     let cancelled = false;
@@ -47,6 +49,11 @@ export function FirstRunGuide() {
           Close
         </button>
       </div>
+      {!tried && (
+        <p key="try-sample" className="text-sm text-slate-700">
+          <span>New here? </span><Link href="/first-run" className="tap font-medium text-brand-700 underline">Try it with a sample</Link><span>: from a design to a finished draft in a few minutes. Nothing goes to Etsy.</span>
+        </p>
+      )}
       <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {list.map((s, n) => (
           <li key={s.key} className={"rounded-md border p-3 text-sm " + (s.done ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200")}>
