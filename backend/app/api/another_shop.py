@@ -112,6 +112,8 @@ class ListingShopOut(BaseModel):
     skus: dict[str, str | None] = Field(default_factory=dict)
     #: Shop id -> the profile chosen for it in that shop only (none: its own profile).
     profiles: dict[str, uuid.UUID] = Field(default_factory=dict)
+    #: Shop id -> its photos there, in that shop's own order (only shops with one), cover first.
+    photos: dict[str, list[uuid.UUID]] = Field(default_factory=dict)
 
 
 class WrittenElsewhere(BaseModel):
@@ -208,6 +210,8 @@ class AnotherShopRow(BaseModel):
     #: A production partner in that shop: required (not sent until set), note (quiet), ok.
     partner: str = shop_listing.PARTNER_OK
     partner_profile_id: uuid.UUID | None = None
+    #: It goes to that shop with its own photo order (its first the cover there).
+    photos_own: bool = False
 
 
 class AnotherShopPreview(BaseModel):
@@ -432,6 +436,7 @@ async def _work(
         row.profile_id = shop_listing.profile_in(content, shop.id)
         row.sku_own = shop_listing.sku_override(content, shop.id) is not None
         row.text_own = sorted(shop_listing.text_in(content, shop.id))
+        row.photos_own = shop_listing.photos_in(content, shop.id) is not None
         if state != shop_listing.NOT_SENT:
             row.state, row.reason = "there", f"already in {shop_label(shop)} ({STATE_WORDS[state]}): edited on Etsy"
             pub = publications.get(content.id)
@@ -538,9 +543,22 @@ async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_s
             states={str(k): v for k, v in states[content.id].items()},
             skus={str(s.id): shop_listing.sku_in(content, base, s.id) for s in shops},
             profiles={str(s.id): p for s in shops if (p := shop_listing.profile_in(content, s.id)) is not None},
+            photos=await _shop_orders(session, content, asset, shops),
         ))
     return BatchShopsOut(shops=out_shops, listings=listings,
                          written_elsewhere=await _written_elsewhere(session, tenant, batch, contents, assets))
+
+
+async def _shop_orders(session: AsyncSession, content: GeneratedContent, asset: Asset | None,
+                       shops: list[EtsyConnection]) -> dict[str, list[uuid.UUID]]:
+    """Each shop's own photo order for this listing (pipeline/shop_listing.py::arrange)."""
+    choices = {str(s.id): c for s in shops if (c := shop_listing.photos_in(content, s.id)) is not None}
+    if not choices or asset is None:
+        return {}
+    from app.workers.publish import group_siblings
+
+    photos = [asset, *await group_siblings(session, asset)]
+    return {shop_id: [p.id for p in shop_listing.arrange(photos, choice)] for shop_id, choice in choices.items()}
 
 
 async def _written_elsewhere(session: AsyncSession, tenant: Tenant, batch: UploadBatch, contents: list[GeneratedContent],

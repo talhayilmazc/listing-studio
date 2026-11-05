@@ -208,11 +208,16 @@ async def group_siblings(session: AsyncSession, cover: Asset) -> list[Asset]:
     )
     return list(rows.scalars())
 
-async def draft_photos(session: AsyncSession, cover: Asset, charts: int) -> tuple[list[Asset], list[Asset]]:
+async def draft_photos(
+    session: AsyncSession, cover: Asset, charts: int, order: tuple[list[str], list[str]] | None = None,
+) -> tuple[list[Asset], list[Asset]]:
     """The photos a draft of ``cover``'s group sends, cover first, and the ones it
     leaves out because the listing would pass Etsy's image limit beside its
-    ``charts`` size charts (the last in the seller's order; chart_order.fit)."""
-    return chart_order.fit([cover, *await group_siblings(session, cover)], charts)
+    ``charts`` size charts (the last in the seller's order; chart_order.fit).
+    ``order``: the shop's own photo order (pipeline/shop_listing.py::arrange), whose first
+    photo is the cover there."""
+    photos = shop_listing.arrange([cover, *await group_siblings(session, cover)], order)
+    return chart_order.fit(photos, charts)
 
 
 # One refresh at a time per profile in this worker: fifty drafts from one stale
@@ -378,25 +383,27 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
 
             access_token = await connection_service.get_valid_access_token(session, connection)
 
+            # Same-folder-group siblings -> extra images (original ratio), in the
+            # order the seller set (v6 §E), or this shop's own order (its first the cover
+            # there; pipeline/shop_listing.py::arrange). One folder = one listing (D1), and
+            # the files at the root of an upload are one group too.
+            # Etsy keeps 20 images: the charts stay and the last photos are left out
+            # (the seller saw which on the group and review cards), so their files
+            # are not even read.
+            siblings, over = await draft_photos(session, asset, len(fixed), shop_listing.photos_in(content, connection.id))
+            first = siblings[0]
+
             # Primary image -> prepared thumbnail (rank=1).
-            primary_bytes = storage.get(asset.processed_key or asset.storage_key)  # the processed copy; old rows may still have an original
+            primary_bytes = storage.get(first.processed_key or first.storage_key)  # the processed copy; old rows may still have an original
             # The seller's crop if they set one, else the automatic square.
             thumb = cover_image(
                 primary_bytes,
-                asset.cover_crop,
+                first.cover_crop,
                 padding_pct=settings.thumbnail_padding_pct,
                 size=settings.thumbnail_size,
                 mode=settings.thumbnail_mode,
             )
-            thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg", label=asset.original_filename)
-
-            # Same-folder-group siblings -> extra images (original ratio), in the
-            # order the seller set (v6 §E). One folder = one listing (D1), and the
-            # files at the root of an upload are one group too.
-            # Etsy keeps 20 images: the charts stay and the last photos are left out
-            # (the seller saw which on the group and review cards), so their files
-            # are not even read.
-            siblings, over = await draft_photos(session, asset, len(fixed))
+            thumbnail = PublishImage(data=thumb.data, filename=f"{first.id}-thumb.jpg", label=first.original_filename)
             extras: list[PublishImage] = []
             for sibling in siblings[1:]:
                 extras.append(
