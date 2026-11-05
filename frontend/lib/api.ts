@@ -1,4 +1,6 @@
 import type { Fix, HealthPage, PreviewAnswer, RewriteCheck } from "./listingHealth";
+import type { AttributeBulk, Attributes, AttributeValue } from "./listingAttributes";
+import type { PhotoBulk, ShopPhotos } from "./shopPhotos";
 import type { PlanPreview, PlannerChoice, PlannerState } from "./seasonPlan";
 import type { GroupSettings, ScheduledData } from "./scheduled";
 import type { ReplaceMode } from "./replaceModes";
@@ -999,6 +1001,19 @@ export const api = {
   shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),
   shopsOverview: () => req<ShopsOverview>("/shop/overview"),
   attention: () => req<Attention>("/attention"),
+  /** A listing's photos in one shop (api/shop_photos.py). */
+  shopPhotos: (batchId: string, shopId: string, contentId: string) => req<ShopPhotos>(`/batches/${batchId}/shops/${shopId}/photos/${contentId}`),
+  setShopPhotos: (batchId: string, shopId: string, contentId: string, body: { order?: string[]; out?: string[]; keep?: boolean }) =>
+    req<ShopPhotos>(`/batches/${batchId}/shops/${shopId}/photos/${contentId}`, { method: "PUT", body: JSON.stringify(body) }),
+  shopPhotosBulk: (batchId: string, shopId: string, body: { content_ids: string[]; action: "cover" | "cover_last"; number?: number; apply: boolean }) =>
+    req<PhotoBulk>(`/batches/${batchId}/shops/${shopId}/photos/bulk`, { method: "POST", body: JSON.stringify(body) }),
+  /** A listing's attributes, Etsy's values only (api/listing_attributes.py); ``shop``: that shop's own. */
+  attributes: (contentId: string, shop: string | null = null) =>
+    req<Attributes>(`/content/${contentId}/attributes${shop ? `?shop=${encodeURIComponent(shop)}` : ""}`),
+  setAttributes: (contentId: string, body: { connection_id: string | null; values: Record<string, AttributeValue>; keep: boolean }) =>
+    req<Attributes>(`/content/${contentId}/attributes`, { method: "PUT", body: JSON.stringify(body) }),
+  attributesBulk: (batchId: string, body: { content_ids: string[]; name: string; values: string[]; unit: string | null; connection_id: string | null; apply: boolean }) =>
+    req<AttributeBulk>(`/batches/${batchId}/attributes/bulk`, { method: "POST", body: JSON.stringify(body) }),
   seasonPlanner: () => req<PlannerState>("/season-planner"),
   seasonPreview: (body: PlannerChoice) => req<PlanPreview>("/season-planner/preview", { method: "POST", body: JSON.stringify(body) }),
   seasonSave: (body: PlannerChoice & { fingerprint: string }) =>

@@ -28,6 +28,8 @@ import { ShopBadge } from "./ShopPicker";
 
 import { Txt } from "@/components/Txt";
 import { ItemOptions } from "@/components/ItemOptions";
+import { AttributesEditor } from "@/components/AttributesEditor";
+import { shopCover } from "@/lib/shopPhotos";
 import { SkuEditor } from "@/components/SkuEditor";
 import { profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 import { textFor } from "@/lib/review";
@@ -509,13 +511,18 @@ export function ReviewCard({
           <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={api.assetImage(initial.asset_id, "thumb")}
+              src={api.assetImage(shopCover(shopData?.listings, initial.id, inView?.id) ?? initial.asset_id, "thumb")}
               alt={initial.original_filename}
               className="max-h-full max-w-full object-contain"
               loading="lazy"
               decoding="async"
             />
           </div>
+          {shopCover(shopData?.listings, initial.id, inView?.id) && inView && (
+            <p key="shop-cover" className="border-t border-slate-100 px-4 py-1.5 text-xs text-slate-600" data-testid="card-shop-cover">
+              <span translate="no">{`Cover and photo order in ${inView.name}: its own`}</span>
+            </p>
+          )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-200 p-4 text-xs">
             <Meta label="File" value={initial.original_filename} truncate />
             <Meta label="Rank" value={initial.rank == null ? "—" : String(initial.rank)} />
@@ -717,7 +724,8 @@ export function ReviewCard({
                 </p>
               </div>
             )}
-            <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} onChanged={recheck} />
+            <ItemOptions key={`options-${optionsVersion}`} contentId={initial.id} onChanged={recheck} properties={false} />
+            <AttributesEditor key={`attributes-${optionsVersion}`} contentId={initial.id} onChanged={recheck} />
             {initial.listing_style === "search" && !manual && (
               <p key="search-note" className="text-xs text-slate-500">{SEARCH_CARD_NOTE}</p>
             )}

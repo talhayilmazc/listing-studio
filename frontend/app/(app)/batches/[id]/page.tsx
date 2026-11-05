@@ -8,6 +8,7 @@ import { api, uploadAsset } from "@/lib/api";
 import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib/grouping";
 import { GroupingResult } from "@/components/GroupingChoice";
 import { SkuEditor } from "@/components/SkuEditor";
+import { AttributesEditor } from "@/components/AttributesEditor";
 import type { Asset, BatchDetail, BatchShops, Content, Group, Profile, Publication } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
@@ -921,6 +922,11 @@ export default function BatchPage() {
                 />
               )}
 
+              {inView && contentOf(g) && shopData?.listings.find((l) => l.content_id === contentOf(g))?.photos?.[inView] && (
+                <p key="shop-photos" className="text-xs text-slate-600" data-testid="group-shop-photos">
+                  <span translate="no">{`Photo order in ${inViewName ?? "this shop"}: its own, cover first. Change it in the shop workspace below.`}</span>
+                </p>
+              )}
               <GroupImages
                 batchId={id}
                 groupKey={g.key}
@@ -952,6 +958,9 @@ export default function BatchPage() {
                   }
                 }}
               />
+              {g.done && contentOf(g) && (
+                <AttributesEditor key="attributes" contentId={contentOf(g) as string} />
+              )}
             </div>
           );
         })}

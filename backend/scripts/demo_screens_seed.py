@@ -75,6 +75,19 @@ PAYLOAD = {"payload_version": 2, "description": REF, "images": IMAGES, "price": 
            "shipping_profile_id": 5101, "return_policy_id": 5201, "readiness_state_id": 5301,
            "category_attributes": {"Holiday": ["Christmas", "Mother's Day", "Father's Day"], "Occasion": ["Birthday", "Graduation"], "Primary color": ["Red", "Blue", "Green", "Black", "Pink", "Orange"]},
            "category_names": ["Clothing", "T-shirts"]}
+# Every attribute the demo category offers (the attribute editor's screens): Etsy's shape, made small.
+PAYLOAD["category_properties"] = __import__("app.pipeline.listing_attributes", fromlist=["compact"]).compact([
+    {"property_id": 46803063641, "property_name": "Holiday", "is_multivalued": True, "max_values_allowed": 2,
+     "possible_values": [{"value_id": i, "name": n} for i, n in enumerate(["Christmas", "Easter", "Halloween", "Mother's Day", "Father's Day"], 1)]},
+    {"property_id": 46803063659, "property_name": "Occasion",
+     "possible_values": [{"value_id": 10 + i, "name": n} for i, n in enumerate(["Birthday", "Graduation", "Wedding"], 1)]},
+    {"property_id": 200, "property_name": "Primary color",
+     "possible_values": [{"value_id": 20 + i, "name": n} for i, n in enumerate(["Black", "Blue", "Green", "Red", "White"], 1)]},
+    {"property_id": 201, "property_name": "Sleeve length",
+     "possible_values": [{"value_id": 30 + i, "name": n} for i, n in enumerate(["Short sleeve", "Long sleeve"], 1)]},
+    {"property_id": 300, "property_name": "Width", "possible_values": [],
+     "scales": [{"scale_id": 5, "display_name": "Inches"}, {"scale_id": 6, "display_name": "Centimeters"}]},
+])
 
 
 def jpg(name, side):
@@ -179,6 +192,11 @@ async def main():
             a = Asset(batch_id=sent.id, tenant_id=t.id, original_filename=f"{code}/front.jpg", storage_key=key, processed_key=key,
                       status=AssetStatus.processed, rank=1, group_key=code, parsed_sku=code, mime_type="image/jpeg", width=1000, height=1250)
             s.add(a)
+            for rank, side in ((2, "back"), (3, "detail")):  # more photos: a shop can have its own order and cover
+                more = f"demo-shots/{sent.id}/{code}-{rank}.jpg"
+                storage.put(more, jpg(art, side), "image/jpeg")
+                s.add(Asset(batch_id=sent.id, tenant_id=t.id, original_filename=f"{code}/photo{rank}.jpg", storage_key=more, processed_key=more,
+                            status=AssetStatus.processed, rank=rank, group_key=code, parsed_sku=code, mime_type="image/jpeg", width=1000, height=1250))
             prof = profs[("Northwind Tees", "Standard Tee")]
             s.add(ListingGroupSetting(tenant_id=t.id, batch_id=sent.id, group_key=code, connection_id=shops[0].id, profile_id=prof.id, manual=True))
             await s.flush()

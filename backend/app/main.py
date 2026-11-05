@@ -31,6 +31,8 @@ from app.api import (
     free_tools,
     invite_requests,
     listing_health,
+    shop_photos,
+    listing_attributes,
     season_planner,
     item_options,
     meta,
@@ -141,6 +143,8 @@ def create_app() -> FastAPI:
     application.include_router(invite_requests.router)
     application.include_router(free_tools.router)
     application.include_router(listing_health.router)
+    application.include_router(shop_photos.router)
+    application.include_router(listing_attributes.router)
     application.include_router(season_planner.router)
     application.include_router(meta.router)
     # Before profiles: its fixed paths (/link-suggestions) must not be read as a profile id.

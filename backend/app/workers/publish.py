@@ -50,7 +50,7 @@ from app.etsy.publisher import (
     publish_content,
     publish_live,
 )
-from app.pipeline import chart_order, item_options, profile_shops, shop_listing
+from app.pipeline import chart_order, item_options, listing_attributes, profile_shops, shop_listing
 from app.pipeline.images import cover_image
 from app.pipeline import links as L
 from app.pipeline.links import setup_message, shop_reference
@@ -208,11 +208,16 @@ async def group_siblings(session: AsyncSession, cover: Asset) -> list[Asset]:
     )
     return list(rows.scalars())
 
-async def draft_photos(session: AsyncSession, cover: Asset, charts: int) -> tuple[list[Asset], list[Asset]]:
+async def draft_photos(
+    session: AsyncSession, cover: Asset, charts: int, order: tuple[list[str], list[str]] | None = None,
+) -> tuple[list[Asset], list[Asset]]:
     """The photos a draft of ``cover``'s group sends, cover first, and the ones it
     leaves out because the listing would pass Etsy's image limit beside its
-    ``charts`` size charts (the last in the seller's order; chart_order.fit)."""
-    return chart_order.fit([cover, *await group_siblings(session, cover)], charts)
+    ``charts`` size charts (the last in the seller's order; chart_order.fit).
+    ``order``: the shop's own photo order (pipeline/shop_listing.py::arrange), whose first
+    photo is the cover there."""
+    photos = shop_listing.arrange([cover, *await group_siblings(session, cover)], order)
+    return chart_order.fit(photos, charts)
 
 
 # One refresh at a time per profile in this worker: fifty drafts from one stale
@@ -378,25 +383,30 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
 
             access_token = await connection_service.get_valid_access_token(session, connection)
 
+            # Same-folder-group siblings -> extra images (original ratio), in the
+            # order the seller set (v6 §E), or this shop's own order (its first the cover
+            # there; pipeline/shop_listing.py::arrange). One folder = one listing (D1), and
+            # the files at the root of an upload are one group too.
+            # Etsy keeps 20 images: the charts stay and the last photos are left out
+            # (the seller saw which on the group and review cards), so their files
+            # are not even read.
+            siblings, over = await draft_photos(session, asset, len(fixed), shop_listing.photos_in(content, connection.id))
+            # The writer's suggestions, the seller's values and this shop's own (pipeline/listing_attributes.py).
+            attribute_set = listing_attributes.draft_set(
+                content, connection.id, listing_attributes.properties_of(profile.cached_payload))
+            first = siblings[0]
+
             # Primary image -> prepared thumbnail (rank=1).
-            primary_bytes = storage.get(asset.processed_key or asset.storage_key)  # the processed copy; old rows may still have an original
+            primary_bytes = storage.get(first.processed_key or first.storage_key)  # the processed copy; old rows may still have an original
             # The seller's crop if they set one, else the automatic square.
             thumb = cover_image(
                 primary_bytes,
-                asset.cover_crop,
+                first.cover_crop,
                 padding_pct=settings.thumbnail_padding_pct,
                 size=settings.thumbnail_size,
                 mode=settings.thumbnail_mode,
             )
-            thumbnail = PublishImage(data=thumb.data, filename=f"{asset.id}-thumb.jpg", label=asset.original_filename)
-
-            # Same-folder-group siblings -> extra images (original ratio), in the
-            # order the seller set (v6 §E). One folder = one listing (D1), and the
-            # files at the root of an upload are one group too.
-            # Etsy keeps 20 images: the charts stay and the last photos are left out
-            # (the seller saw which on the group and review cards), so their files
-            # are not even read.
-            siblings, over = await draft_photos(session, asset, len(fixed))
+            thumbnail = PublishImage(data=thumb.data, filename=f"{first.id}-thumb.jpg", label=first.original_filename)
             extras: list[PublishImage] = []
             for sibling in siblings[1:]:
                 extras.append(
@@ -445,7 +455,8 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     vision=vision,
                     # The writer's attributes with the seller's Occasion / Holiday; the
                     # section the seller chose for this shop (pipeline/item_options.py).
-                    optional_attributes=item_options.draft_attributes(content.attributes, content.item_options),
+                    optional_attributes=attribute_set[0],
+                    seller_attributes=attribute_set[1],
                     section_choice=item_options.section_choice(
                         content.item_options, connection.id, shop_section(profile, connection.id)),
                     theme_words=item_options.theme_words(content.attributes),

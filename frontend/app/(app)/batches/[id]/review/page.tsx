@@ -21,6 +21,7 @@ import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { Help } from "@/components/Help";
 import { ListingChange, WhereAndWhen } from "@/components/WhereAndWhen";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
+import { AttributeBulkSet } from "@/components/BulkExtras";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { applyChange, cardKey, emptyHandWritten, needsById, pendingManualSteps, reviewActions } from "@/lib/review";
@@ -62,6 +63,7 @@ export default function ReviewPage() {
   const { timeZone } = useSession();
   const { id } = params;
   const [items, setItems] = useState<Content[] | null>(null);
+  const [attributeNote, setAttributeNote] = useState<string | null>(null);
   // Ticked for "Set for selected" (Occasion, Holiday, Section); a bump re-reads the cards' options.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [optionsVersion, setOptionsVersion] = useState(0);
@@ -410,6 +412,13 @@ export default function ReviewPage() {
             load(); // "Set SKU for selected" changes each card's SKU
           }}
         />
+      )}
+      {items && selectedIds.some((x) => items.some((c) => c.id === x)) && (
+        <div key="bulk-attributes" className="card p-3 text-sm">
+          <AttributeBulkSet batchId={id} ids={selectedIds.filter((x) => items.some((c) => c.id === x))}
+            onDone={(message) => { setOptionsVersion((v) => v + 1); setAttributeNote(message); }} />
+          {attributeNote && <p key="note" role="status" className="mt-1 text-xs text-brand-800"><span translate="no">{attributeNote}</span></p>}
+        </div>
       )}
 
       {approveResult && (

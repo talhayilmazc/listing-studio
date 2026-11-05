@@ -12,6 +12,15 @@ while that shop is shown. A shop or field not in the entry follows the listing: 
 profile, its group's SKU and its own text. Each text field stands alone (a shop with its
 own title keeps the listing's tags).
 
+**Photos per shop** (customer request, 2026-11-03; same column, ``"photos"`` and ``"photos_out"``):
+the order of the listing's photos in one shop, its first the cover there, and the photos left out
+there. :func:`arrange` is the one answer: the shop's order, then any photo added to the listing
+since (it was never chosen or left out), never a photo left out, never none. A shop with no entry
+follows the listing's own order. Changing the photo order does not ask for approval again (it is
+not text), and a listing already on Etsy in a shop keeps its photos there: the order is for new
+drafts only. **Attributes per shop** (``"attributes"``, 2026-11-05): the shop's own values beat the listing's; the
+listing's own are in ``item_options`` (pipeline/listing_attributes.py).
+
 Nothing here changes a listing already on Etsy in a shop: what is there is edited on Etsy
 (or with "Update SKU on Etsy", which names the shop it changes).
 
@@ -31,7 +40,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Callable, Sequence, TypeVar
 
 from datetime import datetime, timezone
 
@@ -52,6 +61,12 @@ OPEN_SLOTS = ("waiting", "drafting", "scheduled")
 _KEEP: Any = object()
 #: The text fields a shop can have its own of.
 TEXT_FIELDS = ("title", "tags", "description")
+#: The photo order in one shop (its first the cover there) and the photos left out there.
+PHOTOS = "photos"
+PHOTOS_OUT = "photos_out"
+
+T = TypeVar("T")
+
 #: When this shop's text was last changed, and when the listing was approved for this shop.
 TEXT_EDITED_AT = "text_edited_at"
 SHOP_APPROVED_AT = "approved_at"
@@ -98,6 +113,32 @@ def text_for(content: GeneratedContent, shop_id: uuid.UUID | str | None) -> tupl
             own.get("description", content.description or ""))
 
 
+def photos_in(content: GeneratedContent, shop_id: uuid.UUID | str | None) -> tuple[list[str], list[str]] | None:
+    """(order, left out) of this listing's photos in this shop, as asset ids; None: it follows the listing."""
+    if shop_id is None:
+        return None
+    mine = entry(content, shop_id)
+    order = mine.get(PHOTOS)
+    if not isinstance(order, list) or not order:
+        return None
+    out = mine.get(PHOTOS_OUT)
+    return [str(x) for x in order], [str(x) for x in out] if isinstance(out, list) else []
+
+
+def arrange(photos: Sequence[T], choice: tuple[list[str], list[str]] | None, key: Callable[[T], str] = lambda a: str(a.id)) -> list[T]:
+    """``photos`` (the listing's own order, cover first) as they go to a shop: its order, then any
+    photo it never placed (added since), none it left out. Never empty: with nothing left, the
+    listing's own order."""
+    if not choice:
+        return list(photos)
+    order, out = choice
+    by_id = {key(p): p for p in photos}
+    placed = [by_id[i] for i in dict.fromkeys(order) if i in by_id]
+    known = set(order) | set(out)
+    added = [p for p in photos if key(p) not in known]
+    return [*placed, *added] or list(photos)
+
+
 def fill_listing_text(content: GeneratedContent, name: str, value: Any) -> bool:
     """Text typed for a shop also becomes the listing's own when the listing has none in that
     field (a hand-written listing's title and tags start empty). The listing's text is what
@@ -112,7 +153,7 @@ def fill_listing_text(content: GeneratedContent, name: str, value: Any) -> bool:
 
 def set_override(
     content: GeneratedContent, shop_id: uuid.UUID | str, *, profile_id: Any = _KEEP, sku: Any = _KEEP,
-    title: Any = _KEEP, tags: Any = _KEEP, description: Any = _KEEP,
+    title: Any = _KEEP, tags: Any = _KEEP, description: Any = _KEEP, photos: Any = _KEEP, attributes: Any = _KEEP,
 ) -> None:
     """Set (or, with None, clear) this listing's profile, SKU or a text field in one shop. An
     entry left empty is dropped; the column goes back to NULL when no shop has one."""
@@ -128,6 +169,23 @@ def set_override(
             mine.pop("sku", None)
         else:
             mine["sku"] = str(sku)
+    if photos is not _KEEP:
+        if photos is None:
+            mine.pop(PHOTOS, None)
+            mine.pop(PHOTOS_OUT, None)
+        else:
+            order, out = photos
+            mine[PHOTOS] = [str(x) for x in order]
+            if out:
+                mine[PHOTOS_OUT] = [str(x) for x in out]
+            else:
+                mine.pop(PHOTOS_OUT, None)
+    if attributes is not _KEEP:
+        # The listing's attributes in this shop (pipeline/listing_attributes.py); None: it follows the listing.
+        if attributes:
+            mine["attributes"] = dict(attributes)
+        else:
+            mine.pop("attributes", None)
     before_text = {k: mine.get(k) for k in TEXT_FIELDS}
     for name, value in (("title", title), ("tags", tags), ("description", description)):
         if value is _KEEP:

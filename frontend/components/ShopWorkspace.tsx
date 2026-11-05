@@ -19,6 +19,9 @@ import {
 import type { AnotherShopPreview, BatchShops, Content, GroupSchedule, Profile, SendPreview } from "@/lib/types";
 import { ShopTextEditor } from "./ShopTextEditor";
 import { SkuEditor } from "./SkuEditor";
+import { ShopPhotoEditor } from "./ShopPhotoEditor";
+import { AttributesEditor } from "./AttributesEditor";
+import { AttributeBulkSet, PhotoBulk } from "./BulkExtras";
 import { StatusChip } from "./StatusChip";
 
 import { Txt } from "@/components/Txt";
@@ -250,6 +253,8 @@ function WorkspaceRow({
   const [sku, setSku] = useState(row.sku ?? "");
   const [skuProblem, setSkuProblem] = useState<string | null>(null);
   const [textOpen, setTextOpen] = useState(false);
+  const [photosOpen, setPhotosOpen] = useState(false);
+  const [attributesOpen, setAttributesOpen] = useState(false);
   useEffect(() => setSku(row.sku ?? ""), [row.sku]);
   // Duplicates in that shop said as the SKU is typed.
   useEffect(() => {
@@ -289,6 +294,8 @@ function WorkspaceRow({
           <span>Edited on Etsy: profile and text there stay as they are.</span>
           <SkuEditor compact value={row.sku} contentId={row.content_id} batchId={batchId} shopId={shop.id} shopName={shop.name}
             save={(next) => api.setGroupSku(batchId, row.group_key, next, shop.id)} onSaved={() => reload()} />
+          <ShopExtras key="extras" row={row} shop={shop} batchId={batchId} photosOpen={photosOpen} attributesOpen={attributesOpen}
+            setPhotosOpen={setPhotosOpen} setAttributesOpen={setAttributesOpen} reload={reload} />
         </div>
       ) : (
         <div key="open" className="mt-2 grid gap-2 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto]">
@@ -329,6 +336,10 @@ function WorkspaceRow({
           {row.text_own.length === 0 && !textOpen && (
             <p key="tf" className="text-slate-500 sm:col-span-full">Text follows the listing.</p>
           )}
+          <div key="extras" className="sm:col-span-full">
+            <ShopExtras row={row} shop={shop} batchId={batchId} photosOpen={photosOpen} attributesOpen={attributesOpen}
+              setPhotosOpen={setPhotosOpen} setAttributesOpen={setAttributesOpen} reload={reload} />
+          </div>
           {row.state === "cannot" && (
             <p key="why" className="text-amber-800 sm:col-span-full" data-testid="workspace-row-why">
               <span translate="no">{`Not sent: ${row.reason}`}</span>
@@ -369,6 +380,39 @@ function WorkspaceRow({
         </div>
       )}
     </li>
+  );
+}
+
+/** "Photos in <shop>" and "Attributes in <shop>": a row's own photo order and attributes there. On a row already in
+ *  that shop the editors say these go to new drafts only. */
+function ShopExtras({ row, shop, batchId, photosOpen, attributesOpen, setPhotosOpen, setAttributesOpen, reload }: {
+  row: Row;
+  shop: Shop;
+  batchId: string;
+  photosOpen: boolean;
+  attributesOpen: boolean;
+  setPhotosOpen: (open: boolean) => void;
+  setAttributesOpen: (open: boolean) => void;
+  reload: () => Promise<void>;
+}) {
+  return (
+    <div className="w-full space-y-2">
+      <span className="flex flex-wrap items-center gap-2">
+        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" aria-expanded={photosOpen} data-testid="workspace-photos-toggle"
+          onClick={() => setPhotosOpen(!photosOpen)}>
+          <span translate="no">{`${photosOpen ? "Close photos" : "Photos"} in ${shop.name}`}</span>
+        </button>
+        <button type="button" className="btn-secondary px-3 py-1.5 text-xs" aria-expanded={attributesOpen} data-testid="workspace-attributes-toggle"
+          onClick={() => setAttributesOpen(!attributesOpen)}>
+          <span translate="no">{`${attributesOpen ? "Close attributes" : "Attributes"} in ${shop.name}`}</span>
+        </button>
+        <span className="text-slate-500" translate="no">
+          {`${row.photos_own ? "Own photo order" : "Photos follow the listing"} · ${row.attributes_own ? "own attributes" : "attributes follow the listing"}`}
+        </span>
+      </span>
+      {photosOpen && <ShopPhotoEditor key="photos" batchId={batchId} shop={shop} contentId={row.content_id} onSaved={() => void reload()} />}
+      {attributesOpen && <AttributesEditor key="attributes" contentId={row.content_id} shop={shop} open onChanged={() => void reload()} />}
+    </div>
   );
 }
 
@@ -508,6 +552,8 @@ function BulkBar({
               <span translate="no">{`Rewrite for ${shop.name}`}</span>
             </button>
           </div>
+          <PhotoBulk batchId={batchId} shop={shop} ids={ids} onDone={(message) => run(async () => undefined, message)} />
+          <AttributeBulkSet batchId={batchId} ids={ids} shop={shop} onDone={(message) => run(async () => undefined, message)} />
           {asking && (
             <div key="ask" role="alertdialog" aria-label={`Rewrite for ${shop.name}`} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 sm:col-span-2">
               <p><span>{rewriteRule}</span></p>
@@ -551,6 +597,7 @@ function SendSummary({ summary, chosen, shop, busy, onCancel, onSend, onApprove 
         <li>{`Profiles: ${s.profiles.map(([name, n]) => `${name} (${n})`).join(", ") || "none"}`}</li>
         <li>{`SKUs: ${s.skus.slice(0, 8).join(", ")}${s.skus.length > 8 ? ` and ${s.skus.length - 8} more` : ""}${s.ownSku ? ` (${s.ownSku} with a SKU of their own for ${shop.name})` : ""}`}</li>
         <li>{`${s.ownText} with text of their own for ${shop.name}; the rest go with the listing's text`}</li>
+        <li>{`${s.ownPhotos} with their own photo order for ${shop.name}; ${s.ownAttributes} with attributes of their own`}</li>
       </ul>
       {s.brands.length > 0 && (
         <ul key="brands" role="status" className="space-y-0.5 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-xs text-amber-950" translate="no" data-testid="workspace-summary-brands">

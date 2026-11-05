@@ -12,7 +12,7 @@ import { Txt } from "./Txt";
  * for the listing's category; Section is per shop, from that shop's own
  * sections. They go with the listing to every shop and are written on its drafts.
  */
-export function ItemOptions({ contentId, onChanged }: { contentId: string; onChanged?: () => void }) {
+export function ItemOptions({ contentId, onChanged, properties = true }: { contentId: string; onChanged?: () => void; properties?: boolean }) {
   const [options, setOptions] = useState<Options | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,11 +71,11 @@ export function ItemOptions({ contentId, onChanged }: { contentId: string; onCha
         </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        {options.occasion && (
+        {properties && options.occasion && (
           <ValuePicker key="occasion" options={options.occasion} busy={busy}
             onSave={(values) => save({ occasion: values })} />
         )}
-        {options.holiday && (
+        {properties && options.holiday && (
           <ValuePicker key="holiday" options={options.holiday} busy={busy}
             onSave={(values) => save({ holiday: values })} />
         )}

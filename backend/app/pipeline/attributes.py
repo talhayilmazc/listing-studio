@@ -129,8 +129,9 @@ def attribute_choices(taxonomy_properties: list[dict[str, Any]] | None) -> dict[
 
 def resolve_optional_attributes(
     taxonomy_properties: list[dict[str, Any]],
-    proposed: dict[str, str | list[str]] | None,
+    proposed: dict[str, Any] | None,
     already_set: set[int] | None = None,
+    allow_required: set[str] | None = None,
 ) -> tuple[list[ResolvedAttribute], list[str]]:
     """The listing's chosen optional attributes, as this category's own ids.
 
@@ -141,7 +142,12 @@ def resolve_optional_attributes(
     category): the property must exist there, be optional and list exactly that
     value; a property takes no more values than Etsy allows. Nothing is guessed;
     what does not match is left unset and returned in the second list.
+
+    A value may carry a unit (``{"values": [...], "scale": "Inches"}``): it must be one of the property's own
+    units, and a number property (no value list) takes the number as written. ``allow_required``: properties the
+    seller set themselves, written even where Etsy requires them (their value beats the reference listing's).
     """
+    allowed = {n.strip().lower() for n in allow_required or ()}
     taken = set(already_set or ())
     resolved: list[ResolvedAttribute] = []
     unmatched: list[str] = []
@@ -149,11 +155,32 @@ def resolve_optional_attributes(
         str(p.get("property_name") or p.get("name") or "").strip().lower(): p for p in taxonomy_properties or []
     }
     for name, wanted in (proposed or {}).items():
+        scale_name = None
+        if isinstance(wanted, dict):
+            scale_name = str(wanted.get("scale") or "").strip() or None
+            wanted = wanted.get("values") or []
         names = [str(v).strip() for v in (wanted if isinstance(wanted, (list, tuple)) else [wanted]) if v and str(v).strip()]
         prop = by_name.get(name.strip().lower())
-        if not names or prop is None or prop.get("is_required") or prop.get("property_id") in taken:
+        if not names or prop is None or prop.get("property_id") in taken:
             continue
-        values = {str(v.get("name", "")).strip().lower(): v for v in prop.get("possible_values") or []}
+        if prop.get("is_required") and name.strip().lower() not in allowed:
+            continue
+        scales = {str(s.get("display_name") or s.get("name") or "").strip().lower(): int(s["scale_id"])
+                  for s in prop.get("scales") or [] if s.get("scale_id") is not None}
+        scale_id = scales.get(scale_name.lower()) if scale_name else None
+        if scale_name and scale_id is None:
+            unmatched.append(f"{name}: unit {scale_name}")
+            continue
+        if not prop.get("possible_values"):
+            if not scales or scale_id is None:
+                unmatched.append(f"{name}: {', '.join(names)}")
+                continue
+            pid = int(prop["property_id"])
+            taken.add(pid)
+            resolved.append(ResolvedAttribute(pid, name, [], names[:1], scale_id))
+            continue
+        values = {str(v.get("name", "")).strip().lower(): v for v in prop.get("possible_values") or []
+                  if scale_id is None or v.get("scale_id") in (None, scale_id)}
         matches = []
         for value in names:
             match = values.get(value.lower())
@@ -163,11 +190,13 @@ def resolve_optional_attributes(
                 matches.append(match)
         if not matches:
             continue
+        if scale_id is None:
+            scale_id = next((m.get("scale_id") for m in matches if m.get("scale_id") is not None), None)
         limit = (int(prop.get("max_values_allowed") or len(matches)) if prop.get("is_multivalued") else 1)
         matches = matches[: max(1, limit)]
         pid = int(prop["property_id"])
         taken.add(pid)
         resolved.append(
-            ResolvedAttribute(pid, name, [int(m["value_id"]) for m in matches], [str(m["name"]) for m in matches])
+            ResolvedAttribute(pid, name, [int(m["value_id"]) for m in matches], [str(m["name"]) for m in matches], scale_id)
         )
     return resolved, unmatched

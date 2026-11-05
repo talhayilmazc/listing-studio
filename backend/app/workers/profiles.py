@@ -39,6 +39,7 @@ from app.etsy.refresh import FULL, IMAGES, refresh_due, used_recently
 from app.pipeline.attributes import attribute_choices
 from app.pipeline.clustering import ListingForCluster, cluster_listings, heuristic_name
 from app.pipeline.imageclass import AnthropicImageKindClassifier, classify_reference_images
+from app.pipeline import listing_attributes
 from app.pipeline.item_options import attribute_limits
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.personalization import from_reference as personalization_from_reference
@@ -330,6 +331,8 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         payload["category_attributes"] = attribute_choices((category_properties or {}).get("results"))
         # How many values each property takes (Occasion / Holiday on the review card).
         payload["category_attribute_limits"] = attribute_limits((category_properties or {}).get("results"))
+        # Every attribute the category offers, for the seller to set (pipeline/listing_attributes.py).
+        payload["category_properties"] = listing_attributes.compact((category_properties or {}).get("results"))
         payload["category_names"] = category_path(category_nodes, listing.get("taxonomy_id"))
         payload["personalization"] = personalization_from_reference(personalization)
         payload["shipping_profile_type"] = shipping_type

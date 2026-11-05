@@ -2303,6 +2303,8 @@ export interface BatchShops {
     skus: Record<string, string | null>;
     /** Shop id -> the profile chosen for it in that shop only. */
     profiles: Record<string, string>;
+    /** Shop id -> its photos there in that shop's own order, cover first (only shops with one). */
+    photos?: Record<string, string[]>;
   }[];
   /** Listings here with no title yet whose designs are already written in another batch. */
   written_elsewhere?: { batch_id: string; name: string; count: number; skus: string[]; shops: string[] }[];
@@ -2361,6 +2363,9 @@ export interface AnotherShopPreview {
     /** A production partner in that shop: required (not sent until set), note (quiet), ok. */
     partner: "ok" | "note" | "required";
     partner_profile_id: string | null;
+    /** It goes to that shop with its own photo order, and with attributes of its own. */
+    photos_own?: boolean;
+    attributes_own?: boolean;
   }[];
   /** SKUs refused, one line each; while any is listed nothing can be sent. */
   refused: string[];

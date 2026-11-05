@@ -500,7 +500,10 @@ async def publish_content(
     vision: dict[str, Any] | None = None,
     #: Optional category attributes chosen when the listing was written
     #: (``{property name: value name}``, search style); None writes none.
-    optional_attributes: dict[str, str] | None = None,
+    optional_attributes: dict[str, Any] | None = None,
+    #: Attributes the seller set themselves (pipeline/listing_attributes.py::draft_set): their value beats the
+    #: reference listing's, and one they cleared is not written, unless Etsy requires it.
+    seller_attributes: set[str] | None = None,
     profile_name: str = "",
     tenant_limit: int,
     profile_id: uuid.UUID | None = None,
@@ -877,6 +880,14 @@ async def publish_content(
     resolved = [*resolved, *garment_attributes(
         props.get("results", []), reference.get("attributes"), vision, {a.property_id for a in resolved}
     )]
+    # What the seller set wins: a value of theirs replaces the reference's, and one they cleared is not written
+    # (unless Etsy requires it: then the reference's value stays).
+    mine = {n.strip().lower() for n in seller_attributes or ()}
+    if mine:
+        valued = {n.strip().lower() for n in (optional_attributes or {})} & mine
+        required = {str(p.get("property_name") or "").strip().lower() for p in props.get("results", []) if p.get("is_required")}
+        resolved = [a for a in resolved if a.property_name.strip().lower() not in valued
+                    and not (a.property_name.strip().lower() in mine and a.property_name.strip().lower() not in required)]
     written = {a.property_name: ", ".join(a.values) for a in resolved}
     for attr in resolved:
         await client.update_listing_property(
@@ -895,7 +906,7 @@ async def publish_content(
     # rather than guessed. Writing them is idempotent, so a resumed draft repeats it.
     if optional_attributes:
         chosen, unmatched = resolve_optional_attributes(
-            props.get("results", []), optional_attributes, {a.property_id for a in resolved}
+            props.get("results", []), optional_attributes, {a.property_id for a in resolved}, allow_required=mine,
         )
         if unmatched:
             logger.info("draft %s: %d optional attribute(s) not offered by its category", listing_id, len(unmatched))
@@ -915,7 +926,8 @@ async def publish_content(
                 answered[int(answer["property_id"])] = sorted(int(v) for v in answer.get("value_ids") or [])
         # Occasion and Holiday are checked: what the seller set must be what Etsy kept. Each
         # write's answer says what Etsy kept; the properties are read only when one did not.
-        checked = [a for a in chosen if a.property_name.strip().lower() in {p.lower() for p in item_options.PROPERTIES}]
+        checked = [a for a in chosen if a.value_ids and (a.property_name.strip().lower() in mine or
+                   a.property_name.strip().lower() in {p.lower() for p in item_options.PROPERTIES})]
         if checked:
             kept = answered if all(a.property_id in answered for a in checked) else {
                 int(p["property_id"]): sorted(int(v) for v in p.get("value_ids") or [])

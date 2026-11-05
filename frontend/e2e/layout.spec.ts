@@ -478,6 +478,51 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<published batch> working on the shop it is in");
   });
 
+  test("photos and attributes for one shop: the editors, Keep as it is, the bulk previews, nothing sent", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const link = page.locator('a[href^="/batches/"]', { hasText: "Published in Northwind" }).first();
+    test.skip((await link.count()) === 0, "no published demo batch: seed-demo again");
+    const href = (await link.getAttribute("href"))!.replace(/\/review$/, "");
+    await page.goto(href);
+    await settle(page);
+    const bar = page.getByTestId("shop-bar-select");
+    test.skip((await bar.count()) === 0, "one shop");
+    await bar.selectOption({ label: "Juniper Print Co." });
+    const row = page.getByTestId("workspace-row").first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    // Photos: make photo 2 the cover for this shop only, by button (a phone and a keyboard have no drag).
+    await row.getByTestId("workspace-photos-toggle").click();
+    const editor = row.getByTestId("shop-photo-editor");
+    await expect(editor.getByTestId("shop-photo")).toHaveCount(3, { timeout: 15_000 });
+    await editor.getByTestId("shop-photo").nth(1).getByRole("button", { name: "Make cover" }).click();
+    await editor.getByTestId("shop-photo-save").click();
+    await expect(editor.getByTestId("shop-photo-keep")).toBeVisible({ timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> photos in another shop");
+    await editor.getByTestId("shop-photo-keep").click();
+    await expect(editor.getByTestId("shop-photo-keep")).toHaveCount(0, { timeout: 15_000 });
+    // Attributes for this shop: Holiday = Christmas, then Keep as it is.
+    await row.getByTestId("workspace-attributes-toggle").click();
+    const attributes = row.getByTestId("attributes-editor");
+    await expect(attributes.getByTestId("attribute-row").first()).toBeVisible({ timeout: 15_000 });
+    await attributes.getByLabel("Add a Holiday").selectOption({ index: 1 });  // the first value it does not have yet
+    await expect(attributes.getByTestId("attributes-keep")).toBeVisible({ timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> attributes in another shop");
+    await attributes.getByTestId("attributes-keep").click();
+    await expect(attributes.getByTestId("attributes-keep")).toHaveCount(0, { timeout: 15_000 });
+    // Bulk: previews only.
+    await page.getByTestId("select-not-in-shop").click();
+    const bulk = page.getByTestId("workspace-bulk");
+    await bulk.getByRole("button", { name: "Bulk actions" }).click();
+    await bulk.getByTestId("bulk-photos").getByRole("button", { name: /Move the cover to the end/ }).click();
+    await expect(bulk.getByTestId("bulk-photos-preview")).toContainText("Nothing is saved until you apply it", { timeout: 15_000 });
+    await bulk.getByTestId("bulk-attributes").getByLabel("Attribute").selectOption("Holiday");
+    await bulk.getByTestId("bulk-attributes").getByLabel("Value").selectOption("Christmas");
+    await bulk.getByTestId("bulk-attributes-preview-button").click();
+    await expect(bulk.getByTestId("bulk-attributes-preview")).toContainText("Holiday = Christmas", { timeout: 15_000 });
+    await expectSound(page, "/batches/<published batch> bulk photos and attributes");
+  });
+
   // The sellers' real flows (production bug, 2026-10-27: a hand-written batch published in one
   // shop read "no title yet" with "Generate the empty ones" for the next shop). Each: the batch
   // page, the workspace for the other shop and the review page say nothing false.

@@ -178,6 +178,8 @@ export function sendSummary(preview: { rows: WorkspaceRow[]; refused: string[] }
     skus: going.map((r) => r.sku ?? "no SKU"),
     ownText: going.filter((r) => r.text_own.length > 0).length,
     ownSku: going.filter((r) => r.sku_own).length,
+    ownPhotos: going.filter((r) => r.photos_own).length,
+    ownAttributes: going.filter((r) => r.attributes_own).length,
     notGoing: [...notGoing, ...preview.refused],
   };
 }
