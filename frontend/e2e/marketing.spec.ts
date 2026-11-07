@@ -121,11 +121,16 @@ test("the home page: the demonstration, four steps with real crops, three differ
   await expect(page.getByTestId("testimonials")).toHaveCount(0);
 });
 
-/** Each demonstration piece's place and look: [opacity, x, y, width, height]. */
+/** Each demonstration piece's look and its place in the layout: [opacity, left, top, width, height]. The place is
+ *  the layout box (offsetLeft/offsetTop up the offset parents), which a transform does not move: the animation
+ *  slides and scales pieces, but where each one sits never changes. */
 async function demoState(page: Page) {
   return page.evaluate(() => [...document.querySelectorAll('[data-testid="hero-demo"] .hd-in, [data-testid="hero-demo"] .hd-pop')].map((el) => {
-    const box = el.getBoundingClientRect();
-    return [Number(getComputedStyle(el).opacity), Math.round(box.x), Math.round(box.y + scrollY), Math.round(box.width), Math.round(box.height)];
+    let x = 0;
+    let y = 0;
+    for (let node = el as HTMLElement | null; node; node = node.offsetParent as HTMLElement | null) { x += node.offsetLeft; y += node.offsetTop; }
+    const box = el as HTMLElement;
+    return [Number(getComputedStyle(el).opacity), x, y, box.offsetWidth, box.offsetHeight];
   }));
 }
 
@@ -154,7 +159,7 @@ test("the hero with motion: plays once, rests on the final state, and never move
   const early = await demoState(page);
   await page.waitForTimeout(5000);
   const late = await demoState(page);
-  // Every piece holds the place it ends in from the first frame (transforms do not count as layout).
+  // Every piece holds the place it ends in from the first frame.
   expect(late.map(([, ...box]) => box)).toEqual(early.map(([, ...box]) => box));
   expect(late.every(([opacity]) => opacity === 1), "the final state: all shown").toBe(true);
   const left = await page.evaluate(() => document.getAnimations().filter((a) => (a as CSSAnimation).animationName?.startsWith("hd-") && a.playState === "running").length);
