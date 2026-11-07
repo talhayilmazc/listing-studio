@@ -1,68 +1,39 @@
 import { HOME } from "@/lib/homeCopy";
 import { SCREENS, type Screen } from "@/lib/marketing/screens";
 import { TESTIMONIALS } from "@/lib/marketing/testimonials";
-import { DEMO_VIDEO } from "@/lib/marketing/video";
-import { PLANNED_NOTICE, PLANS, listingsFact, priceFact, shopsFact } from "@/lib/plans";
+import { PLANNED_NOTICE, PLANS, TRIAL, listingsFact, priceFact, shopsFact } from "@/lib/plans";
+import { MOCKUPS } from "./HeroDemo";
 import { Shot } from "./Page";
 
 /**
  * The home page's sections. Static server markup: no script, no session.
- * Every word comes from lib/homeCopy.ts, where the page's rules are checked.
+ * Every word comes from lib/homeCopy.ts, where the page's rules are checked; prices from lib/plans.ts.
+ * Shapes by role (docs/design-v2.md): numbered rule rows, real crops at their natural size, a fabric panel,
+ * plan tags, an ink band. Nothing fades in.
  */
 
-export function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">{children}</p>;
-}
+const SECTION = "scroll-mt-20 border-t border-heather";
 
-export function SectionTitle({ children, id }: { children: React.ReactNode; id?: string }) {
-  return (
-    <h2 id={id} className="mt-3 font-display text-[clamp(2rem,4.2vw,3.1rem)] leading-[1.06] text-slate-900">
-      {children}
-    </h2>
-  );
-}
+/* ---------- How it works: four steps, each with a crop of the real app ---------- */
 
-const WRAP = "mx-auto w-full max-w-[1240px] px-4 sm:px-6";
-const TEXT_LINK = "tap font-medium text-brand-700 underline decoration-brand-100 underline-offset-4";
-
-/* ---------- The demo video's place ---------- */
-
-export function VideoSlot() {
-  const v = HOME.video;
-  if (DEMO_VIDEO) {
-    return <video src={DEMO_VIDEO} controls preload="none" poster={SCREENS.review.src} title={v.title} className="h-auto w-full rounded-2xl border border-slate-200" data-testid="demo-video" />;
-  }
-  return (
-    <div data-testid="demo-video-slot">
-      <Shot screen={SCREENS.mockups} priority sizes="(min-width: 1024px) 620px, 100vw" />
-      <p className="mt-3 text-sm leading-relaxed text-slate-600">{v.label}</p>
-    </div>
-  );
-}
-
-/* ---------- How it works ---------- */
-
-const STEP_SCREENS: Screen[] = [SCREENS.upload, SCREENS.write, SCREENS.review, SCREENS.schedule];
+const STEP_SCREENS: Screen[] = [SCREENS.upload, SCREENS.write, SCREENS.review, SCREENS.send];
 
 export function How() {
   const h = HOME.how;
   return (
-    <section id={h.id} aria-labelledby="how-title" className="scroll-mt-20 border-t border-slate-200 bg-white">
-      <div className={WRAP + " py-16 lg:py-24"}>
-        <div className="max-w-[44rem]">
-          <Eyebrow>{h.eyebrow}</Eyebrow>
-          <SectionTitle id="how-title">{h.heading}</SectionTitle>
-          <p className="mt-4 text-[1.0625rem] leading-relaxed text-slate-700">{h.before}</p>
-        </div>
-        <ol className="mt-10 grid grid-cols-1 gap-x-8 gap-y-10 md:grid-cols-2 lg:mt-14">
+    <section id={h.id} aria-labelledby="how-title" className={SECTION}>
+      <div className="mk-wrap py-16 lg:py-24">
+        <h2 id="how-title" className="mk-h2">{h.heading}</h2>
+        <p className="mk-lead mt-4">{h.before}</p>
+        <ol className="mt-10 grid grid-cols-1 gap-x-10 gap-y-12 md:grid-cols-2 lg:mt-12">
           {h.steps.map((step, i) => (
             <li key={step.title} className="min-w-0" data-testid="how-step">
-              <Shot screen={STEP_SCREENS[i]} sizes="(min-width: 768px) 46vw, 100vw" />
-              <h3 className="mt-4 text-[1.1875rem] font-medium text-slate-900">
-                <span aria-hidden className="mr-2 font-display text-2xl text-brand-600">{i + 1}</span>
-                <span>{step.title}</span>
+              <h3 className="flex items-baseline gap-3">
+                <span aria-hidden className="inline-flex h-8 w-8 shrink-0 items-center justify-center bg-ink text-base font-extrabold text-white [font-stretch:125%]">{i + 1}</span>
+                <span className="mk-h3">{step.title}</span>
               </h3>
-              <p className="mt-1.5 text-[0.9375rem] leading-relaxed text-slate-700">{step.body}</p>
+              <p className="mk-body mt-2 max-w-[44ch]">{step.body}</p>
+              <Shot screen={STEP_SCREENS[i]} className="mt-5" />
             </li>
           ))}
         </ol>
@@ -71,58 +42,71 @@ export function How() {
   );
 }
 
-/* ---------- What sets it apart ---------- */
+/* ---------- Why sellers switch: each shown, not described ---------- */
 
-export function Apart() {
-  const a = HOME.apart;
+
+function MockupsShown() {
+  const a = HOME.why.items[0];
+  const colours = HOME.hero.demo.colours;
   return (
-    <section id={a.id} aria-labelledby="apart-title" className="scroll-mt-20 border-t border-slate-200">
-      <div className={WRAP + " py-16 lg:py-24"}>
-        <div className="max-w-[44rem]">
-          <Eyebrow>{a.eyebrow}</Eyebrow>
-          <SectionTitle id="apart-title">{a.heading}</SectionTitle>
-        </div>
-        <ul className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-          {a.items.map((item) => (
-            <li key={item.title} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-6" data-testid="differentiator">
-              <h3 className="text-[1.1875rem] font-medium text-slate-900">{item.title}</h3>
-              <p className="mt-2 text-[0.9375rem] leading-relaxed text-slate-700">{item.body}</p>
-              <p className="mt-3 text-[0.9375rem]"><a href={item.link.href} className={TEXT_LINK}>{item.link.label}</a></p>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-8"><a href={a.more.href} className="btn-secondary px-5 py-3 text-[0.9375rem]">{a.more.label}</a></p>
+    <div className="bg-fabric p-4 sm:p-6" data-testid="why-mockups">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <figure className="min-w-0">
+          <img src="/hero/blank-white-large.webp" alt={a.before} width={180} height={210} loading="lazy" className="block h-auto w-full border border-heather" />
+          <figcaption className="mt-1.5 text-[0.8125rem] font-semibold text-ink">{a.before}</figcaption>
+        </figure>
+        <figure className="min-w-0">
+          <img src="/hero/mockup-white-large.webp" alt={a.after} width={180} height={210} loading="lazy" className="block h-auto w-full border border-heather" />
+          <figcaption className="mt-1.5 text-[0.8125rem] font-semibold text-ink">{a.after}</figcaption>
+        </figure>
       </div>
-    </section>
+      <ul className="mt-3 grid grid-cols-5 gap-1.5 sm:gap-2">
+        {MOCKUPS.map((src, i) => (
+          <li key={src} className="min-w-0">
+            <img src={src} alt={colours[i]} width={96} height={112} loading="lazy" className="block h-auto w-full border border-heather" />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-/* ---------- Who it is for ---------- */
-
-export function Who() {
-  const w = HOME.who;
+function WriterShown() {
+  const b = HOME.why.items[1];
+  const d = HOME.hero.demo;
   return (
-    <section id={w.id} aria-labelledby="who-title" className="scroll-mt-20 border-t border-slate-200 bg-white">
-      <div className={WRAP + " grid grid-cols-1 gap-10 py-16 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-20 lg:py-24"}>
-        <div className="min-w-0">
-          <Eyebrow>{w.eyebrow}</Eyebrow>
-          <SectionTitle id="who-title">{w.heading}</SectionTitle>
+    <div className="bg-fabric p-4 sm:p-6" data-testid="why-writer">
+      <figure className="flex items-center gap-3">
+        <div className="checkerboard w-24 shrink-0 border border-heather p-1.5 sm:w-28">
+          <img src="/hero/design.webp" alt={d.fileAlt} width={120} height={101} loading="lazy" className="block h-auto w-full" />
         </div>
-        <div className="min-w-0">
-          <dl className="space-y-6">
-            {w.items.map((item) => (
-              <div key={item.title} className="border-t border-slate-200 pt-4">
-                <dt className="text-[1.0625rem] font-medium text-slate-900">{item.title}</dt>
-                <dd className="mt-1 text-[0.9375rem] leading-relaxed text-slate-700">{item.body}</dd>
+        <figcaption className="text-[0.8125rem] font-semibold text-ink">{b.design}</figcaption>
+      </figure>
+      <p className="mb-1.5 mt-4 text-[0.8125rem] font-semibold text-ink">{b.text}</p>
+      <Shot screen={SCREENS.writer} />
+    </div>
+  );
+}
+
+export function Why() {
+  const w = HOME.why;
+  const shown = [<MockupsShown key="mockups" />, <WriterShown key="writer" />, <Shot key="shops" screen={SCREENS.shops} />];
+  return (
+    <section id={w.id} aria-labelledby="why-title" className={SECTION}>
+      <div className="mk-wrap py-16 lg:py-24">
+        <h2 id="why-title" className="mk-h2">{w.heading}</h2>
+        <ul className="mt-10 space-y-14 lg:mt-12 lg:space-y-16">
+          {w.items.map((item, i) => (
+            <li key={item.title} className="grid min-w-0 grid-cols-1 items-start gap-6 border-t border-heather pt-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-12" data-testid="differentiator">
+              <div className="min-w-0">
+                <h3 className="mk-h3 !text-[1.375rem]">{item.title}</h3>
+                <p className="mk-body mt-3 max-w-[46ch]">{item.body}</p>
+                <p className="mt-4"><a href={item.link.href} className="mk-link">{item.link.label}</a></p>
               </div>
-            ))}
-          </dl>
-          <p className="mt-6 text-[0.9375rem] leading-relaxed text-slate-700">
-            <span>{`${w.notFor} `}</span>
-            <a href={w.compare.href} className={TEXT_LINK}>{w.compare.label}</a>
-            <span>.</span>
-          </p>
-        </div>
+              <div className="min-w-0 max-w-[32.5rem]">{shown[i]}</div>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -133,12 +117,12 @@ export function Who() {
 export function Testimonials() {
   if (TESTIMONIALS.length === 0) return null;
   return (
-    <section className="border-t border-slate-200" data-testid="testimonials" aria-label="What sellers say">
-      <ul className={WRAP + " grid grid-cols-1 gap-6 py-16 md:grid-cols-2"}>
+    <section className={SECTION} data-testid="testimonials" aria-label="What sellers say">
+      <ul className="mk-wrap grid grid-cols-1 gap-8 py-16 md:grid-cols-2">
         {TESTIMONIALS.map((t) => (
-          <li key={t.name}>
-            <blockquote className="text-[1.0625rem] leading-relaxed text-slate-800">{t.quote}</blockquote>
-            <p className="mt-2 text-sm text-slate-600">{t.shop ? `${t.name}, ${t.shop}` : t.name}</p>
+          <li key={t.name} className="border-l-4 border-tag pl-5">
+            <blockquote className="mk-lead text-ink">{t.quote}</blockquote>
+            <p className="mk-small mt-2">{t.shop ? `${t.name}, ${t.shop}` : t.name}</p>
           </li>
         ))}
       </ul>
@@ -151,26 +135,31 @@ export function Testimonials() {
 export function PricingTeaser() {
   const p = HOME.pricing;
   return (
-    <section id={p.id} aria-labelledby="pricing-title" className="scroll-mt-20 border-t border-slate-200">
-      <div className={WRAP + " py-16 lg:py-24"}>
-        <div className="max-w-[44rem]">
-          <Eyebrow>{p.eyebrow}</Eyebrow>
-          <SectionTitle id="pricing-title">{p.heading}</SectionTitle>
-          <p className="mt-4 text-[1.0625rem] leading-relaxed text-slate-700" data-testid="home-planned-notice">{PLANNED_NOTICE}</p>
+    <section id={p.id} aria-labelledby="pricing-title" className={SECTION}>
+      <div className="mk-wrap py-16 lg:py-24">
+        <div className="bg-fabric p-5 sm:p-8 lg:p-10">
+          <h2 id="pricing-title" className="mk-h2">{p.heading}</h2>
+          <p className="mk-body mt-3 max-w-[60ch]" data-testid="home-planned-notice">{PLANNED_NOTICE}</p>
+          <ul className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-plans">
+            {PLANS.map((plan) => (
+              <li key={plan.name} className={"mk-tag min-w-0 px-5 pb-5 pt-9 " + (plan.highlight ? "bg-tag" : "bg-white")} data-testid={plan.highlight ? "home-plan-highlight" : undefined}>
+                <p className="text-[1.0625rem] font-bold text-ink">{plan.name}</p>
+                <p className="mt-2 flex items-baseline gap-1 text-ink">
+                  <span className="text-[2.25rem] font-extrabold leading-none [font-stretch:125%]" translate="no">{priceFact(plan)}</span>
+                  <span className="text-[0.9375rem] font-medium">/mo</span>
+                </p>
+                <p className="mt-3 text-[0.9375rem] leading-relaxed text-ink">
+                  <span className="block">{listingsFact(plan)}</span>
+                  <span className="block">{shopsFact(plan)}</span>
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="mk-small mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <span>{TRIAL.line}</span>
+            <a href={p.link.href} className="mk-link">{p.link.label}</a>
+          </p>
         </div>
-        <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-plans">
-          {PLANS.map((plan) => (
-            <li key={plan.name} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-[1.0625rem] font-medium text-slate-900">{plan.name}</p>
-              <p className="mt-1 font-display text-4xl leading-none text-slate-900" translate="no">{priceFact(plan)}</p>
-              <p className="mt-3 text-sm leading-relaxed text-slate-700">
-                <span className="block">{listingsFact(plan)}</span>
-                <span className="block">{shopsFact(plan)}</span>
-              </p>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-6"><a href={p.link.href} className={TEXT_LINK}>{p.link.label}</a></p>
       </div>
     </section>
   );
@@ -181,27 +170,24 @@ export function PricingTeaser() {
 export function Faq() {
   const f = HOME.faq;
   return (
-    <section id={f.id} aria-labelledby="faq-title" className="scroll-mt-20 border-t border-slate-200 bg-white">
-      <div className={WRAP + " grid grid-cols-1 gap-10 py-16 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-20 lg:py-24"}>
+    <section id={f.id} aria-labelledby="faq-title" className={SECTION}>
+      <div className="mk-wrap grid grid-cols-1 gap-8 py-16 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:gap-16 lg:py-24">
         <div className="min-w-0">
-          <Eyebrow>{f.eyebrow}</Eyebrow>
-          <SectionTitle id="faq-title">{f.heading}</SectionTitle>
-          <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-700">
+          <h2 id="faq-title" className="mk-h2">{f.heading}</h2>
+          <p className="mk-body mt-4">
             <span>{`${f.contactLead} `}</span>
-            <a href={f.contact.href} className={TEXT_LINK}>{f.contact.label}</a>
+            <a href={f.contact.href} className="mk-link">{f.contact.label}</a>
             <span>.</span>
           </p>
         </div>
-        <div className="min-w-0 divide-y divide-slate-200 border-y border-slate-200">
+        <div className="min-w-0 divide-y divide-heather border-y border-heather">
           {f.items.map((item) => (
             <details key={item.q} className="group">
-              <summary className="flex min-h-[2.75rem] cursor-pointer list-none items-center justify-between gap-6 py-5 text-[1.0625rem] font-medium text-slate-900 [&::-webkit-details-marker]:hidden">
+              <summary className="flex min-h-[2.75rem] cursor-pointer list-none items-center justify-between gap-6 py-5 text-[1.125rem] font-bold text-ink [&::-webkit-details-marker]:hidden">
                 <span>{item.q}</span>
-                <span aria-hidden className="text-xl leading-none text-slate-600 transition-transform duration-300 group-open:rotate-45">+</span>
+                <span aria-hidden className="text-2xl font-normal leading-none text-ink transition-transform group-open:rotate-45">+</span>
               </summary>
-              <div className="pb-6 pr-10 text-[0.9375rem] leading-relaxed text-slate-700">
-                <span>{item.a}</span>
-              </div>
+              <p className="mk-body max-w-[62ch] pb-6 pr-10">{item.a}</p>
             </details>
           ))}
         </div>
@@ -210,21 +196,18 @@ export function Faq() {
   );
 }
 
-/* ---------- Final call to action ---------- */
+/* ---------- Final call to action: the one tag-yellow button, on an ink band ---------- */
 
 export function Closing() {
   const c = HOME.closing;
   return (
-    <section aria-labelledby="closing-title" className="border-t border-slate-200">
-      <div className={WRAP + " py-16 text-center lg:py-24"}>
-        <h2 id="closing-title" className="mx-auto max-w-[40rem] font-display text-[clamp(2.2rem,4.8vw,3.6rem)] leading-[1.03] text-slate-900">
-          <span>{`${c.heading} `}</span>
-          <em className="text-brand-600">{c.headingAccent}</em>
-        </h2>
-        <p className="mx-auto mt-5 max-w-[34rem] text-[1.0625rem] leading-relaxed text-slate-700">{c.body}</p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <a href={c.primary.href} className="btn-primary px-5 py-3 text-[0.9375rem]" data-testid="closing-cta">{c.primary.label}</a>
-          <a href={c.secondary.href} className="btn-secondary px-5 py-3 text-[0.9375rem]">{c.secondary.label}</a>
+    <section aria-labelledby="closing-title" className="bg-ink">
+      <div className="mk-wrap py-16 lg:py-20">
+        <h2 id="closing-title" className="mk-h2 max-w-[24ch] !text-white">{c.heading}</h2>
+        <p className="mk-body mt-4 max-w-[56ch] !text-[#D9DCE1]">{c.body}</p>
+        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
+          <a href={c.primary.href} className="mk-btn !bg-tag !text-ink hover:!bg-white" data-testid="closing-cta">{c.primary.label}</a>
+          <a href={c.secondary.href} className="font-semibold text-white underline decoration-tag decoration-[3px] underline-offset-[5px] hover:decoration-white">{c.secondary.label}</a>
         </div>
       </div>
     </section>

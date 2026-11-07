@@ -5,18 +5,18 @@ import { BRAND_LIMITS, BRAND_RULE, BRAND_SOURCES, KIND_WORDS, VERDICT_WORDS, typ
 /** The parts both checkers are made of. They hold no state, so the static page shows every rule. */
 
 const VERDICT_STYLE: Record<Verdict, string> = {
-  idle: "border-slate-200 bg-slate-50 text-slate-700",
+  idle: "border-heather bg-slate-50 text-slate-700",
   pass: "border-emerald-200 bg-emerald-50 text-emerald-800",
   fail: "border-rose-200 bg-rose-50 text-rose-800",
   warn: "border-amber-200 bg-amber-50 text-amber-900",
-  note: "border-slate-200 bg-slate-50 text-slate-700",
+  note: "border-heather bg-slate-50 text-slate-700",
 };
 
-const LINK = "font-medium text-brand-700 underline decoration-brand-100 underline-offset-4 hover:decoration-brand-600";
+const LINK = "mk-link";
 
 export function RuleList({ lines }: { lines: Line[] }) {
   return (
-    <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white" data-testid="rule-list">
+    <ul className="divide-y divide-heather border border-heather bg-white" data-testid="rule-list">
       {lines.map((line) => (
         <li key={line.id} className="px-4 py-3.5 sm:px-5" data-testid={`rule-${line.id}`} data-verdict={line.verdict}>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -51,7 +51,7 @@ export function SourceLinks({ sources }: { sources: Source[] }) {
 /** The trademark warning, in the app's own sentence: it warns, and it stops nothing. */
 export function BrandWarning({ brands }: { brands: string[] }) {
   return (
-    <section aria-label="Brand names" className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 sm:px-5" data-testid="brand-warning" data-brands={brands.length}>
+    <section aria-label="Brand names" className="border border-heather bg-white px-4 py-3.5 sm:px-5" data-testid="brand-warning" data-brands={brands.length}>
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-medium text-slate-900">Brand names</span>
         <span translate="no" className={"rounded border px-1.5 text-xs leading-5 " + VERDICT_STYLE[brands.length ? "warn" : "pass"]}>{brands.length ? VERDICT_WORDS.warn : "None found"}</span>

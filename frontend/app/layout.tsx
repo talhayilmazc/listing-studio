@@ -1,15 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Serif } from "next/font/google";
+import { Archivo } from "next/font/google";
 import "./globals.css";
 
-// Display face for page titles and large metric numbers (docs/ui-direction-v2.md §2).
-// Self-hosted by next/font at build time - no runtime request, no new dependency.
-const display = Instrument_Serif({
-  weight: "400",
-  style: ["normal", "italic"],
+// Archivo, the one typeface (docs/design-v2.md): body at its normal width, headlines set wide from the same
+// variable file (the wdth axis). Self-hosted by next/font at build time: no runtime request. "optional": the
+// file is preloaded and normally there in time; if it is not, the fallback stays for that view, so a late
+// font never moves a page (a wide headline swapping in would).
+const archivo = Archivo({
   subsets: ["latin"],
-  display: "swap",
-  variable: "--font-display",
+  axes: ["wdth"],
+  display: "optional",
+  variable: "--font-archivo",
 });
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://listyro.com";
@@ -21,11 +22,11 @@ export const metadata: Metadata = {
   description:
     "A listing workflow and compliance assistant for print-on-demand and apparel sellers: a folder of mockups becomes review-ready drafts, and nothing goes live until you approve it.",
   applicationName: "Listyro",
-  openGraph: { type: "website", siteName: "Listyro", images: [{ url: "/og/home.png", width: 1200, height: 630, alt: "Listyro: from design files to scheduled listings. You approve every one." }] },
+  openGraph: { type: "website", siteName: "Listyro", images: [{ url: "/og/home.png", width: 1200, height: 630, alt: "Listyro: upload your designs, get finished listings with mockups for every shop you run." }] },
   twitter: { card: "summary_large_image", images: ["/og/home.png"] },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#fafaf9" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#ffffff" };
 
 /**
  * The document only. The signed-in app brings its own frame and session
@@ -34,7 +35,7 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, them
  */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={display.variable}>
+    <html lang="en" className={archivo.variable}>
       <body>{children}</body>
     </html>
   );

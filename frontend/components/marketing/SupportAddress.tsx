@@ -16,7 +16,7 @@ export function SupportAddress({ className = "" }: { className?: string }) {
   return (
     <span className={"block min-h-[1.7em] " + className}>
       {email ? (
-        <a key="a" href={`mailto:${email}`} className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4 hover:decoration-brand-600">
+        <a key="a" href={`mailto:${email}`} className="mk-link">
           {email}
         </a>
       ) : (

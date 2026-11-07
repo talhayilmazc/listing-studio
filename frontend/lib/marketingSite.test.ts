@@ -16,7 +16,6 @@ import { article, breadcrumbs, faqPage, organization, softwareApplication } from
 import { PAGES, SITE_URL, cardSlug, metadataFor, pageAt, trail } from "./marketing/pages.ts";
 import { CACHE_FILE, CACHE_PAGE, CACHE_PRIVATE, COMPARE_SLUGS, FEATURE_SLUGS, GUIDE_SLUGS, IDEAS_PATH, MARKETING_PAGES, PRIVATE_WHEN_PRESENT, PUBLIC_FILES, SESSION_COOKIE, cacheRules } from "./marketing/routes.mjs";
 import { TESTIMONIALS } from "./marketing/testimonials.ts";
-import { DEMO_VIDEO } from "./marketing/video.ts";
 import { TOOLS, IDEAS_TOOL } from "./marketing/tools.ts";
 import { HOME, allCopy } from "./homeCopy.ts";
 import { TRADEMARK_NOTICE } from "./legal.ts";
@@ -242,7 +241,7 @@ test("structured data: valid, and only what the pages say", () => {
   }
   const app = softwareApplication();
   assert.deepEqual(app.offers.map((o) => [o.name, o.price, o.priceCurrency]), PLANS.map((p) => [p.name, String(p.price), "USD"]));
-  for (const offer of app.offers) assert.match(offer.description, /No payment is taken today/);
+  for (const offer of app.offers) assert.match(offer.description, /Nothing is charged yet/);
   const faq = faqPage(HELP.groups.flatMap((g) => g.items));
   for (const q of faq.mainEntity) assert.doesNotMatch(q.acceptedAnswer.text, /\]\(/, "no link markup in an answer");
   const crumbs = breadcrumbs("/features/profiles");
@@ -261,7 +260,7 @@ test("structured data: valid, and only what the pages say", () => {
 
 test("Etsy is in no title, share title, JSON-LD name or headline, or h1", () => {
   const h1s = [
-    `${HOME.hero.heading} ${HOME.hero.headingAccent}`, PRICING_HEADING, FEATURES_PAGE.h1, GUIDES_PAGE.h1, COMPARE_PAGE.h1, HELP.h1, FREE_TOOLS.h1, ALTERNATIVES.h1, ...TOOLS.map((t) => t.h1), IDEAS_TOOL.h1,
+    HOME.hero.heading, PRICING_HEADING, FEATURES_PAGE.h1, GUIDES_PAGE.h1, COMPARE_PAGE.h1, HELP.h1, FREE_TOOLS.h1, ALTERNATIVES.h1, ...TOOLS.map((t) => t.h1), IDEAS_TOOL.h1,
     ...FEATURES.map((f) => f.h1), ...GUIDES.map((g) => g.h1), ...COMPARES.map((c) => c.h1),
   ];
   for (const h1 of h1s) assert.doesNotMatch(h1, /etsy/i, h1);
@@ -310,7 +309,7 @@ test("a title, share heading, JSON-LD name or h1 naming Etsy stops the productio
 
 test("Etsy's name stays where it describes: in the descriptions, the copy and the notice", () => {
   assert.match(HOME.description, /Etsy listings/);
-  assert.match(HOME.hero.eyebrow, /for Etsy sellers/);
+  assert.match(HOME.description, /for print-on-demand sellers/);
   assert.match(pageAt("/features/ai-listing-writer").description, /for Etsy sellers/);
   assert.match(TRADEMARK_NOTICE, /not endorsed or certified by Etsy/);
 });
@@ -496,16 +495,17 @@ test("testimonials come only from their file, and an empty file hides the sectio
 
 test("the home page has what was asked for", () => {
   assert.equal(HOME.how.steps.length, 4);
-  assert.equal(HOME.apart.items.length, 3);
-  assert.match(HOME.hero.heading, /From design files to scheduled listings/);
-  assert.equal(DEMO_VIDEO, null);
+  assert.equal(HOME.why.items.length, 3);
+  assert.match(HOME.hero.heading, /^Upload your designs\./);
   const sections = read("components/marketing/Sections.tsx");
-  assert.match(sections, /data-testid="demo-video-slot"/);
   assert.match(sections, /STEP_SCREENS\[i\]/);
   assert.match(sections, /from "@\/lib\/plans"/);
   // The teaser's figures are read, not typed, and the notice stands beside them.
   assert.doesNotMatch(sections, /\$\d/);
   assert.match(sections, /\{PLANNED_NOTICE\}/);
+  // The demonstration replaced the video slot.
+  assert.ok(!fs.existsSync(path.join(FRONTEND, "lib/marketing/video.ts")));
+  assert.match(read("app/(marketing)/page.tsx"), /<HeroDemo \/>/);
 });
 
 test("cache policy: private unless listed, and never public for a session or a router request", () => {

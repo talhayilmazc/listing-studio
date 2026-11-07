@@ -10,24 +10,23 @@ export default function RequestInvite() {
   return (
     <>
     <JsonLd data={breadcrumbs("/request-invite")} />
-    <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-12 px-4 pb-24 pt-12 sm:px-6 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-20">
+    <div className="mk-wrap grid grid-cols-1 gap-12 pb-24 pt-10 sm:pt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-20">
       <div className="min-w-0">
-        <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Invite-only</p>
-        <h1 className="mt-3 font-display text-[clamp(2.6rem,6vw,4.25rem)] leading-[1.02] text-slate-900">
+        <h1 className="mk-h1">
           Request an invite.
         </h1>
-        <p className="mt-5 max-w-[32rem] text-[1.0625rem] leading-relaxed text-slate-600">
+        <p className="mk-lead mt-5 max-w-[32rem]">
           Listyro is invite-only while we onboard sellers in small groups. Tell us a little about your shop and
           we&apos;ll email you when a spot opens. You can leave whenever you like.
         </p>
-        <ul className="mt-8 max-w-[32rem] space-y-3 text-[0.9375rem] text-slate-600">
+        <ul className="mk-body mt-8 max-w-[32rem] space-y-3">
           {[
             "Made for print-on-demand and apparel sellers who add new designs often",
             "You need an Etsy shop you own, with at least one listing set up the way you like",
             "We read every request ourselves and reply by email",
           ].map((t) => (
             <li key={t} className="flex gap-3">
-              <span aria-hidden className="mt-[0.6rem] h-1 w-1 shrink-0 rounded-full bg-brand-600" />
+              <span aria-hidden className="mt-[0.6rem] h-2 w-2 shrink-0 bg-ink" />
               <span>{t}</span>
             </li>
           ))}

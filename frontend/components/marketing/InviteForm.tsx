@@ -61,13 +61,13 @@ export function InviteForm() {
   if (state === "sent") {
     return (
       <div role="status" className="card p-6 sm:p-8">
-        <h2 className="font-display text-3xl text-slate-900">Thank you.</h2>
+        <h2 className="text-3xl font-extrabold text-ink [font-stretch:125%]">Thank you.</h2>
         <p className="mt-3 text-[1.0625rem] leading-relaxed text-slate-600">
           We read every request ourselves. When a spot opens, we will email an invite to{" "}
           <span className="font-medium text-slate-900">{email.trim()}</span>, and it will work only for that address.
         </p>
         <p className="mt-6 text-sm text-slate-500">
-          <a href="/" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">
+          <a href="/" className="mk-link">
             Back to the home page
           </a>
         </p>
@@ -77,7 +77,7 @@ export function InviteForm() {
 
   return (
     <form onSubmit={submit} className="card space-y-5 p-6 sm:p-8" noValidate={false}>
-      <p className="rounded-lg border border-slate-200 bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700" data-testid="invite-copy">
+      <p className="rounded-lg border border-heather bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700" data-testid="invite-copy">
         Listyro is invite-only while we onboard sellers in small groups. We&apos;ll email you when a spot opens.
       </p>
       {custom && (

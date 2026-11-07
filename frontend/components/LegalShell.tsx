@@ -51,21 +51,20 @@ export function LegalShell({
 
   return (
     <OperatorContext.Provider value={meta}>
-      <div className="mx-auto w-full max-w-[1240px] px-4 pb-20 pt-12 sm:px-6 sm:pt-16">
+      <div className="mk-wrap pb-20 pt-10 sm:pt-14">
         <header className="max-w-[46rem]">
-          <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">Legal</p>
-          <h1 className="mt-3 font-display text-[clamp(2.6rem,6vw,4.25rem)] leading-[1.02] text-slate-900">{title}</h1>
-          <p className="mt-4 text-sm text-slate-500"><span>Last updated <span>{updated}</span></span></p>
+          <h1 className="mk-h1">{title}</h1>
+          <p className="mt-4"><span className="mk-chip"><span>Last updated <span>{updated}</span></span></span></p>
         </header>
 
         <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-16">
           {/* Wide screens: the contents stay beside the text. */}
           <nav aria-label="Contents" className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-            <p className="label">Contents</p>
-            <ol className="mt-2 space-y-1.5 border-l border-slate-200 text-sm">
+            <p className="text-[0.9375rem] font-bold text-ink">Contents</p>
+            <ol className="mt-3 space-y-1.5 border-l-2 border-heather text-[0.9375rem]">
               {sections.map((s, i) => (
                 <li key={s.id}>
-                  <a href={`#${s.id}`} className="tap -ml-px block border-l border-transparent py-0.5 pl-3 text-slate-600 hover:border-brand-600 hover:text-slate-900">
+                  <a href={`#${s.id}`} className="tap -ml-0.5 block border-l-2 border-transparent py-0.5 pl-3 text-slate-600 hover:border-ink hover:text-ink">
                     <span translate="no" className="tabular-nums text-slate-500"><span><span>{i + 1}</span>.</span></span> <span><span>{s.title}</span></span>
                   </a>
                 </li>
@@ -93,10 +92,10 @@ export function Section({
 }) {
   return (
     <section id={id} className="scroll-mt-24">
-      <h2 className="font-display text-3xl leading-tight text-slate-900">
+      <h2 className="mk-h2 !text-[1.5rem] sm:!text-[1.75rem]">
         <span translate="no" className="tabular-nums text-slate-500"><span><span>{n}</span>.</span></span> <span><span>{title}</span></span>
       </h2>
-      <div className="mt-4 space-y-4 text-[1.0625rem] leading-relaxed text-slate-700">{children}</div>
+      <div className="mk-body mt-4 space-y-4">{children}</div>
     </section>
   );
 }
@@ -125,7 +124,7 @@ export function SupportEmail() {
   const email = meta?.support_email ?? "";
   if (!email) return <span className="text-slate-500">…</span>;
   return (
-    <a href={`mailto:${email}`} className="font-medium text-brand-700 hover:underline">
+    <a href={`mailto:${email}`} className="mk-link">
       {email}
     </a>
   );
@@ -145,10 +144,11 @@ export function Items({ children }: { children: React.ReactNode }) {
   return <ul className="list-disc space-y-2 pl-5 marker:text-slate-300">{children}</ul>;
 }
 
-/** Emphasised block for the passages the law or Etsy's terms require be conspicuous. */
+/** Emphasised block for the passages the law or Etsy's terms require be conspicuous: in capitals, as such
+ *  passages are set by convention. Legal text, not a label (docs/design-v2.md keeps labels in sentence case). */
 export function Conspicuous({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm uppercase leading-relaxed tracking-wide text-slate-700">
+    <div className="border-l-4 border-ink bg-fabric p-4 text-sm uppercase leading-relaxed text-ink">
       {children}
     </div>
   );

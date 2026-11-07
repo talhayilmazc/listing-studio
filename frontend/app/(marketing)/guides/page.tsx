@@ -12,14 +12,14 @@ export default function Guides() {
     <div className={PROSE + " pb-20"}>
       <JsonLd data={breadcrumbs("/guides")} />
       <PageHead path="/guides" h1={GUIDES_PAGE.h1} lead={GUIDES_PAGE.lead} />
-      <ul className="divide-y divide-slate-200 border-y border-slate-200">
+      <ul className="divide-y divide-heather border-y border-heather">
         {GUIDES.map((guide) => (
-          <li key={guide.slug} className="py-5" data-testid="guide-link">
-            <h2 className="text-[1.1875rem] font-medium leading-snug text-slate-900">
-              <a href={`/guides/${guide.slug}`} className="tap hover:underline">{guide.h1}</a>
+          <li key={guide.slug} className="py-6" data-testid="guide-link">
+            <h2 className="mk-h3 !text-[1.375rem]">
+              <a href={`/guides/${guide.slug}`} className="tap hover:underline hover:decoration-tag hover:decoration-[3px] hover:underline-offset-[5px]">{guide.h1}</a>
             </h2>
-            <p className="mt-1 text-[0.9375rem] leading-relaxed text-slate-700">{guide.lead}</p>
-            <p className="mt-1 text-sm text-slate-600">{`Checked ${longDate(guide.checked)}`}</p>
+            <p className="mk-body mt-2">{guide.lead}</p>
+            <p className="mt-2"><span className="mk-chip">{`Checked ${longDate(guide.checked)}`}</span></p>
           </li>
         ))}
       </ul>

@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return metadataFor(`/compare/${(await params).slug}`);
 }
 
-const H2 = "pt-8 font-display text-[1.85rem] leading-tight text-slate-900";
+const H2 = "mk-h2 pt-10 !text-[1.5rem] sm:!text-[1.75rem]";
 
 function Alternatives() {
   const path = `/compare/${ALTERNATIVES.slug}`;
@@ -22,17 +22,17 @@ function Alternatives() {
     <div className={PROSE + " pb-20"}>
       <JsonLd data={breadcrumbs(path)} />
       <PageHead path={path} h1={ALTERNATIVES.h1} lead={ALTERNATIVES.lead} />
-      <ul className="space-y-4">
+      <ul className="space-y-6">
         {ALTERNATIVES.options.map((option) => (
-          <li key={option.name} className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="text-[1.1875rem] font-medium text-slate-900"><a href={option.href} className="tap hover:underline">{option.name}</a></h2>
-            <p className="mt-1 text-[0.9375rem] leading-relaxed text-slate-700">{option.body}</p>
-            <p className="mt-2 text-[0.9375rem] text-slate-700"><strong className="font-medium text-slate-900">Fits best: </strong><span>{option.fits}</span></p>
+          <li key={option.name} className="border-t border-heather pt-5">
+            <h2 className="mk-h3 !text-[1.375rem]"><a href={option.href} className="mk-link">{option.name}</a></h2>
+            <p className="mk-body mt-2">{option.body}</p>
+            <p className="mk-body mt-2"><strong className="font-semibold text-ink">Fits best: </strong><span>{option.fits}</span></p>
           </li>
         ))}
       </ul>
-      <p className="mt-6 text-[1.0625rem] leading-relaxed text-slate-700">{ALTERNATIVES.listyro}</p>
-      <p className="mt-4 text-sm text-slate-600" data-testid="last-checked">Last checked 1 November 2026. The comparison pages link to each product&apos;s own pages.</p>
+      <p className="mt-6 mk-body">{ALTERNATIVES.listyro}</p>
+      <p className="mk-small mt-4" data-testid="last-checked">Last checked 1 November 2026. The comparison pages link to each product&apos;s own pages.</p>
       <InviteCta line="Listyro is invite-only while we onboard sellers in small groups." />
     </div>
   );
@@ -54,16 +54,16 @@ export default async function ComparePage({ params }: Props) {
         rows={c.rows.map((row) => [row.label, row.listyro, row.them])}
       />
       <h2 className={H2}>{`What ${c.them} does that Listyro does not`}</h2>
-      <ul className="mt-3 list-disc space-y-2 pl-5 text-[1.0625rem] leading-relaxed text-slate-700" data-testid="they-do">
+      <ul className="mt-3 list-disc space-y-2 pl-5 mk-body" data-testid="they-do">
         {c.theirs.map((item) => <li key={item}><Rich text={item} /></li>)}
       </ul>
       <h2 className={H2}>What Listyro does differently</h2>
-      <ul className="mt-3 list-disc space-y-2 pl-5 text-[1.0625rem] leading-relaxed text-slate-700">
+      <ul className="mt-3 list-disc space-y-2 pl-5 mk-body">
         {c.ours.map((item) => <li key={item}><Rich text={item} /></li>)}
       </ul>
       <h2 className={H2}>Which fits you</h2>
-      <p className="mt-3 text-[1.0625rem] leading-relaxed text-slate-700">{`Choose ${c.them} if ${c.chooseThem}`}</p>
-      <p className="mt-3 text-[1.0625rem] leading-relaxed text-slate-700">{`Choose Listyro if ${c.chooseUs}`}</p>
+      <p className="mt-3 mk-body">{`Choose ${c.them} if ${c.chooseThem}`}</p>
+      <p className="mt-3 mk-body">{`Choose Listyro if ${c.chooseUs}`}</p>
       <Sources sources={c.sources} checked={c.checked} />
       <InviteCta line="Listyro is invite-only while we onboard sellers in small groups." />
     </div>

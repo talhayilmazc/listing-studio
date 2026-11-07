@@ -93,15 +93,13 @@ def test_the_notice_is_in_every_footer_beside_connect_and_in_the_terms() -> None
     assert uses("components/AuthShell.tsx")  # sign-in, sign-up, the acceptance screen
     assert uses("app/(app)/connect/page.tsx")  # beside "Connect a shop"
     assert uses("app/(marketing)/terms/page.tsx")
-    # Prominent on the home page, not only in its footer (Etsy's Commercial Access review
-    # criteria): in the hero, before the first section below it.
+    # The home page carries it in its footer, as every public page does (site v2, 7 November 2026, the
+    # owner's decision: the box under the hero was removed; docs/design-v2.md, docs/commercial-application.md).
     home = (ROOT / "frontend/app/(marketing)/page.tsx").read_text(encoding="utf-8")
-    assert uses("app/(marketing)/page.tsx")
-    hero = home[home.index('aria-labelledby="hero-title"'): home.index("<How />")]
-    assert 'data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>' in hero
+    assert "{TRADEMARK_NOTICE}" not in home and "home-trademark-notice" not in home
     # Once in each place, never twice (e2e/layout.spec.ts checks the rendered pages too).
     for place in ("components/marketing/Site.tsx", "components/Footer.tsx", "components/AuthShell.tsx",
-                  "app/(app)/connect/page.tsx", "app/(marketing)/terms/page.tsx", "app/(marketing)/page.tsx"):
+                  "app/(app)/connect/page.tsx", "app/(marketing)/terms/page.tsx"):
         assert (ROOT / "frontend" / place).read_text(encoding="utf-8").count("{TRADEMARK_NOTICE}") == 1, place
     # The frames that carry those footers are the ones every page is rendered in.
     assert "<SiteFooter />" in (ROOT / "frontend/app/(marketing)/layout.tsx").read_text(encoding="utf-8")

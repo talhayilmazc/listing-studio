@@ -1,12 +1,12 @@
 // The public home page keeps its rules: what it may never say, that Etsy's name only describes,
-// that its figures are the ones the code uses, and that every call to action leads to the invite
-// form. Also: no user-facing text says "beta".
+// that its demonstration is the demo account's own data, and that every call to action is the configured
+// one (the invite form while billing is off). Also: no user-facing text says "beta".
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { HOME, allCopy, headings } from "./homeCopy.ts";
-import { RETENTION } from "./legal.ts";
+import { BILLING_ON, PRIMARY_CTA } from "./marketing/cta.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
 const read = (relative: string) => fs.readFileSync(path.join(FRONTEND, relative), "utf8");
@@ -14,7 +14,7 @@ const read = (relative: string) => fs.readFileSync(path.join(FRONTEND, relative)
 // The files that make the home page. Its header and footer belong to the site's
 // frame (components/marketing/Site.tsx): the footer's trademark notice is
 // required text and is checked by backend/tests/test_legal_texts.py.
-const HOME_SOURCES = ["lib/homeCopy.ts", "app/(marketing)/page.tsx", "components/marketing/Sections.tsx"];
+const HOME_SOURCES = ["lib/homeCopy.ts", "app/(marketing)/page.tsx", "components/marketing/Sections.tsx", "components/marketing/HeroDemo.tsx"];
 
 // Never said or implied on the home page. "production partner" is the one
 // exception: it is Etsy's own name for a field on a listing, not a claim about us.
@@ -51,17 +51,17 @@ test("Listyro is the product's name and leads the title; Etsy is in no heading t
   // The page takes its title from the registry, which reads it from here, and its h1 from here.
   const page = read("app/(marketing)/page.tsx");
   assert.match(page, /metadataFor\("\/"\)/);
-  assert.match(page, /<h1[^>]*>\s*<span>\{`\$\{hero\.heading\} `\}<\/span>\s*<em[^>]*>\{hero\.headingAccent\}<\/em>\s*<\/h1>/);
+  assert.match(page, /<h1 id="hero-title" className="mk-display[^"]*">\{hero\.heading\}<\/h1>/);
   assert.equal((page.match(/<h1/g) ?? []).length, 1);
+  assert.equal(HOME.hero.heading, "Upload your designs. Get finished listings, with mockups, for every shop you run.");
 });
 
-test("the trademark notice is in the hero, in full, not only in the footer", () => {
+test("the trademark notice is in the footer of the home page, as of every page, and not in the hero (site v2)", () => {
+  // The owner's decision (docs/design-v2.md): the hero no longer carries a box of its own.
   const page = read("app/(marketing)/page.tsx");
-  assert.match(page, /import \{ TRADEMARK_NOTICE \} from "@\/lib\/legal";/);
-  const hero = page.slice(page.indexOf('aria-labelledby="hero-title"'), page.indexOf("<How />"));
-  assert.match(hero, /data-testid="home-trademark-notice">\{TRADEMARK_NOTICE\}<\/p>/);
-  // Readable at a glance: not the footer's muted grey and not smaller than body text.
-  assert.match(hero, /text-sm[^"]*text-slate-700/);
+  assert.doesNotMatch(page, /home-trademark-notice|\{TRADEMARK_NOTICE\}/);
+  assert.match(read("components/marketing/Site.tsx"), /data-testid="trademark-notice">\{TRADEMARK_NOTICE\}<\/p>/);
+  assert.match(read("app/(marketing)/layout.tsx"), /<SiteFooter \/>/);
 });
 
 test("no forbidden word or promise is anywhere on the home page", () => {
@@ -83,35 +83,50 @@ test("the home page's words are all in the copy module, not typed into the compo
   }
 });
 
-test("every call to action leads to the invite form", () => {
-  assert.deepEqual(HOME.hero.primary, { label: "Request an invite", href: "/request-invite" });
+test("every call to action is the configured one, and leads to the invite form while billing is off", () => {
+  assert.equal(BILLING_ON, false);
+  assert.deepEqual(PRIMARY_CTA, { label: "Request an invite", href: "/request-invite" });
+  assert.deepEqual(HOME.hero.primary, PRIMARY_CTA);
+  assert.deepEqual(HOME.closing.primary, PRIMARY_CTA);
   assert.deepEqual(HOME.hero.secondary, { label: "See how it works", href: "#how-it-works" });
   assert.equal(HOME.how.id, "how-it-works");
-  assert.deepEqual(HOME.closing.primary, { label: "Request an invite", href: "/request-invite" });
   const page = read("app/(marketing)/page.tsx");
   assert.match(page, /<a href=\{hero\.primary\.href\}[^>]*data-testid="hero-cta">\{hero\.primary\.label\}<\/a>/);
   assert.match(read("components/marketing/Sections.tsx"), /<a href=\{c\.primary\.href\}[^>]*data-testid="closing-cta">\{c\.primary\.label\}<\/a>/);
+  // The header and every page's closing box take the label from the same switch; "Start free" is its other side.
+  assert.match(read("components/marketing/Site.tsx"), /<a href=\{PRIMARY_CTA\.href\}[^>]*>\{PRIMARY_CTA\.label\}<\/a>/);
+  assert.match(read("components/marketing/Page.tsx"), /<a href=\{PRIMARY_CTA\.href\} className="mk-btn">\{PRIMARY_CTA\.label\}<\/a>/);
+  assert.match(read("lib/marketing/cta.ts"), /\{ label: "Start free", href: "\/register" \}/);
   // The form the buttons lead to exists, as do the pages the home page links to.
   for (const route of ["request-invite", "pricing", "terms", "privacy", "contact"]) {
     assert.ok(fs.existsSync(path.join(FRONTEND, "app/(marketing)", route, "page.tsx")), route);
   }
-  assert.match(read("components/marketing/Site.tsx"), /<a href="\/request-invite" className="btn-primary[^"]*">Request an invite<\/a>/);
   assert.equal(HOME.hero.note, "Invite-only early access. No payment is taken today.");
 });
 
-test("the page has the sections it was asked for, in size", () => {
-  assert.equal(HOME.apart.items.length, 3);
+test("the page has the sections it was asked for, in order and in size", () => {
+  assert.equal(HOME.why.items.length, 3);
   assert.equal(HOME.how.steps.length, 4);
-  assert.equal(HOME.who.items.length, 3);
-  assert.ok(HOME.faq.items.length >= 6 && HOME.faq.items.length <= 8);
+  assert.deepEqual(HOME.faq.items.map((i) => i.q), ["What counts as a listing?", "Does anything go live without me?", "Can I use several shops?", "Can I cancel?"]);
+  const page = read("app/(marketing)/page.tsx");
+  const order = ["<HeroDemo />", "<How />", "<Why />", "<Testimonials />", "<PricingTeaser />", "<Faq />", "<Closing />"].map((piece) => page.indexOf(piece));
+  assert.ok(order.every((at) => at !== -1), String(order));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  // Retention periods and processors are in Help and the Privacy Policy, not the home page's questions.
+  for (const item of HOME.faq.items) assert.doesNotMatch(item.a, /Anthropic|\d+ days/, item.q);
 });
 
-test("figures quoted on the home page are the ones the Privacy Policy prints", () => {
-  const designs = HOME.faq.items.find((i) => i.q === "What happens to my designs?")!.a;
-  assert.ok(designs.includes(`deleted ${RETENTION.uploadsAfterDraftsDays} days after`));
-  assert.ok(designs.includes(`after ${RETENTION.uploadsOtherwiseDays} days otherwise`));
-  const leave = HOME.faq.items.find((i) => i.q === "How do I stop using it?")!.a;
-  assert.ok(leave.includes(`within ${RETENTION.accountDeletionDays} days at the latest`));
+test("the hero's demonstration is the demo account's own sample data", () => {
+  const seed = fs.readFileSync(path.join(FRONTEND, "..", "backend", "scripts", "demo_screens_seed.py"), "utf8");
+  const d = HOME.hero.demo;
+  assert.ok(seed.includes(`"${d.title}"`), d.title);
+  assert.equal(d.tags.length, 13);
+  assert.ok(seed.includes(d.tags.map((t) => `"${t}"`).join(", ")), "the 13 tags of NW1042");
+  for (const shop of d.shops) assert.ok(seed.includes(`"${shop.name}"`), shop.name);
+  assert.match(d.caption, /^Sample data from our demo account\./);
+  // The pictures are the mockup engine's, from backend/scripts/hero_assets.py.
+  assert.match(read("components/marketing/HeroDemo.tsx"), /backend\/scripts\/hero_assets\.py/);
+  for (const file of ["design.webp", "mockup-white.webp", "mockup-mustard.webp"]) assert.ok(fs.existsSync(path.join(FRONTEND, "public/hero", file)), file);
 });
 
 test("no public page states a maximum or a large number of shops", () => {

@@ -22,8 +22,8 @@ test("every image a page points at is a file in public/, and public/ holds nothi
   assert.deepEqual(found.missing, []);
   // A picture no page uses is dead weight in every image and every deploy: remove it with the page.
   assert.deepEqual(found.unused, []);
-  // The scan sees what the site uses: every screenshot, in both widths. Share cards are drawn at build time.
-  const screens = Object.values(SCREENS).flatMap((screen) => [screen.src, screen.small]);
+  // The scan sees what the site uses: every crop, wide and phone. Share cards are drawn at build time.
+  const screens = Object.values(SCREENS).flatMap((screen) => [screen.src, screen.phone.src]);
   assert.ok(screens.length >= 8);
   for (const src of screens) assert.ok(found.referenced.includes(src), src);
   assert.deepEqual(found.referenced.filter((asset) => asset.startsWith("/og")), []);
@@ -48,7 +48,7 @@ test("the build and the production image check the same list, and name no pictur
 });
 
 test("pictures the site no longer uses are named nowhere", () => {
-  const gone = /og-v2|analytics-content|batch-content|phone-2\.webp|review-2\.webp|review-card-2/;
+  const gone = /og-v2|analytics-content|batch-content|phone-2\.webp|review-2\.webp|review-card-2|site-(upload|write|review|schedule|mockups|shops|profiles|report)(-560)?\.webp/;
   const look = (dir: string, depth = 0): string[] =>
     fs.readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((item) => {
       const relative = `${dir}/${item.name}`;

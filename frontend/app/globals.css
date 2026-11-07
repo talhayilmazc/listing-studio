@@ -2,31 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens (docs/ui-redesign.md §1). Warm neutral base, one deep-violet
-   accent used sparingly. Deliberately far from Etsy orange (ToU §2). */
+/* Brand tokens (docs/design-v2.md): the print shop. Paper, ink, heather lines, fabric panels, one tag-yellow
+   accent and a go-green for status only. Far from Etsy orange on purpose (ToU §2). The site and the app
+   read the same values (tailwind.config.ts). */
 :root {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Archivo, self-hosted by next/font (app/layout.tsx sets --font-archivo). */
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
 
-  --bg: #fafaf9;
+  --paper: #ffffff;
+  --ink: #14213d;
+  --heather: #d9dce1;
+  --fabric: #f3f4f6;
+  --tag: #ffcf33;
+  --go: #1f8a4c;
+
+  --bg: #f7f8fa;
   --surface: #ffffff;
-  --surface-sunken: #f5f5f4;
-  --border: #e7e5e4;
-  --border-strong: #d6d3d1;
-  --text: #1c1917;
-  --text-secondary: #57534e;
-  --text-muted: #706963;
-  --accent: #4c1d95;
-  --accent-hover: #5b21b6;
-  --accent-subtle: #f5f3ff;
+  --surface-sunken: #f3f4f6;
+  --border: #d9dce1;
+  --border-strong: #c4c8cf;
+  --text: #14213d;
+  --text-secondary: #474d58;
+  --text-muted: #5f6673;
+  --accent: #14213d;
+  --accent-hover: #2b3e6b;
+  --accent-subtle: #eef1f6;
 
-  /* Persistent left rail (docs/ui-direction-v2.md §6). The dark rail against the
-     warm-light content area is the layered contrast the direction is built on. */
-  --rail: #1c1917;
-  /* Rail text 11.7:1 on the rail; the active entry is white on a lighter wash. */
-  --rail-text: #d6d3d1;
-  --rail-heading: #a8a29e;
-  --rail-active: #fafaf9;
-  --success: #166534;
+  /* Persistent left rail: ink, with heather text (11.6:1) and the active entry in white. */
+  --rail: #14213d;
+  --rail-text: #d9dce1;
+  /* Section headings in the rail: 7.3:1 on ink. */
+  --rail-heading: #a9b0be;
+  --rail-active: #ffffff;
+  --success: #1a7340;
   --warning: #a16207;
   --danger: #991b1b;
 }
@@ -42,7 +50,19 @@ html {
 
 body {
   @apply bg-stone-50 text-slate-800 antialiased;
-  font-feature-settings: "cv11";
+  font-family: var(--font-sans);
+}
+
+/* Archivo set wide: headlines and large numbers. The variable file carries widths 62 to 125. */
+.font-display {
+  font-stretch: 112%;
+  font-weight: 700;
+}
+/* The wordmark: Listyro in Archivo at its widest. */
+.wordmark {
+  font-stretch: 125%;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 @layer components {
@@ -172,20 +192,145 @@ body {
   }
 }
 
-/* Public site. Motion is opacity and transform only, and off entirely for
-   anyone who asks for reduced motion. */
+/* ---------- The public site (docs/design-v2.md) ----------
+   Archivo throughout: headlines set wide (wdth 125, 800), body at normal width. Sentence case, no tracked
+   capitals. Shapes by role: panels on fabric, plan tags with a chamfered corner and a punched hole, SKU
+   chips, detail crops in a heather frame. The one motion is the hero's demonstration, once, and none at all
+   for anyone who asks for reduced motion. */
+.site {
+  font-family: var(--font-sans);
+}
+.site :focus-visible {
+  outline: 2px solid #14213d;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* Form labels on the public site: sentence case, never tracked capitals. */
+.site .label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #14213d;
+}
+.mk-wrap {
+  @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8;
+}
+.mk-display,
+.mk-h1,
+.mk-h2 {
+  font-stretch: 125%;
+  font-weight: 800;
+  color: #14213d;
+  text-wrap: balance;
+}
+.mk-display {
+  font-size: clamp(2rem, 1.35rem + 2.6vw, 3.125rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.mk-h1 {
+  font-size: clamp(2rem, 1.5rem + 2.2vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+}
+.mk-h2 {
+  font-size: clamp(1.625rem, 1.3rem + 1.4vw, 2rem);
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+}
+.mk-h3 {
+  font-size: 1.1875rem;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #14213d;
+}
+.mk-lead {
+  font-size: clamp(1.125rem, 1.05rem + 0.3vw, 1.25rem);
+  line-height: 1.55;
+  color: #363c48;
+  max-width: 62ch;
+}
+.mk-body {
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: #363c48;
+}
+.mk-small {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: #474d58;
+}
+/* Buttons say what happens; no arrows. Ink, and a 48 px target everywhere. */
+.mk-btn,
+.mk-btn-line {
+  @apply inline-flex min-h-[3rem] select-none items-center justify-center whitespace-nowrap rounded-[4px] px-5 text-[0.9375rem] font-semibold transition-colors;
+}
+.mk-btn {
+  @apply bg-ink text-white hover:bg-[#2b3e6b];
+}
+.mk-btn-line {
+  @apply border-[1.5px] border-ink bg-white text-ink hover:bg-fabric;
+}
+/* A text link: ink, underlined in tag yellow (the highlighter), ink on hover. */
+.mk-link {
+  @apply font-semibold text-ink underline decoration-tag decoration-[3px] underline-offset-[5px] hover:decoration-ink;
+}
+/* A SKU label: the small chip that carries a code, a count or a time. */
+.mk-chip {
+  @apply inline-flex items-center rounded-[3px] border border-heather bg-fabric px-2 py-0.5 text-[0.8125rem] font-semibold leading-5 text-ink;
+  font-variant-numeric: tabular-nums;
+}
+/* A hang tag: a chamfered top-left corner and a punched hole. */
+.mk-tag {
+  position: relative;
+  clip-path: polygon(1.25rem 0, 100% 0, 100% 100%, 0 100%, 0 1.25rem);
+}
+.mk-tag::before {
+  content: "";
+  position: absolute;
+  top: 0.875rem;
+  left: 0.875rem;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1.5px #14213d;
+}
+/* A real crop of the app, at its natural size, in a heather frame. */
+.mk-crop {
+  @apply relative overflow-hidden rounded-[6px] border border-heather bg-white;
+}
+
+/* The hero's demonstration: every piece holds its final place from the first frame (no layout shift);
+   with motion allowed, each appears in turn once, about four seconds in all, then rests. */
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
   }
-  .mk-caption {
-    animation: mk-rise 0.45s ease-out both;
+  .hd-in {
+    animation: hd-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: var(--d, 0s);
+  }
+  .hd-pop {
+    animation: hd-pop 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: var(--d, 0s);
   }
 }
-@keyframes mk-rise {
+@keyframes hd-in {
   from {
     opacity: 0;
-    transform: translateY(0.3rem);
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hd-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
   }
   to {
     opacity: 1;

@@ -22,6 +22,7 @@ export const HELP = {
         { q: "Why was my listing not approved?", a: "Only what [Etsy would refuse](https://developers.etsy.com/documentation/reference/#operation/createDraftListing) stops a listing, along with the trademark filter if it is on. The card says what to change. Other points appear as notes and do not stop anything." },
         { q: "A draft is half made. What now?", a: "Open the review page or Overview. Unfinished drafts are listed with the step that failed and Etsy's reason. Finish draft carries on with the same listing; it never makes a second one." },
         { q: "Does Listyro delete anything in my shop?", a: "No. Listyro never deletes anything in your shop. If it finds a draft that has been replaced, it lists it for you to delete on Etsy." },
+        { q: "Will my listings rank higher?", a: "Nobody outside Etsy can promise that, and we do not. The text follows Etsy's own published guidance, and the search-readiness checklist says which of it a listing meets." },
       ],
     },
     {
@@ -42,7 +43,8 @@ export const HELP = {
     {
       title: "Plans",
       items: [
-        { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken. The plans we intend to offer after launch are on the [pricing page](/pricing) and may change before launch." },
+        { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken. The launch prices are on the [pricing page](/pricing)." },
+        { q: "What counts as a listing?", a: "In the launch plans, a listing is one design written by AI, with all its photos. Rewriting the same design is free up to 3 times. Listings you write yourself, photos, and sending a listing to more shops do not count. See the [pricing page](/pricing)." },
         { q: "Who makes Listyro?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or certified by Etsy." },
       ],
     },

@@ -175,17 +175,10 @@ for (const path of ["/", "/terms", "/pricing"]) {
     await settle(page);
     const found = await notices(page);
     expect(found.each.every((n) => n === 1), `${path}: a place shows the notice more than once`).toBe(true);
-    const expected = path === "/" ? ["home-trademark-notice", "footer"] : path === "/terms" ? ["terms-trademark-notice", "footer"] : ["footer"];
+    // Site v2 (docs/design-v2.md): the home page carries it in its footer, as every page does; the Terms also in their text.
+    const expected = path === "/terms" ? ["terms-trademark-notice", "footer"] : ["footer"];
     expect(found.places.sort(), `${path}: where the notice is`).toEqual(expected.sort());
     expect(found.inText, `${path}: the notice on the page`).toBe(expected.length);
-    if (path === "/") {
-      // Above the fold: the whole box in the first screen, at this width.
-      const box = await page.getByTestId("home-trademark-notice").boundingBox();
-      const { height } = page.viewportSize()!;
-      expect(box, "the home page has the notice box").not.toBeNull();
-      expect(box!.y + box!.height, "the notice box is above the fold").toBeLessThanOrEqual(height);
-      await expect(page.getByTestId("home-trademark-notice")).toHaveText(NOTICE);
-    }
   });
 }
 

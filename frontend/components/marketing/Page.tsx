@@ -1,6 +1,7 @@
 import { jsonLdNames, refuseEtsy } from "@/lib/marketing/brandRule";
 import type { Block, Source } from "@/lib/marketing/content";
 import { linksIn, longDate } from "@/lib/marketing/content";
+import { PRIMARY_CTA } from "@/lib/marketing/cta";
 import { trail } from "@/lib/marketing/pages";
 import type { Screen } from "@/lib/marketing/screens";
 
@@ -9,9 +10,10 @@ import type { Screen } from "@/lib/marketing/screens";
  * loads a whole page, which the edge can answer, and no router request reaches the server.
  */
 
-export const WRAP = "mx-auto w-full max-w-[1240px] px-4 sm:px-6";
-export const PROSE = "mx-auto w-full max-w-[46rem] px-4 sm:px-6";
-const LINK = "font-medium text-brand-700 underline decoration-brand-100 underline-offset-4 hover:decoration-brand-600";
+export const WRAP = "mk-wrap";
+/** A reading column: the measure stays under 75 characters. */
+export const PROSE = "mx-auto w-full max-w-[44rem] px-4 sm:px-6";
+const LINK = "mk-link";
 
 /** One block of JSON-LD. "<" is escaped so no text can end the script element. */
 export function JsonLd({ data }: { data: unknown }) {
@@ -42,14 +44,14 @@ export function Rich({ text }: { text: string }) {
 export function Crumbs({ path }: { path: string }) {
   const pages = trail(path);
   return (
-    <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+    <nav aria-label="Breadcrumb" className="text-[0.9375rem] text-slate-600">
       <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         {pages.map((page, i) => (
           <li key={page.path} className="flex items-center gap-1.5">
             {i > 0 && <span key="sep" aria-hidden>/</span>}
             {i < pages.length - 1
-              ? <a key="link" href={page.path} className="tap hover:text-slate-900">{page.crumb}</a>
-              : <span key="here" aria-current="page" className="text-slate-800">{page.crumb}</span>}
+              ? <a key="link" href={page.path} className="tap hover:text-ink hover:underline">{page.crumb}</a>
+              : <span key="here" aria-current="page" className="font-medium text-ink">{page.crumb}</span>}
           </li>
         ))}
       </ol>
@@ -62,44 +64,69 @@ export function PageHead({ path, h1, lead, children }: { path: string; h1: strin
   return (
     <header className="pb-8 pt-8 sm:pb-10 sm:pt-12">
       <Crumbs path={path} />
-      <h1 className="mt-5 font-display text-[clamp(2.2rem,5vw,3.5rem)] leading-[1.06] text-slate-900">{h1}</h1>
-      <p className="mt-4 max-w-[44rem] text-[1.0625rem] leading-relaxed text-slate-700 sm:text-lg"><Rich text={lead} /></p>
+      <h1 className="mk-h1 mt-5 max-w-[22ch]">{h1}</h1>
+      <p className="mk-lead mt-4"><Rich text={lead} /></p>
       {children}
     </header>
   );
 }
 
-/** A product screenshot from the synthetic demo account, in the width the screen needs. */
-export function Shot({ screen, priority = false, sizes = "(min-width: 768px) 46rem, 100vw" }: { screen: Screen; priority?: boolean; sizes?: string }) {
+/**
+ * A crop of the real app from the synthetic demo account (docs/marketing-screens.md; scripts/marketing-shots.mjs
+ * takes them at twice their size). Shown at its natural size, never wider, so its text reads as it does in the
+ * app; on a narrow screen it scales down with the column.
+ */
+export function Shot({ screen, priority = false, className = "" }: { screen: Screen; priority?: boolean; className?: string }) {
   return (
-    <figure className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <img
-        src={screen.src}
-        srcSet={`${screen.small} 560w, ${screen.src} 1120w`}
-        sizes={sizes}
-        alt={screen.alt}
-        width={1120}
-        height={840}
-        loading={priority ? "eager" : "lazy"}
-        decoding="async"
-        {...(priority ? { fetchPriority: "high" as const } : {})}
-        className="h-auto w-full"
-      />
-      <figcaption className="absolute bottom-2.5 right-2.5 rounded-full border border-slate-200 bg-white/95 px-2 py-0.5 text-xs font-medium text-slate-600">Sample data</figcaption>
+    <figure className={"mk-crop " + className} style={{ maxWidth: screen.width }}>
+      <picture>
+        <source media="(max-width: 639px)" srcSet={screen.phone.src} width={screen.phone.width} height={screen.phone.height} />
+        <img
+          src={screen.src}
+          alt={screen.alt}
+          width={screen.width}
+          height={screen.height}
+          loading={priority ? "eager" : "lazy"}
+          decoding="async"
+          {...(priority ? { fetchPriority: "high" as const } : {})}
+          className="block h-auto w-full"
+        />
+      </picture>
+      <figcaption className="absolute bottom-2 right-2 rounded-[3px] border border-heather bg-white px-1.5 py-0.5 text-xs font-semibold text-slate-600">Sample data</figcaption>
     </figure>
+  );
+}
+
+/** An anchor for a heading: its own id, or one made from its words. */
+export const headingId = (block: { h2: string; id?: string }) =>
+  block.id ?? block.h2.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/** "On this page": the guide's headings, for a long read. */
+export function OnThisPage({ blocks }: { blocks: Block[] }) {
+  const heads = blocks.filter((b): b is { h2: string; id?: string } => "h2" in b);
+  if (heads.length < 3) return null;
+  return (
+    <nav aria-label="On this page" className="text-[0.9375rem]" data-testid="on-this-page">
+      <h2 className="font-bold text-ink">On this page</h2>
+      <ul className="mt-3 space-y-2 border-l-2 border-heather">
+        {heads.map((head) => (
+          <li key={headingId(head)}><a href={`#${headingId(head)}`} className="tap -ml-0.5 block border-l-2 border-transparent pl-3 text-slate-600 hover:border-ink hover:text-ink">{head.h2}</a></li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 
 /** The blocks of a guide or a feature page. */
 export function Blocks({ blocks }: { blocks: Block[] }) {
   return (
-    <div className="space-y-4 text-[1.0625rem] leading-relaxed text-slate-700">
+    <div className="mk-body space-y-5">
       {blocks.map((block, i) => {
-        if ("h2" in block) return <h2 key={i} id={block.id} className="scroll-mt-20 pt-6 font-display text-[1.85rem] leading-tight text-slate-900">{block.h2}</h2>;
+        if ("h2" in block) return <h2 key={i} id={headingId(block)} className="mk-h2 scroll-mt-24 pt-6 !text-[1.5rem] sm:!text-[1.75rem]">{block.h2}</h2>;
         if ("p" in block) return <p key={i}><Rich text={block.p} /></p>;
         if ("ul" in block) return <ul key={i} className="list-disc space-y-2 pl-5">{block.ul.map((item) => <li key={item}><Rich text={item} /></li>)}</ul>;
         if ("ol" in block) return <ol key={i} className="list-decimal space-y-2 pl-5">{block.ol.map((item) => <li key={item}><Rich text={item} /></li>)}</ol>;
-        if ("note" in block) return <p key={i} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-base"><Rich text={block.note} /></p>;
+        if ("note" in block) return <p key={i} className="border-l-4 border-tag bg-fabric px-4 py-3 text-base"><Rich text={block.note} /></p>;
         return <DataTable key={i} caption={block.table.caption} head={block.table.head} rows={block.table.rows} />;
       })}
     </div>
@@ -109,20 +136,20 @@ export function Blocks({ blocks }: { blocks: Block[] }) {
 /** A table that scrolls inside its own frame on a phone; the page itself never scrolls sideways. */
 export function DataTable({ caption, head, rows }: { caption: string; head: string[]; rows: string[][] }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white" tabIndex={0} role="region" aria-label={caption}>
+    <div className="overflow-x-auto border-y-2 border-ink bg-white" tabIndex={0} role="region" aria-label={caption}>
       <table className="w-full min-w-[32rem] border-collapse text-left text-[0.9375rem]">
-        <caption className="px-4 pb-1 pt-3 text-left text-sm text-slate-600">{caption}</caption>
+        <caption className="pb-2 pt-3 text-left text-sm text-slate-600">{caption}</caption>
         <thead>
-          <tr className="border-b border-slate-200 text-slate-900">
-            {head.map((cell, i) => <th key={i} scope="col" className="px-4 py-2 font-medium">{cell}</th>)}
+          <tr className="border-b border-ink bg-fabric text-ink">
+            {head.map((cell, i) => <th key={i} scope="col" className="px-3 py-2.5 font-bold">{cell}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, r) => (
-            <tr key={r} className="border-b border-slate-100 align-top last:border-0">
+            <tr key={r} className="border-b border-heather align-top last:border-0">
               {row.map((cell, c) => (c === 0
-                ? <th key={c} scope="row" className="px-4 py-2.5 font-medium text-slate-900">{cell}</th>
-                : <td key={c} className="px-4 py-2.5 text-slate-700">{cell}</td>))}
+                ? <th key={c} scope="row" className="px-3 py-3 font-semibold text-ink">{cell}</th>
+                : <td key={c} className="px-3 py-3 text-slate-700">{cell}</td>))}
             </tr>
           ))}
         </tbody>
@@ -133,8 +160,8 @@ export function DataTable({ caption, head, rows }: { caption: string; head: stri
 
 export function Sources({ sources, checked }: { sources: Source[]; checked: string }) {
   return (
-    <section aria-labelledby="sources-title" className="mt-10 border-t border-slate-200 pt-6">
-      <h2 id="sources-title" className="font-display text-2xl text-slate-900">Sources</h2>
+    <section aria-labelledby="sources-title" className="mt-12 border-t border-heather pt-6">
+      <h2 id="sources-title" className="mk-h3">Sources</h2>
       <p className="mt-2 text-sm text-slate-600">{`Last checked ${longDate(checked)}. These pages change, and the linked page is what counts.`}</p>
       <ul className="mt-3 space-y-1.5 text-[0.9375rem]">
         {sources.map((source) => (
@@ -149,7 +176,7 @@ export function Sources({ sources, checked }: { sources: Source[]; checked: stri
 export function AlsoRead({ pages }: { pages: Source[] }) {
   return (
     <section aria-labelledby="also-read-title" className="mt-8" data-testid="also-read">
-      <h2 id="also-read-title" className="font-display text-2xl text-slate-900">Also read on Etsy</h2>
+      <h2 id="also-read-title" className="mk-h3">Also read on Etsy</h2>
       <p className="mt-2 text-sm text-slate-600">Etsy&apos;s own pages on this subject. Nothing above relies on them, and where they differ from our advice, follow Etsy.</p>
       <ul className="mt-3 space-y-1.5 text-[0.9375rem]">
         {pages.map((page) => (
@@ -162,11 +189,11 @@ export function AlsoRead({ pages }: { pages: Source[] }) {
 
 export function InviteCta({ line }: { line: string }) {
   return (
-    <aside className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
-      <p className="text-[1.0625rem] leading-relaxed text-slate-800"><Rich text={line} /></p>
-      <p className="mt-4 flex flex-wrap gap-3">
-        <a href="/request-invite" className="btn-primary px-5 py-3 text-[0.9375rem]">Request an invite</a>
-        <a href="/pricing" className="btn-secondary px-5 py-3 text-[0.9375rem]">See pricing</a>
+    <aside className="mt-12 bg-fabric p-6 sm:p-8">
+      <p className="mk-body text-ink"><Rich text={line} /></p>
+      <p className="mt-5 flex flex-wrap gap-3">
+        <a href={PRIMARY_CTA.href} className="mk-btn">{PRIMARY_CTA.label}</a>
+        <a href="/pricing" className="mk-btn-line">See pricing</a>
       </p>
     </aside>
   );

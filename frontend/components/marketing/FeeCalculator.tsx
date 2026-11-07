@@ -8,7 +8,7 @@ import { CHECKED_AGAINST, DEFAULT_PLACE, FEES, FEES_CHECKED, NOT_INCLUDED, NOT_I
 
 /** An amount and its currency stay on one line; the result's box scrolls by itself if one ever does not fit. */
 const AMOUNT = "whitespace-nowrap";
-const LINK = "font-medium text-brand-700 underline decoration-brand-100 underline-offset-4 hover:decoration-brand-600";
+const LINK = "mk-link";
 
 function Amount({ id, label, value, onChange, hint }: { id: string; label: string; value: string; onChange: (value: string) => void; hint?: string }) {
   return (
@@ -45,7 +45,7 @@ export function FeeCalculator() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 sm:p-5">
+      <div className="grid grid-cols-1 gap-4 border border-heather bg-white p-4 sm:grid-cols-2 sm:p-5">
         <div className="sm:col-span-2">
           <label htmlFor="fee-place" className="label">Where your bank account is</label>
           <select id="fee-place" value={place} onChange={(e) => setPlace(e.target.value)} className="field text-base" data-testid="fee-place">
@@ -70,12 +70,12 @@ export function FeeCalculator() {
         </div>
       </div>
 
-      <section aria-label="What this sale leaves" className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" tabIndex={0} translate="no" data-testid="fee-result">
+      <section aria-label="What this sale leaves" className="overflow-x-auto border border-heather bg-white p-4 sm:p-5" tabIndex={0} translate="no" data-testid="fee-result">
         {outcome.ok ? (
           <div key="result">
             <dl className="grid grid-cols-2 gap-3">
-              <div><dt className="text-sm text-slate-600">Profit</dt><dd className={"font-display text-3xl text-slate-900 " + AMOUNT} data-testid="fee-profit">{showMoney(outcome.result.profit, outcome.result.currency)}</dd></div>
-              <div><dt className="text-sm text-slate-600">Margin</dt><dd className="font-display text-3xl text-slate-900" data-testid="fee-margin">{`${outcome.result.margin}%`}</dd></div>
+              <div><dt className="text-sm text-slate-600">Profit</dt><dd className={"text-3xl font-extrabold text-ink [font-stretch:125%] " + AMOUNT} data-testid="fee-profit">{showMoney(outcome.result.profit, outcome.result.currency)}</dd></div>
+              <div><dt className="text-sm text-slate-600">Margin</dt><dd className="text-3xl font-extrabold text-ink [font-stretch:125%]" data-testid="fee-margin">{`${outcome.result.margin}%`}</dd></div>
             </dl>
             <table className="mt-4 w-full border-collapse text-left text-[0.9375rem]">
               <caption className="sr-only">How the profit is worked out</caption>
@@ -87,8 +87,8 @@ export function FeeCalculator() {
                     <td className={"py-2 text-right align-top text-slate-800 " + AMOUNT}>{`-${showMoney(fee.amount, outcome.result.currency)}`}</td>
                   </tr>
                 ))}
-                <tr className="border-t border-slate-200"><th scope="row" className="py-2 pr-3 font-medium text-slate-900">All Etsy fees above</th><td className={"py-2 text-right font-medium text-slate-900 " + AMOUNT} data-testid="fee-total">{showMoney(outcome.result.totalFees, outcome.result.currency)}</td></tr>
-                <tr className="border-t border-slate-200"><th scope="row" className="py-2 pr-3 font-normal text-slate-800">Base cost and shipping you pay</th><td className={"py-2 text-right text-slate-800 " + AMOUNT}>{`-${showMoney(outcome.result.costs, outcome.result.currency)}`}</td></tr>
+                <tr className="border-t border-heather"><th scope="row" className="py-2 pr-3 font-medium text-slate-900">All Etsy fees above</th><td className={"py-2 text-right font-medium text-slate-900 " + AMOUNT} data-testid="fee-total">{showMoney(outcome.result.totalFees, outcome.result.currency)}</td></tr>
+                <tr className="border-t border-heather"><th scope="row" className="py-2 pr-3 font-normal text-slate-800">Base cost and shipping you pay</th><td className={"py-2 text-right text-slate-800 " + AMOUNT}>{`-${showMoney(outcome.result.costs, outcome.result.currency)}`}</td></tr>
               </tbody>
             </table>
           </div>
@@ -97,8 +97,8 @@ export function FeeCalculator() {
         )}
       </section>
 
-      <section aria-labelledby="fee-sources-title" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" data-testid="fee-sources">
-        <h2 id="fee-sources-title" className="font-display text-2xl text-slate-900">Where the fees come from</h2>
+      <section aria-labelledby="fee-sources-title" className="border border-heather bg-white p-4 sm:p-5" data-testid="fee-sources">
+        <h2 id="fee-sources-title" className="mk-h3 !text-[1.375rem]">Where the fees come from</h2>
         <p className="mt-2 text-sm text-slate-700" data-testid="fees-checked">{`Fees checked on ${longDate(FEES_CHECKED)}. Etsy can change its fees, and its own pages are what count.`}</p>
         <ul className="mt-3 space-y-3 text-[0.9375rem]">
           {FEES.map((fee) => (

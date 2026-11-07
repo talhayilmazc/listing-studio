@@ -1,85 +1,85 @@
 /**
- * The plans we intend to offer after launch: the one place they are written.
+ * The plans we intend to offer at launch: the one place they are written.
  *
- * These are planned prices. Nothing here is charged or enforced: the app has no
- * payment code, and an account's allowance and shop limit are still set per
- * account in Admin. The pricing page lays these out, and the application to Etsy
- * (docs/commercial-application.md, docs/etsy-compliance.md) lists the same lines; lib/plans.test.ts fails
- * if either drifts from this file, or if the pricing page grows a payment form.
+ * These are launch prices for display. Nothing here is charged or enforced: the app has no
+ * payment code, and an account's allowance and shop limit are still set per account in Admin.
+ * The pricing page and the home page's teaser lay these out, and the dated note in the application
+ * to Etsy (docs/commercial-application.md) and docs/etsy-compliance.md list the same lines;
+ * lib/plans.test.ts fails if either drifts from this file, or if the pricing page grows a payment form.
  *
- * A plan's unit is "listings a month": listings written, the number the seller
- * sees in the app as "Listings generated" (core/allowance.py).
+ * A plan's unit is "AI listings a month": listings written by AI. Listings the seller writes by hand
+ * and sending a listing to more shops do not count. (Today's allowance in the app, core/allowance.py,
+ * still counts a hand-written listing; it changes when billing does.)
  */
+import { BILLING_ON } from "./marketing/cta.ts";
 
-export const PLANNED_NOTICE = "Planned prices after launch. No payment is taken today. Prices may change before launch.";
+/** Beside every price while billing is off. */
+export const PLANNED_NOTICE = BILLING_ON
+  ? "Prices in US dollars. Change or cancel your plan in Settings."
+  : "Launch prices. Nothing is charged yet: billing starts after launch, and we will tell you before it does.";
 
-/** The top of the pricing page: an invitation, not an offer. */
-export const PRICING_HEADING = "Request an invite to try Listyro";
-export const PRICING_LINE = "Invite-only early access. No payment is taken today; the plans below apply after launch.";
+/** The top of the pricing page. */
+export const PRICING_HEADING = "Pay for the listings Listyro writes";
+export const PRICING_LINE = BILLING_ON
+  ? "Every plan has every feature. Plans differ in AI listings a month and the number of shops."
+  : "Invite-only early access. No payment is taken today; these plans start after launch.";
 
-/** What a "listing" is, as the allowance counts it (core/allowance.py; FREE_REWRITES = 3). */
+/** What a "listing" is, as the plans count it (FREE_REWRITES as in core/allowance.py). */
 export const FREE_REWRITES = 3;
 export const LISTING_LINE =
-  "A listing is one design written by AI or by you, with all its photos. Rewriting the same design is free up to 3 times. Photos per listing and the number of drafts in your shops do not count.";
+  "Only AI-written listings count. A listing is one design written by AI, with all its photos, and rewriting the same design is free up to 3 times. Listings you write yourself, photos, and sending a listing to more shops do not count.";
 
 export type Plan = {
   name: string;
-  /** New listings written in a month. */
+  /** AI-written listings a month. */
   listings: number;
   shops: number;
-  /**
-   * true: a draft can also be published at a time you choose. false: it is published
-   * when you press Publish, and scheduling is available as an add-on (SCHEDULING_ADDON).
-   */
-  scheduling: boolean;
   /** US dollars a month, paid monthly. */
   price: number;
+  /** The plan the page points to first. */
+  highlight?: boolean;
 };
 
 export const PLANS: Plan[] = [
-  { name: "Starter", listings: 100, shops: 1, scheduling: false, price: 69 },
-  { name: "Growth", listings: 200, shops: 2, scheduling: false, price: 129 },
-  { name: "Studio", listings: 350, shops: 4, scheduling: true, price: 239 },
-  { name: "Catalog", listings: 500, shops: 8, scheduling: true, price: 329 },
+  { name: "Starter", listings: 150, shops: 1, price: 19 },
+  { name: "Growth", listings: 300, shops: 3, price: 29, highlight: true },
+  { name: "Pro", listings: 600, shops: 5, price: 49 },
+  { name: "Business", listings: 1000, shops: 10, price: 69 },
 ];
 
-/** Scheduling for a plan that does not include it: US dollars a month, paid monthly. */
-export const SCHEDULING_ADDON = { name: "Scheduling add-on", price: 19 };
+/** More AI listings in a month, on any plan. */
+export const EXTRA_PACK = { name: "Extra pack", listings: 100, price: 9, line: "Add it on any plan, in a month that needs more." };
 
-/** Paid yearly, a plan (and the add-on) costs ten months. */
+/** What a new account can write before it picks a plan. */
+export const TRIAL = { listings: 25, line: "Try it with 25 AI listings when you connect a shop." };
+
+/** Paid yearly, a plan costs ten months. */
 export const YEARLY_MONTHS = 10;
 export const YEARLY_NOTE = "Pay for 10 months, get 12";
 
 /** In every plan, whatever its size. */
 export const INCLUDED = [
+  "Mockups on your own garment photos",
+  "AI-written or write-it-yourself text",
   "Profiles from your own listings",
-  "AI-suggested or write-it-yourself text",
+  "Each shop's own photos, SKU, text and attributes",
+  "Scheduling",
   "Trademark checks",
-  "Review and approve",
-  "Size charts",
   "Profit, cost and ads report",
 ];
 
-export const CUSTOM = {
-  name: "Custom",
-  body: "More listings or shops? Tell us what you need and we'll send you a quote.",
-  cta: { label: "Ask for a quote", href: "/request-invite?plan=custom" },
+export const SPECIAL = {
+  name: "Special",
+  body: "More than 1,000 AI listings a month? Tell us what you need and we'll quote a price.",
+  cta: { label: "Contact us", href: "/request-invite?plan=custom" },
 };
 
 const count = (n: number) => n.toLocaleString("en-US");
-/** "$57.50", "$124.17", "$69": cents only when there are any. */
+/** "$15.83", "$190": cents only when there are any. */
 const dollars = (n: number) => "$" + (Number.isInteger(n) ? count(n) : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
-export const listingsFact = (plan: Plan) => `${count(plan.listings)} listings a month`;
+export const listingsFact = (plan: Plan) => `${count(plan.listings)} AI listings a month`;
 export const shopsFact = (plan: Plan) => `${plan.shops} ${plan.shops === 1 ? "shop" : "shops"}`;
-export const schedulingFact = (plan: Plan) => (plan.scheduling ? "Scheduling included" : "Publish now (scheduling not included)");
-
-/** The plans the scheduling add-on is offered on: those that do not include scheduling. */
-export const hasSchedulingAddon = (plan: Plan) => !plan.scheduling;
-export const addonYearlyPrice = () => SCHEDULING_ADDON.price * YEARLY_MONTHS;
-/** "Scheduling add-on: +$19/month" or, paid yearly, "Scheduling add-on: +$190/year". */
-export const addonFact = (yearly: boolean) =>
-  `${SCHEDULING_ADDON.name}: +${yearly ? dollars(addonYearlyPrice()) + "/year" : dollars(SCHEDULING_ADDON.price) + "/month"}`;
 
 export const yearlyPrice = (plan: Plan) => plan.price * YEARLY_MONTHS;
 export const priceFact = (plan: Plan) => dollars(plan.price);
@@ -87,14 +87,13 @@ export const yearlyPriceFact = (plan: Plan) => dollars(yearlyPrice(plan));
 /** What a year's price comes to a month, to the cent. */
 export const yearlyPerMonthFact = (plan: Plan) => `${dollars(Math.round((yearlyPrice(plan) / 12) * 100) / 100)} a month`;
 
-/** A plan in one line, as the application to Etsy lists it. */
+/** "Extra pack: +100 AI listings for $9". */
+export const extraPackFact = () => `${EXTRA_PACK.name}: +${count(EXTRA_PACK.listings)} AI listings for ${dollars(EXTRA_PACK.price)}`;
+
+/** A plan in one line, as the documents list it. */
 export function planLine(plan: Plan): string {
-  const scheduling = plan.scheduling ? "scheduling included" : "scheduling not included (available as an add-on)";
-  return `${plan.name}: ${listingsFact(plan)}, ${shopsFact(plan)}, ${scheduling}, ${priceFact(plan)}/month, ${yearlyPriceFact(plan)}/year`;
+  return `${plan.name}: ${listingsFact(plan)}, ${shopsFact(plan)}, ${priceFact(plan)}/month, ${yearlyPriceFact(plan)}/year`;
 }
 
-/** The add-on in one line, as the application to Etsy lists it. */
-export function addonLine(): string {
-  const on = PLANS.filter(hasSchedulingAddon).map((plan) => plan.name).join(" and ");
-  return `${SCHEDULING_ADDON.name} for ${on}: +${dollars(SCHEDULING_ADDON.price)}/month, or +${dollars(addonYearlyPrice())}/year on the yearly plan`;
-}
+/** The pack in one line, as the documents list it. */
+export const packLine = () => `${extraPackFact()}, on any plan`;
