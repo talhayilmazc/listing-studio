@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -8,27 +7,26 @@ import { BATCH_RENAMED } from "./BatchName";
 import { useSession } from "./SessionProvider";
 
 /**
- * Top strip (docs/ui-direction-v2.md §1): page title on the left, primary action
- * on the right. The title is route-derived and set in the 40px display serif (§2).
- *
- * The "New upload" action is the one the old horizontal Nav carried, relocated —
- * not a new button.
+ * Top strip: the page's title, the same word as its entry in the rail (app/onboarding-v1).
+ * No buttons: each page has its own one primary action, and "Upload designs" is on Designs and
+ * Home, not in every page's header (it was the second upload button on every screen).
  */
 
-const TITLES: [RegExp, string][] = [
-  [/^\/dashboard$/, "Overview"],
-  [/^\/batches$/, "Batches"],
+export const TITLES: [RegExp, string][] = [
+  [/^\/dashboard$/, "Home"],
+  [/^\/batches$/, "Designs"],
   [/^\/batches\/[^/]+\/review$/, "Review"],
+  [/^\/review$/, "Review"],
   [/^\/profiles$/, "Profiles"],
   [/^\/templates$/, "Mockup templates"],
-  [/^\/templates\/designs$/, "Add designs"],
-  [/^\/upload$/, "Upload"],
-  [/^\/scheduled$/, "Scheduled"],
-  [/^\/season-planner$/, "Seasonal planner"],
-  [/^\/analytics$/, "Analytics"],
-  [/^\/analytics\/\d+$/, "Listing analytics"],
+  [/^\/templates\/designs$/, "Make mockups"],
+  [/^\/upload$/, "Upload designs"],
+  [/^\/scheduled$/, "Schedule"],
+  [/^\/season-planner$/, "Season planner"],
+  [/^\/analytics$/, "Reports"],
+  [/^\/analytics\/\d+$/, "Listing report"],
   [/^\/listing-health$/, "Listing health"],
-  [/^\/connect$/, "Shops & groups"],
+  [/^\/connect$/, "Shops"],
   [/^\/settings$/, "Settings"],
   [/^\/admin$/, "Admin"],
   [/^\/terms$/, "Terms of Service"],
@@ -81,16 +79,10 @@ export function TopStrip({ onMenu }: { onMenu: () => void }) {
           </svg>
         </button>
 
-        <h1 className="flex-1 truncate font-display text-4xl font-normal text-slate-900">
+        <h1 className="min-w-0 flex-1 truncate font-display text-[1.75rem] font-bold leading-tight text-slate-900 sm:text-4xl">
           {batchId && batchName ? batchName : titleFor(pathname, Boolean(account?.is_admin))}
         </h1>
 
-        {/* A way to start, never the page's own primary action (B9: one primary button per page). */}
-        {pathname !== "/upload" && (
-          <Link key="new-upload" href="/upload" className="btn-secondary shrink-0">
-            New upload
-          </Link>
-        )}
       </div>
     </header>
   );

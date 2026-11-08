@@ -14,7 +14,7 @@ const APP = "http://listyro.test:3811";
 const API_HOST = "api.listyro.test";
 const STUB_HOST = "etsy-stub.test";
 const PASSWORD = "connect-a-shop-e2e";
-const TOO_LONG = "The connection took too long or started in another browser. Press Connect a shop again.";
+const TOO_LONG = "The connection took too long or started in another browser. Press Connect your shop again.";
 
 test.describe("connect a shop (two hosts, real cookies)", () => {
   test.beforeEach(({}, info) => {
@@ -45,7 +45,10 @@ test.describe("connect a shop (two hosts, real cookies)", () => {
 
   async function allow(page: Page): Promise<URL> {
     await page.locator("#allow").click();
-    await page.waitForURL((u) => u.pathname === "/connect" && u.searchParams.has("status"), { timeout: 30_000 });
+    // Refused: back on Shops with why. Connected: a seller with nothing uploaded yet goes on to
+    // "Upload your first design" (app/onboarding-v1), anyone else back to Shops.
+    await page.waitForURL((u) => (u.pathname === "/connect" && u.searchParams.has("status")) || (u.pathname === "/upload" && u.searchParams.has("connected")),
+      { timeout: 30_000 });
     return new URL(page.url());
   }
 
@@ -66,8 +69,11 @@ test.describe("connect a shop (two hosts, real cookies)", () => {
     expect(new URL(callback!).hostname).toBe(API_HOST);
     const back = await allow(page);
     expect(back.origin).toBe(APP);
-    expect(back.searchParams.get("status")).toBe("connected");
-    await expect(page.getByTestId("connect-banner")).toContainText("Shop connected");
+    // A new seller lands on the next step, the first upload, told the shop is connected.
+    expect(back.pathname).toBe("/upload");
+    expect(back.searchParams.get("connected")).toBeTruthy();
+    await expect(page.getByTestId("shop-connected")).toContainText("Your shop is connected");
+    await page.goto(`${APP}/connect`);
     await expect(page.getByText("Fetching the shop's name…")).toBeVisible();
     expect((await context.cookies()).some((c) => c.name === "listyro_oauth")).toBe(false); // cleared
     // The same approval again (a reused state): refused, not a second connection.

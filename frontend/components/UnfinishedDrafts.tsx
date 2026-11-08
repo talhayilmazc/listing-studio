@@ -15,6 +15,7 @@ import {
   sections,
   unfinishedHeading,
 } from "@/lib/unfinished";
+import { ErrorNote } from "./ErrorNote";
 
 /**
  * Drafts created on Etsy that need something (backend api/unfinished.py), one per design
@@ -142,7 +143,7 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
           <li key={i.record_id} className="rounded-md border border-amber-200 bg-white p-2.5 text-sm" data-testid="unfinished-draft">
             {head(i)}
             {i.step && <p key="step" className="mt-1 text-xs text-slate-600" translate="no">{`Stopped while ${i.step}.`}</p>}
-            {i.error && <p key="error" className="mt-0.5 text-xs text-slate-700">{i.error}</p>}
+            {i.error && <div key="error" className="mt-1"><ErrorNote message={i.error} advice={i.advice} testId="unfinished-error" /></div>}
             {i.finishing && <p key="finishing" className="mt-1 text-xs text-slate-500" translate="no">Being finished now…</p>}
             {i.can_finish && (
               <button key="finish-one" type="button" className="btn-secondary mt-2 min-h-11 px-3 text-xs" onClick={() => finish(i)} disabled={busy}
@@ -170,7 +171,7 @@ export function UnfinishedDrafts({ batchId }: { batchId?: string }) {
                     </button>
                   )}
                 </p>
-                {i.error && <p key="error" className="mt-0.5 text-xs text-slate-600">{i.error}</p>}
+                {i.error && <div key="error" className="mt-1"><ErrorNote message={i.error} advice={i.advice} testId="unfinished-error" /></div>}
               </li>
             ))}
           </ul>

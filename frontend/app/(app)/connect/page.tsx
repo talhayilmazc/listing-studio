@@ -66,14 +66,10 @@ export default function ConnectPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Shops &amp; groups</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Authorize Listyro to create draft listings in your shops. You stay in control:
-          nothing is ever published without your approval, and drafts are only created when you
-          ask.
-        </p>
-      </div>
+      {/* The page's title is the frame's ("Shops"); a second H1 here repeated it (docs/app-audit.md). */}
+      <p className="text-sm text-slate-700">
+        Listyro creates draft listings in your shops when you ask. Nothing is published without your approval.
+      </p>
 
       {b && (
         <div key="div-77-6" role="status" className={`card flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm ${TONE[b.tone]}`}

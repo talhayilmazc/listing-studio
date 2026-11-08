@@ -33,6 +33,10 @@ import { editsShopText } from "@/lib/anotherShop";
 
 import { Txt } from "@/components/Txt";
 import { useSession } from "@/components/SessionProvider";
+import { toast, doneNote } from "@/lib/toast";
+import { WORDS } from "@/lib/words";
+import { SHORTCUTS, actionFor, move } from "@/lib/reviewKeys";
+import { EmptyState, ListSkeleton } from "@/components/EmptyState";
 interface Progress {
   label: string;
   total: number;
@@ -96,6 +100,50 @@ export default function ReviewPage() {
       )
     : undefined;
   const rowOf = Object.fromEntries((preview?.rows ?? []).map((r) => [r.content_id, r]));
+
+  // The examples: labelled, and never offered "Where and when" (they can't be sent).
+  const isExample = (items ?? []).some((c) => c.is_example);
+  // J/K/A/E/T and ? (lib/reviewKeys.ts): the listing they act on is outlined.
+  const [focusIndex, setFocusIndex] = useState(-1);
+  const [keysOpen, setKeysOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = actionFor(e);
+      if (!action) return;
+      if (action === "close") {
+        if (keysOpen) setKeysOpen(false);
+        else if (document.activeElement instanceof HTMLElement && document.activeElement.closest("[data-card-index]")) document.activeElement.blur();
+        return;
+      }
+      if (action === "help") {
+        e.preventDefault();
+        setKeysOpen((o) => !o);
+        return;
+      }
+      const count = items?.length ?? 0;
+      if (!count) return;
+      e.preventDefault();
+      const card = (i: number) => document.querySelector<HTMLElement>(`[data-card-index="${i}"]`);
+      if (action === "next" || action === "previous") {
+        const to = move(focusIndex, action === "next" ? 1 : -1, count);
+        setFocusIndex(to);
+        card(to)?.scrollIntoView({ block: "start" });
+        return;
+      }
+      const at = focusIndex < 0 ? 0 : focusIndex;
+      if (focusIndex < 0) setFocusIndex(0);
+      const root = card(at);
+      if (action === "approve") root?.querySelector<HTMLButtonElement>('[data-testid="approve-toggle"]')?.click();
+      if (action === "title") root?.querySelector<HTMLElement>('[data-field="title"]')?.focus();
+      if (action === "tags") root?.querySelector<HTMLElement>('[data-field="tags"] input')?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [items, focusIndex, keysOpen]);
+  // Arriving with #send (the checklist's "Send or schedule it"): the "Where and when" panel.
+  useEffect(() => {
+    if (items && window.location.hash === "#send") document.getElementById("send")?.scrollIntoView({ block: "start" });
+  }, [items]);
 
   // The account's profiles, for changing a listing's profile on its card.
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -214,14 +262,28 @@ export default function ReviewPage() {
   // One click for the whole batch (v6 §D). The server approves only what passes
   // validation; the rest stay as they are and are listed below with the reason.
   const [approveResult, setApproveResult] = useState<ApproveAllResult | null>(null);
-  async function approveAll() {
+  async function approveAll(only: string[] | null = null) {
     setBusy(true);
     setError(null);
+    // The ones this click approves: Undo takes back only those (lib/toast.ts).
+    const before = new Set((items ?? []).filter((c) => !c.approved && (!only || only.includes(c.id))).map((c) => c.id));
     try {
       // Every card saves what is typed on it first: approval reads the saved text.
       await flushAll();
-      setApproveResult(await api.approveAll(id, inView?.id ?? null));
+      const result = await api.approveAll(id, inView?.id ?? null, only);
+      setApproveResult(result);
       load();
+      if (result.approved > 0) {
+        toast(doneNote(WORDS.approved, result.approved), {
+          action: {
+            label: "Undo",
+            run: async () => {
+              await Promise.all([...before].map((cid) => api.approve(cid, false).catch(() => undefined)));
+              load();
+            },
+          },
+        });
+      }
     } catch (e: any) {
       setError(e.message ?? String(e));
     } finally {
@@ -347,13 +409,13 @@ export default function ReviewPage() {
               </button>
             )}
             {actions.approved < items.length && (
-              <button key="button-225-12" className="btn-primary" onClick={approveAll} disabled={busy} data-testid="review-next">
+              <button key="button-225-12" className="btn-primary" onClick={() => approveAll()} disabled={busy} data-testid="review-next">
                 <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
               </button>
             )}
             {actions.approved === items.length && inView && editedHere > 0 && (
               // Approved, but their text for the shop in view changed since: one click, never a dead end.
-              <button key="approve-shop" className="btn-secondary" onClick={approveAll} disabled={busy} data-testid="review-approve-shop">
+              <button key="approve-shop" className="btn-secondary" onClick={() => approveAll()} disabled={busy} data-testid="review-approve-shop">
                 <span translate="no">{`Approve again for ${inView.name} (${editedHere})`}</span>
               </button>
             )}
@@ -367,9 +429,20 @@ export default function ReviewPage() {
         )}
       </div>
 
+      {isExample ? (
+        <section key="example" className="card border-[var(--tag)] bg-[#fff8dc] p-4 text-sm text-slate-900" data-testid="example-banner">
+          <p>
+            <span className="font-bold">Example listings. </span>
+            <span>Listyro wrote these once from three sample designs, to show how review works. Edit and approve them as you like: they cost nothing and can&apos;t be sent to Etsy.</span>
+          </p>
+          <Link href="/upload" className="btn-primary mt-3">{WORDS.upload}</Link>
+        </section>
+      ) : null}
+
       <UnfinishedDrafts batchId={id} />
 
-      {items && items.length > 0 && (
+      {items && items.length > 0 && !isExample && (
+        <div key="send" id="send" className="scroll-mt-4">
         <WhereAndWhen key="where-and-when"
           batchId={id}
           timeZone={timeZone}
@@ -381,6 +454,7 @@ export default function ReviewPage() {
           onDone={load}
           primary={actions.approved === items.length}
         />
+        </div>
       )}
 
       {askEmpty && empties.length > 0 && (
@@ -572,20 +646,39 @@ export default function ReviewPage() {
 
       {error && <div key="div-391-6" className="card p-4 text-sm text-rose-700">{error}</div>}
 
-      {items === null && !error && <p key="p-393-6" className="text-sm text-slate-400">Loading…</p>}
+      {items === null && !error && <ListSkeleton key="loading" rows={2} height="32rem" />}
 
       {items && items.length === 0 && (
-        <div key="div-395-6" className="card flex flex-col items-center gap-3 p-12 text-center">
-          <p className="text-slate-500">No generated content yet for this batch.</p>
-          <Link href={`/batches/${id}`} className="btn-primary">
-            Generate content
-          </Link>
-        </div>
+        <EmptyState key="empty" line="No listing of this batch is written yet. Write them, then check each one here." action={WORDS.write} href={`/batches/${id}`} />
       )}
 
       {items && items.length > 0 && (
+        <div key="keys" className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+          {selectedIds.some((x) => items.some((c) => c.id === x)) ? (
+            <span key="sel" className="flex flex-wrap items-center gap-2" data-testid="selection-bar">
+              <span translate="no">{`${selectedIds.filter((x) => items.some((c) => c.id === x)).length} selected`}</span>
+              <button type="button" className="btn-primary" disabled={busy} data-testid="approve-selected"
+                onClick={() => approveAll(selectedIds.filter((x) => items.some((c) => c.id === x)))}>
+                Approve selected
+              </button>
+              <button type="button" className="btn-quiet" onClick={() => setSelectedIds([])}>Clear</button>
+            </span>
+          ) : (
+            <span key="none">Select listings to approve several at once.</span>
+          )}
+          <button type="button" className="btn-quiet max-sm:hidden" onClick={() => setKeysOpen(true)} data-testid="keys-open">
+            Keyboard shortcuts (?)
+          </button>
+        </div>
+      )}
+
+      {keysOpen ? <KeysHelp key="keys-help" onClose={() => setKeysOpen(false)} /> : null}
+
+      {items && items.length > 0 && (
         <div key="div-404-6" className="space-y-5">
-          {items.map((c) => (
+          {items.map((c, i) => (
+            <div key={`${cardKey(c)}:${textShopOf(c)?.id ?? ""}`} data-card-index={i}
+              className={"rounded-[var(--radius-md)] " + (i === focusIndex ? "ring-2 ring-ink ring-offset-2" : "")}>
             <ReviewCard
               key={`${cardKey(c)}:${textShopOf(c)?.id ?? ""}`}
               textShop={textShopOf(c)}
@@ -612,6 +705,7 @@ export default function ReviewPage() {
                 </span>
               ) : undefined}
             />
+            </div>
           ))}
         </div>
       )}
@@ -702,6 +796,28 @@ function PublishResult({
           <span>Queued, not failed: <span>{progress.pause.message}</span> That is around <span>{resumeTime(progress.pause.resumes_at, timeZone)}</span>.</span>
         </p>
       )}
+    </div>
+  );
+}
+
+/** The review screen's keys (lib/reviewKeys.ts), on "?" or the "Keyboard shortcuts" button. */
+function KeysHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="keys-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose} data-testid="keys-help">
+      <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <h2 id="keys-title" className="text-base font-bold text-slate-900">Keyboard shortcuts</h2>
+        <dl className="mt-3 space-y-2 text-sm">
+          {SHORTCUTS.map((k) => (
+            <div key={k.keys} className="flex items-center gap-3">
+              <dt className="w-12 shrink-0"><kbd className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-900">{k.keys}</kbd></dt>
+              <dd className="text-slate-700">{k.does}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-slate-600">They never act while you type in a field.</p>
+        <button type="button" className="btn-secondary mt-4" onClick={onClose} autoFocus>Close</button>
+      </div>
     </div>
   );
 }

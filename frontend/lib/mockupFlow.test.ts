@@ -95,7 +95,7 @@ test("bulk designs: the step, ZIPs, per-design notes, skipped photos named", () 
   assert.equal(designNote({ has_alpha: true }), null);
   const t = template([photo("White"), photo("Black", { confirmed: false, needs_check: true })]);
   assert.deepEqual(printable([t], ["t"], "both").skippedNames, ["Black"]);
-  assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/templates\\\/designs\$\/, "Add designs"\]/);
+  assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/templates\\\/designs\$\/, "Make mockups"\]/);
   assert.match(read("e2e/layout.spec.ts"), /"\/templates\/designs"/);
 });
 

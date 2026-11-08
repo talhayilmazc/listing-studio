@@ -20,8 +20,11 @@ import { supportsAll } from "@/lib/shopScope";
  * one job per shop however many pages ask) and says "syncing" instead of 0.
  */
 
-// Utility pages carry no shop context.
-const HIDDEN = [/^\/terms$/, /^\/privacy$/, /^\/connect$/];
+/**
+ * Home only (app/onboarding-v1): above every page it pushed each page's own work a screen down
+ * on a phone (docs/app-audit.md, 4). Not before a shop is connected: four zeros say nothing.
+ */
+export const SHOWN_ON = "/dashboard";
 
 export function MetricStrip() {
   const pathname = usePathname() ?? "/";
@@ -33,13 +36,12 @@ export function MetricStrip() {
   // Shop figures follow the shop switcher (v5 §E): "All shops" adds every shop up on the
   // pages that show every shop; a page that works on one shop shows that shop's.
   // Batches are the account's.
-  const { selected: one, scope } = useShops();
+  const { selected: one, scope, shops } = useShops();
   const selected = supportsAll(pathname) ? scope : one;
   const shopId = selected?.id ?? null;
   // /admin carries its own app-wide figures. For anyone else it is an ordinary
   // 404, so it keeps the strip every unknown route has.
-  const hidden =
-    HIDDEN.some((re) => re.test(pathname)) || (pathname === "/admin" && Boolean(account?.is_admin));
+  const hidden = pathname !== SHOWN_ON || !account || shops === null || shops.length === 0;
 
   useEffect(() => {
     if (hidden) return;

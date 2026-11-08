@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 export interface DeleteSummary {
   batches: number;
@@ -35,6 +36,17 @@ export function DeleteBatches({
     setError(null);
     try {
       const res = ids.length === 1 ? await api.deleteBatch(ids[0]) : await api.deleteBatches(ids);
+      // Restorable for 7 days: Undo brings it straight back (its cancelled schedules stay cancelled).
+      const gone = [...ids];
+      toast(res.deleted === 1 ? "Batch deleted" : `Deleted ${res.deleted} batches`, {
+        action: {
+          label: "Undo",
+          run: async () => {
+            await Promise.all(gone.map((id) => api.restoreBatch(id).catch(() => undefined)));
+            window.location.reload();
+          },
+        },
+      });
       const until = res.restorable_until ? new Date(res.restorable_until).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : null;
       onDeleted(
         `Deleted ${plural(res.deleted, "batch", "batches")}.` +

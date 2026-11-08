@@ -7,12 +7,16 @@ import { TopStrip } from "./TopStrip";
 import { MetricStrip } from "./MetricStrip";
 import { PauseNotice } from "./PauseNotice";
 import { ShopsLoadError } from "./ShopsLoadError";
-import { ShopProvider } from "./ShopProvider";
+import { ShopProvider, useShops } from "./ShopProvider";
+import { EmptyState } from "./EmptyState";
+import { needsShop } from "@/lib/needsShop";
 import { Footer } from "./Footer";
+import { Toaster } from "./Toaster";
+import { SectionTabs } from "./SectionTabs";
 import { isBareRoute, useSession } from "./SessionProvider";
 
 /**
- * Layout frame (docs/ui-direction-v2.md §1): fixed 240px dark rail, content area
+ * Layout frame: fixed 240px ink rail (the site's logo and type), content area
  * filling the remaining width. No centred column — the content only stops growing
  * past 1800px.
  *
@@ -46,17 +50,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Rail open={navOpen} onClose={() => setNavOpen(false)} />
         <div className="flex min-h-screen flex-col lg:pl-60">
           <TopStrip onMenu={() => setNavOpen(true)} />
+          <SectionTabs />
           <ShopsLoadError />
           <PauseNotice />
           <MetricStrip />
-          <main className="flex-1 px-6 py-8 lg:px-8">
-            <div className="mx-auto w-full max-w-[1800px]">{children}</div>
+          <main className="flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+            <div className="mx-auto w-full max-w-[1800px]">
+              <ShopGate pathname={pathname}>{children}</ShopGate>
+            </div>
           </main>
           <Footer />
         </div>
+        {/* "Approved" with Undo, "Listings ready" wherever the seller is (lib/toast.ts). */}
+        <Toaster />
       </div>
     </ShopProvider>
   );
+}
+
+/** A page that needs a shop, with none connected: its one sentence and "Connect your shop" (lib/needsShop.ts). */
+function ShopGate({ pathname, children }: { pathname: string; children: React.ReactNode }) {
+  const { shops } = useShops();
+  const line = needsShop(pathname, shops === null ? null : shops.length);
+  if (line) return <EmptyState line={line} action="Connect your shop" href="/connect" testId="needs-shop" />;
+  return <>{children}</>;
 }
 
 /** The frame's silhouette while the session resolves — skeletons, not a spinner. */

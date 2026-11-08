@@ -34,7 +34,7 @@ test("the review card shows the checklist and keeps it current as the seller edi
 test("the checklist never blocks approval or a draft", () => {
   const card = code(read(CARD));
   for (const [, condition] of card.matchAll(/disabled=\{([^}]*)\}/g)) assert.doesNotMatch(condition, /checklist|check\b|checks/i, condition);
-  assert.match(card, /checked=\{approved\}\n\s*disabled=\{!valid\}/, "approval still follows the existing validation only");
+  assert.match(card, /aria-pressed=\{approved\}\n\s*disabled=\{!valid && !approved\}/, "approval still follows the existing validation only");
   assert.doesNotMatch(card, /checklist[^;\n]*(approve|createDraft)/i);
 });
 

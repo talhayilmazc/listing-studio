@@ -226,7 +226,7 @@ export default function TemplatesPage() {
       {templates === null ? (
         <div key="loading" className="card h-40 animate-pulse" />
       ) : templates.length === 0 ? (
-        <p key="empty" className="card p-6 text-sm text-slate-500">No templates yet. Add blank garment photos above.</p>
+        <p key="empty" className="card p-6 text-sm text-slate-700" data-testid="templates-empty">Photos of your blank garments go here. Add some above to make mockups of every design on them.</p>
       ) : (
         <div key="list" className="space-y-3">
           <div className="flex flex-wrap justify-end gap-2">

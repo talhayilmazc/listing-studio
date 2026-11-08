@@ -349,6 +349,9 @@ async def contents_out(
         out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
         # The listing's profile: chosen at upload or on its group, changed there.
         out.profile_id, out.profile_name = (profile.id, profile.name) if profile else (None, None)
+        payload = (profile.cached_payload or {}) if profile else {}
+        out.price = payload.get("price") if isinstance(payload.get("price"), (int, float)) else None
+        out.currency = payload.get("currency") if out.price is not None else None
         # Etsy's Creativity Standards: a print-on-demand profile with no production partner.
         out.production_note = creativity.production_note(profile) if profile is not None else None
         out.attributes = dict((c.attributes or {}).get("listing") or {})
@@ -387,6 +390,23 @@ async def contents_out(
                 limits[(batch_id, group.group_key)] = group.image_limit
     for out, (c, a) in zip(outs, pairs):
         out.image_limit = limits.get((c.batch_id, a.group_key or ""))
+    # Each listing's photos (its group's, in order) and whether it is one of the examples.
+    batch_ids = list({c.batch_id for c, _ in pairs})
+    if batch_ids:
+        photos: dict[tuple[uuid.UUID, str], list[uuid.UUID]] = {}
+        rows = await session.execute(
+            select(Asset.batch_id, Asset.group_key, Asset.id)
+            .where(Asset.batch_id.in_(batch_ids), Asset.processed_key.is_not(None))
+            .order_by(Asset.rank, Asset.original_filename)
+        )
+        for batch_id, key, asset_id in rows:
+            photos.setdefault((batch_id, key or ""), []).append(asset_id)
+        examples = set((await session.execute(
+            select(UploadBatch.id).where(UploadBatch.id.in_(batch_ids), UploadBatch.is_example)
+        )).scalars())
+        for out, (c, a) in zip(outs, pairs):
+            out.photo_ids = photos.get((c.batch_id, a.group_key or ""), [])
+            out.is_example = c.batch_id in examples
     return outs
 
 
@@ -783,7 +803,8 @@ async def approve_all(
     rows = await session.execute(
         select(GeneratedContent, Asset)
         .join(Asset, Asset.id == GeneratedContent.asset_id)
-        .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
+        .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id,
+               *([GeneratedContent.id.in_(body.content_ids)] if body and body.content_ids is not None else []))
         .order_by(Asset.rank, Asset.original_filename)
     )
     result = schemas.ApproveAllResult()

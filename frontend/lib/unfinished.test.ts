@@ -66,7 +66,7 @@ test("finish these drafts, set up in the shop, and where the list is shown", () 
   assert.match(panel, /<span>Set up in <\/span><span translate="no">\{i\.shop_name\}<\/span>/);
   assert.match(panel, /nothing new\s+is created and nothing is deleted on Etsy/);
   assert.match(read("app/(app)/batches/[id]/review/page.tsx"), /<UnfinishedDrafts batchId=\{id\} \/>/);
-  assert.match(read("app/(app)/dashboard/page.tsx"), /<UnfinishedDrafts \/>/);
+  assert.match(read("app/(app)/dashboard/page.tsx"), /<UnfinishedDrafts key="unfinished" \/>/);
 });
 
 test("drafts to delete are listed apart with their listing ids, and the app never deletes on Etsy", () => {

@@ -266,6 +266,13 @@ class ValidationInfo(BaseModel):
 class ContentOut(BaseModel):
     id: uuid.UUID
     asset_id: uuid.UUID
+    #: Every photo of its listing group, in their order (the review screen shows them large).
+    photo_ids: list[uuid.UUID] = Field(default_factory=list)
+    #: The price its profile copies from the seller's reference listing (read-only here).
+    price: float | None = None
+    currency: str | None = None
+    #: One of the example designs (pipeline/examples.py): labelled, never sent to Etsy.
+    is_example: bool = False
     # The cover the title and tags were written from; differs from asset_id once
     # the group's cover changed (the page offers "Regenerate").
     written_from_asset_id: uuid.UUID | None = None
@@ -572,6 +579,8 @@ class ApproveUpdate(BaseModel):
 class ApproveAllRequest(BaseModel):
     #: The shop in view: every listing whose text for it changed since approval is approved there too.
     connection_id: uuid.UUID | None = None
+    #: "Approve selected": only these listings of the batch (None: every listing).
+    content_ids: list[uuid.UUID] | None = Field(default=None, max_length=2000)
 
 
 class ApproveSkipped(BaseModel):

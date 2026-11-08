@@ -5,6 +5,8 @@
    the stub, so a misconfigured run must not reach Etsy or another database.
 2. Creates the schema and two synthetic accounts (a@example.com, b@example.com; password
    "connect-a-shop-e2e"), terms accepted, time zone set.
+3. Adds the invite codes the first-run test signs up with (frontend/e2e/firstRun.spec.ts): one per
+   browser size, made up for this stack, gone with it.
 """
 
 from __future__ import annotations
@@ -21,6 +23,9 @@ from app.core.config import get_settings  # noqa: E402
 
 STUB_HOSTS = {"etsy-stub.test", "oauth-stub"}
 PASSWORD = "connect-a-shop-e2e"
+#: The first-run test's sign-ups: (invite code, address). Synthetic, in this stack only.
+FIRST_RUN = [("first-run-desktop-e2e-code", "first-run-desktop@example.com"),
+             ("first-run-phone-e2e-code", "first-run-phone@example.com")]
 
 
 def _check() -> None:
@@ -39,7 +44,8 @@ async def _seed() -> None:
     from app.core.passwords import hash_password
     from app.core.terms import TERMS_VERSION
     from app.db.base import Base
-    from app.db.models import Tenant
+    from app.core.invites import hash_code
+    from app.db.models import InviteCode, Tenant
     from app.db.session import get_engine, get_sessionmaker
 
     async with get_engine().begin() as conn:
@@ -49,6 +55,9 @@ async def _seed() -> None:
             if (await s.execute(select(Tenant).where(Tenant.email == email))).scalar_one_or_none() is None:
                 s.add(Tenant(email=email, password_hash=hash_password(PASSWORD), terms_version=TERMS_VERSION,
                              terms_accepted_at=datetime.now(timezone.utc), time_zone="Europe/Istanbul"))
+        for code, email in FIRST_RUN:
+            if (await s.execute(select(InviteCode).where(InviteCode.code_hash == hash_code(code)))).scalar_one_or_none() is None:
+                s.add(InviteCode(code_hash=hash_code(code), note="first-run e2e", bound_email=email))
         await s.commit()
     await get_engine().dispose()
 

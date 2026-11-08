@@ -10,7 +10,7 @@ test("every refused connection says why in its own words and offers Try again", 
     assert.ok(b && b.retry && b.text, status);
   }
   assert.equal(connectBanner("no_binding")?.text, TOO_LONG);
-  assert.equal(TOO_LONG, "The connection took too long or started in another browser. Press Connect a shop again.");
+  assert.equal(TOO_LONG, "The connection took too long or started in another browser. Press Connect your shop again.");
   assert.match(connectBanner("other_account", "t***@example.com")!.text, /started by t\*\*\*@example\.com/);
   assert.equal(connectBanner("connected")?.retry, false);
 });

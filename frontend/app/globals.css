@@ -39,6 +39,37 @@
   --success: #1a7340;
   --warning: #a16207;
   --danger: #991b1b;
+
+  /* One radius scale and one shadow scale for the app (app/onboarding-v1), from the site's values:
+     fields and chips, cards and notes, sheets and dialogs; buttons are pills, as on the site. */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 43, 0.05);
+  --shadow-md: 0 2px 10px rgba(20, 22, 43, 0.06);
+  --shadow-lg: 0 14px 30px rgba(20, 22, 43, 0.22);
+}
+
+/* Keyboard focus shows everywhere, in ink on light surfaces and tag yellow on the ink rail and notes. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+:where(aside, [data-testid="toaster"]) :where(a, button, [tabindex]):focus-visible {
+  outline-color: var(--tag);
+}
+
+/* Anyone who asks for less motion gets none: skeletons stay still, nothing slides. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* The space for the page's scrollbar is always kept. Without it a page that
@@ -61,29 +92,32 @@ body {
   font-weight: 700;
 }
 @layer components {
-  /* Button — primary carries the accent; everything else stays neutral so the
-     violet reads as "the action" (docs/ui-redesign.md §1). */
+  /* The one button set (app/onboarding-v1), the site's pills at the app's size: primary (ink, the
+     page's one main action), secondary (a light fill with a hairline), quiet (text only) and danger. */
   .btn {
-    @apply inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg
-      px-3.5 py-2 text-sm font-medium leading-none transition-colors focus:outline-none
-      focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
-      disabled:cursor-not-allowed;
+    @apply inline-flex select-none items-center justify-center gap-2 whitespace-nowrap px-4 py-2 text-sm
+      font-semibold leading-none transition-colors disabled:cursor-not-allowed;
+    border-radius: var(--radius-pill);
+    min-height: 2.25rem;
   }
-  /* One clear primary action: the accent, with a shadow so it reads first. */
   .btn-primary {
-    @apply btn bg-brand-600 font-semibold text-white shadow-sm hover:bg-brand-700;
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+    box-shadow: var(--shadow-sm);
   }
   .btn-secondary {
-    @apply btn border border-slate-400 bg-white text-slate-800
-      hover:border-slate-600 hover:bg-slate-50;
+    @apply btn border border-slate-300 bg-[#f1f2f7] text-slate-900 hover:border-slate-400 hover:bg-[#e6e8ef];
   }
   /* A toggle that is on (Snap, Free corners...): pressed, but not the primary action. */
   .btn-on {
-    @apply border-brand-600 bg-brand-50 font-semibold text-brand-800 ring-1 ring-brand-600;
+    @apply border-brand-600 bg-brand-50 text-brand-800 ring-1 ring-brand-600;
   }
   /* Destructive: never the accent; a red outline that reads as "this removes something". */
   .btn-danger {
     @apply btn border border-rose-600 bg-white text-rose-700 hover:bg-rose-50;
+  }
+  /* Text only: the third and later actions of a place, and actions inside a sentence. */
+  .btn-quiet {
+    @apply btn bg-transparent px-2.5 text-slate-700 hover:bg-slate-100 hover:text-slate-900;
   }
   /* Disabled still reads (7.6:1): a grey surface with dark text, not a faded copy. */
   .btn-primary:disabled,
@@ -91,24 +125,25 @@ body {
   .btn-danger:disabled {
     @apply border border-slate-300 bg-slate-100 text-slate-600 shadow-none;
   }
-  .btn-ghost {
-    @apply btn text-slate-600 hover:bg-slate-100 hover:text-slate-900;
-  }
 
   /* Card — a quiet surface: 12px radius, hairline border, barely-there shadow. */
   .card {
-    @apply rounded-xl border border-slate-200 bg-white shadow-card;
+    @apply border border-slate-200 bg-white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
   }
 
   /* Input / Select / Textarea share this one field primitive. */
   .field {
-    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900
+    @apply w-full border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900
       transition-colors placeholder:text-slate-400 hover:border-slate-400
       focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500
       disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+    border-radius: var(--radius-sm);
   }
+  /* Field labels in sentence case, like every other word in the app. */
   .label {
-    @apply mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-600;
+    @apply mb-1 block text-[13px] font-semibold text-slate-700;
   }
 
   /* Progress — a hairline track. Fill colour can be overridden by a utility
@@ -153,7 +188,7 @@ body {
   .btn-primary,
   .btn-secondary,
   .btn-danger,
-  .btn-ghost,
+  .btn-quiet,
   .field {
     min-height: 2.75rem;
   }

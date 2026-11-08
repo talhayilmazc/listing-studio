@@ -35,7 +35,8 @@ test("Profiles shows every shop; the sidebar lists every shop's profiles in a se
   const page = read("app/(app)/profiles/page.tsx");
   assert.ok(page.includes('data-testid="profiles-shop-filter"') && page.includes("All shops") && page.includes('data-testid="profiles-by-shop"'));
   assert.ok(!page.includes("switch shops at"), "no single-shop leftover");
+  // app/onboarding-v1: profiles are under Settings (a tab), not children of a rail entry.
   const rail = read("components/Rail.tsx");
-  assert.ok(rail.includes("api\n        .listProfiles(null)") || rail.includes(".listProfiles(null)"));
-  assert.ok(rail.includes('data-testid="rail-profiles-toggle"') && rail.includes("profiles.length > SEARCH_ABOVE") && rail.includes("byMainShop("));
+  assert.ok(!rail.includes("listProfiles") && !rail.includes("rail-profiles-toggle"));
+  assert.match(read("lib/sectionTabs.ts"), /\{ href: "\/profiles", label: "Profiles" \}/);
 });

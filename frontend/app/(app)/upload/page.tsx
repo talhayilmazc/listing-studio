@@ -105,6 +105,24 @@ export default function UploadPage() {
   const [dragging, setDragging] = useState(false);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [recent, setRecent] = useState<BatchSummary[] | null>(null);
+  // Arrived from connecting a shop (the API sends a new seller here: "Upload your first design").
+  const [justConnected, setJustConnected] = useState(false);
+  useEffect(() => {
+    setJustConnected(new URLSearchParams(window.location.search).has("connected"));
+  }, []);
+  const [opening, setOpening] = useState(false);
+  const [exampleProblem, setExampleProblem] = useState<string | null>(null);
+  async function tryExamples() {
+    setOpening(true);
+    setExampleProblem(null);
+    try {
+      const { batch_id } = await api.tryExamples();
+      router.push(`/batches/${batch_id}/review`);
+    } catch (e: any) {
+      setOpening(false);
+      setExampleProblem(e?.message ?? "The examples could not be opened. Try again.");
+    }
+  }
   const inputRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -569,8 +587,15 @@ export default function UploadPage() {
 
   // Empty page: the drop zone leads, with recent uploads beneath it.
   if (empty) {
+    const first = recent !== null && recent.filter((b) => !b.is_example).length === 0;
     return (
       <div className="space-y-6">
+        {justConnected ? (
+          <p key="connected" role="status" className="card flex items-center gap-2 border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900" data-testid="shop-connected">
+            <span aria-hidden>✓</span>
+            <span>Your shop is connected. Now upload your first design.</span>
+          </p>
+        ) : null}
         <div
           {...dropHandlers}
           className={
@@ -589,7 +614,7 @@ export default function UploadPage() {
               <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
             </svg>
           </div>
-          <h2 className="mt-4 font-display text-3xl text-slate-900">Drop photos, folders or ZIPs of designs</h2>
+          <h2 className="mt-4 font-display text-2xl text-slate-900 sm:text-3xl">{first ? "Upload your first design" : "Drop design files, folders or ZIPs"}</h2>
           <p className="mt-1.5 max-w-md text-sm text-slate-500">
             Drop everything at once, mixed. You see the listings they become and can move photos between
             them before anything is uploaded.
@@ -603,7 +628,17 @@ export default function UploadPage() {
           {filesInput}
         </div>
 
-        <MockupUpload shop={null} />
+        {first ? (
+          <div key="examples" className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-700">
+            <span>No design ready? See three example listings Listyro wrote. They're free and never go to Etsy.</span>
+            <button type="button" className="btn-secondary" onClick={tryExamples} disabled={opening} data-testid="try-examples">
+              {opening ? "Opening…" : "Try the example designs"}
+            </button>
+            {exampleProblem ? <span key="p" role="alert" className="text-rose-700">{exampleProblem}</span> : null}
+          </div>
+        ) : (
+          <MockupUpload key="mockups" shop={null} />
+        )}
 
         <RecentUploads batches={recent} />
       </div>
@@ -654,6 +689,7 @@ export default function UploadPage() {
               type="button"
               className="btn-primary"
               onClick={upload}
+              data-testid="upload-start"
             >
               <span><span>{appending ? "Add" : "Upload"}</span> <span>{staged.length + archives.length}</span> <span>{staged.length + archives.length === 1 ? "item" : "items"}</span></span>
             </button>
@@ -688,7 +724,7 @@ export default function UploadPage() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {archives.map((z) => (
             <div key={`${z.name}-${z.size}-${z.lastModified}`} className="card relative flex items-center gap-3 p-5">
-              <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium uppercase text-slate-500">zip</span>
+              <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500">zip</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-slate-800">{z.name}</span>
                 <span className="block text-xs text-slate-400">
@@ -736,8 +772,8 @@ export default function UploadPage() {
           )}
           {!busy && pickers}
           {batchId && !busy && (
-            <button key="button-458-10" className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)}>
-              Open batch
+            <button key="button-458-10" className="btn-primary" onClick={() => router.push(`/batches/${batchId}`)} data-testid="upload-continue">
+              Continue
             </button>
           )}
         </div>
@@ -846,7 +882,7 @@ function Tiles({ tiles, more }: { tiles: Tile[]; more: number }) {
                 {t.status === "error" && <span key="span-600-16" className="absolute inset-0 bg-rose-900/30" aria-hidden />}
               </>
             ) : t && !t.loading ? (
-              <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-wide text-slate-400">
+              <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">
                 {t.name.split(".").pop()}
               </div>
             ) : null}

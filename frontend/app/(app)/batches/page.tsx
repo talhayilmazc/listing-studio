@@ -12,6 +12,7 @@ import { BatchActions } from "@/components/BatchActions";
 import { DeleteBatches } from "@/components/DeleteBatches";
 import { RecentlyDeleted } from "@/components/RecentlyDeleted";
 import { BATCH_STATUSES, counts, matches, parseStatuses, withStatuses } from "@/lib/batchStatus";
+import { EmptyState, ListSkeleton } from "@/components/EmptyState";
 
 /** Per-batch detail loaded after the list paints, so the page never waits on it. */
 interface Enrichment {
@@ -136,12 +137,7 @@ export default function Home() {
       )}
 
       {batches && batches.length === 0 && (
-        <div key="div-115-6" className="card flex flex-col items-center gap-3 p-12 text-center">
-          <p className="text-slate-500">No batches yet.</p>
-          <Link href="/upload" className="btn-primary">
-            Upload your first folder
-          </Link>
-        </div>
+        <EmptyState key="empty" line="Every batch of designs you upload is here, with where each listing stands." action="Upload designs" href="/upload" testId="designs-empty" />
       )}
 
       {batches && batches.length > 0 && (

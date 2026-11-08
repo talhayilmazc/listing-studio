@@ -72,7 +72,7 @@ export default function ListingAnalytics() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Link href="/analytics" className="tap text-sm text-slate-500 hover:text-slate-900 max-sm:py-2">
-          ← Analytics
+          ← Reports
         </Link>
         <div className="sm:ml-auto">
           <PeriodPicker days={days} onChange={setDays} />

@@ -14,7 +14,7 @@ export const HELP = {
       title: "Getting started",
       items: [
         { q: "What do I need to start?", a: "An invite, an Etsy shop you own, and at least one listing set up the way you like it. That listing becomes your first profile." },
-        { q: "How do I connect a shop?", a: "Open Shops & groups and press Connect a shop. You sign in on Etsy's own page and choose what Listyro may do. We never see your Etsy password." },
+        { q: "How do I connect a shop?", a: "Open Shops and press Connect your shop. You sign in on Etsy's own page and choose what Listyro may do. We never see your Etsy password." },
         { q: "What is a profile?", a: "One of your own listings, used as the model for new ones. New drafts copy its price, variations, shipping and the rest. See [Profiles](/features/profiles)." },
         { q: "How should I name my files?", a: "Put the SKU in the file name, like BR5229-front.png, or use one folder per listing. You choose how photos become listings before anything is uploaded, and you can move them afterwards." },
       ],

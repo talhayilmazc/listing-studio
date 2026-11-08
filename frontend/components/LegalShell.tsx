@@ -148,7 +148,7 @@ export function Items({ children }: { children: React.ReactNode }) {
  *  passages are set by convention. Legal text, not a label (docs/design-v2.md keeps labels in sentence case). */
 export function Conspicuous({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border-l-4 border-ink bg-fabric p-4 text-sm uppercase leading-relaxed text-ink">
+    <div className="border-l-4 border-ink bg-fabric p-4 text-sm leading-relaxed text-ink">
       {children}
     </div>
   );
