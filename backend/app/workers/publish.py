@@ -302,6 +302,10 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                 job.tenant_id,
                 "content",
             )
+            from app.pipeline import examples
+
+            if await examples.is_example(session, content.batch_id):
+                raise ValueError(examples.NOT_SENT)  # the example designs never reach Etsy, whatever queued this
             connection = owned(
                 await session.get(EtsyConnection, job.connection_id),
                 job.tenant_id,
@@ -546,6 +550,10 @@ async def _run_publish_live_job(ctx: dict[str, Any], job_id: str) -> str:
                 job.tenant_id,
                 "content",
             )
+            from app.pipeline import examples
+
+            if await examples.is_example(session, content.batch_id):
+                raise ValueError(examples.NOT_SENT)  # the example designs never reach Etsy, whatever queued this
             connection = owned(
                 await session.get(EtsyConnection, job.connection_id),
                 job.tenant_id,

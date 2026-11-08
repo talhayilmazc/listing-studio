@@ -47,6 +47,8 @@ class AssetOut(BaseModel):
 class BatchSummary(BaseModel):
     id: uuid.UUID
     status: str
+    #: The example designs (pipeline/examples.py): shown as "Example", never sent to Etsy.
+    is_example: bool = False
     #: Every status the batch is in (pipeline/batch_status.py, the one definition): the Batches
     #: filter, and ``headline``, the one every badge shows (Batches, the batch page, Overview).
     statuses: list[str] = Field(default_factory=list)
@@ -366,6 +368,26 @@ class ReferenceText(BaseModel):
     profile_name: str
 
 
+class AdviceOut(BaseModel):
+    """What fixes an error, beside the message (etsy/advice.py): the button's action and words,
+    the page it opens, and the raw answer for "Details"."""
+
+    action: str
+    label: str
+    href: str | None = None
+    details: str | None = None
+
+
+def advice_out(message: str | None, etsy_error: dict | None = None) -> "AdviceOut | None":
+    from app.etsy import advice
+
+    found = advice.advise(message)
+    if found is None:
+        return None
+    return AdviceOut(action=found.action, label=found.label, href=found.href,
+                     details=advice.details(etsy_error, message))
+
+
 class WorkOut(BaseModel):
     """The latest draft or go-live job of a listing in one shop, while it has not succeeded."""
 
@@ -376,6 +398,8 @@ class WorkOut(BaseModel):
     status: str  # "failed" | "queued" | "running"
     #: Why it failed, in words the seller can act on (workers/guards.py).
     error: str | None = None
+    #: The one action that fixes it, and the raw answer for "Details".
+    advice: AdviceOut | None = None
     #: Set while it waits: for the daily reset, or to run again by itself in a moment.
     pause: "PauseOut | None" = None
 
@@ -963,6 +987,7 @@ class JobStatusOut(BaseModel):
     type: str
     status: str
     error: str | None = None
+    advice: AdviceOut | None = None
     listing_id: int | None = None
     listing_url: str | None = None  # edit URL for a draft, public URL once active
     is_draft: bool = True

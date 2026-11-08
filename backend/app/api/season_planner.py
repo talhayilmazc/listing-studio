@@ -34,7 +34,7 @@ from app.db.models import GeneratedContent, GroupPlan, PlannedSlot, ShopGroup, T
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, group_shops
 from app.pipeline import group_plan as G
-from app.pipeline import profile_shops
+from app.pipeline import examples, profile_shops
 from app.pipeline import season_calendar as C
 from app.pipeline import season_plan as P
 from app.pipeline.batch_names import names_by_id
@@ -343,13 +343,15 @@ async def _plan(session: AsyncSession, tenant: Tenant, quota: DailyQuota, body: 
 async def preview(body: PlanIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
                   quota: DailyQuota = Depends(get_quota)) -> PreviewOut:
     out, _, _, _ = await _plan(session, tenant, quota, body)
+    await examples.refuse(session, list(body.batch_ids))  # the example designs never reach Etsy
     return out
 
 
 @router.post("/save", response_model=SavedOut)
 async def save(body: SaveIn, session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant),
                quota: DailyQuota = Depends(get_quota), enqueuer: Enqueuer = Depends(get_enqueuer)) -> SavedOut:
-    out, plan, works, batches = await _plan(session, tenant, quota, body)
+    out, plan, works, batches = await _plan(session, tenant, quota, body)  # the batches are the account's
+    await examples.refuse(session, list(body.batch_ids))  # the example designs never reach Etsy
     if out.disabled or plan is None:
         raise HTTPException(status_code=409, detail=out.disabled or CHANGED)
     if out.fingerprint != body.fingerprint:
@@ -373,6 +375,9 @@ async def save(body: SaveIn, session: AsyncSession = Depends(get_session, scope=
         for slot in slots:
             session.add(PlannedSlot(tenant_id=tenant.id, plan_id=row.id, content_id=slot.content_id, connection_id=slot.shop_id,
                                     draft_at=slot.draft_at, publish_at=slot.publish_at))
+    from app.pipeline import funnel
+
+    await funnel.record(session, tenant.id, funnel.FIRST_SENT)
     audit.record(session, "schedule.season_planned", actor=tenant, target_tenant_id=tenant.id, holiday=out.holiday, slots=len(plan.slots), batches=len(per_batch))
     setups: dict[uuid.UUID, tuple] = {}
     for work in works:

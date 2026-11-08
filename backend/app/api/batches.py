@@ -57,6 +57,7 @@ from app.pipeline.content import (
 )
 from app.pipeline.generation import generate_listing_content
 from app.pipeline.images import PREVIEW_ASPECTS
+from app.pipeline import funnel
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.ingest import UploadFile as IngestFile
 from app.pipeline.llm import client_for
@@ -146,6 +147,7 @@ async def _summaries(
             regroupable=not written,
             name=names[batch.id],
             named=bool(batch.name),
+            is_example=batch.is_example,
             id=batch.id,
             status=batch.status.value,
             file_count=batch.file_count,
@@ -223,6 +225,8 @@ async def add_asset(
         )
     except UploadRejected as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    await funnel.record_for_batch(session, tenant.id, funnel.FIRST_UPLOAD, batch_id)
+    await session.commit()
     return schemas.AssetOut(
         id=asset.id,
         original_filename=asset.original_filename,
@@ -329,6 +333,9 @@ async def add_archive(
             result.failed.append(schemas.ArchiveFailure(filename=entry.filename, error=str(exc)))
             continue
         result.assets.append(_asset_out(asset))
+    if result.assets:
+        await funnel.record_for_batch(session, tenant.id, funnel.FIRST_UPLOAD, batch_id)
+        await session.commit()
     return result
 
 
@@ -1345,6 +1352,17 @@ async def _refuse_unsorted(session: AsyncSession, batch_id: uuid.UUID, body: sch
         )
 
 
+EXAMPLE_WRITTEN = "The example listings are already written. Upload a design of your own to have Listyro write it."
+
+
+async def _refuse_examples(session: AsyncSession, batch_id: uuid.UUID) -> None:
+    """The example designs' listings come from a saved result: nothing writes them again (no model call)."""
+    from app.pipeline import examples
+
+    if await examples.is_example(session, batch_id):
+        raise HTTPException(status_code=409, detail=EXAMPLE_WRITTEN)
+
+
 @router.post("/batches/{batch_id}/manual", response_model=schemas.GenerateResult)
 async def write_manually(
     batch_id: uuid.UUID,
@@ -1360,6 +1378,7 @@ async def write_manually(
     allowance, like any listing. The seller can generate it with AI later
     (``/generate`` with ``replace``)."""
     await _get_batch(session, tenant, batch_id)
+    await _refuse_examples(session, batch_id)
     await _refuse_unsorted(session, batch_id, body)  # type: ignore[arg-type]
     allowance_now = await allowance.status(session, tenant)
     left = allowance_now.remaining
@@ -1446,6 +1465,7 @@ async def generate_content(
     # Ownership first: a caller with no claim on this batch must learn nothing
     # about it, not even whether the service is configured (production-spec B3).
     await _get_batch(session, tenant, batch_id)
+    await _refuse_examples(session, batch_id)
     await _refuse_unsorted(session, batch_id, body)
     if body.profile_id is not None:
         requested = await session.get(ListingProfile, body.profile_id)

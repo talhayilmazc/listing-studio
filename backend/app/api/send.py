@@ -63,7 +63,7 @@ from app.db.models import (
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops, group_shops
 from app.pipeline import group_plan as G
-from app.pipeline import profile_shops, shop_listing, shop_targets
+from app.pipeline import examples, funnel, profile_shops, shop_listing, shop_targets
 from app.pipeline.targets import resolve_cached
 
 router = APIRouter(prefix="/api", tags=["send"])
@@ -575,6 +575,7 @@ async def send_to_all_shops(batch_id: uuid.UUID, session: AsyncSession = Depends
 @router.post("/batches/{batch_id}/send/preview", response_model=SendPreviewOut)
 async def send_preview(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depends(get_session, scope="function"),
                        tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota)) -> SendPreviewOut:
+    await examples.refuse(session, batch_id)  # the example designs never reach Etsy (pipeline/examples.py)
     out, _, _ = await _preview(session, tenant, quota, await _batch(session, tenant, batch_id), body)
     return out
 
@@ -584,6 +585,7 @@ async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depend
                tenant: Tenant = Depends(active_tenant), quota: DailyQuota = Depends(get_quota),
                enqueuer: Enqueuer = Depends(get_enqueuer)) -> SendOut:
     batch = await _batch(session, tenant, batch_id)
+    await examples.refuse(session, batch_id)  # the example designs never reach Etsy (pipeline/examples.py)
     out, work, plan = await _preview(session, tenant, quota, batch, body)
     if out.disabled:
         raise HTTPException(status_code=409, detail=out.disabled)
@@ -619,6 +621,7 @@ async def send(batch_id: uuid.UUID, body: SendIn, session: AsyncSession = Depend
         session.add(PlannedSlot(tenant_id=tenant.id, plan_id=group_plan.id, content_id=content_id,
                                 connection_id=shop_id, draft_at=draft_at, publish_at=publish_at))
     _record(session, tenant, work, names)
+    await funnel.record(session, tenant.id, funnel.FIRST_SENT)
     started = [profile for profile, shops in work.setups.values()
                if await profile_shops.start_links(session, profile, shops)]
     await session.commit()

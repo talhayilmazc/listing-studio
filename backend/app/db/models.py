@@ -187,6 +187,9 @@ class Tenant(Base):
     #: account is asked before it can use the app.
     terms_version: Mapped[str | None] = mapped_column(Text)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The seller dismissed the "You're set up" note once every first-run step was done
+    #: (pipeline/onboarding.py; migration 0098). None: still shown when it applies.
+    setup_note_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: The seller asked for the account to be deleted (workers/accounts.py).
     deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
@@ -337,6 +340,20 @@ class ListingFix(Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     undo_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class FunnelEvent(Base):
+    """A step of the sign-up funnel the account has done, once (pipeline/funnel.py): signed up,
+    connected a shop, first upload, first listing ready, first approved, first sent. Only the
+    account id, the step's name and its time: no personal data. Deleted with the account."""
+
+    __tablename__ = "funnel_event"
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_funnel_event_tenant_name"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
 class SellerEvent(Base):
@@ -681,6 +698,9 @@ class UploadBatch(Base):
     #: Deleted by the seller: hidden everywhere, "Restore" for RESTORE_DAYS, then removed
     #: for good (pipeline/batch_delete.py; migration 0095). None: not deleted.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    #: The example designs a new seller can try (pipeline/examples.py; migration 0098): their
+    #: listings come from a saved result, cost nothing, count for nothing and can never be sent.
+    is_example: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
 
     RESTORE_DAYS = 7
 

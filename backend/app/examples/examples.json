@@ -1,0 +1,90 @@
+{
+  "written_on": "2026-11-08",
+  "how": "scripts/example_listings.py: the app's vision and content steps, short-title style, run once",
+  "listings": [
+    {
+      "slug": "slow-mornings-club",
+      "title": "Slow Mornings Club Shirt, Retro Badge Style, Coffee Lover Statement",
+      "tags": [
+        "coffee lover gift",
+        "slow living tee",
+        "morning person gift",
+        "retro badge tee",
+        "cozy morning shirt",
+        "sleep in humor",
+        "coffee club tee",
+        "relax and unwind",
+        "weekend vibes tee",
+        "lazy mornings",
+        "coffee lifestyle",
+        "gift for her",
+        "unisex crewneck"
+      ],
+      "opening": "This t-shirt celebrates the simple joy of slow, unhurried mornings with a bold club-badge style design made for coffee lovers and sleep-in enthusiasts alike. Perfect for anyone who believes the best part of the day starts whenever they're ready.​",
+      "attributes": {},
+      "warnings": [],
+      "theme": "slow mornings",
+      "themes": [
+        "slow mornings",
+        "coffee lifestyle",
+        "relaxation"
+      ]
+    },
+    {
+      "slug": "tomato-season",
+      "title": "Tomato Season Shirt, Homegrown Garden Harvest, Bold Typography",
+      "tags": [
+        "gardener gift",
+        "summer harvest tee",
+        "tomato lover gift",
+        "garden to table",
+        "veggie garden tee",
+        "backyard garden",
+        "summer vacation tee",
+        "garden club tee",
+        "retro typography",
+        "farmers market tee",
+        "veggie grower",
+        "plant lady gift",
+        "tomato plant tee"
+      ],
+      "opening": "This tomato season t-shirt celebrates the joy of growing and harvesting tomatoes straight from a home garden. With bold typographic style in cream, navy, and yellow, it makes a fun summer harvest piece for any gardener or tomato grower who loves getting their hands dirty.",
+      "attributes": {},
+      "warnings": [],
+      "theme": "gardening",
+      "themes": [
+        "gardening",
+        "tomatoes",
+        "homegrown produce"
+      ]
+    },
+    {
+      "slug": "small-kind-things",
+      "title": "Kindness Quote Shirt, Do One Kind Thing Today, Bold Typography",
+      "tags": [
+        "positive vibes tee",
+        "inspirational gift",
+        "motivational tee",
+        "kindness matters",
+        "be kind shirt",
+        "encouragement gift",
+        "positivity apparel",
+        "kind words tee",
+        "good vibes shirt",
+        "teacher gift tee",
+        "uplifting quote",
+        "daily kindness",
+        "mental health tee"
+      ],
+      "opening": "This t-shirt carries a bold typographic reminder to do one small kind thing today, a simple nudge toward daily kindness and positivity. It suits anyone who loves wearing an uplifting, motivational message in cream, navy and mustard yellow tones.",
+      "attributes": {},
+      "warnings": [],
+      "theme": "kindness",
+      "themes": [
+        "kindness",
+        "motivational quote",
+        "positivity"
+      ]
+    }
+  ]
+}

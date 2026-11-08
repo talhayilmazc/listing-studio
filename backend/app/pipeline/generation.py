@@ -202,6 +202,9 @@ async def generate_listing_content(
     # The compliance scanner records what it finds (a trademark in the reference
     # description, say); a blocking finding keeps this listing from Etsy (v6 §B).
     await rescan(session, content)
+    from app.pipeline import funnel
+
+    await funnel.record_for_batch(session, tenant_id, funnel.FIRST_LISTING_READY, batch_id)
     # Clear any prior failure reason now that generation succeeded.
     asset = await session.get(Asset, asset_id)
     if asset is not None:

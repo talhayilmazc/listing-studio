@@ -31,7 +31,7 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline import approval, creativity, manual, shop_listing, versions
+from app.pipeline import approval, creativity, funnel, manual, shop_listing, versions
 from app.workers.recovery import WAIT_PERSONALIZATION
 from app.api.personalization_fix import hold_out, requeue_held
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
@@ -296,6 +296,8 @@ async def unfinished_work(
                 # Failed: why. Held for its personalization: why, too (it waits for the seller).
                 error=job.last_error if job.status is JobStatus.failed or (
                     job.status is JobStatus.queued and job.paused_reason == WAIT_PERSONALIZATION) else None,
+                advice=schemas.advice_out(job.last_error, (job.payload or {}).get("etsy_error"))
+                if job.status is JobStatus.failed else None,
                 pause=pause_out(
                     job.paused_reason if job.status is JobStatus.queued else None,
                     tenant=tenant,
@@ -722,6 +724,8 @@ async def approve_content(
         if errors:
             raise HTTPException(status_code=422, detail={"message": "cannot approve invalid content", "errors": errors})
     approval.set_approved(content, body.approved, approval.VIA_CARD)
+    if body.approved:
+        await funnel.record_for_batch(session, tenant.id, funnel.FIRST_APPROVED, content.batch_id)
     if body.approved and shop is not None:
         shop_listing.approve_in(content, shop)
     if not body.approved:
@@ -822,6 +826,8 @@ async def approve_all(
         if shop is not None:
             shop_listing.approve_in(content, shop)
         result.approved += 1
+    if result.approved:
+        await funnel.record_for_batch(session, tenant.id, funnel.FIRST_APPROVED, batch_id)
     await session.commit()
     # One line per reason with how many, not the same long list for every listing.
     groups = approval.group(refused)
