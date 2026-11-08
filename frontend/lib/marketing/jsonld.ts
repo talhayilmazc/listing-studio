@@ -4,6 +4,7 @@
  * planned, since nothing can be bought today.
  */
 import { PLANNED_NOTICE, PLANS, listingsFact, shopsFact, type Plan } from "../plans.ts";
+import { BRAND_FILES } from "./brand.ts";
 import { GUIDES, type Guide } from "./guides.ts";
 import { SITE_URL, cardSlug, pageAt, trail } from "./pages.ts";
 import type { Tool } from "./tools.ts";
@@ -16,7 +17,7 @@ export const organization = () => ({
   "@type": "Organization",
   name: "Listyro",
   url: url("/"),
-  logo: `${SITE_URL}/icon.svg`,
+  logo: `${SITE_URL}${BRAND_FILES.icon512Maskable}`,
 });
 
 const offer = (plan: Plan) => ({

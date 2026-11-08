@@ -3,6 +3,7 @@ import { InviteForm } from "@/components/marketing/InviteForm";
 import { metadataFor } from "@/lib/marketing/pages";
 import { JsonLd } from "@/components/marketing/Page";
 import { breadcrumbs } from "@/lib/marketing/jsonld";
+import { TRIAL } from "@/lib/plans";
 
 export const metadata: Metadata = metadataFor("/request-invite");
 
@@ -26,11 +27,12 @@ export default function RequestInvite() {
             "We read every request ourselves and reply by email",
           ].map((t) => (
             <li key={t} className="flex gap-3">
-              <span aria-hidden className="mt-[0.6rem] h-2 w-2 shrink-0 bg-ink" />
+              <span aria-hidden className="mt-[0.45rem] h-3 w-3 shrink-0 rounded-full bg-go" />
               <span>{t}</span>
             </li>
           ))}
         </ul>
+        <p className="mt-8 max-w-[32rem] rounded-[24px] bg-[#FFF3D1] px-6 py-5 text-[1rem] font-bold leading-relaxed text-ink" data-testid="trial-line">{TRIAL.line}</p>
       </div>
       <div className="relative min-w-0">
         <InviteForm />

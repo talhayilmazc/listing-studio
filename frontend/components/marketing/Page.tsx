@@ -12,7 +12,7 @@ import type { Screen } from "@/lib/marketing/screens";
 
 export const WRAP = "mk-wrap";
 /** A reading column: the measure stays under 75 characters. */
-export const PROSE = "mx-auto w-full max-w-[44rem] px-4 sm:px-6";
+export const PROSE = "mx-auto w-full max-w-[44rem] px-8";
 const LINK = "mk-link";
 
 /** One block of JSON-LD. "<" is escaped so no text can end the script element. */
@@ -92,7 +92,7 @@ export function Shot({ screen, priority = false, className = "" }: { screen: Scr
           className="block h-auto w-full"
         />
       </picture>
-      <figcaption className="absolute bottom-2 right-2 rounded-[3px] border border-heather bg-white px-1.5 py-0.5 text-xs font-semibold text-slate-600">Sample data</figcaption>
+      <figcaption className="absolute bottom-2 right-2 rounded-[7px] border border-line bg-white px-2 py-0.5 text-xs font-bold text-slate-600">Sample data</figcaption>
     </figure>
   );
 }
@@ -126,7 +126,7 @@ export function Blocks({ blocks }: { blocks: Block[] }) {
         if ("p" in block) return <p key={i}><Rich text={block.p} /></p>;
         if ("ul" in block) return <ul key={i} className="list-disc space-y-2 pl-5">{block.ul.map((item) => <li key={item}><Rich text={item} /></li>)}</ul>;
         if ("ol" in block) return <ol key={i} className="list-decimal space-y-2 pl-5">{block.ol.map((item) => <li key={item}><Rich text={item} /></li>)}</ol>;
-        if ("note" in block) return <p key={i} className="border-l-4 border-tag bg-fabric px-4 py-3 text-base"><Rich text={block.note} /></p>;
+        if ("note" in block) return <p key={i} className="rounded-[18px] border-l-4 border-tag bg-mist px-5 py-4 text-base"><Rich text={block.note} /></p>;
         return <DataTable key={i} caption={block.table.caption} head={block.table.head} rows={block.table.rows} />;
       })}
     </div>
@@ -136,11 +136,11 @@ export function Blocks({ blocks }: { blocks: Block[] }) {
 /** A table that scrolls inside its own frame on a phone; the page itself never scrolls sideways. */
 export function DataTable({ caption, head, rows }: { caption: string; head: string[]; rows: string[][] }) {
   return (
-    <div className="overflow-x-auto border-y-2 border-ink bg-white" tabIndex={0} role="region" aria-label={caption}>
+    <div className="overflow-x-auto rounded-[18px] border border-line bg-white px-1" tabIndex={0} role="region" aria-label={caption}>
       <table className="w-full min-w-[32rem] border-collapse text-left text-[0.9375rem]">
-        <caption className="pb-2 pt-3 text-left text-sm text-slate-600">{caption}</caption>
+        <caption className="px-3 pb-2 pt-3 text-left text-sm text-slate-600">{caption}</caption>
         <thead>
-          <tr className="border-b border-ink bg-fabric text-ink">
+          <tr className="border-b-2 border-ink text-ink">
             {head.map((cell, i) => <th key={i} scope="col" className="px-3 py-2.5 font-bold">{cell}</th>)}
           </tr>
         </thead>
@@ -187,13 +187,24 @@ export function AlsoRead({ pages }: { pages: Source[] }) {
   );
 }
 
+/** The closing call of every long page, as the home page's closing block draws it: ink, the two glows, one yellow button. */
 export function InviteCta({ line }: { line: string }) {
   return (
-    <aside className="mt-12 bg-fabric p-6 sm:p-8">
-      <p className="mk-body text-ink"><Rich text={line} /></p>
-      <p className="mt-5 flex flex-wrap gap-3">
-        <a href={PRIMARY_CTA.href} className="mk-btn">{PRIMARY_CTA.label}</a>
-        <a href="/pricing" className="mk-btn-line">See pricing</a>
+    <aside
+      className="lx-dark mt-12"
+      style={{
+        borderRadius: 28,
+        padding: "clamp(28px, 4vw, 44px)",
+        background: "#14162B",
+        color: "#FFFFFF",
+        backgroundImage:
+          "radial-gradient(500px 300px at 100% 0%, rgba(255,210,74,0.28), rgba(255,210,74,0) 70%), radial-gradient(420px 300px at 0% 100%, rgba(150,120,255,0.22), rgba(150,120,255,0) 70%)",
+      }}
+    >
+      <p style={{ margin: 0, fontSize: 19, lineHeight: 1.5, color: "#FFFFFF", fontWeight: 650 }}><Rich text={line} /></p>
+      <p style={{ margin: "22px 0 0", display: "flex", flexWrap: "wrap", gap: 12 }}>
+        <a href={PRIMARY_CTA.href} className="lx-btn lx-btn-tag" style={{ fontSize: 16, fontWeight: 900, padding: "14px 26px", minHeight: 48 }}>{PRIMARY_CTA.label}</a>
+        <a href="/pricing" className="lx-btn lx-btn-white" style={{ fontSize: 16, fontWeight: 850, padding: "14px 22px", minHeight: 48 }}>See pricing</a>
       </p>
     </aside>
   );

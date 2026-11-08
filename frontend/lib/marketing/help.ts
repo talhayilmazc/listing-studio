@@ -1,4 +1,8 @@
 /** The help center and the Free tools page's words. Each answer is what the product does today. */
+import { TRIAL } from "../plans.ts";
+
+/** The trial, in the one wording the site uses (lib/plans.ts). Nothing is charged during early access. */
+const TRIAL_ANSWER = `${TRIAL.line} During early access nothing is charged at all.`;
 
 export const HELP = {
   title: "Help center: getting started with Listyro | Listyro",
@@ -44,6 +48,7 @@ export const HELP = {
       title: "Plans",
       items: [
         { q: "What does it cost?", a: "Nothing during early access: no payment of any kind is taken. The launch prices are on the [pricing page](/pricing)." },
+        { q: "Is there a free trial?", a: TRIAL_ANSWER },
         { q: "What counts as a listing?", a: "In the launch plans, a listing is one design written by AI, with all its photos. Rewriting the same design is free up to 3 times. Listings you write yourself, photos, and sending a listing to more shops do not count. See the [pricing page](/pricing)." },
         { q: "Who makes Listyro?", a: "No. Listyro is an independent product that works through Etsy's API. It is not made, endorsed or certified by Etsy." },
       ],

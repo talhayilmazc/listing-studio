@@ -20,7 +20,7 @@ hand in the Cloudflare, Google and Bing dashboards.
 | Marketing pages with an `RSC` header or `?_rsc=` | `private, no-store` | The router's payload must never replace the page |
 | `/` with a live session | `private, no-store` | 307 to `/dashboard` |
 | `/` with a dead session cookie | `private, no-store` | Landing page; the cookie is cleared |
-| `/screens/*`, `/og/*`, `/icon.svg`, `/favicon.ico`, `/robots.txt`, `/sitemap.xml` | `public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400` | |
+| `/screens/*`, `/hero/*`, `/brand/*`, `/og/*`, `/icon.svg`, `/favicon.ico`, `/apple-icon.png`, `/manifest.webmanifest`, `/robots.txt`, `/sitemap.xml` | `public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400` | |
 | `/_next/static/*` | `public, max-age=31536000, immutable` | Next's own hashed files |
 | Every app page (`/dashboard`, `/batches`, `/login`, …) | `private, no-store` | Before this change they sent `s-maxage=31536000` |
 | Any address nobody listed; 404s | `private, no-store` (Next's 404 adds `no-cache`, `max-age=0`) | |
@@ -45,6 +45,7 @@ and (
     "/" "/features" "/pricing" "/free-tools" "/compare" "/guides" "/help"
     "/request-invite" "/contact" "/terms" "/privacy"
     "/robots.txt" "/sitemap.xml" "/icon.svg" "/favicon.ico"
+    "/apple-icon.png" "/manifest.webmanifest"
   }
   or starts_with(http.request.uri.path, "/features/")
   or starts_with(http.request.uri.path, "/guides/")
@@ -52,6 +53,8 @@ and (
   or http.request.uri.path eq "/free-tools"
   or starts_with(http.request.uri.path, "/free-tools/")
   or starts_with(http.request.uri.path, "/screens/")
+  or starts_with(http.request.uri.path, "/hero/")
+  or starts_with(http.request.uri.path, "/brand/")
   or starts_with(http.request.uri.path, "/og/")
 )
 and not starts_with(http.request.uri.path, "/free-tools/listing-ideas")

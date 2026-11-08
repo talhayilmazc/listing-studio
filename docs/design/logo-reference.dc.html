@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Listyro logo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&amp;display=swap">
+<style>
+body{margin:0;background:#F5F6FA}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 56px 64px; background: #F5F6FA; font-family: Archivo, system-ui, sans-serif; color: #14162B; display: flex; flex-direction: column; gap: 28px;">
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px;">
+<div style="height: 340px; border-radius: 28px; background: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 26px;">
+<svg width="132" height="132" viewBox="0 0 64 64" role="img" aria-label="Listyro mark"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{accent}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="#14162B"></path><circle cx="33" cy="27.5" r="3.8" fill="#FFFFFF"></circle></g></svg>
+<span style="font-size: 104px; font-weight: 900; font-stretch: 108%; letter-spacing: -5px; line-height: 1;">listyro</span>
+</div>
+<div style="height: 340px; border-radius: 28px; background: #14162B; color: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 26px;">
+<svg width="132" height="132" viewBox="0 0 64 64" role="img" aria-label="Listyro mark on dark"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{accent}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="#FFFFFF"></path><circle cx="33" cy="27.5" r="3.8" fill="#14162B"></circle></g></svg>
+<span style="font-size: 104px; font-weight: 900; font-stretch: 108%; letter-spacing: -5px; line-height: 1; color: #FFFFFF;">listyro</span>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 28px; flex-grow: 1;">
+<div style="border-radius: 28px; background: #FFFFFF; padding: 30px; display: flex; flex-direction: column; gap: 22px;">
+<span style="font-size: 16px; font-weight: 800;">Uygulama ikonu ve favicon</span>
+<div style="display: flex; align-items: flex-end; gap: 28px;">
+<sc-for list="{{icons}}" as="i" hint-placeholder-count="5">
+<span style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<span style="display: inline-flex; width: {{i.s}}px; height: {{i.s}}px; border-radius: {{i.r}}px; background: {{i.bg}}; align-items: center; justify-content: center;"><svg width="{{i.m}}" height="{{i.m}}" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{i.back}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="{{i.front}}"></path><circle cx="33" cy="27.5" r="3.8" fill="{{i.hole}}"></circle></g></svg></span>
+<span style="font-size: 12px; font-weight: 700; color: #6A6F8A;">{{i.label}}</span>
+</span>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 15px; line-height: 1.55; color: #4B4F6B; max-width: 46em;">İki üst üste askı etiketi: tek tasarım, birçok ilan ve birçok mağaza. Askı etiketi, tişört satıcısının her gün gördüğü nesne. Sarı arkadaki etiket ileri dönük ve hareketli, koyu öndeki etiket güven veriyor. Yazı Archivo Black ağırlığında, sıkı aralıklı ve küçük harfle: samimi ama sağlam.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 28px;">
+<div style="flex-grow: 1; border-radius: 28px; background: #FFFFFF; padding: 26px 30px; display: flex; flex-direction: column; gap: 18px;">
+<span style="font-size: 16px; font-weight: 800;">Renkler</span>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+<sc-for list="{{swatches}}" as="c" hint-placeholder-count="4">
+<span style="display: flex; flex-direction: column; gap: 8px;"><span style="height: 64px; border-radius: 14px; background: {{c.hex}}; border: 1px solid #E3E6EE;"></span><span style="font-size: 13px; font-weight: 800;">{{c.name}}</span><span style="font-size: 12px; color: #6A6F8A;">{{c.hex}}</span></span>
+</sc-for>
+</div>
+</div>
+<div style="border-radius: 28px; background: #FFFFFF; padding: 22px 30px; display: flex; align-items: center; gap: 24px;">
+<span style="font-size: 14px; font-weight: 800; color: #6A6F8A;">Küçük boyut:</span>
+<span style="display: inline-flex; gap: 8px; align-items: center;"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{accent}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="#14162B"></path><circle cx="33" cy="27.5" r="3.8" fill="#FFFFFF"></circle></g></svg><span style="font-size: 18px; font-weight: 900; font-stretch: 108%; letter-spacing: -0.8px;">listyro</span></span>
+<span style="display: inline-flex; gap: 6px; align-items: center;"><svg width="16" height="16" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{accent}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="#14162B"></path><circle cx="33" cy="27.5" r="3.8" fill="#FFFFFF"></circle></g></svg><span style="font-size: 13px; font-weight: 900; font-stretch: 108%; letter-spacing: -0.5px;">listyro</span></span>
+</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#FFD24A","options":["#FFD24A","#FF8A65","#7FD6B6","#B7A6FF"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#FFD24A';
+    return {
+      accent,
+      icons: [
+        { s: 128, r: 30, m: 92, bg: '#14162B', back: accent, front: '#FFFFFF', hole: '#14162B', label: 'App 128' },
+        { s: 128, r: 30, m: 92, bg: accent, back: '#FFFFFF', front: '#14162B', hole: accent, label: 'Sarı zemin' },
+        { s: 72, r: 18, m: 52, bg: '#14162B', back: accent, front: '#FFFFFF', hole: '#14162B', label: '72' },
+        { s: 40, r: 10, m: 30, bg: '#14162B', back: accent, front: '#FFFFFF', hole: '#14162B', label: '40' },
+        { s: 20, r: 5, m: 16, bg: '#14162B', back: accent, front: '#FFFFFF', hole: '#14162B', label: 'Favicon' }
+      ],
+      swatches: [
+        { name: 'Mürekkep', hex: '#14162B' },
+        { name: 'Etiket sarısı', hex: accent },
+        { name: 'Kâğıt', hex: '#FFFFFF' },
+        { name: 'Sis', hex: '#F5F6FA' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

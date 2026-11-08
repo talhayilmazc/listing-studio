@@ -18,11 +18,11 @@ export default function Help() {
         {HELP.groups.map((group) => (
           <section key={group.title} data-help-group>
             <h2 className="mk-h2 !text-[1.5rem] sm:!text-[1.75rem]">{group.title}</h2>
-            <dl className="mt-4 divide-y divide-heather border-y border-heather">
+            <dl className="mt-5">
               {group.items.map((item) => (
-                <div key={item.q} className="py-5" data-help-item>
-                  <dt className="text-[1.125rem] font-bold text-ink">{item.q}</dt>
-                  <dd className="mk-body mt-1.5"><Rich text={item.a} /></dd>
+                <div key={item.q} className="border-t-2 border-ink pb-7 pt-5" data-help-item>
+                  <dt className="text-[1.3125rem] font-[850] leading-tight text-ink">{item.q}</dt>
+                  <dd className="mk-body mt-2.5"><Rich text={item.a} /></dd>
                 </div>
               ))}
             </dl>

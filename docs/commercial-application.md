@@ -169,9 +169,11 @@ The plan list under "Fees and payments" is what was approved, and it is kept as 
 - Special: more than 1,000 AI listings a month, quoted on request
 - Extra pack: +100 AI listings for $9, on any plan
 
-Only listings written by AI count. Listings a seller writes by hand, photos, and sending a listing to more of the seller's shops do not. A new account can try 25 AI listings when it connects a shop. Paid yearly, a plan costs ten months. What a plan pays for is unchanged: the work Listyro does itself, not anything Etsy offers for free. At about 35 API calls per listing, the largest plan (1,000 listings a month) needs about 1,170 calls a day per seller, about 1.2% of the approved 100,000 a day. That is for one draft of each listing; a listing drafted in more than one of the seller's shops costs about 35 calls in each.
+Only listings written by AI count. Listings a seller writes by hand, photos, and sending a listing to more of the seller's shops do not. A new account gets 10 free AI listings once it connects an Etsy shop that has never had a trial (one trial per Etsy shop and per Etsy account, for life; none before a shop is connected); the grant comes with billing, and until then nothing changes for any account. Paid yearly, a plan costs ten months. What a plan pays for is unchanged: the work Listyro does itself, not anything Etsy offers for free. At about 35 API calls per listing, the largest plan (1,000 listings a month) needs about 1,170 calls a day per seller, about 1.2% of the approved 100,000 a day. That is for one draft of each listing; a listing drafted in more than one of the seller's shops costs about 35 calls in each.
 
 The home page no longer repeats the trademark notice in a box under its first heading. The notice is unchanged, word for word, in the footer of every page, the home page included.
+
+Since 8 November 2026 (site v3) the home page also says "Built on Etsy's official API" and "Uses Etsy's official sign-in", as plain facts about how it connects, in smaller type than the Listyro name and its heading; the trademark notice, word for word, is in the footer of every page. Nothing says or implies that Etsy endorses, certifies or works with Listyro. The plans and the trial above are unchanged in substance; the Special plan's card says "Talk to us" and "Unlimited shops" (the number of shops is still set per account, and the app-wide cap still applies).
 
 ## API features we would like Etsy to expose (added 23 October 2026, after approval)
 

@@ -50,12 +50,22 @@ export const PLANS: Plan[] = [
 /** More AI listings in a month, on any plan. */
 export const EXTRA_PACK = { name: "Extra pack", listings: 100, price: 9, line: "Add it on any plan, in a month that needs more." };
 
-/** What a new account can write before it picks a plan. */
-export const TRIAL = { listings: 25, line: "Try it with 25 AI listings when you connect a shop." };
+/**
+ * The free trial, as the site states it everywhere (hero, closing, pricing, Help, sign-up): free AI
+ * listings granted only after the account connects an Etsy shop that has never had a trial, once per Etsy
+ * shop and per Etsy account, for life; none before a shop is connected. This is the wording only: the
+ * grant itself comes with billing, and while billing is off nothing changes for any account.
+ */
+export const TRIAL = {
+  listings: 10,
+  line: "10 free AI listings once you connect an Etsy shop that has never had a trial. One trial per Etsy shop and per Etsy account, for life. No free listings before a shop is connected.",
+};
 
 /** Paid yearly, a plan costs ten months. */
 export const YEARLY_MONTHS = 10;
 export const YEARLY_NOTE = "Pay for 10 months, get 12";
+/** The yearly half of the Monthly / Yearly switch: "Yearly, 2 months free". */
+export const YEARLY_LABEL = `Yearly, ${12 - YEARLY_MONTHS} months free`;
 
 /** In every plan, whatever its size. */
 export const INCLUDED = [
@@ -71,7 +81,11 @@ export const INCLUDED = [
 export const SPECIAL = {
   name: "Special",
   body: "More than 1,000 AI listings a month? Tell us what you need and we'll quote a price.",
-  cta: { label: "Contact us", href: "/request-invite?plan=custom" },
+  price: "Custom",
+  unit: "For big catalogs",
+  listings: "1,000+ listings",
+  shops: "Unlimited shops",
+  cta: { label: "Talk to us", href: "/request-invite?plan=custom" },
 };
 
 const count = (n: number) => n.toLocaleString("en-US");
@@ -86,6 +100,18 @@ export const priceFact = (plan: Plan) => dollars(plan.price);
 export const yearlyPriceFact = (plan: Plan) => dollars(yearlyPrice(plan));
 /** What a year's price comes to a month, to the cent. */
 export const yearlyPerMonthFact = (plan: Plan) => `${dollars(Math.round((yearlyPrice(plan) / 12) * 100) / 100)} a month`;
+
+/** What one AI listing costs on a plan, in cents to one decimal: "12.7¢ a listing" (a year counts twelve months). */
+export const centsPerListing = (plan: Plan, yearly = false) =>
+  Math.round(((yearly ? yearlyPrice(plan) / 12 : plan.price) / plan.listings) * 1000) / 10;
+export const perListingFact = (plan: Plan, yearly = false) => `${centsPerListing(plan, yearly).toFixed(1)}¢ a listing`;
+/** The pricing heading, from the plan the page points to first: "About 10 cents a listing." */
+export const aboutPerListing = () => {
+  const plan = PLANS.find((p) => p.highlight) ?? PLANS[0];
+  return `About ${Math.round(centsPerListing(plan))} cents a listing.`;
+};
+/** "150 AI listings", as a plan card lists it. */
+export const cardListingsFact = (plan: Plan) => `${count(plan.listings)} AI listings`;
 
 /** "Extra pack: +100 AI listings for $9". */
 export const extraPackFact = () => `${EXTRA_PACK.name}: +${count(EXTRA_PACK.listings)} AI listings for ${dollars(EXTRA_PACK.price)}`;

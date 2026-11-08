@@ -7,6 +7,7 @@ import { api, ApiError } from "@/lib/api";
 import { AuthShell, Field, FormError } from "@/components/AuthShell";
 import { useSession } from "@/components/SessionProvider";
 import { PROVIDER_DISCLAIMER } from "@/lib/legal";
+import { TRIAL } from "@/lib/plans";
 
 const MIN_PASSWORD = 12;
 
@@ -139,6 +140,7 @@ export default function RegisterPage() {
             </Link>
           </span>
         </label>
+        <p className="text-xs leading-relaxed text-slate-600" data-testid="trial-line">{TRIAL.line}</p>
         <p className="text-xs leading-relaxed text-slate-500">
           The Privacy Policy explains that the design images you ask us to write listings for are sent to
           Anthropic for analysis, and that nothing about your buyers is stored.

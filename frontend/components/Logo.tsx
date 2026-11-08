@@ -1,31 +1,49 @@
 /**
- * The Listyro mark: a hang tag (chamfered top corners, a punched hole) in an ink outline with a tag-yellow
- * fill (docs/design-v2.md). The hole is cut out, so it shows whatever is behind it; on a dark ground the
- * yellow body carries the shape. Drawn on a 32 grid with a 2.5 stroke so it holds at 16 px (app/icon.svg is
- * the same drawing). Server markup, no script: the public site and the app both use it.
+ * The Listyro logo (docs/design/logo-reference.dc.html): two stacked hang tags, the back one tag yellow and
+ * turned 12 degrees, the front one ink and turned -8 degrees with a punched hole, beside the wordmark
+ * "listyro" in lower case (Archivo 900, width 108%, tight tracking). The letters are outlines
+ * (lib/logoPaths.ts, written with the files in public/brand by scripts/logo-assets.py), so the logo looks
+ * the same before and after the web font arrives. Server markup, no script: the site and the app use it.
  */
+import { TAG_BACK, TAG_FRONT, WORDMARK, WORDMARK_BASELINE, WORDMARK_SIZE, WORDMARK_WIDTH } from "@/lib/logoPaths";
 
-/** The tag and its hole, one path; the hole is cut by the even-odd rule. */
-export const MARK_PATH =
-  "M10.5 3.5H21.5L28.5 10.5V27A1.5 1.5 0 0 1 27 28.5H5A1.5 1.5 0 0 1 3.5 27V10.5Z" +
-  "M16 7.25A2.75 2.75 0 1 0 16 12.75A2.75 2.75 0 1 0 16 7.25Z";
+const INK = "#14162B";
+const TAG = "#FFD24A";
+const PAPER = "#FFFFFF";
 
-export function LogoMark({ size = 32, className = "" }: { size?: number; className?: string }) {
+/** The two tags. ``tone``: ink front tag on light grounds, white front tag on ink. */
+export function LogoMark({ size = 36, tone = "ink", className = "" }: { size?: number; tone?: "ink" | "paper"; className?: string }) {
+  const front = tone === "paper" ? PAPER : INK;
+  const hole = tone === "paper" ? INK : PAPER;
   return (
-    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true" focusable="false" className={className}>
-      <path d={MARK_PATH} fill="#FFCF33" fillRule="evenodd" stroke="#14213D" strokeWidth="2.5" strokeLinejoin="round" />
+    <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true" focusable="false" className={className}>
+      <g transform="rotate(12 40 26)"><path d={TAG_BACK} fill={TAG} /></g>
+      <g transform="rotate(-8 30 36)">
+        <path d={TAG_FRONT} fill={front} />
+        <circle cx="33" cy="27.5" r="3.8" fill={hole} />
+      </g>
     </svg>
   );
 }
 
-/** Mark and wordmark. ``tone``: ink on paper, or paper on the ink rail. */
-export function Logo({ size = 28, tone = "ink", className = "" }: { size?: number; tone?: "ink" | "paper"; className?: string }) {
+/**
+ * Mark and wordmark, as the reference sets them: the type is three quarters of the mark's height (36 / 27 in
+ * the header, 32 / 24 in the footer) with a gap of 10/36 of it.
+ */
+export function Logo({ size = 36, tone = "ink", className = "" }: { size?: number; tone?: "ink" | "paper"; className?: string }) {
+  const type = size * 0.75;
   return (
-    <span className={"inline-flex items-center gap-2 " + className}>
-      <LogoMark size={size} />
-      <span className={"wordmark leading-none " + (tone === "paper" ? "text-white" : "text-ink")} style={{ fontSize: size * 0.82 }}>
-        Listyro
-      </span>
+    <span className={"inline-flex items-center " + className} style={{ gap: (size * 10) / 36 }}>
+      <LogoMark size={size} tone={tone} />
+      <svg
+        viewBox={`0 0 ${WORDMARK_WIDTH} ${WORDMARK_SIZE}`}
+        width={(type * WORDMARK_WIDTH) / WORDMARK_SIZE}
+        height={type}
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path transform={`translate(0 ${WORDMARK_BASELINE})`} d={WORDMARK} fill={tone === "paper" ? PAPER : INK} />
+      </svg>
     </span>
   );
 }

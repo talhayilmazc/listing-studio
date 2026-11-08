@@ -1,68 +1,113 @@
+import type { CSSProperties } from "react";
 import { HOME } from "@/lib/homeCopy";
+import type { Shot } from "@/lib/marketing/heroImages";
 
 /**
- * The hero's one moment: a design file becomes a row of colour mockups, then a listing (title and 13 tags),
- * then three shops with the time each goes live. Real output: the synthetic demo account's design NW1042, its
- * text and shops (backend/scripts/demo_screens_seed.py), and mockups the mockup engine made from them
- * (backend/scripts/hero_assets.py). Static markup and CSS only: every piece is laid out in its final place
- * from the first frame, so nothing moves the page; with motion allowed each appears in turn once (about four
- * seconds, globals.css .hd-in/.hd-pop) and rests; with reduced motion the final state is all there is.
- * Every word comes from lib/homeCopy.ts.
+ * The hero's picture, as the reference draws it (docs/design/home-reference.dc.html): a batch window of
+ * mockup tiles, the AI card that read one design, and the shops it goes live in. The tiles are the mockup
+ * engine's real output on real shirt photos (backend/scripts/hero_assets.py, lib/marketing/heroImages.ts).
+ *
+ * One entrance on load, about two and a half seconds, then still: the tiles fade in from left to right, the
+ * AI card's tags appear one by one, the three shop rows come last. Each piece holds its final place from the
+ * first frame (only opacity and transform animate, so nothing shifts), and with reduced motion the classes
+ * do nothing at all: the final state is there at once (app/globals.css, .hd-in / .hd-pop).
  */
 
-const delay = (seconds: number) => ({ "--d": `${seconds.toFixed(2)}s` }) as React.CSSProperties;
-/** The demo's mockups, in the order of HOME.hero.demo.colours (paths written out: scripts/public-assets.cjs reads them). */
-export const MOCKUPS = ["/hero/mockup-white.webp", "/hero/mockup-sand.webp", "/hero/mockup-sage.webp", "/hero/mockup-pink.webp", "/hero/mockup-mustard.webp"];
+/** An animation delay, read by .hd-in / .hd-pop. */
+const delay = (seconds: number) => ({ "--d": `${seconds.toFixed(2)}s` }) as CSSProperties;
+
+/** When each piece starts, in seconds: tiles 0.15 to 0.85, the card 0.9, its tags to 1.8, the shops to 2.6. */
+export const TIMING = { tile: (i: number) => 0.15 + i * 0.1, card: 0.9, tag: (i: number) => 1.05 + i * 0.06, shopCard: 1.7, row: (i: number) => 1.85 + i * 0.15 };
+
+/** A picture at 1x and 2x, AVIF first, with its size so nothing moves while it loads. */
+export function Photo({ shot, alt, eager = false, style }: { shot: Shot; alt: string; eager?: boolean; style?: CSSProperties }) {
+  return (
+    <picture>
+      <source type="image/avif" srcSet={`${shot.avif} 1x, ${shot.avif2x} 2x`} />
+      <source type="image/webp" srcSet={`${shot.webp} 1x, ${shot.webp2x} 2x`} />
+      <img
+        src={shot.webp}
+        width={shot.width}
+        height={shot.height}
+        alt={alt}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+        style={{ width: "100%", height: "auto", display: "block", ...style }}
+      />
+    </picture>
+  );
+}
+
+export function Check({ size = 12, colour = "#1F8A4C", width = 2 }: { size?: number; colour?: string; width?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M2.2 6.2 L4.8 8.6 L9.8 3.4" stroke={colour} strokeWidth={width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function Spark({ size = 16, colour }: { size?: number; colour: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" aria-hidden="true">
+      <path d="M9 1 L10.6 6.6 L16 8.2 L10.6 9.8 L9 15.4 L7.4 9.8 L2 8.2 L7.4 6.6 Z" fill={colour} />
+    </svg>
+  );
+}
 
 export function HeroDemo() {
-  const d = HOME.hero.demo;
+  const { window: w, shops, ai } = HOME.hero;
   return (
-    <figure aria-label={d.label} className="min-w-0" data-testid="hero-demo">
-      <div className="border border-heather bg-fabric p-3 sm:p-5">
-        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-end gap-3 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:gap-4">
-          <div className="hd-in min-w-0" style={delay(0.1)} data-testid="hero-file">
-            <div className="checkerboard border border-heather p-1.5">
-              <img src="/hero/design.webp" alt={d.fileAlt} width={120} height={101} className="block h-auto w-full" />
-            </div>
-            <p className="mt-1.5 truncate text-xs font-semibold text-ink" title={d.file}>{d.file}</p>
+    <div className="lx-hv" data-testid="hero-demo">
+      <div className="lx-hv-window">
+        <div style={{ borderRadius: 22, background: "#FFFFFF", border: "1px solid #E3E6EE", boxShadow: "0 50px 100px rgba(20,22,43,0.20), 0 8px 24px rgba(20,22,43,0.08)", overflow: "hidden" }}>
+          <div style={{ height: 48, display: "flex", alignItems: "center", gap: 8, padding: "0 18px", borderBottom: "1px solid #EEF0F5", background: "#FAFBFD" }}>
+            <span style={{ width: 11, height: 11, borderRadius: 99, background: "#FF6B6B" }} />
+            <span style={{ width: 11, height: 11, borderRadius: 99, background: "#FFD24A" }} />
+            <span style={{ width: 11, height: 11, borderRadius: 99, background: "#4ADE80" }} />
+            <span style={{ marginLeft: 14, fontSize: 13, fontWeight: 800 }}>{w.name}</span>
+            <span style={{ fontSize: 13, color: "#6A6F8A" }}>{w.count}</span>
+            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, fontWeight: 800, color: "#1A7340", background: "#E9F6EE", borderRadius: 99, padding: "5px 10px" }}>
+              <Check size={10} width={1.8} />
+              <span>{w.ready}</span>
+            </span>
           </div>
-          <div className="min-w-0">
-            <p className="hd-in mb-1.5 text-xs font-semibold text-slate-600" style={delay(0.5)}>{d.mockups}</p>
-            <ul className="grid grid-cols-5 gap-1.5 sm:gap-2" data-testid="hero-mockups">
-              {MOCKUPS.map((src, i) => (
-                <li key={src} className="hd-pop min-w-0" style={delay(0.6 + i * 0.14)}>
-                  <img src={src} alt={d.colours[i]} width={96} height={112} className="block h-auto w-full border border-heather" />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="hd-in mt-3 border border-heather bg-white p-3 sm:mt-4 sm:p-4" style={delay(1.5)} data-testid="hero-listing">
-          <p className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-600">
-            <span>{d.listing}</span>
-            <span className="mk-chip !text-xs">{d.tagCount}</span>
-          </p>
-          <p className="mt-1.5 text-[0.9375rem] font-bold leading-snug text-ink">{d.title}</p>
-          <ul className="mt-2 flex flex-wrap gap-1">
-            {d.tags.map((tag, i) => (
-              <li key={tag} className="hd-pop rounded-[3px] border border-heather bg-fabric px-1.5 py-px text-xs leading-5 text-ink" style={delay(1.75 + i * 0.06)}>{tag}</li>
+          <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, background: "#FFFFFF" }} data-testid="hero-mockups">
+            {w.tiles.map((tile, i) => (
+              <div key={tile.alt} className="hd-in" style={{ ...delay(TIMING.tile(i)), borderRadius: 14, background: "linear-gradient(180deg, #F3F4F8, #E4E6EE)", overflow: "hidden" }}>
+                <Photo shot={tile.shot} alt={tile.alt} eager />
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
-
-        <ul className="mt-3 divide-y divide-heather border border-heather bg-white sm:mt-4" data-testid="hero-shops">
-          {d.shops.map((shop, i) => (
-            <li key={shop.name} className="hd-in flex items-center gap-2 px-3 py-2 text-[0.8125rem] sm:text-sm" style={delay(2.8 + i * 0.3)}>
-              <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-go" />
-              <span className="min-w-0 flex-1 truncate font-semibold text-ink">{shop.name}</span>
-              <span className="hidden font-semibold text-go-ink sm:inline">{d.scheduled}</span>
-              <span className="mk-chip !text-xs">{shop.time}</span>
-            </li>
-          ))}
-        </ul>
       </div>
-      <figcaption className="mt-2 text-[0.8125rem] text-slate-600">{d.caption}</figcaption>
-    </figure>
+
+      <div className="lx-hv-shops hd-in" style={{ ...delay(TIMING.shopCard), borderRadius: 18, padding: 16, background: "#FFFFFF", border: "1px solid #E3E6EE", boxShadow: "0 24px 60px rgba(20,22,43,0.16)", display: "flex", flexDirection: "column", gap: 10 }} data-testid="hero-shops">
+        <span style={{ fontSize: 13, fontWeight: 800 }}>{shops.heading}</span>
+        {shops.rows.map((row, i) => (
+          <span key={row.name} className="hd-in" style={{ ...delay(TIMING.row(i)), display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 99, background: row.dot }} />
+            <span style={{ flexGrow: 1, fontWeight: 700 }}>{row.name}</span>
+            <span style={{ color: "#6A6F8A" }}>{row.when}</span>
+          </span>
+        ))}
+      </div>
+
+      <div className="lx-hv-ai hd-in" style={{ ...delay(TIMING.card), borderRadius: 20, padding: 18, background: "#14162B", color: "#FFFFFF", boxShadow: "0 30px 70px rgba(20,22,43,0.35)", display: "flex", flexDirection: "column", gap: 11 }} data-testid="hero-listing">
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 800, color: "#FFD24A" }}>
+          <Spark colour="#FFD24A" />
+          <span>{ai.read}</span>
+        </span>
+        <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1.3 }}>{ai.title}</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {ai.tags.map((tag, i) => (
+            <span key={tag} className="hd-pop" style={{ ...delay(TIMING.tag(i)), fontSize: 12, fontWeight: 700, background: "rgba(255,255,255,0.10)", borderRadius: 7, padding: "4px 8px" }}>{tag}</span>
+          ))}
+        </div>
+        <span style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#A4A9C4" }}>
+          <span>{ai.tagCount}</span>
+          <span>{ai.characters}</span>
+        </span>
+      </div>
+    </div>
   );
 }

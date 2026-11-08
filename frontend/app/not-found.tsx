@@ -17,11 +17,11 @@ const PLACES = [
 /** The answer to any address nothing lives at. Knows nothing of who is asking. */
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="site flex min-h-screen flex-col bg-white text-ink">
       <SiteHeader />
-      <main id="main" className="mx-auto w-full max-w-[46rem] flex-1 px-4 py-16 sm:px-6">
+      <main id="main" className="mx-auto w-full max-w-[46rem] flex-1 px-8 py-16">
         <h1 className="mk-h1">We can&apos;t find that page</h1>
-        <p className="mt-4 text-[1.0625rem] leading-relaxed text-slate-700">
+        <p className="mk-lead mt-5">
           It may have moved, or the address may be mistyped. One of these should help:
         </p>
         <ul className="mt-5 space-y-2 text-[1.0625rem]">

@@ -11,15 +11,15 @@ export default function Compare() {
     <div className={PROSE + " pb-20"}>
       <JsonLd data={breadcrumbs("/compare")} />
       <PageHead path="/compare" h1={COMPARE_PAGE.h1} lead={COMPARE_PAGE.lead} />
-      <ul className="divide-y divide-heather border-y border-heather">
+      <ul className="space-y-4">
         {COMPARES.map((c) => (
-          <li key={c.slug} className="py-6" data-testid="compare-link">
-            <h2 className="mk-h3 !text-[1.375rem]"><a href={`/compare/${c.slug}`} className="tap hover:underline hover:decoration-tag hover:decoration-[3px] hover:underline-offset-[5px]">{c.h1}</a></h2>
+          <li key={c.slug} className="mk-card" data-testid="compare-link">
+            <h2 className="mk-h3"><a href={`/compare/${c.slug}`} className="tap hover:underline hover:decoration-tag hover:decoration-[3px] hover:underline-offset-[5px]">{c.h1}</a></h2>
             <p className="mk-body mt-2">{c.lead}</p>
           </li>
         ))}
-        <li key={ALTERNATIVES.slug} className="py-6" data-testid="compare-link">
-          <h2 className="mk-h3 !text-[1.375rem]"><a href={`/compare/${ALTERNATIVES.slug}`} className="tap hover:underline hover:decoration-tag hover:decoration-[3px] hover:underline-offset-[5px]">{ALTERNATIVES.h1}</a></h2>
+        <li key={ALTERNATIVES.slug} className="mk-card" data-testid="compare-link">
+          <h2 className="mk-h3"><a href={`/compare/${ALTERNATIVES.slug}`} className="tap hover:underline hover:decoration-tag hover:decoration-[3px] hover:underline-offset-[5px]">{ALTERNATIVES.h1}</a></h2>
           <p className="mk-body mt-2">{ALTERNATIVES.lead}</p>
         </li>
       </ul>

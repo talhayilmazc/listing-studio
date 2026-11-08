@@ -1,8 +1,9 @@
 import type { Config } from "tailwindcss";
 
-/* The brand tokens (docs/design-v2.md), one place for the public site and the app. The colour names
-   already used across the app are re-pointed onto them; utility names in components are unchanged.
-     ink / paper / heather / fabric / tag / go -> the print-shop tokens
+/* The brand tokens (docs/design/home-reference.dc.html, site v3), one place for the public site and the app.
+   The colour names already used across the app are re-pointed onto them; utility names are unchanged.
+     ink / paper / mist / line / body / muted / tag / go -> the brand tokens
+     heather -> line, fabric -> mist (names the site used before v3)
      slate  -> cool neutrals ending in ink (text, borders, panels)
      brand  -> the ink ramp (primary action, focus, selected)
      emerald / amber / rose -> success / warning / danger */
@@ -12,36 +13,39 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // The print-shop tokens.
-        ink: "#14213D", // text and primary buttons: 16:1 on paper
+        ink: "#14162B", // text and primary buttons: 17.8:1 on paper
         paper: "#FFFFFF",
-        heather: "#D9DCE1", // lines
-        fabric: "#F3F4F6", // panels
-        tag: "#FFCF33", // the single accent; ink on tag is 10.8:1, tag is never text on paper
-        go: { DEFAULT: "#1F8A4C", ink: "#1A7340" }, // status marks; small status text uses go-ink (5.9:1)
+        mist: "#F5F6FA", // panels
+        line: "#E6E8EF", // hairlines
+        body: "#4B4F6B", // body text: 8.0:1 on paper, 7.4:1 on mist
+        muted: "#6A6F8A", // secondary text: 4.9:1 on paper, 4.6:1 on mist
+        tag: "#FFD24A", // the one accent; ink on tag is 12.4:1, tag is never text on paper
+        go: { DEFAULT: "#1F8A4C", ink: "#1A7340" }, // status marks; small status text uses go-ink (5.3:1 on its tint)
+        heather: "#E6E8EF",
+        fabric: "#F5F6FA",
         stone: {
-          50: "#F7F8FA", // the app's canvas
+          50: "#F8F9FC", // the app's canvas
         },
         slate: {
-          50: "#F7F8FA", // --bg
-          100: "#F3F4F6", // fabric: panels and sunken surfaces
-          200: "#D9DCE1", // heather: lines
-          300: "#C4C8CF", // --border-strong
+          50: "#F8F9FC", // --bg
+          100: "#F5F6FA", // mist: panels and sunken surfaces
+          200: "#E6E8EF", // line
+          300: "#CDD1DD", // --border-strong
           // Text the seller reads is never fainter than 4.5:1 (WCAG AA) on any light surface.
-          400: "#5F6673", // --text-muted: 5.8:1 on paper, 5.3:1 on fabric
-          500: "#545B67", // 6.8:1 on paper
-          600: "#474D58", // --text-secondary: 8.5:1
-          700: "#363C48",
-          800: "#232A3B",
-          900: "#14213D", // ink
+          400: "#6A6F8A", // muted: 4.9:1 on paper, 4.6:1 on mist
+          500: "#5B6079", // 6.3:1 on paper
+          600: "#4B4F6B", // body: 8.0:1
+          700: "#3B3F5C",
+          800: "#262942",
+          900: "#14162B", // ink
         },
         brand: {
-          50: "#EEF1F6", // --accent-subtle
-          100: "#DDE2EC",
-          500: "#14213D", // focus ring / focused border
-          600: "#14213D", // --accent: ink
-          700: "#2B3E6B", // --accent-hover; as text 10.5:1 on paper
-          800: "#0B1326",
+          50: "#EEF0F7", // --accent-subtle
+          100: "#DFE2EE",
+          500: "#14162B", // focus ring / focused border
+          600: "#14162B", // --accent: ink
+          700: "#3B3F66", // --accent-hover; as text 10:1 on paper
+          800: "#0A0B18",
         },
         emerald: {
           50: "#f0fdf4",

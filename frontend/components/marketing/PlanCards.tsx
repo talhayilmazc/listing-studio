@@ -1,72 +1,93 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { PRIMARY_CTA } from "@/lib/marketing/cta";
 import {
-  EXTRA_PACK, PLANS, SPECIAL, YEARLY_NOTE, extraPackFact, listingsFact, priceFact, shopsFact, yearlyPerMonthFact, yearlyPriceFact,
+  EXTRA_PACK, PLANS, SPECIAL, YEARLY_LABEL, YEARLY_NOTE, cardListingsFact, extraPackFact, perListingFact, priceFact, shopsFact,
+  yearlyPerMonthFact, yearlyPriceFact,
 } from "@/lib/plans";
 
 /**
- * The launch plans as hang tags, with a switch between what one costs paid monthly and paid yearly. The
- * switch only changes what is shown: two plain buttons and a piece of state, not a form, and nothing on
- * these tags can be bought. Every figure comes from lib/plans.ts.
+ * The launch plans as the home page reference draws them (docs/design/home-reference.dc.html): a heading
+ * row with the Monthly / Yearly switch, then five cards, the highlighted plan in ink. The switch only changes
+ * what is shown: two plain buttons and a piece of state, not a form, and nothing on these cards can be
+ * bought. Every figure comes from lib/plans.ts, the cost of one listing included.
  */
 
-export function PlanCards() {
+const CARD = { bg: "#FFFFFF", fg: "#14162B", border: "1px solid #E3E6EE", shadow: "none", btn: "lx-btn-soft" };
+const HIGHLIGHT = { bg: "#14162B", fg: "#FFFFFF", border: "1px solid #14162B", shadow: "0 30px 60px rgba(20,22,43,0.25)", btn: "lx-btn-tag" };
+
+export function PlanCards({ children, extras = false }: { children?: ReactNode; extras?: boolean }) {
   const [yearly, setYearly] = useState(false);
-  const choice = (on: boolean) =>
-    "min-h-[2.75rem] px-5 text-[0.9375rem] font-semibold transition-colors " + (on ? "bg-tag text-ink" : "bg-white text-ink hover:bg-fabric");
+  const half = (on: boolean): React.CSSProperties => ({
+    padding: "10px 18px",
+    borderRadius: 999,
+    minHeight: 44,
+    border: 0,
+    font: "inherit",
+    cursor: "pointer",
+    background: on ? "#14162B" : "transparent",
+    color: on ? "#FFFFFF" : "#14162B",
+  });
 
   return (
-    <div>
-      <div role="group" aria-label="Show prices paid monthly or yearly" className="inline-flex border-[1.5px] border-ink" data-testid="billing-switch">
-        <button type="button" aria-pressed={!yearly} onClick={() => setYearly(false)} className={choice(!yearly)} data-testid="billing-monthly">
-          Monthly
-        </button>
-        <button type="button" aria-pressed={yearly} onClick={() => setYearly(true)} className={choice(yearly) + " border-l-[1.5px] border-ink"} data-testid="billing-yearly">
-          Yearly
-        </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 44 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "20px 56px", alignItems: "flex-end", justifyContent: "space-between" }}>
+        {children}
+        <span role="group" aria-label="Show prices paid monthly or yearly" style={{ display: "inline-flex", gap: 4, padding: 5, borderRadius: 999, background: "#F1F2F7", fontSize: 15, fontWeight: 800 }} data-testid="billing-switch">
+          <button type="button" aria-pressed={!yearly} onClick={() => setYearly(false)} style={half(!yearly)} data-testid="billing-monthly">Monthly</button>
+          <button type="button" aria-pressed={yearly} onClick={() => setYearly(true)} style={half(yearly)} data-testid="billing-yearly">{YEARLY_LABEL}</button>
+        </span>
       </div>
 
-      <ul className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="plans">
-        {PLANS.map((plan) => (
-          <li key={plan.name} className={"mk-tag flex min-w-0 flex-col px-5 pb-6 pt-10 " + (plan.highlight ? "bg-tag" : "bg-fabric")} data-testid="plan">
-            <p className="flex items-center justify-between gap-2">
-              <span className="text-[1.25rem] font-bold text-ink">{plan.name}</span>
-              {plan.highlight ? <span key="pick" className="border border-ink px-2 py-0.5 text-[0.8125rem] font-semibold text-ink" data-testid="plan-highlight">A good place to start</span> : null}
-            </p>
-            <p className="mt-4 flex items-baseline gap-1.5 text-ink">
-              <span className="text-[2.75rem] font-extrabold leading-none [font-stretch:125%]" translate="no" data-testid="plan-price">
-                {yearly ? yearlyPriceFact(plan) : priceFact(plan)}
+      <div className="lx-plans" data-testid="plans">
+        {PLANS.map((plan) => {
+          const look = plan.highlight ? HIGHLIGHT : CARD;
+          return (
+            <div key={plan.name} style={{ borderRadius: 24, padding: "28px 22px", background: look.bg, color: look.fg, border: look.border, boxShadow: look.shadow, display: "flex", flexDirection: "column", gap: 14 }} className={plan.highlight ? "lx-dark" : undefined} data-testid={plan.highlight ? "plan-highlight" : "plan"}>
+              <span style={{ fontSize: 17, fontWeight: 850 }}>{plan.name}</span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 4 }} translate="no">
+                <span style={{ fontSize: 46, fontWeight: 900, fontStretch: "110%", letterSpacing: -1 }} data-testid="plan-price">{yearly ? yearlyPriceFact(plan) : priceFact(plan)}</span>
+                <span style={{ fontSize: 15, opacity: 0.72 }}>{yearly ? "/yr" : "/mo"}</span>
               </span>
-              <span className="text-[0.9375rem] font-medium">{yearly ? "a year" : "a month"}</span>
-            </p>
-            {/* Two lines kept in both views, so the tags do not change height with the switch. */}
-            <p className="mt-2 min-h-[2.8rem] text-[0.9375rem] leading-snug text-ink" translate="no" data-testid="plan-yearly-note">
-              <span className="block font-semibold">{yearly ? YEARLY_NOTE : ""}</span>
-              <span className="block">{yearly ? yearlyPerMonthFact(plan) : ""}</span>
-            </p>
-            <ul className="mt-3 space-y-1.5 border-t border-ink/20 pt-4 text-[0.9375rem] text-ink">
-              <li className="font-semibold">{listingsFact(plan)}</li>
-              <li>{shopsFact(plan)}</li>
-              <li>Every feature included</li>
-            </ul>
-          </li>
-        ))}
-      </ul>
-
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="border border-heather bg-white p-5 sm:p-6" data-testid="extra-pack">
-          <p className="text-[1.0625rem] font-bold text-ink" translate="no">{extraPackFact()}</p>
-          <p className="mk-small mt-1">{EXTRA_PACK.line}</p>
-        </div>
-        <div className="flex flex-col items-start gap-4 border border-heather bg-white p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6" data-testid="plan-special">
-          <div className="min-w-0">
-            <p className="text-[1.0625rem] font-bold text-ink">{SPECIAL.name}</p>
-            <p className="mk-small mt-1">{SPECIAL.body}</p>
-          </div>
-          <a href={SPECIAL.cta.href} className="mk-btn-line shrink-0" data-testid="special-cta">{SPECIAL.cta.label}</a>
+              <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.72 }} translate="no" data-testid="plan-per-listing">{perListingFact(plan, yearly)}</span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 15, fontWeight: 650 }}>
+                <span>{cardListingsFact(plan)}</span>
+                <span>{shopsFact(plan)}</span>
+              </span>
+              <a href={PRIMARY_CTA.href} className={"lx-btn " + look.btn} style={{ marginTop: "auto", textAlign: "center", fontSize: 16, fontWeight: 850, padding: "14px 16px" }}>{PRIMARY_CTA.label}</a>
+            </div>
+          );
+        })}
+        <div style={{ borderRadius: 24, padding: "28px 22px", background: "#F5F6FA", color: "#14162B", border: "1px solid #E6E8EF", display: "flex", flexDirection: "column", gap: 14 }} data-testid="plan-special">
+          <span style={{ fontSize: 17, fontWeight: 850 }}>{SPECIAL.name}</span>
+          <span style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            {/* 42 px, not the drawn 46: at 46 the word runs past the card at five columns (in the reference too). */}
+            <span style={{ fontSize: 42, fontWeight: 900, fontStretch: "110%", letterSpacing: -1 }}>{SPECIAL.price}</span>
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#4B4F6B" }}>{SPECIAL.unit}</span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 15, fontWeight: 650 }}>
+            <span>{SPECIAL.listings}</span>
+            <span>{SPECIAL.shops}</span>
+          </span>
+          <a href={SPECIAL.cta.href} className="lx-btn lx-btn-white" style={{ marginTop: "auto", textAlign: "center", fontSize: 16, fontWeight: 850, padding: "14px 16px" }} data-testid="special-cta">{SPECIAL.cta.label}</a>
         </div>
       </div>
+
+      {extras ? (
+        <div key="extras" className="lx-two">
+          <div className="mk-card" data-testid="extra-pack">
+            <p className="mk-h3" translate="no">{extraPackFact()}</p>
+            <p className="mk-small" style={{ marginTop: 6 }}>{EXTRA_PACK.line}</p>
+          </div>
+          <div className="mk-card" data-testid="plan-yearly">
+            <p className="mk-h3">{YEARLY_NOTE}</p>
+            <p className="mk-small" style={{ marginTop: 6 }} translate="no">
+              {PLANS.map((plan) => `${plan.name} ${yearlyPerMonthFact(plan)}`).join(" · ")}
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
