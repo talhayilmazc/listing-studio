@@ -393,7 +393,7 @@ async def callback(
     # A seller with nothing uploaded yet goes straight on to the next step: their first design.
     if funnel.FIRST_UPLOAD not in await funnel.done(session, connection.tenant_id):
         return await _done_with(redis, request, state,
-                                _redirect(f"{settings.frontend_url}/upload?connected={connection.id}"))
+                                _redirect(f"{settings.frontend_url}/upload?connected={connection.id}&status=connected&shop={connection.id}"))
     return await _done_with(redis, request, state, _redirect(f"{back}?status=connected&shop={connection.id}"))
 
 

@@ -34,7 +34,7 @@ export function FunnelPanel() {
               <div key="loading" className="mt-4 h-60 animate-pulse rounded bg-slate-100" aria-hidden />
             ) : (
               <div key="data">
-                <div className="mt-3 overflow-x-auto">
+                <div className="mt-3 overflow-x-auto" tabIndex={0} role="region" aria-label={`Funnel, last ${days} days`}>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-xs text-slate-600">

@@ -50,7 +50,7 @@ function Progress({ shop, admin = false }: { shop: SalesRereadShop; admin?: bool
   const pct = shop.status === "done" ? 100 : total ? Math.min(100, (shop.read_count / total) * 100) : 0;
   return (
     <div className="min-w-0">
-      <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+      <div className="progress" role="progressbar" aria-label="Reading progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
         <div className="progress-fill" style={{ width: pct + "%" }} />
       </div>
       <p className="mt-1 text-[11px] tabular-nums text-slate-500">

@@ -5,7 +5,7 @@ import type { Economics } from "@/lib/types";
 import { Delta, SourceTag } from "./Shared";
 
 import { Txt } from "@/components/Txt";
-const blank = <span className="text-slate-300">blank</span>;
+const blank = <span className="text-slate-500">blank</span>;
 
 function Row({
   label,

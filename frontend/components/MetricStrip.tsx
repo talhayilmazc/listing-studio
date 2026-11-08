@@ -170,8 +170,8 @@ function Cell({
     return (
       <div className={CELL}>
         <Label label={label} period={period} />
-        <dd className="mt-1.5 font-display text-3xl leading-none text-slate-300">—</dd>
-        <p className="mt-1.5 h-4 text-xs text-slate-400">{unavailable}</p>
+        <dd className="mt-1.5 font-display text-3xl leading-none text-slate-500">—</dd>
+        <dd className="mt-1.5 h-4 text-xs text-slate-600">{unavailable}</dd>
       </div>
     );
   }
@@ -201,9 +201,9 @@ function Cell({
         )}
       </dd>
       {/* A second figure is never displaced by the comparison: the note moves up beside the arrow. */}
-      <p className="mt-1.5 min-h-4 text-xs text-slate-400">
+      <dd className="mt-1.5 min-h-4 text-xs text-slate-600">
         {secondary ?? (delta != null && delta !== 0 ? deltaNote : "")}
-      </p>
+      </dd>
     </div>
   );
 }

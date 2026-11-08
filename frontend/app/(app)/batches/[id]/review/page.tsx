@@ -135,7 +135,7 @@ export default function ReviewPage() {
       const root = card(at);
       if (action === "approve") root?.querySelector<HTMLButtonElement>('[data-testid="approve-toggle"]')?.click();
       if (action === "title") root?.querySelector<HTMLElement>('[data-field="title"]')?.focus();
-      if (action === "tags") root?.querySelector<HTMLElement>('[data-field="tags"] input')?.focus();
+      if (action === "tags") root?.querySelector<HTMLElement>('[data-field="tags"] [data-tag-input]')?.focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

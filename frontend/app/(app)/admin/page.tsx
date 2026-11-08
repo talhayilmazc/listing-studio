@@ -101,7 +101,7 @@ export default function AdminPage() {
             pending-requests badge has its own slot whether or not there is anything waiting:
             a number arriving, or changing from 9 to 10, moves no tab. If the bar is ever wider
             than a narrow screen it scrolls inside itself, not the page. */}
-        <div role="tablist" aria-label="Admin sections" className="flex gap-4 overflow-x-auto border-b border-slate-200 sm:gap-6" data-testid="admin-tabs">
+        <div role="tablist" aria-label="Admin sections" className="flex flex-wrap gap-x-3 border-b border-slate-200 sm:flex-nowrap sm:gap-6 sm:overflow-x-auto" data-testid="admin-tabs">
           {TABS.map((t) => (
             <button
               key={t.id}

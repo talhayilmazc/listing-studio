@@ -335,7 +335,7 @@ export function ReviewCard({
     const root = rootRef.current;
     const el = which === "title"
       ? root?.querySelector<HTMLElement>('[data-field="title"]')
-      : root?.querySelector<HTMLElement>('[data-field="tags"] input');
+      : root?.querySelector<HTMLElement>('[data-field="tags"] [data-tag-input]');
     el?.focus();
     el?.scrollIntoView({ block: "center" });
   }

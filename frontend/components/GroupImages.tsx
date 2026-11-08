@@ -241,7 +241,7 @@ export function GroupImages({
                     image renewing
                   </span>
                 )}
-                <span className="absolute inset-x-0 bottom-0 bg-amber-500/90 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">
+                <span className="absolute inset-x-0 bottom-0 bg-amber-800 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">
                   Size chart, from profile
                 </span>
                 <span
@@ -332,7 +332,7 @@ export function GroupImages({
               )}
               {leftOut.includes(id) && (
                 <span key="left-out" className="absolute inset-0 flex items-end bg-white/60" data-testid="left-out-tile">
-                  <span className="w-full bg-amber-500 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">Left out: over 20</span>
+                  <span className="w-full bg-amber-800 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">Left out: over 20</span>
                 </span>
               )}
               <button

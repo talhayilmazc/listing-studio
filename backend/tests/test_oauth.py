@@ -293,6 +293,26 @@ async def auth_client(test_settings) -> AsyncIterator[httpx.AsyncClient]:
     await engine.dispose()
 
 
+async def test_a_seller_with_an_upload_comes_back_to_shops_a_new_one_goes_on_to_upload(auth_client: httpx.AsyncClient) -> None:
+    """After connecting (app/onboarding-v1): nothing uploaded yet, "Upload your first design" is next;
+    anyone who has uploaded comes back to Shops with the usual banner. The step is written once."""
+    from app.pipeline import funnel
+
+    async def connect() -> str:
+        start = await auth_client.get("/api/auth/etsy/start")
+        state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+        return (await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")).headers["location"]
+
+    first = await connect()
+    assert "/upload?connected=" in first
+    async with auth_client.sm() as s:  # type: ignore[attr-defined]
+        assert funnel.SHOP_CONNECTED in await funnel.done(s, auth_client.tenant_id)  # type: ignore[attr-defined]
+        await funnel.record(s, auth_client.tenant_id, funnel.FIRST_UPLOAD)  # type: ignore[attr-defined]
+        await s.commit()
+    again = await connect()
+    assert "/connect?status=connected&shop=" in again
+
+
 async def test_full_oauth_flow(auth_client: httpx.AsyncClient) -> None:
     # /start redirects to Etsy with a state we can capture.
     start = await auth_client.get("/api/auth/etsy/start")
@@ -304,7 +324,8 @@ async def test_full_oauth_flow(auth_client: httpx.AsyncClient) -> None:
     # /callback exchanges the code (mock token endpoint) and persists.
     cb = await auth_client.get(f"/api/auth/etsy/callback?state={state}&code=the-code")
     assert cb.status_code == 302
-    assert "/connect?status=connected&shop=" in cb.headers["location"]
+    # A seller with nothing uploaded yet goes on to the next step: "Upload your first design".
+    assert "/upload?connected=" in cb.headers["location"] and "status=connected" in cb.headers["location"]
     # No token leaks in the redirect.
     assert "555." not in cb.headers["location"]
 

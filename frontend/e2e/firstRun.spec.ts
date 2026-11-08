@@ -84,7 +84,7 @@ test.describe("a new seller's first run", () => {
     await page.waitForURL(/\/connect/);
     await page.locator('a[href="/api/auth/etsy/start"]').first().click();
     await page.waitForURL((u) => u.hostname === STUB_HOST, { timeout: 20_000 });
-    await page.locator("#allow").click();
+    await page.locator("#allow-own-shop").click(); // the stub's "another seller": a shop of their own
     await page.waitForURL((u) => u.pathname === "/upload" && u.searchParams.has("connected"), { timeout: 30_000 });
     await expect(page.getByTestId("shop-connected")).toContainText("Your shop is connected");
     await expect(page.getByRole("heading", { name: "Upload your first design" })).toBeVisible();
@@ -134,7 +134,7 @@ test.describe("a new seller's first run", () => {
       await page.keyboard.press("Backspace");
       await page.keyboard.press("Escape");
       await page.keyboard.press("t");
-      await expect(cards.nth(1).locator('[data-field="tags"] input')).toBeFocused();
+      await expect(cards.nth(1).locator('[data-field="tags"] [data-tag-input]')).toBeFocused();
       await page.keyboard.press("Escape");
     }
 

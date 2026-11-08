@@ -88,7 +88,7 @@ function Details({
         ))}
       </div>
 
-      <div className="mt-4 overflow-x-auto">
+      <div className="mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="AI cost table">
         {view === "purposes" && (
           <Breakdown key="purposes" first="Purpose" rows={cost.purposes.map((p) => ({ key: p.purpose, name: p.label, today: p.today, month: p.this_month }))} />
         )}
@@ -108,7 +108,7 @@ function Stat({ label, value, note, flag }: { label: string; value: string; note
         <span>{value}</span>
         {flag && <span key="flag" className="ml-1 align-top text-sm text-amber-700" title="A model has no price set: this is a floor">+</span>}
       </dd>
-      <p className="mt-1 text-[11px] text-slate-500">{note}</p>
+      <dd className="mt-1 text-[11px] text-slate-600">{note}</dd>
     </div>
   );
 }
