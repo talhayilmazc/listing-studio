@@ -16,9 +16,8 @@ import { article, breadcrumbs, faqPage, organization, softwareApplication } from
 import { PAGES, SITE_URL, cardSlug, metadataFor, pageAt, trail } from "./marketing/pages.ts";
 import { CACHE_FILE, CACHE_PAGE, CACHE_PRIVATE, COMPARE_SLUGS, FEATURE_SLUGS, GUIDE_SLUGS, IDEAS_PATH, MARKETING_PAGES, PRIVATE_WHEN_PRESENT, PUBLIC_FILES, SESSION_COOKIE, cacheRules } from "./marketing/routes.mjs";
 import { TESTIMONIALS } from "./marketing/testimonials.ts";
-import { DEMO_VIDEO } from "./marketing/video.ts";
 import { TOOLS, IDEAS_TOOL } from "./marketing/tools.ts";
-import { HOME, allCopy } from "./homeCopy.ts";
+import { HOME, allCopy, withoutApproved } from "./homeCopy.ts";
 import { TRADEMARK_NOTICE } from "./legal.ts";
 import { PLANS, PRICING_HEADING, priceFact } from "./plans.ts";
 
@@ -36,8 +35,9 @@ function pageFiles(dir: string): string[] {
   });
 }
 
+// The home page's owner-approved phrases are stripped first (lib/homeCopy.ts APPROVED_PHRASES).
 const OUR_COPY = [
-  ...allCopy(), ...allText(FEATURES), ...allText(FEATURES_PAGE), ...allText(HELP), ...allText(FREE_TOOLS), ...allText(TOOLS), ...allText(IDEAS_TOOL), ...allText(GUIDES_PAGE),
+  ...allCopy().map(withoutApproved), ...allText(FEATURES), ...allText(FEATURES_PAGE), ...allText(HELP), ...allText(FREE_TOOLS), ...allText(TOOLS), ...allText(IDEAS_TOOL), ...allText(GUIDES_PAGE),
   ...GUIDES.flatMap(guideText), ...allText(COMPARE_PAGE), ...allText(LISTYRO),
 ];
 const ALL_LINK_TEXT = [...OUR_COPY, ...allText(COMPARES), ...allText(ALTERNATIVES)];
@@ -58,7 +58,7 @@ test("the structure that was asked for", () => {
   assert.equal(GUIDES.length, 7);
   assert.equal(COMPARES.length, 3);
   const nav = read("components/marketing/Site.tsx");
-  const top = nav.slice(nav.indexOf("export const TOP_NAV"), nav.indexOf("export function Wordmark"));
+  const top = nav.slice(nav.indexOf("export const TOP_NAV"), nav.indexOf("export const FOOTER_NAV"));
   assert.ok((top.match(/label:/g) ?? []).length <= 5, "at most five top navigation items");
 });
 
@@ -106,7 +106,7 @@ test("sitemap and robots: the site's pages only; the app and the API are shut ou
 
 test("trademark rule: Listyro is the only name; no logo, no orange", () => {
   assert.doesNotMatch(new URL(SITE_URL).hostname, /etsy/i);
-  assert.doesNotMatch(read("components/marketing/Site.tsx").slice(read("components/marketing/Site.tsx").indexOf("export function Wordmark"), read("components/marketing/Site.tsx").indexOf("export function SiteHeader")), /etsy/i);
+  assert.doesNotMatch(read("components/Logo.tsx") + read("lib/logoPaths.ts"), /etsy/i);
   // Nothing says or implies that Etsy runs, endorses or works with us.
   const implies = /\b(official|certified|authori[sz]ed by etsy|sponsored|recommended by|in partnership|partnered|etsy('s)? partner|partner of etsy|etsy[- ]approved|approved by etsy|endorsed by etsy)\b/i;
   const denied = /(not (made, )?(endorsed|certified)[^.]*|production partners?|your production partner|its print partners?|print partners?)/gi;
@@ -242,7 +242,7 @@ test("structured data: valid, and only what the pages say", () => {
   }
   const app = softwareApplication();
   assert.deepEqual(app.offers.map((o) => [o.name, o.price, o.priceCurrency]), PLANS.map((p) => [p.name, String(p.price), "USD"]));
-  for (const offer of app.offers) assert.match(offer.description, /No payment is taken today/);
+  for (const offer of app.offers) assert.match(offer.description, /Nothing is charged yet/);
   const faq = faqPage(HELP.groups.flatMap((g) => g.items));
   for (const q of faq.mainEntity) assert.doesNotMatch(q.acceptedAnswer.text, /\]\(/, "no link markup in an answer");
   const crumbs = breadcrumbs("/features/profiles");
@@ -261,7 +261,7 @@ test("structured data: valid, and only what the pages say", () => {
 
 test("Etsy is in no title, share title, JSON-LD name or headline, or h1", () => {
   const h1s = [
-    `${HOME.hero.heading} ${HOME.hero.headingAccent}`, PRICING_HEADING, FEATURES_PAGE.h1, GUIDES_PAGE.h1, COMPARE_PAGE.h1, HELP.h1, FREE_TOOLS.h1, ALTERNATIVES.h1, ...TOOLS.map((t) => t.h1), IDEAS_TOOL.h1,
+    HOME.hero.heading, PRICING_HEADING, FEATURES_PAGE.h1, GUIDES_PAGE.h1, COMPARE_PAGE.h1, HELP.h1, FREE_TOOLS.h1, ALTERNATIVES.h1, ...TOOLS.map((t) => t.h1), IDEAS_TOOL.h1,
     ...FEATURES.map((f) => f.h1), ...GUIDES.map((g) => g.h1), ...COMPARES.map((c) => c.h1),
   ];
   for (const h1 of h1s) assert.doesNotMatch(h1, /etsy/i, h1);
@@ -310,7 +310,8 @@ test("a title, share heading, JSON-LD name or h1 naming Etsy stops the productio
 
 test("Etsy's name stays where it describes: in the descriptions, the copy and the notice", () => {
   assert.match(HOME.description, /Etsy listings/);
-  assert.match(HOME.hero.eyebrow, /for Etsy sellers/);
+  assert.match(HOME.description, /listing assistant/);
+  assert.match(HOME.description, /for print-on-demand sellers/);
   assert.match(pageAt("/features/ai-listing-writer").description, /for Etsy sellers/);
   assert.match(TRADEMARK_NOTICE, /not endorsed or certified by Etsy/);
 });
@@ -487,25 +488,35 @@ test("the worked example says the right number of words", () => {
   for (const [, title, why] of table.table.rows) assert.equal(title.split(/\s+/).length, Number(why.match(/^(\d+) words/)![1]), title);
 });
 
-test("testimonials come only from their file, and an empty file hides the section", () => {
-  assert.deepEqual(TESTIMONIALS, []);
+test("testimonials come only from their file: three real customers' approved words, and our promise when it is empty", () => {
+  // Real customers who approved these exact words (owner, 8 November 2026); nothing else is added.
+  assert.deepEqual(TESTIMONIALS.map((t) => [t.name, t.about]), [
+    ["James D.", "Runs 17 shops on Listyro"],
+    ["Mary C.", "Mom of two, Etsy seller"],
+    ["Michael R.", "Selling on Etsy for 12 years"],
+  ]);
+  assert.match(TESTIMONIALS[0].quote, /^Listyro turns hours of work into a few minutes\. .* went live on their own\.$/);
+  assert.match(TESTIMONIALS[1].quote, /^I was spending so many hours on Etsy .* Thank you, Listyro\.$/);
+  assert.match(TESTIMONIALS[2].quote, /^I've put years of work into my Etsy shop\. .* they added it fast\.$/);
+  // The page reads them from the file and types none; without them it shows the promise instead.
   const sections = read("components/marketing/Sections.tsx");
-  assert.match(sections, /if \(TESTIMONIALS\.length === 0\) return null;/);
-  assert.doesNotMatch(read("lib/homeCopy.ts"), /testimonial/i);
+  assert.match(sections, /const \[first, \.\.\.rest\] = testimonials;/);
+  assert.match(sections, /\{first \? \(/);
+  assert.match(sections, /data-testid="promise"/);
+  for (const t of TESTIMONIALS) assert.ok(!sections.includes(t.name) && !read("lib/homeCopy.ts").includes(t.name), t.name);
 });
 
-test("the home page has what was asked for", () => {
+test("the home page has what was asked for (site v3)", () => {
   assert.equal(HOME.how.steps.length, 4);
-  assert.equal(HOME.apart.items.length, 3);
-  assert.match(HOME.hero.heading, /From design files to scheduled listings/);
-  assert.equal(DEMO_VIDEO, null);
+  assert.equal(HOME.safe.items.length, 6);
+  assert.equal(HOME.faq.items.length, 6);
+  assert.equal(HOME.hero.heading, "Upload 50 designs. Get 50 listings, ready for every shop.");
   const sections = read("components/marketing/Sections.tsx");
-  assert.match(sections, /data-testid="demo-video-slot"/);
-  assert.match(sections, /STEP_SCREENS\[i\]/);
-  assert.match(sections, /from "@\/lib\/plans"/);
-  // The teaser's figures are read, not typed, and the notice stands beside them.
+  assert.match(sections, /<PlanCards>/);
+  // The pricing section's figures are read, not typed, and the notice stands beside them.
   assert.doesNotMatch(sections, /\$\d/);
-  assert.match(sections, /\{PLANNED_NOTICE\}/);
+  assert.match(sections, /\{p\.notice\}/);
+  assert.match(read("app/(marketing)/page.tsx"), /<HeroDemo \/>/);
 });
 
 test("cache policy: private unless listed, and never public for a session or a router request", () => {

@@ -158,6 +158,23 @@ Checked before sending: the trademark notice matches Etsy's API Terms word for w
 
 The text above is what was approved, and it stands: "Etsy" does not appear in the product name, logo, domain or page titles. A version of the public site that used "Etsy" descriptively in titles and headings was written on 1 November 2026, never deployed, and replaced the same day. Since then "Etsy" is in no page title, Open Graph or Twitter title, JSON-LD name or headline, or H1, and a page that puts it there fails the build. It appears in meta descriptions, body copy and guide text only as a description ("for Etsy sellers"), less prominently than Listyro and never suggesting endorsement or partnership. Guide addresses such as `/guides/etsy-title-rules-2026` contain the word as a description of the subject. No Etsy logo or colour is used, and the notice is unchanged and in the same places.
 
+## Launch prices (7 November 2026, after approval)
+
+The plan list under "Fees and payments" is what was approved, and it is kept as it was. The plans shown on listyro.com/pricing since 7 November 2026 are these launch prices (frontend/lib/plans.ts). They are still for display only: no payment is taken and no plan is enforced or sold.
+
+- Starter: 150 AI listings a month, 1 shop, $19/month, $190/year
+- Growth: 300 AI listings a month, 3 shops, $29/month, $290/year
+- Pro: 600 AI listings a month, 5 shops, $49/month, $490/year
+- Business: 1,000 AI listings a month, 10 shops, $69/month, $690/year
+- Special: more than 1,000 AI listings a month, quoted on request
+- Extra pack: +100 AI listings for $9, on any plan
+
+Only listings written by AI count. Listings a seller writes by hand, photos, and sending a listing to more of the seller's shops do not. A new account gets 10 free AI listings once it connects an Etsy shop that has never had a trial (one trial per Etsy shop and per Etsy account, for life; none before a shop is connected); the grant comes with billing, and until then nothing changes for any account. Paid yearly, a plan costs ten months. What a plan pays for is unchanged: the work Listyro does itself, not anything Etsy offers for free. At about 35 API calls per listing, the largest plan (1,000 listings a month) needs about 1,170 calls a day per seller, about 1.2% of the approved 100,000 a day. That is for one draft of each listing; a listing drafted in more than one of the seller's shops costs about 35 calls in each.
+
+The home page no longer repeats the trademark notice in a box under its first heading. The notice is unchanged, word for word, in the footer of every page, the home page included.
+
+Since 8 November 2026 (site v3) the home page also says "Built on Etsy's official API" and "Uses Etsy's official sign-in", as plain facts about how it connects, in smaller type than the Listyro name and its heading; the trademark notice, word for word, is in the footer of every page. Nothing says or implies that Etsy endorses, certifies or works with Listyro. The plans and the trial above are unchanged in substance; the Special plan's card says "Talk to us" and "Custom shop limit" (the number of shops is set per account, and the app-wide cap still applies).
+
 ## API features we would like Etsy to expose (added 23 October 2026, after approval)
 
 - Etsy's "How it's made" answers ("How does your shop produce this item?" and "What tools are used to make this item?") on getListing, createDraftListing and updateListing, so a seller's answer can be copied to their new drafts instead of set by hand in Shop Manager (requested publicly in etsy/open-api discussion #1630).

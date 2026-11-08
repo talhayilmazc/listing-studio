@@ -119,7 +119,7 @@ export default function Home() {
       )}
 
       {batches === null && !error && (
-        <div key="div-98-6" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div key="div-98-6" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <BatchSkeleton key={i} />
           ))}
@@ -196,7 +196,7 @@ export default function Home() {
             </label>
             <span>Tick batches to create drafts or publish without opening each one.</span>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {shown.map((b) => (
               <div key={b.id} className="relative">
                 <BatchCard batch={b} extra={extra[b.id]} profiles={profiles} selected={selected.includes(b.id)} />
@@ -381,7 +381,7 @@ function BatchCard({
         </div>
 
         <div className="mt-4 flex items-baseline justify-between gap-3 text-xs text-slate-400">
-          <span>
+          <span className="min-w-0">
             <span translate="no" className="tabular-nums">{listings || batch.asset_count}</span><span>{" "}
             <span>{listings === 1 ? "listing" : "listings"}</span> ·{" "}</span>
             <span translate="no" className="tabular-nums">{batch.asset_count}</span> files ·{" "}

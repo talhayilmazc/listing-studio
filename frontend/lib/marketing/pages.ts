@@ -37,7 +37,7 @@ const simple = (path: string, title: string, description: string, card: string, 
   ({ path, title, description, card, crumb, parent, updated: SITE_UPDATED });
 
 export const PAGES: Page[] = [
-  simple("/", HOME.title, HOME.description, `${HOME.hero.heading} ${HOME.hero.headingAccent}`, "Home"),
+  simple("/", HOME.title, HOME.description, HOME.hero.heading, "Home"),
   simple("/features", FEATURES_PAGE.title, FEATURES_PAGE.description, FEATURES_PAGE.h1, "Features", "/"),
   ...FEATURES.map((f) => simple(`/features/${f.slug}`, f.title, f.description, f.h1, f.name, "/features")),
   simple("/pricing", "Pricing: planned plans after launch | Listyro", "Listyro is in invite-only early access and no payment is taken today. The plans planned for after launch are shown; prices may change before launch.", PRICING_HEADING, "Pricing", "/"),

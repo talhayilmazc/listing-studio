@@ -16,8 +16,8 @@
  * Text reads: the sidebar's entries and headings, the body's paragraphs, labels and tables, and
  * every enabled primary button are at least 4.5:1 against their own background (lowContrast).
  *
- * The trademark notice is in its places (the box under the home page's call to action, above the fold
- * at 375 and 1366; every footer; beside "Connect a shop"; the Terms) and once in each, never twice.
+ * The trademark notice is in its places (every footer, the home page's included; beside "Connect a shop";
+ * the Terms) and once in each, never twice.
  *
  * How to run them: playwright.config.ts. Without LAYOUT_EMAIL and LAYOUT_PASSWORD
  * (the synthetic demo admin) the signed-in tests are skipped, not failed.
@@ -175,17 +175,10 @@ for (const path of ["/", "/terms", "/pricing"]) {
     await settle(page);
     const found = await notices(page);
     expect(found.each.every((n) => n === 1), `${path}: a place shows the notice more than once`).toBe(true);
-    const expected = path === "/" ? ["home-trademark-notice", "footer"] : path === "/terms" ? ["terms-trademark-notice", "footer"] : ["footer"];
+    // Site v2 (docs/design-v2.md): the home page carries it in its footer, as every page does; the Terms also in their text.
+    const expected = path === "/terms" ? ["terms-trademark-notice", "footer"] : ["footer"];
     expect(found.places.sort(), `${path}: where the notice is`).toEqual(expected.sort());
     expect(found.inText, `${path}: the notice on the page`).toBe(expected.length);
-    if (path === "/") {
-      // Above the fold: the whole box in the first screen, at this width.
-      const box = await page.getByTestId("home-trademark-notice").boundingBox();
-      const { height } = page.viewportSize()!;
-      expect(box, "the home page has the notice box").not.toBeNull();
-      expect(box!.y + box!.height, "the notice box is above the fold").toBeLessThanOrEqual(height);
-      await expect(page.getByTestId("home-trademark-notice")).toHaveText(NOTICE);
-    }
   });
 }
 

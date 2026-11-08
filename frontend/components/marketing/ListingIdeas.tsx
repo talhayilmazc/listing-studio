@@ -92,7 +92,7 @@ export function ListingIdeas() {
   const closed = status !== null && !status.available;
   return (
     <div className="space-y-4">
-      <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" data-testid="ideas-form">
+      <form onSubmit={submit} className="border border-heather bg-white p-4 sm:p-5" data-testid="ideas-form">
         <label htmlFor="ideas-text" className="label">Describe your item</label>
         <textarea id="ideas-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} className="field text-base" data-testid="ideas-input" disabled={closed} />
         <p className="mt-2 flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-slate-600" translate="no">
@@ -106,16 +106,16 @@ export function ListingIdeas() {
       </form>
       <div role="status" className="min-h-[1.5rem] text-slate-900" translate="no" data-testid="ideas-message">{error ?? (closed ? status?.message ?? "This tool is off for now." : "")}</div>
       {ideas ? (
-        <section key="ideas" aria-label="Your ideas" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" translate="no" data-testid="ideas-result">
-          <h2 className="font-display text-2xl text-slate-900">Titles</h2>
+        <section key="ideas" aria-label="Your ideas" className="border border-heather bg-white p-4 sm:p-5" translate="no" data-testid="ideas-result">
+          <h2 className="mk-h3 !text-[1.375rem]">Titles</h2>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-slate-800">{ideas.titles.map((title) => <li key={title}>{title}</li>)}</ul>
-          <h2 className="mt-5 font-display text-2xl text-slate-900">Tags</h2>
-          <ul className="mt-2 flex flex-wrap gap-2">{ideas.tags.map((tag) => <li key={tag} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-800">{tag}</li>)}</ul>
+          <h2 className="mt-5 mk-h3 !text-[1.375rem]">Tags</h2>
+          <ul className="mt-2 flex flex-wrap gap-2">{ideas.tags.map((tag) => <li key={tag} className="rounded-lg border border-heather px-2.5 py-1 text-sm text-slate-800">{tag}</li>)}</ul>
           <p className="mt-4 text-sm text-slate-600">
             <span>Check them against your item, then in the </span>
-            <a href="/free-tools/title-checker" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">title checker</a>
+            <a href="/free-tools/title-checker" className="mk-link">title checker</a>
             <span> and the </span>
-            <a href="/free-tools/tag-checker" className="font-medium text-brand-700 underline decoration-brand-100 underline-offset-4">tag checker</a>
+            <a href="/free-tools/tag-checker" className="mk-link">tag checker</a>
             <span>.</span>
           </p>
         </section>

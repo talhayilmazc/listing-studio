@@ -72,10 +72,10 @@ for (const path of MARKETING_PAGES) {
   });
 }
 
-test("the notice is exactly the required text, on the home page and in every footer", async ({ page }) => {
+test("the notice is exactly the required text, in the footer of the home page as of every page", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("home-trademark-notice")).toHaveText(TRADEMARK_NOTICE);
   await expect(page.getByTestId("trademark-notice")).toHaveText(TRADEMARK_NOTICE);
+  await expect(page.getByTestId("home-trademark-notice")).toHaveCount(0);
 });
 
 test("every internal link on every public page leads to a page that answers", async ({ page, request }, info) => {
@@ -96,25 +96,111 @@ test("every internal link on every public page leads to a page that answers", as
   expect(seen.size).toBeGreaterThan(MARKETING_PAGES.length - 3);
 });
 
-test("at most five top navigation items, and a menu that opens on a phone", async ({ page }, info) => {
+test("at most five top navigation items; on a phone the header keeps the logo, Sign in and Start free", async ({ page }, info) => {
   await page.goto("/");
   const r = await rendered(page);
   expect(r.topNav).toBeLessThanOrEqual(5);
-  if (info.project.name === "phone-375") {
-    await page.getByTestId("site-menu").locator("summary").click();
-    await expect(page.getByTestId("site-menu").getByRole("link", { name: "Guides" })).toBeVisible();
-  }
+  // The reference hides the menu below 1000 px and has no menu button: every page is in the footer.
+  await expect(page.getByTestId("header-cta")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+  for (const name of ["Features", "Guides", "Compare", "Help"]) await expect(page.getByRole("contentinfo").getByRole("link", { name, exact: true })).toBeVisible();
+  if (info.project.name === "phone-375") await expect(page.getByTestId("top-nav")).toBeHidden();
 });
 
-test("the home page: four steps with real screenshots, three differentiators, the pricing teaser, no testimonials", async ({ page }) => {
+test("the home page: the reference's sections, real mockups, three testimonials, prices from the plans", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("how-step")).toHaveCount(4);
-  for (const img of await page.getByTestId("how-step").locator("img").all()) await expect(img).toHaveAttribute("alt", /.{20}/);
-  await expect(page.getByTestId("differentiator")).toHaveCount(3);
-  await expect(page.getByTestId("demo-video-slot")).toBeVisible();
-  await expect(page.getByTestId("home-plans").locator("li")).toHaveCount(4);
-  await expect(page.getByTestId("home-planned-notice")).toContainText("No payment is taken today");
-  await expect(page.getByTestId("testimonials")).toHaveCount(0);
+  await expect(page.getByTestId("hero-demo")).toBeVisible();
+  await expect(page.getByTestId("hero-mockups").locator("img")).toHaveCount(8);
+  await expect(page.getByTestId("hero-listing").locator(".hd-pop")).toHaveCount(13);
+  await expect(page.getByTestId("hero-shops").locator(".hd-in")).toHaveCount(3);
+  await expect(page.getByTestId("step-colours").locator("img")).toHaveCount(6);
+  await expect(page.getByTestId("shop-cards").locator("img")).toHaveCount(3);
+  for (const img of await page.locator("main img").all()) await expect(img).toHaveAttribute("alt", /.{12}/);
+  // Every picture is AVIF first, WebP as the fallback, with its own size.
+  await expect(page.locator('main picture source[type="image/avif"]')).toHaveCount(17);
+  await expect(page.getByTestId("testimonial")).toHaveCount(3);
+  await expect(page.getByTestId("promise")).toHaveCount(0);
+  await expect(page.getByTestId("hero-video")).toHaveCount(0);
+  await expect(page.getByTestId("hero-cta")).toHaveText("Start free with 10 listings");
+  await expect(page.getByTestId("closing-cta")).toHaveText("Start free");
+  await expect(page.getByTestId("plan")).toHaveCount(3);
+  await expect(page.getByTestId("plan-highlight")).toContainText("Growth");
+  await expect(page.getByTestId("plan-per-listing").first()).toHaveText("12.7\u00a2 a listing");
+  await expect(page.getByRole("heading", { name: "About 10 cents a listing." })).toBeVisible();
+  await expect(page.getByTestId("planned-notice")).toContainText("Nothing is charged yet");
+});
+
+/** Each demonstration piece's look and its place in the layout: [opacity, left, top, width, height]. The place is
+ *  the layout box (offsetLeft/offsetTop up the offset parents), which a transform does not move: the animation
+ *  slides and scales pieces, but where each one sits never changes. */
+async function demoState(page: Page) {
+  return page.evaluate(() => [...document.querySelectorAll('[data-testid="hero-demo"] .hd-in, [data-testid="hero-demo"] .hd-pop')].map((el) => {
+    let x = 0;
+    let y = 0;
+    for (let node = el as HTMLElement | null; node; node = node.offsetParent as HTMLElement | null) { x += node.offsetLeft; y += node.offsetTop; }
+    const box = el as HTMLElement;
+    return [Number(getComputedStyle(el).opacity), x, y, box.offsetWidth, box.offsetHeight];
+  }));
+}
+
+test("the hero with reduced motion: the final state at once, nothing animating", async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: "reduce" });
+  const page = await context.newPage();
+  await page.goto("/");
+  const first = await demoState(page);
+  expect(first.length).toBeGreaterThan(20);
+  expect(first.every(([opacity]) => opacity === 1), "every piece is shown").toBe(true);
+  const running = await page.evaluate(() => document.getAnimations().filter((a) => (a as CSSAnimation).animationName?.startsWith("hd-")).length);
+  expect(running).toBe(0);
+  await context.close();
+});
+
+test("the hero with motion: plays once, rests on the final state, and never moves the page", async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: "no-preference" });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    (window as unknown as { shifts: number }).shifts = 0;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) if (!entry.hadRecentInput) (window as unknown as { shifts: number }).shifts += entry.value;
+    }).observe({ type: "layout-shift", buffered: true });
+  });
+  await page.goto("/");
+  const early = await demoState(page);
+  await page.waitForTimeout(5000);
+  const late = await demoState(page);
+  // Every piece holds the place it ends in from the first frame.
+  expect(late.map(([, ...box]) => box)).toEqual(early.map(([, ...box]) => box));
+  expect(late.every(([opacity]) => opacity === 1), "the final state: all shown").toBe(true);
+  const left = await page.evaluate(() => document.getAnimations().filter((a) => (a as CSSAnimation).animationName?.startsWith("hd-") && a.playState === "running").length);
+  expect(left, "nothing still playing after five seconds").toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { shifts: number }).shifts)).toBeLessThan(0.01);
+  await context.close();
+});
+
+test("the help center: search hides the answers that do not match, and every answer is in the page", async ({ page }) => {
+  await page.goto("/help");
+  const all = await page.locator("[data-help-item]").count();
+  expect(all).toBeGreaterThan(10);
+  await page.getByTestId("help-search").fill("trademark filter");
+  await expect(page.getByTestId("help-count")).toHaveText(/1 answer matches|\d+ answers match/);
+  expect(await page.locator("[data-help-item]:visible").count()).toBeLessThan(all);
+  await expect(page.locator("[data-help-item]:visible").first()).toContainText(/trademark/i);
+  await page.getByTestId("help-search").fill("zzzz no such word");
+  await expect(page.getByTestId("help-count")).toContainText("No answer matches");
+  await page.getByTestId("help-search").fill("");
+  expect(await page.locator("[data-help-item]:visible").count()).toBe(all);
+});
+
+test("pricing: the switch shows yearly prices and per-listing costs from the plans, and the highlighted plan is Growth", async ({ page }) => {
+  await page.goto("/pricing");
+  await expect(page.getByTestId("planned-notice")).toContainText("Nothing is charged yet");
+  await expect(page.getByTestId("plan-price").first()).toHaveText("$19");
+  await page.getByTestId("billing-yearly").click();
+  await expect(page.getByTestId("plan-price").first()).toHaveText("$190");
+  await expect(page.getByTestId("plan-per-listing").first()).toHaveText("10.6\u00a2 a listing");
+  await expect(page.getByTestId("trial-line")).toContainText("10 free AI listings once you connect an Etsy shop");
+  await expect(page.getByTestId("plan-highlight")).toBeVisible();
+  await expect(page.getByTestId("extra-pack")).toContainText("+100 AI listings for $9");
 });
 
 test("a page that does not exist helps, says 404 and stays out of search", async ({ page }, info) => {

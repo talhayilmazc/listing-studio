@@ -36,7 +36,7 @@ const SECTIONS = [
   { id: "contact", title: "Contact" },
 ];
 
-const link = "font-medium text-brand-700 hover:underline";
+const link = "mk-link";
 
 export default function TermsPage() {
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -122,12 +123,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
       >
         <div className="flex items-center justify-between px-5 py-5">
           <Link href="/dashboard" onClick={onClose} className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-              L
-            </span>
-            <span className="text-[15px] font-semibold text-[var(--rail-active)]">
-              Listyro
-            </span>
+            <Logo size={24} tone="paper" />
           </Link>
           <button
             type="button"

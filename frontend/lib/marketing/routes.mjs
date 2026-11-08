@@ -57,7 +57,7 @@ export const MARKETING_PAGES = [
 ];
 
 /** Files, and the two generated text files. Nothing behind these depends on a request. */
-export const PUBLIC_FILES = ["/screens/:path*", "/og/:path*", "/icon.svg", "/favicon.ico", "/robots.txt", "/sitemap.xml"];
+export const PUBLIC_FILES = ["/screens/:path*", "/hero/:path*", "/brand/:path*", "/og/:path*", "/icon.svg", "/favicon.ico", "/apple-icon.png", "/manifest.webmanifest", "/robots.txt", "/sitemap.xml"];
 
 export const SESSION_COOKIE = "session";
 

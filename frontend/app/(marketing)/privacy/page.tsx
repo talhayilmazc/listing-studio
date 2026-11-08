@@ -35,13 +35,13 @@ const SECTIONS = [
   { id: "changes", title: "Changes to this policy" },
 ];
 
-const link = "font-medium text-brand-700 hover:underline";
+const link = "mk-link";
 
 /** One row of a table: what, why (optional), how long. */
 function Row({ data, why, period }: { data: React.ReactNode; why?: React.ReactNode; period: React.ReactNode }) {
   // On a phone each row is a block: the columns stack under their own small
   // captions, so nothing has to be scrolled sideways to be read.
-  const caption = "mb-0.5 block text-[11px] font-medium uppercase tracking-wide text-slate-500 sm:hidden";
+  const caption = "mb-0.5 block text-[13px] font-semibold text-slate-600 sm:hidden";
   return (
     <tr className="block border-t border-slate-200 py-3 align-top sm:table-row sm:border-0 sm:py-0">
       <td className="block text-slate-800 sm:table-cell sm:border-t sm:border-slate-200 sm:py-3 sm:pr-4">{data}</td>
@@ -63,7 +63,7 @@ function Table({ head, children }: { head: string[]; children: React.ReactNode }
   return (
     <table className="block w-full text-left text-sm sm:table">
       <thead className="hidden sm:table-header-group">
-        <tr className="text-xs uppercase tracking-wide text-slate-500">
+        <tr className="text-[0.9375rem] font-bold text-ink">
           {head.map((h) => (
             <th key={h} className="pb-2 pr-4 font-medium">{h}</th>
           ))}
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
           Listyro (&ldquo;the Service&rdquo;) is provided by <Fact field="operator_name" />,{" "}
           <Fact field="operator_location" />, who is responsible for the personal data described here.
           {" "}
-          <span className="text-sm uppercase tracking-wide text-slate-600">{PROVIDER_DISCLAIMER}</span>{" "}
+          <span className="text-sm text-slate-700">{PROVIDER_DISCLAIMER}</span>{" "}
           For anything in this policy, including privacy requests, write to <SupportEmail />.
         </p>
         <p>

@@ -1,42 +1,51 @@
-// The planned plans: written once, shown as plans and nothing more.
+// The launch plans: written once, shown as prices for display and nothing more.
 //
-// The pricing page shows what we intend to charge after launch. It must never be
-// mistaken for a shop window: no payment is taken before Etsy's Commercial Access,
-// so the page has no form and no payment link, it says so at the top, and every
-// number on it, and in the application to Etsy, comes from lib/plans.ts.
+// The pricing page shows what we intend to charge at launch. While billing is off it must never be
+// mistaken for a shop window: no payment is taken, so the page has no form and no payment link, it
+// says so at the top, and every number on it, on the home page and in the documents to Etsy, comes
+// from lib/plans.ts.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-  CUSTOM, FREE_REWRITES, INCLUDED, LISTING_LINE, PLANNED_NOTICE, PLANS, PRICING_HEADING, PRICING_LINE, SCHEDULING_ADDON, YEARLY_MONTHS, YEARLY_NOTE,
-  addonFact, addonLine, addonYearlyPrice, hasSchedulingAddon, listingsFact, planLine, priceFact, schedulingFact, shopsFact, yearlyPerMonthFact,
-  yearlyPrice, yearlyPriceFact,
+  EXTRA_PACK, FREE_REWRITES, INCLUDED, LISTING_LINE, PLANNED_NOTICE, PLANS, PRICING_HEADING, PRICING_LINE, SPECIAL, TRIAL, YEARLY_LABEL, YEARLY_MONTHS, YEARLY_NOTE,
+  aboutPerListing, cardListingsFact, centsPerListing, extraPackFact, listingsFact, packLine, perListingFact, planLine, priceFact, shopsFact, yearlyPerMonthFact, yearlyPrice,
+  yearlyPriceFact,
 } from "./plans.ts";
 import { HOME, allCopy, headings } from "./homeCopy.ts";
+import { BILLING_ON, PRIMARY_CTA } from "./marketing/cta.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
 const read = (relative: string) => fs.readFileSync(path.join(FRONTEND, relative), "utf8").replace(/\r\n/g, "\n");
 const code = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[\s;{}(),])\/\/[^\n]*/g, "$1");
 const PRICING = "app/(marketing)/pricing/page.tsx";
 const CARDS = "components/marketing/PlanCards.tsx";
+const TEASER = "components/marketing/Sections.tsx";
 
-test("the planned plans are the ones agreed", () => {
+test("the plan config: the launch plans as agreed (7 November 2026)", () => {
   assert.deepEqual(PLANS.map(planLine), [
-    "Starter: 100 listings a month, 1 shop, scheduling not included (available as an add-on), $69/month, $690/year",
-    "Growth: 200 listings a month, 2 shops, scheduling not included (available as an add-on), $129/month, $1,290/year",
-    "Studio: 350 listings a month, 4 shops, scheduling included, $239/month, $2,390/year",
-    "Catalog: 500 listings a month, 8 shops, scheduling included, $329/month, $3,290/year",
+    "Starter: 150 AI listings a month, 1 shop, $19/month, $190/year",
+    "Growth: 300 AI listings a month, 3 shops, $29/month, $290/year",
+    "Pro: 600 AI listings a month, 5 shops, $49/month, $490/year",
+    "Business: 1,000 AI listings a month, 10 shops, $69/month, $690/year",
   ]);
-  assert.deepEqual(SCHEDULING_ADDON, { name: "Scheduling add-on", price: 19 });
-  assert.equal(addonLine(), "Scheduling add-on for Starter and Growth: +$19/month, or +$190/year on the yearly plan");
-  assert.equal(PLANNED_NOTICE, "Planned prices after launch. No payment is taken today. Prices may change before launch.");
-  assert.equal(CUSTOM.body, "More listings or shops? Tell us what you need and we'll send you a quote.");
+  // Growth is the one highlighted.
+  assert.deepEqual(PLANS.filter((plan) => plan.highlight).map((plan) => plan.name), ["Growth"]);
+  assert.deepEqual(EXTRA_PACK, { name: "Extra pack", listings: 100, price: 9, line: EXTRA_PACK.line });
+  assert.equal(extraPackFact(), "Extra pack: +100 AI listings for $9");
+  assert.equal(packLine(), "Extra pack: +100 AI listings for $9, on any plan");
+  assert.equal(TRIAL.listings, 10);
+  assert.match(TRIAL.line, /^10 free AI listings once you connect an Etsy shop that has never had a trial\./);
+  assert.equal(SPECIAL.name, "Special");
+  assert.match(SPECIAL.body, /More than 1,000 AI listings a month/);
+  assert.deepEqual([SPECIAL.price, SPECIAL.unit, SPECIAL.listings, SPECIAL.shops], ["Custom", "For big catalogs", "1,000+ listings", "Custom shop limit"]);
+  assert.deepEqual(SPECIAL.cta, { label: "Talk to us", href: "/request-invite?plan=custom" });
   // Each plan is larger than the one before it in everything that is counted.
   for (let i = 1; i < PLANS.length; i++) {
     assert.ok(PLANS[i].listings > PLANS[i - 1].listings && PLANS[i].shops > PLANS[i - 1].shops && PLANS[i].price > PLANS[i - 1].price);
   }
-  for (const word of ["Profiles", "write-it-yourself", "Trademark", "Review and approve", "Size charts", "Profit"]) {
+  for (const word of ["Mockups", "write-it-yourself", "Profiles", "SKU", "Scheduling", "Trademark", "Profit"]) {
     assert.ok(INCLUDED.some((item) => item.includes(word)), word);
   }
 });
@@ -46,106 +55,98 @@ test("a year costs ten months: yearly = 10 x monthly, and the monthly equivalent
   assert.equal(YEARLY_NOTE, "Pay for 10 months, get 12");
   for (const plan of PLANS) {
     assert.equal(yearlyPrice(plan), plan.price * 10, plan.name);
-    assert.equal(yearlyPriceFact(plan), "$" + (plan.price * 10).toLocaleString("en-US"));
     const perMonth = Math.round(((plan.price * 10) / 12) * 100) / 100;
     assert.equal(yearlyPerMonthFact(plan), `$${Number.isInteger(perMonth) ? perMonth : perMonth.toFixed(2)} a month`, plan.name);
     assert.ok(perMonth < plan.price);
   }
-  assert.deepEqual(PLANS.map(priceFact), ["$69", "$129", "$239", "$329"]);
-  assert.deepEqual(PLANS.map(yearlyPriceFact), ["$690", "$1,290", "$2,390", "$3,290"]);
-  assert.deepEqual(PLANS.map(yearlyPerMonthFact), ["$57.50 a month", "$107.50 a month", "$199.17 a month", "$274.17 a month"]);
-  // The add-on is paid the same way: ten months for a year.
-  assert.equal(addonYearlyPrice(), SCHEDULING_ADDON.price * 10);
-  assert.equal(addonFact(false), "Scheduling add-on: +$19/month");
-  assert.equal(addonFact(true), "Scheduling add-on: +$190/year");
+  assert.deepEqual(PLANS.map(priceFact), ["$19", "$29", "$49", "$69"]);
+  assert.deepEqual(PLANS.map(yearlyPriceFact), ["$190", "$290", "$490", "$690"]);
+  assert.deepEqual(PLANS.map(yearlyPerMonthFact), ["$15.83 a month", "$24.17 a month", "$40.83 a month", "$57.50 a month"]);
+  assert.deepEqual(PLANS.map(listingsFact), ["150 AI listings a month", "300 AI listings a month", "600 AI listings a month", "1,000 AI listings a month"]);
+  assert.deepEqual(PLANS.map(shopsFact), ["1 shop", "3 shops", "5 shops", "10 shops"]);
 });
 
-test("the scheduling add-on is offered only on the plans without scheduling, and the cards take it from the constants", () => {
-  assert.deepEqual(PLANS.filter(hasSchedulingAddon).map((plan) => plan.name), ["Starter", "Growth"]);
-  for (const plan of PLANS) assert.equal(hasSchedulingAddon(plan), !plan.scheduling, plan.name);
+test("what one listing costs is worked out from the plans, never typed", () => {
+  // Cents to one decimal, a year counting twelve months: the reference's 12.7, 9.7, 8.2 and 6.9.
+  assert.deepEqual(PLANS.map((plan) => perListingFact(plan)), ["12.7\u00a2 a listing", "9.7\u00a2 a listing", "8.2\u00a2 a listing", "6.9\u00a2 a listing"]);
+  assert.deepEqual(PLANS.map((plan) => perListingFact(plan, true)), ["10.6\u00a2 a listing", "8.1\u00a2 a listing", "6.8\u00a2 a listing", "5.8\u00a2 a listing"]);
+  for (const plan of PLANS) {
+    assert.equal(centsPerListing(plan), Math.round((plan.price / plan.listings) * 1000) / 10, plan.name);
+    assert.equal(centsPerListing(plan, true), Math.round(((plan.price * YEARLY_MONTHS) / 12 / plan.listings) * 1000) / 10, plan.name);
+  }
+  // The heading is the highlighted plan's, rounded: Growth, $29 for 300.
+  assert.equal(aboutPerListing(), "About 10 cents a listing.");
+  assert.equal(HOME.pricing.heading, aboutPerListing());
+  assert.equal(YEARLY_LABEL, "Yearly, 2 months free");
+  assert.deepEqual(PLANS.map(cardListingsFact), ["150 AI listings", "300 AI listings", "600 AI listings", "1,000 AI listings"]);
+  // The cards call the functions; no file types a per-listing price or "about 10 cents".
   const cards = code(read(CARDS));
-  // One line per card, chosen by the plan and the switch; never typed into the component.
-  assert.ok(cards.includes('{hasSchedulingAddon(plan) ? addonFact(yearly) : ""}'));
-  assert.equal((cards.match(/addonFact\(/g) ?? []).length, 1);
-  assert.doesNotMatch(cards, /add-on|\+\$|\b19\b|\b190\b/i, "no add-on text or price of its own");
-  // The line sits under the features and has the same slot on every card, so no card changes height with the switch.
-  const features = cards.indexOf("Everything else included");
-  const addon = cards.indexOf('data-testid="plan-addon"');
-  assert.ok(features !== -1 && addon > features);
-  assert.match(cards, /className="mt-4 min-h-\[1\.25rem\][^"]*" translate="no" data-testid="plan-addon"/);
+  assert.ok(cards.includes("perListingFact(plan, yearly)"));
+  for (const file of [CARDS, TEASER, PRICING, "lib/homeCopy.ts"]) assert.doesNotMatch(code(read(file)), /\d+(\.\d)?\s*\u00a2|about \d+ cents/i, file);
 });
 
-test("a listing is defined once, as the allowance counts it", () => {
+test("only AI-written listings count, as the pricing page says once", () => {
   assert.equal(
     LISTING_LINE,
-    "A listing is one design written by AI or by you, with all its photos. Rewriting the same design is free up to 3 times. Photos per listing and the number of drafts in your shops do not count.",
+    "Only AI-written listings count. A listing is one design written by AI, with all its photos, and rewriting the same design is free up to 3 times. Listings you write yourself, photos, and sending a listing to more shops do not count.",
   );
   // The number in that sentence is the one the server uses (core/allowance.py).
   assert.equal(FREE_REWRITES, 3);
   const server = fs.readFileSync(path.join(FRONTEND, "..", "backend", "app", "core", "allowance.py"), "utf8");
   assert.match(server, /^FREE_REWRITES = 3$/m);
   assert.ok(code(read(PRICING)).includes("{LISTING_LINE}"));
+  assert.ok(code(read(PRICING)).includes("{TRIAL.line}"));
 });
 
-test("the pricing page lays the plans out from the constants and types none of them", () => {
+test("while billing is off, the page says these are launch prices and nothing is charged yet", () => {
+  assert.equal(BILLING_ON, false);
+  assert.equal(PLANNED_NOTICE, "Launch prices. Nothing is charged yet: billing starts after launch, and we will tell you before it does.");
+  assert.equal(PRICING_HEADING, "Pay for the listings Listyro writes");
+  assert.equal(PRICING_LINE, "Invite-only early access. No payment is taken today; these plans start after launch.");
+  const page = code(read(PRICING));
+  const order = ["<h1", "{PRICING_HEADING}", "{PRICING_LINE}", "{PRIMARY_CTA.label}", "{PLANNED_NOTICE}", "<PlanCards extras />", "{LISTING_LINE}"].map((piece) => page.indexOf(piece));
+  assert.ok(order.every((at) => at !== -1), String(order));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  // The home page's pricing section shows the same cards with the same notice beside them.
+  const teaser = code(read(TEASER));
+  assert.match(teaser, /<PlanCards>/);
+  assert.match(teaser, /\{p\.notice\}/);
+  assert.equal(HOME.pricing.notice, PLANNED_NOTICE);
+});
+
+test("the pricing page and the cards lay the plans out from the constants and type none of them", () => {
   const page = code(read(PRICING));
   const cards = code(read(CARDS));
-  assert.match(page, /<PlanCards \/>/);
+  assert.match(page, /<PlanCards extras \/>/);
   assert.match(cards, /import \{[^}]*\bPLANS\b[^}]*\} from "@\/lib\/plans";/);
-  assert.match(cards, /\{PLANS\.map\(\(plan\) => \(/);
-  for (const piece of ["{plan.name}", "yearly ? yearlyPriceFact(plan) : priceFact(plan)", "listingsFact(plan)", "shopsFact(plan)", "schedulingFact(plan)", "{CUSTOM.body}", "YEARLY_NOTE", "yearlyPerMonthFact(plan)"]) {
+  for (const piece of ["{plan.name}", "yearly ? yearlyPriceFact(plan) : priceFact(plan)", "cardListingsFact(plan)", "shopsFact(plan)", "{SPECIAL.price}", "{SPECIAL.shops}", "YEARLY_NOTE", "YEARLY_LABEL", "yearlyPerMonthFact(plan)", "extraPackFact()"]) {
     assert.ok(cards.includes(piece), piece);
   }
   for (const piece of ["{PRICING_HEADING}", "{PRICING_LINE}", "{PLANNED_NOTICE}", "{LISTING_LINE}", "{INCLUDED.map("]) assert.ok(page.includes(piece), piece);
-  // No plan name, price or count of their own.
-  for (const source of [page, cards]) {
+  // No plan name, price or count of their own, here or in the home page's teaser.
+  for (const source of [page, cards, code(read(TEASER))]) {
     for (const plan of PLANS) {
       assert.ok(!source.includes(`"${plan.name}"`) && !source.includes(`>${plan.name}<`), plan.name);
       for (const fact of [priceFact(plan), yearlyPriceFact(plan), listingsFact(plan)]) assert.ok(!source.includes(fact), fact);
     }
     assert.doesNotMatch(source, /\$\s?\d/);
   }
-  assert.doesNotMatch(page + cards, /\bSolo\b|Priority support|Everything in (Solo|Studio)/, "the old feature lists are gone");
-  assert.deepEqual(PLANS.map(schedulingFact), [
-    "Publish now (scheduling not included)", "Publish now (scheduling not included)", "Scheduling included", "Scheduling included",
-  ]);
-  assert.deepEqual(PLANS.map(shopsFact), ["1 shop", "2 shops", "4 shops", "8 shops"]);
-});
-
-test("the page opens with the invitation, then the planned-prices notice, then the plans", () => {
-  assert.equal(PRICING_HEADING, "Request an invite to try Listyro");
-  assert.equal(PRICING_LINE, "Invite-only early access. No payment is taken today; the plans below apply after launch.");
-  const page = code(read(PRICING));
-  const order = ["<h1", "{PRICING_HEADING}", 'href="/request-invite"', "{PRICING_LINE}", "{PLANNED_NOTICE}", "<PlanCards />", "{LISTING_LINE}"].map((piece) => page.indexOf(piece));
-  assert.ok(order.every((at) => at !== -1), String(order));
-  assert.deepEqual(order, [...order].sort((a, b) => a - b));
-  assert.match(page, /<a href="\/request-invite"[^>]*>Request an invite<\/a>/);
-  // The early-access card is gone: nothing on the page is offered at a price of nothing.
-  assert.doesNotMatch(page + code(read(CARDS)), /plan-early-access|Early access<|>Now</);
-  // Each planned card says it is planned, in both views of the switch.
-  const cards = code(read(CARDS));
-  assert.match(cards, />Planned<\/span>/);
-  assert.match(cards, /yearly \? "a year, planned" : "a month, planned"/);
+  assert.doesNotMatch(page + cards, /\b(Studio|Catalog)\b|Scheduling add-on|\$69\/month|100 listings a month/, "the old plans are gone");
 });
 
 test('"free" is not a headline or a badge on the pricing page or the home page', () => {
-  const page = read(PRICING);
-  const cards = read(CARDS);
-  for (const source of [page, cards]) {
-    // Headings, and the small tags that sit on a card.
+  for (const source of [read(PRICING), read(CARDS)]) {
     for (const [, heading] of source.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/g)) assert.doesNotMatch(heading, /\bfree\b/i, heading);
-    for (const [, tag] of source.matchAll(/<span className="[^"]*rounded-full[^"]*">([^<{]*)<\/span>/g)) assert.doesNotMatch(tag, /\bfree\b/i, tag);
     assert.doesNotMatch(code(source), />\s*Free\b/, "no line that opens with Free");
   }
   assert.doesNotMatch(PRICING_HEADING + PLANNED_NOTICE + PRICING_LINE, /\bfree\b/i);
-  // The home page: its headings, the line under the hero's buttons, and the hero walkthrough's labels.
   for (const heading of headings()) assert.doesNotMatch(heading, /\bfree\b/i, heading);
-  assert.equal(HOME.hero.note, "Invite-only early access. No payment is taken today.");
-  for (const text of [HOME.hero.eyebrow, HOME.hero.heading, HOME.video.label, HOME.closing.body]) assert.doesNotMatch(text, /\bfree\b/i, text);
-  // That no payment is taken is still said plainly, in each place a visitor looks for it.
+  // No badge on the highlighted plan (the reference has none) and no claim about other sellers.
+  assert.doesNotMatch(read(CARDS), /most (sellers|popular)|good place to start/i);
+  // "Free" is in the buttons and the trial's own words (the owner's), never a heading or a badge.
+  for (const text of [HOME.hero.heading, HOME.hero.sub]) assert.doesNotMatch(text, /\bfree\b/i, text);
   assert.match(PRICING_LINE, /No payment is taken today/);
-  assert.match(PLANNED_NOTICE, /No payment is taken today/);
-  assert.match(HOME.faq.items.find((item) => item.q === "What does it cost?")!.a, /no payment of any kind is taken/);
+  assert.match(PLANNED_NOTICE, /Nothing is charged yet/);
 });
 
 test("the pricing page has no checkout and no payment form", () => {
@@ -153,17 +154,16 @@ test("the pricing page has no checkout and no payment form", () => {
   const cards = code(read(CARDS));
   for (const source of [page, cards]) {
     assert.doesNotMatch(source, /<form\b|<input\b|<select\b|<textarea\b|type="submit"|onSubmit|action=|method=/);
-    assert.doesNotMatch(source, /stripe|paddle|paypal|lemon ?squeezy|braintree|iyzico|checkout\.|\/checkout|\/pay\b|\/billing|\/subscribe|buy now|add to cart|start (free )?trial|subscribe now|fetch\(|api\./i);
+    assert.doesNotMatch(source, /stripe|paddle|paypal|lemon ?squeezy|braintree|iyzico|checkout\.|\/checkout|\/pay\b|\/billing|\/subscribe|buy now|add to cart|subscribe now|fetch\(|api\./i);
   }
   // The only buttons are the two halves of the Monthly / Yearly switch: plain state, nothing sent anywhere.
   assert.doesNotMatch(page, /<button\b|"use client"|useState/);
   assert.equal((cards.match(/<button /g) ?? []).length, 2);
-  assert.equal((cards.match(/<button type="button" aria-pressed=\{!?yearly\} onClick=\{\(\) => setYearly\((?:true|false)\)\}/g) ?? []).length, 2);
   assert.match(cards, /const \[yearly, setYearly\] = useState\(false\);/, "Monthly is what is shown first");
-  // Every link leads to the invite form, with or without the quote request.
+  // Every link leads to the configured call to action or the quote request.
   const links = [...(page + cards).matchAll(/<a href=(?:"([^"]+)"|\{([^}]+)\})/g)].map((m) => m[1] ?? m[2]);
-  assert.deepEqual(links, ["/request-invite", "CUSTOM.cta.href"]);
-  assert.equal(CUSTOM.cta.href, "/request-invite?plan=custom");
+  assert.deepEqual([...new Set(links)].sort(), ["PRIMARY_CTA.href", "SPECIAL.cta.href"]);
+  assert.equal(PRIMARY_CTA.href, "/request-invite");
   // Nor is there a payment library anywhere in the frontend.
   const pkg = JSON.parse(read("package.json"));
   const packages = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).join(" ");
@@ -178,39 +178,36 @@ test("a quote request asks for the listings a month and the number of shops", ()
   assert.match(form, /const sent = custom \? quoteNote\(listings, note\) : note;/);
 });
 
-test("the application to Etsy lists the same plans, and the home page and the Terms name no price", () => {
-  const application = fs.readFileSync(path.join(FRONTEND, "..", "docs", "commercial-application.md"), "utf8").replace(/\r\n/g, "\n");
-  for (const plan of PLANS) assert.ok(application.includes(`- ${planLine(plan)}\n`), planLine(plan));
-  assert.ok(application.includes("- Custom: more listings or shops, quoted on request\n"));
-  assert.ok(application.includes(`- ${addonLine()}\n`), addonLine());
-  assert.equal((application.match(/^- [A-Z][a-z]+: [\d,]+ listings a month/gm) ?? []).length, PLANS.length, "no plan in the document that is not in lib/plans.ts");
-  assert.ok(application.includes("Prices will be published on listyro.com/pricing before any charge is made, and existing sellers will be told in advance."));
+test("the documents to Etsy list the same plans; the approved list stays as it was", () => {
+  const application = read("../docs/commercial-application.md");
+  // The approved plan list is a record and is not rewritten.
+  for (const line of [
+    "- Starter: 100 listings a month, 1 shop, scheduling not included (available as an add-on), $69/month, $690/year\n",
+    "- Catalog: 500 listings a month, 8 shops, scheduling included, $329/month, $3,290/year\n",
+  ]) assert.ok(application.includes(line), line);
+  // The dated note below it lists today's plans, from this file.
+  const note = application.slice(application.indexOf("## Launch prices (7 November 2026, after approval)"));
+  assert.ok(note.length > 100, "the dated note");
+  for (const plan of PLANS) assert.ok(note.includes(`- ${planLine(plan)}\n`), planLine(plan));
+  assert.ok(note.includes(`- ${packLine()}\n`), packLine());
+  assert.ok(note.includes("- Special: more than 1,000 AI listings a month, quoted on request\n"));
   // The capacity the largest plan needs, worked out from the plan itself.
   const largest = PLANS[PLANS.length - 1];
-  assert.equal(largest.listings, 500);
-  assert.ok(Math.abs((largest.listings * 35) / 30 - 600) < 30, "about 600 calls a day at about 35 per listing");
-  assert.ok(application.includes(
-    "At about 35 API calls per listing, our largest planned plan (500 listings a month) needs about 600 calls a day per seller, so today's 5,000-a-day limit serves several sellers on every plan. We ask for a higher limit to grow, not to run a single seller.",
-  ));
-  assert.doesNotMatch(application, /need more than the default 5,000|well above 5,000/);
-  const compliance = fs.readFileSync(path.join(FRONTEND, "..", "docs", "etsy-compliance.md"), "utf8");
+  assert.equal(largest.listings, 1000);
+  assert.ok(Math.abs((largest.listings * 35) / 30 - 1170) < 10, "about 1,170 calls a day at about 35 per listing");
+  assert.ok(note.includes("the largest plan (1,000 listings a month) needs about 1,170 calls a day per seller"));
+  const compliance = read("../docs/etsy-compliance.md");
   for (const plan of PLANS) assert.ok(compliance.includes(planLine(plan)), planLine(plan));
-  assert.ok(compliance.includes(addonLine()), addonLine());
-  // Neither document names a price that is not a plan's or the add-on's, monthly or yearly.
-  const prices = new Set([...PLANS.flatMap((plan) => [priceFact(plan), yearlyPriceFact(plan)]), "$19", "$190"]);
-  for (const doc of [application, compliance]) {
-    for (const [, price] of doc.matchAll(/(\$[\d,]+)\/(?:month|year)/g)) assert.ok(prices.has(price), price);
-    assert.doesNotMatch(doc, /\$(?:149|299|399|1,490|2,990|3,990)\b|\$69 to \$399/, "no old price");
-  }
-  assert.ok(compliance.includes("our largest planned plan (500 listings a month) needs about 600 calls a day per seller"));
-  assert.ok(compliance.includes("about 33 to 40 requests for a listing with 13 photos"));
-  // The home page's words type no price: its teaser reads this file (with the notice beside it),
-  // and the Terms point to the pricing page.
-  for (const text of allCopy()) assert.doesNotMatch(text, /\$\s?\d/, text);
-  const cost = HOME.faq.items.find((item) => item.q === "What does it cost?")!;
-  assert.match(cost.a, /The plans we intend to offer after launch may change before launch/);
+  assert.ok(compliance.includes(packLine()), packLine());
+  assert.ok(compliance.includes(PLANNED_NOTICE), "the notice, word for word");
+  const prices = new Set([...PLANS.flatMap((plan) => [priceFact(plan), yearlyPriceFact(plan)])]);
+  for (const [, price] of compliance.matchAll(/(\$[\d,]+)\/(?:month|year)/g)) assert.ok(prices.has(price), price);
+  // The home page's words type no price, and the Terms point to the pricing page.
+  // The home page types no price: the one in its words (the extra pack's) is read from lib/plans.ts.
+  const known = new Set([...PLANS.flatMap((plan) => [priceFact(plan), yearlyPriceFact(plan)]), "$" + EXTRA_PACK.price]);
+  for (const text of allCopy()) for (const [price] of text.matchAll(/\$\s?[\d,]+/g)) assert.ok(known.has(price), price + " in " + text);
+  assert.doesNotMatch(code(read("lib/homeCopy.ts")), /\$\s?\d/);
   assert.deepEqual(HOME.pricing.link, { label: "See every plan", href: "/pricing" });
   const terms = read("app/(marketing)/terms/page.tsx").replace(/\s+/g, " ");
   assert.doesNotMatch(terms, /\$\s?\d(?!\d*\))/, "the Terms name no plan price");
-  assert.match(terms, /The plans we intend to offer after launch are shown on the\{" "\} <a href="\/pricing"/);
 });

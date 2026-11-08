@@ -15,8 +15,8 @@ export default function FeeCalculatorPage() {
       {open
         ? <FeeCalculator />
         : (
-          <section className="rounded-2xl border border-slate-200 bg-white p-5" data-testid="fee-coming-soon">
-            <h2 className="font-display text-2xl text-slate-900">{FEE_COMING_SOON.heading}</h2>
+          <section className="border border-heather bg-white p-5" data-testid="fee-coming-soon">
+            <h2 className="mk-h3 !text-[1.375rem]">{FEE_COMING_SOON.heading}</h2>
             <p className="mt-2 text-[1.0625rem] leading-relaxed text-slate-700">{FEE_COMING_SOON.body}</p>
           </section>
         )}

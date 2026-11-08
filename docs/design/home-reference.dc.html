@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Listyro home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&amp;display=swap">
+<style>
+body{margin:0;background:#FFFFFF;color:#14162B;font-family:Archivo,system-ui,sans-serif}
+a{color:#14162B}a:hover{color:#3B3F66}
+.wrap{max-width:1220px;margin:0 auto;padding:0 32px;box-sizing:border-box}
+.hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:48px;align-items:center}
+.hv{position:relative;height:580px}
+.hv-window{position:absolute;left:30px;right:0;top:40px;transform:perspective(1800px) rotateY(-9deg) rotateX(4deg);transform-origin:20% 50%}
+.hv-ai{position:absolute;left:-30px;bottom:-10px;width:350px;z-index:3}
+.hv-shops{position:absolute;right:-24px;top:-6px;width:240px;z-index:3}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px}
+.shops{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+.safe{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.plans{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+.faq{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:36px 56px}
+.navl{display:flex;gap:30px}
+@media (max-width:1000px){
+.hero{grid-template-columns:minmax(0,1fr)}
+.hv{height:auto}
+.hv-window{position:static;transform:none}
+.hv-ai,.hv-shops{position:static;width:auto;margin-top:14px}
+.two,.faq{grid-template-columns:minmax(0,1fr)}
+.steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+.shops,.safe{grid-template-columns:minmax(0,1fr)}
+.plans{grid-template-columns:repeat(2,minmax(0,1fr))}
+.navl{display:none}
+}
+@media (max-width:560px){
+.steps,.plans{grid-template-columns:minmax(0,1fr)}
+}
+</style>
+</helmet>
+
+<div style="width: 100%; overflow-x: hidden;">
+
+<svg width="0" height="0" style="position: absolute;" aria-hidden="true">
+<defs>
+<linearGradient id="hSide" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000000" stop-opacity="0.26"></stop><stop offset="0.22" stop-color="#000000" stop-opacity="0"></stop><stop offset="0.78" stop-color="#000000" stop-opacity="0"></stop><stop offset="1" stop-color="#000000" stop-opacity="0.26"></stop></linearGradient>
+<linearGradient id="hTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.2"></stop><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"></stop><stop offset="1" stop-color="#000000" stop-opacity="0.13"></stop></linearGradient>
+<filter id="hSoft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3.5"></feGaussianBlur></filter>
+</defs>
+</svg>
+
+<header style="position: relative; z-index: 5;">
+<div class="wrap" style="display: flex; align-items: center; justify-content: space-between; height: 80px; gap: 20px;">
+<a href="#" style="display: flex; align-items: center; gap: 10px; text-decoration: none;" aria-label="Listyro home">
+<svg width="36" height="36" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{accent}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="#14162B"></path><circle cx="33" cy="27.5" r="3.8" fill="#FFFFFF"></circle></g></svg>
+<span style="font-size: 27px; font-weight: 900; font-stretch: 108%; letter-spacing: -1.3px; line-height: 1;">listyro</span>
+</a>
+<nav class="navl" aria-label="Main" style="font-size: 15px; font-weight: 600;">
+<a href="#how" style="text-decoration: none;">How it works</a>
+<a href="#safe" style="text-decoration: none;">Safety</a>
+<a href="#pricing" style="text-decoration: none;">Pricing</a>
+<a href="#" style="text-decoration: none;">Free tools</a>
+</nav>
+<div style="display: flex; gap: 8px; align-items: center;">
+<a href="#" style="text-decoration: none; font-size: 15px; font-weight: 600; padding: 12px 12px;">Sign in</a>
+<a href="#" style="text-decoration: none; font-size: 15px; font-weight: 800; padding: 12px 20px; border-radius: 999px; background: #14162B; color: #FFFFFF;">Start free</a>
+</div>
+</div>
+</header>
+
+<section style="position: relative; padding: 40px 0 120px; background: radial-gradient(700px 480px at 82% 20%, rgba(255,210,74,0.30), rgba(255,210,74,0) 70%), radial-gradient(700px 520px at 98% 70%, rgba(150,120,255,0.20), rgba(150,120,255,0) 70%), radial-gradient(600px 400px at 0% 0%, rgba(120,190,255,0.14), rgba(120,190,255,0) 70%), #FFFFFF;">
+<div class="wrap hero">
+<div style="display: flex; flex-direction: column; gap: 26px;">
+<span style="align-self: flex-start; display: inline-flex; align-items: center; gap: 10px; padding: 7px 14px 7px 8px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E6E8EF; box-shadow: 0 2px 10px rgba(20,22,43,0.06); font-size: 14px; font-weight: 700;"><span style="display: inline-flex; width: 22px; height: 22px; border-radius: 99px; background: #E9F6EE; align-items: center; justify-content: center;"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6.2 L4.8 8.6 L9.8 3.4" stroke="#1F8A4C" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>Built on Etsy's official API</span>
+<h1 style="margin: 0; font-size: clamp(46px, 6vw, 80px); line-height: 0.96; font-weight: 900; font-stretch: 112%; letter-spacing: -2.6px;">Upload 50 designs. Get 50 listings, ready for every shop.</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #4B4F6B; max-width: 29em;">Listyro's AI puts each design on your own shirt photos, writes the title and 13 tags, and schedules it to every shop you run. You approve. It publishes.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: center;">
+<a href="#" style="text-decoration: none; font-size: 18px; font-weight: 900; padding: 19px 30px; border-radius: 999px; background: #14162B; color: #FFFFFF; box-shadow: 0 14px 30px rgba(20,22,43,0.22);">Start free with 10 listings</a>
+<a href="#" style="text-decoration: none; display: inline-flex; align-items: center; gap: 12px; font-size: 17px; font-weight: 700; padding: 12px 8px;"><span style="display: inline-flex; width: 44px; height: 44px; border-radius: 99px; background: {{accent}}; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(255,190,40,0.35);"><svg width="13" height="14" viewBox="0 0 13 14" aria-hidden="true"><path d="M2 1.5 L11.5 7 L2 12.5 Z" fill="#14162B"></path></svg></span>Watch it in 60 seconds</a>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 15px; font-weight: 600; color: #4B4F6B;">
+<sc-for list="{{reassure}}" as="r" hint-placeholder-count="3">
+<span style="display: inline-flex; gap: 8px; align-items: center;"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#1F8A4C"></circle><path d="M4.4 8.2 L6.9 10.5 L11.6 5.6" stroke="#FFFFFF" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>{{r}}</span>
+</sc-for>
+</div>
+</div>
+
+<div class="hv">
+<div class="hv-window">
+<div style="border-radius: 22px; background: #FFFFFF; border: 1px solid #E3E6EE; box-shadow: 0 50px 100px rgba(20,22,43,0.20), 0 8px 24px rgba(20,22,43,0.08); overflow: hidden;">
+<div style="height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 18px; border-bottom: 1px solid #EEF0F5; background: #FAFBFD;">
+<span style="width: 11px; height: 11px; border-radius: 99px; background: #FF6B6B;"></span><span style="width: 11px; height: 11px; border-radius: 99px; background: #FFD24A;"></span><span style="width: 11px; height: 11px; border-radius: 99px; background: #4ADE80;"></span>
+<span style="margin-left: 14px; font-size: 13px; font-weight: 800;">Fall drop</span><span style="font-size: 13px; color: #6A6F8A;">48 designs</span>
+<span style="margin-left: auto; display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 800; color: #1F8A4C; background: #E9F6EE; border-radius: 99px; padding: 5px 10px;"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.8 5.2 L4 7.2 L8.4 2.6" stroke="#1F8A4C" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>48 of 48 ready</span>
+</div>
+<div style="padding: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; background: #FFFFFF;">
+<sc-for list="{{tees}}" as="t" hint-placeholder-count="8">
+<div style="border-radius: 14px; background: linear-gradient(180deg, #F3F4F8, #E4E6EE); padding: 14px 12px 6px;">
+<svg viewBox="0 0 200 216" role="img" aria-label="{{t.label}}" style="width: 100%; height: auto; display: block;">
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="{{t.fill}}"></path>
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="url(#hSide)"></path>
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="url(#hTop)"></path>
+<path d="M90 8 C96 20 104 20 110 8 C106 24 94 24 90 8 Z" fill="rgba(0,0,0,0.22)"></path>
+<path d="M66 120 C80 150 76 178 70 204" stroke="rgba(0,0,0,0.10)" stroke-width="6" fill="none" filter="url(#hSoft)"></path>
+<path d="M132 110 C122 146 128 176 134 204" stroke="rgba(255,255,255,0.14)" stroke-width="6" fill="none" filter="url(#hSoft)"></path>
+<text x="100" y="112" style="text-anchor: middle; font-family: Archivo, sans-serif; font-weight: 900; font-size: {{t.size}}px; font-stretch: 112%; letter-spacing: 1px;" fill="{{t.ink}}">{{t.word}}</text>
+<text x="100" y="134" style="text-anchor: middle; font-family: Archivo, sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 3px;" fill="{{t.ink}}">{{t.sub}}</text>
+</svg>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div class="hv-shops" style="border-radius: 18px; padding: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; box-shadow: 0 24px 60px rgba(20,22,43,0.16); display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 13px; font-weight: 800;">Going live in 3 shops</span>
+<sc-for list="{{shopsMini}}" as="s" hint-placeholder-count="3">
+<span style="display: flex; gap: 10px; align-items: center; font-size: 13px;"><span style="width: 9px; height: 9px; border-radius: 99px; background: {{s.dot}};"></span><span style="flex-grow: 1; font-weight: 700;">{{s.name}}</span><span style="color: #6A6F8A;">{{s.when}}</span></span>
+</sc-for>
+</div>
+
+<div class="hv-ai" style="border-radius: 20px; padding: 18px; background: #14162B; color: #FFFFFF; box-shadow: 0 30px 70px rgba(20,22,43,0.35); display: flex; flex-direction: column; gap: 11px;">
+<span style="display: inline-flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 800; color: {{accent}};"><svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true"><path d="M9 1 L10.6 6.6 L16 8.2 L10.6 9.8 L9 15.4 L7.4 9.8 L2 8.2 L7.4 6.6 Z" fill="{{accent}}"></path></svg>AI read the design: mountain, sunset, retro</span>
+<span style="font-size: 16px; font-weight: 800; line-height: 1.3;">Retro Sunset Mountain Shirt, Garment Dyed Hiking Tee, Camping Gift</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px;">
+<sc-for list="{{tags}}" as="g" hint-placeholder-count="13">
+<span style="font-size: 12px; font-weight: 700; background: rgba(255,255,255,0.10); border-radius: 7px; padding: 4px 8px;">{{g}}</span>
+</sc-for>
+</div>
+<span style="display: flex; justify-content: space-between; font-size: 12px; color: #A4A9C4;"><span>13 of 13 tags</span><span>62 of 140 characters</span></span>
+</div>
+</div>
+</div>
+</section>
+
+<section style="border-top: 1px solid #EEF0F5; border-bottom: 1px solid #EEF0F5; background: #FAFBFD;">
+<div class="wrap" style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px 32px; padding-top: 26px; padding-bottom: 26px; font-size: 15px; font-weight: 700; color: #3B3F5C;">
+<sc-for list="{{strip}}" as="s" hint-placeholder-count="4">
+<span style="display: inline-flex; gap: 10px; align-items: center;"><span style="display: inline-flex; width: 30px; height: 30px; border-radius: 9px; background: #FFFFFF; border: 1px solid #E6E8EF; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2.6 7.2 L5.6 10 L11.4 4" stroke="#14162B" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>{{s}}</span>
+</sc-for>
+</div>
+</section>
+
+<section style="padding: 120px 0 110px;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 52px;">
+<div style="display: flex; flex-direction: column; gap: 16px; max-width: 760px;">
+<h2 style="margin: 0; font-size: clamp(36px, 4.4vw, 58px); line-height: 1.0; font-weight: 900; font-stretch: 110%; letter-spacing: -1.6px;">The slow part of print-on-demand, done for you.</h2>
+<p style="margin: 0; font-size: 19px; line-height: 1.5; color: #4B4F6B;">Designing is the fun part. Listing is the grind. Listyro takes the grind.</p>
+</div>
+<div class="two">
+<div style="border-radius: 28px; padding: 36px; background: #F5F6FA; display: flex; flex-direction: column; gap: 20px;">
+<span style="font-size: 15px; font-weight: 800; color: #6A6F8A;">By hand, for every single design</span>
+<sc-for list="{{byHand}}" as="b" hint-placeholder-count="6">
+<span style="display: flex; gap: 14px; align-items: center; font-size: 18px; font-weight: 600; color: #6A6F8A;"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9" fill="none" stroke="#B9BDCE" stroke-width="2"></circle><path d="M11 6 V11 L14.5 13" stroke="#B9BDCE" stroke-width="2" fill="none" stroke-linecap="round"></path></svg><span style="text-decoration: line-through; text-decoration-color: rgba(106,111,138,0.5);">{{b}}</span></span>
+</sc-for>
+</div>
+<div style="border-radius: 28px; padding: 36px; background: #14162B; color: #FFFFFF; display: flex; flex-direction: column; gap: 22px; box-shadow: 0 30px 70px rgba(20,22,43,0.25);">
+<span style="font-size: 15px; font-weight: 800; color: {{accent}};">With Listyro</span>
+<sc-for list="{{withUs}}" as="w" hint-placeholder-count="3">
+<span style="display: flex; gap: 16px; align-items: center; font-size: 26px; font-weight: 850; font-stretch: 106%; line-height: 1.2;"><span style="display: inline-flex; flex-shrink: 0; width: 38px; height: 38px; border-radius: 99px; background: {{accent}}; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8.4 L6.6 11.4 L12.8 4.8" stroke="#14162B" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>{{w}}</span>
+</sc-for>
+<span style="margin-top: auto; font-size: 17px; line-height: 1.5; color: #B7BBD3;">Mockups, title, 13 tags, attributes, SKU and the schedule are waiting for your check.</span>
+</div>
+</div>
+</div>
+</section>
+
+<section id="how" style="padding: 20px 0 120px;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 48px;">
+<h2 style="margin: 0; font-size: clamp(36px, 4.4vw, 58px); line-height: 1.0; font-weight: 900; font-stretch: 110%; letter-spacing: -1.6px; max-width: 14em;">From a folder of designs to every shop in four steps.</h2>
+<div class="steps">
+
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="border-radius: 24px; background: #EEF3FB; height: 230px; padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 9px;">
+<sc-for list="{{files}}" as="f" hint-placeholder-count="4">
+<span style="display: flex; gap: 12px; align-items: center; background: #FFFFFF; border-radius: 12px; padding: 10px 12px; font-size: 13.5px; font-weight: 700; box-shadow: 0 2px 6px rgba(20,22,43,0.06);"><span style="width: 22px; height: 22px; border-radius: 6px; background: {{f.c}};"></span>{{f.n}}</span>
+</sc-for>
+</div>
+<div style="display: flex; gap: 12px; align-items: baseline;"><span style="font-size: 16px; font-weight: 900; color: #9A9FB8;">1</span><h3 style="margin: 0; font-size: 22px; font-weight: 850;">Drop in your designs</h3></div>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4B4F6B;">One file or a folder of fifty.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="border-radius: 24px; background: #FFF3D1; height: 230px; padding: 20px 18px; box-sizing: border-box; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 4px; align-content: center;">
+<sc-for list="{{teesSmall}}" as="t" hint-placeholder-count="6">
+<svg viewBox="0 0 200 216" role="img" aria-label="{{t.label}}" style="width: 100%; height: auto; display: block;">
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="{{t.fill}}"></path>
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="url(#hSide)"></path>
+<path d="M90 8 C96 20 104 20 110 8 C106 24 94 24 90 8 Z" fill="rgba(0,0,0,0.22)"></path>
+<circle cx="100" cy="104" r="24" fill="{{t.sun}}"></circle>
+<path d="M68 132 L88 106 L100 120 L114 98 L134 132 Z" fill="{{t.ink}}"></path>
+</svg>
+</sc-for>
+</div>
+<div style="display: flex; gap: 12px; align-items: baseline;"><span style="font-size: 16px; font-weight: 900; color: #9A9FB8;">2</span><h3 style="margin: 0; font-size: 22px; font-weight: 850;">Mockups, every color</h3></div>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4B4F6B;">On your own shirt photos, folds and all.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="border-radius: 24px; background: #EAF6F0; height: 230px; padding: 22px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 10px;">
+<span style="display: inline-flex; gap: 7px; align-items: center; font-size: 12px; font-weight: 800; color: #1F8A4C;"><svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path d="M9 1 L10.6 6.6 L16 8.2 L10.6 9.8 L9 15.4 L7.4 9.8 L2 8.2 L7.4 6.6 Z" fill="#1F8A4C"></path></svg>Written from the design</span>
+<span style="background: #FFFFFF; border-radius: 12px; padding: 12px; font-size: 13.5px; font-weight: 800; line-height: 1.3; box-shadow: 0 2px 6px rgba(20,22,43,0.06);">Retro Sunset Mountain Shirt, Garment Dyed Hiking Tee</span>
+<div style="display: flex; flex-wrap: wrap; gap: 5px;">
+<sc-for list="{{tagsShort}}" as="g" hint-placeholder-count="7">
+<span style="font-size: 11.5px; font-weight: 700; background: #FFFFFF; border-radius: 7px; padding: 4px 8px;">{{g}}</span>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; gap: 12px; align-items: baseline;"><span style="font-size: 16px; font-weight: 900; color: #9A9FB8;">3</span><h3 style="margin: 0; font-size: 22px; font-weight: 850;">Title and 13 tags</h3></div>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4B4F6B;">AI reads the design and writes in your style.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="border-radius: 24px; background: #FBEDEF; height: 230px; padding: 22px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 12px;">
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px;">
+<sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+<span style="display: flex; flex-direction: column; gap: 5px; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #6A6F8A;">{{d.n}}</span><span style="width: 100%; height: 24px; border-radius: 7px; background: {{d.a}};"></span><span style="width: 100%; height: 24px; border-radius: 7px; background: {{d.b}};"></span><span style="width: 100%; height: 24px; border-radius: 7px; background: {{d.c}};"></span></span>
+</sc-for>
+</div>
+<span style="display: flex; gap: 14px; font-size: 12px; font-weight: 700; color: #4B4F6B;"><span style="display: inline-flex; gap: 6px; align-items: center;"><span style="width: 8px; height: 8px; border-radius: 99px; background: #7393B3;"></span>Pine &amp; Print</span><span style="display: inline-flex; gap: 6px; align-items: center;"><span style="width: 8px; height: 8px; border-radius: 99px; background: #E8707E;"></span>Ink Lane</span><span style="display: inline-flex; gap: 6px; align-items: center;"><span style="width: 8px; height: 8px; border-radius: 99px; background: #1F8A4C;"></span>Tee Street</span></span>
+</div>
+<div style="display: flex; gap: 12px; align-items: baseline;"><span style="font-size: 16px; font-weight: 900; color: #9A9FB8;">4</span><h3 style="margin: 0; font-size: 22px; font-weight: 850;">Every shop, on time</h3></div>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4B4F6B;">Spread out at the hours you pick.</p>
+</div>
+
+</div>
+</div>
+</section>
+
+<section style="background: #14162B; color: #FFFFFF; padding: 120px 0; background-image: radial-gradient(700px 400px at 90% 0%, rgba(255,210,74,0.16), rgba(255,210,74,0) 70%), radial-gradient(600px 400px at 0% 100%, rgba(150,120,255,0.18), rgba(150,120,255,0) 70%);">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 52px;">
+<div style="display: flex; flex-wrap: wrap; gap: 24px 56px; align-items: flex-end; justify-content: space-between;">
+<h2 style="margin: 0; font-size: clamp(36px, 4.4vw, 58px); line-height: 1.0; font-weight: 900; font-stretch: 110%; letter-spacing: -1.6px; max-width: 12em; color: #FFFFFF;">One design. Every shop gets its own version.</h2>
+<p style="margin: 0; font-size: 19px; line-height: 1.5; color: #C3C7DD; max-width: 25em;">Different cover photo, title, SKU and attributes in each shop. Write once, change only what you want.</p>
+</div>
+<div class="shops">
+<sc-for list="{{shopCards}}" as="s" hint-placeholder-count="3">
+<div style="border-radius: 24px; padding: 22px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); display: flex; flex-direction: column; gap: 16px;">
+<span style="display: flex; justify-content: space-between; align-items: center;"><span style="display: inline-flex; gap: 9px; align-items: center; font-size: 16px; font-weight: 800;"><span style="width: 10px; height: 10px; border-radius: 99px; background: {{s.dot}};"></span>{{s.shop}}</span><span style="font-size: 13px; color: #A4A9C4;">{{s.when}}</span></span>
+<div style="border-radius: 18px; background: linear-gradient(180deg, #2A2D48, #23263F); padding: 18px 36px 8px;">
+<svg viewBox="0 0 200 216" role="img" aria-label="{{s.label}}" style="width: 100%; height: auto; display: block;">
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="{{s.fill}}"></path>
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="url(#hSide)"></path>
+<path d="M70 18 C78 14 86 10 90 8 C96 18 104 18 110 8 C114 10 122 14 130 18 L176 40 C182 43 184 48 182 54 L168 88 C166 93 161 95 156 93 L146 88 L146 202 C146 207 142 210 137 210 L63 210 C58 210 54 207 54 202 L54 88 L44 93 C39 95 34 93 32 88 L18 54 C16 48 18 43 24 40 Z" fill="url(#hTop)"></path>
+<path d="M90 8 C96 20 104 20 110 8 C106 24 94 24 90 8 Z" fill="rgba(0,0,0,0.22)"></path>
+<circle cx="100" cy="104" r="24" fill="{{s.sun}}"></circle>
+<path d="M68 132 L88 106 L100 120 L114 98 L134 132 Z" fill="{{s.ink}}"></path>
+<text x="100" y="156" style="text-anchor: middle; font-family: Archivo, sans-serif; font-weight: 900; font-size: 14px; letter-spacing: 3px;" fill="{{s.ink}}">TRAIL CLUB</text>
+</svg>
+</div>
+<span style="font-size: 16px; font-weight: 700; line-height: 1.35;">{{s.title}}</span>
+<span style="display: flex; flex-wrap: wrap; gap: 8px;"><span style="font-size: 12px; font-weight: 800; background: rgba(255,255,255,0.10); border-radius: 7px; padding: 5px 9px;">SKU {{s.sku}}</span><span style="font-size: 12px; font-weight: 800; background: rgba(255,255,255,0.10); border-radius: 7px; padding: 5px 9px;">{{s.extra}}</span></span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+
+<section id="safe" style="padding: 120px 0;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 48px;">
+<div style="display: flex; flex-direction: column; gap: 16px; max-width: 760px;">
+<h2 style="margin: 0; font-size: clamp(36px, 4.4vw, 58px); line-height: 1.0; font-weight: 900; font-stretch: 110%; letter-spacing: -1.6px;">Your shop stays in your hands.</h2>
+<p style="margin: 0; font-size: 19px; line-height: 1.5; color: #4B4F6B;">Your shop is your income. Listyro is built to never surprise you.</p>
+</div>
+<div class="safe">
+<sc-for list="{{safety}}" as="s" hint-placeholder-count="6">
+<div style="border-radius: 24px; padding: 28px; background: #F5F6FA; display: flex; flex-direction: column; gap: 12px;">
+<span style="display: inline-flex; width: 48px; height: 48px; border-radius: 14px; background: {{s.bg}}; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="{{s.icon}}" stroke="#14162B" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<h3 style="margin: 0; font-size: 21px; font-weight: 850;">{{s.title}}</h3>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4B4F6B;">{{s.text}}</p>
+</div>
+</sc-for>
+</div>
+<span style="display: inline-flex; gap: 12px; align-items: center; font-size: 17px; font-weight: 650; color: #3B3F5C;"><span style="display: inline-flex; width: 36px; height: 36px; border-radius: 99px; background: #F1ECFF; align-items: center; justify-content: center;"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5 H20 V16 H9 L5 20 V16 H4 Z" stroke="#14162B" stroke-width="2" fill="none" stroke-linejoin="round"></path></svg></span>Stuck on something? Write to us. A person answers, not a bot.</span>
+</div>
+</section>
+
+<section style="background: {{accent}}; padding: 110px 0;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 26px; max-width: 1000px;">
+<svg width="56" height="42" viewBox="0 0 44 34" aria-hidden="true"><path d="M0 34 V20 Q0 4 16 0 V8 Q8 11 8 18 H16 V34 Z M26 34 V20 Q26 4 42 0 V8 Q34 11 34 18 H42 V34 Z" fill="#14162B"></path></svg>
+<p style="margin: 0; font-size: clamp(26px, 3.2vw, 40px); line-height: 1.22; font-weight: 850; font-stretch: 104%; letter-spacing: -0.6px;">Listyro turns hours of work into a few minutes. I go from mockups all the way to publishing without leaving one app. And the scheduler is a lifesaver: I was by the pool on vacation while my listings went live on their own.</p>
+<div style="display: flex; gap: 16px; align-items: center;">
+<span style="width: 58px; height: 58px; border-radius: 999px; background: #FFFFFF; border: 3px solid #14162B; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 900;">JD</span>
+<span style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 18px; font-weight: 850;">James D.</span><span style="font-size: 15px; color: #3B3F5C;">Runs 17 shops on Listyro</span></span>
+</div>
+<div class="two" style="margin-top: 22px;">
+<div style="border-radius: 24px; padding: 28px; background: rgba(255,255,255,0.72); display: flex; flex-direction: column; gap: 18px;">
+<p style="margin: 0; font-size: 19px; line-height: 1.5; font-weight: 650;">I was spending so many hours on Etsy for some extra income that my kids sometimes got less of me. Now I get it done in a fraction of the time. Thank you, Listyro.</p>
+<span style="display: flex; gap: 12px; align-items: center; margin-top: auto;"><span style="width: 44px; height: 44px; border-radius: 999px; background: #FFFFFF; border: 2px solid #14162B; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 900;">MC</span><span style="display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 16px; font-weight: 850;">Mary C.</span><span style="font-size: 14px; color: #3B3F5C;">Mom of two, Etsy seller</span></span></span>
+</div>
+<div style="border-radius: 24px; padding: 28px; background: rgba(255,255,255,0.72); display: flex; flex-direction: column; gap: 18px;">
+<p style="margin: 0; font-size: 19px; line-height: 1.5; font-weight: 650;">I&#39;ve put years of work into my Etsy shop. If I&#39;d had Listyro when I started, I&#39;d have gotten here much faster. It covers everything I need, and when I asked for a new feature, they added it fast.</p>
+<span style="display: flex; gap: 12px; align-items: center; margin-top: auto;"><span style="width: 44px; height: 44px; border-radius: 999px; background: #FFFFFF; border: 2px solid #14162B; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 900;">MR</span><span style="display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 16px; font-weight: 850;">Michael R.</span><span style="font-size: 14px; color: #3B3F5C;">Selling on Etsy for 12 years</span></span></span>
+</div>
+</div>
+</div>
+</section>
+
+<section id="pricing" style="padding: 120px 0;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 44px;">
+<div style="display: flex; flex-wrap: wrap; gap: 20px 56px; align-items: flex-end; justify-content: space-between;">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: clamp(36px, 4.4vw, 58px); line-height: 1.0; font-weight: 900; font-stretch: 110%; letter-spacing: -1.6px;">About 10 cents a listing.</h2>
+<p style="margin: 0; font-size: 19px; line-height: 1.5; color: #4B4F6B; max-width: 30em;">Less than the coffee you drink while writing one by hand. Cancel anytime.</p>
+</div>
+<span style="display: inline-flex; gap: 4px; padding: 5px; border-radius: 999px; background: #F1F2F7; font-size: 15px; font-weight: 800;"><span style="padding: 10px 18px; border-radius: 999px; background: #14162B; color: #FFFFFF;">Monthly</span><span style="padding: 10px 18px;">Yearly, 2 months free</span></span>
+</div>
+<div class="plans">
+<sc-for list="{{plans}}" as="p" hint-placeholder-count="5">
+<div style="border-radius: 24px; padding: 28px 22px; background: {{p.bg}}; color: {{p.fg}}; border: {{p.border}}; box-shadow: {{p.shadow}}; display: flex; flex-direction: column; gap: 14px;">
+<span style="font-size: 17px; font-weight: 850;">{{p.name}}</span>
+<span style="display: flex; align-items: baseline; gap: 4px;"><span style="font-size: 46px; font-weight: 900; font-stretch: 110%; letter-spacing: -1px;">{{p.price}}</span><span style="font-size: 15px; opacity: 0.72;">{{p.per}}</span></span>
+<span style="font-size: 13px; font-weight: 700; opacity: 0.72;">{{p.unit}}</span>
+<span style="display: flex; flex-direction: column; gap: 7px; font-size: 15px; font-weight: 650;"><span>{{p.listings}}</span><span>{{p.shops}}</span></span>
+<a href="#" style="margin-top: auto; text-decoration: none; text-align: center; font-size: 16px; font-weight: 850; padding: 14px 16px; border-radius: 999px; background: {{p.btnBg}}; color: {{p.btnFg}};">{{p.cta}}</a>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 15px; color: #6A6F8A;">Only AI-written listings count. Hand-written listings and sending to more shops are always free. Need more one month? Add 100 for $9.</span>
+</div>
+</section>
+
+<section style="padding: 20px 0 120px;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 48px;">
+<h2 style="margin: 0; font-size: clamp(32px, 3.6vw, 46px); line-height: 1.05; font-weight: 900; font-stretch: 110%; letter-spacing: -1.2px;">Questions sellers ask first</h2>
+<div class="faq">
+<sc-for list="{{faq}}" as="f" hint-placeholder-count="6">
+<div style="display: flex; flex-direction: column; gap: 10px; border-top: 2px solid #14162B; padding-top: 20px;">
+<h3 style="margin: 0; font-size: 21px; font-weight: 850; line-height: 1.25;">{{f.q}}</h3>
+<p style="margin: 0; font-size: 17px; line-height: 1.55; color: #4B4F6B;">{{f.a}}</p>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+
+<section style="padding: 0 0 110px;">
+<div class="wrap">
+<div style="border-radius: 36px; padding: clamp(40px, 6vw, 80px); background: #14162B; color: #FFFFFF; background-image: radial-gradient(600px 360px at 100% 0%, rgba(255,210,74,0.28), rgba(255,210,74,0) 70%), radial-gradient(500px 360px at 0% 100%, rgba(150,120,255,0.22), rgba(150,120,255,0) 70%); display: flex; flex-wrap: wrap; gap: 34px; align-items: center; justify-content: space-between;">
+<div style="display: flex; flex-direction: column; gap: 16px; max-width: 36em;">
+<h2 style="margin: 0; font-size: clamp(36px, 4.6vw, 62px); line-height: 0.98; font-weight: 900; font-stretch: 112%; letter-spacing: -1.8px; color: #FFFFFF;">Your next 100 listings are one upload away.</h2>
+<span style="font-size: 18px; line-height: 1.5; color: #C3C7DD;">Connect your shop and get 10 listings free. If it doesn&#39;t save you time, walk away. No card, nothing to cancel.</span>
+</div>
+<a href="#" style="text-decoration: none; font-size: 20px; font-weight: 900; padding: 22px 36px; border-radius: 999px; background: {{accent}}; color: #14162B; box-shadow: 0 14px 40px rgba(255,200,60,0.35);">Start free</a>
+</div>
+</div>
+</section>
+
+<footer style="border-top: 1px solid #EEF0F5; padding: 48px 0 60px;">
+<div class="wrap" style="display: flex; flex-direction: column; gap: 26px;">
+<div style="display: flex; flex-wrap: wrap; gap: 20px 56px; justify-content: space-between; align-items: center;">
+<span style="display: inline-flex; gap: 10px; align-items: center;"><svg width="32" height="32" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(12 40 26)"><path d="M28 4 H42 L54 16 V40 Q54 46 48 46 H28 Q22 46 22 40 V10 Q22 4 28 4 Z" fill="{{accent}}"></path></g><g transform="rotate(-8 30 36)"><path d="M18 16 H32 L44 28 V52 Q44 58 38 58 H18 Q12 58 12 52 V22 Q12 16 18 16 Z" fill="#14162B"></path><circle cx="33" cy="27.5" r="3.8" fill="#FFFFFF"></circle></g></svg><span style="font-size: 24px; font-weight: 900; font-stretch: 108%; letter-spacing: -1.1px;">listyro</span></span>
+<nav aria-label="Footer" style="display: flex; flex-wrap: wrap; gap: 12px 26px; font-size: 15px;">
+<a href="#" style="text-decoration: none;">Features</a>
+<a href="#" style="text-decoration: none;">Pricing</a>
+<a href="#" style="text-decoration: none;">Free tools</a>
+<a href="#" style="text-decoration: none;">Guides</a>
+<a href="#" style="text-decoration: none;">Compare</a>
+<a href="#" style="text-decoration: none;">Help</a>
+<a href="#" style="text-decoration: none;">Contact</a>
+<a href="#" style="text-decoration: none;">Terms</a>
+<a href="#" style="text-decoration: none;">Privacy</a>
+</nav>
+</div>
+<p style="margin: 0; font-size: 13px; line-height: 1.5; color: #6A6F8A;">The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.</p>
+</div>
+</footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#FFD24A","options":["#FFD24A","#FF8A65","#7FD6B6","#B7A6FF"]},"$preview":{"width":1440,"height":6800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#FFD24A';
+    const tees = [
+      { fill: '#F2EEE3', ink: '#2F2E2C', word: 'TRAIL', sub: 'CLUB 1987', size: 30 },
+      { fill: '#E8707E', ink: '#FFF4E8', word: 'MAMA', sub: 'EST. 2019', size: 32 },
+      { fill: '#3F5A7A', ink: '#F2D27A', word: 'RETRO', sub: 'SUNSET', size: 28 },
+      { fill: '#F2D27A', ink: '#2F2E2C', word: 'SUNNY', sub: 'DAYS AHEAD', size: 28 },
+      { fill: '#2F2E2C', ink: '#F2D27A', word: 'BOOK', sub: 'CLUB', size: 32 },
+      { fill: '#A8D5C2', ink: '#2F2E2C', word: 'PLANT', sub: 'LADY', size: 28 },
+      { fill: '#9E2B2F', ink: '#F2EEE3', word: 'GAME', sub: 'DAY', size: 32 },
+      { fill: '#5B6B4E', ink: '#F2EEE3', word: 'CAMP', sub: 'VIBES', size: 32 }
+    ].map((t) => ({ ...t, label: 'Shirt mockup: ' + t.word + ' ' + t.sub }));
+    return {
+      accent,
+      tees,
+      reassure: ['No card needed', 'Cancel anytime', 'Nothing goes live without you'],
+      strip: ['Uses Etsy’s official sign-in', 'Drafts first, you approve', 'Your real shirt photos', 'Your designs never train AI'],
+      shopsMini: [
+        { name: 'Pine & Print', when: 'Tue 9:00', dot: '#7393B3' },
+        { name: 'Ink Lane Co.', when: 'Tue 11:30', dot: '#E8707E' },
+        { name: 'Tee Street', when: 'Wed 9:00', dot: '#1F8A4C' }
+      ],
+      tags: ['hiking shirt', 'camping tee', 'mountain shirt', 'retro sunset', 'outdoor gift', 'nature lover', 'adventure tee', 'gift for him', 'hiker gift', 'travel shirt', 'vintage tee', 'national park', 'summer camp'],
+      byHand: ['Open the mockup file for every color', 'Export and rename every photo', 'Write a title under 140 characters', 'Think up 13 tags, 20 characters each', 'Fill in attributes, SKU and shipping', 'Do it all again for your next shop'],
+      withUs: ['Upload your designs once', 'Check and approve', 'Pick when each shop goes live'],
+      files: [
+        { n: 'sunset-mountain.png', c: '#F2D27A' },
+        { n: 'mama-est-2019.png', c: '#E8707E' },
+        { n: 'coffee-then-chaos.png', c: '#7393B3' },
+        { n: '+ 47 more designs', c: '#D9DCE5' }
+      ],
+      teesSmall: [
+        { fill: '#F2EEE3', sun: '#E8707E', ink: '#2F2E2C' },
+        { fill: '#7393B3', sun: '#F2D27A', ink: '#FFF4E8' },
+        { fill: '#2F2E2C', sun: '#F2D27A', ink: '#F2EEE3' },
+        { fill: '#E8707E', sun: '#F2D27A', ink: '#FFF4E8' },
+        { fill: '#A8D5C2', sun: '#E8707E', ink: '#2F2E2C' },
+        { fill: '#5B6B4E', sun: '#F2D27A', ink: '#F2EEE3' }
+      ].map((t) => ({ ...t, label: 'The same design on another shirt color' })),
+      tagsShort: ['hiking shirt', 'camping tee', 'retro sunset', 'outdoor gift', 'nature lover', 'gift for him', '+7'],
+      days: [
+        { n: 'M', a: '#7393B3', b: '#FFFFFF', c: '#FFFFFF' },
+        { n: 'T', a: '#7393B3', b: '#E8707E', c: '#FFFFFF' },
+        { n: 'W', a: '#FFFFFF', b: '#E8707E', c: '#1F8A4C' },
+        { n: 'T', a: '#7393B3', b: '#FFFFFF', c: '#1F8A4C' },
+        { n: 'F', a: '#7393B3', b: '#E8707E', c: '#1F8A4C' },
+        { n: 'S', a: '#FFFFFF', b: '#E8707E', c: '#FFFFFF' },
+        { n: 'S', a: '#FFFFFF', b: '#FFFFFF', c: '#1F8A4C' }
+      ],
+      steps: [
+        { n: '1', title: 'Drop in your designs', text: 'One file or a folder of fifty.', bg: '#EEF3FB', fill: '#FFFFFF', sun: '#E8707E', ink: '#2F2E2C', printOpacity: 0.25, alt: 'A blank shirt waiting for a design' },
+        { n: '2', title: 'Mockups, every color', text: 'Placed on your own shirt photos, folds and all.', bg: '#FFF3D1', fill: '#7393B3', sun: '#F2D27A', ink: '#FFF4E8', printOpacity: 1, alt: 'The design placed on a blue shirt' },
+        { n: '3', title: 'Title and 13 tags', text: 'AI reads the design and writes in your style.', bg: '#EAF6F0', fill: '#F2EEE3', sun: '#E8707E', ink: '#2F2E2C', printOpacity: 1, alt: 'The design on an ivory shirt' },
+        { n: '4', title: 'Every shop, on time', text: 'Spread out at the hours you pick.', bg: '#FBEDEF', fill: '#2F2E2C', sun: '#F2D27A', ink: '#F2EEE3', printOpacity: 1, alt: 'The design on a black shirt' }
+      ],
+      shopCards: [
+        { shop: 'Pine & Print', when: 'Tue 9:00', dot: '#7CC4FF', fill: '#F2EEE3', sun: '#E8707E', ink: '#2F2E2C', title: 'Retro Sunset Mountain Shirt, Garment Dyed Hiking Tee', sku: 'PCS-417', extra: 'Cover: ivory', label: 'Ivory shirt as the cover in Pine & Print' },
+        { shop: 'Ink Lane Co.', when: 'Tue 11:30', dot: '#FF8FA3', fill: '#7393B3', sun: '#F2D27A', ink: '#FFF4E8', title: 'Mountain Sunset Tee, Camping Shirt for Hikers', sku: 'ILC-417', extra: 'Cover: blue jean', label: 'Blue shirt as the cover in Ink Lane Co.' },
+        { shop: 'Tee Street', when: 'Wed 9:00', dot: '#4ADE80', fill: '#5B6B4E', sun: '#F2D27A', ink: '#F2EEE3', title: 'Vintage Hiking T-Shirt, Retro Outdoor Gift', sku: 'TSC-417', extra: 'Holiday: Father’s Day', label: 'Moss shirt as the cover in Tee Street' }
+      ],
+      safety: [
+        { title: 'Drafts first', text: 'Every listing arrives as a draft. You see it before anyone else does.', bg: '#FFF3D1', icon: 'M5 4 H15 L19 8 V20 H5 Z M15 4 V8 H19 M8 13 H16 M8 16 H13' },
+        { title: 'You approve, then it goes', text: 'Nothing publishes until you approve it or set the time yourself.', bg: '#EAF6F0', icon: 'M4 12.5 L9.5 18 L20 6' },
+        { title: 'Brand name warnings', text: 'Names Etsy often removes are flagged before you send.', bg: '#FBEDEF', icon: 'M12 3 L21 19 H3 Z M12 9 V13 M12 16 V16.2' },
+        { title: 'Your real photos', text: 'Mockups use your own garment photos. Your design is never redrawn.', bg: '#EEF3FB', icon: 'M3 7 H7 L9 4 H15 L17 7 H21 V19 H3 Z M12 10 A3.5 3.5 0 1 0 12 17 A3.5 3.5 0 1 0 12 10' },
+        { title: 'Your designs stay yours', text: 'They are never used to train AI models.', bg: '#F1ECFF', icon: 'M6 11 V8 A6 6 0 0 1 18 8 V11 M5 11 H19 V21 H5 Z' },
+        { title: 'Leave anytime', text: 'Disconnect a shop and its access is gone at once.', bg: '#F5F6FA', icon: 'M9 7 L4 12 L9 17 M4 12 H15 M15 4 H20 V20 H15' }
+      ],
+      plans: [
+        { name: 'Starter', price: '$19', per: '/mo', unit: '12.7¢ a listing', listings: '150 AI listings', shops: '1 shop', cta: 'Start free', bg: '#FFFFFF', fg: '#14162B', border: '1px solid #E3E6EE', shadow: 'none', btnBg: '#F1F2F7', btnFg: '#14162B' },
+        { name: 'Growth', price: '$29', per: '/mo', unit: '9.7¢ a listing', listings: '300 AI listings', shops: '3 shops', cta: 'Start free', bg: '#14162B', fg: '#FFFFFF', border: '1px solid #14162B', shadow: '0 30px 60px rgba(20,22,43,0.25)', btnBg: accent, btnFg: '#14162B' },
+        { name: 'Pro', price: '$49', per: '/mo', unit: '8.2¢ a listing', listings: '600 AI listings', shops: '5 shops', cta: 'Start free', bg: '#FFFFFF', fg: '#14162B', border: '1px solid #E3E6EE', shadow: 'none', btnBg: '#F1F2F7', btnFg: '#14162B' },
+        { name: 'Business', price: '$69', per: '/mo', unit: '6.9¢ a listing', listings: '1,000 AI listings', shops: '10 shops', cta: 'Start free', bg: '#FFFFFF', fg: '#14162B', border: '1px solid #E3E6EE', shadow: 'none', btnBg: '#F1F2F7', btnFg: '#14162B' },
+        { name: 'Special', price: 'Custom', per: '', unit: 'For big catalogs', listings: '1,000+ listings', shops: 'Unlimited shops', cta: 'Talk to us', bg: '#F5F6FA', fg: '#14162B', border: '1px solid #E6E8EF', shadow: 'none', btnBg: '#FFFFFF', btnFg: '#14162B' }
+      ],
+      faq: [
+        { q: 'Is it safe for my shop?', a: 'Listyro connects through Etsy’s official sign-in and API. Listings arrive as drafts, and nothing goes live until you approve it or schedule it.' },
+        { q: 'Will the titles sound like a robot?', a: 'The AI reads each design and follows a style you copy from your own best listing. You can change every word before it goes out.' },
+        { q: 'Do I need Photoshop for mockups?', a: 'No. Upload a photo of a blank shirt once. Listyro places every design on it, keeping the folds and shading.' },
+        { q: 'I run more than one shop.', a: 'That is what Listyro is built for. Each shop gets its own photos, SKU, text and attributes, from one upload.' },
+        { q: 'What counts as a listing?', a: 'Each listing the AI writes. Hand-written listings and sending a listing to another shop are free.' },
+        { q: 'Can I cancel?', a: 'Anytime, from your account. No contract, no questions.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

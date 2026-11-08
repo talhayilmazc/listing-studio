@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { TRADEMARK_NOTICE } from "@/lib/legal";
+import { Logo } from "@/components/Logo";
 
 /**
  * Frame for the signed-out screens. No rail: there is nothing to navigate to
@@ -31,11 +32,8 @@ export function AuthShell({
     // window had to spare, and the frame's own padding, was left below it.)
     <div className="flex min-h-screen flex-col bg-stone-50 px-6 pt-10">
       <div className="mx-auto flex w-full max-w-[26rem] flex-1 flex-col justify-center">
-        <div className="mb-7 flex items-center justify-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            L
-          </span>
-          <span className="font-display text-3xl leading-none text-slate-900">Listyro</span>
+        <div className="mb-7 flex items-center justify-center">
+          <Logo size={34} />
         </div>
 
         <div className="card p-7">

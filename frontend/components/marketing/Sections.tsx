@@ -1,208 +1,340 @@
+import { Check, Photo, Spark } from "@/components/marketing/HeroDemo";
+import { PlanCards } from "@/components/marketing/PlanCards";
 import { HOME } from "@/lib/homeCopy";
-import { SCREENS, type Screen } from "@/lib/marketing/screens";
-import { TESTIMONIALS } from "@/lib/marketing/testimonials";
-import { DEMO_VIDEO } from "@/lib/marketing/video";
-import { PLANNED_NOTICE, PLANS, listingsFact, priceFact, shopsFact } from "@/lib/plans";
-import { Shot } from "./Page";
+import { initials } from "@/lib/marketing/testimonials";
 
 /**
- * The home page's sections. Static server markup: no script, no session.
- * Every word comes from lib/homeCopy.ts, where the page's rules are checked.
+ * The home page below the hero, section by section as the reference draws them
+ * (docs/design/home-reference.dc.html): the proof strip, the grind, four steps, every shop's own version,
+ * safety, what sellers say, pricing, questions and the closing call. The reference's values are the lx-
+ * classes in app/globals.css (written once, not on every element); colours that differ per item stay on the
+ * element. Every word comes from lib/homeCopy.ts; prices and the cost of a listing from lib/plans.ts, the
+ * customers' words from lib/marketing/testimonials.ts.
  */
 
-export function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">{children}</p>;
-}
-
-export function SectionTitle({ children, id }: { children: React.ReactNode; id?: string }) {
+/** A step's number and title: the number in muted text (4.9:1; the reference's faint grey is 2.6:1). */
+function StepTitle({ n, title }: { n: string; title: string }) {
   return (
-    <h2 id={id} className="mt-3 font-display text-[clamp(2rem,4.2vw,3.1rem)] leading-[1.06] text-slate-900">
-      {children}
-    </h2>
-  );
-}
-
-const WRAP = "mx-auto w-full max-w-[1240px] px-4 sm:px-6";
-const TEXT_LINK = "tap font-medium text-brand-700 underline decoration-brand-100 underline-offset-4";
-
-/* ---------- The demo video's place ---------- */
-
-export function VideoSlot() {
-  const v = HOME.video;
-  if (DEMO_VIDEO) {
-    return <video src={DEMO_VIDEO} controls preload="none" poster={SCREENS.review.src} title={v.title} className="h-auto w-full rounded-2xl border border-slate-200" data-testid="demo-video" />;
-  }
-  return (
-    <div data-testid="demo-video-slot">
-      <Shot screen={SCREENS.mockups} priority sizes="(min-width: 1024px) 620px, 100vw" />
-      <p className="mt-3 text-sm leading-relaxed text-slate-600">{v.label}</p>
+    <div className="lx-step-title">
+      <span className="lx-step-n">{n}</span>
+      <h3 className="lx-h3">{title}</h3>
     </div>
   );
 }
 
-/* ---------- How it works ---------- */
+export function Strip() {
+  return (
+    <section className="lx-strip" aria-label="What you can count on">
+      <div className="lx-wrap lx-strip-in">
+        {HOME.strip.map((item) => (
+          <span key={item}>
+            <span className="lx-strip-box">
+              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2.6 7.2 L5.6 10 L11.4 4" stroke="#14162B" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </span>
+            <span>{item}</span>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-const STEP_SCREENS: Screen[] = [SCREENS.upload, SCREENS.write, SCREENS.review, SCREENS.schedule];
+export function Grind() {
+  const g = HOME.grind;
+  return (
+    <section className="lx-sec-grind" aria-labelledby="grind-title">
+      <div className="lx-wrap lx-stack-52">
+        <div className="lx-head-16">
+          <h2 id="grind-title" className="lx-h2">{g.heading}</h2>
+          <p className="lx-lead">{g.sub}</p>
+        </div>
+        <div className="lx-two">
+          <div className="lx-byhand">
+            <span className="lx-byhand-label">{g.byHandLabel}</span>
+            {g.byHand.map((item) => (
+              <span key={item} className="lx-byhand-item">
+                <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9" fill="none" stroke="#B9BDCE" strokeWidth="2" /><path d="M11 6 V11 L14.5 13" stroke="#B9BDCE" strokeWidth="2" fill="none" strokeLinecap="round" /></svg>
+                <span className="lx-struck">{item}</span>
+              </span>
+            ))}
+          </div>
+          <div className="lx-withus lx-dark">
+            <span className="lx-withus-label">{g.withLabel}</span>
+            {g.withUs.map((item) => (
+              <span key={item} className="lx-withus-item">
+                <span className="lx-tick">
+                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8.4 L6.6 11.4 L12.8 4.8" stroke="#14162B" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </span>
+                <span>{item}</span>
+              </span>
+            ))}
+            <span className="lx-withus-note">{g.note}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function How() {
   const h = HOME.how;
+  const [s1, s2, s3, s4] = h.steps;
   return (
-    <section id={h.id} aria-labelledby="how-title" className="scroll-mt-20 border-t border-slate-200 bg-white">
-      <div className={WRAP + " py-16 lg:py-24"}>
-        <div className="max-w-[44rem]">
-          <Eyebrow>{h.eyebrow}</Eyebrow>
-          <SectionTitle id="how-title">{h.heading}</SectionTitle>
-          <p className="mt-4 text-[1.0625rem] leading-relaxed text-slate-700">{h.before}</p>
-        </div>
-        <ol className="mt-10 grid grid-cols-1 gap-x-8 gap-y-10 md:grid-cols-2 lg:mt-14">
-          {h.steps.map((step, i) => (
-            <li key={step.title} className="min-w-0" data-testid="how-step">
-              <Shot screen={STEP_SCREENS[i]} sizes="(min-width: 768px) 46vw, 100vw" />
-              <h3 className="mt-4 text-[1.1875rem] font-medium text-slate-900">
-                <span aria-hidden className="mr-2 font-display text-2xl text-brand-600">{i + 1}</span>
-                <span>{step.title}</span>
-              </h3>
-              <p className="mt-1.5 text-[0.9375rem] leading-relaxed text-slate-700">{step.body}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-  );
-}
+    <section id={h.id} className="lx-sec-how" aria-labelledby="how-title">
+      <div className="lx-wrap lx-stack-48">
+        <h2 id="how-title" className="lx-h2" style={{ maxWidth: "14em" }}>{h.heading}</h2>
+        <div className="lx-steps">
+          <div className="lx-step">
+            <div className="lx-step-art lx-art-files">
+              {h.files.map((f) => (
+                <span key={f.n} className="lx-file">
+                  <span className="lx-file-dot" style={{ background: f.c }} />
+                  <span>{f.n}</span>
+                </span>
+              ))}
+            </div>
+            <StepTitle n={s1.n} title={s1.title} />
+            <p className="lx-step-text">{s1.text}</p>
+          </div>
 
-/* ---------- What sets it apart ---------- */
+          <div className="lx-step">
+            <div className="lx-step-art lx-art-colours" data-testid="step-colours">
+              {h.colours.map((c) => (
+                <div key={c.alt} className="lx-colour">
+                  <Photo shot={c.shot} alt={c.alt} />
+                </div>
+              ))}
+            </div>
+            <StepTitle n={s2.n} title={s2.title} />
+            <p className="lx-step-text">{s2.text}</p>
+          </div>
 
-export function Apart() {
-  const a = HOME.apart;
-  return (
-    <section id={a.id} aria-labelledby="apart-title" className="scroll-mt-20 border-t border-slate-200">
-      <div className={WRAP + " py-16 lg:py-24"}>
-        <div className="max-w-[44rem]">
-          <Eyebrow>{a.eyebrow}</Eyebrow>
-          <SectionTitle id="apart-title">{a.heading}</SectionTitle>
-        </div>
-        <ul className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-          {a.items.map((item) => (
-            <li key={item.title} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-6" data-testid="differentiator">
-              <h3 className="text-[1.1875rem] font-medium text-slate-900">{item.title}</h3>
-              <p className="mt-2 text-[0.9375rem] leading-relaxed text-slate-700">{item.body}</p>
-              <p className="mt-3 text-[0.9375rem]"><a href={item.link.href} className={TEXT_LINK}>{item.link.label}</a></p>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-8"><a href={a.more.href} className="btn-secondary px-5 py-3 text-[0.9375rem]">{a.more.label}</a></p>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- Who it is for ---------- */
-
-export function Who() {
-  const w = HOME.who;
-  return (
-    <section id={w.id} aria-labelledby="who-title" className="scroll-mt-20 border-t border-slate-200 bg-white">
-      <div className={WRAP + " grid grid-cols-1 gap-10 py-16 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-20 lg:py-24"}>
-        <div className="min-w-0">
-          <Eyebrow>{w.eyebrow}</Eyebrow>
-          <SectionTitle id="who-title">{w.heading}</SectionTitle>
-        </div>
-        <div className="min-w-0">
-          <dl className="space-y-6">
-            {w.items.map((item) => (
-              <div key={item.title} className="border-t border-slate-200 pt-4">
-                <dt className="text-[1.0625rem] font-medium text-slate-900">{item.title}</dt>
-                <dd className="mt-1 text-[0.9375rem] leading-relaxed text-slate-700">{item.body}</dd>
+          <div className="lx-step">
+            <div className="lx-step-art lx-art-written">
+              {/* go-ink, 5.3:1 on its tint; the reference's go green there is 3.9:1 */}
+              <span className="lx-written">
+                <Spark size={14} colour="#1F8A4C" />
+                <span>{h.written}</span>
+              </span>
+              <span className="lx-written-title">{h.writtenTitle}</span>
+              <div className="lx-chips-5">
+                {h.tagsShort.map((tag) => (
+                  <span key={tag} className="lx-chip-white">{tag}</span>
+                ))}
               </div>
-            ))}
-          </dl>
-          <p className="mt-6 text-[0.9375rem] leading-relaxed text-slate-700">
-            <span>{`${w.notFor} `}</span>
-            <a href={w.compare.href} className={TEXT_LINK}>{w.compare.label}</a>
-            <span>.</span>
-          </p>
+            </div>
+            <StepTitle n={s3.n} title={s3.title} />
+            <p className="lx-step-text">{s3.text}</p>
+          </div>
+
+          <div className="lx-step">
+            <div className="lx-step-art lx-art-days">
+              <div className="lx-days">
+                {h.days.map((d, i) => (
+                  <span key={i} className="lx-day">
+                    <span className="lx-day-n">{d.n}</span>
+                    <span className="lx-day-bar" style={{ background: d.a }} />
+                    <span className="lx-day-bar" style={{ background: d.b }} />
+                    <span className="lx-day-bar" style={{ background: d.c }} />
+                  </span>
+                ))}
+              </div>
+              <span className="lx-legend">
+                {h.legend.map((l) => (
+                  <span key={l.name}>
+                    <span className="lx-dot8" style={{ background: l.dot }} />
+                    <span>{l.name}</span>
+                  </span>
+                ))}
+              </span>
+            </div>
+            <StepTitle n={s4.n} title={s4.title} />
+            <p className="lx-step-text">{s4.text}</p>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-/* ---------- What sellers say: shown only when lib/marketing/testimonials.ts has any ---------- */
-
-export function Testimonials() {
-  if (TESTIMONIALS.length === 0) return null;
+export function ShopVersions() {
+  const s = HOME.shops;
   return (
-    <section className="border-t border-slate-200" data-testid="testimonials" aria-label="What sellers say">
-      <ul className={WRAP + " grid grid-cols-1 gap-6 py-16 md:grid-cols-2"}>
-        {TESTIMONIALS.map((t) => (
-          <li key={t.name}>
-            <blockquote className="text-[1.0625rem] leading-relaxed text-slate-800">{t.quote}</blockquote>
-            <p className="mt-2 text-sm text-slate-600">{t.shop ? `${t.name}, ${t.shop}` : t.name}</p>
-          </li>
-        ))}
-      </ul>
+    <section className="lx-sec-dark lx-dark" aria-labelledby="shops-title">
+      <div className="lx-wrap lx-stack-52">
+        <div className="lx-split">
+          <h2 id="shops-title" className="lx-h2" style={{ maxWidth: "12em", color: "#FFFFFF" }}>{s.heading}</h2>
+          <p className="lx-shops-sub">{s.sub}</p>
+        </div>
+        <div className="lx-shops" data-testid="shop-cards">
+          {s.cards.map((c) => (
+            <div key={c.shop} className="lx-shop-card">
+              <span className="lx-shop-card-head">
+                <span className="lx-shop-card-name">
+                  <span className="lx-dot10" style={{ background: c.dot }} />
+                  <span>{c.shop}</span>
+                </span>
+                <span className="lx-faint">{c.when}</span>
+              </span>
+              <div className="lx-cover">
+                <ShopPhoto shot={c.shot} alt={c.alt} />
+              </div>
+              <span className="lx-card-title">{c.title}</span>
+              <span className="lx-pills">
+                <span className="lx-pill-dark" translate="no">{`SKU ${c.sku}`}</span>
+                <span className="lx-pill-dark">{c.extra}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
 
-/* ---------- Pricing: the figures are lib/plans.ts's ---------- */
+/** A shop card's cover. In one column (below 1000 px) a card is as wide as the page, so the picture also
+ *  comes 1200 px wide; the browser picks by the width it will show. */
+function ShopPhoto({ shot, alt }: { shot: (typeof HOME.shops.cards)[number]["shot"]; alt: string }) {
+  const sizes = "(max-width: 1000px) calc(100vw - 108px), 330px";
+  return (
+    <picture>
+      <source type="image/avif" srcSet={`${shot.avif} 300w, ${shot.avif2x} 600w, ${shot.avif4x} 1200w`} sizes={sizes} />
+      <source type="image/webp" srcSet={`${shot.webp} 300w, ${shot.webp2x} 600w, ${shot.webp4x} 1200w`} sizes={sizes} />
+      <img src={shot.webp2x} width={shot.width} height={shot.height} alt={alt} loading="lazy" decoding="async" className="lx-img" />
+    </picture>
+  );
+}
 
-export function PricingTeaser() {
+export function Safe() {
+  const s = HOME.safe;
+  return (
+    <section id={s.id} className="lx-sec-120" aria-labelledby="safe-title">
+      <div className="lx-wrap lx-stack-48">
+        <div className="lx-head-16">
+          <h2 id="safe-title" className="lx-h2">{s.heading}</h2>
+          <p className="lx-lead">{s.sub}</p>
+        </div>
+        <div className="lx-safe">
+          {s.items.map((item) => (
+            <div key={item.title} className="lx-safe-card">
+              <span className="lx-safe-icon" style={{ background: item.bg }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d={item.icon} stroke="#14162B" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </span>
+              <h3 className="lx-h3-21">{item.title}</h3>
+              <p className="lx-card-text">{item.text}</p>
+            </div>
+          ))}
+        </div>
+        <span className="lx-person">
+          <span className="lx-person-dot">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5 H20 V16 H9 L5 20 V16 H4 Z" stroke="#14162B" strokeWidth="2" fill="none" strokeLinejoin="round" /></svg>
+          </span>
+          <span>
+            <span>{s.contact.before}</span>
+            <a href={s.contact.href} className="mk-link">{s.contact.link}</a>
+            <span>{s.contact.after}</span>
+          </span>
+        </span>
+      </div>
+    </section>
+  );
+}
+
+/** Avatar initials: white, ringed in ink. */
+function Initials({ name, size }: { name: string; size: 58 | 44 }) {
+  return <span className={"lx-avatar " + (size === 58 ? "lx-avatar-lg" : "lx-avatar-sm")} aria-hidden="true">{initials(name)}</span>;
+}
+
+/** The yellow section: the customers' own words, from config; our promise when there are none. */
+export function Voices() {
+  const { testimonials, promise, label } = HOME.voices;
+  const [first, ...rest] = testimonials;
+  return (
+    <section className="lx-sec-yellow" aria-label={first ? label : promise.label} data-testid="voices">
+      <div className="lx-wrap lx-voices">
+        <svg width="56" height="42" viewBox="0 0 44 34" aria-hidden="true"><path d="M0 34 V20 Q0 4 16 0 V8 Q8 11 8 18 H16 V34 Z M26 34 V20 Q26 4 42 0 V8 Q34 11 34 18 H42 V34 Z" fill="#14162B" /></svg>
+        {first ? (
+          <figure key="quotes" className="lx-figure" data-testid="testimonials">
+            <blockquote className="lx-blockquote">
+              <p className="lx-quote-big" data-testid="testimonial">{first.quote}</p>
+            </blockquote>
+            <figcaption className="lx-who">
+              <Initials name={first.name} size={58} />
+              <span className="lx-who-lines">
+                <span className="lx-who-name-lg">{first.name}</span>
+                <span className="lx-who-about-lg">{first.about}</span>
+              </span>
+            </figcaption>
+            {rest.length ? (
+              <div key="more" className="lx-two lx-more">
+                {rest.map((t) => (
+                  <figure key={t.name} className="lx-quote-card">
+                    <blockquote className="lx-blockquote">
+                      <p className="lx-quote" data-testid="testimonial">{t.quote}</p>
+                    </blockquote>
+                    <figcaption className="lx-who-sm">
+                      <Initials name={t.name} size={44} />
+                      <span className="lx-who-lines">
+                        <span className="lx-who-name">{t.name}</span>
+                        <span className="lx-who-about">{t.about}</span>
+                      </span>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            ) : null}
+          </figure>
+        ) : (
+          <div key="promise" className="lx-promise" data-testid="promise">
+            <span className="lx-promise-label">{promise.label}</span>
+            <p className="lx-quote-big">{promise.line}</p>
+            <span className="lx-promise-badges">
+              {promise.badges.map((badge) => (
+                <span key={badge} className="lx-promise-badge">
+                  <Check size={12} colour="#14162B" />
+                  <span>{badge}</span>
+                </span>
+              ))}
+            </span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function Pricing() {
   const p = HOME.pricing;
   return (
-    <section id={p.id} aria-labelledby="pricing-title" className="scroll-mt-20 border-t border-slate-200">
-      <div className={WRAP + " py-16 lg:py-24"}>
-        <div className="max-w-[44rem]">
-          <Eyebrow>{p.eyebrow}</Eyebrow>
-          <SectionTitle id="pricing-title">{p.heading}</SectionTitle>
-          <p className="mt-4 text-[1.0625rem] leading-relaxed text-slate-700" data-testid="home-planned-notice">{PLANNED_NOTICE}</p>
-        </div>
-        <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-plans">
-          {PLANS.map((plan) => (
-            <li key={plan.name} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-[1.0625rem] font-medium text-slate-900">{plan.name}</p>
-              <p className="mt-1 font-display text-4xl leading-none text-slate-900" translate="no">{priceFact(plan)}</p>
-              <p className="mt-3 text-sm leading-relaxed text-slate-700">
-                <span className="block">{listingsFact(plan)}</span>
-                <span className="block">{shopsFact(plan)}</span>
-              </p>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-6"><a href={p.link.href} className={TEXT_LINK}>{p.link.label}</a></p>
+    <section id={p.id} className="lx-sec-120" aria-labelledby="pricing-title">
+      <div className="lx-wrap lx-stack-44">
+        <PlanCards>
+          <div className="lx-head-14">
+            <h2 id="pricing-title" className="lx-h2">{p.heading}</h2>
+            <p className="lx-lead lx-price-sub">{p.sub}</p>
+          </div>
+        </PlanCards>
+        <span className="lx-price-note">
+          <span>{p.note}</span>
+          <span className="lx-price-notice" data-testid="planned-notice">{p.notice}</span>
+        </span>
       </div>
     </section>
   );
 }
-
-/* ---------- Questions ---------- */
 
 export function Faq() {
   const f = HOME.faq;
   return (
-    <section id={f.id} aria-labelledby="faq-title" className="scroll-mt-20 border-t border-slate-200 bg-white">
-      <div className={WRAP + " grid grid-cols-1 gap-10 py-16 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-20 lg:py-24"}>
-        <div className="min-w-0">
-          <Eyebrow>{f.eyebrow}</Eyebrow>
-          <SectionTitle id="faq-title">{f.heading}</SectionTitle>
-          <p className="mt-5 text-[1.0625rem] leading-relaxed text-slate-700">
-            <span>{`${f.contactLead} `}</span>
-            <a href={f.contact.href} className={TEXT_LINK}>{f.contact.label}</a>
-            <span>.</span>
-          </p>
-        </div>
-        <div className="min-w-0 divide-y divide-slate-200 border-y border-slate-200">
+    <section className="lx-sec-faq" aria-labelledby="faq-title">
+      <div className="lx-wrap lx-stack-48">
+        <h2 id="faq-title" className="lx-h2-faq">{f.heading}</h2>
+        <div className="lx-faq">
           {f.items.map((item) => (
-            <details key={item.q} className="group">
-              <summary className="flex min-h-[2.75rem] cursor-pointer list-none items-center justify-between gap-6 py-5 text-[1.0625rem] font-medium text-slate-900 [&::-webkit-details-marker]:hidden">
-                <span>{item.q}</span>
-                <span aria-hidden className="text-xl leading-none text-slate-600 transition-transform duration-300 group-open:rotate-45">+</span>
-              </summary>
-              <div className="pb-6 pr-10 text-[0.9375rem] leading-relaxed text-slate-700">
-                <span>{item.a}</span>
-              </div>
-            </details>
+            <div key={item.q} className="lx-faq-item">
+              <h3 className="lx-faq-q">{item.q}</h3>
+              <p className="lx-faq-a">{item.a}</p>
+            </div>
           ))}
         </div>
       </div>
@@ -210,21 +342,17 @@ export function Faq() {
   );
 }
 
-/* ---------- Final call to action ---------- */
-
 export function Closing() {
   const c = HOME.closing;
   return (
-    <section aria-labelledby="closing-title" className="border-t border-slate-200">
-      <div className={WRAP + " py-16 text-center lg:py-24"}>
-        <h2 id="closing-title" className="mx-auto max-w-[40rem] font-display text-[clamp(2.2rem,4.8vw,3.6rem)] leading-[1.03] text-slate-900">
-          <span>{`${c.heading} `}</span>
-          <em className="text-brand-600">{c.headingAccent}</em>
-        </h2>
-        <p className="mx-auto mt-5 max-w-[34rem] text-[1.0625rem] leading-relaxed text-slate-700">{c.body}</p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <a href={c.primary.href} className="btn-primary px-5 py-3 text-[0.9375rem]" data-testid="closing-cta">{c.primary.label}</a>
-          <a href={c.secondary.href} className="btn-secondary px-5 py-3 text-[0.9375rem]">{c.secondary.label}</a>
+    <section className="lx-sec-closing" aria-labelledby="closing-title">
+      <div className="lx-wrap">
+        <div className="lx-closing lx-dark">
+          <div className="lx-closing-text">
+            <h2 id="closing-title" className="lx-closing-h">{c.heading}</h2>
+            <span className="lx-closing-body">{c.body}</span>
+          </div>
+          <a href={c.primary.href} className="lx-btn lx-btn-tag lx-closing-cta" data-testid="closing-cta">{c.primary.label}</a>
         </div>
       </div>
     </section>

@@ -214,12 +214,17 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
         </div>
       )}
 
+      {/* While the send summary is open it is the one thing to answer: on a phone the bulk bar is a sheet fixed
+          to the bottom of the screen and would cover the summary's buttons. It is hidden, not closed, so what
+          was typed in it is still there after Back. */}
       {shop && chosen.length > 0 && (
-        <BulkBar key="bulk" batchId={batchId} shop={shop} rows={rows.filter((r) => chosen.includes(r.content_id))}
+        <div key="bulk" hidden={!!summary}>
+        <BulkBar batchId={batchId} shop={shop} rows={rows.filter((r) => chosen.includes(r.content_id))}
           profiles={shopProfiles} rewriteRule={preview?.rewrite_rule ?? ""} busy={busy} run={run}
           unapproved={unapproved}
           onApprove={() => run(() => api.workspaceApprove(batchId, shop.id, unapproved), `Approved ${unapproved.length} for ${said(shop.name)}`)}
           onSend={openSummary} />
+        </div>
       )}
 
       {summary && shop && (

@@ -24,7 +24,7 @@ export default async function FeaturePage({ params }: Props) {
       <JsonLd data={breadcrumbs(path)} />
       <PageHead path={path} h1={feature.h1} lead={feature.lead} />
       <Shot screen={feature.screen} priority />
-      <div className="mt-6">
+      <div className="mt-10">
         <Blocks blocks={feature.body} />
       </div>
       <InviteCta line={`Related guide: [${feature.guide.label}](${feature.guide.href}). Listyro is invite-only while we onboard sellers in small groups.`} />

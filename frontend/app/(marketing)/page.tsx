@@ -1,57 +1,69 @@
 import type { Metadata } from "next";
-import { Apart, Closing, Faq, How, PricingTeaser, Testimonials, VideoSlot, Who } from "@/components/marketing/Sections";
+import { Check, HeroDemo } from "@/components/marketing/HeroDemo";
+import { Closing, Faq, Grind, How, Pricing, Safe, ShopVersions, Strip, Voices } from "@/components/marketing/Sections";
 import { JsonLd } from "@/components/marketing/Page";
 import { HOME } from "@/lib/homeCopy";
 import { faqPage, organization, softwareApplication } from "@/lib/marketing/jsonld";
 import { metadataFor } from "@/lib/marketing/pages";
-import { TRADEMARK_NOTICE } from "@/lib/legal";
 
 // A static page, so the edge can answer it for everyone. middleware.ts looks only at a request that
 // carries the session cookie (a live session goes to the dashboard, a dead cookie is cleared), and
 // any such request is marked private by lib/marketing/routes.mjs. This page knows nothing of who asks.
+// The layout is docs/design/home-reference.dc.html (its values are the lx- classes in app/globals.css); the
+// trademark notice is in the footer of this page, as of every page (components/marketing/Site.tsx).
 export const metadata: Metadata = metadataFor("/");
 
 export default function Landing() {
   const hero = HOME.hero;
   return (
-    <>
+    <div className="lx-ref" style={{ width: "100%", overflowX: "hidden" }}>
       <JsonLd data={organization()} />
       <JsonLd data={softwareApplication()} />
       <JsonLd data={faqPage([...HOME.faq.items])} />
-      <section className="relative overflow-hidden" aria-labelledby="hero-title">
-        <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-10 px-4 pb-16 pt-6 sm:px-6 sm:pt-14 lg:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] lg:items-center lg:gap-10 lg:pb-24 lg:pt-20">
-          <div className="min-w-0">
-            <p className="text-sm font-medium uppercase tracking-[0.12em] text-brand-700">{hero.eyebrow}</p>
-            <h1 id="hero-title" className="mt-3 font-display text-[clamp(2.1rem,5.4vw,3.75rem)] sm:mt-5 leading-[1.04] tracking-[-0.012em] text-slate-900">
-              <span>{`${hero.heading} `}</span>
-              <em className="block text-brand-600">{hero.headingAccent}</em>
-            </h1>
-            <div className="mt-6 flex flex-wrap items-center gap-3 sm:mt-8">
-              <a href={hero.primary.href} className="btn-primary px-5 py-3 text-[0.9375rem]" data-testid="hero-cta">{hero.primary.label}</a>
-              <a href={hero.secondary.href} className="btn-secondary px-5 py-3 text-[0.9375rem]">{hero.secondary.label}</a>
+      <section className="lx-hero-sec" aria-labelledby="hero-title">
+        <div className="lx-wrap lx-hero">
+          <div className="lx-hero-text">
+            <span className="lx-badge" data-testid="hero-badge">
+              <span className="lx-badge-dot">
+                <Check />
+              </span>
+              <span>{hero.badge}</span>
+            </span>
+            <h1 id="hero-title" className="lx-h1">{hero.heading}</h1>
+            <p className="lx-sub">{hero.sub}</p>
+            <div className="lx-ctas">
+              <a href={hero.primary.href} className="lx-btn lx-btn-ink lx-hero-cta" data-testid="hero-cta">{hero.primary.label}</a>
+              {hero.video.href ? (
+                <a key="video" href={hero.video.href} className="lx-video" data-testid="hero-video">
+                  <span className="lx-video-dot">
+                    <svg width="13" height="14" viewBox="0 0 13 14" aria-hidden="true"><path d="M2 1.5 L11.5 7 L2 12.5 Z" fill="#14162B" /></svg>
+                  </span>
+                  <span>{hero.video.label}</span>
+                </a>
+              ) : null}
             </div>
-            <p className="mt-3 flex items-start gap-2 text-sm text-slate-600 sm:mt-5" data-testid="hero-note">
-              <span aria-hidden className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-brand-600" />
-              <span>{hero.note}</span>
-            </p>
-            {/* Etsy's Commercial Access review asks for the notice in a prominent place on the
-                home page, not only in the footer: here, beside the first call to action. */}
-            <p className="mt-4 max-w-[34rem] rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-slate-700 sm:mt-6 sm:px-4 sm:py-3"
-              data-testid="home-trademark-notice">{TRADEMARK_NOTICE}</p>
+            <div className="lx-reassure">
+              {hero.reassure.map((r) => (
+                <span key={r}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#1F8A4C" /><path d="M4.4 8.2 L6.9 10.5 L11.6 5.6" stroke="#FFFFFF" strokeWidth="1.9" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  <span>{r}</span>
+                </span>
+              ))}
+            </div>
           </div>
-          <div className="min-w-0">
-            <VideoSlot />
-          </div>
+          <HeroDemo />
         </div>
       </section>
 
+      <Strip />
+      <Grind />
       <How />
-      <Apart />
-      <Who />
-      <Testimonials />
-      <PricingTeaser />
+      <ShopVersions />
+      <Safe />
+      <Voices />
+      <Pricing />
       <Faq />
       <Closing />
-    </>
+    </div>
   );
 }
