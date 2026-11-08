@@ -39,7 +39,7 @@ test("the plan config: the launch plans as agreed (7 November 2026)", () => {
   assert.match(TRIAL.line, /^10 free AI listings once you connect an Etsy shop that has never had a trial\./);
   assert.equal(SPECIAL.name, "Special");
   assert.match(SPECIAL.body, /More than 1,000 AI listings a month/);
-  assert.deepEqual([SPECIAL.price, SPECIAL.unit, SPECIAL.listings, SPECIAL.shops], ["Custom", "For big catalogs", "1,000+ listings", "Unlimited shops"]);
+  assert.deepEqual([SPECIAL.price, SPECIAL.unit, SPECIAL.listings, SPECIAL.shops], ["Custom", "For big catalogs", "1,000+ listings", "Custom shop limit"]);
   assert.deepEqual(SPECIAL.cta, { label: "Talk to us", href: "/request-invite?plan=custom" });
   // Each plan is larger than the one before it in everything that is counted.
   for (let i = 1; i < PLANS.length; i++) {

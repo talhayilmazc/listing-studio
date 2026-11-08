@@ -240,6 +240,22 @@ body {
   gap: 48px;
   align-items: center;
 }
+/* Desktop (owner, 8 November 2026): the headline in three lines, "Upload 50 designs. / Get 50 listings, ready /
+   for every shop.". The text column gets 6fr; the h1 is 11.6em wide at most (the second line is 11.4em, so the
+   breaks fall there without <br>), and its size is the column's 1/11.6, never above 64 px, so the three lines
+   always fit (about 52 px in the 1,156 px content of 1366 and 1440). Phones and tablets keep the clamp. */
+@media (min-width: 1001px) {
+  .lx-hero {
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  }
+  .lx-hero-text {
+    container-type: inline-size;
+  }
+  .lx-hero-text .lx-h1 {
+    font-size: min(64px, 8.6cqi);
+    max-width: 11.6em;
+  }
+}
 .lx-hv {
   position: relative;
   height: 580px;

@@ -84,7 +84,8 @@ export const SPECIAL = {
   price: "Custom",
   unit: "For big catalogs",
   listings: "1,000+ listings",
-  shops: "Unlimited shops",
+  // The app-wide cap is 200 shops and the number is set per account: not "unlimited".
+  shops: "Custom shop limit",
   cta: { label: "Talk to us", href: "/request-invite?plan=custom" },
 };
 

@@ -173,7 +173,7 @@ Only listings written by AI count. Listings a seller writes by hand, photos, and
 
 The home page no longer repeats the trademark notice in a box under its first heading. The notice is unchanged, word for word, in the footer of every page, the home page included.
 
-Since 8 November 2026 (site v3) the home page also says "Built on Etsy's official API" and "Uses Etsy's official sign-in", as plain facts about how it connects, in smaller type than the Listyro name and its heading; the trademark notice, word for word, is in the footer of every page. Nothing says or implies that Etsy endorses, certifies or works with Listyro. The plans and the trial above are unchanged in substance; the Special plan's card says "Talk to us" and "Unlimited shops" (the number of shops is still set per account, and the app-wide cap still applies).
+Since 8 November 2026 (site v3) the home page also says "Built on Etsy's official API" and "Uses Etsy's official sign-in", as plain facts about how it connects, in smaller type than the Listyro name and its heading; the trademark notice, word for word, is in the footer of every page. Nothing says or implies that Etsy endorses, certifies or works with Listyro. The plans and the trial above are unchanged in substance; the Special plan's card says "Talk to us" and "Custom shop limit" (the number of shops is set per account, and the app-wide cap still applies).
 
 ## API features we would like Etsy to expose (added 23 October 2026, after approval)
 
