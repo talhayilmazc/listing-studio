@@ -31,6 +31,7 @@ import { useSession } from "@/components/SessionProvider";
 import { Txt } from "@/components/Txt";
 import { Help } from "@/components/Help";
 import { StatusChip, type Tone } from "@/components/StatusChip";
+import { EmptyState, ListSkeleton } from "@/components/EmptyState";
 
 // Each status in the one status chip every page uses (B9).
 const TONE: Record<string, Tone> = {
@@ -125,6 +126,14 @@ export default function ScheduledPage() {
   }
 
   const upcoming = data?.items.filter((i) => i.movable).length ?? 0;
+
+  // Nothing scheduled and nothing to hold: one sentence and the way to schedule something.
+  if (data && data.items.length === 0 && !data.paused_all && !scheduling) {
+    return (
+      <EmptyState line="Listings you schedule wait here, at the time they go live in your time zone." action="Review listings" href="/review" testId="schedule-empty" />
+    );
+  }
+  if (data === null && !error) return <ListSkeleton rows={4} />;
 
   return (
     <div className="space-y-6">

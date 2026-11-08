@@ -380,12 +380,20 @@ async def callback(
     from app.api.send import join_all_shops
 
     await join_all_shops(session, connection)
+    from app.pipeline import funnel
+
+    await funnel.record(session, connection.tenant_id, funnel.SHOP_CONNECTED)
+    await session.commit()
     await connections.record(redis, connections.CONNECTED, connection.tenant_id)
     from app.workers.preflight import forget
 
     await forget(redis, connection.tenant_id, connection.id)  # reconnected: the next check decides afresh
     marker, now = mark_reading(connection.id)
     await redis.set(marker, now, ex=SUMMARY_SYNC_EVERY_SECONDS)
+    # A seller with nothing uploaded yet goes straight on to the next step: their first design.
+    if funnel.FIRST_UPLOAD not in await funnel.done(session, connection.tenant_id):
+        return await _done_with(redis, request, state,
+                                _redirect(f"{settings.frontend_url}/upload?connected={connection.id}&status=connected&shop={connection.id}"))
     return await _done_with(redis, request, state, _redirect(f"{back}?status=connected&shop={connection.id}"))
 
 

@@ -31,7 +31,7 @@ from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
 from app.compliance.trademarks import tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
-from app.pipeline import approval, creativity, manual, shop_listing, versions
+from app.pipeline import approval, creativity, funnel, manual, shop_listing, versions
 from app.workers.recovery import WAIT_PERSONALIZATION
 from app.api.personalization_fix import hold_out, requeue_held
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
@@ -296,6 +296,8 @@ async def unfinished_work(
                 # Failed: why. Held for its personalization: why, too (it waits for the seller).
                 error=job.last_error if job.status is JobStatus.failed or (
                     job.status is JobStatus.queued and job.paused_reason == WAIT_PERSONALIZATION) else None,
+                advice=schemas.advice_out(job.last_error, (job.payload or {}).get("etsy_error"))
+                if job.status is JobStatus.failed else None,
                 pause=pause_out(
                     job.paused_reason if job.status is JobStatus.queued else None,
                     tenant=tenant,
@@ -347,6 +349,9 @@ async def contents_out(
         out.listing_style = "search" if (c.attributes or {}).get("search") else "classic"
         # The listing's profile: chosen at upload or on its group, changed there.
         out.profile_id, out.profile_name = (profile.id, profile.name) if profile else (None, None)
+        payload = (profile.cached_payload or {}) if profile else {}
+        out.price = payload.get("price") if isinstance(payload.get("price"), (int, float)) else None
+        out.currency = payload.get("currency") if out.price is not None else None
         # Etsy's Creativity Standards: a print-on-demand profile with no production partner.
         out.production_note = creativity.production_note(profile) if profile is not None else None
         out.attributes = dict((c.attributes or {}).get("listing") or {})
@@ -385,6 +390,23 @@ async def contents_out(
                 limits[(batch_id, group.group_key)] = group.image_limit
     for out, (c, a) in zip(outs, pairs):
         out.image_limit = limits.get((c.batch_id, a.group_key or ""))
+    # Each listing's photos (its group's, in order) and whether it is one of the examples.
+    batch_ids = list({c.batch_id for c, _ in pairs})
+    if batch_ids:
+        photos: dict[tuple[uuid.UUID, str], list[uuid.UUID]] = {}
+        rows = await session.execute(
+            select(Asset.batch_id, Asset.group_key, Asset.id)
+            .where(Asset.batch_id.in_(batch_ids), Asset.processed_key.is_not(None))
+            .order_by(Asset.rank, Asset.original_filename)
+        )
+        for batch_id, key, asset_id in rows:
+            photos.setdefault((batch_id, key or ""), []).append(asset_id)
+        examples = set((await session.execute(
+            select(UploadBatch.id).where(UploadBatch.id.in_(batch_ids), UploadBatch.is_example)
+        )).scalars())
+        for out, (c, a) in zip(outs, pairs):
+            out.photo_ids = photos.get((c.batch_id, a.group_key or ""), [])
+            out.is_example = c.batch_id in examples
     return outs
 
 
@@ -722,6 +744,8 @@ async def approve_content(
         if errors:
             raise HTTPException(status_code=422, detail={"message": "cannot approve invalid content", "errors": errors})
     approval.set_approved(content, body.approved, approval.VIA_CARD)
+    if body.approved:
+        await funnel.record_for_batch(session, tenant.id, funnel.FIRST_APPROVED, content.batch_id)
     if body.approved and shop is not None:
         shop_listing.approve_in(content, shop)
     if not body.approved:
@@ -779,7 +803,8 @@ async def approve_all(
     rows = await session.execute(
         select(GeneratedContent, Asset)
         .join(Asset, Asset.id == GeneratedContent.asset_id)
-        .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id)
+        .where(GeneratedContent.batch_id == batch_id, GeneratedContent.tenant_id == tenant.id,
+               *([GeneratedContent.id.in_(body.content_ids)] if body and body.content_ids is not None else []))
         .order_by(Asset.rank, Asset.original_filename)
     )
     result = schemas.ApproveAllResult()
@@ -822,6 +847,8 @@ async def approve_all(
         if shop is not None:
             shop_listing.approve_in(content, shop)
         result.approved += 1
+    if result.approved:
+        await funnel.record_for_batch(session, tenant.id, funnel.FIRST_APPROVED, batch_id)
     await session.commit()
     # One line per reason with how many, not the same long list for every listing.
     groups = approval.group(refused)

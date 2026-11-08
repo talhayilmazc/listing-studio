@@ -53,7 +53,7 @@ export function UsersTab({
             {u.email}
           </span>
           {u.is_admin && (
-            <span key="admin" className="shrink-0 rounded border border-slate-200 px-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+            <span key="admin" className="shrink-0 rounded border border-slate-200 px-1 text-[10px] font-medium text-slate-500">
               admin
             </span>
           )}
@@ -290,7 +290,7 @@ export function UsersTab({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">{label}</dt>
+      <dt className="mb-1 text-[11px] font-medium text-slate-400">{label}</dt>
       <dd>{children}</dd>
     </div>
   );

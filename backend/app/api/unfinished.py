@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
 from app.core import audit
 from app.db.models import DraftAttempt, DraftDismissal, EtsyConnection, GeneratedContent, JobType, Tenant
@@ -64,6 +65,8 @@ class UnfinishedOut(BaseModel):
     title: str
     step: str | None = None
     error: str | None = None
+    #: The one action that fixes it, and Etsy's raw answer for "Details" (etsy/advice.py).
+    advice: schemas.AdviceOut | None = None
     finishing: bool = False
     blocked: str | None = None
     profile_id: uuid.UUID | None = None
@@ -109,6 +112,7 @@ def _out(item: unfinished.DraftRecord) -> UnfinishedOut:
         record_id=item.record_id, attempt_id=item.attempt_id, content_id=item.content_id, batch_id=item.batch_id,
         connection_id=item.connection_id, shop_name=item.shop_name, etsy_listing_id=item.etsy_listing_id,
         edit_url=listing_edit_url(item.etsy_listing_id), title=item.title, step=item.step, error=item.error,
+        advice=schemas.advice_out(item.error, item.etsy_error),
         finishing=item.finishing, blocked=item.blocked, profile_id=item.profile_id, profile_name=item.profile_name,
         setup=item.setup, category=item.category, category_label=item.label, section=SECTIONS[item.category],
         personalization_problems=item.personalization_problems, replaced_by=item.replaced_by,

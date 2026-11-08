@@ -162,7 +162,7 @@ function Photo({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={preview} alt={sf.file.name} className="h-full w-full object-cover" draggable={false} loading="lazy" decoding="async" />
       ) : (
-        <span className={"flex h-full w-full items-center justify-center text-[10px] uppercase text-slate-400 " + (preview === undefined ? "animate-pulse" : "")}>
+        <span className={"flex h-full w-full items-center justify-center text-[10px] text-slate-400 " + (preview === undefined ? "animate-pulse" : "")}>
           {sf.file.name.split(".").pop()}
         </span>
       )}

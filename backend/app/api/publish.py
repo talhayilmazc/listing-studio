@@ -54,7 +54,7 @@ from app.etsy.shops import active_shops, group_shops, owned_shop
 from app.compliance.check import blocking_finding, listing_problem
 from app.compliance.scanner import rescan
 from app.pipeline import links as L
-from app.pipeline import profile_shops, shop_targets
+from app.pipeline import examples, funnel, profile_shops, shop_targets
 from app.pipeline.targets import is_fresh, resolve_cached, resolve_target, shop_profiles
 
 from app.pipeline.batch_names import names_by_id
@@ -360,6 +360,7 @@ async def _publish(
     *,
     single: GeneratedContent | None = None,
 ) -> schemas.BatchPublishResult:
+    await examples.refuse(session, [c.batch_id for c in contents])  # the example designs never reach Etsy
     plan = await _plan_drafts(session, tenant, contents, request)
     if single is not None and not single.approved:
         raise HTTPException(status_code=409, detail="not approved")
@@ -382,6 +383,9 @@ async def _publish(
             session, enqueuer, tenant=tenant, connection=connection, content=content, profile_id=profile_id
         )
         result.jobs.append(_job_out(content, connection, job))
+    if result.jobs:
+        await funnel.record(session, tenant.id, funnel.FIRST_SENT)
+        await session.commit()
     return result
 
 
@@ -718,6 +722,7 @@ async def _publish_live(
     With ``planned`` it is a dry run: what would go live is added to that list
     and nothing is queued.
     """
+    await examples.refuse(session, [c.batch_id for c in contents])  # the example designs never reach Etsy
     only = set(request.connection_ids) if request.connection_ids else None
     result = schemas.BatchPublishResult()
     for content in contents:
@@ -952,6 +957,8 @@ async def job_status(
         type=job.type.value,
         status=job.status.value,
         error=job.last_error,
+        advice=schemas.advice_out(job.last_error, (job.payload or {}).get("etsy_error"))
+        if job.status.value == "failed" else None,
         listing_id=listing_id,
         listing_url=url,
         is_draft=is_draft,

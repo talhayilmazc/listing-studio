@@ -74,7 +74,7 @@ from app.db.models import (
 from app.etsy.publisher import link_for
 from app.etsy.rate_limiter import DailyQuota
 from app.etsy.shops import active_shops
-from app.pipeline import approval, profile_shops, shop_listing, shop_targets, skus
+from app.pipeline import approval, examples, funnel, profile_shops, shop_listing, shop_targets, skus
 from app.pipeline.storage import Storage
 from app.pipeline.targets import check_text, resolve_target
 
@@ -601,6 +601,7 @@ async def _written_elsewhere(session: AsyncSession, tenant: Tenant, batch: Uploa
 @router.post("/batches/{batch_id}/another-shop/preview", response_model=AnotherShopPreview)
 async def another_shop_preview(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncSession = Depends(get_session, scope="function"),
                                tenant: Tenant = Depends(active_tenant)) -> AnotherShopPreview:
+    await examples.refuse(session, batch_id)  # the example designs never reach Etsy (pipeline/examples.py)
     preview, _, _ = await _work(session, tenant, await _batch(session, tenant, batch_id), body)
     await session.rollback()  # the preview never keeps the SKUs or profile it tried
     return preview
@@ -634,6 +635,7 @@ async def another_shop(batch_id: uuid.UUID, body: AnotherShopIn, session: AsyncS
     from app.api.publish import _publish
 
     batch = await _batch(session, tenant, batch_id)
+    await examples.refuse(session, batch_id)  # the example designs never reach Etsy (pipeline/examples.py)
     preview, going, shop = await _work(session, tenant, batch, body)
     if preview.disabled:
         await session.rollback()
@@ -703,6 +705,8 @@ async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncS
     from app.core.llm_status import LLMUnavailable
 
     batch = await _batch(session, tenant, batch_id)
+    await examples.refuse(session, batch_id)  # the example designs never reach Etsy (pipeline/examples.py)
+
     shop = await _target_shop(session, tenant, body.connection_id)
     if body.profile_id is not None and all(p.id != body.profile_id for p in await _shop_profiles(session, tenant, shop)):
         raise HTTPException(status_code=404, detail="profile not found in that shop")
@@ -936,6 +940,7 @@ async def workspace_approve(batch_id: uuid.UUID, connection_id: uuid.UUID, body:
             continue
         if not content.approved:
             approval.set_approved(content, True, via=approval.VIA_CARD)
+            await funnel.record_for_batch(session, tenant.id, funnel.FIRST_APPROVED, batch_id)
         shop_listing.approve_in(content, shop.id)
     await session.commit()
     return await _rows(session, tenant, batch_id, shop.id)

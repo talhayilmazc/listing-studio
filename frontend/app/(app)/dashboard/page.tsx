@@ -23,7 +23,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { NeedsAttention } from "@/components/NeedsAttention";
-import { FirstRunGuide } from "@/components/FirstRunGuide";
+import { SetupChecklist } from "@/components/SetupChecklist";
 import { Txt } from "@/components/Txt";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
@@ -155,13 +155,17 @@ export default function Dashboard() {
     };
   }, [shopId, allShops, shops]);
 
+  // A new account (no shop yet) sees the checklist and nothing that would only say "none yet"
+  // (docs/app-audit.md, 1): one next step, not five cards of zeros.
+  const fresh = shops !== null && shops.length === 0;
+  const nothingYet = fresh && (batches?.length ?? 0) === 0;
   return (
     <div className="space-y-6">
-      <FirstRunGuide />
-      <NeedsAttention />
-      <UnfinishedDrafts />
+      <SetupChecklist />
+      {fresh ? null : <NeedsAttention key="attention" />}
+      {fresh ? null : <UnfinishedDrafts key="unfinished" />}
       <div className="grid gap-4 lg:grid-cols-3">
-        {allShops ? (
+        {fresh ? null : allShops ? (
           <AllShopsCard key="all" overview={overview} onPick={select} />
         ) : (
           <ShopCard key="one" connection={connection} shop={scope} listings={listings} summary={summary} />
@@ -169,10 +173,12 @@ export default function Dashboard() {
         <QuotaCard quota={quota} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ActivityCard batches={batches} thumbs={thumbs} />
-        <ProfilesCard profiles={profiles} usage={usage} />
-      </div>
+      {nothingYet ? null : (
+        <div key="activity" className="grid gap-4 lg:grid-cols-2">
+          <ActivityCard batches={batches} thumbs={thumbs} />
+          <ProfilesCard profiles={profiles} usage={usage} />
+        </div>
+      )}
     </div>
   );
 }
@@ -271,7 +277,7 @@ function ShopCard({
           No Etsy shop is connected yet. Connect one to load your listings and profiles.
         </p>
         <Link href="/connect" className="btn-secondary">
-          Connect a shop
+          Connect your shop
         </Link>
       </section>
     );

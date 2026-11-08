@@ -711,6 +711,32 @@ async def seed_demo(sm: async_sessionmaker, *, admin: bool = False, shops: int |
     return chr(10).join(lines)
 
 
+async def seed_empty_demo(sm: async_sessionmaker) -> str:
+    """A second synthetic account with nothing in it: no shop, no batch, no profile (the first-run
+    and empty screens). Removed with the others by ``seed-demo --remove`` (its address is a demo one).
+    Refuses to run when APP_ENV=production."""
+    from app.core import terms
+    from app.core.passwords import generate_temp_password, hash_password
+    from app.db.models import TenantStatus
+    from app.ops import etsy_data
+
+    etsy_data.refuse_in_production()
+    email = "demo-empty@example.test"
+    password = generate_temp_password()
+    async with sm() as session:
+        if await session.scalar(select(func.count()).select_from(Tenant).where(Tenant.email == email)):
+            return f"{email} already exists; remove the demo accounts first (seed-demo --remove)"
+        tenant = Tenant(email=email, password_hash=hash_password(password), status=TenantStatus.active, time_zone="America/Chicago")
+        terms.accept(tenant)
+        session.add(tenant)
+        await session.commit()
+    return chr(10).join([
+        "Empty demo account ready (nothing in it).",
+        f"  e-mail:   {email}",
+        f"  password: {password}  (shown once; made up for this database)",
+    ])
+
+
 async def remove_demo(sm: async_sessionmaker, storage: Any = None) -> str:
     """Take the synthetic demo data out again: the demo accounts with everything of
     theirs, their sample image files, and the sample invite requests. Found by the
@@ -952,6 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     demo.add_argument("--remove", action="store_true", help="delete the demo accounts, their sample files and the sample invite requests")
     demo.add_argument("--shops", type=int, default=None, help="how many shops (default 9)")
     demo.add_argument("--groups", type=int, default=None, help="how many shop groups (default 2; none with one shop)")
+    demo.add_argument("--empty", action="store_true", help="also add demo-empty@example.test: a new account with nothing in it (first-run screens)")
     args = parser.parse_args(argv)
     if args.command == "oauth-check":
         print(oauth_check())
@@ -1115,7 +1142,12 @@ def main(argv: list[str] | None = None) -> int:
 
                 print(asyncio.run(remove_demo(sm, get_storage())))
             else:
-                print(asyncio.run(seed_demo(sm, admin=args.admin, shops=args.shops, groups=args.groups)))
+                async def both() -> str:
+                    # One event loop: a database connection belongs to the loop that opened it.
+                    seeded = await seed_demo(sm, admin=args.admin, shops=args.shops, groups=args.groups)
+                    return seeded + (chr(10) + await seed_empty_demo(sm) if args.empty else "")
+
+                print(asyncio.run(both()))
         except Refused as exc:
             print(str(exc), file=sys.stderr)
             return 2

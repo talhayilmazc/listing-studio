@@ -83,7 +83,7 @@ export default function AnalyticsPage() {
       <div className="space-y-5">
         <p className="max-w-3xl text-sm text-slate-500">
           <span>What each of your shops earned in a month, after Etsy&apos;s fees, your ads and your product costs.</span>
-          <Help label="Analytics">
+          <Help label="Reports">
             Every number comes from that shop&apos;s own report, side by side; nothing on Etsy is changed from here.
           </Help>
         </p>
@@ -97,13 +97,13 @@ export default function AnalyticsPage() {
     <div className="space-y-5">
       <p className="max-w-3xl text-sm text-slate-500">
         <span>What your shop and each listing earned in a month, after Etsy&apos;s fees, your ads and your product costs.</span>
-        <Help label="Analytics">
+        <Help label="Reports">
           Every number says whether it is exact, calculated or estimated; one with nothing behind it is left blank, not shown
           as zero. Suggestions are for you to act on in Shop Manager; nothing on Etsy is changed from here.
         </Help>
       </p>
 
-      <nav className="flex justify-between overflow-y-hidden border-b border-slate-200 sm:justify-start sm:gap-1" aria-label="Analytics sections">
+      <nav className="flex justify-between overflow-y-hidden border-b border-slate-200 sm:justify-start sm:gap-1" aria-label="Report sections">
         {TABS.map((t) => (
           <button
             key={t.key}

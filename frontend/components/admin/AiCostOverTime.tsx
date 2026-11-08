@@ -177,7 +177,7 @@ function Stat({ label, value, note, flag }: { label: string; value: string; note
         <span>{value}</span>
         {flag && <span key="flag" className="ml-1 align-top text-sm text-amber-700" title="A model has no price set: this is a floor">+</span>}
       </dd>
-      <p className="mt-1 text-[11px] text-slate-500">{note}</p>
+      <dd className="mt-1 text-[11px] text-slate-600">{note}</dd>
     </div>
   );
 }
@@ -393,7 +393,7 @@ function BySeller({ series }: { series: AiSeries }) {
           <span><span>Share is of all sellers&apos; cost in the period (</span><span>{usd(series.all_sellers.cost_usd, 4)}</span><span>)</span><Txt>{filtered ? ", whatever the seller filter" : ""}</Txt><span>.</span></span>
         </span>
       </p>
-      <div className="mt-2 overflow-x-auto">
+      <div className="mt-2 overflow-x-auto" tabIndex={0} role="region" aria-label="AI cost by seller">
         <table className="text-left text-xs max-sm:w-max sm:w-full sm:min-w-[40rem]">
           <thead>
             <tr className="border-b border-slate-200 text-slate-500">
@@ -450,7 +450,7 @@ function BySeller({ series }: { series: AiSeries }) {
 
 function Figure({ cell, metric, strong }: { cell: AiCell; metric: Metric; strong?: boolean }) {
   const f = figure(cell, metric);
-  return <span className={f.zero ? "text-slate-300" : strong ? "font-medium text-slate-900" : "text-slate-700"}>{f.text}</span>;
+  return <span className={f.zero ? "text-slate-500" : strong ? "font-medium text-slate-900" : "text-slate-700"}>{f.text}</span>;
 }
 
 /** Seller × period: one figure at a time, with a total for every row and column. */
@@ -495,7 +495,7 @@ function ByPeriod({ series }: { series: AiSeries }) {
           compare a finished UTC day with the console.
         </p>
       )}
-      <div className="mt-2 max-h-[28rem] overflow-auto rounded-lg border border-slate-100">
+      <div className="mt-2 max-h-[28rem] overflow-auto rounded-lg border border-slate-100" tabIndex={0} role="region" aria-label="AI cost by seller and period">
         <table className="w-full border-separate border-spacing-0 text-left text-xs">
           <thead className="text-slate-500">
             <tr>

@@ -32,6 +32,8 @@ export const showable = (a: Asset): boolean => !a.files_removed || Boolean(a.has
 export interface BatchSummary {
   id: string;
   status: BatchStatus;
+  /** The example designs (backend pipeline/examples.py): labelled "Example", never sent to Etsy. */
+  is_example?: boolean;
   /** Every status the batch is in (lib/batchStatus.ts; backend pipeline/batch_status.py). */
   statuses?: string[];
   /** The one status every badge shows (backend pipeline/batch_status.py::headline). */
@@ -181,6 +183,13 @@ export interface Content {
   edited_for?: string[];
   id: string;
   asset_id: string;
+  /** Every photo of its listing group, in order (the review screen shows them large). */
+  photo_ids?: string[];
+  /** The price its profile copies from the seller's reference listing. */
+  price?: number | null;
+  currency?: string | null;
+  /** One of the example designs: labelled, never sent to Etsy. */
+  is_example?: boolean;
   /** The cover the title and tags were written from; differs from asset_id once the cover changed. */
   written_from_asset_id?: string | null;
   title: string | null;
@@ -902,6 +911,8 @@ export interface Work {
   job_id: string;
   status: "failed" | "queued" | "running";
   error: string | null;
+  /** The one action that fixes it, and the raw answer for "Details" (backend etsy/advice.py). */
+  advice?: ErrorAdvice | null;
   pause: Pause | null;
 }
 
@@ -2242,6 +2253,8 @@ export interface SkuResult {
 export interface UnfinishedDraft {
   /** How this draft is addressed (finish, dismiss). */
   record_id: string;
+  /** The one action that fixes it, and Etsy's raw answer for "Details". */
+  advice?: ErrorAdvice | null;
   attempt_id: string | null;
   /** The listing text in the app; null when its batch was deleted. */
   content_id: string | null;
@@ -2392,4 +2405,40 @@ export interface WorkspaceTextRow {
   text_own: string[];
   errors: string[];
   warnings: string[];
+}
+
+/** The first-run checklist (GET /api/onboarding; backend pipeline/onboarding.py). */
+export interface OnboardingStep {
+  key: "shop" | "upload" | "approve" | "send";
+  title: string;
+  body: string;
+  href: string;
+  action: string;
+  done: boolean;
+  done_at: string | null;
+}
+
+export interface Onboarding {
+  steps: OnboardingStep[];
+  next: OnboardingStep["key"] | null;
+  all_done: boolean;
+  dismissed: boolean;
+  example_batch_id: string | null;
+}
+
+/** The sign-up funnel for admins (GET /api/admin/funnel; backend pipeline/funnel.py). */
+export interface Funnel {
+  days: number;
+  cohort: number;
+  steps: { name: string; label: string; count: number; from_previous: number | null }[];
+  median_seconds_to_first_approval: number | null;
+  approved_with_time: number;
+}
+
+/** What fixes an error, beside its message (backend etsy/advice.py). */
+export interface ErrorAdvice {
+  action: string;
+  label: string;
+  href: string | null;
+  details: string | null;
 }

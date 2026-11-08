@@ -31,7 +31,7 @@ export const LAST_UPDATED = "14 October 2026";
  * account; 1 November 2026: a cookieless visit counter on the public site, and the free tools; 2 November 2026: fixes to live listings) without asking them to agree again, so the version above stays.
  * Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "2 November 2026";
+export const PRIVACY_UPDATED = "8 November 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";

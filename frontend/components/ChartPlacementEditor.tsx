@@ -175,11 +175,11 @@ export function ChartPlacementEditor({
                       size chart
                     </span>
                   )}
-                  <span className="absolute left-0 top-0 rounded-br bg-amber-500 px-1 text-[10px] font-semibold leading-4 text-white" translate="no">
+                  <span className="absolute left-0 top-0 rounded-br bg-amber-800 px-1 text-[10px] font-semibold leading-4 text-white" translate="no">
                     {place}
                   </span>
                   {several && (
-                    <span key="which" className="absolute inset-x-0 bottom-0 bg-amber-500/90 text-center text-[9px] font-medium leading-3 text-white">
+                    <span key="which" className="absolute inset-x-0 bottom-0 bg-amber-800 text-center text-[9px] font-medium leading-3 text-white">
                       <span>chart </span>
                       <span translate="no">{numbered.get(tile)}</span>
                     </span>

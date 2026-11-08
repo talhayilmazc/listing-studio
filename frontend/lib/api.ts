@@ -112,6 +112,8 @@ import type {
   ItemOptions,
   SectionCreateResult,
   SkuResult,
+  Funnel,
+  Onboarding,
 } from "./types";
 
 // Same-origin: in production the tunnel sends /api/* to the API itself (deploy/cloudflared/config.yml);
@@ -209,6 +211,11 @@ export class ApiError extends Error {
 }
 
 export const api = {
+  // The first-run checklist, the example designs and the admin's funnel (app/onboarding-v1).
+  onboarding: () => req<Onboarding>("/onboarding"),
+  dismissOnboarding: () => req<void>("/onboarding/dismiss", { method: "POST" }),
+  tryExamples: () => req<{ batch_id: string }>("/examples", { method: "POST" }),
+  adminFunnel: (days: 7 | 30) => req<Funnel>(`/admin/funnel?days=${days}`),
   // --- Account (production-spec A). Session travels in an HttpOnly cookie,
   // which same-origin fetch sends automatically.
   /** The account's time zone; `detected` only fills it when empty (first sign-in). */
@@ -725,8 +732,11 @@ export const api = {
     }),
   /** With `shop`, also that shop's share of today's requests (display only). */
   /** Approve every listing in the batch that passes validation; the rest are listed with why. */
-  approveAll: (batchId: string, shopId: string | null = null) =>
-    req<ApproveAllResult>(`/batches/${batchId}/approve-all`, { method: "POST", body: JSON.stringify({ connection_id: shopId }) }),
+  approveAll: (batchId: string, shopId: string | null = null, contentIds: string[] | null = null) =>
+    req<ApproveAllResult>(`/batches/${batchId}/approve-all`, {
+      method: "POST",
+      body: JSON.stringify(contentIds ? { connection_id: shopId, content_ids: contentIds } : { connection_id: shopId }),
+    }),
   /** Scheduled go-lives, soonest first (v6 §G). */
   // --- The Scheduled page (B8) ---
   scheduled: () => req<ScheduledData>("/scheduled"),

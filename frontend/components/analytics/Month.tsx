@@ -263,7 +263,7 @@ export function Month({ view, onCosts, onImport }: { view: MonthView; onCosts: (
             {s.key === "your_costs" && (
               <Row key="net" def={TOTALS.net_etsy} figure={sheet.net_etsy} view={view} strong />
             )}
-            <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">{SECTIONS[s.key]?.label ?? s.key}</p>
+            <p className="mt-2 text-[11px] font-medium text-slate-500">{SECTIONS[s.key]?.label ?? s.key}</p>
             {s.lines.map((line) => (
               <Row
                 key={line.key}

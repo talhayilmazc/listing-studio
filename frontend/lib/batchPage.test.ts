@@ -10,7 +10,7 @@ test("no batch shop and no group shop on the batch page", () => {
   for (const gone of ["Shop for this batch", "ShopPicker", "setBatchShop", "connection_id: shop", "GroupingBoard", "Arrange photos", "profile-setup"]) {
     assert.ok(!page.includes(gone), gone);
   }
-  assert.ok(page.includes('data-testid="batch-top-row"') && page.includes("Generate all") && page.includes("Write them myself"));
+  assert.ok(page.includes('data-testid="batch-top-row"') && page.includes("Write listings") && page.includes("Write them myself"));
 });
 
 test("photos are arranged in place: drop onto a card, + per card, + New listing, unsorted tiles", () => {
@@ -24,6 +24,7 @@ test("photos are arranged in place: drop onto a card, + per card, + New listing,
 
 test("profile names, not shops, on review cards and batch cards", () => {
   assert.ok(!read("components/ReviewCard.tsx").includes("Written for"));
-  assert.ok(read("components/ReviewCard.tsx").includes('data-testid="card-profile-name"'));
+  assert.ok(read("components/ReviewCard.tsx").includes('data-testid="card-profile"'));
+  assert.ok(!read("components/ReviewCard.tsx").includes('data-testid="card-profile-name"'), "the profile once, not twice");
   assert.ok(!read("app/(app)/batches/page.tsx").includes("<ShopBadge"));
 });

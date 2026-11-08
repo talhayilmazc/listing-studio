@@ -159,7 +159,7 @@ test("a photo is not used until it is confirmed: marked on the card, left out of
 
 test("the upload section: templates, editable SKUs, per-design progress, both outcomes", () => {
   const upload = read(UPLOAD);
-  assert.match(read("app/(app)/upload/page.tsx"), /<MockupUpload shop=\{null\} \/>/); // uploads are not tied to a shop (B1)
+  assert.match(read("app/(app)/upload/page.tsx"), /<MockupUpload key="mockups" shop=\{null\} \/>/); // uploads are not tied to a shop (B1)
   assert.match(upload, /data-testid="mockup-template"/);
   assert.match(upload, /api\.updateMockupDesign\(design\.id, sku\.trim\(\) \|\| null\)/);
   assert.match(upload, /api\.startMockups\(batchId, chosen, \{ sides, garment_mode: garmentMode, design_ids: /);
@@ -232,7 +232,8 @@ test("nothing says a model draws or changes the design, or promises anything of 
 });
 
 test("templates are in the menu, the page title, the layout test, robots and the Privacy Policy", () => {
-  assert.match(read("components/Rail.tsx"), /\{ href: "\/templates", label: "Mockup templates", icon: IconShirt \}/);
+  assert.match(read("lib/sectionTabs.ts"), /\{ href: "\/templates", label: "Mockup templates" \}/);
+  assert.match(read("components/Rail.tsx"), /also: \/\^\\\/\(profiles\|templates\)/);
   assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/templates\$\/, "Mockup templates"\]/);
   assert.match(read("e2e/layout.spec.ts"), /"\/templates"/);
   assert.match(read("e2e/layout.spec.ts"), /editor-confirm/); // the editor is in the layout test too

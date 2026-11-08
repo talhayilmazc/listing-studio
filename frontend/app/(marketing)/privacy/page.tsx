@@ -460,6 +460,10 @@ export default function PrivacyPage() {
             period={<span>{`${R.sellerEventDays} days, then deleted automatically; deleted with your account`}</span>}
           />
           <Row
+            data="When your account first did each setup step (signed up, connected a shop, uploaded a design, had a listing ready, approved one, sent one): the step's name and its time, nothing else, so we can see where new sellers get stuck"
+            period="While your account exists; deleted with your account"
+          />
+          <Row
             data="An invite request from the form on our site"
             period={<span>{`${R.inviteRequestDays} days from the request if it is still waiting, or ${R.inviteRequestDays} days after we approve or decline it; then deleted automatically`}</span>}
           />

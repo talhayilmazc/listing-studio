@@ -303,6 +303,9 @@ async def register(
     # Spend the code in the same transaction, so a race cannot redeem it twice.
     invite.used_by_tenant_id = tenant.id
     invite.used_at = now
+    from app.pipeline import funnel
+
+    await funnel.record(session, tenant.id, funnel.SIGNED_UP, at=now)
     await session.commit()
     await session.refresh(tenant)
 

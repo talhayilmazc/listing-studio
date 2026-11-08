@@ -40,6 +40,10 @@ import { PersonalizationFix } from "@/components/PersonalizationFix";
 import { SearchChecklist } from "./SearchChecklist";
 import { SEARCH_CARD_NOTE, TITLE_WARNING_HEAD, TITLE_WARNING_TAIL } from "@/lib/listingStyle";
 import { useSession } from "./SessionProvider";
+import { LiveChecks } from "./LiveChecks";
+import { ErrorNote } from "./ErrorNote";
+import { toast } from "@/lib/toast";
+import { formatPrice } from "@/lib/reviewKeys";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
 const DEFAULT_MIN_TITLE = 110;
 const DEFAULT_MAX_TITLE = 140;
@@ -128,6 +132,12 @@ export function ReviewCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingPersonalization]);
   const [approved, setApproved] = useState(initial.approved);
+  // The group's photos, the mockups large (app/onboarding-v1); the shop's own cover first when it has one.
+  const cover = shopCover(shopData?.listings, initial.id, inView?.id) ?? initial.asset_id;
+  const photoIds = [cover, ...(initial.photo_ids ?? []).filter((id) => id !== cover)];
+  const [shown, setShown] = useState(0);
+  // "Listing" or "Per shop": the per-shop settings are visible, and out of the way.
+  const [tab, setTab] = useState<"listing" | "shops">("listing");
   // "Approve all" on the page changes this without remounting the card.
   useEffect(() => {
     setApproved(initial.approved);
@@ -312,13 +322,33 @@ export function ReviewCard({
     }
   }
 
+  async function setApproval(on: boolean) {
+    const res = await api.approve(initial.id, on, textShop?.id ?? null);
+    setApproved(res.content.approved);
+    onChange?.({ id: initial.id, approved: res.content.approved });
+    return res.content.approved;
+  }
+
+  // "Fix the title" / "Fix the tags" (an error's action, keys E and T): the field, focused.
+  const rootRef = useRef<HTMLDivElement>(null);
+  function focusField(which: "title" | "tags") {
+    const root = rootRef.current;
+    const el = which === "title"
+      ? root?.querySelector<HTMLElement>('[data-field="title"]')
+      : root?.querySelector<HTMLElement>('[data-field="tags"] [data-tag-input]');
+    el?.focus();
+    el?.scrollIntoView({ block: "center" });
+  }
+
   async function toggleApprove() {
     if (!(await saveNow())) return; // approving what is on the card, never older text
     try {
-      const res = await api.approve(initial.id, !approved, textShop?.id ?? null);
-      setApproved(res.content.approved);
-      onChange?.({ id: initial.id, approved: res.content.approved });
-      setMessage(res.content.approved ? "Approved" : "Approval cleared");
+      const now = await setApproval(!approved);
+      setMessage(null);
+      // The button "Approve" gives the note "Approved", with Undo instead of a question first.
+      toast(now ? "Approved" : "Approval taken back", {
+        action: { label: "Undo", run: () => setApproval(!now).then(() => undefined).catch(() => undefined) },
+      });
     } catch (e: any) {
       setMessage(approveError(e.message ?? String(e)));
     }
@@ -486,6 +516,8 @@ export function ReviewCard({
       className={"card overflow-hidden " + (approved ? "border-emerald-300" : needs?.length && !valid ? "border-amber-400 ring-2 ring-amber-200" : "")}
       id={initial.id}
       data-testid="review-card"
+      data-approved={approved}
+      ref={rootRef}
     >
       <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
         {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
@@ -497,27 +529,18 @@ export function ReviewCard({
               <span>Select</span>
             </label>
           )}
-          {initial.profile_name && (
-            // The listing is written with its profile (B3); where it goes is chosen in "Where and when".
-            <p key="profile-top" className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500" data-testid="card-profile-name">
-              <span>Profile </span><span className="font-medium text-slate-800" translate="no">{initial.profile_name}</span>
-            </p>
-          )}
           {destination && (
             <p key="destination" className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600" data-testid="card-destination">
               {destination}
             </p>
           )}
-          <div className="checkerboard flex aspect-[4/5] items-center justify-center p-4 max-lg:aspect-auto max-lg:h-56">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={api.assetImage(shopCover(shopData?.listings, initial.id, inView?.id) ?? initial.asset_id, "thumb")}
-              alt={initial.original_filename}
-              className="max-h-full max-w-full object-contain"
-              loading="lazy"
-              decoding="async"
-            />
-          </div>
+          <Photos
+            ids={photoIds}
+            shown={shown}
+            onShow={setShown}
+            alt={initial.original_filename}
+            example={Boolean(initial.is_example)}
+          />
           {shopCover(shopData?.listings, initial.id, inView?.id) && inView && (
             <p key="shop-cover" className="border-t border-slate-100 px-4 py-1.5 text-xs text-slate-600" data-testid="card-shop-cover">
               <span translate="no">{`Cover and photo order in ${inView.name}: its own`}</span>
@@ -570,7 +593,27 @@ export function ReviewCard({
 
         {/* Editable fields */}
         <div className="flex flex-col">
-          <div className="space-y-5 p-5">
+          {Object.keys(shopNames ?? {}).length > 1 ? (
+            <div key="tabs" role="tablist" aria-label="This listing" className="flex gap-1 border-b border-slate-200 px-5">
+              {(["listing", "shops"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t}
+                  onClick={() => setTab(t)}
+                  data-testid={`card-tab-${t}`}
+                  className={"-mb-px min-h-[2.75rem] border-b-2 px-3 text-sm " + (tab === t ? "border-ink font-semibold text-slate-900" : "border-transparent text-slate-600 hover:text-slate-900")}
+                >
+                  {t === "listing" ? "Listing" : "Per shop"}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {tab === "shops" ? (
+            <PerShop key="per-shop" contentId={initial.id} batchId={batchId ?? null} shopData={shopData ?? null} shopNames={shopNames ?? {}} />
+          ) : null}
+          <div className="space-y-5 p-5" hidden={tab !== "listing"}>
             {Object.keys(shopNames ?? {}).length > 1 && (
               // Whose text this is: the shop picked in the menu (not in it yet), or the listing's.
               <p key="text-for" className={"rounded-md border px-3 py-2 text-xs " + (textShop ? "border-brand-200 bg-brand-50 text-brand-900" : "border-slate-200 bg-slate-50 text-slate-700")}
@@ -689,6 +732,7 @@ export function ReviewCard({
                   onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
                   placeholder="Listing title"
                   aria-label="Listing title"
+                  data-field="title"
                 />
                 {/* The counter sits on the field's border rather than above it. */}
                 <span
@@ -707,7 +751,19 @@ export function ReviewCard({
               )}
             </div>
 
-            <TagEditor tags={tags} onChange={change(setTags)} />
+            <div data-field="tags">
+              <TagEditor tags={tags} onChange={change(setTags)} />
+            </div>
+
+            <LiveChecks title={title} tags={tags} />
+
+            {initial.price != null ? (
+              <p key="price" className="text-sm text-slate-700" data-testid="card-price">
+                <span className="font-semibold text-slate-900">Price </span>
+                <span translate="no">{formatPrice(initial.price, initial.currency)}</span>
+                <span className="text-slate-600">{initial.profile_name ? ` from the profile ${initial.profile_name}` : " from its profile"}</span>
+              </p>
+            ) : null}
 
             {attributes.length > 0 && (
               <div key="attributes">
@@ -802,26 +858,28 @@ export function ReviewCard({
                 <button className="btn-secondary" onClick={save} disabled={saving || !dirty} translate="no">
                   {saving ? "Saving…" : dirty ? "Save now" : "Saved"}
                 </button>
-                <label className="flex cursor-pointer items-center gap-2 text-sm max-sm:min-h-[2.75rem]">
-                  <input
-                    type="checkbox"
-                    checked={approved}
-                    disabled={!valid}
-                    onChange={toggleApprove}
-                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                  />
-                  <span className={approved ? "font-medium text-emerald-700" : "text-slate-600"}>
-                    {approved ? "Approved" : "Approve for draft"}
-                  </span>
-                </label>
+                {/* One button, one name: "Approve" gives "Approved" (and Undo, lib/toast.ts). Key A. */}
+                <button
+                  type="button"
+                  aria-pressed={approved}
+                  disabled={!valid && !approved}
+                  onClick={toggleApprove}
+                  data-testid="approve-toggle"
+                  className={approved ? "btn-secondary border-emerald-600 text-emerald-800" : "btn-primary"}
+                >
+                  {approved ? "✓ Approved" : "Approve"}
+                </button>
                 {message && <span key="span-316-16" className="text-xs text-slate-400">{message}</span>}
               </div>
 
               <div className="flex items-center gap-2">
-                {missing.length > 0 && (
-                  <button
+                {initial.is_example ? (
+                  <span key="example" className="text-xs text-slate-600" data-testid="example-not-sent">Example: it can't be sent to Etsy.</span>
+                ) : null}
+                {missing.length > 0 && !initial.is_example && (
+                  <button key="button-879-16"
                     type="button"
-                    className="btn-primary"
+                    className={approved ? "btn-primary" : "btn-secondary"}
                     onClick={createDraft}
                     disabled={!approved || publishing}
                     title={approved ? "Create Etsy draft listings" : "Approve first"}
@@ -920,30 +978,23 @@ export function ReviewCard({
             {failures.length > 0 && publishState !== "publishing" && (
               <ul key="failures" className="mt-2 space-y-2">
                 {failures.map((w) => (
-                  <li key={`${w.kind}-${w.connection_id}`} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-                    <p>
-                      <span className="font-medium">
-                        <span>{w.kind === "draft" ? "Draft not created" : "Not published"}</span>
-                        <Txt>{w.shop_name ? ` in ${w.shop_name}` : ""}</Txt>
-                        <span>: </span>
-                      </span>
-                      <span translate="no">{w.error}</span>
+                  <li key={`${w.kind}-${w.connection_id}`}>
+                    <ErrorNote
+                      message={`${w.kind === "draft" ? "Draft not created" : "Not published"}${w.shop_name ? ` in ${w.shop_name}` : ""}: ${w.error ?? "Etsy did not say why."}`}
+                      advice={w.advice}
+                      onAction={(action) => {
+                        if (action === "retry" || action === "set_up_shop") return void tryAgain(w);
+                        if (action === "edit_title") return focusField("title");
+                        if (action === "edit_tags") return focusField("tags");
+                        if (action === "edit_personalization") return setEditingPersonalization(true);
+                        if (action === "photos" && batchId) window.location.assign(`/batches/${batchId}?select=${initial.id}`);
+                      }}
+                    />
+                    <p className="mt-1 text-xs text-slate-600">
+                      {w.kind === "draft"
+                        ? "Trying again carries on where it stopped; a second draft is never created."
+                        : "Nothing is published twice."}
                     </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-50 max-sm:min-h-[2.75rem] max-sm:px-4 max-sm:text-sm"
-                        onClick={() => tryAgain(w)}
-                        disabled={!approved || publishing}
-                      >
-                        Try again
-                      </button>
-                      <span className="text-rose-700/80">
-                        {w.kind === "draft"
-                          ? "It carries on where it stopped; a second draft is never created."
-                          : "Nothing is published twice."}
-                      </span>
-                    </div>
                   </li>
                 ))}
               </ul>
@@ -1109,6 +1160,92 @@ function Description({ value, onChange }: { value: string; onChange: (v: string)
         placeholder="Listing description"
         aria-label="Listing description"
       />
+    </div>
+  );
+}
+
+/**
+ * The listing's photos, large (app/onboarding-v1): the one picked at full width, the others as
+ * small buttons under it. The examples carry an "Example" label on the photo itself.
+ */
+function Photos({ ids, shown, onShow, alt, example }: {
+  ids: string[];
+  shown: number;
+  onShow: (i: number) => void;
+  alt: string;
+  example: boolean;
+}) {
+  const current = ids[Math.min(shown, ids.length - 1)] ?? ids[0];
+  return (
+    <div>
+      <div className="checkerboard relative flex aspect-square items-center justify-center p-3">
+        {example ? (
+          <span key="example" className="absolute left-3 top-3 rounded-full bg-[var(--tag)] px-2.5 py-1 text-xs font-bold text-ink" data-testid="example-label">
+            Example
+          </span>
+        ) : null}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={api.assetImage(current, "medium")}
+          alt={alt}
+          className="max-h-full max-w-full object-contain"
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+      {ids.length > 1 ? (
+        <ul key="strip" className="flex gap-2 overflow-x-auto border-t border-slate-100 p-3" aria-label="Photos">
+          {ids.map((id, i) => (
+            <li key={id} className="shrink-0">
+              <button
+                type="button"
+                onClick={() => onShow(i)}
+                aria-label={`Photo ${i + 1} of ${ids.length}`}
+                aria-pressed={i === Math.min(shown, ids.length - 1)}
+                className={"block h-14 w-14 overflow-hidden rounded-[var(--radius-sm)] border-2 bg-white " + (i === Math.min(shown, ids.length - 1) ? "border-ink" : "border-transparent")}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={api.assetImage(id, "small")} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "Per shop": where the listing stands in each shop, and what it has of its own there (SKU,
+ * profile, photo order). Changing those is on the batch page's shop workspace, one link away.
+ */
+function PerShop({ contentId, batchId, shopData, shopNames }: {
+  contentId: string;
+  batchId: string | null;
+  shopData: BatchShops | null;
+  shopNames: Record<string, string>;
+}) {
+  const row = shopData?.listings.find((l) => l.content_id === contentId);
+  const words: Record<string, string> = { not_sent: "Not sent", drafted: "Draft", scheduled: "Scheduled", published: "Live" };
+  return (
+    <div className="space-y-3 p-5" data-testid="per-shop">
+      <ul className="divide-y divide-slate-100 rounded-[var(--radius-sm)] border border-slate-200">
+        {Object.entries(shopNames).map(([id, name]) => {
+          const own = [row?.skus?.[id] ? "its own SKU" : "", row?.profiles?.[id] ? "its own profile" : "", row?.photos?.[id] ? "its own photo order" : ""].filter(Boolean);
+          return (
+            <li key={id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-900" translate="no">{name}</span>
+              <span className="text-slate-700">{words[(row?.states?.[id] as string) ?? "not_sent"] ?? "Not sent"}</span>
+              <span className="w-full text-xs text-slate-600">{own.length ? `Has ${own.join(", ")}` : "Follows the listing"}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {batchId ? (
+        <Link href={`/batches/${batchId}?select=${contentId}`} className="btn-secondary">
+          Photos and attributes per shop
+        </Link>
+      ) : null}
     </div>
   );
 }

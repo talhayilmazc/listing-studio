@@ -44,5 +44,6 @@ test("shops that could not be read are said on every page, never shown as no sho
   const provider = read("components/ShopProvider.tsx");
   assert.ok(!/setData\(\{\s*shops:\s*\[\]/.test(provider), "a failed read must not become an empty list of shops");
   assert.ok(read("components/AppShell.tsx").includes("<ShopsLoadError />"));
-  assert.ok(!read("components/FirstRunGuide.tsx").includes(".catch(() => [])"), "the guide is not built from failed requests");
+  const checklist = read("components/SetupChecklist.tsx");
+  assert.ok(!checklist.includes(".catch(() => [])") && checklist.includes("if (failed && data === null) return null"), "the checklist is not built from failed requests");
 });

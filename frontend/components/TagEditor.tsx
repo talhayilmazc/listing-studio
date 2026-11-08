@@ -113,6 +113,7 @@ export function TagEditor({
           );
         })}
         <input
+          data-tag-input
           value={draft}
           onChange={(e) => {
             // A pasted or typed list becomes tags at once; the last piece keeps typing.

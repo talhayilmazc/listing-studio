@@ -1,28 +1,40 @@
-// B9: one consistent interface: the sidebar follows the work, one primary button per page,
-// one-sentence explanations with "?" help, shared status chips, a first-run guide.
+// One consistent interface (B9, app/onboarding-v1): the sidebar names the work in the seller's
+// words, one primary button per page, one-sentence explanations with "?" help, shared status
+// chips, and a first-run checklist kept on the server.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { steps } from "./firstRun.ts";
+import { offersExamples, stateOf, viewOf } from "./onboarding.ts";
+import { tabsFor } from "./sectionTabs.ts";
+import type { Onboarding } from "./types.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("the sidebar: Upload, Batches, Scheduled, Analytics; Library; Shops & groups; Settings", () => {
+test("the sidebar: six entries named by what the seller does, then Settings", () => {
   const rail = read("components/Rail.tsx");
   const labels = [...rail.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(labels, ["Overview", "Upload", "Batches", "Scheduled", "Seasonal planner", "Analytics", "Listing health", "Profiles", "Mockup templates", "Shops & groups", "Settings", "Admin"]);
-  assert.ok(rail.includes('title: "Library"') && rail.includes('title: "Account"'));
+  assert.deepEqual(labels, ["Home", "Designs", "Review", "Schedule", "Reports", "Shops", "Settings", "Admin"]);
+  assert.ok(!rail.includes('title: "Library"') && !rail.includes('title: "Workspace"'), "no section headings: six entries need none");
+  // What moved under an entry is a tab there, one click away.
+  assert.equal(tabsFor("/profiles")?.current, "/profiles");
+  assert.deepEqual(tabsFor("/settings")?.tabs.map((t) => t.label), ["Account", "Profiles", "Mockup templates"]);
+  assert.deepEqual(tabsFor("/analytics")?.tabs.map((t) => t.label), ["Profit and sales", "Listing health"]);
+  assert.deepEqual(tabsFor("/scheduled")?.tabs.map((t) => t.label), ["Scheduled", "Season planner"]);
+  assert.equal(tabsFor("/dashboard"), null);
 });
 
-test("page titles use the same words as the sidebar; New upload is never the page's primary", () => {
+test("page titles use the same words as the sidebar; no button in the header", () => {
   const strip = read("components/TopStrip.tsx");
-  assert.ok(strip.includes('"Upload"]') && strip.includes('"Shops & groups"]') && !strip.includes('"Uploads"]'));
-  assert.ok(strip.includes('className="btn-secondary shrink-0"') && !strip.includes("btn-primary"));
+  for (const word of ['"Home"]', '"Designs"]', '"Review"]', '"Schedule"]', '"Reports"]', '"Shops"]', '"Settings"]', '"Upload designs"]']) {
+    assert.ok(strip.includes(word), word);
+  }
+  assert.ok(!strip.includes("btn-primary") && !strip.includes("btn-secondary") && !strip.includes("New upload"));
 });
 
 test("one primary button: the batch page and the review page hand it over as the work moves on", () => {
   const batch = read("app/(app)/batches/[id]/page.tsx");
   assert.ok(batch.includes('groups.every((g) => g.done) ? "btn-primary" : "btn-secondary"'));
+  assert.ok(batch.includes('"Write listings"'));
   assert.ok(batch.includes('groups.some((g) => !g.done) ? "btn-primary" : "btn-secondary"'));
   assert.ok(read("app/(app)/batches/[id]/review/page.tsx").includes("primary={actions.approved === items.length}"));
 });
@@ -41,12 +53,26 @@ test("status words share one chip", () => {
   assert.ok(read("app/(app)/scheduled/page.tsx").includes("<StatusChip"));
 });
 
-test("the first-run guide ticks each step from the account's own data", () => {
-  const none = steps({ shops: 0, confirmedProfiles: 0, batches: 0, sent: 0 });
-  assert.deepEqual(none.map((s) => [s.key, s.done]), [["shop", false], ["profile", false], ["upload", false], ["send", false]]);
-  const half = steps({ shops: 2, confirmedProfiles: 1, batches: 0, sent: 0 });
-  assert.deepEqual(half.filter((s) => s.done).map((s) => s.key), ["shop", "profile"]);
-  assert.ok(read("app/(app)/dashboard/page.tsx").includes("<FirstRunGuide />"));
+const step = (key: Onboarding["steps"][number]["key"], done: boolean) =>
+  ({ key, title: key, body: "", href: "/", action: key, done, done_at: null });
+
+test("the first-run checklist comes from the server and becomes one note once done", () => {
+  const fresh: Onboarding = { steps: [step("shop", false), step("upload", false), step("approve", false), step("send", false)],
+    next: "shop", all_done: false, dismissed: false, example_batch_id: null };
+  assert.equal(viewOf(fresh), "steps");
+  assert.deepEqual(fresh.steps.map((s) => stateOf(s, fresh)), ["now", "later", "later", "later"]);
+  assert.ok(offersExamples(fresh));
+  const done: Onboarding = { ...fresh, steps: fresh.steps.map((s) => ({ ...s, done: true })), next: null, all_done: true };
+  assert.equal(viewOf(done), "set_up");
+  assert.equal(viewOf({ ...done, dismissed: true }), "none");
+  assert.equal(viewOf(null), "none");
+  assert.ok(!offersExamples(done));
+  const home = read("app/(app)/dashboard/page.tsx");
+  assert.ok(home.includes("<SetupChecklist />") && !home.includes("FirstRunGuide"));
+  // The empty slot for a usage line: there, and rendering nothing.
+  const card = read("components/SetupChecklist.tsx");
+  assert.match(card, /<UsageLine \/>/);
+  assert.ok(card.includes("function UsageLine(): null {") && card.includes("  return null;"), "the usage line renders nothing yet");
 });
 
 test("no single-shop leftovers in the words", () => {

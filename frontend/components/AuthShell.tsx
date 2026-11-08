@@ -58,7 +58,7 @@ export function AuthShell({
 export function EarlyAccessNotice() {
   return (
     <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.08em] text-amber-800">Early access</p>
+      <p className="text-xs font-medium text-amber-800">Early access</p>
       <p className="mt-1.5 text-xs leading-relaxed text-amber-900">
         This product is in early access and free to use. It may contain errors, and your listings are
         created as drafts you approve yourself — nothing is ever published to Etsy without your

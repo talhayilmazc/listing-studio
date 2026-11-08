@@ -164,7 +164,7 @@ export function StatusBar({
       <div className="card p-4 text-sm text-slate-600">
         Connect your Etsy shop to see its sales and profit.{" "}
         <Link href="/connect" className="font-medium text-brand-700 underline">
-          Connect a shop
+          Connect your shop
         </Link>
       </div>
     );

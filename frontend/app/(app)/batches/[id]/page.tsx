@@ -26,6 +26,8 @@ import { GenerateConfirm, WrittenElsewhere } from "@/components/GenerateConfirm"
 import { STATE_WORDS, profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 
 import { Txt } from "@/components/Txt";
+import { toast } from "@/lib/toast";
+import { writtenLine } from "@/lib/words";
 interface AssetGroup {
   key: string;
   label: string;
@@ -311,6 +313,8 @@ export default function BatchPage() {
   // as they happen.
   // Said before Generate writes anything: how many listings, and what it uses of the allowance.
   const [askGenerate, setAskGenerate] = useState<{ count: number; run: () => void } | null>(null);
+  // "Writing 3 of 12": how far the writing has got, while it runs.
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   async function generateAll() {
     if (blockedByUnsorted) {
@@ -328,8 +332,9 @@ export default function BatchPage() {
     let failed = 0;
     let skipped = 0;
     const allFailures: { original_filename: string; error: string }[] = [];
+    setProgress({ done: 0, total: todo.length });
     for (const [i, g] of todo.entries()) {
-      setNotice(`Generating ${i + 1} of ${todo.length}: ${g.label}…`);
+      setNotice(`Writing ${i + 1} of ${todo.length}: ${g.label}…`);
       try {
         const res = await api.generate(id, bulkProfileId || undefined, g.key, { ignoreUnsorted });
         if (res.paused) {
@@ -351,10 +356,18 @@ export default function BatchPage() {
         allFailures.push({ original_filename: g.label, error: e.message ?? String(e) });
       }
       setFailures([...allFailures]);
+      setProgress({ done: i + 1, total: todo.length });
       await load();
     }
-    setNotice(`Generated ${generated}, failed ${failed}, skipped ${skipped}.`);
+    setProgress(null);
+    setNotice(writtenLine(generated, failed, skipped));
     setBusy(null);
+    // Said wherever the seller is now: the loop carries on when they open another page.
+    if (generated > 0) {
+      toast(`Listings ready: ${batch?.name ?? "your batch"}`, { action: { label: "Review", href: `/batches/${id}/review` } });
+    } else if (failed > 0) {
+      toast(`${failed} listing${failed === 1 ? "" : "s"} could not be written`, { tone: "error", action: { label: "See why", href: `/batches/${id}` } });
+    }
   }
 
   async function generate(groupKey?: string) {
@@ -368,7 +381,7 @@ export default function BatchPage() {
         setProblem(res.paused);
         return;
       }
-      setNotice(`Generated ${res.generated}, failed ${res.failed}, skipped ${res.skipped}.`);
+      setNotice(writtenLine(res.generated, res.failed, res.skipped));
       setFailures(res.failures);
       await load();
     } catch (e: any) {
@@ -460,7 +473,7 @@ export default function BatchPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/batches" className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
-            ← Batches
+            ← Designs
           </Link>
           <h2 className="mt-1 max-w-xl font-display text-2xl text-slate-900">
             <BatchName batch={batch} onRenamed={(updated) => setBatch((cur) => (cur ? { ...cur, ...updated } : cur))} />
@@ -590,7 +603,7 @@ export default function BatchPage() {
                     else setAskGenerate({ count: todo, run: generateAll });
                   }}
                   disabled={anyBusy || noProfiles} data-testid="generate-all">
-                  {busy === "__all__" ? "Generating all…" : "Generate all"}
+                  {busy === "__all__" ? "Writing…" : "Write listings"}
                 </button>
                 {groups.some((g) => !g.done) && (
                   <button key="manual-all" className="btn-secondary" onClick={() => writeMyself()} disabled={anyBusy || noProfiles}
@@ -658,7 +671,14 @@ export default function BatchPage() {
       )}
 
       {notice && (
-        <div key="div-322-6" role="status" translate="no" className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">{notice}</div>
+        <div key="div-322-6" role="status" translate="no" className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">
+          <span>{notice}</span>
+          {progress ? (
+            <span key="bar" className="progress mt-2 block" aria-hidden>
+              <span className="progress-fill block" style={{ width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%` }} />
+            </span>
+          ) : null}
+        </div>
       )}
       {problem && (
         <div key="problem" role="alert" className="card flex items-start justify-between gap-3 border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

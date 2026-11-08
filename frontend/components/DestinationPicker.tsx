@@ -73,7 +73,7 @@ export function DestinationPicker({
                 <span className="min-w-0 flex-1 truncate"><span>Same as the others</span><span translate="no" className="text-slate-500">{` (${follow})`}</span></span>
               </button>
             )}
-            <p className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:px-3">Groups</p>
+            <p className="px-4 pb-1 pt-2 text-[11px] font-semibold text-slate-500 sm:px-3">Groups</p>
             {groups.map((g) => (
               <label key={g.id} className={row}>
                 <input type="checkbox" className="h-4 w-4" checked={isChosen(value, "group", g.id)}
@@ -86,7 +86,7 @@ export function DestinationPicker({
               <p key="no-groups" className="px-4 py-1 text-xs text-slate-500 sm:px-3">No shop groups yet.</p>
             )}
             <Link href="/shops#groups" className="tap block px-4 py-1.5 text-xs text-brand-700 underline sm:px-3">Create shop groups</Link>
-            <p className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:px-3">or one shop</p>
+            <p className="px-4 pb-1 pt-3 text-[11px] font-semibold text-slate-500 sm:px-3">or one shop</p>
             {shops.map((s) => (
               <label key={s.id} className={row}>
                 <input type="checkbox" className="h-4 w-4" checked={isChosen(value, "shop", s.id)}

@@ -15,7 +15,7 @@ export interface ConnectBanner {
   retry: boolean;
 }
 
-const AGAIN = "Press Connect a shop again.";
+const AGAIN = "Press Connect your shop again.";
 
 export const TOO_LONG = `The connection took too long or started in another browser. ${AGAIN}`;
 

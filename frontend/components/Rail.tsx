@@ -7,11 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { shopSections, supportsAll } from "@/lib/shopScope";
 import { useSession } from "./SessionProvider";
-import type { Attention, Profile, ShopGroups } from "@/lib/types";
+import type { Attention, ShopGroups } from "@/lib/types";
 import { useShops } from "./ShopProvider";
 import { RailAllowance } from "./Allowance";
-import { SEARCH_ABOVE, byMainShop } from "@/lib/profileShops";
-import { PROFILES_CHANGED } from "@/lib/shopSetup";
 
 /**
  * Persistent dark left rail (docs/ui-direction-v2.md §1).
@@ -21,60 +19,46 @@ import { PROFILES_CHANGED } from "@/lib/shopSetup";
  * remaining Etsy request quota is shown on Overview, and a seller is told on every
  * page when it makes their work wait (PauseNotice); it is no longer a figure here.
  *
- * The rail is inhabited rather than sparse: grouped sections, an icon per entry,
- * and the seller's own profiles as children of Profiles.
+ * Six entries named by what the seller does, then Settings (app/onboarding-v1): profiles,
+ * mockup templates and the account are under Settings, not beside the daily work.
  */
 
-type Item = { href: string; label: string; icon: Icon };
+type Item = { href: string; label: string; icon: Icon; also?: RegExp };
 
-// The order follows the work (B9): upload, review in a batch, schedule, see how it went; the
-// library the work uses; then the shops and the account.
-const SECTIONS: { title: string; items: Item[] }[] = [
-  {
-    title: "Workspace",
-    items: [
-      { href: "/dashboard", label: "Overview", icon: IconGrid },
-      { href: "/upload", label: "Upload", icon: IconUpload },
-      { href: "/batches", label: "Batches", icon: IconLayers },
-      { href: "/scheduled", label: "Scheduled", icon: IconClock },
-      { href: "/season-planner", label: "Seasonal planner", icon: IconClock },
-      { href: "/analytics", label: "Analytics", icon: IconChart },
-      { href: "/listing-health", label: "Listing health", icon: IconTag },
-    ],
-  },
-  {
-    title: "Library",
-    items: [
-      { href: "/profiles", label: "Profiles", icon: IconTag },
-      { href: "/templates", label: "Mockup templates", icon: IconShirt },
-    ],
-  },
-  {
-    title: "Account",
-    items: [
-      { href: "/connect", label: "Shops & groups", icon: IconStore },
-      { href: "/settings", label: "Settings", icon: IconGear },
-    ],
-  },
+/**
+ * The work, in the order a seller does it, in their words (app/onboarding-v1; docs/app-audit.md):
+ * see where things stand, upload designs, review what Listyro wrote, schedule it, see how it went,
+ * and the shops it goes to. Everything else (profiles, mockup templates, the account) is under
+ * Settings at the foot. ``also``: the pages that belong to an entry without being its own.
+ */
+export const NAV: Item[] = [
+  { href: "/dashboard", label: "Home", icon: IconGrid },
+  { href: "/batches", label: "Designs", icon: IconLayers, also: /^\/(upload|templates\/designs)(\/|$)/ },
+  { href: "/review", label: "Review", icon: IconCheck },
+  { href: "/scheduled", label: "Schedule", icon: IconClock, also: /^\/season-planner(\/|$)/ },
+  { href: "/analytics", label: "Reports", icon: IconChart, also: /^\/listing-health(\/|$)/ },
+  { href: "/connect", label: "Shops", icon: IconStore },
 ];
 
-const ADMIN_SECTION = {
-  title: "Operator",
-  items: [{ href: "/admin", label: "Admin", icon: IconShield }],
-};
+export const SETTINGS: Item = { href: "/settings", label: "Settings", icon: IconGear, also: /^\/(profiles|templates)(\/|$)/ };
+const ADMIN: Item = { href: "/admin", label: "Admin", icon: IconShield };
 
-function isActive(pathname: string, href: string) {
-  if (href === "/batches") return pathname.startsWith("/batches");
-  return pathname === href || pathname.startsWith(href + "/");
+export function isActive(pathname: string, item: Item): boolean {
+  if (item.href === "/batches") {
+    // A batch's review page belongs to Review; the batch itself to Designs.
+    if (/^\/batches\/[^/]+\/review$/.test(pathname)) return false;
+    if (pathname.startsWith("/batches")) return true;
+  }
+  if (item.href === "/review" && /^\/batches\/[^/]+\/review$/.test(pathname)) return true;
+  if (item.also?.test(pathname) && !(item.href === "/settings" && pathname.startsWith("/templates/designs"))) return true;
+  return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 
 export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname() ?? "/";
   const { account } = useSession();
-  const [profiles, setProfiles] = useState<Profile[] | null>(null);
-  const { shops } = useShops();
   // What needs the seller, as a count on each entry (GET /api/attention; the same counts as
-  // Overview's "Needs your attention"). Read again on every page and once a minute.
+  // Home's "Needs your attention"). Read again on every page and once a minute.
   const [attention, setAttention] = useState<Attention | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -86,23 +70,25 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
       clearInterval(timer);
     };
   }, [pathname]);
-
-  // Every shop's profiles (B6): a profile is the account's; the rail groups them by main shop.
-  // Read once, and again whenever a profile changes anywhere (lib/shopSetup.ts PROFILES_CHANGED).
-  useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      api
-        .listProfiles(null)
-        .then((p) => !cancelled && setProfiles(p))
-        .catch(() => setProfiles([]));
-    load();
-    window.addEventListener(PROFILES_CHANGED, load);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(PROFILES_CHANGED, load);
-    };
-  }, []);
+  // The old pages' counts belong to the entries that hold them now.
+  const badge = (href: string): number => {
+    const nav = attention?.nav ?? {};
+    if (href === "/review") return nav["/batches"] ?? 0;
+    if (href === "/settings") return (nav["/profiles"] ?? 0) + (nav["/templates"] ?? 0);
+    if (href === "/batches") return 0;
+    return nav[href] ?? 0;
+  };
+  const link = (item: Item) => (
+    <RailLink
+      key={item.href}
+      href={item.href}
+      label={item.label}
+      icon={item.icon}
+      active={isActive(pathname, item)}
+      onClose={onClose}
+      badge={badge(item.href)}
+    />
+  );
 
   return (
     <>
@@ -115,6 +101,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
         }
       />
       <aside
+        aria-label="Main"
         className={
           "fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[var(--rail)] transition-transform " +
           "lg:translate-x-0 " +
@@ -122,7 +109,7 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
         }
       >
         <div className="flex items-center justify-between px-5 py-5">
-          <Link href="/dashboard" onClick={onClose} className="flex items-center gap-2.5">
+          <Link href="/dashboard" onClick={onClose} className="flex items-center gap-2.5" aria-label="Listyro, home">
             <Logo size={24} tone="paper" />
           </Link>
           <button
@@ -137,30 +124,13 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
           </button>
         </div>
 
-        <nav className="mt-1 flex-1 overflow-y-auto pb-4">
-          {/* The entry is a convenience only; the server re-checks the role on every admin call. */}
-          {(account?.is_admin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS).map((section) => (
-            <div key={section.title} className="mb-5">
-              <p className="px-5 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--rail-heading)]">
-                {section.title}
-              </p>
-              {section.items.map((item) => (
-                <div key={item.href}>
-                  <RailLink
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={isActive(pathname, item.href)}
-                    onClose={onClose}
-                    badge={attention?.nav?.[item.href] ?? 0}
-                  />
-                  {item.href === "/profiles" && (
-                    <ProfileChildren key="profilechildren-125-18" profiles={profiles} shops={shops ?? []} onClose={onClose} />
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
+        <nav aria-label="Primary" className="mt-1 flex-1 overflow-y-auto pb-4">
+          {NAV.map(link)}
+          <div className="mt-5 border-t border-white/[0.08] pt-3">
+            {link(SETTINGS)}
+            {/* The entry is a convenience only; the server re-checks the role on every admin call. */}
+            {account?.is_admin ? link(ADMIN) : null}
+          </div>
         </nav>
 
         <RailFooter />
@@ -194,7 +164,6 @@ function RailLink({
       href={href}
       onClick={onClose}
       aria-current={active ? "page" : undefined}
-      aria-label={badge ? `${label}, ${badge} need${badge === 1 ? "s" : ""} your attention` : undefined}
       data-testid="rail-link"
       className={
         "relative flex items-center gap-2.5 px-5 py-2 text-sm transition-colors max-lg:min-h-[2.75rem] " +
@@ -207,111 +176,17 @@ function RailLink({
       <Icon active={active} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {/* A fixed slot so a count arriving never moves the label. */}
-      <span className="flex h-5 min-w-[1.5rem] shrink-0 items-center justify-end" aria-hidden={!badge}>
+      <span className="flex h-5 min-w-[1.5rem] shrink-0 items-center justify-end">
         {badge > 0 && (
           <span key="badge" translate="no" data-testid="rail-badge"
             className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold leading-5 text-stone-900 tabular-nums">
             {badge > 99 ? "99+" : badge}
           </span>
         )}
+        {/* Spoken after the number, so the link's name starts with what is on screen ("Review 6 …"). */}
+        {badge > 0 && <span key="said" className="sr-only">{` need${badge === 1 ? "s" : ""} your attention`}</span>}
       </span>
     </Link>
-  );
-}
-
-/** Whether the rail's "Profiles" section is open, remembered in this browser (a convenience). */
-const OPEN_KEY = "listyro.rail.profiles";
-
-/**
- * Every shop's profiles under the Profiles entry, grouped by main shop (B6), in a section the
- * seller opens and closes; a search once there are more than ten.
- */
-function ProfileChildren({
-  profiles,
-  shops,
-  onClose,
-}: {
-  profiles: Profile[] | null;
-  shops: { id: string; name: string }[];
-  onClose: () => void;
-}) {
-  const [open, setOpen] = useState(true);
-  const [query, setQuery] = useState("");
-  useEffect(() => {
-    try {
-      const saved = globalThis.localStorage?.getItem(OPEN_KEY);
-      if (saved !== null && saved !== undefined) setOpen(saved !== "0");
-    } catch {
-      /* storage blocked: open */
-    }
-  }, []);
-  const toggle = () => {
-    setOpen((o) => {
-      try {
-        globalThis.localStorage?.setItem(OPEN_KEY, o ? "0" : "1");
-      } catch {
-        /* not remembered */
-      }
-      return !o;
-    });
-  };
-
-  if (profiles === null) {
-    return (
-      <div className="space-y-1.5 py-1.5 pl-[46px] pr-5">
-        {[0, 1].map((i) => (
-          <div key={i} className="h-2.5 w-20 animate-pulse rounded bg-white/[0.07]" />
-        ))}
-      </div>
-    );
-  }
-  if (profiles.length === 0) return null;
-  const groups = byMainShop(profiles, shops, query);
-  const several = shops.length > 1;
-
-  return (
-    <div className="relative" data-testid="rail-profiles">
-      <button type="button" onClick={toggle} aria-expanded={open} data-testid="rail-profiles-toggle"
-        className="flex w-full items-center gap-1.5 py-[5px] pl-[46px] pr-5 text-left text-[12px] text-[var(--rail-text)] hover:text-[var(--rail-active)] max-lg:min-h-[2.75rem]">
-        <span aria-hidden className={"inline-block transition-transform " + (open ? "rotate-90" : "")}>›</span>
-        <span translate="no">{`${open ? "Hide" : "Show"} ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`}</span>
-      </button>
-      {open && (
-        <div key="list">
-          {profiles.length > SEARCH_ABOVE && (
-            <div key="search" className="py-1 pl-[46px] pr-5">
-              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a profile…"
-                aria-label="Find a profile" data-testid="rail-profiles-search"
-                className="w-full rounded border border-white/10 bg-white/[0.06] px-2 py-1 text-[13px] text-white placeholder:text-[var(--rail-text)] max-lg:min-h-[2.75rem] max-lg:text-base" />
-            </div>
-          )}
-          {groups.map(([shop, items]) => (
-            <div key={shop}>
-              {several && (
-                <p key="shop" translate="no" className="truncate pb-0.5 pl-[46px] pr-5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--rail-heading)]">
-                  {shop}
-                </p>
-              )}
-              {items.map((p) => (
-                <Link
-                  key={p.id}
-                  href={"/profiles#profile-" + p.id}
-                  onClick={onClose}
-                  title={p.name}
-                  className="flex items-center gap-2 py-[5px] pl-[46px] pr-5 text-[13px] max-lg:min-h-[2.75rem] text-[var(--rail-text)] transition-colors hover:bg-white/[0.03] hover:text-[var(--rail-active)]"
-                >
-                  <span aria-hidden className={"h-1 w-1 shrink-0 rounded-full " + (p.confirmed ? "bg-emerald-500/70" : "bg-amber-500/70")} />
-                  <span className="truncate">{p.name}</span>
-                </Link>
-              ))}
-            </div>
-          ))}
-          {query && groups.length === 0 && (
-            <p key="none" className="py-1 pl-[46px] pr-5 text-[12px] text-[var(--rail-text)]">No profile matches.</p>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -370,16 +245,9 @@ function RailFooter() {
         </button>
       </div>
 
-      {shops !== null && shops.length === 0 ? (
-        <Link
-          href="/connect"
-          className="block rounded-lg border border-white/[0.12] px-3 py-2 text-center text-sm text-[var(--rail-active)] transition-colors hover:bg-white/[0.06]"
-        >
-          Connect shop
-        </Link>
-      ) : (
+      {shops === null || shops.length === 0 ? null : (
         <div className="relative" ref={switcherRef}>
-          <p className="mb-1 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]">
+          <p className="mb-1 px-2 text-[10px] font-medium text-[var(--rail-text)]">
             Shop
           </p>
           {/* The shop decides what most pages show, so the switcher reads as a
@@ -437,7 +305,7 @@ function RailFooter() {
               aria-label="Your shops"
               className="absolute inset-x-0 bottom-full z-10 mb-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/15 bg-[#26221f] shadow-2xl"
             >
-              <p className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--rail-text)]">
+              <p className="px-3 pb-1 pt-2.5 text-[10px] font-medium text-[var(--rail-text)]">
                 Your shops
               </p>
               {shops.length > 1 && supportsAll(pathname) && (
@@ -469,7 +337,7 @@ function RailFooter() {
               {shopSections(shops, groups?.groups ?? null).map(([title, members]) => (
                 <div key={title || "none"}>
                   {title && (
-                    <p key="group" translate="no" className="px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-[0.1em] text-stone-400/80">{title}</p>
+                    <p key="group" translate="no" className="px-3 pb-0.5 pt-1.5 text-[10px] text-stone-400/80">{title}</p>
                   )}
                   {members.map((shop) => {
                 const current = !showAll && shop.id === selected?.id;
@@ -571,6 +439,10 @@ function svg(children: React.ReactNode, active: boolean) {
       {children}
     </svg>
   );
+}
+
+function IconCheck({ active }: { active: boolean }) {
+  return svg(<path d="M4 12.5l5 5L20 6.5" />, active);
 }
 
 function IconGrid({ active }: { active: boolean }) {

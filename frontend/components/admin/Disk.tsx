@@ -108,7 +108,7 @@ export function DiskPanel({ disk, onChanged, onError }: { disk: AdminDisk | null
         <p key="nobar" className="mt-5 text-sm text-slate-500">The disk&apos;s size could not be read.</p>
       )}
 
-      <div className="mt-3 overflow-x-auto">
+      <div className="mt-3 overflow-x-auto" tabIndex={0} role="region" aria-label="Storage by account">
         <table className="text-left text-xs max-sm:w-max sm:w-full">
           <thead>
             <tr className="border-b border-slate-200 text-slate-500">
@@ -178,7 +178,7 @@ function AccountsTable({ disk }: { disk: AdminDisk }) {
   if (!disk.accounts.length) return null;
   const all = disk.accounts.reduce((n, a) => n + a.bytes, 0);
   return (
-    <div className="mt-5 overflow-x-auto">
+    <div className="mt-5 overflow-x-auto" tabIndex={0} role="region" aria-label="Disk use by category">
       <h3 className="text-sm font-medium text-slate-900">Storage per account</h3>
       <table className="mt-2 w-full min-w-[26rem] text-xs">
         <thead className="border-b border-slate-200 text-slate-500">
@@ -216,7 +216,7 @@ function Stat({ label, value, note }: { label: string; value: string; note: stri
     <div className="min-w-0">
       <dt className="text-xs text-slate-500">{label}</dt>
       <dd className="mt-1 font-display text-3xl leading-none tabular-nums text-slate-900">{value}</dd>
-      <p className="mt-1 text-[11px] text-slate-500">{note}</p>
+      <dd className="mt-1 text-[11px] text-slate-600">{note}</dd>
     </div>
   );
 }

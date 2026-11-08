@@ -14,6 +14,7 @@ import { DiskPanel } from "@/components/admin/Disk";
 import { SalesRereadAdminPanel } from "@/components/analytics/SalesReread";
 import { Txt } from "@/components/Txt";
 import { UsageSummary, UsageTab } from "@/components/admin/Usage";
+import { FunnelPanel } from "@/components/admin/Funnel";
 
 /**
  * Operator screens. `is_admin` here only decides what to paint: every request
@@ -24,11 +25,12 @@ import { UsageSummary, UsageTab } from "@/components/admin/Usage";
  * read, another seller's designs, batches or generated content.
  */
 
-type Tab = "users" | "invites" | "usage";
+type Tab = "users" | "invites" | "usage" | "funnel";
 const TABS: { id: Tab; label: string }[] = [
   { id: "users", label: "Users" },
   { id: "invites", label: "Invites" },
   { id: "usage", label: "Usage" },
+  { id: "funnel", label: "Funnel" },
 ];
 
 // The budget moves as sellers work; keep the at-a-glance figure current.
@@ -99,7 +101,7 @@ export default function AdminPage() {
             pending-requests badge has its own slot whether or not there is anything waiting:
             a number arriving, or changing from 9 to 10, moves no tab. If the bar is ever wider
             than a narrow screen it scrolls inside itself, not the page. */}
-        <div role="tablist" aria-label="Admin sections" className="flex gap-4 overflow-x-auto border-b border-slate-200 sm:gap-6" data-testid="admin-tabs">
+        <div role="tablist" aria-label="Admin sections" className="flex flex-wrap gap-x-3 border-b border-slate-200 sm:flex-nowrap sm:gap-6 sm:overflow-x-auto" data-testid="admin-tabs">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -193,6 +195,9 @@ export default function AdminPage() {
               <AiCostPanel cost={aiCost} onChanged={loadUsage} onError={setError} />
             </div>
             <UsageTab key="usagetab-135-10" usage={usage} />
+          </div>
+          <div role="tabpanel" id="panel-funnel" aria-labelledby="tab-funnel" hidden={tab !== "funnel"}>
+            <FunnelPanel />
           </div>
         </div>
       </div>

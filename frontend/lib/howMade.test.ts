@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { NOT_SENT, cardLine, problem, shortWords, toggleTool } from "./howMade.ts";
-import { steps } from "./firstRun.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
@@ -48,7 +47,6 @@ test("nothing per listing: no tick list, no page, no badge, no line on cards; th
     assert.ok(!/tick (the same|in Etsy)/i.test(src), `${file}: no "tick in Etsy" instruction`);
   }
   assert.ok(!read("components/ReviewCard.tsx").includes("how_made"), "no How it's made line on a listing card");
-  const facts = { shops: 1, confirmedProfiles: 1, batches: 0, sent: 0 };
-  assert.equal(steps(facts)[1].done, true, "a confirmed profile is a finished step, answers or not");
-  assert.ok(!read("components/FirstRunGuide.tsx").includes("how_made"));
+  // The first-run checklist (server-side, pipeline/onboarding.py) has no How it's made step either.
+  assert.ok(!read("components/SetupChecklist.tsx").includes("how_made") && !read("lib/onboarding.ts").includes("how_made"));
 });

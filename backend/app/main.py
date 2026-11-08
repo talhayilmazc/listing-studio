@@ -49,6 +49,7 @@ from app.api import (
     shops,
     skus,
     unfinished,
+    onboarding,
 )
 from app.core.config import get_settings
 from app.core.errortracking import init_error_tracking
@@ -166,6 +167,7 @@ def create_app() -> FastAPI:
     application.include_router(personalization_fix.router)
     application.include_router(another_shop.router)
     application.include_router(events.router)
+    application.include_router(onboarding.router)
     return application
 
 
