@@ -306,6 +306,8 @@ body {
 .lx-navl {
   display: flex;
   gap: 30px;
+  font-size: 15px;
+  font-weight: 600;
 }
 @media (max-width: 1000px) {
   .lx-hero {
@@ -591,4 +593,1030 @@ body {
 }
 .site .field {
   border-radius: 12px;
+}
+
+/* ---------- The home page's pieces (site v3) ----------
+   The reference's inline values, written once here instead of on every element: as inline styles they were
+   sent twice (in the HTML and again in the page's React payload), which made the home page's document 27 KB
+   against 11 KB for the other pages. Same values, same look. Per-item colours stay on the element. */
+.lx-ref a:not(.mk-link) {
+  text-decoration: none;
+}
+.lx-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 80px;
+  gap: 20px;
+}
+.lx-head-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.lx-signin {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 12px;
+}
+.lx-head-cta {
+  font-size: 15px;
+  font-weight: 800;
+  padding: 12px 20px;
+  min-height: 44px;
+}
+.lx-foot {
+  border-top: 1px solid #eef0f5;
+  padding: 48px 0 60px;
+}
+.lx-foot-in {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.lx-foot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 56px;
+  justify-content: space-between;
+  align-items: center;
+}
+.lx-foot-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 26px;
+  font-size: 15px;
+}
+.lx-notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6a6f8a;
+}
+.lx-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Hero */
+.lx-hero-sec {
+  position: relative;
+  padding: 40px 0 120px;
+  background:
+    radial-gradient(700px 480px at 82% 20%, rgba(255, 210, 74, 0.3), rgba(255, 210, 74, 0) 70%),
+    radial-gradient(700px 520px at 98% 70%, rgba(150, 120, 255, 0.2), rgba(150, 120, 255, 0) 70%),
+    radial-gradient(600px 400px at 0% 0%, rgba(120, 190, 255, 0.14), rgba(120, 190, 255, 0) 70%),
+    #ffffff;
+}
+.lx-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-width: 0;
+}
+.lx-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #e6e8ef;
+  box-shadow: 0 2px 10px rgba(20, 22, 43, 0.06);
+  font-size: 14px;
+  font-weight: 700;
+}
+.lx-badge-dot {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  border-radius: 99px;
+  background: #e9f6ee;
+  align-items: center;
+  justify-content: center;
+}
+.lx-h1 {
+  margin: 0;
+  font-size: clamp(46px, 6vw, 80px);
+  line-height: 0.96;
+  font-weight: 900;
+  font-stretch: 112%;
+  letter-spacing: -2.6px;
+}
+.lx-sub {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.5;
+  color: #4b4f6b;
+  max-width: 29em;
+}
+.lx-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+.lx-hero-cta {
+  font-size: 18px;
+  font-weight: 900;
+  padding: 19px 30px;
+  box-shadow: 0 14px 30px rgba(20, 22, 43, 0.22);
+}
+.lx-video {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 17px;
+  font-weight: 700;
+  padding: 12px 8px;
+}
+.lx-video-dot {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  border-radius: 99px;
+  background: #ffd24a;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(255, 190, 40, 0.35);
+}
+.lx-reassure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #4b4f6b;
+}
+.lx-reassure > span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* The hero's picture */
+.lx-win {
+  border-radius: 22px;
+  background: #ffffff;
+  border: 1px solid #e3e6ee;
+  box-shadow:
+    0 50px 100px rgba(20, 22, 43, 0.2),
+    0 8px 24px rgba(20, 22, 43, 0.08);
+  overflow: hidden;
+}
+.lx-win-bar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  border-bottom: 1px solid #eef0f5;
+  background: #fafbfd;
+}
+.lx-light {
+  width: 11px;
+  height: 11px;
+  border-radius: 99px;
+}
+.lx-win-name {
+  margin-left: 14px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.lx-win-count {
+  font-size: 13px;
+  color: #6a6f8a;
+}
+.lx-ready {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1a7340;
+  background: #e9f6ee;
+  border-radius: 99px;
+  padding: 5px 10px;
+}
+.lx-win-grid {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  background: #ffffff;
+}
+.lx-tile {
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f3f4f8, #e4e6ee);
+  overflow: hidden;
+}
+.lx-hv-shops {
+  border-radius: 18px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e3e6ee;
+  box-shadow: 0 24px 60px rgba(20, 22, 43, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lx-shops-h {
+  font-size: 13px;
+  font-weight: 800;
+}
+.lx-shop-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.lx-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+}
+.lx-shop-name {
+  flex-grow: 1;
+  font-weight: 700;
+}
+.lx-muted {
+  color: #6a6f8a;
+}
+.lx-hv-ai {
+  border-radius: 20px;
+  padding: 18px;
+  background: #14162b;
+  color: #ffffff;
+  box-shadow: 0 30px 70px rgba(20, 22, 43, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.lx-ai-read {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffd24a;
+}
+.lx-ai-title {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+.lx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lx-chip-dark {
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 4px 8px;
+}
+.lx-ai-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #a4a9c4;
+}
+
+/* Sections */
+.lx-h2 {
+  margin: 0;
+  font-size: clamp(36px, 4.4vw, 58px);
+  line-height: 1;
+  font-weight: 900;
+  font-stretch: 110%;
+  letter-spacing: -1.6px;
+}
+.lx-lead {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.5;
+  color: #4b4f6b;
+}
+.lx-strip {
+  border-top: 1px solid #eef0f5;
+  border-bottom: 1px solid #eef0f5;
+  background: #fafbfd;
+}
+.lx-strip-in {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 18px 32px;
+  padding-top: 26px;
+  padding-bottom: 26px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #3b3f5c;
+}
+.lx-strip-in > span {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+.lx-strip-box {
+  box-sizing: content-box;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #ffffff;
+  border: 1px solid #e6e8ef;
+  align-items: center;
+  justify-content: center;
+}
+.lx-sec-grind {
+  padding: 120px 0 110px;
+}
+.lx-stack-52 {
+  display: flex;
+  flex-direction: column;
+  gap: 52px;
+}
+.lx-stack-48 {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+.lx-stack-44 {
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+}
+.lx-head-16 {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 760px;
+}
+.lx-head-14 {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lx-byhand {
+  border-radius: 28px;
+  padding: 36px;
+  background: #f5f6fa;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.lx-byhand-label {
+  font-size: 15px;
+  font-weight: 800;
+  color: #6a6f8a;
+}
+.lx-byhand-item {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #6a6f8a;
+}
+.lx-byhand-item > svg {
+  flex-shrink: 0;
+}
+.lx-struck {
+  text-decoration: line-through;
+  text-decoration-color: rgba(106, 111, 138, 0.5);
+}
+.lx-withus {
+  border-radius: 28px;
+  padding: 36px;
+  background: #14162b;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  box-shadow: 0 30px 70px rgba(20, 22, 43, 0.25);
+}
+.lx-withus-label {
+  font-size: 15px;
+  font-weight: 800;
+  color: #ffd24a;
+}
+.lx-withus-item {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 26px;
+  font-weight: 850;
+  font-stretch: 106%;
+  line-height: 1.2;
+}
+.lx-tick {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 99px;
+  background: #ffd24a;
+  align-items: center;
+  justify-content: center;
+}
+.lx-withus-note {
+  margin-top: auto;
+  font-size: 17px;
+  line-height: 1.5;
+  color: #b7bbd3;
+}
+.lx-sec-how {
+  padding: 20px 0 120px;
+  scroll-margin-top: 20px;
+}
+.lx-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lx-step-art {
+  border-radius: 24px;
+  height: 230px;
+  box-sizing: border-box;
+}
+.lx-art-files {
+  background: #eef3fb;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 9px;
+}
+.lx-file {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(20, 22, 43, 0.06);
+}
+.lx-file-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.lx-art-colours {
+  background: #fff3d1;
+  padding: 20px 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 4px;
+  align-content: center;
+}
+.lx-colour {
+  border-radius: 10px;
+  overflow: hidden;
+}
+.lx-art-written {
+  background: #eaf6f0;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+.lx-written {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1a7340;
+}
+.lx-written-title {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1.3;
+  box-shadow: 0 2px 6px rgba(20, 22, 43, 0.06);
+}
+.lx-chips-5 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.lx-chip-white {
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #ffffff;
+  border-radius: 7px;
+  padding: 4px 8px;
+}
+.lx-art-days {
+  background: #fbedef;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+.lx-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.lx-day {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: center;
+}
+.lx-day-n {
+  font-size: 11px;
+  font-weight: 800;
+  color: #4b4f6b;
+}
+.lx-day-bar {
+  width: 100%;
+  height: 24px;
+  border-radius: 7px;
+}
+.lx-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b4f6b;
+}
+.lx-legend > span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.lx-dot8 {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+}
+.lx-step-title {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.lx-step-n {
+  font-size: 16px;
+  font-weight: 900;
+  color: #6a6f8a;
+}
+.lx-h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 850;
+}
+.lx-step-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #4b4f6b;
+}
+.lx-sec-dark {
+  background: #14162b;
+  color: #ffffff;
+  padding: 120px 0;
+  background-image:
+    radial-gradient(700px 400px at 90% 0%, rgba(255, 210, 74, 0.16), rgba(255, 210, 74, 0) 70%),
+    radial-gradient(600px 400px at 0% 100%, rgba(150, 120, 255, 0.18), rgba(150, 120, 255, 0) 70%);
+}
+.lx-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 56px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.lx-shops-sub {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.5;
+  color: #c3c7dd;
+  max-width: 25em;
+}
+.lx-shop-card {
+  border-radius: 24px;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lx-shop-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.lx-shop-card-name {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 800;
+}
+.lx-dot10 {
+  width: 10px;
+  height: 10px;
+  border-radius: 99px;
+}
+.lx-faint {
+  font-size: 13px;
+  color: #a4a9c4;
+}
+.lx-cover {
+  border-radius: 18px;
+  background: linear-gradient(180deg, #2a2d48, #23263f);
+  overflow: hidden;
+}
+.lx-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.lx-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lx-pill-dark {
+  font-size: 12px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 5px 9px;
+}
+.lx-sec-120 {
+  padding: 120px 0;
+  scroll-margin-top: 20px;
+}
+.lx-safe-card {
+  border-radius: 24px;
+  padding: 28px;
+  background: #f5f6fa;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lx-safe-icon {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  align-items: center;
+  justify-content: center;
+}
+.lx-h3-21 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 850;
+}
+.lx-card-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #4b4f6b;
+}
+.lx-person {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 17px;
+  font-weight: 650;
+  color: #3b3f5c;
+}
+.lx-person-dot {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 99px;
+  background: #f1ecff;
+  align-items: center;
+  justify-content: center;
+}
+.lx-sec-yellow {
+  background: #ffd24a;
+  padding: 110px 0;
+}
+.lx-voices {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  max-width: 1000px;
+}
+.lx-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.lx-blockquote {
+  margin: 0;
+}
+.lx-quote-big {
+  margin: 0;
+  font-size: clamp(26px, 3.2vw, 40px);
+  line-height: 1.22;
+  font-weight: 850;
+  font-stretch: 104%;
+  letter-spacing: -0.6px;
+}
+.lx-who {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.lx-who-sm {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: auto;
+}
+.lx-who-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lx-who-sm .lx-who-lines {
+  gap: 2px;
+}
+.lx-avatar {
+  box-sizing: content-box;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+}
+.lx-avatar-lg {
+  width: 58px;
+  height: 58px;
+  border: 3px solid #14162b;
+  font-size: 20px;
+}
+.lx-avatar-sm {
+  width: 44px;
+  height: 44px;
+  border: 2px solid #14162b;
+  font-size: 15px;
+}
+.lx-who-name-lg {
+  font-size: 18px;
+  font-weight: 850;
+}
+.lx-who-about-lg {
+  font-size: 15px;
+  color: #3b3f5c;
+}
+.lx-who-name {
+  font-size: 16px;
+  font-weight: 850;
+}
+.lx-who-about {
+  font-size: 14px;
+  color: #3b3f5c;
+}
+.lx-more {
+  margin-top: 22px;
+}
+.lx-quote-card {
+  margin: 0;
+  border-radius: 24px;
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.72);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.lx-quote {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.5;
+  font-weight: 650;
+}
+.lx-promise {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.lx-promise-label {
+  font-size: 18px;
+  font-weight: 850;
+}
+.lx-promise-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.lx-promise-badge {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+.lx-price-sub {
+  max-width: 30em;
+}
+.lx-price-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+  color: #6a6f8a;
+}
+.lx-price-notice {
+  color: #4b4f6b;
+  font-weight: 650;
+}
+.lx-sec-faq {
+  padding: 20px 0 120px;
+}
+.lx-h2-faq {
+  margin: 0;
+  font-size: clamp(32px, 3.6vw, 46px);
+  line-height: 1.05;
+  font-weight: 900;
+  font-stretch: 110%;
+  letter-spacing: -1.2px;
+}
+.lx-faq-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 2px solid #14162b;
+  padding-top: 20px;
+}
+.lx-faq-q {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+.lx-faq-a {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.55;
+  color: #4b4f6b;
+}
+.lx-sec-closing {
+  padding: 0 0 110px;
+}
+.lx-closing {
+  border-radius: 36px;
+  padding: clamp(40px, 6vw, 80px);
+  background: #14162b;
+  color: #ffffff;
+  background-image:
+    radial-gradient(600px 360px at 100% 0%, rgba(255, 210, 74, 0.28), rgba(255, 210, 74, 0) 70%),
+    radial-gradient(500px 360px at 0% 100%, rgba(150, 120, 255, 0.22), rgba(150, 120, 255, 0) 70%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 34px;
+  align-items: center;
+  justify-content: space-between;
+}
+.lx-closing-text {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 36em;
+}
+.lx-closing-h {
+  margin: 0;
+  font-size: clamp(36px, 4.6vw, 62px);
+  line-height: 0.98;
+  font-weight: 900;
+  font-stretch: 112%;
+  letter-spacing: -1.8px;
+  color: #ffffff;
+}
+.lx-closing-body {
+  font-size: 18px;
+  line-height: 1.5;
+  color: #c3c7dd;
+}
+.lx-closing-cta {
+  font-size: 20px;
+  font-weight: 900;
+  padding: 22px 36px;
+  box-shadow: 0 14px 40px rgba(255, 200, 60, 0.35);
+}
+
+/* Plan cards (the home page's pricing section and the pricing page) */
+.lx-plan-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 56px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.lx-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 999px;
+  background: #f1f2f7;
+  font-size: 15px;
+  font-weight: 800;
+}
+.lx-switch > button {
+  padding: 10px 18px;
+  border-radius: 999px;
+  min-height: 44px;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: #14162b;
+}
+.lx-switch > button[aria-pressed="true"] {
+  background: #14162b;
+  color: #ffffff;
+}
+.lx-plan {
+  border-radius: 24px;
+  padding: 28px 22px;
+  background: #ffffff;
+  color: #14162b;
+  border: 1px solid #e3e6ee;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lx-plan-hi {
+  background: #14162b;
+  color: #ffffff;
+  border-color: #14162b;
+  box-shadow: 0 30px 60px rgba(20, 22, 43, 0.25);
+}
+.lx-plan-special {
+  background: #f5f6fa;
+  border-color: #e6e8ef;
+}
+.lx-plan-name {
+  font-size: 17px;
+  font-weight: 850;
+}
+.lx-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.lx-plan-amount {
+  font-size: 46px;
+  font-weight: 900;
+  font-stretch: 110%;
+  letter-spacing: -1px;
+}
+/* 42 px, not the drawn 46: at 46 the word runs past its card at five columns (in the reference too). */
+.lx-plan-custom {
+  font-size: 42px;
+}
+.lx-plan-per {
+  font-size: 15px;
+  opacity: 0.72;
+}
+.lx-plan-unit {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+.lx-plan-special .lx-plan-unit {
+  opacity: 1;
+  color: #4b4f6b;
+}
+.lx-plan-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.lx-plan-cta {
+  margin-top: auto;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 850;
+  padding: 14px 16px;
 }

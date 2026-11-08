@@ -6,6 +6,7 @@ import type { Shot } from "@/lib/marketing/heroImages";
  * The hero's picture, as the reference draws it (docs/design/home-reference.dc.html): a batch window of
  * mockup tiles, the AI card that read one design, and the shops it goes live in. The tiles are the mockup
  * engine's real output on real shirt photos (backend/scripts/hero_assets.py, lib/marketing/heroImages.ts).
+ * The reference's values are the lx- classes in app/globals.css.
  *
  * One entrance on load, about two and a half seconds, then still: the tiles fade in from left to right, the
  * AI card's tags appear one by one, the three shop rows come last. Each piece holds its final place from the
@@ -19,8 +20,9 @@ const delay = (seconds: number) => ({ "--d": `${seconds.toFixed(2)}s` }) as CSSP
 /** When each piece starts, in seconds: tiles 0.15 to 0.85, the card 0.9, its tags to 1.8, the shops to 2.6. */
 export const TIMING = { tile: (i: number) => 0.15 + i * 0.1, card: 0.9, tag: (i: number) => 1.05 + i * 0.06, shopCard: 1.7, row: (i: number) => 1.85 + i * 0.15 };
 
-/** A picture at 1x and 2x, AVIF first, with its size so nothing moves while it loads. */
-export function Photo({ shot, alt, eager = false, style }: { shot: Shot; alt: string; eager?: boolean; style?: CSSProperties }) {
+/** A picture at 1x and 2x, AVIF first, with its size so nothing moves while it loads. Lazy: the page's
+ *  largest paint is the h1, and a lazy picture in view still loads at once. */
+export function Photo({ shot, alt }: { shot: Shot; alt: string }) {
   return (
     <picture>
       <source type="image/avif" srcSet={`${shot.avif} 1x, ${shot.avif2x} 2x`} />
@@ -30,9 +32,9 @@ export function Photo({ shot, alt, eager = false, style }: { shot: Shot; alt: st
         width={shot.width}
         height={shot.height}
         alt={alt}
-        loading={eager ? "eager" : "lazy"}
+        loading="lazy"
         decoding="async"
-        style={{ width: "100%", height: "auto", display: "block", ...style }}
+        className="lx-img"
       />
     </picture>
   );
@@ -59,51 +61,51 @@ export function HeroDemo() {
   return (
     <div className="lx-hv" data-testid="hero-demo">
       <div className="lx-hv-window">
-        <div style={{ borderRadius: 22, background: "#FFFFFF", border: "1px solid #E3E6EE", boxShadow: "0 50px 100px rgba(20,22,43,0.20), 0 8px 24px rgba(20,22,43,0.08)", overflow: "hidden" }}>
-          <div style={{ height: 48, display: "flex", alignItems: "center", gap: 8, padding: "0 18px", borderBottom: "1px solid #EEF0F5", background: "#FAFBFD" }}>
-            <span style={{ width: 11, height: 11, borderRadius: 99, background: "#FF6B6B" }} />
-            <span style={{ width: 11, height: 11, borderRadius: 99, background: "#FFD24A" }} />
-            <span style={{ width: 11, height: 11, borderRadius: 99, background: "#4ADE80" }} />
-            <span style={{ marginLeft: 14, fontSize: 13, fontWeight: 800 }}>{w.name}</span>
-            <span style={{ fontSize: 13, color: "#6A6F8A" }}>{w.count}</span>
-            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, fontWeight: 800, color: "#1A7340", background: "#E9F6EE", borderRadius: 99, padding: "5px 10px" }}>
+        <div className="lx-win">
+          <div className="lx-win-bar">
+            <span className="lx-light" style={{ background: "#FF6B6B" }} />
+            <span className="lx-light" style={{ background: "#FFD24A" }} />
+            <span className="lx-light" style={{ background: "#4ADE80" }} />
+            <span className="lx-win-name">{w.name}</span>
+            <span className="lx-win-count">{w.count}</span>
+            <span className="lx-ready">
               <Check size={10} width={1.8} />
               <span>{w.ready}</span>
             </span>
           </div>
-          <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, background: "#FFFFFF" }} data-testid="hero-mockups">
+          <div className="lx-win-grid" data-testid="hero-mockups">
             {w.tiles.map((tile, i) => (
-              <div key={tile.alt} className="hd-in" style={{ ...delay(TIMING.tile(i)), borderRadius: 14, background: "linear-gradient(180deg, #F3F4F8, #E4E6EE)", overflow: "hidden" }}>
-                <Photo shot={tile.shot} alt={tile.alt} eager />
+              <div key={tile.alt} className="lx-tile hd-in" style={delay(TIMING.tile(i))}>
+                <Photo shot={tile.shot} alt={tile.alt} />
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="lx-hv-shops hd-in" style={{ ...delay(TIMING.shopCard), borderRadius: 18, padding: 16, background: "#FFFFFF", border: "1px solid #E3E6EE", boxShadow: "0 24px 60px rgba(20,22,43,0.16)", display: "flex", flexDirection: "column", gap: 10 }} data-testid="hero-shops">
-        <span style={{ fontSize: 13, fontWeight: 800 }}>{shops.heading}</span>
+      <div className="lx-hv-shops hd-in" style={delay(TIMING.shopCard)} data-testid="hero-shops">
+        <span className="lx-shops-h">{shops.heading}</span>
         {shops.rows.map((row, i) => (
-          <span key={row.name} className="hd-in" style={{ ...delay(TIMING.row(i)), display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 99, background: row.dot }} />
-            <span style={{ flexGrow: 1, fontWeight: 700 }}>{row.name}</span>
-            <span style={{ color: "#6A6F8A" }}>{row.when}</span>
+          <span key={row.name} className="lx-shop-row hd-in" style={delay(TIMING.row(i))}>
+            <span className="lx-dot" style={{ background: row.dot }} />
+            <span className="lx-shop-name">{row.name}</span>
+            <span className="lx-muted">{row.when}</span>
           </span>
         ))}
       </div>
 
-      <div className="lx-hv-ai hd-in" style={{ ...delay(TIMING.card), borderRadius: 20, padding: 18, background: "#14162B", color: "#FFFFFF", boxShadow: "0 30px 70px rgba(20,22,43,0.35)", display: "flex", flexDirection: "column", gap: 11 }} data-testid="hero-listing">
-        <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 800, color: "#FFD24A" }}>
+      <div className="lx-hv-ai hd-in" style={delay(TIMING.card)} data-testid="hero-listing">
+        <span className="lx-ai-read">
           <Spark colour="#FFD24A" />
           <span>{ai.read}</span>
         </span>
-        <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1.3 }}>{ai.title}</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <span className="lx-ai-title">{ai.title}</span>
+        <div className="lx-chips">
           {ai.tags.map((tag, i) => (
-            <span key={tag} className="hd-pop" style={{ ...delay(TIMING.tag(i)), fontSize: 12, fontWeight: 700, background: "rgba(255,255,255,0.10)", borderRadius: 7, padding: "4px 8px" }}>{tag}</span>
+            <span key={tag} className="lx-chip-dark hd-pop" style={delay(TIMING.tag(i))}>{tag}</span>
           ))}
         </div>
-        <span style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#A4A9C4" }}>
+        <span className="lx-ai-foot">
           <span>{ai.tagCount}</span>
           <span>{ai.characters}</span>
         </span>

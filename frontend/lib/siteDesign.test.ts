@@ -73,9 +73,10 @@ test("the tokens are one set, shared by the site and the app, and readable", () 
   // The reference's faint step numbers (#9A9FB8, 2.6:1) and small green labels (#1F8A4C on its tint, 3.9:1)
   // are drawn in muted and go-ink instead.
   assert.ok(contrast("#9A9FB8", "#FFFFFF") < 4.5 && contrast("#1F8A4C", "#EAF6F0") < 4.5);
-  const sections = code(read("components/marketing/Sections.tsx"));
-  assert.doesNotMatch(sections, /#9A9FB8/);
-  assert.match(sections, /color: "#1A7340"/);
+  const sections = code(read("components/marketing/Sections.tsx")) + code(read("app/globals.css"));
+  assert.doesNotMatch(sections, /#9A9FB8/i);
+  assert.match(read("app/globals.css"), /\.lx-written \{[^}]*color: #1a7340;/);
+  assert.match(read("app/globals.css"), /\.lx-step-n \{[^}]*color: #6a6f8a;/);
   // No old v2 colours, no Etsy orange, no violet utility classes.
   for (const file of ["app/globals.css", "tailwind.config.ts", ...SITE_FILES]) {
     const text = code(read(file));
@@ -94,8 +95,6 @@ test("the soft yellow and lilac glows are only in the hero and the dark sections
   const glow = /radial-gradient/g;
   // How many radial gradients each file draws: the hero three (yellow, lilac, blue), every ink block two.
   const allowed = new Map([
-    ["app/(marketing)/page.tsx", 3], // the hero (HERO_GLOW)
-    ["components/marketing/Sections.tsx", 4], // the shops section and the closing block, both ink
     ["components/marketing/Page.tsx", 2], // every long page's closing block, ink
     ["app/og/[slug]/route.tsx", 2], // the share card, ink
   ]);
@@ -103,9 +102,13 @@ test("the soft yellow and lilac glows are only in the hero and the dark sections
     const found = (code(read(file)).match(glow) ?? []).length;
     assert.equal(found, allowed.get(file) ?? 0, file);
   }
-  assert.match(read("app/(marketing)/page.tsx"), /const HERO_GLOW =/);
+  // In the shared styles, only inside the hero, the dark shops section and the closing block.
+  const css = code(read("app/globals.css"));
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*radial-gradient[^{}]*)\}/g)].map((m) => m[1].trim());
+  assert.deepEqual(rules, [".lx-hero-sec", ".lx-sec-dark", ".lx-closing"]);
+  for (const rule of rules.slice(1)) assert.match(css.slice(css.indexOf(rule + " {")), /^[^}]*background: #14162b;/, rule);
   // Each glow outside the hero sits on ink.
-  for (const file of ["components/marketing/Sections.tsx", "components/marketing/Page.tsx", "app/og/[slug]/route.tsx"]) {
+  for (const file of ["components/marketing/Page.tsx", "app/og/[slug]/route.tsx"]) {
     for (const match of code(read(file)).matchAll(glow)) {
       const around = code(read(file)).slice(Math.max(0, match.index! - 400), match.index! + 50);
       assert.match(around, /background: "#14162B"/, file);

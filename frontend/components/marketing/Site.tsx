@@ -34,18 +34,18 @@ export const FOOTER_NAV = [
 export function SiteHeader() {
   return (
     <header className="lx-ref" style={{ position: "relative", zIndex: 5 }}>
-      <div className="lx-wrap lx-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 80, gap: 20 }}>
-        <a href="/" className="lx-hit lx-logo" style={{ textDecoration: "none" }} aria-label="Listyro home">
+      <div className="lx-wrap lx-head">
+        <a href="/" className="lx-hit lx-logo" aria-label="Listyro home">
           <Logo size={36} />
         </a>
-        <nav className="lx-navl" aria-label="Main" style={{ fontSize: 15, fontWeight: 600 }} data-testid="top-nav">
+        <nav className="lx-navl" aria-label="Main" data-testid="top-nav">
           {TOP_NAV.map((item) => (
-            <a key={item.href} href={item.href} className="lx-hit" style={{ textDecoration: "none" }}>{item.label}</a>
+            <a key={item.href} href={item.href} className="lx-hit">{item.label}</a>
           ))}
         </nav>
-        <div className="lx-head-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <a href="/login" className="lx-hit lx-signin" style={{ textDecoration: "none", fontSize: 15, fontWeight: 600, padding: "12px 12px" }}>Sign in</a>
-          <a href={PRIMARY_CTA.href} className="lx-btn lx-btn-ink lx-head-cta" style={{ fontSize: 15, fontWeight: 800, padding: "12px 20px", minHeight: 44 }} data-testid="header-cta">{PRIMARY_CTA.label}</a>
+        <div className="lx-head-actions">
+          <a href="/login" className="lx-hit lx-signin">Sign in</a>
+          <a href={PRIMARY_CTA.href} className="lx-btn lx-btn-ink lx-head-cta" data-testid="header-cta">{PRIMARY_CTA.label}</a>
         </div>
       </div>
     </header>
@@ -54,19 +54,19 @@ export function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="lx-ref" style={{ borderTop: "1px solid #EEF0F5", padding: "48px 0 60px" }}>
-      <div className="lx-wrap" style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "20px 56px", justifyContent: "space-between", alignItems: "center" }}>
-          <a href="/" className="lx-hit" style={{ textDecoration: "none" }} aria-label="Listyro home">
+    <footer className="lx-ref lx-foot">
+      <div className="lx-wrap lx-foot-in">
+        <div className="lx-foot-row">
+          <a href="/" className="lx-hit" aria-label="Listyro home">
             <Logo size={32} />
           </a>
-          <nav aria-label="Footer" style={{ display: "flex", flexWrap: "wrap", gap: "0 26px", fontSize: 15 }}>
+          <nav aria-label="Footer" className="lx-foot-nav">
             {FOOTER_NAV.map((item) => (
-              <a key={item.href} href={item.href} className="lx-hit" style={{ textDecoration: "none" }}>{item.label}</a>
+              <a key={item.href} href={item.href} className="lx-hit">{item.label}</a>
             ))}
           </nav>
         </div>
-        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "#6A6F8A" }} data-testid="trademark-notice">{TRADEMARK_NOTICE}</p>
+        <p className="lx-notice" data-testid="trademark-notice">{TRADEMARK_NOTICE}</p>
       </div>
     </footer>
   );
