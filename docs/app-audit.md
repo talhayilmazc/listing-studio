@@ -87,3 +87,18 @@ first approved listing, **P2** slows them down or makes them guess, **P3** is po
 - Review: a focused one-listing-at-a-time screen with keyboard shortcuts, the card's checks, and per-shop overrides in a "Per shop" tab.
 - Empty states with one sentence and one button; progress for writing; an app-wide note when listings are ready; an undo note for reversible actions; Etsy errors with an action and a "Details" disclosure.
 - One button set, input style, radius and shadow scale from the site v3 tokens.
+
+## What was done (app/onboarding-v1)
+
+| # | Problem | Done |
+|---|---|---|
+| 1 | Home had no single next action for a new seller | Home is the server's first-run checklist (`components/SetupChecklist.tsx`, `GET /api/onboarding`): four steps, the next one the only primary button. A new account sees no metric tiles, no shop card, no "Needs your attention". One "Connect your shop" left (the checklist's); the sidebar's duplicate is gone. |
+| 2 | After connecting, back on Shops | A seller with nothing uploaded lands on Upload: "Your shop is connected. Now upload your first design." (`api/auth.py`). Others still return to Shops. |
+| 3 | The profile was a hidden prerequisite | Not removed: a listing still copies category, price and shipping from one of the seller's own listings. The checklist and the empty Profiles screen now say so in one sentence. Sellers with no design or profile ready can try three example listings (no AI call, nothing counted, never sent). See "Not done" in the report. |
+| 4 | Metric strip on every page | Home only, and only once a shop is connected; the header's "New upload" button is gone, so page titles are no longer cut at 375 px. |
+| 5 | Review: long, approve at the bottom, no keyboard | Photos large on the left with a strip of every photo; one "Approve" button with an Undo note; J/K/A/E/T/? keys; "Approve selected"; per-shop details tucked into a "Per shop" tab; the duplicate profile line removed; live checks under the tags. |
+| 6 | Eleven nav entries, no Review destination | Six entries in seller words (Home, Designs, Review, Schedule, Reports, Shops) and Settings; the rest are tabs under their entry. A new Review page lists what waits for approval and what is approved and not sent. |
+| 7 | Many names for one thing | One word list (`lib/words.ts`): Upload designs, Write listings, Approve/Approved, Connect your shop/another shop; page titles are the sidebar's words. |
+| 8 | Batch page: ten controls per card | "Generate all" is now "Write listings" with real progress; the per-card controls were not reorganised in this pass (see "Not done"). |
+| 9 | Waiting without knowing | "Writing 3 of 12" with a progress bar; a "Listings ready" note wherever the seller is; fixed-size loading skeletons. |
+| 10 | Inconsistent empty screens | One component (`EmptyState`): one sentence, one primary button, on Designs, Review, Schedule, and the shop-only pages (Profiles, Reports, Listing health, Season planner). |

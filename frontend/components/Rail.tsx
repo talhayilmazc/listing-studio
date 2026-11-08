@@ -164,7 +164,6 @@ function RailLink({
       href={href}
       onClick={onClose}
       aria-current={active ? "page" : undefined}
-      aria-label={badge ? `${label}, ${badge} need${badge === 1 ? "s" : ""} your attention` : undefined}
       data-testid="rail-link"
       className={
         "relative flex items-center gap-2.5 px-5 py-2 text-sm transition-colors max-lg:min-h-[2.75rem] " +
@@ -177,13 +176,15 @@ function RailLink({
       <Icon active={active} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {/* A fixed slot so a count arriving never moves the label. */}
-      <span className="flex h-5 min-w-[1.5rem] shrink-0 items-center justify-end" aria-hidden={!badge}>
+      <span className="flex h-5 min-w-[1.5rem] shrink-0 items-center justify-end">
         {badge > 0 && (
           <span key="badge" translate="no" data-testid="rail-badge"
             className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold leading-5 text-stone-900 tabular-nums">
             {badge > 99 ? "99+" : badge}
           </span>
         )}
+        {/* Spoken after the number, so the link's name starts with what is on screen ("Review 6 …"). */}
+        {badge > 0 && <span key="said" className="sr-only">{` need${badge === 1 ? "s" : ""} your attention`}</span>}
       </span>
     </Link>
   );

@@ -47,7 +47,8 @@ test("the Admin tab bar keeps its shape: fixed slots for counts and the badge, p
   assert.match(admin, /key="pending-slot" className="[^"]*\binline-flex w-8\b[^"]*" data-testid="pending-requests-slot"/);
   assert.doesNotMatch(admin, /\{t\.id === "(users|invites)" && (users|invites) && \(/, "a count must not appear only once its data has loaded");
   // The bar scrolls inside itself if it is ever too wide; tabs do not wrap or shrink.
-  assert.match(admin, /role="tablist"[^>]*className="flex gap-4 overflow-x-auto /);
+  // Four tabs wrap on a phone instead of scrolling (the bar moved when Funnel was opened); a wider screen scrolls inside itself.
+  assert.match(admin, /role="tablist"[^>]*className="flex flex-wrap gap-x-3 [^"]*sm:flex-nowrap sm:gap-6 sm:overflow-x-auto"/);
   // Panels: all three in the page, switched with `hidden`.
   for (const tab of ["users", "invites", "usage"]) {
     assert.match(admin, new RegExp(`role="tabpanel" id="panel-${tab}" aria-labelledby="tab-${tab}" hidden=\\{tab !== "${tab}"\\}`));

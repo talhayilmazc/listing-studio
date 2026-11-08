@@ -46,7 +46,7 @@ function once(page, run, cookie) {
   spawnSync("npx", [
     "--yes", `lighthouse@${VERSION}`, BASE + page, "--quiet", "--output=json", `--output-path=${out}`, "--preset=desktop",
     "--only-categories=accessibility,best-practices", `--chrome-path=${chrome}`, "--chrome-flags=--headless=new --no-sandbox",
-    `--extra-headers=${JSON.stringify({ Cookie: cookie })}`,
+    `--extra-headers=${cookie}`,
   ], { stdio: "ignore", shell: process.platform === "win32" });
   if (!fs.existsSync(out)) throw new Error(`no report for ${page}`);
   return JSON.parse(fs.readFileSync(out, "utf8"));
@@ -57,8 +57,10 @@ const median = (v) => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)];
 
 (async () => {
   const cookie = await session();
-  // The extra header goes on the command line; on Windows the shell needs it quoted.
-  const quoted = process.platform === "win32" ? cookie.replace(/"/g, '\\"') : cookie;
+  // Lighthouse reads the extra header from a JSON file: no quoting through a shell.
+  const headers = path.join(outDir, "headers.json");
+  fs.writeFileSync(headers, JSON.stringify({ Cookie: cookie }));
+  const quoted = headers;
   let failed = false;
   console.log(`Lighthouse ${VERSION}, desktop, median of ${RUNS} runs, signed in, ${BASE}`);
   console.log("page | accessibility | best practices | failing audits");
