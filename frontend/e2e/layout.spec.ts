@@ -16,8 +16,8 @@
  * Text reads: the sidebar's entries and headings, the body's paragraphs, labels and tables, and
  * every enabled primary button are at least 4.5:1 against their own background (lowContrast).
  *
- * The trademark notice is in its places (the box under the home page's call to action, above the fold
- * at 375 and 1366; every footer; beside "Connect a shop"; the Terms) and once in each, never twice.
+ * The trademark notice is in its places (every footer, the home page's included; beside "Connect a shop";
+ * the Terms) and once in each, never twice.
  *
  * How to run them: playwright.config.ts. Without LAYOUT_EMAIL and LAYOUT_PASSWORD
  * (the synthetic demo admin) the signed-in tests are skipped, not failed.

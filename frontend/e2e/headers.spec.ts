@@ -76,7 +76,7 @@ test("the home page: a live or dead session is never cacheable, and the page its
 });
 
 test("files: pictures, the share cards, robots and the sitemap may be kept", async ({ request }) => {
-  for (const route of ["/screens/step-review.webp", "/hero/design.webp", "/og/home.png", "/og/guides-etsy-title-rules-2026.png", "/robots.txt", "/sitemap.xml", "/icon.svg"]) {
+  for (const route of ["/screens/step-review.webp", "/hero/tile-black-paw-2x.avif", "/brand/logo.svg", "/apple-icon.png", "/manifest.webmanifest", "/og/home.png", "/og/guides-etsy-title-rules-2026.png", "/robots.txt", "/sitemap.xml", "/icon.svg"]) {
     const response = await request.get(route);
     expect(response.status(), route).toBe(200);
     expect(response.headers()["cache-control"], route).toBe(CACHE_FILE);
