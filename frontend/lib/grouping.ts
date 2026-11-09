@@ -122,13 +122,15 @@ function folderKey(folder: string | null | undefined): string | null {
 export function place(folder: string | null | undefined, filename: string, mode: GroupingMode | null): [string, string | null] {
   const f = folderKey(folder);
   const fSku = f ? folderSku(f) : null;
-  if (mode === "folder") return f ? [f, fSku ?? parseSku(stripExtension(filename))] : [ROOT_KEY, parseSku(stripExtension(filename))];
+  // A file's own SKU: its name without a copy marker first ("PCS540 (1).jpg" -> PCS540), else the parser's.
+  const own = skuOf(filename) ?? parseSku(stripExtension(filename));
+  if (mode === "folder") return f ? [f, fSku ?? own] : [ROOT_KEY, own];
   if (mode === "one") return [ROOT_KEY, skuOf(filename) ?? fSku];
   if (mode === "sku") {
     const sku = skuOf(filename) ?? (fSku && isSku(fSku) ? fSku : null);
     return sku ? [sku, sku] : [UNSORTED_KEY, null];
   }
-  if (f) return [f, fSku ?? parseSku(stripExtension(filename))];
+  if (f) return [f, fSku ?? own];
   const sku = skuOf(filename);
   return sku ? [sku, sku] : [UNSORTED_KEY, null];
 }

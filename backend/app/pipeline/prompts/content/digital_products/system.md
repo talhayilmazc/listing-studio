@@ -17,7 +17,7 @@ Produce three things:
    - Make clear it is an instant digital download (no physical item is shipped).
    - Do not fabricate licenses, trademarks, or guarantees.
 
-Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly.
+Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly. Every value is plain text: no brackets, braces, quotes, backticks or other formatting around or after the words.
 
 ## Title requirements (hard constraints)
 

@@ -66,7 +66,7 @@ async def test_many_photos_go_into_one_template_and_one_failing_does_not_stop_th
     tee = await _new_template(mw, "Comfort Colors 1717")
     sent = [("White", samples.blank((238, 238, 236), size=(600, 700)), "image/png"),
             ("notes.txt", b"just text, not a photo", "text/plain"),
-            ("Huge", b"\x89PNG" + b"0" * (30 * 1024 * 1024 + 200_000), "image/png"),
+            ("Huge", b"\x89PNG" + b"0" * (50 * 1024 * 1024 + 200_000), "image/png"),
             ("Black", samples.blank((26, 26, 28), size=(600, 700)), "image/png")]
     results = []
     for name, data, mime in sent:
@@ -74,7 +74,7 @@ async def test_many_photos_go_into_one_template_and_one_failing_does_not_stop_th
                                  files={"file": (f"{name}.png", data, mime)})
         results.append((name, res.status_code, res.json().get("detail")))
     assert [r[1] for r in results] == [201, 415, 413, 201], results
-    assert "30 MB" in results[2][2]  # the limit is said
+    assert "50 MB" in results[2][2]  # the limit is said
     listed = (await mw["a"].get(f"/api/mockup-templates/{tee['id']}")).json()
     assert [p["name"] for p in listed["photos"]] == ["White", "Black"]
     assert guard.calls == []

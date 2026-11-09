@@ -60,10 +60,11 @@ class Settings(BaseSettings):
     auth_rate_limit_window_seconds: int = 15 * 60
 
     # Upload limits. Type is decided from the bytes, never the filename.
-    max_upload_bytes: int = 25 * 1024 * 1024  # per file
+    # 50 MB per file (hotfix/upload-text; it was 25 MB): a phone's or camera's full-size photo.
+    max_upload_bytes: int = 50 * 1024 * 1024  # per file
     # A blank garment photo or a design for mockups (api/mockups.py): one file per
     # request, downscaled on the server to the engine's 2000 px.
-    max_mockup_upload_bytes: int = 30 * 1024 * 1024
+    max_mockup_upload_bytes: int = 50 * 1024 * 1024
     # Where the bundled image-analysis models are (docker/Dockerfile puts them
     # there at build time). Empty or missing files: templates use the outline only.
     mockup_models_dir: str = "/opt/listyro/models"
@@ -71,7 +72,9 @@ class Settings(BaseSettings):
     # Per account: stored image files (core/storage_cap.py). An admin can give an
     # account its own cap (tenant.storage_cap_bytes).
     storage_cap_gb: float = Field(default=5.0, gt=0, le=1000)
-    max_image_pixels: int = 60_000_000  # decompression-bomb ceiling (~7746 x 7746)
+    # Decompression-bomb ceiling (hotfix/upload-text; it was 60 MP, ~7746 x 7746, and refused real
+    # 100 MP camera photos). Images are shrunk on load by libvips, so a large one costs little memory.
+    max_image_pixels: int = 250_000_000
     # ZIP uploads (v6 §F). One archive per request: 95 MB stays under the 100 MB
     # request cap of Cloudflare's tunnel; a larger set goes up as several ZIPs.
     # 200 files keep the unpacking inside one request well under a minute.

@@ -66,10 +66,10 @@ test("the rights sentence and every limit are the backend's", () => {
   assert.match(backend("core/security.py"), /_MOCKUP_PATH = re\.compile\(r"\^\/api\/\(mockup-templates\/\[\^\/\]\+\/photos\|batches\/\[\^\/\]\+\/designs\|mockup-designs\/\[\^\/\]\+\/back\)\$"\)/);
 });
 
-test("a file over 30 MB is refused before it is sent, saying so", () => {
+test("a file over 50 MB is refused before it is sent, saying so", () => {
   assert.equal(sizeProblem({ name: "tee.jpg", size: 25 * 1024 * 1024 }), null);
-  assert.equal(sizeProblem({ name: "tee.jpg", size: 31 * 1024 * 1024 }), "tee.jpg is 31.0 MB: the limit is 30 MB per file.");
-  // Both pages pick files through lib/fileDrop.ts, which refuses one over 30 MB on its own row.
+  assert.equal(sizeProblem({ name: "tee.jpg", size: 51 * 1024 * 1024 }), "tee.jpg is 51.0 MB: the limit is 50 MB per file.");
+  // Both pages pick files through lib/fileDrop.ts, which refuses one over 50 MB on its own row.
   assert.match(read("lib/fileDrop.ts"), /file\.size > MAX_UPLOAD_MB \* 1024 \* 1024/);
   for (const file of [PAGE, UPLOAD]) {
     assert.match(read(file), /pick(Files)?\(files/, file);

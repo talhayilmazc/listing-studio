@@ -123,13 +123,13 @@ class PyvipsBackend:
 
         fmt = spec.normalized_format()
         try:
-            img = pyvips.Image.new_from_buffer(data, "", access="sequential")
+            # Shrink on load (hotfix/upload-text): JPEG, WebP and HEIC decode at the reduced size,
+            # so a 100 MP photo never sits in memory whole. Downscale only; orientation is kept
+            # as metadata, as before.
+            img = pyvips.Image.thumbnail_buffer(
+                data, spec.max_width, height=spec.max_height, size="down", no_rotate=True)
         except pyvips.Error as exc:  # type: ignore[attr-defined]
             raise ImageProcessingError(str(exc)) from exc
-
-        scale = min(spec.max_width / img.width, spec.max_height / img.height, 1.0)
-        if scale < 1.0:
-            img = img.resize(scale)
 
         if spec.watermark_text:
             img = self._watermark(img, spec)

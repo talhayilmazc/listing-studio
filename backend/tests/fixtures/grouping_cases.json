@@ -120,6 +120,18 @@
     [
       "TS-1042.jpg",
       "TS-1042"
+    ],
+    [
+      "PCS540 (1).jpg",
+      "PCS540"
+    ],
+    [
+      "PCS540(2).png",
+      "PCS540"
+    ],
+    [
+      "PCS540 (1) (2).jpg",
+      "PCS540"
     ]
   ],
   "place": [
@@ -173,7 +185,7 @@
       "BR6001"
     ],
     [
-      "Shots",
+      "New folder",
       "front.png",
       "sku",
       "~unsorted",
@@ -220,6 +232,48 @@
       "sku",
       "~unsorted",
       null
+    ],
+    [
+      null,
+      "PCS540 (1).jpg",
+      "folder",
+      "",
+      "PCS540"
+    ],
+    [
+      "New folder",
+      "PCS540 (1).jpg",
+      "folder",
+      "New folder",
+      "PCS540"
+    ],
+    [
+      "New folder",
+      "PCS540 (1).jpg",
+      null,
+      "New folder",
+      "PCS540"
+    ],
+    [
+      null,
+      "PCS540 (1).jpg",
+      null,
+      "PCS540",
+      "PCS540"
+    ],
+    [
+      null,
+      "PCS540 (1).jpg",
+      "sku",
+      "PCS540",
+      "PCS540"
+    ],
+    [
+      null,
+      "PCS540 (1).jpg",
+      "one",
+      "",
+      "PCS540"
     ]
   ]
 }

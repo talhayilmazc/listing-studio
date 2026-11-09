@@ -2,12 +2,12 @@
 // dropped or chosen file is, and why one cannot be sent, before anything is sent.
 
 /** The per-file limit: the same as lib/mockups.ts MAX_UPLOAD_MB (lib/mockupFlow.test.ts checks). */
-export const MAX_UPLOAD_MB = 30;
+export const MAX_UPLOAD_MB = 50;
 
 export type Picked = { file: File; kind: "image" | "zip" | "other"; problem: string | null };
 
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
-const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"];
+const IMAGE_EXT = /\.(png|jpe?g|webp|heic|heif)$/i;
 const ZIP_EXT = /\.zip$/i;
 /** Files a folder or a ZIP picks up that are not anyone's photo. */
 const CLUTTER = /(^|\/)(\.ds_store|thumbs\.db|desktop\.ini|__macosx\/.*|\._.*)$/i;

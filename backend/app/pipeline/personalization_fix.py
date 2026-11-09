@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from app.pipeline import ai_text
 from app.pipeline.personalization import MAX_INSTRUCTIONS, MAX_QUESTION_TEXT, fix_caps, shouted
 
 SCHEMA = {
@@ -33,7 +34,7 @@ def limit_for(field: str) -> int:
 
 def acceptable(text: str, field: str) -> str | None:
     """The offer made fit for Etsy (capitals fixed), or None when it still is not."""
-    out = fix_caps(" ".join((text or "").split()))
+    out = fix_caps(ai_text.clean(text or ""))  # the model's text, without junk (pipeline/ai_text.py)
     if not out or len(out) > limit_for(field) or len(shouted(out)) > 1 or not out[0].isalnum():
         return None
     return out

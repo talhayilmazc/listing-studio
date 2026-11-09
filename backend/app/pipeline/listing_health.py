@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.compliance import trademarks
-from app.pipeline import etsy_text, search_rules
+from app.pipeline import ai_text, etsy_text, search_rules
 from app.pipeline.reference import decode_etsy_text
 
 PASS, FAIL, WARN, NOTE = "pass", "fail", "warn", "note"
@@ -188,6 +188,12 @@ def score(
         checks.append(Check("photos", ADVICE, PASS if len(images) >= MIN_PHOTOS else WARN, f"{_plural(len(images), 'photo')}."))
     size = len(description.strip())
     checks.append(Check("description", ADVICE, PASS if size >= MIN_DESCRIPTION else WARN, f"{size} characters."))
+    # Fix now: invisible or leftover code characters (pipeline/ai_text.py); the clean_text fix removes them.
+    stray = [name for name, bad in (("title", ai_text.junk(title)), ("tags", any(ai_text.junk(t) for t in tags)),
+                                    ("description", ai_text.junk(description, lines=True))) if bad]
+    checks.append(Check("stray_characters", ADVICE, FAIL if stray else PASS,
+                        f"Description has stray characters." if stray == ["description"] else
+                        f"Stray characters in the {', '.join(stray)}." if stray else "None found."))
     section = listing.get("shop_section_id")
     checks.append(Check("section", ADVICE, PASS if section else WARN, "In a section." if section else "In no section."))
     if _PERSONALIZED.search(title):

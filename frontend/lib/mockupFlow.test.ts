@@ -31,7 +31,7 @@ test("many files at once: each says why it cannot be sent, the others go on", ()
   const picked = pick([
     file("white.png", "image/png"),
     file("notes.txt", "text/plain"),
-    file("huge.jpg", "image/jpeg", 31 * 1024 * 1024),
+    file("huge.jpg", "image/jpeg", 51 * 1024 * 1024),
     file("designs.zip", "application/zip"),
     file(".DS_Store", ""),
     file("black.webp", ""),
@@ -43,7 +43,7 @@ test("many files at once: each says why it cannot be sent, the others go on", ()
     ["designs.zip", "zip", false], // a ZIP is not a template photo
     ["black.webp", "image", true],
   ]);
-  assert.match(picked[2].problem!, /31\.0 MB: the limit is 30 MB per file/);
+  assert.match(picked[2].problem!, /51\.0 MB: the limit is 50 MB per file/);
   assert.equal(DROP_LIMIT, MAX_UPLOAD_MB);
   assert.equal(pick([file("designs.zip", "")], { zip: true })[0].problem, null); // designs may come as a ZIP
   assert.equal(kindOf({ name: "x.JPEG", type: "" }), "image");

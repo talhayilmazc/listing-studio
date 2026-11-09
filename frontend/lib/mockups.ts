@@ -16,7 +16,7 @@ export const MAX_PHOTOS_PER_RUN = 60;
 /** Photos one template holds. */
 export const MAX_PHOTOS_PER_TEMPLATE = 40;
 /** A blank photo or a design, per file (the server refuses more). */
-export const MAX_UPLOAD_MB = 30;
+export const MAX_UPLOAD_MB = 50;
 /** A template's or a photo's name. */
 export const MAX_NAME = 120;
 
@@ -56,7 +56,7 @@ export const GARMENT_MODE_LABELS: Record<"same" | "order", string> = {
   order: "One design per garment, in order",
 };
 
-export const LIMIT_NOTE = `JPEG, PNG or WebP, up to ${MAX_UPLOAD_MB} MB each. A plain background, or a PNG with a transparent background, works best.`;
+export const LIMIT_NOTE = `JPEG, PNG, WebP or HEIC, up to ${MAX_UPLOAD_MB} MB each. A plain background, or a PNG with a transparent background, works best.`;
 
 export type Corner = [number, number];
 

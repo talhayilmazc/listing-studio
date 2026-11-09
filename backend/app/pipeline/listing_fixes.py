@@ -7,6 +7,8 @@ A fix is a before and an after, shown to the seller before anything happens:
   id means nothing elsewhere). No AI, nothing counted. Never overwrites a value the listing has.
 * **rewrite**: a new title and tags by the content model, from the listing's own text. Under the allowance's
   rewrite rule, said before it runs.
+* **clean_text**: the same title, tags and description without stray characters (invisible characters,
+  leftover code characters; pipeline/ai_text.py). No AI, nothing counted. Only the fields that change.
 
 Everything the model writes passes the app's rules before the seller sees it; what fails is dropped.
 """
@@ -16,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.compliance import trademarks
+from app.pipeline import ai_text
 from app.pipeline import etsy_text, search_rules
 from app.pipeline.reference import decode_etsy_text
 
@@ -27,8 +30,10 @@ PREVIEW_HOURS = 6
 #: The model is given this much of the description: enough to know the item.
 DESCRIPTION_CHARS = 1500
 
-TAGS, ATTRIBUTES, REWRITE = "tags", "attributes", "rewrite"
-KINDS = (TAGS, ATTRIBUTES, REWRITE)
+TAGS, ATTRIBUTES, REWRITE, CLEAN = "tags", "attributes", "rewrite", "clean_text"
+KINDS = (TAGS, ATTRIBUTES, REWRITE, CLEAN)
+#: The text fields a fix may write, in the order they are compared and written.
+TEXT_FIELDS = ("title", "tags", "description")
 
 SCHEMA = {
     "type": "object",
@@ -65,6 +70,31 @@ def text_of(listing: dict[str, Any]) -> dict[str, Any]:
 
 def same_title(a: str | None, b: str | None) -> bool:
     return " ".join((decode_etsy_text(a) or "").split()) == " ".join((decode_etsy_text(b) or "").split())
+
+
+def same_description(a: str | None, b: str | None) -> bool:
+    """Etsy may change line endings and trailing spaces; nothing else counts as the same."""
+    def norm(text: str | None) -> str:
+        rows = (decode_etsy_text(text) or "").replace(chr(13) + chr(10), chr(10)).split(chr(10))
+        return chr(10).join(row.rstrip() for row in rows).strip()
+    return norm(a) == norm(b)
+
+
+def stray(listing: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """The clean_text fix for a listing: (before, after) of the fields with stray characters, or None.
+    Only junk changes (ai_text.junk), never a seller's own spacing or wording."""
+    title = decode_etsy_text(listing.get("title")) or ""
+    tags = [decode_etsy_text(t) or "" for t in listing.get("tags") or []]
+    description = decode_etsy_text(listing.get("description")) or ""
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    if ai_text.junk(title):
+        before["title"], after["title"] = title, ai_text.clean(title)
+    if any(ai_text.junk(t) for t in tags):
+        before["tags"], after["tags"] = tags, ai_text.clean_tags(tags)
+    if ai_text.junk(description, lines=True):
+        before["description"], after["description"] = description, ai_text.clean(description, lines=True)
+    return (before, after) if after else None
 
 
 def same_tags(a: list[str] | None, b: list[str] | None) -> bool:
@@ -137,7 +167,7 @@ def added_tags(title: str, tags: list[str], candidates: list[str]) -> list[str]:
 
 def usable_rewrite(data: dict[str, Any]) -> dict[str, Any] | None:
     """The model's answer, or None when no title in it meets the rules."""
-    title = " ".join(str(data.get("title") or "").split())
+    title = ai_text.clean(str(data.get("title") or ""))  # the model's text, without junk (pipeline/ai_text.py)
     if (
         not title
         or etsy_text.title_errors(title)
@@ -145,7 +175,7 @@ def usable_rewrite(data: dict[str, Any]) -> dict[str, Any] | None:
         or trademarks.all_marks().spot(title)
     ):
         return None
-    candidates = [" ".join(str(t).split()) for t in data.get("tags") or []]
+    candidates = ai_text.clean_tags([str(t) for t in data.get("tags") or []])
     tags, _ = search_rules.select_tags(title, [t for t in candidates if _usable_tag(t)], [], count=etsy_text.MAX_TAGS)
     if not tags:
         return None
