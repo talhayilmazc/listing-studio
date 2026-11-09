@@ -918,6 +918,12 @@ def main(argv: list[str] | None = None) -> int:
     ltext.add_argument("email")
     ltext.add_argument("--batch", default=None, help="one batch's listings (its id)")
     ltext.add_argument("--sku", default=None, help="only listings with this SKU")
+    scan_ai = sub.add_parser(
+        "scan-ai-text",
+        help="listings whose AI-written text has stray characters, per account (counts and ids, no text), split into "
+        "not yet sent and already on Etsy; read only unless --fix-unsent",
+    )
+    scan_ai.add_argument("--fix-unsent", action="store_true", help="clean the not-yet-sent ones in our database (never Etsy)")
     sevents = sub.add_parser(
         "seller-events",
         help="what a seller met on a page since a time: send-summary results (counts per reason), frontend errors "
@@ -1095,6 +1101,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.sku_history import parse_since
 
         print(asyncio.run(seller_events.run(sm, args.email, parse_since(args.since))), end="")
+    elif args.command == "scan-ai-text":
+        from app.ops.ai_text_scan import run as scan_ai_text
+
+        print(asyncio.run(scan_ai_text(sm, fix=args.fix_unsent)), end="")
     elif args.command == "listing-text":
         from app.ops.listing_text import run as listing_text
 

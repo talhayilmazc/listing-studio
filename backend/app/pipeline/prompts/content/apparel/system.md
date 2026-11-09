@@ -66,7 +66,7 @@ Do not use any brand, franchise or character name (for example Disney, Mickey, M
 
 Never write around a mark either. If the artwork shows a brand's characters or places, do not use coded stand-ins that point buyers to them ("mouse ears", "the castle park", "lion movie fan", "honey bear friends"): describe only what is the seller's own (the season, the pun, the colours, the garment). The app flags such designs to the seller separately.
 
-Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly.
+Base everything only on the provided analysis. Do not invent brands or claims. Output must match the provided JSON schema exactly. Every value is plain text: no brackets, braces, quotes, backticks or other formatting around or after the words.
 
 ## Title requirements (hard constraints)
 

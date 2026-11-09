@@ -40,6 +40,7 @@ export const FIX_KINDS = [
   { kind: "tags", label: "Add missing tags", about: "From the tags on your profile's reference listing. Your tags stay." },
   { kind: "attributes", label: "Fill attributes", about: "From your profile's reference listing, in the same category. A filled one is never changed." },
   { kind: "rewrite", label: "Rewrite title and tags", about: "Written by AI, from this listing's own text and the rules above. Uses your allowance." },
+  { kind: "clean_text", label: "Remove stray characters", about: "The same words without invisible or leftover code characters. You see the cleaned text before anything changes. Uses no allowance." },
 ] as const;
 
 const fromTools = (rules: Rule[], prefix: string, ids: Record<string, string>): Record<string, Rule> =>
@@ -53,6 +54,7 @@ export const RULES: Record<string, Rule> = {
   photos: { id: "photos", name: "At least 5 photos", kind: "advice", why: "Our rule of thumb: several views of the item answer questions before they are asked." },
   description: { id: "description", name: "A description with some length", kind: "advice", why: "Our rule of thumb is at least 160 characters, enough to say what it is, what it is made of and how it fits." },
   section: { id: "section", name: "In a shop section", kind: "advice", why: "Sections help a buyer browse your shop." },
+  stray_characters: { id: "stray_characters", name: "Fix now: no stray characters", kind: "advice", why: "Invisible characters or leftover code characters (such as }] at the end of a sentence) show up as junk to buyers. Remove stray characters fixes them after you see the cleaned text." },
   personalization: { id: "personalization", name: "Personalization asks for what the title promises", kind: "advice", why: "If the title says personalized, the listing should ask the buyer what to put on it." },
   brand: { id: "brand", name: "No brand or character names", kind: "advice", why: "We look for names on our own list in any form. The warning is the app's; the decision is yours." },
 };
