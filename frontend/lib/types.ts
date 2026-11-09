@@ -1163,6 +1163,26 @@ export interface AssetFailure {
   error: string;
 }
 
+/** A batch being written in the worker (workers/writing.py): it keeps going when the tab is closed. */
+export interface Writing {
+  state: "idle" | "queued" | "running" | "paused" | "done";
+  total: number;
+  done: number;
+  written: number;
+  failed: number;
+  skipped: number;
+  message: string | null;
+  failures: { file: string; error: string }[];
+}
+
+/** A batch the worker finished writing, not yet told: "Listings ready" on the next page. */
+export interface WritingReady {
+  batch_id: string;
+  name: string;
+  written: number;
+  failed: number;
+}
+
 export interface GenerateResult {
   generated: number;
   failed: number;

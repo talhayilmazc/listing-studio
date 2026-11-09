@@ -92,6 +92,8 @@ import type {
   Content,
   ContentUpdateResult,
   GenerateResult,
+  Writing,
+  WritingReady,
   JobStatus,
   Group,
   Meta,
@@ -354,6 +356,19 @@ export const api = {
    * content needs `replaceApproved` too. A group whose draft is on Etsy is never
    * replaced (the server says why in `skipped_groups`).
    */
+  /** "Write listings" for every group not written yet, in the worker: it keeps going when the tab is closed. */
+  writeBatch: (id: string, profileId?: string, opts: { ignoreUnsorted?: boolean } = {}) =>
+    req<Writing>(`/batches/${id}/write`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...(profileId ? { profile_id: profileId } : {}),
+        ...(opts.ignoreUnsorted ? { ignore_unsorted: true } : {}),
+      }),
+    }),
+  /** How far the worker has got ("Writing 3 of 12"). */
+  batchWriting: (id: string) => req<Writing>(`/batches/${id}/writing`),
+  /** Batches finished since the seller last looked; reading clears them. */
+  writingReady: () => req<WritingReady[]>(`/writing/ready`),
   generate: (
     id: string,
     profileId?: string,
