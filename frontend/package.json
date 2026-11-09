@@ -13,7 +13,7 @@
     "check:translation": "node scripts/translation-safety.cjs"
   },
   "dependencies": {
-    "next": "15.5.27",
+    "next": "15.5.28",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sharp": "0.35.5"
