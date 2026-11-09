@@ -48,8 +48,11 @@ describe("the pages", () => {
     assert.ok(confirm.includes("Listings you typed into are never written over."));
   });
   it("the production partner note is quiet: a note, linked, never a problem", () => {
-    assert.ok(review.includes("Note: the profile"));
-    assert.ok(review.includes('className="space-y-1 text-xs text-slate-600" data-testid="production-notes"'));
+    // Part H: on the card's "Per shop" tab, in slate (a note, not a warning), linked to the profile.
+    const card = read("components/ReviewCard.tsx");
+    assert.ok(card.includes('data-testid="card-production-note"') && card.includes("text-xs text-slate-700"));
+    const note = card.slice(card.indexOf('data-testid="card-production-note"') - 300, card.indexOf('data-testid="card-production-note"'));
+    assert.ok(!note.includes("amber"), "a note, not a warning box");
   });
   it("designs already written in another batch are pointed to, on the batch and review pages", () => {
     assert.ok(review.includes("<WrittenElsewhere"));

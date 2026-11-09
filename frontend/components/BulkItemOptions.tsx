@@ -17,14 +17,11 @@ const NONE = "__none__";
 export function BulkItemOptions({
   batchId,
   selected,
-  onSelectAll,
-  total,
   onDone,
 }: {
   batchId: string;
+  /** The listings ticked with the list's "Select" (the page shows this only while some are). */
   selected: string[];
-  onSelectAll: (all: boolean) => void;
-  total: number;
   onDone: () => void;
 }) {
   const [sample, setSample] = useState<ItemOptions | null>(null);
@@ -117,11 +114,7 @@ export function BulkItemOptions({
   const nothing = occasion === KEEP && holiday === KEEP && !(shop && section !== KEEP);
   return (
     <div className="card flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm" data-testid="bulk-options">
-      <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-slate-700">
-        <input type="checkbox" className="h-4 w-4" checked={selected.length === total && total > 0}
-          onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select every listing" />
-        <span translate="no">{selected.length ? `${selected.length} selected` : "Select listings"}</span>
-      </label>
+      <span translate="no" className="text-slate-700">{`${selected.length} selected`}</span>
       {selected.length > 0 && (
         <>
           <span key="label" className="font-medium text-slate-800">Set for selected:</span>

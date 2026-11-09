@@ -23,6 +23,13 @@ POD_TEMPLATES = frozenset({"apparel"})
 MADE_BY_OTHERS = frozenset({"someone_else", "collective"})
 
 
+def shop_uses_partner(listing_payloads: Any) -> bool:
+    """Whether a shop uses a production partner: any of its own cached listings names one."""
+    from app.pipeline.reference import production_partner_ids
+
+    return any(production_partner_ids(row or {}) for row in listing_payloads)
+
+
 def partner_expected(profile: Any) -> bool:
     """Whether ``profile``'s items look made by a partner: a print-on-demand
     template, or a reference listing that says someone else made it. False while
@@ -33,16 +40,24 @@ def partner_expected(profile: Any) -> bool:
     return payload.get("who_made") in MADE_BY_OTHERS or getattr(profile, "content_template", "") in POD_TEMPLATES
 
 
-def production_note(profile: Any) -> str | None:
+def production_note(profile: Any, *, shop_uses_partner: bool | None = None) -> str | None:
     """The warning for a listing built with ``profile``, or None.
 
     None while the profile's reference has not been read (nothing is known), when
     it names a production partner, or when nothing suggests a partner is involved.
+
+    ``shop_uses_partner`` (fix/onboarding-followups, Part H): whether any of the profile's shop's
+    own listings names a production partner. False: the shop does not use one, so a print-on-demand
+    template alone is no reason to say anything (sellers who print their own shirts read the note on
+    every listing). A reference that says someone else made the item is still said: Etsy refuses that
+    without a partner. None: not known (the callers that do not look), as before.
     """
     payload = getattr(profile, "cached_payload", None) or {}
     if not partner_expected(profile) or payload.get("production_partner_ids"):
         return None
     by_others = payload.get("who_made") in MADE_BY_OTHERS
+    if shop_uses_partner is False and not by_others:
+        return None
     name = getattr(profile, "name", "") or "this profile"
     said = (
         f"Its reference listing says the item is made by {'another company or person' if payload.get('who_made') == 'someone_else' else 'others'}, "

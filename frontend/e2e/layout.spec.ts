@@ -341,20 +341,23 @@ test.describe("signed in", () => {
     const href = (await link.getAttribute("href"))!;
     await page.goto(`${href.replace(/\/review$/, "")}/review`);
     await settle(page);
+    // Part H: Approve all and Generate the empty ones are in "More"; the bar's primary is "Approve".
+    await expect(page.getByTestId("review-next")).toHaveText("Approve");
+    await page.getByTestId("review-more").locator("summary").click();
     const generate = page.getByTestId("generate-empty");
     await expect(generate).toContainText("Generate the empty ones (3)");
-    await page.getByTestId("review-next").click();
+    const { width: w } = page.viewportSize()!;
+    if (w < 640) {
+      const box = (await generate.boundingBox())!;
+      expect(box.height, "Generate the empty ones is 44 px on a phone").toBeGreaterThanOrEqual(44);
+    }
+    await page.getByTestId("approve-all").click();
     const summary = page.getByTestId("approve-summary");
     await expect(summary).toContainText("3 listings have no title yet: write them, or press Generate");
     // Each card is marked once, in place; the long rule list is not repeated per listing.
     await expect(page.getByTestId("card-needs")).toHaveCount(3);
     await expect(page.getByText("expected exactly 13 tags")).toHaveCount(0);
     await expect(page.getByText("must name the product type")).toHaveCount(0);
-    const { width } = page.viewportSize()!;
-    if (width < 640) {
-      const box = (await generate.boundingBox())!;
-      expect(box.height, "Generate the empty ones is 44 px on a phone").toBeGreaterThanOrEqual(44);
-    }
     await expectSound(page, "/batches/<batch>/review after Approve all on a hand-written batch");
   });
 
@@ -586,7 +589,7 @@ test.describe("signed in", () => {
       await settle(page);
       await expect(page.getByText(`${n} of ${n}`, { exact: false }).first()).toBeVisible({ timeout: 20_000 });
       await noFalseAlarms(page, `${batchName}: review page`);
-      await expect(page.getByTestId("review-next")).toHaveCount(0); // nothing left to approve
+      await expect(page.getByTestId("approve-all")).toHaveCount(0); // nothing left to approve
     });
   }
 
@@ -805,8 +808,14 @@ test.describe("signed in", () => {
     const href = (await page.locator('a[href^="/batches/"]', { hasText: "Summer drop" }).first().getAttribute("href"))!;
     await page.goto(`${href.replace(/\/review$/, "")}/review`);
     await settle(page);
+    // Part H: the listings come first; "Where and when" opens on Send (or arriving with #send).
     const panel = page.getByTestId("where-and-when");
-    await expect(panel).toBeVisible();
+    await expect(panel).toBeHidden();
+    await expect(page.getByTestId("review-summary")).not.toHaveText("");
+    const next = page.getByTestId("review-next");
+    if (/^Send \(\d+\)$/.test((await next.textContent()) ?? "")) await next.click();
+    else await page.goto(`${href.replace(/\/review$/, "")}/review#send`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Tick a group for every listing")).toHaveCount(0);
     await expect(page.getByText("Split evenly")).toHaveCount(0);
     await expect(panel.getByText("Each shop uses the profile's shipping, return and processing settings automatically.")).toBeVisible();
