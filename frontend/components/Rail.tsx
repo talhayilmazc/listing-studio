@@ -70,14 +70,8 @@ export function Rail({ open, onClose }: { open: boolean; onClose: () => void }) 
       clearInterval(timer);
     };
   }, [pathname]);
-  // The old pages' counts belong to the entries that hold them now.
-  const badge = (href: string): number => {
-    const nav = attention?.nav ?? {};
-    if (href === "/review") return nav["/batches"] ?? 0;
-    if (href === "/settings") return (nav["/profiles"] ?? 0) + (nav["/templates"] ?? 0);
-    if (href === "/batches") return 0;
-    return nav[href] ?? 0;
-  };
+  // The server keys each count by the entry that carries it (api/attention.py); Settings only for what is broken.
+  const badge = (href: string): number => attention?.nav?.[href] ?? 0;
   const link = (item: Item) => (
     <RailLink
       key={item.href}
