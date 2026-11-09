@@ -54,7 +54,7 @@ export function StagingBoard({
       if (files.length) onMove(files, to);
       return;
     }
-    const files = Array.from(e.dataTransfer.files).filter((f) => /\.(png|jpe?g|webp|gif|tiff?)$/i.test(f.name));
+    const files = Array.from(e.dataTransfer.files).filter((f) => /\.(png|jpe?g|webp|heic|heif|gif|tiff?)$/i.test(f.name));
     if (files.length) onAdd(files.map((f) => ({ file: f, relpath: f.name })), to);
   }
   const target = (key: string | null) => ({
@@ -124,7 +124,7 @@ export function StagingBoard({
         ref={picker}
         type="file"
         multiple
-        accept="image/png,image/jpeg,image/webp,image/gif,image/tiff"
+        accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff"
         className="hidden"
         data-testid="listing-input"
         onChange={(e) => {

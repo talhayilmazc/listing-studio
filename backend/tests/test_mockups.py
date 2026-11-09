@@ -7,7 +7,7 @@
 * No Etsy call and no model call, per mockup or anywhere in the feature.
 * The allowance ("Listings generated") does not change.
 * Another account's template, photo, batch or run is 404; the rights confirmation is required.
-* Uploads: up to 30 MB per photo, refused above with the limit; a photo is prepared
+* Uploads: up to 50 MB per photo, refused above with the limit; a photo is prepared
   in the worker ("preparing", then "ready" or "failed" with why) and used only once
   its print areas are confirmed (tests/test_mockup_editor.py).
 * Long names; "<SKU>_<template name>_<photo name>.jpg", unique; per-design progress.
@@ -331,17 +331,17 @@ async def test_a_25_mb_photo_is_accepted_and_a_31_mb_one_is_refused_with_the_lim
     res = await mw["a"].post(f"/api/mockup-templates/{template['id']}/photos", data={"name": "Big", "rights_confirmed": "true"},
                              files={"file": ("big.png", big, "image/png")})
     assert res.status_code == 201, res.text
-    # Over 30 MB: refused before anything is read, saying the limit (the body is
+    # Over 50 MB: refused before anything is read, saying the limit (the body is
     # drained first, so a proxy in front can pass the answer on).
     res = await mw["a"].post(f"/api/mockup-templates/{template['id']}/photos", data={"name": "Huge", "rights_confirmed": "true"},
-                             files={"file": ("huge.png", b"\x89PNG" + b"0" * (31 * 1024 * 1024), "image/png")})
+                             files={"file": ("huge.png", b"\x89PNG" + b"0" * (51 * 1024 * 1024), "image/png")})
     assert res.status_code == 413
-    assert res.json()["detail"] == "This file is too large: the limit is 30 MB per file."
-    # Just over 30 MB but inside the request's envelope: refused by the file check, with its size.
+    assert res.json()["detail"] == "This file is too large: the limit is 50 MB per file."
+    # Just over 50 MB but inside the request's envelope: refused by the file check, with its size.
     res = await mw["a"].post(f"/api/batches/{await _new_batch(mw)}/designs",
-                             files={"file": ("d.png", b"\x89PNG" + b"0" * (30 * 1024 * 1024 + 200_000), "image/png")})
+                             files={"file": ("d.png", b"\x89PNG" + b"0" * (50 * 1024 * 1024 + 200_000), "image/png")})
     assert res.status_code == 413
-    assert res.json()["detail"].endswith("the limit is 30 MB per file.") and res.json()["detail"].startswith("This file is 30.2 MB")
+    assert res.json()["detail"].endswith("the limit is 50 MB per file.") and res.json()["detail"].startswith("This file is 50.2 MB")
 
 
 async def test_a_blank_needs_the_rights_confirmation_and_long_names_are_kept(mw) -> None:

@@ -27,7 +27,7 @@ export function FileDrop({
   const [over, setOver] = useState(false);
   const files = useRef<HTMLInputElement>(null);
   const folder = useRef<HTMLInputElement>(null);
-  const accept = `image/png,image/jpeg,image/webp${zip ? ",.zip,application/zip" : ""}`;
+  const accept = `image/png,image/jpeg,image/webp,image/heic,.heic,.heif${zip ? ",.zip,application/zip" : ""}`;
 
   function take(list: FileList | null, input: HTMLInputElement | null) {
     const chosen = Array.from(list ?? []);

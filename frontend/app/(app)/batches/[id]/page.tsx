@@ -1017,7 +1017,7 @@ export default function BatchPage() {
           <span>New listing</span>
           <span className="mt-0.5 text-xs font-normal text-slate-500">Drop photos here, or click to add</span>
         </button>
-        <input ref={filePicker} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/tiff" className="hidden"
+        <input ref={filePicker} type="file" multiple accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff" className="hidden"
           data-testid="group-files-input"
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);

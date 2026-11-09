@@ -57,7 +57,7 @@ interface Item {
   relpath: string;
 }
 
-const IMAGE_RE = /\.(png|jpe?g|webp|gif|tiff?)$/i;
+const IMAGE_RE = /\.(png|jpe?g|webp|heic|heif|gif|tiff?)$/i;
 const ZIP_RE = /\.zip$/i;
 
 export default function UploadPage() {
@@ -555,7 +555,7 @@ export default function UploadPage() {
       ref={filesRef}
       type="file"
       multiple
-      accept="image/png,image/jpeg,image/webp,image/gif,image/tiff,.zip,application/zip"
+      accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff,.zip,application/zip"
       className="hidden"
       data-testid="files-input"
       onChange={(e) => {

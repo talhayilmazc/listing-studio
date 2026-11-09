@@ -47,7 +47,12 @@ _ACCEPTED: dict[str, tuple[str, str]] = {
     "WEBP": ("image/webp", ".webp"),
     "GIF": ("image/gif", ".gif"),
     "TIFF": ("image/tiff", ".tif"),
+    # HEIC/HEIF (iPhone photos): read by libvips; the stored copy is a JPEG like every upload's.
+    "HEIF": ("image/heic", ".heic"),
 }
+
+#: ISO-BMFF brands of HEIC/HEIF still images (bytes 8..12 after "ftyp").
+_HEIF_BRANDS = (b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"mif1", b"msf1")
 
 
 def sniff_format(data: bytes) -> str | None:
@@ -62,7 +67,26 @@ def sniff_format(data: bytes) -> str | None:
         return "GIF"
     if data.startswith((b"II*\x00", b"MM\x00*")):
         return "TIFF"
+    if data[4:8] == b"ftyp" and data[8:12] in _HEIF_BRANDS:
+        return "HEIF"
     return None
+
+
+def too_many_pixels(width: int, height: int, max_pixels: int) -> str:
+    """The refusal for a decompression bomb, saying what to do."""
+    return (f"this image is {width:,} x {height:,} pixels ({width * height / 1e6:.0f} megapixels); the most we take is "
+            f"{max_pixels / 1e6:.0f} megapixels. Save it smaller (8,000 pixels on the longest side is plenty) and upload it again")
+
+
+def _heif_size(data: bytes) -> tuple[int, int]:
+    """A HEIC/HEIF image's size from its header (libvips reads no pixels here)."""
+    import pyvips
+
+    try:
+        image = pyvips.Image.new_from_buffer(data, "", access="sequential")
+    except pyvips.Error as exc:  # type: ignore[attr-defined]
+        raise UnsupportedUpload("the image could not be read") from exc
+    return image.width, image.height
 
 
 def admit_image(data: bytes, *, max_bytes: int, max_pixels: int) -> AdmittedImage:
@@ -77,10 +101,24 @@ def admit_image(data: bytes, *, max_bytes: int, max_pixels: int) -> AdmittedImag
 
     claimed = sniff_format(data)
     if claimed is None:
-        raise UnsupportedUpload("not a supported image (PNG, JPEG, WebP, GIF or TIFF)")
+        raise UnsupportedUpload("not a supported image (PNG, JPEG, WebP, HEIC, GIF or TIFF)")
+
+    if claimed == "HEIF":
+        width, height = _heif_size(data)
+        if width <= 0 or height <= 0:
+            raise UnsupportedUpload("the image has no dimensions")
+        if width * height > max_pixels:
+            raise UploadTooLarge(too_many_pixels(width, height, max_pixels))
+        mime, ext = _ACCEPTED[claimed]
+        return AdmittedImage(format=claimed, mime=mime, ext=ext, width=width, height=height)
 
     from PIL import Image, UnidentifiedImageError
 
+    # Pillow warns (and we refuse) above its own ceiling (~89 MP), which refused real 100 MP photos.
+    # Set it above ours, so our own check below refuses with the image's size; Pillow's stays the
+    # net for headers far beyond (it errors at twice its ceiling).
+    if (Image.MAX_IMAGE_PIXELS or 0) < 2 * max_pixels:
+        Image.MAX_IMAGE_PIXELS = 2 * max_pixels
     try:
         with warnings.catch_warnings():
             # Pillow only *warns* between 1x and 2x its own ceiling; treat the
@@ -91,7 +129,9 @@ def admit_image(data: bytes, *, max_bytes: int, max_pixels: int) -> AdmittedImag
                 detected = img.format
                 width, height = img.size
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
-        raise UploadTooLarge("the image's dimensions are too large to process") from exc
+        raise UploadTooLarge(
+            f"this image has more than {max_pixels / 1e6:.0f} megapixels, the most we take. Save it smaller "
+            "(8,000 pixels on the longest side is plenty) and upload it again") from exc
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as exc:
         raise UnsupportedUpload("the image could not be read") from exc
 
@@ -101,7 +141,7 @@ def admit_image(data: bytes, *, max_bytes: int, max_pixels: int) -> AdmittedImag
     if width <= 0 or height <= 0:
         raise UnsupportedUpload("the image has no dimensions")
     if width * height > max_pixels:
-        raise UploadTooLarge("the image's dimensions are too large to process")
+        raise UploadTooLarge(too_many_pixels(width, height, max_pixels))
 
     mime, ext = _ACCEPTED[claimed]
     return AdmittedImage(format=claimed, mime=mime, ext=ext, width=width, height=height)

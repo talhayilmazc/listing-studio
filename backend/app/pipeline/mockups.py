@@ -149,6 +149,11 @@ def _load(data: bytes):  # noqa: ANN202 - pyvips.Image
         image = image.autorot()
     except pyvips.Error as exc:  # type: ignore[attr-defined]
         raise ImageProcessingError(str(exc)) from exc
+    return _normalised(image)
+
+
+def _normalised(image):  # noqa: ANN001, ANN202 - pyvips.Image
+    """sRGB, 8 bits, three bands (+ alpha), from any loaded image."""
     image = _to_srgb(image)
     if image.interpretation not in ("srgb", "b-w"):
         image = image.colourspace("srgb")
@@ -382,7 +387,14 @@ class Source:
 def resize_upload(data: bytes) -> Source:
     """Quick enough for the request: decode, resize to at most 2000 px, re-encode
     (PNG with transparency, else a high-quality JPEG). Nothing else."""
-    image = _fit_within(_load(data), max(OUTPUT.max_width, OUTPUT.max_height))
+    limit = max(OUTPUT.max_width, OUTPUT.max_height)
+    pyvips = _vips()
+    try:
+        # Shrink on load (hotfix/upload-text): a large photo is decoded at the reduced size.
+        image = pyvips.Image.thumbnail_buffer(data, limit, height=limit, size="down")
+    except pyvips.Error as exc:  # type: ignore[attr-defined]
+        raise ImageProcessingError(str(exc)) from exc
+    image = _fit_within(_normalised(image), limit)
     has_alpha = image.bands == 4
     image = image.copy(interpretation="srgb")
     if has_alpha:
