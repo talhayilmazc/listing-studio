@@ -709,7 +709,7 @@ export interface Profile {
   /** Every shop the profile is used in, the main one first. */
   links: ProfileLink[];
   content_template: string;
-  source: string; // "manual" | "detected"
+  source: string; // "manual" | "detected" | "suggested" (pipeline/suggested_profile.py)
   confirmed: boolean;
   title_prefix: string;
   /** "classic" (110–140 keyword title) or "search" (Etsy's current guidance). */
@@ -2429,13 +2429,18 @@ export interface WorkspaceTextRow {
 
 /** The first-run checklist (GET /api/onboarding; backend pipeline/onboarding.py). */
 export interface OnboardingStep {
-  key: "shop" | "upload" | "approve" | "send";
+  key: "shop" | "profile" | "upload" | "approve" | "send";
   title: string;
   body: string;
   href: string;
   action: string;
   done: boolean;
   done_at: string | null;
+  /** The suggested profile the step's one button confirms; null: the button is a link. */
+  confirm_profile_id?: string | null;
+  /** A quiet second link ("See or change them first"). */
+  second_href?: string | null;
+  second_action?: string | null;
 }
 
 export interface Onboarding {
