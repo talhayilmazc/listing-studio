@@ -6,7 +6,7 @@ own and nothing changes until they press "Use this" (api/personalization_fix.py)
 is checked against Etsy's rules before it is shown: within the limit, at most one word in
 capitals (fixed if the model wrote more), starting with a letter or number. One call per
 text (metered as ``personalization_fix``), kept for a week by the text's hash, so opening the
-card again costs nothing. It does not count toward "Listings generated".
+card again costs nothing. It does not count toward "Listings".
 """
 
 from __future__ import annotations

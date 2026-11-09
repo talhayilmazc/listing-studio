@@ -461,10 +461,11 @@ class DeletedDraftOut(BaseModel):
 
 
 class AllowanceOut(BaseModel):
-    """ "Listings generated": designs written in the period (core/allowance.py).
-    Drafts and publishing do not count. Not the Etsy request ceiling."""
+    """ "Listings": the allowance (core/allowance.py). With USAGE_COUNTER=on, listings whose first
+    Etsy draft was made in the period (core/usage.py); in shadow mode, listings written. Not the Etsy
+    request ceiling."""
 
-    label: str = "Listings generated"
+    label: str = "Listings"
     amount: int
     period: str  # "daily" | "weekly" | "monthly"
     custom: bool  # set for this seller (amount and period); else the system default
@@ -481,6 +482,11 @@ class AllowanceOut(BaseModel):
     resets_at: datetime
     resets_label: str  # "Thu, Oct 1, 12:00 AM CDT", in the seller's zone
     time_zone: str
+    #: The listing counter's number (first drafts in the period), the old number, and which one
+    #: ``used`` is ("shadow" | "on"): admin shows both side by side while in shadow mode.
+    listings_counted: int = 0
+    old_used: int = 0
+    counter: str = "shadow"
 
 
 class ScheduleItem(BaseModel):

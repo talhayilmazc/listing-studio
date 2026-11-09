@@ -224,11 +224,11 @@ test("nothing says a model draws or changes the design, or promises anything of 
   for (const file of [PAGE, UPLOAD, EDITOR, "lib/mockups.ts"]) {
     for (const [, quoted, shown] of read(file).matchAll(/"([^"\n]*)"|>([^<{}\n]+)</g)) {
       const text = quoted ?? shown;
-      assert.doesNotMatch(text.replace("Listings generated", ""), forbidden, `${file}: ${text}`);
+      assert.doesNotMatch(text.replace("Listings", ""), forbidden, `${file}: ${text}`);
     }
   }
   assert.match(read("lib/mockups.ts"), /never redrawn/);
-  assert.match(read("lib/mockups.ts"), /Mockups do not count toward Listings generated/);
+  assert.match(read("lib/mockups.ts"), /Mockups do not count toward Listings\./);
 });
 
 test("templates are in the menu, the page title, the layout test, robots and the Privacy Policy", () => {

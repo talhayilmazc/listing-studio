@@ -18,7 +18,7 @@ run's mockups, turning them into listings, and building ZIPs to download.
   to the account and deleted ``MockupZip.RETENTION_HOURS`` after it is ready.
 
 No Etsy call and no model call is made here; nothing is counted against the
-seller's "Listings generated" allowance.
+seller's "Listings" allowance.
 """
 
 from __future__ import annotations

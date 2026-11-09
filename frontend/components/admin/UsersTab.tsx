@@ -216,8 +216,8 @@ export function UsersTab({
             <tr className="border-b border-slate-200 text-xs text-slate-400">
               <th className="px-3 py-3 font-medium">Account</th>
               <th className="px-3 py-3 font-medium">Shop</th>
-              <th className="px-3 py-3 font-medium" title="Listings generated in the account's period (the plan's limit), and the account's Etsy requests today against its ceiling">
-                Listings generated · Etsy requests today
+              <th className="px-3 py-3 font-medium" title="Listings in the account's period (the plan's limit; old and new counts while the counter is in shadow mode), and the account's Etsy requests today against its ceiling">
+                Listings · Etsy requests today
               </th>
               <th className="px-3 py-3 font-medium" title="Refuse brand and character names in this seller's listings">
                 Trademarks
@@ -270,7 +270,7 @@ export function UsersTab({
               </div>
               <dl className="grid gap-4 sm:grid-cols-2">
                 <Field label="Shops">{c.shops}</Field>
-                <Field label="Listings generated">{c.allowance}</Field>
+                <Field label="Listings">{c.allowance}</Field>
                 <Field label="Etsy requests today">{c.quota}</Field>
                 <Field label="Trademarks">{c.trademarks}</Field>
               </dl>

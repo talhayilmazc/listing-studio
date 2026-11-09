@@ -21,7 +21,7 @@ export const MAX_UPLOAD_MB = 50;
 export const MAX_NAME = 120;
 
 export const TEMPLATES_INTRO =
-  "A template is a group of blank photos: the same garment in each colour, or several shots of one product. Every design is placed on every photo of the template, as if printed on the fabric. Only your design is used: it is fitted, warped to the fabric and shaded by it, never redrawn. Mockups do not count toward Listings generated.";
+  "A template is a group of blank photos: the same garment in each colour, or several shots of one product. Every design is placed on every photo of the template, as if printed on the fabric. Only your design is used: it is fitted, warped to the fabric and shaded by it, never redrawn. Mockups do not count toward Listings.";
 
 export const ACCURACY_NOTE =
   "Etsy asks for photos that show the item accurately: use a blank of the garment you actually sell, in its real colour.";

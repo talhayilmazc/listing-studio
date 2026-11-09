@@ -1805,7 +1805,8 @@ export interface LedgerRead {
 
 /** Our product allowance: listings generated plus drafts created per period.
  *  Not Etsy's API quota, which is Etsy's shared daily ceiling. */
-/** "Listings generated": designs written in the period. Drafts and publishing do not count. */
+/** "Listings": the allowance. With the listing counter on, listings whose first Etsy draft was made in
+ * the period (backend core/usage.py); in shadow mode, listings written. */
 export interface Allowance {
   label: string;
   amount: number;
@@ -1827,6 +1828,10 @@ export interface Allowance {
   /** "Thu, Oct 1, 12:00 AM CDT", in the seller's own zone. */
   resets_label: string;
   time_zone: string;
+  /** The listing counter's number, the old one, and which `used` is ("shadow" | "on"). */
+  listings_counted?: number;
+  old_used?: number;
+  counter?: "shadow" | "on" | string;
 }
 
 export interface AllowanceDefault {

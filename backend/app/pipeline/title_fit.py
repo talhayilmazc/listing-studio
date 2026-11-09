@@ -10,7 +10,7 @@ cannot be made, the draft for that shop stops before anything is sent to Etsy an
 listing's card says why, like the other title warnings. The title is never cut.
 
 One model call per listing and shop (metered as ``title_fit``); it does not count toward
-"Listings generated" (the design was already written).
+"Listings" (the design was already written).
 """
 
 from __future__ import annotations

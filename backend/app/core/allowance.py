@@ -1,4 +1,4 @@
-"""The listing allowance: listings generated per period ("Listings generated").
+"""The listing allowance: listings per period ("Listings"; the counter is core/usage.py).
 
 This is the plan's limit, set per seller in the admin panel (with a system
 default): an amount and a period, daily, weekly or monthly. It counts designs
@@ -52,7 +52,7 @@ REWRITE = "rewrite"
 #: Rewrites of one design that cost nothing in a period.
 FREE_REWRITES = 3
 #: What every screen calls this number.
-LABEL = "Listings generated"
+LABEL = "Listings"
 DEFAULT_KEY = "allowance_default"
 
 _PERIOD_WORD = {"daily": "today", "weekly": "this week", "monthly": "this month"}
@@ -126,13 +126,23 @@ class AllowanceStatus:
     rewrites: int
     #: Listings that went live through the app in the same period, in all the account's shops.
     published: int
+    #: The new count (core/usage.py): listings whose first Etsy draft was made in the period.
+    listings: int
     period_start: datetime
     resets_at: datetime
     time_zone: str
 
+    #: "shadow" or "on" (USAGE_COUNTER): which count ``used`` is.
+    counter: str = "shadow"
+
+    @property
+    def old_used(self) -> int:
+        """The count before the listing counter: listings written (and Replace images queued)."""
+        return self.generations + self.pending
+
     @property
     def used(self) -> int:
-        return self.generations + self.pending
+        return self.listings if self.counter == "on" else self.old_used
 
     @property
     def remaining(self) -> int:
@@ -141,6 +151,11 @@ class AllowanceStatus:
     def message(self, wanted: int = 1) -> str:
         when = reset_label(self.resets_at, self.time_zone)
         word = _PERIOD_WORD.get(self.period, "this period")
+        if self.remaining <= 0 and self.counter == "on":
+            return (
+                f"You've used your {self.amount:,} listings {word}: a listing counts when its first Etsy draft is made. "
+                f"More can be written from {when}. Listings already counted can still be sent to more shops."
+            )
         if self.remaining <= 0:
             return (
                 f"You've generated your {self.amount:,} listings {word}. "
@@ -181,7 +196,11 @@ async def status(session: AsyncSession, tenant: Tenant, now: datetime | None = N
             ListingPublication.published_by.is_(None),  # published by hand in Shop Manager: not by the app
         )
     )
+    from app.core import usage
+
     return AllowanceStatus(
+        listings=await usage.used(session, tenant.id, start, reset),
+        counter=usage.mode(),
         amount=amount,
         period=period,
         custom=custom,
@@ -301,6 +320,10 @@ def status_out(s: AllowanceStatus) -> dict[str, Any]:
         "free_rewrites": FREE_REWRITES,
         "published": s.published,
         "remaining": s.remaining,
+        # The listing counter (core/usage.py), and which count ``used`` is (USAGE_COUNTER).
+        "listings_counted": s.listings,
+        "old_used": s.old_used,
+        "counter": s.counter,
         "period_start": s.period_start,
         "resets_at": s.resets_at,
         "resets_label": reset_label(s.resets_at, s.time_zone),

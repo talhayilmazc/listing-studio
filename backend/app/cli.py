@@ -192,6 +192,33 @@ async def sales_report(sm: async_sessionmaker, email: str) -> str:
     return "\n".join(lines)
 
 
+async def usage_reconcile(sm: async_sessionmaker, email: str | None, *, every: bool, apply: bool) -> str:
+    """The listing counter against the drafts (core/usage.py). Read only unless ``apply``: then the
+    missing rows are added; a row with no draft is only listed, never deleted."""
+    from app.core import usage
+
+    if not every and not email:
+        return "give an account's e-mail, or --all"
+    async with sm() as session:
+        tenant_id = None
+        if not every:
+            tenant = (await session.execute(select(Tenant).where(Tenant.email == email.strip().lower()))).scalar_one_or_none()
+            if tenant is None:
+                return f"no account with the address {email}"
+            tenant_id = tenant.id
+        found = await usage.reconcile(session, tenant_id)
+        lines = [f"usage-reconcile ({'every account' if every else email}; USAGE_COUNTER={usage.mode()})", *found.lines()]
+        if apply and found.missing:
+            added = await usage.backfill(session, tenant_id, source="reconcile")
+            await session.commit()
+            lines.append(f"Added {added} missing row(s). Orphans are listed above and left as they are.")
+        elif not apply:
+            await session.rollback()
+            if found.missing:
+                lines.append("Read only. Run again with --apply to add the missing rows.")
+    return "\n".join(lines)
+
+
 async def limits_report(sm: async_sessionmaker, email: str) -> str:
     """One account's three numbers as every screen shows them, and every change
     an admin (or a migration) made to them, with its time: when two screens seem
@@ -222,8 +249,9 @@ async def limits_report(sm: async_sessionmaker, email: str) -> str:
         ).scalars().all()
     lines = [
         f"account: {tenant.email}   time zone: {limits.zone_of(tenant)}",
-        f"1. Listings generated: {a.used} used of {a.amount} ({a.period}, {'its own' if a.custom else 'the default'}); "
+        f"1. Listings: {a.used} used of {a.amount} ({a.period}, {'its own' if a.custom else 'the default'}); "
         f"{a.remaining} left; resets {allowance.reset_label(a.resets_at, a.time_zone)}",
+        f"   counter: {a.counter} (USAGE_COUNTER); counted at first draft: {a.listings}; listings written (old): {a.old_used}",
         f"   stored: allowance_amount={tenant.allowance_amount!r} allowance_period={tenant.allowance_period!r}",
         f"2. Etsy requests today: {c.used} used of {c.limit} ({'follows the default' if c.follows_default else 'its own number'}); "
         f"{c.remaining} left; upkeep not counted: {c.upkeep}; resets {c.resets_label} (00:00 UTC)",
@@ -790,6 +818,13 @@ def main(argv: list[str] | None = None) -> int:
         help="what upload retention would delete now (image files past their time); --apply deletes them",
     )
     uploads.add_argument("--apply", action="store_true", help="delete the files (default: only count them)")
+    usage_cmd = sub.add_parser(
+        "usage-reconcile",
+        help="compare the listing counter with the drafts (read only; --apply adds missing rows, never deletes)",
+    )
+    usage_cmd.add_argument("email", nargs="?")
+    usage_cmd.add_argument("--all", action="store_true", help="every account")
+    usage_cmd.add_argument("--apply", action="store_true", help="add the missing rows (orphans are only listed)")
     limits_cmd = sub.add_parser(
         "limits-report",
         help="an account's listing allowance, Etsy ceiling and the app's budget as every screen shows them, and their changes",
@@ -1133,6 +1168,8 @@ def main(argv: list[str] | None = None) -> int:
         from app.ops.profile_shop_check import report as profile_shop_report
 
         print(asyncio.run(profile_shop_report(sm, args.email)))
+    elif args.command == "usage-reconcile":
+        print(asyncio.run(usage_reconcile(sm, args.email, every=args.all, apply=args.apply)))
     elif args.command == "limits-report":
         print(asyncio.run(limits_report(sm, args.email)))
     elif args.command == "upload-retention":

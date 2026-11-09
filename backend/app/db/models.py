@@ -200,6 +200,38 @@ class Tenant(Base):
     )
 
 
+class UsageEvent(Base):
+    """A listing counted against the allowance (fix/usage-and-admin-publishing, core/usage.py).
+
+    One row per listing, written in the same transaction as its first successful Etsy draft
+    (etsy/publisher.py): unique per (account, listing), so sending it to more shops, retries,
+    Replace images and edits never count again. ``listing_key`` is the listing's content id (a new
+    upload of the same design is a new listing); a publication whose listing is gone is its own key
+    (``pub:<id>``, backfill only). No foreign key to the listing or the draft: the count is history
+    and stays when a batch is deleted. Deleted with the account; kept as long as allowance_use.
+    """
+
+    __tablename__ = "usage_event"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "listing_key", name="uq_usage_event_listing"),
+        Index("ix_usage_event_tenant_at", "tenant_id", "at"),
+    )
+
+    RETENTION_DAYS: ClassVar[int] = 400
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
+    listing_key: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The first draft that counted it (ids only; no foreign keys: history).
+    content_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    publication_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    #: When the first draft was created: the period it counts in.
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: "draft" (written by the draft) or "backfill" / "reconcile" (added afterwards).
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+
+
 class AllowanceUse(Base):
     """One unit of the product allowance used: a listing generated or a draft created.
 

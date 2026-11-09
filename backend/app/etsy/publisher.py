@@ -1071,6 +1071,11 @@ async def publish_content(
         session, publication, content, title=listing.get("title"), tags=listing.get("tags"),
         description=listing.get("description"), attributes=written, section=section_title, sku=sku,
     )
+    # The listing counts against the allowance once, at its first successful draft in any shop,
+    # in this same commit (core/usage.py): the record and the count exist together or not at all.
+    from app.core import usage
+
+    await usage.record_first_draft(session, publication, content)
     # Finished: from here the publication is the record, in the same commit.
     await session.delete(attempt)
     await session.commit()
