@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CropButton } from "./CropButton";
 import { ScheduleControl } from "./ScheduleControl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -540,6 +541,7 @@ export function ReviewCard({
             onShow={setShown}
             alt={initial.original_filename}
             example={Boolean(initial.is_example)}
+            batchId={batchId ?? null}
           />
           {shopCover(shopData?.listings, initial.id, inView?.id) && inView && (
             <p key="shop-cover" className="border-t border-slate-100 px-4 py-1.5 text-xs text-slate-600" data-testid="card-shop-cover">
@@ -1168,14 +1170,16 @@ function Description({ value, onChange }: { value: string; onChange: (v: string)
  * The listing's photos, large (app/onboarding-v1): the one picked at full width, the others as
  * small buttons under it. The examples carry an "Example" label on the photo itself.
  */
-function Photos({ ids, shown, onShow, alt, example }: {
+function Photos({ ids, shown, onShow, alt, example, batchId }: {
   ids: string[];
   shown: number;
   onShow: (i: number) => void;
   alt: string;
   example: boolean;
+  batchId: string | null;
 }) {
   const current = ids[Math.min(shown, ids.length - 1)] ?? ids[0];
+  const isCover = Math.min(shown, ids.length - 1) <= 0;
   return (
     <div>
       <div className="checkerboard relative flex aspect-square items-center justify-center p-3">
@@ -1192,6 +1196,12 @@ function Photos({ ids, shown, onShow, alt, example }: {
           loading="lazy"
           decoding="async"
         />
+        {/* The shown photo's Crop (feature/photo-crop): big on the cover, the square Etsy shows. */}
+        {batchId && current && !example ? (
+          <span key="crop" className="absolute bottom-3 right-3">
+            <CropButton assetId={current} batchId={batchId} cover={isCover} />
+          </span>
+        ) : null}
       </div>
       {ids.length > 1 ? (
         <ul key="strip" className="flex gap-2 overflow-x-auto border-t border-slate-100 p-3" aria-label="Photos">

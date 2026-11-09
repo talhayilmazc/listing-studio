@@ -6,6 +6,7 @@ import { makeCover, moveBefore, nudge, sameOrder } from "@/lib/order";
 import { arrange, fit, imageLimit, limitNotice, placementFromOrder, samePlacement, type Placement } from "@/lib/chartOrder";
 import { cropStyle } from "@/lib/crop";
 import { CoverCropper } from "./CoverCropper";
+import { CropButton } from "./CropButton";
 import type { Asset, BatchDetail, ImageDeleteResult } from "@/lib/types";
 
 import { Txt } from "@/components/Txt";
@@ -330,6 +331,14 @@ export function GroupImages({
                   Cover
                 </span>
               )}
+              {!cover && a.status === "processed" && a.width && a.height ? (
+                // Every photo has its Crop (feature/photo-crop); the cover's is the big button below.
+                <span key="crop" className="absolute bottom-1 right-1 z-10">
+                  <CropButton assetId={id} batchId={batchId} cover={false} onSaved={async () => {
+                    try { onSaved(await api.getBatch(batchId)); } catch (e: any) { setError(e.message ?? String(e)); }
+                  }} />
+                </span>
+              ) : null}
               {leftOut.includes(id) && (
                 <span key="left-out" className="absolute inset-0 flex items-end bg-white/60" data-testid="left-out-tile">
                   <span className="w-full bg-amber-800 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-white">Left out: over 20</span>
@@ -554,11 +563,12 @@ export function GroupImages({
         <p key="p-171-6" className="mt-1 text-xs">
           <button
             type="button"
-            className="tap font-medium text-brand-700 underline hover:text-brand-800 max-sm:py-2"
+            className="btn-secondary px-3 py-1.5 text-sm"
             onClick={() => setCropping((v) => !v)}
             aria-expanded={cropping}
+            data-testid="crop-cover"
           >
-            {cropping ? "Close the crop" : "Adjust cover crop"}
+            {cropping ? "Close the crop" : "Crop cover"}
           </button>
           {coverAsset.cover_crop && !cropping && (
             <span key="span-181-10" className="ml-2 text-slate-500">cropped by you · this square is the listing&apos;s main photo on Etsy</span>
