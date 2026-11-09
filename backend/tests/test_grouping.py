@@ -239,3 +239,27 @@ async def test_a_photo_sent_later_without_a_mode_follows_the_batchs_choice(clien
     await _upload(client, batch, "design2.png")  # no grouping field: the batch's choice
     detail = (await client.get(f"/api/batches/{batch}")).json()
     assert {a["group_key"] for a in detail["assets"]} == {""}
+
+
+async def test_a_copy_marked_name_gives_its_sku_and_the_batch_name(client: AsyncClient) -> None:  # noqa: F811
+    """hotfix/upload-text: "PCS540 (1).jpg" (a browser's or phone's copy of a file) is SKU PCS540 in
+    every grouping, and the batch is named after it; a SKU the seller typed is never written over."""
+    for mode in ("folder", "one", "sku"):
+        batch = (await client.post("/api/batches")).json()["id"]
+        await _upload_as(client, batch, "PCS540 (1).jpg", mode)
+        await client.post(f"/api/batches/{batch}/finalize")
+        detail = (await client.get(f"/api/batches/{batch}")).json()
+        assert [a["parsed_sku"] for a in detail["assets"]] == ["PCS540"], mode
+        assert detail["name"] == "PCS540", mode
+
+    # The seller types another SKU; choosing another grouping does not put the file's back.
+    batch = (await client.post("/api/batches")).json()["id"]
+    await _upload_as(client, batch, "PCS540 (1).jpg", "folder")
+    await client.post(f"/api/batches/{batch}/finalize")
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        asset = (await s.execute(select(Asset).where(Asset.batch_id == uuid.UUID(batch)))).scalars().one()
+        asset.parsed_sku = "PCS540-CC"  # what "Edit SKU" stores
+        await s.commit()
+    await client.post(f"/api/batches/{batch}/grouping", json={"mode": "one"})
+    detail = (await client.get(f"/api/batches/{batch}")).json()
+    assert [a["parsed_sku"] for a in detail["assets"]] == ["PCS540-CC"]

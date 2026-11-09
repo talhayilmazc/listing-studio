@@ -224,9 +224,15 @@ class BatchIngestor:
         written: the caller checks. Each group is ordered alphabetically again."""
         assets = list((await session.execute(select(Asset).where(Asset.batch_id == batch.id))).scalars())
         for asset in assets:
+            # A SKU the seller typed is never written over (hotfix/upload-text): it is the one that
+            # differs from what the file name gave under the batch's grouping until now.
+            _, from_name = grouping.place(asset.upload_folder, asset.original_filename, self._sku, batch.grouping_mode)
+            typed = asset.parsed_sku if asset.parsed_sku and asset.parsed_sku != from_name else None
             asset.group_key, asset.parsed_sku = grouping.place(
                 asset.upload_folder, asset.original_filename, self._sku, mode
             )
+            if typed:
+                asset.parsed_sku = typed
         batch.grouping_mode = mode
         _rerank(assets)
         await session.commit()

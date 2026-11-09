@@ -119,8 +119,11 @@ def place(
     """(group key, SKU) for one uploaded file. ``group_key`` is the folder it came in."""
     folder = folder_key(group_key)
     folder_sku = parser.parse_group(folder) if folder else None
+    # A file's own SKU: its name without a copy marker first ("PCS540 (1).jpg" -> PCS540; the plain
+    # parser read nothing from it, hotfix/upload-text), else whatever the parser's rules find.
+    own = sku_of(filename, parser) or parser.parse(filename)
     if mode == "folder":
-        return (folder, folder_sku or parser.parse(filename)) if folder else (ROOT, parser.parse(filename))
+        return (folder, folder_sku or own) if folder else (ROOT, own)
     if mode == "one":
         return ROOT, sku_of(filename, parser) or folder_sku
     if mode == "sku":
@@ -129,7 +132,7 @@ def place(
         sku = sku_of(filename, parser) or named
         return (sku, sku) if sku else (UNSORTED, None)
     if folder:
-        return folder, folder_sku or parser.parse(filename)
+        return folder, folder_sku or own
     sku = sku_of(filename, parser)
     return (sku, sku) if sku else (UNSORTED, None)
 
