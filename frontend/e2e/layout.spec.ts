@@ -25,7 +25,7 @@
 import { MARKETING_PAGES } from "../lib/marketing/routes.mjs";
 import { expect, test, type Page } from "@playwright/test";
 import { brandWarning } from "../lib/brandSpot";
-import { TRADEMARK_NOTICE } from "../lib/legal";
+import { PROVIDER_DISCLAIMER, TRADEMARK_NOTICE } from "../lib/legal";
 import { signIn } from "./session";
 
 const PUBLIC = [...MARKETING_PAGES];
@@ -127,8 +127,14 @@ async function measure(page: Page): Promise<Measure> {
   });
 }
 
-/** The two rules every page keeps. */
+/** The two rules every page keeps, and a third: no person's name or personal mailbox on it (Part G).
+ * The one exception is the provider line Etsy's API terms ask for, word for word (PROVIDER_DISCLAIMER). */
 async function expectSound(page: Page, what: string): Promise<void> {
+  const personal = await page.evaluate((disclaimer) => {
+    const text = document.body.innerText.split(disclaimer).join(" ");
+    return (text.match(/[^\s]*(gmail\.com|talha)[^\s]*/gi) ?? []).slice(0, 3);
+  }, PROVIDER_DISCLAIMER);
+  expect(personal, `${what}: shows a person's name or a personal mailbox`).toEqual([]);
   const m = await measure(page);
   expect(m.hasFooter, `${what}: the page has no footer with the trademark notice`).toBe(true);
   expect(m.sideways, `${what}: the page scrolls sideways by ${m.sideways}px. ${m.wide.join("; ")}`).toBeLessThanOrEqual(0);

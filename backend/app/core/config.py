@@ -3,10 +3,24 @@
 Secrets are never hardcoded here — only read from the environment (see CLAUDE.md).
 """
 
+import logging
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+DEFAULT_SUPPORT_EMAIL = "support@listyro.com"
+#: Free personal mailboxes: never shown as the product's support address.
+PERSONAL_MAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "hotmail.com", "outlook.com", "live.com", "msn.com", "yahoo.com",
+    "icloud.com", "me.com", "aol.com", "yandex.com", "yandex.ru", "proton.me", "protonmail.com", "gmx.com",
+    "mail.com", "hotmail.com.tr", "yahoo.com.tr",
+})
+
+
+def is_personal_mailbox(address: str) -> bool:
+    return address.strip().rsplit("@", 1)[-1].lower() in PERSONAL_MAIL_DOMAINS
 
 
 class Settings(BaseSettings):
@@ -225,8 +239,24 @@ class Settings(BaseSettings):
     max_shops_per_tenant: int = Field(default=8, ge=1)
     max_shops_app_wide: int = Field(default=200, ge=1)
 
-    # Shown in the UI (ToU requires a visible support email).
-    support_email: str = "support@example.com"
+    # Shown in the UI (ToU requires a visible support email): the product's own mailbox, never a
+    # person's (fix/onboarding-followups, Part G). A personal mailbox here (gmail.com and the like) is
+    # replaced by the default and logged, so no page, legal text or message can show one.
+    support_email: str = DEFAULT_SUPPORT_EMAIL
+
+    @field_validator("support_email")
+    @classmethod
+    def _product_mailbox(cls, value: str) -> str:
+        value = (value or "").strip()
+        if not value:
+            return DEFAULT_SUPPORT_EMAIL
+        if is_personal_mailbox(value):
+            logging.getLogger(__name__).warning(
+                "SUPPORT_EMAIL is a personal mailbox; showing %s instead. Set SUPPORT_EMAIL to the product's own address.",
+                DEFAULT_SUPPORT_EMAIL,
+            )
+            return DEFAULT_SUPPORT_EMAIL
+        return value
 
     # Where the app tells the operator that something needs them (the same
     # address the deploy scripts use, from ops.env). Empty: logged only.
