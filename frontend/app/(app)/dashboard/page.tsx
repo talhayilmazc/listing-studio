@@ -25,6 +25,7 @@ import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { NeedsAttention } from "@/components/NeedsAttention";
 import { SetupChecklist } from "@/components/SetupChecklist";
 import { Txt } from "@/components/Txt";
+import { RequestsLow } from "@/components/EtsyRequestsCard";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
 type Thumbs = Record<string, Asset[]>;
@@ -164,14 +165,17 @@ export default function Dashboard() {
       <SetupChecklist />
       {fresh ? null : <NeedsAttention key="attention" />}
       {fresh ? null : <UnfinishedDrafts key="unfinished" />}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {fresh ? null : allShops ? (
-          <AllShopsCard key="all" overview={overview} onPick={select} />
-        ) : (
-          <ShopCard key="one" connection={connection} shop={scope} listings={listings} summary={summary} />
-        )}
-        <QuotaCard quota={quota} />
-      </div>
+      {/* The detailed requests card is on Shops; Home warns only when under 20% is left. */}
+      <RequestsLow quota={quota} />
+      {fresh ? null : (
+        <div key="shops" className="grid gap-4 lg:grid-cols-2">
+          {allShops ? (
+            <AllShopsCard key="all" overview={overview} onPick={select} />
+          ) : (
+            <ShopCard key="one" connection={connection} shop={scope} listings={listings} summary={summary} />
+          )}
+        </div>
+      )}
 
       {nothingYet ? null : (
         <div key="activity" className="grid gap-4 lg:grid-cols-2">
@@ -390,87 +394,6 @@ function Metric({ label, value }: { label: string; value: number | string | null
           <span key="n">{value}</span>
         )}
       </dd>
-    </div>
-  );
-}
-
-/* --------------------------------------------------------------- quota ---- */
-
-function QuotaCard({ quota }: { quota: Quota | null }) {
-  if (!quota) {
-    return (
-      <section className="card space-y-3 p-6">
-        <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
-        <div className="h-8 w-20 animate-pulse rounded bg-slate-100" />
-        <div className="h-1.5 w-full animate-pulse rounded-full bg-slate-100" />
-      </section>
-    );
-  }
-  const c = quota.ceiling;
-  const pct = c.limit > 0 ? Math.min(100, (c.used / c.limit) * 100) : 0;
-  const low = c.remaining < c.limit * 0.1;
-
-  return (
-    <section className="card p-6">
-      <div className="flex items-baseline justify-between">
-        <h2 className="label mb-0">Etsy requests today</h2>
-        <span translate="no" className="text-xs tabular-nums text-slate-400">{quota.usage_date}</span>
-      </div>
-
-      <p className="mt-3 flex items-baseline gap-1.5">
-        <span translate="no"
-          className={
-            "font-display text-3xl font-normal tabular-nums " +
-            (low ? "text-amber-700" : "text-slate-900")
-          }
-        >
-          {c.remaining.toLocaleString()}
-        </span>
-        <span translate="no" className="text-sm text-slate-500">{`of ${c.limit.toLocaleString()} left`}</span>
-      </p>
-
-      <div className="mt-4 space-y-3">
-        <Meter
-          label="Your account, all shops"
-          used={c.used}
-          limit={c.limit}
-          pct={pct}
-          tone={low ? "bg-amber-600" : "bg-brand-600"}
-        />
-      </div>
-
-      <p translate="no" className="mt-4 text-xs text-slate-400">
-        {`Drafts, publishing, Replace images, new shop sections and SKU updates count. Setting a profile up in your shops and keeping them current do not. Resets at ${c.resets_label} (00:00 UTC).`}
-      </p>
-    </section>
-  );
-}
-
-function Meter({
-  label,
-  used,
-  limit,
-  pct,
-  tone,
-}: {
-  label: string;
-  used: number;
-  limit: number;
-  pct: number;
-  tone: string;
-}) {
-  return (
-    <div>
-      <div className="mb-1.5 flex items-baseline justify-between text-xs">
-        <span className="text-slate-500">{label}</span>
-        <span translate="no" className="tabular-nums text-slate-500">
-          <span className="font-medium text-slate-700">{used.toLocaleString()}</span><span> /{" "}
-          <span>{limit.toLocaleString()}</span></span>
-        </span>
-      </div>
-      <div className="progress">
-        <div className={"h-full rounded-full transition-all " + tone} style={{ width: pct + "%" }} />
-      </div>
     </div>
   );
 }
