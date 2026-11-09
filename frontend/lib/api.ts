@@ -63,6 +63,8 @@ import type {
   AdminInvite,
   AdminUsage,
   AdminUser,
+  AdminPublishing,
+  AdminAccountPublishing,
   ApproveAllResult,
   ArchiveResult,
   BatchActionPreview,
@@ -256,6 +258,17 @@ export const api = {
 
   // --- Admin panel. The server answers 404 to anyone who is not an admin.
   admin: {
+    /** Admin → Publishing: across all accounts (read only). */
+    publishing: (page = 1, attentionPage = 1) =>
+      req<AdminPublishing>(`/admin/publishing?page=${page}&attention_page=${attentionPage}`),
+    /** One account's publishing, as publish-report shows it, with filters. */
+    accountPublishing: (id: string, f: { shop?: string; state?: string; since?: string; until?: string; q?: string; page?: number }) => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
+      return req<AdminAccountPublishing>(`/admin/users/${id}/publishing?${params.toString()}`);
+    },
+    publishingDetail: (id: string, content: string, shop: string | null) =>
+      req<{ lines: string[] }>(`/admin/users/${id}/publishing/detail?content=${content}${shop ? `&shop=${shop}` : ""}`),
     users: () => req<AdminUser[]>("/admin/users"),
     suspend: (id: string) => req<AdminUser>(`/admin/users/${id}/suspend`, { method: "POST" }),
     reactivate: (id: string) =>

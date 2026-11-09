@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AccountPublishing } from "./PublishingTab";
 import { api } from "@/lib/api";
 import type { AdminSpend, AdminUser, TempPasswordIssued } from "@/lib/types";
 import { Confirm, Reveal } from "./Reveal";
@@ -31,6 +32,8 @@ export function UsersTab({
   onReload: () => void;
 }) {
   const [issued, setIssued] = useState<TempPasswordIssued | null>(null);
+  // The account's Publishing section (read only; components/admin/PublishingTab.tsx).
+  const [publishing, setPublishing] = useState<{ id: string; email: string } | null>(null);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try {
@@ -62,7 +65,9 @@ export function UsersTab({
       ),
       meta: (
         <p translate="no" className="mt-0.5 text-xs text-slate-500">
-          {`Registered ${date(u.created_at)} · ${u.listings_published.toLocaleString()} active on Etsy now (all time)`}
+          <span>{`Registered ${date(u.created_at)} · ${u.listings_published.toLocaleString()} active on Etsy now (all time) · `}</span>
+          <button type="button" className="tap text-brand-700 underline" data-testid="user-publishing"
+            onClick={() => setPublishing({ id: u.id, email: u.email })}>Publishing</button>
         </p>
       ),
       shops: (
@@ -204,6 +209,12 @@ export function UsersTab({
           onDismiss={() => setIssued(null)}
         />
       )}
+
+      {publishing ? (
+        <div key="publishing" className="card p-4">
+          <AccountPublishing account={publishing} onBack={() => setPublishing(null)} onError={(m) => m && onError(m)} />
+        </div>
+      ) : null}
 
       <DefaultAllowance onSaved={onReload} onError={onError} />
 

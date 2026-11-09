@@ -1,6 +1,7 @@
 "use client";
 
 import { notFound } from "next/navigation";
+import { PublishingTab } from "@/components/admin/PublishingTab";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { AdminDisk, AdminInvite, AdminUsage, AdminUser, AiCost } from "@/lib/types";
@@ -25,12 +26,13 @@ import { FunnelPanel } from "@/components/admin/Funnel";
  * read, another seller's designs, batches or generated content.
  */
 
-type Tab = "users" | "invites" | "usage" | "funnel";
+type Tab = "users" | "invites" | "usage" | "funnel" | "publishing";
 const TABS: { id: Tab; label: string }[] = [
   { id: "users", label: "Users" },
   { id: "invites", label: "Invites" },
   { id: "usage", label: "Usage" },
   { id: "funnel", label: "Funnel" },
+  { id: "publishing", label: "Publishing" },
 ];
 
 // The budget moves as sellers work; keep the at-a-glance figure current.
@@ -195,6 +197,9 @@ export default function AdminPage() {
               <AiCostPanel cost={aiCost} onChanged={loadUsage} onError={setError} />
             </div>
             <UsageTab key="usagetab-135-10" usage={usage} />
+          </div>
+          <div role="tabpanel" id="panel-publishing" aria-labelledby="tab-publishing" hidden={tab !== "publishing"}>
+            <PublishingTab onError={setError} />
           </div>
           <div role="tabpanel" id="panel-funnel" aria-labelledby="tab-funnel" hidden={tab !== "funnel"}>
             <FunnelPanel />

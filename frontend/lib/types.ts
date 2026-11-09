@@ -2447,3 +2447,54 @@ export interface ErrorAdvice {
   href: string | null;
   details: string | null;
 }
+
+/** Admin → Publishing (backend api/admin_publishing.py): states and reasons are publish-report's. */
+export interface AdminPublishingRow {
+  account: string;
+  account_id: string;
+  shop: string | null;
+  shop_id: string | null;
+  content_id: string;
+  etsy_listing_id: number | null;
+  sku: string | null;
+  title: string;
+  draft_at: string | null;
+  draft_istanbul: string | null;
+  draft_seller: string | null;
+  go_live_at: string | null;
+  go_live_istanbul: string | null;
+  go_live_seller: string | null;
+  seller_zone: string;
+  state: string;
+  outcome: string;
+  why: string;
+}
+
+export interface AdminPublishingPage {
+  rows: AdminPublishingRow[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+export interface AdminPublishing {
+  upcoming: AdminPublishingPage;
+  attention: AdminPublishingPage;
+  activity: { account: string; account_id: string; day: string; drafts: number; live_by_app: number; by_seller: number; failures: number }[];
+  counted: { account: string; account_id: string; counter: string; new: number; old: number }[];
+  states: string[];
+}
+
+export interface AdminAccountPublishing {
+  account: string;
+  since: string;
+  until: string;
+  summary_text: string[];
+  summary: { outcome: string; count: number; state: string }[];
+  shops: { id: string; name: string }[];
+  items: { content_id: string; shop: string | null; shop_id: string | null; etsy_listing_id: number | null; sku: string | null;
+           title: string; outcome: string; state: string; why: string }[];
+  total: number;
+  page: number;
+  pages: number;
+}
