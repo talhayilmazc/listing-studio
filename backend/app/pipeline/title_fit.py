@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from app.db.models import EtsyConnection, GeneratedContent, ListingProfile
+from app.pipeline import ai_text
 from app.pipeline import search_rules
 from app.pipeline.content import TITLE_TOO_SHORT, bounds_for, join_prefix, title_length_errors, uses_search_style
 
@@ -113,7 +114,7 @@ def model_rewrite(client: Any) -> Rewrite:
             result = await client.complete_json(
                 system="You shorten Etsy listing titles without changing what they describe. Answer in JSON.",
                 content_blocks=[{"type": "text", "text": text}], schema=SCHEMA, max_tokens=300)
-        out = str((result.data or {}).get("title") or "").strip()
+        out = ai_text.clean(str((result.data or {}).get("title") or ""))  # without junk (pipeline/ai_text.py)
         return search_rules.without_prefix(out, prefix) or None
 
     return rewrite

@@ -21,6 +21,7 @@ from app.compliance.trademarks import (
     trademark_summary,
 )
 from app.core import ai_meter
+from app.pipeline import ai_text
 from app.pipeline import search_rules
 from app.pipeline.attribute_fill import fill_design_attributes
 from app.pipeline.llm import LLMClient, LLMError, Usage
@@ -314,6 +315,9 @@ def search_schema(choices: dict[str, list[str]]) -> dict[str, Any]:
         "title_draft": {"type": "string"},
         "title_check": {"type": "string"},
         "title": {"type": "string"},
+        # Not the last string of the answer: the last one sometimes carried the closing "}]" of the
+        # tags array, or an invisible character, inside it (pipeline/ai_text.py).
+        "opening": {"type": "string"},
         "tags": {
             "type": "array",
             "items": {
@@ -326,7 +330,6 @@ def search_schema(choices: dict[str, list[str]]) -> dict[str, Any]:
                 "additionalProperties": False,
             },
         },
-        "opening": {"type": "string"},
     }
     if choices:
         properties["attributes"] = {
@@ -956,6 +959,7 @@ class AnthropicContentGenerator:
                 )
             if pattern and pattern.get("title"):
                 errors.extend(example_errors(listing.title, str(pattern["title"])))
+            errors.extend(junk_errors(listing))
             if not errors:
                 return ContentResult(listing=listing, usages=usages, attempts=attempt + 1)
             if attempt == 1 and allow_warnings:
@@ -980,23 +984,35 @@ class AnthropicContentGenerator:
         raise ContentValidationError(last_errors, usages)
 
 
+def junk_errors(listing: GeneratedListing) -> list[str]:
+    """Code characters left in the middle of a field after the sanitiser: written again, never saved."""
+    fields = [("title", listing.title), ("opening" if listing.opening else "description", listing.opening or listing.description),
+              *(("tag", t) for t in listing.tags), *(("attribute", v) for v in listing.attributes.values())]
+    return list(dict.fromkeys(
+        f"the {name} has leftover code characters ({{ }} [ ] or quotes); write plain text only"
+        for name, text in fields if ai_text.leftover(text)
+    ))
+
+
 def _to_listing(data: dict[str, Any]) -> GeneratedListing:
     try:
+        # Every field the model wrote passes the sanitiser before anything else sees it (pipeline/ai_text.py).
         if "opening" in data:  # the search rules' shape
-            tags = [t for t in data["tags"] if isinstance(t, dict)]
-            opening = str(data["opening"]).strip()
+            tags = [t for t in data["tags"] if isinstance(t, dict) and ai_text.clean(str(t.get("tag", "")))]
+            opening = ai_text.clean(str(data["opening"]))
+            attributes = {k: ai_text.clean(v) for k, v in search_rules.clean_attributes(data.get("attributes")).items()}
             return GeneratedListing(
-                title=str(data["title"]),
-                tags=[str(t["tag"]) for t in tags],
+                title=ai_text.clean(str(data["title"])),
+                tags=[ai_text.clean(str(t["tag"])) for t in tags],
                 description=opening,
                 opening=opening,
                 tag_intents=[str(t.get("intent", "")) for t in tags],
-                attributes=search_rules.clean_attributes(data.get("attributes")),
+                attributes={k: v for k, v in attributes.items() if v},
             )
         return GeneratedListing(
-            title=str(data["title"]),
-            tags=[str(t) for t in data["tags"]],
-            description=str(data["description"]),
+            title=ai_text.clean(str(data["title"])),
+            tags=ai_text.clean_tags([str(t) for t in data["tags"]]),
+            description=ai_text.clean(str(data["description"]), lines=True),
         )
     except (KeyError, TypeError) as exc:
         raise LLMError(f"content response missing fields: {exc}") from exc

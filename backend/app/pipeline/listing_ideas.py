@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.compliance import trademarks
-from app.pipeline import etsy_text, search_rules
+from app.pipeline import ai_text, etsy_text, search_rules
 
 MAX_TITLES = 3
 MAX_TAGS = 13
@@ -75,9 +75,9 @@ def _usable_tag(tag: str) -> bool:
 
 def clean(data: dict[str, Any]) -> Ideas:
     """What may be shown of the model's answer."""
-    titles = list(dict.fromkeys(" ".join(str(t).split()) for t in data.get("titles") or []))
+    titles = list(dict.fromkeys(ai_text.clean(str(t)) for t in data.get("titles") or []))
     kept_titles = [t for t in titles if _usable_title(t)][:MAX_TITLES]
-    candidates = [" ".join(str(t).split()) for t in data.get("tags") or []]
+    candidates = ai_text.clean_tags([str(t) for t in data.get("tags") or []])
     tags, _ = search_rules.select_tags(
         kept_titles[0] if kept_titles else "", [t for t in candidates if _usable_tag(t)], [], count=MAX_TAGS
     )

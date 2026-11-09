@@ -418,6 +418,15 @@ async def preview(
                     done.append(F.ATTRIBUTES)
                 else:
                     reasons.append("no attribute to fill from a profile in the same category")
+        if F.CLEAN in kinds:
+            found = F.stray(listing)
+            if found:
+                # Only the fields with stray characters, cleaned; the seller sees both before approving.
+                before.update(found[0])
+                after.update(found[1])
+                done.append(F.CLEAN)
+            else:
+                reasons.append("no stray characters in its title, tags or description")
         if F.REWRITE in kinds:
             before.update(text)
             after.update(text)  # the model's words replace these before anything can be approved

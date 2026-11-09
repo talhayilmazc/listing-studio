@@ -38,7 +38,7 @@ READ_AT_ONCE = 25
 CHANGED = "This listing was changed on Etsy after the preview, so it was left as it is. Preview the fix again if you still want it."
 NOT_ACTIVE = "This listing is no longer active on Etsy, so it was left as it is."
 UNDO_CHANGED = "This listing was changed on Etsy after the fix, so it was left as it is."
-WORDS = {"title": "the title", "tags": "the tags"}
+WORDS = {"title": "the title", "tags": "the tags", "description": "the description"}
 
 
 def read_spec(connection_id: uuid.UUID | str, listing_ids: list[int]) -> str:
@@ -132,7 +132,7 @@ async def write_listing_fix_text(ctx: dict[str, Any], fix_id: str) -> str:
 
 
 def _current(listing: dict[str, Any], properties: list[dict[str, Any]]) -> dict[str, Any]:
-    return {**F.text_of(listing), "attributes": F.attributes_by_id(properties)}
+    return {**F.text_of(listing), "description": listing.get("description") or "", "attributes": F.attributes_by_id(properties)}
 
 
 def _field_is(current: dict[str, Any], name: str, value: Any) -> bool:
@@ -140,6 +140,8 @@ def _field_is(current: dict[str, Any], name: str, value: Any) -> bool:
         return F.same_title(current["title"], value)
     if name == "tags":
         return F.same_tags(current["tags"], value)
+    if name == "description":
+        return F.same_description(current["description"], value)
     raise KeyError(name)
 
 
@@ -150,7 +152,7 @@ def _attrs_of(side: dict[str, Any] | None) -> dict[int, dict[str, Any]]:
 async def _write(client: Any, shop_id: int, listing_id: int, current: dict[str, Any], target: dict[str, Any], kw: dict[str, Any]) -> bool:
     """Set what still differs. An attribute with nothing in the target was empty before: it is cleared."""
     wrote = False
-    updates = {name: target[name] for name in ("title", "tags") if name in target and not _field_is(current, name, target[name])}
+    updates = {name: target[name] for name in F.TEXT_FIELDS if name in target and not _field_is(current, name, target[name])}
     if updates:
         await client.update_listing(shop_id, listing_id, updates=updates, **kw)
         wrote = True
@@ -168,7 +170,7 @@ async def _write(client: Any, shop_id: int, listing_id: int, current: dict[str, 
 
 def _not_kept(current: dict[str, Any], target: dict[str, Any]) -> list[str]:
     """What Etsy did not keep as sent, read back."""
-    off = [WORDS[name] for name in ("title", "tags") if name in target and not _field_is(current, name, target[name])]
+    off = [WORDS[name] for name in F.TEXT_FIELDS if name in target and not _field_is(current, name, target[name])]
     off += [str(value.get("property_name") or property_id) for property_id, value in _attrs_of(target).items()
             if not F.same_attribute(current["attributes"].get(property_id), value)]
     return off
@@ -178,7 +180,8 @@ async def _update_copy(session: Any, fix: ListingFix, listing: dict[str, Any], p
     """The page shows the listing as it now is, for the rest of the copy's six hours."""
     row = await session.get(ShopListingCache, (fix.tenant_id, fix.listing_id))
     if row is not None:
-        row.payload = {**row.payload, "title": listing.get("title"), "tags": listing.get("tags"), "_properties": properties}
+        row.payload = {**row.payload, "title": listing.get("title"), "tags": listing.get("tags"),
+                       "description": listing.get("description", row.payload.get("description")), "_properties": properties}
 
 
 async def _record_version(session: Any, fix: ListingFix, at: datetime, text: dict[str, Any]) -> None:
@@ -230,7 +233,7 @@ async def _apply(ctx: dict[str, Any], fix_id: uuid.UUID) -> str:
                     return "not-active"
                 after, before = fix.after or {}, fix.before or {}
                 # Each field must be as the preview showed it, or already at its new value (a repeat).
-                for field in ("title", "tags"):
+                for field in F.TEXT_FIELDS:
                     if field in after and not _field_is(current, field, before.get(field)) and not _field_is(current, field, after[field]):
                         fix.state, fix.note = "changed", CHANGED
                         await session.commit()
@@ -308,7 +311,7 @@ async def _undo(ctx: dict[str, Any], fix_id: uuid.UUID) -> str:
                 after, before = fix.after or {}, fix.before or {}
                 # Back only what is still as the fix left it, or already back (a repeat); else hands off.
                 target: dict[str, Any] = {}
-                for field in ("title", "tags"):
+                for field in F.TEXT_FIELDS:
                     if field not in after:
                         continue
                     if _field_is(current, field, before.get(field)):

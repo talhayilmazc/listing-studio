@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.scanner import rescan
 from app.db.models import GeneratedContent, Tenant, UploadBatch
+from app.pipeline import ai_text
 from app.pipeline.ingest import BatchIngestor
 from app.pipeline.ingest import UploadFile as IngestFile
 
@@ -117,7 +118,7 @@ async def create(session: AsyncSession, tenant: Tenant, ingestor: BatchIngestor)
         if not members:
             continue
         cover = min(members, key=lambda a: (a.rank if a.rank is not None else 1_000_000, a.original_filename))
-        attributes: dict[str, Any] = {"example": {"slug": listing["slug"]}, "search": {"opening": listing["opening"]},
+        attributes: dict[str, Any] = {"example": {"slug": listing["slug"]}, "search": {"opening": ai_text.clean(listing["opening"])},
                                       "vision": {"theme": listing.get("theme"), "themes": listing.get("themes", [])}}
         if listing.get("attributes"):
             attributes["listing"] = listing["attributes"]
