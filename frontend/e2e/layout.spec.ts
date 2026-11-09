@@ -821,6 +821,24 @@ test.describe("signed in", () => {
     await expectSound(page, "/batches/<batch>/review, Where and when");
   });
 
+  test("photo crop: the cover's Crop opens the cropper from the review card", async ({ page }) => {
+    await page.goto("/batches");
+    await settle(page);
+    const href = (await page.locator('a[href^="/batches/"]', { hasText: "Summer drop" }).first().getAttribute("href"))!;
+    await page.goto(`${href.replace(/\/review$/, "")}/review`);
+    await settle(page);
+    const card = page.getByTestId("review-card").first();
+    await card.getByTestId("crop-cover").click();
+    const dialog = page.getByTestId("crop-dialog");
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const { width } = page.viewportSize()!;
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `../docs/screens/photo-crop/crop-editor-${width}.png` });
+    await expectSound(page, "/batches/<batch>/review with the crop open");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
     await page.goto("/admin", { waitUntil: "commit" });
     const bar = page.getByRole("tablist", { name: "Admin sections" });

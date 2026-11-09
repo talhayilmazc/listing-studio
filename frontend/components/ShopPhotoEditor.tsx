@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CropButton } from "./CropButton";
 import { api } from "@/lib/api";
 import { dropBefore, leaveOut, limitLine, makeCover, nudge, putBack, type ShopPhotos } from "@/lib/shopPhotos";
 
@@ -60,7 +61,9 @@ export function ShopPhotoEditor({ batchId, shop, contentId, onSaved }: {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={api.assetImage(id, "small")} alt={names[id] ?? ""} loading="lazy" className="aspect-square w-full rounded object-cover" />
             <span className="mt-1 block truncate text-xs text-slate-700" title={names[id]} translate="no">{n === 0 ? `Cover · ${names[id] ?? ""}` : `${n + 1}. ${names[id] ?? ""}`}</span>
-            <span className="mt-1 flex flex-wrap gap-1">
+            <span className="mt-1 flex flex-wrap items-center gap-1">
+              {/* The cover's crop is the big one: the square Etsy shows in this shop (feature/photo-crop). */}
+              <CropButton key="crop" assetId={id} batchId={batchId} cover={n === 0} className={n === 0 ? "w-full" : ""} />
               <button type="button" className="tap text-xs text-brand-700 underline" disabled={n === 0} aria-label={`Move ${names[id]} earlier`}
                 onClick={() => setOrder(nudge(order, id, -1))}>Earlier</button>
               <button type="button" className="tap text-xs text-brand-700 underline" disabled={n === order.length - 1} aria-label={`Move ${names[id]} later`}
