@@ -52,7 +52,8 @@ NOW = datetime.now(timezone.utc)
 #: Tables that name a shop and are deliberately kept: the seller's own work and
 #: settings (a batch, a group's choices, which shop groups a shop is in), and the
 #: job and plan history.
-KEPT = {"job", "listing_group_setting", "planned_slot", "shop_group_member", "upload_batch"}
+# usage_event: the allowance count, not Etsy content; its shop id is history (core/usage.py).
+KEPT = {"job", "listing_group_setting", "planned_slot", "shop_group_member", "upload_batch", "usage_event"}
 
 
 def test_every_table_that_belongs_to_a_shop_is_wiped_or_deliberately_kept() -> None:

@@ -23,6 +23,11 @@ export function writtenAndPublished(a: Allowance): string {
 
 const WHAT_COUNTS =
   "A listing is one design written by AI or by you. Rewriting the same design is free up to 3 times; photos, drafts and publishing do not count.";
+/** With the listing counter on (backend core/usage.py): a listing counts once, at the earlier of its first
+ * AI write and its first Etsy draft. */
+const WHAT_COUNTS_ON =
+  "A listing is one design, written by AI or by you. It counts once: when our AI first writes it, or when its first Etsy draft is made, whichever comes first. Rewrites, more shops, retries, new photos and edits do not count.";
+const whatCounts = (a: Allowance) => (a.counter === "on" ? WHAT_COUNTS_ON : WHAT_COUNTS);
 
 /** The seller's own product allowance, fresh on every page and every minute. */
 export function useAllowance(): Allowance | null {
@@ -46,7 +51,7 @@ export function useAllowance(): Allowance | null {
 }
 
 /**
- * "Listings generated" in the rail: designs written this period, beside how many
+ * "Listings" in the rail: designs written this period, beside how many
  * were published in it. Drafts, publishing and photos do not count; a design's
  * first three rewrites are free.
  */
@@ -56,9 +61,9 @@ export function RailAllowance() {
   const share = a.amount ? Math.min(1, a.used / a.amount) : 1;
   const low = a.remaining <= Math.max(1, a.amount * 0.1);
   return (
-    <div className="px-2 pb-2" title={`Listings generated ${periodWord(a.period)}. ${WHAT_COUNTS} Resets ${a.resets_label}.`} data-testid="rail-allowance">
+    <div className="px-2 pb-2" title={`Listings ${periodWord(a.period)}. ${whatCounts(a)} Resets ${a.resets_label}.`} data-testid="rail-allowance">
       <div className="flex items-baseline justify-between text-[11px]">
-        <span className="text-[var(--rail-text)]">Listings generated</span>
+        <span className="text-[var(--rail-text)]">Listings</span>
         <span translate="no" className="tabular-nums text-[var(--rail-text)]">
           <span className={low ? "font-medium text-amber-400" : "font-medium text-[var(--rail-active)]"}>
             {a.remaining.toLocaleString()}
@@ -88,7 +93,7 @@ export function AllowanceSection() {
   return (
     <section className="card space-y-3 p-5">
       <div>
-        <h2 className="text-sm font-semibold text-slate-800">Listings generated</h2>
+        <h2 className="text-sm font-semibold text-slate-800">Listings</h2>
         <p className="mt-1 text-sm text-slate-500">
           <span>How many listings can be written <span>{a ? periodWord(a.period) : "each period"}</span>. A listing is one design written by AI
           or by you: it counts once, whichever of your shops it is listed in and however many photos it has. Rewriting the same

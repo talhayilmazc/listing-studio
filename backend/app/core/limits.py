@@ -4,7 +4,7 @@ Every screen and every endpoint that shows or enforces one of these reads it
 from here, so two screens cannot disagree about the same account at the same
 moment.
 
-1. **Listings generated** (the plan's allowance): ``core/allowance.py::status``.
+1. **Listings** (the plan's allowance): ``core/allowance.py::status``.
    Counts designs written, once each whatever the number of shops; drafts and
    publishing never count. Per day, week or month in the seller's own time
    zone, so it resets at their local midnight (or on the 1st).

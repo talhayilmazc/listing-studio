@@ -41,6 +41,7 @@ from app.db.models import (
     AdsDaily,
     AiCall,
     AllowanceUse,
+    UsageEvent,
     ContentVersion,
     DraftAttempt,
     DraftDismissal,
@@ -125,6 +126,7 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
     await _bulk(session, delete(DraftDismissal).where(DraftDismissal.created_at < now - timedelta(days=DraftDismissal.RETENTION_DAYS)))
     # Allowance usage: long past any period an allowance counts over.
     await _bulk(session, delete(AllowanceUse).where(AllowanceUse.at < now - timedelta(days=AllowanceUse.RETENTION_DAYS)))
+    await _bulk(session, delete(UsageEvent).where(UsageEvent.at < now - timedelta(days=UsageEvent.RETENTION_DAYS)))
     # Invite requests are personal data from people who are not users.
     await _bulk(session, 
         delete(InviteRequest).where(

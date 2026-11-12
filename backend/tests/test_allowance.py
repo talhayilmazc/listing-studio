@@ -179,7 +179,7 @@ async def test_drafts_are_not_limited_by_the_listing_allowance(ctx) -> None:  # 
     resp = await ctx["client"].post(f"/api/content/{content_id}/publish")
     assert resp.status_code == 200 and len(resp.json()["jobs"]) == 1
     mine = (await ctx["client"].get("/api/account/allowance")).json()
-    assert (mine["label"], mine["used"], mine["pending"]) == ("Listings generated", 0, 0) and "drafts" not in mine
+    assert (mine["label"], mine["used"], mine["pending"]) == ("Listings", 0, 0) and "drafts" not in mine
 
 
 async def test_half_an_override_follows_the_default_entirely(ctx) -> None:  # noqa: F811

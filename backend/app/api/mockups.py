@@ -11,7 +11,7 @@ for mockups only after the seller has looked at them and pressed "Looks right"
 Everything is per account: another account's template, photo, batch, run, mockup or
 ZIP is 404. No Etsy call and no model call is made anywhere here ("Add area" grows a
 garment from the seller's tap in the foreground map kept with the photo, without a
-model). Mockups do not count towards "Listings generated".
+model). Mockups do not count towards "Listings".
 
 A blank photo or a design is up to ``max_mockup_upload_bytes`` (30 MB) per file, one
 file per request; the request only checks and resizes it. Finding a photo's outline

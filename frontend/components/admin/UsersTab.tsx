@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AccountPublishing } from "./PublishingTab";
 import { api } from "@/lib/api";
 import type { AdminSpend, AdminUser, TempPasswordIssued } from "@/lib/types";
 import { Confirm, Reveal } from "./Reveal";
@@ -31,6 +32,8 @@ export function UsersTab({
   onReload: () => void;
 }) {
   const [issued, setIssued] = useState<TempPasswordIssued | null>(null);
+  // The account's Publishing section (read only; components/admin/PublishingTab.tsx).
+  const [publishing, setPublishing] = useState<{ id: string; email: string } | null>(null);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try {
@@ -62,7 +65,9 @@ export function UsersTab({
       ),
       meta: (
         <p translate="no" className="mt-0.5 text-xs text-slate-500">
-          {`Registered ${date(u.created_at)} · ${u.listings_published.toLocaleString()} active on Etsy now (all time)`}
+          <span>{`Registered ${date(u.created_at)} · ${u.listings_published.toLocaleString()} active on Etsy now (all time) · `}</span>
+          <button type="button" className="tap text-brand-700 underline" data-testid="user-publishing"
+            onClick={() => setPublishing({ id: u.id, email: u.email })}>Publishing</button>
         </p>
       ),
       shops: (
@@ -205,6 +210,12 @@ export function UsersTab({
         />
       )}
 
+      {publishing ? (
+        <div key="publishing" className="card p-4">
+          <AccountPublishing account={publishing} onBack={() => setPublishing(null)} onError={(m) => m && onError(m)} />
+        </div>
+      ) : null}
+
       <DefaultAllowance onSaved={onReload} onError={onError} />
 
       {/* Wide screens: one row per seller. Narrower (phones, tablets, small
@@ -216,8 +227,8 @@ export function UsersTab({
             <tr className="border-b border-slate-200 text-xs text-slate-400">
               <th className="px-3 py-3 font-medium">Account</th>
               <th className="px-3 py-3 font-medium">Shop</th>
-              <th className="px-3 py-3 font-medium" title="Listings generated in the account's period (the plan's limit), and the account's Etsy requests today against its ceiling">
-                Listings generated · Etsy requests today
+              <th className="px-3 py-3 font-medium" title="Listings in the account's period (the plan's limit; old and new counts while the counter is in shadow mode), and the account's Etsy requests today against its ceiling">
+                Listings · Etsy requests today
               </th>
               <th className="px-3 py-3 font-medium" title="Refuse brand and character names in this seller's listings">
                 Trademarks
@@ -270,7 +281,7 @@ export function UsersTab({
               </div>
               <dl className="grid gap-4 sm:grid-cols-2">
                 <Field label="Shops">{c.shops}</Field>
-                <Field label="Listings generated">{c.allowance}</Field>
+                <Field label="Listings">{c.allowance}</Field>
                 <Field label="Etsy requests today">{c.quota}</Field>
                 <Field label="Trademarks">{c.trademarks}</Field>
               </dl>

@@ -200,6 +200,7 @@ async def build(session: AsyncSession, redis: Any, now: datetime | None = None, 
     lines.append("")
     lines.append("The whole app")
     lines.extend(f"  - {row}" for row in await overall(session, redis, now))
+    lines.append(f"  - {await listings_line(session, now)}")
     opened = await notify.still_open(redis)
     if opened:
         lines.append("")
@@ -211,6 +212,19 @@ async def build(session: AsyncSession, redis: Any, now: datetime | None = None, 
         lines.append(f"Kept back by the hourly limit on alerts: {len(deferred)}")
         lines.extend(f"  - {line}" for line in deferred)
     return "\n".join(lines)
+
+
+async def listings_line(session: AsyncSession, now: datetime) -> str:
+    """Listings counted in each account's current period, from the one count (core/allowance.py::status,
+    which reads core/usage.py): the new count and the old side by side while USAGE_COUNTER is shadow."""
+    from app.core import allowance, usage
+    from app.db.models import Tenant, TenantStatus
+
+    new = old = 0
+    for tenant in (await session.execute(select(Tenant).where(Tenant.status == TenantStatus.active))).scalars():
+        s = await allowance.status(session, tenant, now)
+        new, old = new + s.listings, old + s.old_used
+    return f"Listings this period (USAGE_COUNTER={usage.mode()}): {new} counted (first AI write or first draft), {old} written (old count)"
 
 
 async def _peek_deferred(redis: Any) -> list[str]:

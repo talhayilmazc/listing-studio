@@ -59,7 +59,7 @@ async def _screens(world) -> dict:  # noqa: F811
 
 
 def _assert_one_answer(seen: dict) -> None:
-    # Listings generated: the seller's sidebar and the admin panel, the same object.
+    # Listings: the seller's sidebar and the admin panel, the same object.
     assert seen["allowance"] == seen["admin"]["allowance"]
     # Etsy requests today: the Overview card and the admin row (the review page no longer shows it).
     ceiling = seen["quota"]["ceiling"]
@@ -68,7 +68,7 @@ def _assert_one_answer(seen: dict) -> None:
         ceiling["used"], ceiling["limit"], ceiling["follows_default"],
     )
     assert ceiling["remaining"] == ceiling["limit"] - ceiling["used"]
-    assert ceiling["label"] == "Etsy requests today" and seen["allowance"]["label"] == "Listings generated"
+    assert ceiling["label"] == "Etsy requests today" and seen["allowance"]["label"] == "Listings"
 
 
 async def test_every_screen_shows_the_same_numbers_for_an_account_with_its_own_limits(world) -> None:  # noqa: F811

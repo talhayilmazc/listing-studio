@@ -839,6 +839,32 @@ test.describe("signed in", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("admin publishing: the tab and an account's section (read only)", async ({ page }) => {
+    test.skip(test.info().project.name !== "desktop-1366", "screenshots at 1366");
+    await page.goto("/admin");
+    await settle(page);
+    await page.getByRole("tab", { name: "Publishing" }).click();
+    const tab = page.getByTestId("admin-publishing");
+    await expect(tab).toBeVisible({ timeout: 20_000 });
+    await expect(tab.getByText("Upcoming, next 7 days")).toBeVisible();
+    await expect(tab.getByText("Needs attention")).toBeVisible();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: "../docs/screens/admin-publishing/publishing-tab-1366.png", fullPage: true });
+    await expectSound(page, "/admin Publishing");
+    await page.getByRole("tab", { name: "Users" }).click();
+    // Each seller is drawn twice (a phone card and a table row): the one on screen.
+    await page.locator("[data-testid=\"user-publishing\"]:visible").first().click();
+    const section = page.getByTestId("account-publishing");
+    await expect(section.getByTestId("publishing-summary")).toBeVisible({ timeout: 20_000 });
+    const first = section.getByTestId("publishing-items").locator("li button").first();
+    if (await first.count()) {
+      await first.click();
+      await expect(section.getByTestId("publishing-detail").first()).not.toContainText("Reading", { timeout: 15_000 });
+    }
+    await page.waitForTimeout(400);
+    await section.screenshot({ path: "../docs/screens/admin-publishing/account-publishing-1366.png" });
+  });
+
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
     await page.goto("/admin", { waitUntil: "commit" });
     const bar = page.getByRole("tablist", { name: "Admin sections" });

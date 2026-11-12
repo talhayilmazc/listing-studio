@@ -228,6 +228,10 @@ class Settings(BaseSettings):
     max_shops_per_tenant: int = Field(default=8, ge=1)
     max_shops_app_wide: int = Field(default=200, ge=1)
 
+    # The listing counter (core/usage.py): "shadow" records the new count and keeps showing the old;
+    # "on" makes every screen and the allowance check read the new one. A config change only.
+    usage_counter: str = "shadow"
+
     # Shown in the UI (ToU requires a visible support email).
     support_email: str = "support@example.com"
 

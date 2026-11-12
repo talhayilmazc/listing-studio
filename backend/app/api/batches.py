@@ -1694,6 +1694,7 @@ async def _write_listings(
                     generator=_generator(profile),
                     profile=profile,
                     pattern=pattern,
+                    replaces=[c.id for c in old],
                 )
             except LLMUnavailable as exc:
                 # Stop here: this group and the rest wait, none of them failed.

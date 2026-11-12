@@ -17,6 +17,7 @@ from app.api import (
     another_shop,
     events,
     admin,
+    admin_publishing,
     analytics,
     auth,
     batches,
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     application.include_router(health.router)
     application.include_router(accounts.router)
     application.include_router(admin.router)
+    application.include_router(admin_publishing.router)
     application.include_router(analytics.router)
     application.include_router(imports.router)
     application.include_router(pnl.router)

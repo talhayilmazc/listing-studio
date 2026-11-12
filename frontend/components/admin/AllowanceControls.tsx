@@ -103,8 +103,14 @@ export function AllowanceCell({
           {`${a.used.toLocaleString()} / ${a.amount.toLocaleString()}`}
         </button>
       </div>
+      {/* The listing counter (core/usage.py) beside the old count while USAGE_COUNTER is shadow. */}
+      <p translate="no" className="mt-0.5 text-[11px] text-slate-600" data-testid="usage-side-by-side">
+        {a.counter === "on"
+          ? `${(a.listings_counted ?? a.used).toLocaleString()} counted`
+          : `old ${(a.old_used ?? a.used).toLocaleString()} · new ${(a.listings_counted ?? 0).toLocaleString()} (shadow)`}
+      </p>
       <p translate="no" className="mt-0.5 break-words text-[11px] text-slate-400" title={`Resets ${a.resets_label}`}>
-        {`generated · ${a.period}${a.custom ? "" : " (default)"} · resets ${a.resets_label.replace(/^\w+, /, "")} (seller's time)`}
+        {`listings · ${a.period}${a.custom ? "" : " (default)"} · resets ${a.resets_label.replace(/^\w+, /, "")} (seller's time)`}
       </p>
     </div>
   );

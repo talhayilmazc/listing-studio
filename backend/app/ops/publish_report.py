@@ -100,6 +100,8 @@ class Item:
     #: What Etsy would refuse in its own text, and the app's notes on it (content.check_listing).
     text_problems: list[str] = field(default_factory=list)
     text_notes: int = 0
+    #: False when gathered without the text checks: _stops then does not claim nothing stops it.
+    text_checked: bool = True
     outcome: str = APPROVED
     why: str = ""
 
@@ -164,22 +166,36 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
     tenant = (await session.execute(select(Tenant).where(Tenant.email == email.strip().lower()))).scalar_one_or_none()
     if tenant is None:
         return f"no account with the address {email}"
+    return (tenant.email, str(tenant.id)), await gather(session, tenant, since, now)
+
+
+async def gather(session: AsyncSession, tenant: Tenant, since: date, now: datetime, *,
+                 content_ids: set[uuid.UUID] | None = None, text_checks: bool = True) -> list[Item]:
+    """The account's listings in the period, one Item per listing and shop, not yet classified: what the
+    report, ``--all`` and the admin Publishing screens all read (api/admin_publishing.py), so they never
+    disagree. ``content_ids``: only these listings, whatever their dates. ``text_checks``: also what in
+    each listing's text Etsy would refuse (the slowest part; the admin overview leaves it out)."""
     start = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
     tid = tenant.id
+    only = content_ids if content_ids is not None else None
     jobs = list((await session.execute(select(Job).where(
         Job.tenant_id == tid, Job.type.in_((JobType.create_draft, JobType.publish_live)),
         Job.created_at >= start).order_by(Job.created_at))).scalars())
-    pubs = list((await session.execute(select(ListingPublication).where(
+    pubs = [] if only is not None else list((await session.execute(select(ListingPublication).where(
         ListingPublication.tenant_id == tid, ListingPublication.content_id.is_not(None),
         or_(ListingPublication.created_at >= start, ListingPublication.scheduled_for >= start,
             ListingPublication.published_at >= start)))).scalars())
+    slot_filter = [PlannedSlot.content_id.in_(only or {uuid.uuid4()})] if only is not None else []
     slots = list((await session.execute(select(PlannedSlot).where(
         PlannedSlot.tenant_id == tid, PlannedSlot.content_id.is_not(None),
-        PlannedSlot.publish_at >= start))).scalars())
-    ids = {c for c in (await session.execute(select(GeneratedContent.id).where(
-        GeneratedContent.tenant_id == tid, GeneratedContent.created_at >= start))).scalars()}
-    ids |= {p.content_id for p in pubs} | {s.content_id for s in slots}
-    for job in jobs:
+        PlannedSlot.publish_at >= start, *slot_filter))).scalars())
+    if only is not None:
+        ids = set(only)
+    else:
+        ids = {c for c in (await session.execute(select(GeneratedContent.id).where(
+            GeneratedContent.tenant_id == tid, GeneratedContent.created_at >= start))).scalars()}
+        ids |= {p.content_id for p in pubs} | {s.content_id for s in slots}
+    for job in jobs if only is None else []:
         try:
             ids.add(uuid.UUID(str((job.payload or {}).get("content_id"))))
         except ValueError:
@@ -196,7 +212,7 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
         findings[f.generated_content_id].append(f)
     all_pubs = list((await session.execute(select(ListingPublication).where(
         ListingPublication.content_id.in_(list(contents) or [uuid.uuid4()])))).scalars())
-    checks = await _text_checks(session, tid, contents, profiles)
+    checks = await _text_checks(session, tid, contents, profiles) if text_checks else {}
     # Drafts the seller deleted on Etsy keep their listing in ``former_content_id``.
     gone = list((await session.execute(select(ListingPublication).where(
         ListingPublication.former_content_id.in_(list(contents) or [uuid.uuid4()]),
@@ -239,7 +255,14 @@ async def _gather(session: AsyncSession, email: str, since: date, now: datetime)
             item(content, None)
     ordered = sorted(by_pair.values(), key=lambda i: (
         i.shop.shop_name or "" if i.shop else "~", _aware(i.content.created_at), str(i.content.id)))
-    return (tenant.email, str(tenant.id)), ordered
+    if only is not None:
+        # Jobs are matched to the listings asked for only (the discovery above was skipped).
+        for i in ordered:
+            i.jobs = [j for j in i.jobs if (j.payload or {}).get("content_id") == str(i.content.id)]
+    if not text_checks:
+        for i in ordered:
+            i.text_checked = False
+    return ordered
 
 
 async def _text_checks(session: AsyncSession, tenant_id: uuid.UUID, contents: dict, profiles: dict) -> dict:
@@ -261,6 +284,8 @@ async def _text_checks(session: AsyncSession, tenant_id: uuid.UUID, contents: di
 
 
 def _stops(item: Item) -> str:
+    if not item.text_checked:
+        return "its text was not checked here (publish-report checks it)"
     if item.text_problems:
         return "what stops it: " + "; ".join(redact(p)[:120] for p in item.text_problems[:3])
     return "nothing in its text stops it"
@@ -492,47 +517,54 @@ async def report_all(sm: async_sessionmaker, since: date | None = None, *, now: 
     return "\n".join([*head, body, "", *totals]) + "\n"
 
 
+def item_lines(i: Item, checked: bool = False) -> list[str]:
+    """One listing's block, as the report prints it: the admin Publishing detail shows these lines."""
+    lines: list[str] = []
+    c = i.content
+    title = (c.title or "")[:TITLE_CHARS]
+    shop = i.shop.shop_name if i.shop is not None else "no shop yet"
+    lines.append(f"== {shop} · {i.label()} · \"{title}\" · SKU {i.sku or '-'}")
+    lines.append(f"  outcome: {i.outcome} ({i.why})")
+    lines.append("  written: " + ("by hand (manual)" if i.written_from == "manual" else "by the app (ai)"))
+    lines.append("  " + _personalization_line(i))
+    if c.approved:
+        when = _when(c.approved_at) if c.approved_at else "time not recorded"
+        lines.append(f"  approval: approved, {when}, via {c.approved_via or 'not recorded'}")
+    else:
+        lines.append("  approval: not approved")
+    for slot in i.slots:
+        lines.append(f"  group schedule: due {_when(slot.publish_at)}, draft from {_when(slot.draft_at)}, state "
+                     f"{slot.state}" + (f" · {redact(slot.note)[:200]}" if slot.note else ""))
+    if i.publication is not None:
+        p = i.publication
+        line = f"  draft: listing {p.etsy_listing_id}, state {p.state} here"
+        if p.scheduled_for is not None:
+            live = next((j for j in i.jobs if j.id == p.schedule_job_id), None)
+            state = state_of(p, live)
+            line += f" · scheduled {_when(p.scheduled_for)} ({state.status if state else '?'})"
+            if p.schedule_note:
+                line += f" · {redact(p.schedule_note)[:200]}"
+        lines.append(line)
+    if i.jobs:
+        lines.append("  attempts:")
+        lines += [_job_line(j) for j in i.jobs]
+    else:
+        lines.append("  attempts: none in this period")
+    if i.findings:
+        lines.append("  findings: " + "; ".join(f"[{sev}] {rule} ({blocks})" for rule, sev, blocks in i.findings))
+    else:
+        lines.append("  findings: none")
+    if checked:
+        lines.append(f"  on Etsy: {i.etsy_state or ('not read' if i.publication is not None else 'no draft')}")
+    return lines
+
+
 def _render(who: tuple[str, str], since: date, items: list[Item], notes: list[str], checked: bool) -> str:
     lines = [f"publish report for {who[0]} (account {who[1][:8]}), listings since {since.isoformat()}", ""]
     lines.append("== summary (one line per outcome; personalization on | off; who wrote it)")
     lines += summary_lines(items)
     lines += [""] + ([f"  {n}" for n in notes] if notes else []) + ([""] if notes else [])
     for i in items:
-        c = i.content
-        title = (c.title or "")[:TITLE_CHARS]
-        shop = i.shop.shop_name if i.shop is not None else "no shop yet"
-        lines.append(f"== {shop} · {i.label()} · \"{title}\" · SKU {i.sku or '-'}")
-        lines.append(f"  outcome: {i.outcome} ({i.why})")
-        lines.append("  written: " + ("by hand (manual)" if i.written_from == "manual" else "by the app (ai)"))
-        lines.append("  " + _personalization_line(i))
-        if c.approved:
-            when = _when(c.approved_at) if c.approved_at else "time not recorded"
-            lines.append(f"  approval: approved, {when}, via {c.approved_via or 'not recorded'}")
-        else:
-            lines.append("  approval: not approved")
-        for slot in i.slots:
-            lines.append(f"  group schedule: due {_when(slot.publish_at)}, draft from {_when(slot.draft_at)}, state "
-                         f"{slot.state}" + (f" · {redact(slot.note)[:200]}" if slot.note else ""))
-        if i.publication is not None:
-            p = i.publication
-            line = f"  draft: listing {p.etsy_listing_id}, state {p.state} here"
-            if p.scheduled_for is not None:
-                live = next((j for j in i.jobs if j.id == p.schedule_job_id), None)
-                state = state_of(p, live)
-                line += f" · scheduled {_when(p.scheduled_for)} ({state.status if state else '?'})"
-                if p.schedule_note:
-                    line += f" · {redact(p.schedule_note)[:200]}"
-            lines.append(line)
-        if i.jobs:
-            lines.append("  attempts:")
-            lines += [_job_line(j) for j in i.jobs]
-        else:
-            lines.append("  attempts: none in this period")
-        if i.findings:
-            lines.append("  findings: " + "; ".join(f"[{sev}] {rule} ({blocks})" for rule, sev, blocks in i.findings))
-        else:
-            lines.append("  findings: none")
-        if checked:
-            lines.append(f"  on Etsy: {i.etsy_state or ('not read' if i.publication is not None else 'no draft')}")
+        lines += item_lines(i, checked)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
