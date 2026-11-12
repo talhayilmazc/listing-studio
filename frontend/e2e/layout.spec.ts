@@ -852,7 +852,8 @@ test.describe("signed in", () => {
     await page.screenshot({ path: "../docs/screens/admin-publishing/publishing-tab-1366.png", fullPage: true });
     await expectSound(page, "/admin Publishing");
     await page.getByRole("tab", { name: "Users" }).click();
-    await page.getByTestId("user-publishing").first().click();
+    // Each seller is drawn twice (a phone card and a table row): the one on screen.
+    await page.locator("[data-testid=\"user-publishing\"]:visible").first().click();
     const section = page.getByTestId("account-publishing");
     await expect(section.getByTestId("publishing-summary")).toBeVisible({ timeout: 20_000 });
     const first = section.getByTestId("publishing-items").locator("li button").first();

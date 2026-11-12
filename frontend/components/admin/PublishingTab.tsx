@@ -242,6 +242,9 @@ export function AccountPublishing({ account, onBack, onError }: {
                   </button>
                 </li>
               ))}
+              {data.summary.length === 0 ? (
+                <li key="none" className="text-slate-600" translate="no">{`No listings since ${data.since}.`}</li>
+              ) : null}
             </ul>
             <details className="mt-2 text-xs">
               <summary className="tap cursor-pointer text-slate-600">The summary as text</summary>
