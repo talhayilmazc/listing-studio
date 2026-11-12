@@ -482,7 +482,7 @@ class AllowanceOut(BaseModel):
     resets_at: datetime
     resets_label: str  # "Thu, Oct 1, 12:00 AM CDT", in the seller's zone
     time_zone: str
-    #: The listing counter's number (first drafts in the period), the old number, and which one
+    #: The listing counter's number (listings first written by our AI or first drafted in the period), the old number, and which one
     #: ``used`` is ("shadow" | "on"): admin shows both side by side while in shadow mode.
     listings_counted: int = 0
     old_used: int = 0

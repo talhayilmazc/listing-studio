@@ -60,7 +60,7 @@ from app.api.distribution import _contents
 from app.compliance.check import listing_problem
 from app.api.shops import shop_label
 from app.core import db_release
-from app.core import allowance, audit
+from app.core import allowance, audit, usage
 from app.db.models import (
     Asset,
     EtsyConnection,
@@ -749,6 +749,8 @@ async def rewrite_for_shop(batch_id: uuid.UUID, body: RewriteIn, session: AsyncS
                                       profile_id=None if body.profile_id == content.listing_profile_id else body.profile_id)
         shop_listing.set_override(content, shop.id, title=title, tags=tags, description=description)
         allowance.record(session, tenant.id, kind, design=design)
+        # Our AI wrote this listing's text: it counts now unless it is counted already (core/usage.py).
+        await usage.record_ai_write(session, tenant.id, content)
         await session.commit()
         row.title, row.tags, row.description = title, tags, description
         row.counted = kind == allowance.GENERATION

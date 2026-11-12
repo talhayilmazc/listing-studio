@@ -1,7 +1,7 @@
 """The listing counter's daily check (fix/usage-and-admin-publishing; core/usage.py).
 
-Compares ``usage_event`` with the publication records. A listing with a draft and no usage row, or a
-usage row with no successful draft (its shop still connected), is told to ALERT_WEBHOOK_URL with counts
+Compares ``usage_event`` with the publication records and the AI-written listings. A listing written by
+our AI or with a draft and no usage row, or a usage row with neither behind it, is told to ALERT_WEBHOOK_URL with counts
 and ids only; nothing is changed here (``python -m app.cli usage-reconcile --apply`` adds missing rows).
 """
 
@@ -21,9 +21,9 @@ def alert_text(found: usage.Reconciled) -> str:
 
     lines = ["[Listyro] The listing counter and the drafts disagree."]
     if found.missing:
-        lines.append(f"Drafted, not counted: {len(found.missing)} ({ids(found.missing)})")
+        lines.append(f"Written or drafted, not counted: {len(found.missing)} ({ids(found.missing)})")
     if found.orphans:
-        lines.append(f"Counted, no draft: {len(found.orphans)} ({ids(found.orphans)})")
+        lines.append(f"Counted, no AI write or draft: {len(found.orphans)} ({ids(found.orphans)})")
     lines.append("Check: python -m app.cli usage-reconcile --all (read only; --apply adds the missing rows).")
     return "\n".join(lines)
 

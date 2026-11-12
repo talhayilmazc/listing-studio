@@ -224,7 +224,7 @@ async def listings_line(session: AsyncSession, now: datetime) -> str:
     for tenant in (await session.execute(select(Tenant).where(Tenant.status == TenantStatus.active))).scalars():
         s = await allowance.status(session, tenant, now)
         new, old = new + s.listings, old + s.old_used
-    return f"Listings this period (USAGE_COUNTER={usage.mode()}): {new} counted at first draft, {old} written (old count)"
+    return f"Listings this period (USAGE_COUNTER={usage.mode()}): {new} counted (first AI write or first draft), {old} written (old count)"
 
 
 async def _peek_deferred(redis: Any) -> list[str]:

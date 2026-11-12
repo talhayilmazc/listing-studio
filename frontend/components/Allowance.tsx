@@ -23,9 +23,10 @@ export function writtenAndPublished(a: Allowance): string {
 
 const WHAT_COUNTS =
   "A listing is one design written by AI or by you. Rewriting the same design is free up to 3 times; photos, drafts and publishing do not count.";
-/** With the listing counter on (backend core/usage.py): a listing counts once, at its first Etsy draft. */
+/** With the listing counter on (backend core/usage.py): a listing counts once, at the earlier of its first
+ * AI write and its first Etsy draft. */
 const WHAT_COUNTS_ON =
-  "A listing is one design, written by AI or by you. It counts once, when its first Etsy draft is made; more shops, retries, new photos and edits do not count.";
+  "A listing is one design, written by AI or by you. It counts once: when our AI first writes it, or when its first Etsy draft is made, whichever comes first. Rewrites, more shops, retries, new photos and edits do not count.";
 const whatCounts = (a: Allowance) => (a.counter === "on" ? WHAT_COUNTS_ON : WHAT_COUNTS);
 
 /** The seller's own product allowance, fresh on every page and every minute. */

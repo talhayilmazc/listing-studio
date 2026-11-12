@@ -1805,8 +1805,8 @@ export interface LedgerRead {
 
 /** Our product allowance: listings generated plus drafts created per period.
  *  Not Etsy's API quota, which is Etsy's shared daily ceiling. */
-/** "Listings": the allowance. With the listing counter on, listings whose first Etsy draft was made in
- * the period (backend core/usage.py); in shadow mode, listings written. */
+/** "Listings": the allowance. With the listing counter on, listings counted in the period at the earlier
+ * of their first AI write and their first Etsy draft (backend core/usage.py); in shadow mode, listings written. */
 export interface Allowance {
   label: string;
   amount: number;

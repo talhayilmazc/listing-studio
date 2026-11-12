@@ -89,7 +89,7 @@ export function PublishingTab({ onError }: { onError: (message: string | null) =
           </table>
         </div>
         <h3 className="mt-4 text-sm font-semibold text-slate-900">Listings counted this period</h3>
-        <p className="text-xs text-slate-600">New: counted at the first Etsy draft. Old: listings written. While the counter is in shadow mode the screens use the old number.</p>
+        <p className="text-xs text-slate-600">New: counted once, at its first AI write or its first Etsy draft, whichever comes first. Old: listings written. While the counter is in shadow mode the screens use the old number.</p>
         <table className="mt-2 w-full max-w-xl text-left text-sm" data-testid="publishing-counted">
           <thead>
             <tr className="border-b border-slate-200 text-xs text-slate-500">

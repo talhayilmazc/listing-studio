@@ -203,9 +203,10 @@ class Tenant(Base):
 class UsageEvent(Base):
     """A listing counted against the allowance (fix/usage-and-admin-publishing, core/usage.py).
 
-    One row per listing, written in the same transaction as its first successful Etsy draft
-    (etsy/publisher.py): unique per (account, listing), so sending it to more shops, retries,
-    Replace images and edits never count again. ``listing_key`` is the listing's content id (a new
+    One row per listing, written in the same transaction as the earlier of its first successful AI
+    write (pipeline/generation.py) and its first successful Etsy draft (etsy/publisher.py): unique per
+    (account, listing), so rewrites, sending it to more shops, retries, Replace images and edits never
+    count again. ``listing_key`` is the listing's content id (a new
     upload of the same design is a new listing); a publication whose listing is gone is its own key
     (``pub:<id>``, backfill only). No foreign key to the listing or the draft: the count is history
     and stays when a batch is deleted. Deleted with the account; kept as long as allowance_use.
@@ -222,7 +223,7 @@ class UsageEvent(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False)
     listing_key: Mapped[str] = mapped_column(Text, nullable=False)
-    #: The first draft that counted it (ids only; no foreign keys: history).
+    #: The listing and its first draft (ids only; no foreign keys: history). No draft yet: counted at its AI write.
     content_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     publication_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     connection_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,8 +72,13 @@ async def generate_listing_content(
     generator: ContentGenerator,
     profile: ListingProfile,
     pattern: dict[str, Any] | None = None,
+    replaces: Sequence[uuid.UUID] = (),
 ) -> GenerationOutcome:
     """Analyze the processed derivative, generate the listing, and persist it.
+
+    The listing is counted against the allowance in the same transaction as it is saved
+    (core/usage.py: the earlier of its first AI write and its first draft); ``replaces`` are the
+    listings a regenerate retires, whose count moves to this one instead of a second count.
 
     A reference-listing ``profile`` is required (Section B): its ``cached_payload``
     supplies the description body (only the leading line(s) are replaced by the new
@@ -205,6 +211,9 @@ async def generate_listing_content(
     from app.pipeline import funnel
 
     await funnel.record_for_batch(session, tenant_id, funnel.FIRST_LISTING_READY, batch_id)
+    from app.core import usage
+
+    await usage.record_ai_write(session, tenant_id, content, replaces=replaces)
     # Clear any prior failure reason now that generation succeeded.
     asset = await session.get(Asset, asset_id)
     if asset is not None:

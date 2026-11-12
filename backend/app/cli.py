@@ -251,7 +251,7 @@ async def limits_report(sm: async_sessionmaker, email: str) -> str:
         f"account: {tenant.email}   time zone: {limits.zone_of(tenant)}",
         f"1. Listings: {a.used} used of {a.amount} ({a.period}, {'its own' if a.custom else 'the default'}); "
         f"{a.remaining} left; resets {allowance.reset_label(a.resets_at, a.time_zone)}",
-        f"   counter: {a.counter} (USAGE_COUNTER); counted at first draft: {a.listings}; listings written (old): {a.old_used}",
+        f"   counter: {a.counter} (USAGE_COUNTER); counted (first AI write or first draft): {a.listings}; listings written (old): {a.old_used}",
         f"   stored: allowance_amount={tenant.allowance_amount!r} allowance_period={tenant.allowance_period!r}",
         f"2. Etsy requests today: {c.used} used of {c.limit} ({'follows the default' if c.follows_default else 'its own number'}); "
         f"{c.remaining} left; upkeep not counted: {c.upkeep}; resets {c.resets_label} (00:00 UTC)",

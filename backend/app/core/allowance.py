@@ -153,7 +153,7 @@ class AllowanceStatus:
         word = _PERIOD_WORD.get(self.period, "this period")
         if self.remaining <= 0 and self.counter == "on":
             return (
-                f"You've used your {self.amount:,} listings {word}: a listing counts when its first Etsy draft is made. "
+                f"You've used your {self.amount:,} listings {word}: a listing counts when our AI first writes it or its first Etsy draft is made. "
                 f"More can be written from {when}. Listings already counted can still be sent to more shops."
             )
         if self.remaining <= 0:
