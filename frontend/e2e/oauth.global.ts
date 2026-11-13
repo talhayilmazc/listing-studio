@@ -24,6 +24,9 @@ export default async function globalSetup(): Promise<(() => void) | void> {
   } catch {
     throw new Error("The shop-connection test needs the production frontend image: docker compose -f docker-compose.prod.yml build frontend");
   }
+  // A run stopped half-way never ran its teardown: its stack (and the invite codes it used up) would be
+  // reused and the first-run sign-ups refused. Always start from nothing.
+  docker([...COMPOSE, "down", "--volumes"], 120_000);
   docker([...COMPOSE, "up", "-d", "--build", "--wait"], 900_000);
   return () => {
     docker([...COMPOSE, "down", "--volumes"], 120_000);
