@@ -68,6 +68,11 @@ for key in POSTGRES_PASSWORD DATABASE_URL ENCRYPTION_KEY ADMIN_TOKEN SECRET_KEY 
   fi
 done
 
+# The support address is the product's own mailbox, never a person's (the app shows support@listyro.com instead).
+if printf '%s' "$(get SUPPORT_EMAIL)" | grep -qiE '@(gmail|googlemail|hotmail|outlook|live|yahoo|icloud|me|aol|yandex|proton|protonmail|gmx|mail)\.'; then
+  warn "SUPPORT_EMAIL is a personal mailbox; the app shows support@listyro.com instead. Set SUPPORT_EMAIL=support@listyro.com"
+fi
+
 # Values known from development must never reach production.
 for key in ADMIN_TOKEN SECRET_KEY POSTGRES_PASSWORD; do
   case "$(get "$key")" in

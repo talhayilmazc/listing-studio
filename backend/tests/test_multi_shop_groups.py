@@ -255,7 +255,7 @@ async def test_a_single_shop_next_to_a_group_and_another_accounts_shop_is_404(wo
     g = await _groups(world, A=[world["a1"], world["a2"]], B=[world["a2"]])
     a, batch = world["a"], world["batch"]
     res = await a.put(f"/api/batches/{batch}/send-to", json={"send_to": {"group_ids": [g["B"]], "connection_ids": [str(world["a1"])]}})
-    assert res.status_code == 200 and res.json()["label"] == "B + Frost Tees"
+    assert res.status_code == 200 and res.json()["label"] == "B (1 shop) + Frost Tees"  # a group says how many shops it holds (Part H)
     preview = (await a.post(f"/api/batches/{batch}/send/preview", json={"when": "drafts"})).json()
     assert all(sorted(c["shop_name"] for c in r["cells"]) == ["Frost Mugs", "Frost Tees"] for r in preview["rows"])
     res = await a.put(f"/api/batches/{batch}/send-to", json={"send_to": {"connection_ids": [str(world["b1"])]}})

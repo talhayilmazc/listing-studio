@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { onShopSynced } from "@/lib/shopSync";
 import { api } from "@/lib/api";
 import { ALL, resolveScope } from "@/lib/shopScope";
 import type { Shop, ShopsOut } from "@/lib/types";
@@ -91,6 +92,9 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     setLastSingle(read(SINGLE_KEY));
     refresh();
   }, [refresh]);
+
+  // A shop's sync ended (Part I): the shop list (names, counts on the Shops page and the switcher) too.
+  useEffect(() => onShopSynced(() => void refresh()), [refresh]);
 
   const select = useCallback((id: string) => {
     setRemembered(id);

@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Allowance } from "@/lib/types";
+import { resetTime } from "@/lib/resetTime";
+import { useSession } from "@/components/SessionProvider";
 
 import { Txt } from "@/components/Txt";
 const PERIOD_WORD: Record<string, string> = { daily: "today", weekly: "this week", monthly: "this month" };
@@ -57,11 +59,12 @@ export function useAllowance(): Allowance | null {
  */
 export function RailAllowance() {
   const a = useAllowance();
+  const { timeZone } = useSession(); // the account's zone: "the seller's time zone" everywhere (Part F)
   if (!a) return null;
   const share = a.amount ? Math.min(1, a.used / a.amount) : 1;
   const low = a.remaining <= Math.max(1, a.amount * 0.1);
   return (
-    <div className="px-2 pb-2" title={`Listings ${periodWord(a.period)}. ${whatCounts(a)} Resets ${a.resets_label}.`} data-testid="rail-allowance">
+    <div className="px-2 pb-2" title={`Listings ${periodWord(a.period)}. ${whatCounts(a)} Resets ${resetTime(a.resets_at, timeZone, { weekday: true })}.`} data-testid="rail-allowance">
       <div className="flex items-baseline justify-between text-[11px]">
         <span className="text-[var(--rail-text)]">Listings</span>
         <span translate="no" className="tabular-nums text-[var(--rail-text)]">
@@ -81,7 +84,7 @@ export function RailAllowance() {
         {writtenAndPublished(a)}
       </p>
       <p translate="no" className="text-[11px] text-[var(--rail-text)]">
-        {`resets ${a.resets_label.replace(/^\w+, /, "")}`}
+        {`resets ${resetTime(a.resets_at, timeZone)}`}
       </p>
     </div>
   );
@@ -90,6 +93,7 @@ export function RailAllowance() {
 /** The allowance in Settings: what counts, what's used, what's left, when it resets. */
 export function AllowanceSection() {
   const a = useAllowance();
+  const { timeZone } = useSession();
   return (
     <section className="card space-y-3 p-5">
       <div>
@@ -110,7 +114,7 @@ export function AllowanceSection() {
               <span className="text-2xl font-semibold text-slate-900">{a.remaining.toLocaleString()}</span>
               <span className="text-slate-500">{` of ${a.amount.toLocaleString()} left ${periodWord(a.period)}`}</span>
             </span>
-            <span className="text-xs text-slate-500">{`Resets ${a.resets_label}`}</span>
+            <span className="text-xs text-slate-500">{`Resets ${resetTime(a.resets_at, timeZone, { weekday: true })}`}</span>
           </div>
           <div className="progress">
             <div className="progress-fill" style={{ width: (a.amount ? Math.min(100, (a.used / a.amount) * 100) : 100) + "%" }} />

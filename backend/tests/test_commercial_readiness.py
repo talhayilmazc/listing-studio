@@ -427,6 +427,11 @@ async def test_the_review_card_carries_the_warning(world) -> None:  # noqa: F811
         profile.cached_payload = {**(profile.cached_payload or {}), "payload_version": 2, "who_made": "i_did", "production_partner_ids": []}
         content = await s.get(GeneratedContent, bob.content_id)
         content.listing_profile_id = profile.id
+        # The shop uses a partner on another listing (the note is said only then: Part H).
+        from app.db.models import ShopListingCache
+
+        s.add(ShopListingCache(tenant_id=profile.tenant_id, connection_id=profile.connection_id, listing_id=880009,
+                               payload={"listing_id": 880009, "production_partners": [{"production_partner_id": 9}]}))
         await s.commit()
     [card] = (await world["b"].get(f"/api/batches/{bob.batch_id}/content")).json()
     assert card["production_note"] and "production partner" in card["production_note"]
@@ -438,6 +443,39 @@ async def test_the_review_card_carries_the_warning(world) -> None:  # noqa: F811
         profile.cached_payload = {**profile.cached_payload, "production_partner_ids": [5]}
         await s.commit()
     assert (await world["b"].get(f"/api/batches/{bob.batch_id}/content")).json()[0]["production_note"] is None
+
+
+async def test_the_note_is_said_only_where_the_shop_uses_a_partner(world) -> None:  # noqa: F811
+    """fix/onboarding-followups, Part H: a seller who prints their own shirts read the partner note on
+    every card. Now a print-on-demand profile alone says nothing when none of its shop's own listings
+    names a partner; it is said when the shop does use one (and always when the reference says
+    someone else made the item: Etsy refuses that without a partner)."""
+    from app.db.models import ShopListingCache
+
+    bob = world["bob"]
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, bob.profile_id)
+        profile.content_template = "apparel"
+        profile.cached_payload = {**(profile.cached_payload or {}), "payload_version": 2, "who_made": "i_did", "production_partner_ids": []}
+        content = await s.get(GeneratedContent, bob.content_id)
+        content.listing_profile_id = profile.id
+        s.add(ShopListingCache(tenant_id=profile.tenant_id, connection_id=profile.connection_id, listing_id=880001,
+                               payload={"listing_id": 880001, "state": "active", "production_partners": []}))
+        await s.commit()
+    note = lambda: world["b"].get(f"/api/batches/{bob.batch_id}/content")  # noqa: E731
+    assert (await note()).json()[0]["production_note"] is None  # the shop prints its own
+    async with world["sm"]() as s:
+        s.add(ShopListingCache(tenant_id=profile.tenant_id, connection_id=profile.connection_id, listing_id=880002,
+                               payload={"listing_id": 880002, "state": "active",
+                                        "production_partners": [{"production_partner_id": 9, "partner_name": "P"}]}))
+        await s.commit()
+    assert "production partner" in (await note()).json()[0]["production_note"]
+    mine = next(p for p in (await world["b"].get("/api/profiles")).json() if p["id"] == str(bob.profile_id))
+    assert mine["production_note"]
+    # Made by someone else: said even in a shop that names no partner anywhere.
+    assert creativity.production_note(
+        ListingProfile(name="x", content_template="apparel", cached_payload={"who_made": "someone_else"}),
+        shop_uses_partner=False)
 
 
 async def test_how_it_is_produced_and_the_tools_are_said_never_guessed(world) -> None:  # noqa: F811

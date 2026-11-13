@@ -36,7 +36,9 @@ test("one primary button: the batch page and the review page hand it over as the
   assert.ok(batch.includes('groups.every((g) => g.done) ? "btn-primary" : "btn-secondary"'));
   assert.ok(batch.includes('"Write listings"'));
   assert.ok(batch.includes('groups.some((g) => !g.done) ? "btn-primary" : "btn-secondary"'));
-  assert.ok(read("app/(app)/batches/[id]/review/page.tsx").includes("primary={actions.approved === items.length}"));
+  // Review (Part H): the bar's one primary action, Approve (selected), then Send; the panel's own button after Send.
+  const review = read("app/(app)/batches/[id]/review/page.tsx");
+  assert.ok(review.includes("primaryAction({") && review.includes('data-testid="review-next"'));
 });
 
 test("one sentence first, the rest behind ?", () => {

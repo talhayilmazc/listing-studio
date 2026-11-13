@@ -105,16 +105,31 @@ async def test_registering_writes_signed_up(app_ctx) -> None:  # noqa: F811
 
 
 # --- The checklist -----------------------------------------------------------------------------------
+async def _confirmed_profile(ctx) -> None:  # noqa: F811
+    from app.db.models import EtsyConnection, ListingProfile
+
+    async with ctx["sm"]() as s:
+        shop = await s.scalar(select(EtsyConnection.id).where(EtsyConnection.tenant_id == ctx["tenant_id"]))
+        s.add(ListingProfile(tenant_id=ctx["tenant_id"], connection_id=shop, name="Tees", reference_listing_id=7,
+                             confirmed=True))
+        await s.commit()
+
+
 async def test_the_checklist_ticks_itself_and_links_each_step_to_where_it_is_done(ctx) -> None:  # noqa: F811
     client = ctx["client"]
     first = (await client.get("/api/onboarding")).json()
     # The context's account has a shop already (connected before the funnel existed): step 1 is done.
-    assert [s["key"] for s in first["steps"]] == ["shop", "upload", "approve", "send"]
-    assert [s["done"] for s in first["steps"]] == [True, False, False, False]
-    assert first["next"] == "upload" and not first["all_done"]
-    assert [s["href"] for s in first["steps"]][:2] == ["/connect", "/upload"]
+    assert [s["key"] for s in first["steps"]] == ["shop", "profile", "upload", "approve", "send"]
+    assert [s["done"] for s in first["steps"]] == [True, False, False, False, False]
+    assert first["next"] == "profile" and not first["all_done"]
+    assert [s["href"] for s in first["steps"]][:3] == ["/connect", "/profiles", "/upload"]
     assert [s["title"] for s in first["steps"]] == [
-        "Connect your shop", "Upload your first design", "Review and approve", "Send or schedule it"]
+        "Connect your shop", "Confirm your listing settings", "Upload your first design", "Review and approve",
+        "Send or schedule it"]
+    # The shop is not read yet, so there is no suggestion to confirm; the step says it is coming.
+    assert first["steps"][1]["confirm_profile_id"] is None
+    await _confirmed_profile(ctx)
+    assert (await client.get("/api/onboarding")).json()["next"] == "upload"
 
     # A listing written and waiting: "Review and approve" opens its batch.
     content_id = await _add_content(ctx["sm"], ctx["tenant_id"], approved=False)
@@ -123,7 +138,7 @@ async def test_the_checklist_ticks_itself_and_links_each_step_to_where_it_is_don
         await funnel.record(s, ctx["tenant_id"], funnel.FIRST_UPLOAD)
         await s.commit()
     again = (await client.get("/api/onboarding")).json()
-    assert again["steps"][2]["href"] == f"/batches/{batch_id}/review"
+    assert again["steps"][3]["href"] == f"/batches/{batch_id}/review"
     assert again["next"] == "approve"
 
     # Not every step done: the note cannot be closed yet.
@@ -145,7 +160,7 @@ async def test_another_accounts_steps_tick_nothing_here(ctx) -> None:  # noqa: F
             await funnel.record(s, other, name)
         await s.commit()
     mine = (await ctx["client"].get("/api/onboarding")).json()
-    assert [s["done"] for s in mine["steps"]] == [True, False, False, False]
+    assert [s["done"] for s in mine["steps"]] == [True, False, False, False, False]
 
 
 # --- The example designs -----------------------------------------------------------------------------
@@ -185,7 +200,7 @@ async def test_trying_the_examples_makes_no_model_call_and_counts_for_nothing(ct
     assert summary["is_example"] is True
     checklist = (await client.get("/api/onboarding")).json()
     assert checklist["example_batch_id"] == batch_id
-    assert [s["done"] for s in checklist["steps"]] == [True, False, False, False]
+    assert [s["done"] for s in checklist["steps"]] == [True, False, False, False, False]
 
 
 async def test_an_example_can_be_approved_but_never_sent_rewritten_or_scheduled(ctx, tmp_path) -> None:  # noqa: F811

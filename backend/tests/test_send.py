@@ -77,12 +77,12 @@ async def test_six_listings_to_two_shops_are_twelve_drafts(world) -> None:  # no
     await _six(world)
     both = await _group(world, "GROUP 1", world["a1"], world["a2"])
     state = await _send_to(world, group_ids=[both])
-    assert state["label"] == "GROUP 1"
+    assert state["label"] == "GROUP 1 (2 shops)"
     preview = await _preview(world)
     assert (preview["listings"], preview["shops"], preview["total"]) == (6, 2, 12)
     assert preview["sentence"] == "6 listings → 2 shops: 12 drafts."
     assert preview["button"] == "Create 12 drafts" and preview["disabled"] is None
-    assert all(len(r["cells"]) == 2 and r["label"] == "GROUP 1" and not r["custom"] for r in preview["rows"])
+    assert all(len(r["cells"]) == 2 and r["label"] == "GROUP 1 (2 shops)" and not r["custom"] for r in preview["rows"])
     assert "estimated_calls" not in preview and "requests" not in str(preview)  # no request counts for sellers (A3)
 
     res = await world["a"].post(f"/api/batches/{world['batch']}/send", json={"when": "drafts"})
@@ -100,7 +100,7 @@ async def test_two_groups_sharing_a_shop_give_it_one_draft_per_listing(world) ->
     await _six(world)
     a = await _group(world, "A", world["a1"])
     b = await _group(world, "B", world["a1"], world["a2"])
-    assert (await _send_to(world, group_ids=[a, b]))["label"] == "A + B"
+    assert (await _send_to(world, group_ids=[a, b]))["label"] == "A (1 shop) + B (2 shops)"
     preview = await _preview(world)
     assert (preview["shops"], preview["total"]) == (2, 12)  # not 18: Frost Tees once
     for row in preview["rows"]:
@@ -203,13 +203,13 @@ async def test_all_my_shops_is_one_click_and_made_once(world) -> None:  # noqa: 
     state = res.json()
     group = next(g for g in state["groups"] if g["name"] == "All shops")
     assert set(group["shop_ids"]) == {str(world["a1"]), str(world["a2"])}
-    assert state["send_to"]["group_ids"] == [group["id"]] and state["label"] == "All shops"
+    assert state["send_to"]["group_ids"] == [group["id"]] and state["label"] == "All shops (2 shops)"
     assert state["offer_all_shops"] is False
     again = (await world["a"].post(f"/api/batches/{world['batch']}/send-to/all-shops")).json()
     assert [g["name"] for g in again["groups"]] == ["All shops"]
     # A new batch starts from where the last one was sent.
     fresh = (await world["a"].post("/api/batches")).json()["id"]
-    assert (await world["a"].get(f"/api/batches/{fresh}/send")).json()["label"] == "All shops"
+    assert (await world["a"].get(f"/api/batches/{fresh}/send")).json()["label"] == "All shops (2 shops)"
 
 
 async def test_a_one_shop_seller_is_offered_no_groups(world) -> None:  # noqa: F811
@@ -238,3 +238,19 @@ async def test_another_account_gets_404(world) -> None:  # noqa: F811
         assert res.status_code == 404
     async with world["sm"]() as s:
         assert (await s.get(UploadBatch, batch)).send_to is None
+
+
+async def test_send_to_names_the_shops_the_summary_counts(world) -> None:  # noqa: F811
+    """fix/onboarding-followups, Part H. "Send to: Northwind Tees" stood above "2 listings → 4 shops":
+    nothing was chosen, so the label named each listing's profile shop, while listings still carrying
+    the old matrix's ticks (``target_shops``) went to every ticked shop. The label now names the
+    shops the summary counts."""
+    async with world["sm"]() as s:
+        for c in (await s.execute(select(GeneratedContent).where(GeneratedContent.batch_id == world["batch"]))).scalars():
+            c.target_shops = [str(world["a1"]), str(world["a2"])]
+        await s.commit()
+    state = (await world["a"].get(f"/api/batches/{world['batch']}/send")).json()
+    preview = await _preview(world)
+    assert preview["shops"] == 2
+    assert state["label"] == "Frost Tees + " + next(c["name"] for c in state["shops"] if c["id"] == str(world["a2"]))
+    assert all(r["label"] == state["label"] for r in preview["rows"])

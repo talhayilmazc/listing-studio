@@ -764,6 +764,33 @@ class GenerateResult(BaseModel):
     paused: str | None = None
 
 
+class WritingFailure(BaseModel):
+    file: str
+    error: str
+
+
+class WritingOut(BaseModel):
+    """A batch being written in the worker (workers/writing.py): ``idle`` (nothing asked), ``queued``,
+    ``running``, ``paused`` (our AI provider refused us, or the allowance ran out: ``message`` says which)
+    or ``done``."""
+
+    state: str
+    total: int = 0
+    done: int = 0
+    written: int = 0
+    failed: int = 0
+    skipped: int = 0
+    message: str | None = None
+    failures: list[WritingFailure] = Field(default_factory=list)
+
+
+class WritingReady(BaseModel):
+    batch_id: uuid.UUID
+    name: str
+    written: int
+    failed: int
+
+
 class PublishJobOut(BaseModel):
     content_id: uuid.UUID
     job_id: uuid.UUID
@@ -1228,6 +1255,18 @@ class ShopListingOut(BaseModel):
 class ShopListingsOut(BaseModel):
     listings: list[ShopListingOut] = Field(default_factory=list)
     stale: bool = False  # a background refresh was triggered
+    # Part I (etsy/shop_sync.py): a sync of this shop is queued or running; when one last read it.
+    syncing: bool = False
+    synced_at: datetime | None = None
+
+
+class ShopSyncOut(BaseModel):
+    """One shop's listing sync (Part I): running or not, and when one last ended / read the shop."""
+
+    connection_id: uuid.UUID
+    syncing: bool
+    ended_at: datetime | None = None
+    synced_at: datetime | None = None
 
 
 class ShopSummaryOut(BaseModel):

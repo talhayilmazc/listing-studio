@@ -36,3 +36,8 @@ export function writtenLine(written: number, failed: number, skipped = 0): strin
   if (skipped) parts.push(`${skipped} already written`);
   return parts.join(", ") + ".";
 }
+
+/** While the worker writes: "Writing 3 of 12". Writing carries on with the page closed, so it says so. */
+export function writingLine(done: number, total: number): string {
+  return `Writing ${Math.min(done + 1, total)} of ${total}. You can close this page: writing carries on, and you'll see "Listings ready" when it's done.`;
+}

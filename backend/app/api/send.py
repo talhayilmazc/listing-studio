@@ -42,6 +42,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
 from app.compliance.trademarks import brand_warnings, tenant_blocklist
 from app.compliance.check import personalization_hold
+from app.pipeline import schedule_times
 from app.pipeline.personalization import HELD_NOTE
 from app.api.publish import _budget, _Plan, _publish, auto_setup
 from app.api.shops import shop_label
@@ -129,6 +130,10 @@ class SendCell(BaseModel):
     local: str | None = None
     #: Said next to it ("title rewritten once to fit this shop").
     note: str | None = None
+    #: When its draft is made and when it goes live, or that it stays a draft (Part J; pipeline/schedule_times.py).
+    times: str | None = None
+    #: When its existing draft was made (not sent: the line above says it).
+    draft_at: datetime | None = Field(default=None, exclude=True)
 
 
 class SendRow(BaseModel):
@@ -220,30 +225,66 @@ def _out(value: dict | None) -> DestinationIn | None:
 
 
 class _Names:
-    def __init__(self, groups: dict[uuid.UUID, str], shops: dict[uuid.UUID, str]) -> None:
-        self.groups, self.shops = groups, shops
+    def __init__(self, groups: dict[uuid.UUID, str], shops: dict[uuid.UUID, str],
+                 members: dict[uuid.UUID, list[uuid.UUID]] | None = None) -> None:
+        self.groups, self.shops, self.members = groups, shops, members or {}
+
+    def group(self, group_id: uuid.UUID) -> str:
+        """A group says how many shops it gives ("Group A (4 shops)"): "Send to" and the summary agree."""
+        name = self.groups.get(group_id)
+        if name is None:
+            return "a deleted group"
+        n = len(self.members.get(group_id, []))
+        return f"{name} ({n} shop{'s' if n != 1 else ''})"
 
     def label(self, chosen: DestinationIn | None, own: str | None = None) -> str:
         if chosen is None:
             return f"{own} (its profile's shop)" if own else "its profile's shop"
-        parts = [self.groups.get(g, "a deleted group") for g in chosen.group_ids]
+        parts = [self.group(g) for g in chosen.group_ids]
         parts += [self.shops.get(c, "a disconnected shop") for c in chosen.connection_ids]
         return " + ".join(parts) or "nowhere"
+
+    def of_shops(self, shop_ids: list[uuid.UUID]) -> str:
+        """The shops a listing really goes to, named (fix/onboarding-followups, Part H)."""
+        names = [self.shops[s] for s in shop_ids if s in self.shops]
+        if not names:
+            return "nowhere"
+        if len(names) <= 2:
+            return " + ".join(names)
+        return f"{names[0]} + {len(names) - 1} more shops"
 
 
 async def _names(session: AsyncSession, tenant: Tenant) -> _Names:
     groups = {g.id: g.name for g in (await session.execute(
         select(ShopGroup).where(ShopGroup.tenant_id == tenant.id))).scalars()}
     shops = {c.id: shop_label(c) for c in await active_shops(session, tenant.id)}
-    return _Names(groups, shops)
+    return _Names(groups, shops, await shop_targets.members_of(session, tenant.id))
 
 
-async def _default_label(session: AsyncSession, contents: list[GeneratedContent], names: _Names) -> str:
-    """The batch's label when nothing was chosen: each listing's profile shop, named when one."""
-    owns = {(await shop_targets.own_shop(session, c)) for c in contents}
-    named = {o.id for o in owns if o is not None}
-    if len(named) == 1:
-        return names.shops.get(next(iter(named)), "its profile's shop")
+async def _row_label(session: AsyncSession, content: GeneratedContent, dest: DestinationIn | None,
+                     mine: list[EtsyConnection], names: _Names) -> str:
+    """What the listing's line says it goes to. With nothing chosen it is the profile's shop, unless
+    the listing still carries shops ticked in the old matrix: then those shops, by name. (The label
+    used to name the profile's shop while the old ticks sent it to four shops: "Send to: Northwind
+    Tees" above "2 listings → 4 shops".)"""
+    if dest is not None:
+        return names.label(dest)
+    if shop_targets.stored(content) is not None:
+        return names.of_shops([s.id for s in mine])
+    own = await shop_targets.own_shop(session, content)
+    return names.label(None, shop_label(own) if own else None)
+
+
+async def _default_label(session: AsyncSession, contents: list[GeneratedContent], names: _Names,
+                         connected: list[EtsyConnection]) -> str:
+    """The batch's label when nothing was chosen: the shops its listings really go to, named when
+    they all go to the same ones."""
+    sets = set()
+    for c in contents:
+        sets.add(tuple(s.id for s in await shop_targets.wanted(session, c, connected, names.members)))
+    if len(sets) == 1:
+        only = next(iter(sets))
+        return names.of_shops(list(only)) if only else "its profile's shop"
     return "each listing's profile shop"
 
 
@@ -255,7 +296,7 @@ async def _state(session: AsyncSession, tenant: Tenant, batch: UploadBatch) -> S
               for g, members in by_group.items() if g in names.groups]
     chosen = _out(batch.send_to)
     contents = await _contents(session, tenant, batch, None)
-    label = names.label(chosen) if chosen is not None else await _default_label(session, contents, names)
+    label = names.label(chosen) if chosen is not None else await _default_label(session, contents, names, shops)
     return SendStateOut(
         shops=[ShopChoice(id=c.id, name=shop_label(c)) for c in shops], groups=groups, send_to=chosen,
         label=label, offer_all_shops=len(shops) > 1 and not groups,
@@ -311,8 +352,7 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
         if only_shops is not None:
             # The seasonal planner: the shops the seller ticked there, whatever the batch's own choice says.
             mine = [s for s in connected if s.id in only_shops]
-        own = await shop_targets.own_shop(session, content) if dest is None else None
-        label = names.label(dest, shop_label(own) if own else None)
+        label = await _row_label(session, content, dest, mine, names)
         work.contents[content.id], work.dest[content.id], work.shops[content.id] = content, dest, mine
         asset = await session.get(Asset, content.asset_id)
         cells: list[SendCell] = []
@@ -332,14 +372,16 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
                 pub.scheduled_for if pub is not None and pub.schedule_note is None else None)
             if scheduled is not None:
                 at = scheduled if scheduled.tzinfo else scheduled.replace(tzinfo=timezone.utc)
+                times = (schedule_times.to_be_drafted(at, zone) if slot is not None or pub is None or pub.created_at is None
+                         else schedule_times.both(pub.created_at, at, zone))
                 cells.append(SendCell(shop_id=shop.id, shop_name=name, state="scheduled", at=at,
-                                      local=_local(at, zone)))
+                                      local=_local(at, zone), times=times))
                 continue
             if pub is not None:
                 if when == "drafts":
-                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="draft"))
+                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="draft", times=schedule_times.STAYS_A_DRAFT))
                 else:
-                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="publish"))
+                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="publish", draft_at=pub.created_at))
                     work.actions.append((content, shop, "publish"))
                 continue
             target = await resolve_cached(session, content, shop, targets)
@@ -450,6 +492,11 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
                         slot = at.get((row.content_id, cell.shop_id))
                         if slot is not None and cell.state in ("new", "publish"):
                             cell.at, cell.local = slot.publish_at, _local(slot.publish_at, zone)
+                    for cell in row.cells:  # both times, or when the draft will be made (Part J)
+                        if cell.at is not None and cell.state == "new":
+                            cell.times = schedule_times.to_be_drafted(cell.at, zone)
+                        elif cell.at is not None and cell.state == "publish" and cell.draft_at is not None:
+                            cell.times = schedule_times.both(cell.draft_at, cell.at, zone)
                 days = sorted({s.local_day for s in plan.slots})
                 first, last = (days[0], days[-1]) if days else (None, None)
                 notes += plan.notes
@@ -458,6 +505,11 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
         budget = await _budget(session, quota, tenant, _Plan(jobs=[(c, s, None) for c, s, k in work.actions if k == "new"]))
         if not budget.fits:
             disabled = budget.message
+    if body.when in ("drafts", "publish"):
+        for row in work.rows:
+            for cell in row.cells:
+                if cell.state == "new":
+                    cell.times = schedule_times.STAYS_A_DRAFT if body.when == "drafts" else schedule_times.PUBLISH_NOW
     head = f"{_plural(listings, 'listing')} → {_plural(shops, 'shop')}"
     if body.when == "drafts":
         sentence, button = f"{head}: {_plural(total, 'draft')}.", f"Create {_plural(total, 'draft')}"

@@ -264,4 +264,6 @@ async def test_the_top_strip_reads_counts_once_a_day_and_never_queues_a_full_syn
     # A page that lists listings still asks for them when its copy is stale, once however often it is opened.
     await world["b"].get(f"/api/shop/listings?shop={bob.connection_id}")
     await world["b"].get(f"/api/shop/listings?shop={bob.connection_id}")
-    assert [(q[0], q[2]) for q in queued[1:]] == [("sync_shop_listings", {"_job_id": f"sync:{bob.connection_id}"})] * 2
+    # Asked once (one try per ten minutes, under that window's job id: etsy/shop_sync.py, Part I).
+    assert [q[0] for q in queued[1:]] == ["sync_shop_listings"]
+    assert queued[1][2]["_job_id"].startswith(f"sync:{bob.connection_id}:")

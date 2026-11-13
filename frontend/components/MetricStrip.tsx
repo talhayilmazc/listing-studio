@@ -9,6 +9,7 @@ import { periodWord, useAllowance, writtenAndPublished } from "./Allowance";
 import { useSession } from "./SessionProvider";
 import { useShops } from "./ShopProvider";
 import { supportsAll } from "@/lib/shopScope";
+import { followSync, onShopSynced } from "@/lib/shopSync";
 
 /**
  * Metric strip (docs/ui-direction-v2.md §3): a band of real figures above the
@@ -43,6 +44,10 @@ export function MetricStrip() {
   // 404, so it keeps the strip every unknown route has.
   const hidden = pathname !== SHOWN_ON || !account || shops === null || shops.length === 0;
 
+  // Read again when a shop's sync ends (Part I): "syncing" never outlives the sync.
+  const [synced, setSynced] = useState(0);
+  useEffect(() => onShopSynced(() => setSynced((n) => n + 1)), []);
+
   useEffect(() => {
     if (hidden) return;
     let cancelled = false;
@@ -55,6 +60,7 @@ export function MetricStrip() {
         .then((s) => {
           if (cancelled) return;
           setShop(s);
+          if (s.syncing) followSync();
           if (s.syncing && triesLeft > 0) timer = setTimeout(() => loadShop(triesLeft - 1), 10_000);
         })
         .catch(() => {});
@@ -65,7 +71,7 @@ export function MetricStrip() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [hidden, shopId]);
+  }, [hidden, shopId, synced]);
 
   if (hidden) return null;
 
@@ -219,7 +225,7 @@ function AllowanceCell() {
   const low = a ? a.remaining <= Math.max(1, a.amount * 0.1) : false;
   return (
     <div className={CELL + " bg-slate-50"} data-testid="strip-allowance">
-      <Label label="Listings generated" period={a ? `left ${periodWord(a.period)}` : "left"} />
+      <Label label="Listings" period={a ? `left ${periodWord(a.period)}` : "left"} />
       <dd className="mt-1.5">
         {a === null ? (
           <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />

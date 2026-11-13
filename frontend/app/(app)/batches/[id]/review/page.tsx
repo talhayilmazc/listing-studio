@@ -35,6 +35,7 @@ import { Txt } from "@/components/Txt";
 import { useSession } from "@/components/SessionProvider";
 import { toast, doneNote } from "@/lib/toast";
 import { WORDS } from "@/lib/words";
+import { primaryAction, summaryLine } from "@/lib/reviewBar";
 import { SHORTCUTS, actionFor, move } from "@/lib/reviewKeys";
 import { EmptyState, ListSkeleton } from "@/components/EmptyState";
 interface Progress {
@@ -140,10 +141,20 @@ export default function ReviewPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [items, focusIndex, keysOpen]);
-  // Arriving with #send (the checklist's "Send or schedule it"): the "Where and when" panel.
+  // Arriving with #send (the checklist's "Send or schedule it"), or the address changing to it while the
+  // page is open (a link to #send on this page): the "Where and when" panel.
+  const hasItems = items !== null;
   useEffect(() => {
-    if (items && window.location.hash === "#send") document.getElementById("send")?.scrollIntoView({ block: "start" });
-  }, [items]);
+    if (!hasItems) return;
+    const open = () => {
+      if (window.location.hash !== "#send") return;
+      setSendOpen(true);
+      setTimeout(() => document.getElementById("send")?.scrollIntoView({ block: "nearest" }), 0);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, [hasItems]);
 
   // The account's profiles, for changing a listing's profile on its card.
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -347,18 +358,6 @@ export default function ReviewPage() {
     }
   }
   const needs = needsById(approveResult);
-  // One line per profile without a production partner (Etsy's Creativity Standards).
-  const productionNotes = Object.values(
-    (items ?? []).reduce<Record<string, { id: string; name: string; count: number }>>((acc, c) => {
-      if (c.production_note && c.profile_id) {
-        const row = acc[c.profile_id] ?? { id: c.profile_id, name: c.profile_name ?? "this profile", count: 0 };
-        row.count += 1;
-        acc[c.profile_id] = row;
-      }
-      return acc;
-    }, {}),
-  );
-
   const actions = reviewActions(items ?? [], chosenShops);
   const editedHere = inView ? (items ?? []).filter((c) => c.approved && (c.edited_for ?? []).includes(inView.id)).length : 0;
   // Settings Etsy's API cannot make, still to be set on the drafts in Shop Manager.
@@ -378,8 +377,52 @@ export default function ReviewPage() {
     }
   }
 
+  // Part H: "Select" is one toggle; "Where and when" opens on Send; one primary action.
+  const [selecting, setSelecting] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const selectedCount = (selectedIds ?? []).filter((x) => (items ?? []).some((c) => c.id === x)).length;
+  const unapproved = (items ?? []).filter((c) => !c.approved);
+  const selectedUnapproved = unapproved.filter((c) => selectedIds.includes(c.id)).map((c) => c.id);
+  const primary = primaryAction({
+    selectedUnapproved: selectedUnapproved.length, toSend: preview?.listings ?? 0, unapproved: unapproved.length, example: isExample,
+  });
+  const summary = isExample
+    ? "Example listings: approve them to see how it works. They never go to Etsy."
+    : summaryLine(preview, actions.approved, unapproved.length);
+  function runPrimary() {
+    if (!primary) return;
+    if (primary.kind === "approve-selected") {
+      approveAll(selectedUnapproved);
+      return;
+    }
+    if (primary.kind === "send") {
+      setSendOpen(true);
+      setTimeout(() => document.getElementById("send")?.scrollIntoView({ block: "nearest" }), 0);
+      return;
+    }
+    // "Approve": the listing outlined, or the first one not approved; then the next one is outlined.
+    const list = items ?? [];
+    const at = focusIndex >= 0 && list[focusIndex] && !list[focusIndex].approved ? focusIndex : list.findIndex((c) => !c.approved);
+    if (at < 0) return;
+    document.querySelector<HTMLElement>(`[data-card-index="${at}"] [data-testid="approve-toggle"]`)?.click();
+    const next = list.findIndex((c, k) => k > at && !c.approved);
+    if (next >= 0) {
+      setFocusIndex(next);
+      document.querySelector<HTMLElement>(`[data-card-index="${next}"]`)?.scrollIntoView({ block: "start" });
+    }
+  }
+  const moreItems = [
+    ...(unapproved.length > 0 ? [{ key: "all", testId: "approve-all", label: `Approve all (${unapproved.length})`, title: undefined as string | undefined, run: () => approveAll() }] : []),
+    ...(actions.approved === (items ?? []).length && inView && editedHere > 0
+      ? [{ key: "again", testId: "review-approve-shop", label: `Approve again for ${inView.name} (${editedHere})`, title: undefined, run: () => approveAll() }] : []),
+    ...(actions.toPublish > 0 ? [{ key: "publish", testId: "publish-all", label: `Publish all drafts (${actions.toPublish})`, title: "Every draft of these listings goes live now", run: publishAll }] : []),
+    ...(empties.length > 0 ? [{ key: "empty", testId: "generate-empty", label: writing ? `Writing ${writing.done} of ${writing.total}…` : `Generate the empty ones (${empties.length})`,
+      title: "Write the listings that have no title or tags yet with AI; listings you typed into are left as they are", run: () => setAskEmpty(true) }] : []),
+  ];
+
   return (
-    <div className="space-y-6">
+  <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start xl:gap-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <Link href={`/batches/${id}`} className="tap inline-block text-sm text-slate-400 hover:text-slate-600 max-sm:py-2">
@@ -394,39 +437,6 @@ export default function ReviewPage() {
             </Help>
           </p>
         </div>
-        {items && items.length > 0 && (
-          <div key="div-218-8" className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <span translate="no" className="text-xs tabular-nums text-slate-500">
-              <span className="font-medium text-slate-700">{actions.approved}</span><span> of{" "}
-              <span>{items.length}</span> approved</span>
-            </span>
-            {/* Each action appears when it has work, from the listings as they are now; the next
-                step is the one primary action (approve, then draft, then publish). */}
-            {empties.length > 0 && (
-              <button key="generate-empty" className="btn-secondary" onClick={() => setAskEmpty(true)} disabled={busy} data-testid="generate-empty"
-                title="Write the listings that have no title or tags yet with AI; listings you typed into are left as they are">
-                <span translate="no">{writing ? `Writing ${writing.done} of ${writing.total}…` : `Generate the empty ones (${empties.length})`}</span>
-              </button>
-            )}
-            {actions.approved < items.length && (
-              <button key="button-225-12" className="btn-primary" onClick={() => approveAll()} disabled={busy} data-testid="review-next">
-                <span>Approve all (<span>{items.length - actions.approved}</span>)</span>
-              </button>
-            )}
-            {actions.approved === items.length && inView && editedHere > 0 && (
-              // Approved, but their text for the shop in view changed since: one click, never a dead end.
-              <button key="approve-shop" className="btn-secondary" onClick={() => approveAll()} disabled={busy} data-testid="review-approve-shop">
-                <span translate="no">{`Approve again for ${inView.name} (${editedHere})`}</span>
-              </button>
-            )}
-            {actions.toPublish > 0 && (
-              <button key="button-240-12" className="btn-secondary" onClick={publishAll} disabled={busy}
-                title="Every draft of these listings goes live now">
-                <span>Publish all drafts (<span>{actions.toPublish}</span>)</span>
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {isExample ? (
@@ -441,46 +451,15 @@ export default function ReviewPage() {
 
       <UnfinishedDrafts batchId={id} />
 
-      {items && items.length > 0 && !isExample && (
-        <div key="send" id="send" className="scroll-mt-4">
-        <WhereAndWhen key="where-and-when"
-          batchId={id}
-          timeZone={timeZone}
-          refreshKey={`${approvedKey}|${draftedKey}|${sendTick}`}
-          disabled={busy}
-          onState={setSendState}
-          onPreview={setPreview}
-          onDrafts={(call) => runBulk("Creating drafts", call)}
-          onDone={load}
-          primary={actions.approved === items.length}
-        />
-        </div>
-      )}
-
       {askEmpty && empties.length > 0 && (
         <GenerateConfirm key="ask-empty" count={empties.length} kind="rewrite" onConfirm={generateEmpty} onCancel={() => setAskEmpty(false)} />
       )}
       <WrittenElsewhere key="written-elsewhere" data={shopData} />
-      {productionNotes.length > 0 && (
-        // Said once per profile, quietly: a note, not a problem (it stops nothing). Etsy refuses
-        // only a listing made by someone else with no partner; that is stopped where it is sent.
-        <ul key="production-notes" className="space-y-1 text-xs text-slate-600" data-testid="production-notes">
-          {productionNotes.map((p) => (
-            <li key={p.id}>
-              <span translate="no">{`Note: the profile "${p.name}" names no production partner (${p.count} listing${p.count === 1 ? "" : "s"}); only needed if a partner makes these items. `}</span>
-              <Link href={`/profiles#profile-${p.id}`} className="tap text-brand-700 underline">Open the profile</Link>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {items && items.length > 1 && (
+      {items && items.length > 1 && selecting && selectedIds.some((x) => items.some((c) => c.id === x)) && (
         <BulkItemOptions
           key="bulk-options"
           batchId={id}
           selected={selectedIds.filter((x) => items.some((c) => c.id === x))}
-          total={items.length}
-          onSelectAll={(all) => setSelectedIds(all ? items.map((c) => c.id) : [])}
           onDone={() => {
             setOptionsVersion((v) => v + 1);
             load(); // "Set SKU for selected" changes each card's SKU
@@ -653,19 +632,26 @@ export default function ReviewPage() {
       )}
 
       {items && items.length > 0 && (
-        <div key="keys" className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-          {selectedIds.some((x) => items.some((c) => c.id === x)) ? (
-            <span key="sel" className="flex flex-wrap items-center gap-2" data-testid="selection-bar">
-              <span translate="no">{`${selectedIds.filter((x) => items.some((c) => c.id === x)).length} selected`}</span>
-              <button type="button" className="btn-primary" disabled={busy} data-testid="approve-selected"
-                onClick={() => approveAll(selectedIds.filter((x) => items.some((c) => c.id === x)))}>
-                Approve selected
-              </button>
-              <button type="button" className="btn-quiet" onClick={() => setSelectedIds([])}>Clear</button>
+        <div key="keys" className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-700" data-testid="list-header">
+          <span className="flex flex-wrap items-center gap-3">
+            <span translate="no" className="tabular-nums">
+              <span className="font-medium text-slate-900">{actions.approved}</span><span>{` of ${items.length} approved`}</span>
             </span>
-          ) : (
-            <span key="none">Select listings to approve several at once.</span>
-          )}
+            {items.length > 1 ? (
+              <button key="select" type="button" className="btn-quiet" aria-pressed={selecting} data-testid="select-toggle"
+                onClick={() => { setSelecting((v) => !v); setSelectedIds([]); }}>
+                {selecting ? "Done selecting" : "Select"}
+              </button>
+            ) : null}
+            {selecting ? (
+              <label key="all" className="flex min-h-[44px] cursor-pointer items-center gap-2">
+                <input type="checkbox" className="h-4 w-4" checked={selectedCount === items.length}
+                  ref={(el) => { if (el) el.indeterminate = selectedCount > 0 && selectedCount < items.length; }}
+                  onChange={(e) => setSelectedIds(e.target.checked ? items.map((c) => c.id) : [])} aria-label="Select every listing" />
+                <span translate="no">{selectedCount ? `${selectedCount} selected` : "Select all"}</span>
+              </label>
+            ) : null}
+          </span>
           <button type="button" className="btn-quiet max-sm:hidden" onClick={() => setKeysOpen(true)} data-testid="keys-open">
             Keyboard shortcuts (?)
           </button>
@@ -690,7 +676,7 @@ export default function ReviewPage() {
               shopNames={shopNames}
               bulkRunning={busy}
               selected={selectedIds.includes(c.id)}
-              onSelect={items.length > 1 ? (on) => setSelectedIds((cur) => (on ? [...cur, c.id] : cur.filter((x) => x !== c.id))) : undefined}
+              onSelect={items.length > 1 && selecting ? (on) => setSelectedIds((cur) => (on ? [...cur, c.id] : cur.filter((x) => x !== c.id))) : undefined}
               optionsVersion={optionsVersion}
               needs={needs[c.id]}
               profiles={profiles}
@@ -710,6 +696,59 @@ export default function ReviewPage() {
         </div>
       )}
     </div>
+
+      {/* The action bar (Part H): a plain sentence and one primary action. Beside the listings on a
+          wide screen, at the bottom of the screen on a phone; "Where and when" opens on Send. */}
+      {items && items.length > 0 && (
+        <aside key="bar" aria-label="Approve and send"
+          className="sticky bottom-0 z-20 -mx-4 mt-6 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[var(--shadow-lg)] backdrop-blur sm:-mx-6 sm:px-6 xl:top-4 xl:bottom-auto xl:mx-0 xl:mt-0 xl:rounded-[var(--radius-md)] xl:border xl:px-4 xl:shadow-[var(--shadow-sm)]"
+          data-testid="review-bar">
+          <p translate="no" className="text-sm text-slate-800" data-testid="review-summary">{summary}</p>
+          {sendState && sendState.shops.length > 1 && !isExample ? (
+            <p key="to" translate="no" className="mt-1 text-xs text-slate-600" data-testid="review-send-to">{`Send to: ${sendState.label}`}</p>
+          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {primary ? (
+              <button key="primary" type="button" className="btn-primary" disabled={busy} data-testid="review-next"
+                onClick={runPrimary}>
+                <span translate="no">{primary.label}</span>
+              </button>
+            ) : null}
+            {moreItems.length > 0 ? (
+              <details key="more" className="relative" data-testid="review-more">
+                <summary className="btn-secondary cursor-pointer list-none">More</summary>
+                <div className="absolute bottom-full right-0 z-30 mb-2 flex w-64 flex-col gap-1 rounded-[var(--radius-md)] border border-slate-200 bg-white p-2 shadow-[var(--shadow-lg)] xl:bottom-auto xl:top-full xl:mb-0 xl:mt-2">
+                  {moreItems.map((m) => (
+                    <button key={m.key} type="button" className="btn-quiet justify-start text-left" disabled={busy} data-testid={m.testId}
+                      title={m.title} onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); m.run(); }}>
+                      <span translate="no">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+            {sendOpen ? (
+              <button key="close" type="button" className="btn-quiet" onClick={() => setSendOpen(false)}>Close</button>
+            ) : null}
+          </div>
+          {!isExample ? (
+            <div key="send" id="send" hidden={!sendOpen} className="mt-3 max-h-[70vh] overflow-y-auto xl:max-h-none">
+              <WhereAndWhen
+                batchId={id}
+                timeZone={timeZone}
+                refreshKey={`${approvedKey}|${draftedKey}|${sendTick}`}
+                disabled={busy}
+                onState={setSendState}
+                onPreview={setPreview}
+                onDrafts={(call) => runBulk("Creating drafts", call)}
+                onDone={load}
+                primary
+              />
+            </div>
+          ) : null}
+        </aside>
+      )}
+  </div>
   );
 }
 

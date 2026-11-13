@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
+import { followSync, onShopSynced } from "@/lib/shopSync";
 import { matchesProfile } from "@/lib/profileSearch";
 import { PROFILES_CHANGED } from "@/lib/shopSetup";
 import type { LinkSuggestion, Profile, ShopListing } from "@/lib/types";
@@ -77,9 +78,9 @@ export default function ProfilesPage() {
     try {
       const res = await api.shopListings(shopId);
       setListings(res.listings);
-      setSyncing(res.stale);
-      // If a background sync was triggered, poll once more shortly for the results.
-      if (res.stale) setTimeout(loadListings, 4000);
+      // The server says whether a sync runs (Part I); the app's watcher says when it ends.
+      setSyncing(Boolean(res.syncing));
+      if (res.syncing) followSync();
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -91,6 +92,11 @@ export default function ProfilesPage() {
     openProfiles();
     loadListings();
   }, [openProfiles, loadListings]);
+
+  // "Listings in <shop>" updates by itself when that shop's sync ends: no "0 · syncing…" left (Part I).
+  useEffect(() => onShopSynced((id) => {
+    if (!shopId || id === shopId) loadListings();
+  }), [shopId, loadListings]);
 
   async function detect() {
     setDetecting(true);
@@ -176,6 +182,18 @@ export default function ProfilesPage() {
   );
   const breakdown = shops && shops.length > 1 ? perShop(profiles ?? [], shops) : [];
   const detected = shown.filter((p) => !p.confirmed);
+  // ?profile=<id> (from Home's "See or change them first"): that card, scrolled to and outlined.
+  const [wanted, setWanted] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("profile");
+    if (id) setWanted(id);
+  }, []);
+  useEffect(() => {
+    if (wanted && detected.some((p) => p.id === wanted)) {
+      document.getElementById(`profile-${wanted}`)?.scrollIntoView({ block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, detected.length]);
   const confirmed = shown.filter((p) => p.confirmed);
 
   // "Sync shop listings" (v7 §D2): changes made on Etsy show here without waiting
@@ -184,8 +202,7 @@ export default function ProfilesPage() {
     try {
       await api.syncShopListings(shopId);
       setSyncing(true);
-      setTimeout(loadListings, 5000);
-      setTimeout(loadListings, 15000);
+      followSync(); // the listings are read again when the sync ends, however long it takes
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -363,13 +380,19 @@ export default function ProfilesPage() {
           />
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {detected.map((p) => (
-              <ProfileCard
-                key={p.id}
-                profile={p}
-                onChange={onChange}
-                onDelete={onDelete}
-                listing={byListingId.get(p.reference_listing_id ?? -1)}
-              />
+              <div key={p.id} id={`profile-${p.id}`} className={"scroll-mt-24 rounded-[var(--radius-md)] " + (wanted === p.id ? "ring-2 ring-[var(--tag)]" : "")}>
+                {p.source === "suggested" ? (
+                  <p key="suggested" className="mb-2 text-sm text-slate-700" data-testid="suggested-note">
+                    Suggested from your newest listing. Change anything you like, then confirm. Nothing changes on Etsy.
+                  </p>
+                ) : null}
+                <ProfileCard
+                  profile={p}
+                  onChange={onChange}
+                  onDelete={onDelete}
+                  listing={byListingId.get(p.reference_listing_id ?? -1)}
+                />
+              </div>
             ))}
           </div>
         </section>

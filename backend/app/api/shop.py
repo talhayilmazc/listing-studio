@@ -38,6 +38,7 @@ from app.db.models import (
     Tenant,
     UploadBatch,
 )
+from app.etsy import shop_sync
 from app.etsy.connection import ConnectionService
 from app.etsy.shops import NOT_YOUR_LISTING, active_shops, owned_listing, shop_groups_of
 from app.pipeline import upload_retention
@@ -134,23 +135,33 @@ async def list_shop_listings(
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
 ) -> schemas.ShopListingsOut:
-    """One shop's own listings (``?shop=``, default the first shop)."""
+    """One shop's own listings (``?shop=``, default the first shop), and whether a sync is running
+    (etsy/shop_sync.py): the page follows that, not a guess, and updates when the sync ends."""
     connection = await selected_shop(session, tenant, shop)
     if connection is None:
         return schemas.ShopListingsOut(listings=[], stale=False)
     cached = await _shop_rows(session, tenant, connection)
     newest = max((c.fetched_at for c in cached), default=None)
-    stale = _is_stale(newest)
-    if stale:
-        # One at a time per shop, however many pages ask while it is stale.
-        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"sync:{connection.id}")
+    sync = await shop_sync.state(redis, connection.id)
+    # A shop read in the last six hours is current even with no listings to cache (an empty shop was
+    # "stale" forever: "0 · syncing…" for good, and a sync asked for on every look).
+    stale = _is_stale(max((t for t in (newest, sync.synced_at) if t is not None), default=None))
+    if stale and not sync.syncing and (job_id := await shop_sync.try_now(redis, connection.id)):
+        # One at a time per shop, however many pages ask while it is stale, and at most one try per ten
+        # minutes: a sync that fails is not asked again (and every page reloaded) on each look.
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=job_id)
+        await shop_sync.requested(redis, connection.id)
+        sync = await shop_sync.state(redis, connection.id)
     # Expired rows are never shown (CLAUDE.md: past its age, listing content is
     # re-fetched, not displayed). The retention job deletes them; this filter
     # covers the minutes between a row expiring and the next sweep.
     return schemas.ShopListingsOut(
         listings=[_listing_out(c.payload) for c in cached if not _is_stale(c.fetched_at)],
         stale=stale,
+        syncing=sync.syncing,
+        synced_at=sync.synced_at,
     )
 
 
@@ -224,6 +235,7 @@ async def sync_shop_listings_now(
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
 ) -> dict[str, bool]:
     """ "Sync shop listings" (v7 §D2): the seller changed something on Etsy and
     wants it here now, not when the six-hour cache runs out. One queued sync per
@@ -232,7 +244,23 @@ async def sync_shop_listings_now(
     if connection is None:
         raise HTTPException(status_code=409, detail="connect your Etsy shop first")
     await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"manual-sync:{connection.id}")
+    await shop_sync.requested(redis, connection.id)
     return {"queued": True}
+
+
+@router.get("/sync", response_model=list[schemas.ShopSyncOut])
+async def shop_sync_states(
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+    redis: Redis = Depends(get_redis),
+) -> list[schemas.ShopSyncOut]:
+    """Each of the account's shops: is its listing sync running, when did one last end (Part I).
+    The app's watcher asks this while a shop syncs and tells the pages when it ends. Times only."""
+    out = []
+    for c in await active_shops(session, tenant.id):
+        s = await shop_sync.state(redis, c.id)
+        out.append(schemas.ShopSyncOut(connection_id=c.id, syncing=s.syncing, ended_at=s.ended_at, synced_at=s.synced_at))
+    return out
 
 
 @router.get("/summary", response_model=schemas.ShopSummaryOut)
@@ -392,6 +420,8 @@ async def summary_of(
         else:
             queued_at = _as_int(await redis.get(marker))
             syncing = queued_at is not None and now.timestamp() - queued_at < SUMMARY_SYNCING_SECONDS
+        # A full read of the shop running says so too, and stops saying it when it ends (Part I).
+        syncing = syncing or (await shop_sync.state(redis, connection.id)).syncing
 
     counts_at = connection.listing_counts_at if connection is not None else None
     if counts_at is not None and counts_at.tzinfo is None:  # SQLite hands back naive datetimes

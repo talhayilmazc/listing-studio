@@ -34,6 +34,9 @@ class StepOut(BaseModel):
     action: str
     done: bool
     done_at: datetime | None
+    confirm_profile_id: uuid.UUID | None = None
+    second_href: str | None = None
+    second_action: str | None = None
 
 
 class OnboardingOut(BaseModel):

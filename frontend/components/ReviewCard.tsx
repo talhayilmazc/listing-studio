@@ -615,6 +615,17 @@ export function ReviewCard({
           {tab === "shops" ? (
             <PerShop key="per-shop" contentId={initial.id} batchId={batchId ?? null} shopData={shopData ?? null} shopNames={shopNames ?? {}} />
           ) : null}
+          {/* The production-partner note (Part H): only where the profile's shop uses a partner (the server
+              decides), and inside "Per shop"; with one shop there is no tab, so it is at the card's foot. */}
+          {initial.production_note && (tab === "shops" || Object.keys(shopNames ?? {}).length <= 1) ? (
+            <p key="partner" className={"mx-5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 " + (tab === "shops" ? "mb-5" : "order-last mb-5")}
+              data-testid="card-production-note">
+              <span>{initial.production_note}</span>{" "}
+              {initial.profile_id ? (
+                <a key="open" href={`/profiles?profile=${initial.profile_id}`} className="tap text-brand-700 underline">Open the profile</a>
+              ) : null}
+            </p>
+          ) : null}
           <div className="space-y-5 p-5" hidden={tab !== "listing"}>
             {Object.keys(shopNames ?? {}).length > 1 && (
               // Whose text this is: the shop picked in the menu (not in it yet), or the listing's.
@@ -922,7 +933,7 @@ export function ReviewCard({
                     {p.state !== "active" && (
                       <button key="button-361-20"
                         type="button"
-                        className="btn-primary px-2.5 py-1 text-xs"
+                        className="btn-secondary px-2.5 py-1 text-xs"
                         onClick={() => publishNow(p.connection_id)}
                         disabled={publishing}
                         title="Make this draft active on Etsy"

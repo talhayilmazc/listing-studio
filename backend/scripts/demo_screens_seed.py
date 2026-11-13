@@ -165,6 +165,14 @@ async def main():
             if i == 1:
                 s.add(ListingPublication(tenant_id=t.id, content_id=c.id, connection_id=shops[0].id, etsy_listing_id=7101, state="active",
                                          profile_id=prof.id, title=title, sku=sku, published_at=now - timedelta(hours=20)))
+            if i in (2, 3):
+                # Spread out, its draft not made yet (the Schedule page's "Draft is created 2 hours before it goes live").
+                if i == 2:
+                    spread_plan = GroupPlan(tenant_id=t.id, batch_id=b.id, settings={"mode": "spread"})
+                    s.add(spread_plan); await s.flush()
+                at = now + timedelta(days=2, minutes=30 * (i - 2))
+                s.add(PlannedSlot(tenant_id=t.id, plan_id=spread_plan.id, content_id=c.id, connection_id=shops[0].id,
+                                  draft_at=at - timedelta(hours=2), publish_at=at))
         # A batch written by hand, nothing typed yet (the layout test presses "Approve all"
         # here: one summary line, the cards marked, "Generate the empty ones").
         hand = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name="Hand-written")

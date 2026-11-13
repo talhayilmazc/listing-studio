@@ -114,7 +114,9 @@ export function destinationLabel(dest: Destination | null, state: SendState, fal
   return parts.join(" + ") || fallback;
 }
 
-/** One shop of one listing in the list: "Frost Tees · Oct 22, 9:00 AM CDT", "Frost Mugs · already a draft". */
+/** One shop of one listing in the list: "Frost Tees · Oct 22, 9:00 AM CDT", "Frost Mugs · already a draft",
+ * then the server's line about its draft and go-live times (Part J): "Draft is created 2 hours before it
+ * goes live", "Stays a draft in your shop. Nothing will publish it." */
 export function cellLine(cell: SendCell): string {
   const what: Record<SendCell["state"], string> = {
     new: "new draft",
@@ -125,7 +127,7 @@ export function cellLine(cell: SendCell): string {
     cannot: cell.reason ?? "cannot go there",
   };
   const at = cell.local && (cell.state === "new" || cell.state === "publish" || cell.state === "scheduled") ? cell.local : null;
-  return [cell.shop_name, at ?? what[cell.state], at && cell.state === "scheduled" ? "already scheduled" : null, cell.note]
+  return [cell.shop_name, at ?? what[cell.state], at && cell.state === "scheduled" ? "already scheduled" : null, cell.times, cell.note]
     .filter(Boolean)
     .join(" · ");
 }

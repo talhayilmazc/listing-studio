@@ -313,6 +313,8 @@ function Row({ item, selected, busy, multiShop, onSelect, onTime }: {
       {item.listing_link && (
         <a key="link" href={item.listing_link} target="_blank" rel="noreferrer" className="tap text-xs text-brand-700 underline">Etsy ↗</a>
       )}
+      {/* Both times in the seller's zone, or when the draft will be made (Part J; the server's line). */}
+      {item.times && <span key="times" translate="no" className="basis-full text-xs text-slate-700" data-testid="row-times"><Txt>{item.times}</Txt></span>}
       {item.note && <span key="note" className="basis-full text-xs text-slate-600"><Txt>{item.note}</Txt></span>}
     </li>
   );
