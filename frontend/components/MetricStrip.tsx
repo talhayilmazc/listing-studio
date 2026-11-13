@@ -9,6 +9,7 @@ import { periodWord, useAllowance, writtenAndPublished } from "./Allowance";
 import { useSession } from "./SessionProvider";
 import { useShops } from "./ShopProvider";
 import { supportsAll } from "@/lib/shopScope";
+import { followSync, onShopSynced } from "@/lib/shopSync";
 
 /**
  * Metric strip (docs/ui-direction-v2.md §3): a band of real figures above the
@@ -43,6 +44,10 @@ export function MetricStrip() {
   // 404, so it keeps the strip every unknown route has.
   const hidden = pathname !== SHOWN_ON || !account || shops === null || shops.length === 0;
 
+  // Read again when a shop's sync ends (Part I): "syncing" never outlives the sync.
+  const [synced, setSynced] = useState(0);
+  useEffect(() => onShopSynced(() => setSynced((n) => n + 1)), []);
+
   useEffect(() => {
     if (hidden) return;
     let cancelled = false;
@@ -55,6 +60,7 @@ export function MetricStrip() {
         .then((s) => {
           if (cancelled) return;
           setShop(s);
+          if (s.syncing) followSync();
           if (s.syncing && triesLeft > 0) timer = setTimeout(() => loadShop(triesLeft - 1), 10_000);
         })
         .catch(() => {});
@@ -65,7 +71,7 @@ export function MetricStrip() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [hidden, shopId]);
+  }, [hidden, shopId, synced]);
 
   if (hidden) return null;
 

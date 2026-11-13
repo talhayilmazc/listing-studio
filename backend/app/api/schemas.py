@@ -1255,6 +1255,18 @@ class ShopListingOut(BaseModel):
 class ShopListingsOut(BaseModel):
     listings: list[ShopListingOut] = Field(default_factory=list)
     stale: bool = False  # a background refresh was triggered
+    # Part I (etsy/shop_sync.py): a sync of this shop is queued or running; when one last read it.
+    syncing: bool = False
+    synced_at: datetime | None = None
+
+
+class ShopSyncOut(BaseModel):
+    """One shop's listing sync (Part I): running or not, and when one last ended / read the shop."""
+
+    connection_id: uuid.UUID
+    syncing: bool
+    ended_at: datetime | None = None
+    synced_at: datetime | None = None
 
 
 class ShopSummaryOut(BaseModel):

@@ -367,6 +367,9 @@ async def callback(
     from app.api.shop import SUMMARY_SYNC_EVERY_SECONDS, mark_reading
 
     await enqueuer.enqueue("sync_shop_listings", str(connection.id))
+    from app.etsy import shop_sync
+
+    await shop_sync.requested(redis, connection.id)  # every page says "reading" until it lands (Part I)
     # The per-state counts on their own as well (one request per state): they arrive in
     # seconds even when the full read of a large shop takes longer or is cut short.
     await enqueuer.enqueue("sync_shop_counts", str(connection.id))

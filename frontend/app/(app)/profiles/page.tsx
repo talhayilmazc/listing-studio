@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadAsset } from "@/lib/api";
+import { followSync, onShopSynced } from "@/lib/shopSync";
 import { matchesProfile } from "@/lib/profileSearch";
 import { PROFILES_CHANGED } from "@/lib/shopSetup";
 import type { LinkSuggestion, Profile, ShopListing } from "@/lib/types";
@@ -77,9 +78,9 @@ export default function ProfilesPage() {
     try {
       const res = await api.shopListings(shopId);
       setListings(res.listings);
-      setSyncing(res.stale);
-      // If a background sync was triggered, poll once more shortly for the results.
-      if (res.stale) setTimeout(loadListings, 4000);
+      // The server says whether a sync runs (Part I); the app's watcher says when it ends.
+      setSyncing(Boolean(res.syncing));
+      if (res.syncing) followSync();
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -91,6 +92,11 @@ export default function ProfilesPage() {
     openProfiles();
     loadListings();
   }, [openProfiles, loadListings]);
+
+  // "Listings in <shop>" updates by itself when that shop's sync ends: no "0 · syncing…" left (Part I).
+  useEffect(() => onShopSynced((id) => {
+    if (!shopId || id === shopId) loadListings();
+  }), [shopId, loadListings]);
 
   async function detect() {
     setDetecting(true);
@@ -196,8 +202,7 @@ export default function ProfilesPage() {
     try {
       await api.syncShopListings(shopId);
       setSyncing(true);
-      setTimeout(loadListings, 5000);
-      setTimeout(loadListings, 15000);
+      followSync(); // the listings are read again when the sync ends, however long it takes
     } catch (e: any) {
       setError(String(e.message ?? e));
     }

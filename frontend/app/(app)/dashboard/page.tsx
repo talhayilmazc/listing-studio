@@ -18,6 +18,7 @@ import type {
 import { showable } from "@/lib/types";
 import { etsyListingLink, relativeTime } from "@/lib/format";
 import { countsNote, shouldPoll, shownCount } from "@/lib/shopCounts";
+import { followSync, onShopSynced } from "@/lib/shopSync";
 import { useShops } from "@/components/ShopProvider";
 import { StatusPill } from "@/components/StatusPill";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
@@ -59,6 +60,11 @@ export default function Dashboard() {
   const shopId = scope?.id ?? null;
   const allShops = shops !== null && shops.length > 1 && scope === null;
 
+  // A shop's sync ended (lib/shopSync.ts, Part I): read the counts and listings again, whatever the
+  // tries above had left, so no "reading…" is left once the read has landed.
+  const [synced, setSynced] = useState(0);
+  useEffect(() => onShopSynced(() => setSynced((n) => n + 1)), []);
+
   useEffect(() => {
     let cancelled = false;
     const set = <T,>(f: (v: T) => void) => (v: T) => {
@@ -84,6 +90,7 @@ export default function Dashboard() {
           .then((o) => {
             if (cancelled) return;
             setOverview(o);
+            if (o.total?.syncing) followSync();
             if (shouldPoll(o.total) && triesLeft > 0) timer = setTimeout(() => loadOverview(triesLeft - 1), POLL_MS);
           })
           .catch(() => !cancelled && setOverview({ shops: [], total: UNKNOWN }));
@@ -98,6 +105,7 @@ export default function Dashboard() {
           .then((s) => {
             if (cancelled) return;
             setSummary(s);
+            if (s.syncing) followSync();
             if (shouldPoll(s) && triesLeft > 0) timer = setTimeout(() => loadSummary(triesLeft - 1, true), POLL_MS);
             else if (wasReading) loadListings(); // the read landed: its listings too
           })
@@ -154,7 +162,7 @@ export default function Dashboard() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [shopId, allShops, shops]);
+  }, [shopId, allShops, shops, synced]);
 
   // A new account (no shop yet) sees the checklist and nothing that would only say "none yet"
   // (docs/app-audit.md, 1): one next step, not five cards of zeros.

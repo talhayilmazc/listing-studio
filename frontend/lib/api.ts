@@ -112,6 +112,7 @@ import type {
   ShopTickResult,
   AccountDeleted,
   ShopListings,
+  ShopSyncState,
   ShopSummary,
   ItemOptions,
   SectionCreateResult,
@@ -1034,6 +1035,8 @@ export const api = {
   detectProfiles: (shop?: string | null) =>
     req<{ status: string }>(`/shop/detect-profiles${shopQuery(shop)}`, { method: "POST" }),
   shopListings: (shop?: string | null) => req<ShopListings>(`/shop/listings${shopQuery(shop)}`),
+  /** Each shop's listing sync: running or not, when one last ended (Part I; lib/shopSync.ts). */
+  shopSync: () => req<ShopSyncState[]>("/shop/sync"),
   /** Cached counts only — unlike shopListings this never triggers a sync. */
   /** One shop's counts; no shop = every shop added up (the switcher's "All shops"). */
   shopSummary: (shop?: string | null) => req<ShopSummary>(shop ? `/shop/summary${shopQuery(shop)}` : "/shop/summary?all=1"),

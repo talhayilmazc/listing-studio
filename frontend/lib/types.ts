@@ -889,6 +889,17 @@ export interface ShopSummary {
 export interface ShopListings {
   listings: ShopListing[];
   stale: boolean;
+  /** A sync of this shop is queued or running (Part I; lib/shopSync.ts). */
+  syncing?: boolean;
+  synced_at?: string | null;
+}
+
+/** One shop's listing sync (GET /api/shop/sync, Part I). */
+export interface ShopSyncState {
+  connection_id: string;
+  syncing: boolean;
+  ended_at?: string | null;
+  synced_at?: string | null;
 }
 
 /**

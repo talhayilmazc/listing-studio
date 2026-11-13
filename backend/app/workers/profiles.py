@@ -29,7 +29,7 @@ from app.db.models import (
     Tenant,
     TenantStatus,
 )
-from app.etsy import guard
+from app.etsy import guard, shop_sync
 from app.etsy.api import EtsyApiClient, RateLimitExceeded
 from app.etsy.calllog import current_job
 from app.etsy.connection import ConnectionService
@@ -615,17 +615,29 @@ async def auto_refresh_profiles(ctx: dict[str, Any]) -> dict[str, int]:
     return queued
 
 async def sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
-    """Cache one shop's own active and draft listings (6 hours)."""
+    """Cache one shop's own active and draft listings (6 hours).
+
+    It says while it runs and when it ends (etsy/shop_sync.py, Part I), whatever happens, so every page
+    showing the shop's listings updates by itself and none is left saying "syncing"."""
     tenant_id = await _shop_owner(ctx, connection_id)
     if tenant_id is None:
         return "no-connection"
-    return await _run_gated(
-        ctx,
-        "sync_shop_listings",
-        connection_id,
-        tenant_id,
-        lambda: _sync_shop_listings(ctx, connection_id),
-    )
+    redis = ctx.get("redis")
+    if redis is not None:
+        await shop_sync.started(redis, connection_id)
+    result = "failed"
+    try:
+        result = await _run_gated(
+            ctx,
+            "sync_shop_listings",
+            connection_id,
+            tenant_id,
+            lambda: _sync_shop_listings(ctx, connection_id),
+        )
+        return result
+    finally:
+        if redis is not None:
+            await shop_sync.ended(redis, connection_id, read=result.startswith("synced:"))
 
 
 async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:

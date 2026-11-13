@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.api import deps
-from app.db.models import AllowanceUse, Asset, AssetStatus, GeneratedContent, Tenant
+from app.db.models import AllowanceUse, Asset, AssetStatus, GeneratedContent, Tenant, UsageEvent
 from app.workers import writing
 from tests.support import fake_response
 from tests.test_allowance import _unwritten_group
@@ -64,6 +64,8 @@ async def test_one_request_and_the_worker_writes_every_group_with_the_tab_closed
     assert await writing.write_batch_listings(_job_ctx(ctx), str(batch)) == "done"
     assert await _written(ctx, batch) == 2
     assert await _counted(ctx) == 2
+    async with ctx["sm"]() as s:  # the listing counter: each listing once, at its AI write, from the worker too
+        assert len(list((await s.execute(select(UsageEvent.id))).scalars())) == 2
 
     # Progress lives on the server; the next visit says "Listings ready", once.
     progress = (await ctx["client"].get(f"/api/batches/{batch}/writing")).json()
