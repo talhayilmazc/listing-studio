@@ -141,13 +141,20 @@ export default function ReviewPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [items, focusIndex, keysOpen]);
-  // Arriving with #send (the checklist's "Send or schedule it"): the "Where and when" panel.
+  // Arriving with #send (the checklist's "Send or schedule it"), or the address changing to it while the
+  // page is open (a link to #send on this page): the "Where and when" panel.
+  const hasItems = items !== null;
   useEffect(() => {
-    if (items && window.location.hash === "#send") {
+    if (!hasItems) return;
+    const open = () => {
+      if (window.location.hash !== "#send") return;
       setSendOpen(true);
       setTimeout(() => document.getElementById("send")?.scrollIntoView({ block: "nearest" }), 0);
-    }
-  }, [items]);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, [hasItems]);
 
   // The account's profiles, for changing a listing's profile on its card.
   const [profiles, setProfiles] = useState<Profile[]>([]);

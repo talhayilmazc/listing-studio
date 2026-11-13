@@ -34,3 +34,8 @@ test("the page: Approve all and Publish all drafts are in More; no Select listin
   const card = readFileSync(new URL("../components/ReviewCard.tsx", import.meta.url), "utf8");
   assert.ok(card.includes('data-testid="card-production-note"'));
 });
+
+test("#send opens Where and when on arrival and when the address changes to it on the page", () => {
+  const page = readFileSync(new URL("../app/(app)/batches/[id]/review/page.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('window.addEventListener("hashchange", open)'), "a link to #send on the open page opens the panel too");
+});
