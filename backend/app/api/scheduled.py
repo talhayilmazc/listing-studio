@@ -55,6 +55,7 @@ from app.workers.recovery import WAIT_PERSONALIZATION
 from app.pipeline import reschedule as R
 from app.pipeline.batch_names import names_by_id
 from app.pipeline.group_plan import DRAFT_LEAD
+from app.pipeline import schedule_times
 
 #: The note of a slot removed on this page: the only cancelled slot Undo brings back.
 REMOVED = "removed from the schedule"
@@ -102,6 +103,9 @@ class ItemOut(BaseModel):
     movable: bool
     paused: bool
     listing_link: str | None
+    #: When its draft is (or was) made and when it goes live, in the seller's zone (Part J;
+    #: pipeline/schedule_times.py): "Draft created at 1:41 PM · goes live at 3:41 PM CST".
+    times: str | None = None
 
 
 class GroupOut(BaseModel):
@@ -258,7 +262,8 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
         Job.id.in_([p.schedule_job_id for p in pubs if p.schedule_job_id])))).scalars()} if pubs else {}
 
     def add(key: str, kind: str, content_id: uuid.UUID | None, shop_id: uuid.UUID, at: datetime, status: str,
-            note: str | None, movable: bool, title: str | None, sku: str | None, link: str | None) -> None:
+            note: str | None, movable: bool, title: str | None, sku: str | None, link: str | None,
+            times: str | None = None) -> None:
         shop = shops.get(shop_id)
         if shop is None:
             return
@@ -273,6 +278,7 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
             group_ids=groups_of.get(shop_id, []), profile_id=profile.id if profile else None,
             profile_name=profile.name if profile else None, at=_aware(at), local=text, local_day=day, local_time=clock,
             status=status, note=note, movable=movable, paused=is_paused(tenant.id, shop_id, paused), listing_link=link,
+            times=times,
         ))
 
     slot_jobs = {j.id: j for j in (await session.execute(select(Job).where(
@@ -297,15 +303,20 @@ async def _world(session: AsyncSession, tenant: Tenant) -> _World:
             add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at, "missed",
                 MISSED if slot.state == "waiting" else MISSED_DRAFTING, True, None, None, None)
         else:
+            # Its draft does not exist yet: made two hours before it goes live (Part J).
             add(f"slot:{slot.id}", "planned", slot.content_id, slot.connection_id, slot.publish_at,
-                "planned" if slot.state == "waiting" else "drafting", slot.note, True, None, None, None)
+                "planned" if slot.state == "waiting" else "drafting", slot.note, True, None, None, None,
+                schedule_times.to_be_drafted(slot.publish_at, zone, now))
         w.rows[f"slot:{slot.id}"] = slot
     for pub in pubs:
         state = state_of(pub, jobs.get(pub.schedule_job_id) if pub.schedule_job_id else None, now)
         if state is None:
             continue
+        # Its draft exists: both times, the draft's and the go-live's (Part J).
+        times = schedule_times.both(pub.created_at, pub.scheduled_for, zone,
+                                    verb=schedule_times.VERBS.get(state.status, "goes live")) if pub.created_at else None
         add(f"pub:{pub.id}", "draft", pub.content_id, pub.connection_id, pub.scheduled_for, state.status, state.note,
-            state.status in ("scheduled", "missed"), pub.title, pub.sku, link_for(pub.etsy_listing_id, pub.state))
+            state.status in ("scheduled", "missed"), pub.title, pub.sku, link_for(pub.etsy_listing_id, pub.state), times)
         w.rows[f"pub:{pub.id}"] = pub
     for pub in deleted:
         add(f"pub:{pub.id}", "draft", pub.former_content_id, pub.connection_id, pub.deleted_on_etsy_at, "deleted",

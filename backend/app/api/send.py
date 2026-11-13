@@ -42,6 +42,7 @@ from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_s
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
 from app.compliance.trademarks import brand_warnings, tenant_blocklist
 from app.compliance.check import personalization_hold
+from app.pipeline import schedule_times
 from app.pipeline.personalization import HELD_NOTE
 from app.api.publish import _budget, _Plan, _publish, auto_setup
 from app.api.shops import shop_label
@@ -129,6 +130,10 @@ class SendCell(BaseModel):
     local: str | None = None
     #: Said next to it ("title rewritten once to fit this shop").
     note: str | None = None
+    #: When its draft is made and when it goes live, or that it stays a draft (Part J; pipeline/schedule_times.py).
+    times: str | None = None
+    #: When its existing draft was made (not sent: the line above says it).
+    draft_at: datetime | None = Field(default=None, exclude=True)
 
 
 class SendRow(BaseModel):
@@ -367,14 +372,16 @@ async def _work(session: AsyncSession, tenant: Tenant, batch: UploadBatch, when:
                 pub.scheduled_for if pub is not None and pub.schedule_note is None else None)
             if scheduled is not None:
                 at = scheduled if scheduled.tzinfo else scheduled.replace(tzinfo=timezone.utc)
+                times = (schedule_times.to_be_drafted(at, zone) if slot is not None or pub is None or pub.created_at is None
+                         else schedule_times.both(pub.created_at, at, zone))
                 cells.append(SendCell(shop_id=shop.id, shop_name=name, state="scheduled", at=at,
-                                      local=_local(at, zone)))
+                                      local=_local(at, zone), times=times))
                 continue
             if pub is not None:
                 if when == "drafts":
-                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="draft"))
+                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="draft", times=schedule_times.STAYS_A_DRAFT))
                 else:
-                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="publish"))
+                    cells.append(SendCell(shop_id=shop.id, shop_name=name, state="publish", draft_at=pub.created_at))
                     work.actions.append((content, shop, "publish"))
                 continue
             target = await resolve_cached(session, content, shop, targets)
@@ -485,6 +492,11 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
                         slot = at.get((row.content_id, cell.shop_id))
                         if slot is not None and cell.state in ("new", "publish"):
                             cell.at, cell.local = slot.publish_at, _local(slot.publish_at, zone)
+                    for cell in row.cells:  # both times, or when the draft will be made (Part J)
+                        if cell.at is not None and cell.state == "new":
+                            cell.times = schedule_times.to_be_drafted(cell.at, zone)
+                        elif cell.at is not None and cell.state == "publish" and cell.draft_at is not None:
+                            cell.times = schedule_times.both(cell.draft_at, cell.at, zone)
                 days = sorted({s.local_day for s in plan.slots})
                 first, last = (days[0], days[-1]) if days else (None, None)
                 notes += plan.notes
@@ -493,6 +505,11 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
         budget = await _budget(session, quota, tenant, _Plan(jobs=[(c, s, None) for c, s, k in work.actions if k == "new"]))
         if not budget.fits:
             disabled = budget.message
+    if body.when in ("drafts", "publish"):
+        for row in work.rows:
+            for cell in row.cells:
+                if cell.state == "new":
+                    cell.times = schedule_times.STAYS_A_DRAFT if body.when == "drafts" else schedule_times.PUBLISH_NOW
     head = f"{_plural(listings, 'listing')} → {_plural(shops, 'shop')}"
     if body.when == "drafts":
         sentence, button = f"{head}: {_plural(total, 'draft')}.", f"Create {_plural(total, 'draft')}"

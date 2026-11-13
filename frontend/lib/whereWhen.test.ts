@@ -65,6 +65,16 @@ test("each shop of each listing in the list: its time, or why not", () => {
     "Frost Tees · new draft · title rewritten once to fit this shop");
 });
 
+test("each listing says when its draft is made and when it goes live, or that it stays a draft (Part J)", () => {
+  const base = { shop_id: "s1", shop_name: "Frost Tees", reason: null, at: null, local: null };
+  assert.equal(cellLine({ ...base, state: "new", times: "Stays a draft in your shop. Nothing will publish it." }),
+    "Frost Tees · new draft · Stays a draft in your shop. Nothing will publish it.");
+  assert.equal(cellLine({ ...base, state: "new", at: "x", local: "Oct 22, 3:41 PM CDT", times: "Draft is created 2 hours before it goes live" }),
+    "Frost Tees · Oct 22, 3:41 PM CDT · Draft is created 2 hours before it goes live");
+  const page = readFileSync(new URL("../app/(app)/scheduled/page.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("{item.times && "), "every Schedule row shows the server's times line");
+});
+
 test("the last When is remembered in this browser, and storage failing is fine", () => {
   const store = new Map<string, string>();
   (globalThis as any).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };

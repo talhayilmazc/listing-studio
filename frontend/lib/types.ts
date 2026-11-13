@@ -2131,6 +2131,8 @@ export interface SendState {
 export type SendWhen = "drafts" | "publish" | "spread";
 
 export interface SendCell {
+  /** When its draft is made and when it goes live, or that it stays a draft (Part J): from the server. */
+  times?: string | null;
   shop_id: string;
   shop_name: string;
   state: "new" | "publish" | "draft" | "live" | "scheduled" | "cannot";

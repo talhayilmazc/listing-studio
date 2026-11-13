@@ -25,6 +25,8 @@ export interface ScheduledItem {
   movable: boolean;
   paused: boolean;
   listing_link: string | null;
+  /** When its draft is (or was) made and when it goes live, in the seller's zone (Part J): from the server. */
+  times?: string | null;
 }
 
 export interface GroupSettings {
