@@ -101,3 +101,19 @@ async def test_a_queued_sync_that_never_runs_stops_saying_syncing(ctx) -> None: 
     assert await redis.ttl(f"shop-sync-asked:{shop}") <= shop_sync.REQUESTED_SECONDS
     await redis.delete(f"shop-sync-asked:{shop}")  # the mark runs out (90 s)
     assert (await ctx["client"].get("/api/shop/sync")).json()[0]["syncing"] is False
+
+
+async def test_a_sync_that_fails_is_not_asked_again_on_every_look(ctx) -> None:  # noqa: F811
+    """With Etsy unreachable (a lost sign-in) the sync ends at once without reading the shop. Each page
+    view used to ask again, so every page reloaded every minute or two; now one try per ten minutes."""
+    client, shop, redis = ctx["client"], str(ctx["shop"]), ctx["redis"]
+    assert (await client.get("/api/shop/listings")).json()["syncing"] is True
+    await shop_sync.started(redis, shop)
+    await shop_sync.ended(redis, shop, read=False)
+    for _ in range(3):
+        body = (await client.get("/api/shop/listings")).json()
+        assert (body["stale"], body["syncing"]) == (True, False)
+    assert len(ctx["enqueuer"].calls) == 1
+    await redis.delete(f"shop-sync-tried:{shop}")  # ten minutes later
+    assert (await client.get("/api/shop/listings")).json()["syncing"] is True
+    assert len(ctx["enqueuer"].calls) == 2

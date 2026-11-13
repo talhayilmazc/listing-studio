@@ -28,6 +28,9 @@ REQUESTED_SECONDS = 90
 RUNNING_SECONDS = 15 * 60
 #: How long "synced" stands in for the copy's age: the copy's own lifetime (six hours).
 SYNCED_SECONDS = 6 * 3600
+#: A page view asks for a shop's sync at most this often (a sync that fails, say for a lost sign-in, is
+#: not asked again on every look; "Sync shop listings" is the seller's own and always asks).
+RETRY_SECONDS = 10 * 60
 
 
 def _keys(connection_id: uuid.UUID | str) -> tuple[str, str, str, str]:
@@ -37,6 +40,15 @@ def _keys(connection_id: uuid.UUID | str) -> tuple[str, str, str, str]:
 
 def _now() -> int:
     return int(datetime.now(timezone.utc).timestamp())
+
+
+async def try_now(redis: Any, connection_id: uuid.UUID | str) -> str | None:
+    """May a page view queue a sync of this shop now? The arq job id to queue it with, or None when one
+    was tried in the last ``RETRY_SECONDS`` (whatever came of it)."""
+    now = _now()
+    if not await redis.set(f"shop-sync-tried:{connection_id}", now, nx=True, ex=RETRY_SECONDS):
+        return None
+    return f"sync:{connection_id}:{now // RETRY_SECONDS}"
 
 
 async def requested(redis: Any, connection_id: uuid.UUID | str) -> None:

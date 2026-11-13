@@ -148,9 +148,10 @@ async def list_shop_listings(
     # A shop read in the last six hours is current even with no listings to cache (an empty shop was
     # "stale" forever: "0 · syncing…" for good, and a sync asked for on every look).
     stale = _is_stale(max((t for t in (newest, sync.synced_at) if t is not None), default=None))
-    if stale and not sync.syncing:
-        # One at a time per shop, however many pages ask while it is stale.
-        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"sync:{connection.id}")
+    if stale and not sync.syncing and (job_id := await shop_sync.try_now(redis, connection.id)):
+        # One at a time per shop, however many pages ask while it is stale, and at most one try per ten
+        # minutes: a sync that fails is not asked again (and every page reloaded) on each look.
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=job_id)
         await shop_sync.requested(redis, connection.id)
         sync = await shop_sync.state(redis, connection.id)
     # Expired rows are never shown (CLAUDE.md: past its age, listing content is
