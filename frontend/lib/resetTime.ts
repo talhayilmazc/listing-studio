@@ -1,10 +1,10 @@
 /**
  * When the listing allowance resets, in the seller's own time zone (fix/onboarding-followups, Part F).
  *
- * The server says it in the account's time zone ("Tue, Dec 1, 12:00 AM CST"); a seller whose account
- * zone is not where they are read a Chicago midnight as their own. The rail and Settings now format the
- * reset instant (`resets_at`) in the zone of the browser the seller is using: the same moment, in
- * their clock ("Dec 1, 9:00 AM GMT+3").
+ * The rail and Settings format the reset instant (`resets_at`) in the seller's time zone: the account's
+ * zone (`tenant.time_zone`, set in Settings), the one every scheduled time is shown in, with its
+ * abbreviation ("Dec 1, 12:00 AM CST"). Only an account with no zone yet falls back to the browser's
+ * (`useSession().timeZone`).
  */
 export function resetTime(resetsAt: string, zone: string, opts: { weekday?: boolean } = {}): string {
   const d = new Date(resetsAt);

@@ -16,8 +16,8 @@ test("an unreadable time says nothing rather than a wrong time", () => {
   assert.equal(resetTime("not a date", "UTC"), "");
 });
 
-test("the rail and Settings use it, in the browser's zone, not the server's label", () => {
+test("the rail and Settings use it, in the account's zone (the seller's), never the browser's", () => {
   const src = readFileSync(new URL("../components/Allowance.tsx", import.meta.url), "utf8");
-  assert.ok(!src.includes("a.resets_label"), "the server's account-zone label is not shown");
-  assert.ok(src.includes("resetTime(a.resets_at, browserZone()"));
+  assert.ok(src.includes("useSession()") && src.includes("resetTime(a.resets_at, timeZone"));
+  assert.ok(!src.includes("browserZone"), "the browser's zone is only the session's fallback for an account with none");
 });
