@@ -225,7 +225,7 @@ function AllowanceCell() {
   const low = a ? a.remaining <= Math.max(1, a.amount * 0.1) : false;
   return (
     <div className={CELL + " bg-slate-50"} data-testid="strip-allowance">
-      <Label label="Listings generated" period={a ? `left ${periodWord(a.period)}` : "left"} />
+      <Label label="Listings" period={a ? `left ${periodWord(a.period)}` : "left"} />
       <dd className="mt-1.5">
         {a === null ? (
           <span className="inline-block h-8 w-28 animate-pulse rounded bg-slate-100" />

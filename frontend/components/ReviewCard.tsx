@@ -933,7 +933,7 @@ export function ReviewCard({
                     {p.state !== "active" && (
                       <button key="button-361-20"
                         type="button"
-                        className="btn-primary px-2.5 py-1 text-xs"
+                        className="btn-secondary px-2.5 py-1 text-xs"
                         onClick={() => publishNow(p.connection_id)}
                         disabled={publishing}
                         title="Make this draft active on Etsy"
