@@ -12,6 +12,7 @@ import { EmptyState } from "./EmptyState";
 import { needsShop } from "@/lib/needsShop";
 import { Footer } from "./Footer";
 import { Toaster } from "./Toaster";
+import { WritingReadyWatcher } from "./WritingReadyWatcher";
 import { SectionTabs } from "./SectionTabs";
 import { isBareRoute, useSession } from "./SessionProvider";
 
@@ -63,6 +64,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         {/* "Approved" with Undo, "Listings ready" wherever the seller is (lib/toast.ts). */}
         <Toaster />
+        {/* "Listings ready" on the next page after the worker wrote a batch (workers/writing.py). */}
+        <WritingReadyWatcher />
       </div>
     </ShopProvider>
   );

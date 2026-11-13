@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, or_, func, select
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,11 +71,20 @@ async def attention(session: AsyncSession, tenant: Tenant, redis: Redis | None =
         MockupPhoto.tenant_id == tid, MockupPhoto.status == "ready", MockupPhoto.confirmed_at.is_(None))) or 0)
     colours = int(await session.scalar(select(func.count()).select_from(MockupPhoto).where(
         MockupPhoto.tenant_id == tid, MockupPhoto.status == "ready", MockupPhoto.colour_source == "uncertain")) or 0)
-    setup = int(await session.scalar(
+    # Settings carries a badge only for what is broken there (fix/onboarding-followups, Part C): a profile that
+    # can no longer write (its reference listing gone, the shop's access lost, its main shop disconnected), or a
+    # shop setting Etsy refused to copy. A link still being prepared ("incomplete") is not broken: setup is
+    # automatic since 21 October 2026. A refresh that failed for a passing reason is not either.
+    from app.workers.profiles import TRANSIENT
+
+    cannot_write = int(await session.scalar(select(func.count()).select_from(ListingProfile).where(
+        ListingProfile.tenant_id == tid, ListingProfile.confirmed.is_(True),
+        or_(ListingProfile.reference_listing_id.is_(None),
+            and_(ListingProfile.refresh_error.is_not(None), ListingProfile.refresh_error != TRANSIENT)))) or 0)
+    refused = int(await session.scalar(
         select(func.count()).select_from(ProfileShopLink).join(ListingProfile, ListingProfile.id == ProfileShopLink.profile_id)
         .where(ProfileShopLink.tenant_id == tid, ListingProfile.confirmed.is_(True),
-               ProfileShopLink.connection_id != ListingProfile.connection_id,
-               ProfileShopLink.status.in_(("incomplete", "error")))) or 0)
+               ProfileShopLink.connection_id != ListingProfile.connection_id, ProfileShopLink.status == "error")) or 0)
     drafted = select(ListingPublication.content_id).where(ListingPublication.tenant_id == tid,
                                                           ListingPublication.state != "deleted_on_etsy")
     approve = int(await session.scalar(select(func.count()).select_from(GeneratedContent).where(
@@ -90,20 +99,26 @@ async def attention(session: AsyncSession, tenant: Tenant, redis: Redis | None =
     records = [r for r in await unfinished.records(session, tid, with_blocks=False)
                if r.etsy_listing_id is not None and r.category in unfinished.SELLER and not r.dismissed]
 
+    # ``nav``: the sidebar entry whose badge counts it, or "" for no badge. Badges are for what needs the seller
+    # now; mockup photos to check are listed on Home without one (they matter only when making mockups).
     items = [
-        AttentionItem(key="photos", label=_plural(to_check, "photo to check", "photos to check"), count=to_check,
-                      href="/templates", nav="/templates"),
-        AttentionItem(key="colours", label=_plural(colours, "photo colour to choose (light or dark)",
-                                                   "photo colours to choose (light or dark)"),
-                      count=colours, href="/templates", nav="/templates"),
-        AttentionItem(key="setup", label=_plural(setup, "shop to set up for a profile", "shops to set up for a profile"),
-                      count=setup, href="/profiles", nav="/profiles"),
+        AttentionItem(key="profiles", label=_plural(cannot_write, "profile can no longer write listings: open it to fix",
+                                                    "profiles can no longer write listings: open them to fix"),
+                      count=cannot_write, href="/profiles", nav="/settings"),
+        AttentionItem(key="refused", label=_plural(refused, "shop setting Etsy refused to copy for a profile",
+                                                   "shop settings Etsy refused to copy for a profile"),
+                      count=refused, href="/profiles", nav="/settings"),
         AttentionItem(key="approve", label=_plural(approve, "listing to approve", "listings to approve"), count=approve,
-                      href="/batches?status=in_review", nav="/batches"),
+                      href="/review", nav="/review"),
         AttentionItem(key="failed", label=_plural(failed, "batch with a failed draft", "batches with a failed draft"),
-                      count=failed, href="/batches?status=failed", nav="/batches"),
+                      count=failed, href="/batches?status=failed", nav="/review"),
         AttentionItem(key="unfinished", label=_plural(len(records), "draft on Etsy to finish or delete", "drafts on Etsy to finish or delete"),
                       count=len(records), href="/dashboard#unfinished-drafts", nav="/dashboard"),
+        AttentionItem(key="photos", label=_plural(to_check, "mockup photo to check", "mockup photos to check"), count=to_check,
+                      href="/templates", nav=""),
+        AttentionItem(key="colours", label=_plural(colours, "photo colour to choose (light or dark)",
+                                                   "photo colours to choose (light or dark)"),
+                      count=colours, href="/templates", nav=""),
     ]
     lost = await lost_shops(session, tid)
     items += [AttentionItem(key=f"lost:{shop.id}", count=1, href="/connect", nav="/connect", label=(
@@ -117,7 +132,8 @@ async def attention(session: AsyncSession, tenant: Tenant, redis: Redis | None =
     items = [i for i in items if i.count > 0]
     nav: dict[str, int] = {}
     for i in items:
-        nav[i.nav] = nav.get(i.nav, 0) + i.count
+        if i.nav:
+            nav[i.nav] = nav.get(i.nav, 0) + i.count
     return AttentionOut(items=items, total=sum(i.count for i in items), nav=nav)
 
 

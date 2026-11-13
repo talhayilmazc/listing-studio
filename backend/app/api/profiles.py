@@ -55,6 +55,9 @@ def _images_displayable(profile: ListingProfile) -> bool:
     return age is not None and age < ListingProfile.DISPLAY_MAX_AGE_SECONDS
 
 
+from app.api.content import _shop_uses_partner  # noqa: E402  (one rule for the card and the profile)
+
+
 async def shop_names(session: AsyncSession, tenant: Tenant) -> dict[uuid.UUID, str]:
     from app.api.shops import shop_label
 
@@ -182,6 +185,8 @@ def links_out(profile: ListingProfile, links: list[ProfileShopLink], names: dict
 async def _out(session: AsyncSession, tenant: Tenant, profile: ListingProfile) -> schemas.ProfileOut:
     names = await shop_names(session, tenant)
     item = _to_out(profile, names.get(profile.connection_id))
+    item.production_note = creativity.production_note(
+        profile, shop_uses_partner=await _shop_uses_partner(session, profile.connection_id, {}))
     item.links = links_out(profile, (await profile_shops.links_of(session, [profile.id]))[profile.id], names)
     return item
 
@@ -241,8 +246,11 @@ async def list_profiles(
     warm = await in_use(session, (p.id for p in profiles))
     titles = await _reference_titles(session, tenant, [p.reference_listing_id for p in profiles if p.reference_listing_id])
     out = []
+    partner_shops: dict = {}
     for p in profiles:
         item = _to_out(p, names.get(p.connection_id))
+        item.production_note = creativity.production_note(
+            p, shop_uses_partner=await _shop_uses_partner(session, p.connection_id, partner_shops))
         item.links = links_out(p, all_links.get(p.id, []), names)
         item.in_use = p.id in warm
         item.reference_title = titles.get(p.reference_listing_id) if p.reference_listing_id else None

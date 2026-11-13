@@ -176,6 +176,18 @@ export default function ProfilesPage() {
   );
   const breakdown = shops && shops.length > 1 ? perShop(profiles ?? [], shops) : [];
   const detected = shown.filter((p) => !p.confirmed);
+  // ?profile=<id> (from Home's "See or change them first"): that card, scrolled to and outlined.
+  const [wanted, setWanted] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("profile");
+    if (id) setWanted(id);
+  }, []);
+  useEffect(() => {
+    if (wanted && detected.some((p) => p.id === wanted)) {
+      document.getElementById(`profile-${wanted}`)?.scrollIntoView({ block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, detected.length]);
   const confirmed = shown.filter((p) => p.confirmed);
 
   // "Sync shop listings" (v7 §D2): changes made on Etsy show here without waiting
@@ -363,13 +375,19 @@ export default function ProfilesPage() {
           />
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {detected.map((p) => (
-              <ProfileCard
-                key={p.id}
-                profile={p}
-                onChange={onChange}
-                onDelete={onDelete}
-                listing={byListingId.get(p.reference_listing_id ?? -1)}
-              />
+              <div key={p.id} id={`profile-${p.id}`} className={"scroll-mt-24 rounded-[var(--radius-md)] " + (wanted === p.id ? "ring-2 ring-[var(--tag)]" : "")}>
+                {p.source === "suggested" ? (
+                  <p key="suggested" className="mb-2 text-sm text-slate-700" data-testid="suggested-note">
+                    Suggested from your newest listing. Change anything you like, then confirm. Nothing changes on Etsy.
+                  </p>
+                ) : null}
+                <ProfileCard
+                  profile={p}
+                  onChange={onChange}
+                  onDelete={onDelete}
+                  listing={byListingId.get(p.reference_listing_id ?? -1)}
+                />
+              </div>
             ))}
           </div>
         </section>

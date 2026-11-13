@@ -9,7 +9,7 @@ import { isUnsorted, rememberChoice, uploadKind, type GroupingMode } from "@/lib
 import { GroupingResult } from "@/components/GroupingChoice";
 import { SkuEditor } from "@/components/SkuEditor";
 import { AttributesEditor } from "@/components/AttributesEditor";
-import type { Asset, BatchDetail, BatchShops, Content, Group, Profile, Publication } from "@/lib/types";
+import type { Asset, BatchDetail, BatchShops, Content, Group, Profile, Publication, Writing } from "@/lib/types";
 import { waitForJob } from "@/lib/jobs";
 import { BatchStatusBadge } from "@/components/BatchStatusBadge";
 import { ProfilePicker } from "@/components/ProfilePicker";
@@ -27,7 +27,8 @@ import { STATE_WORDS, profileIn, profileLocked, skuIn, stateIn } from "@/lib/ano
 
 import { Txt } from "@/components/Txt";
 import { toast } from "@/lib/toast";
-import { writtenLine } from "@/lib/words";
+import { writingLine, writtenLine } from "@/lib/words";
+import { announceWritingDone } from "@/components/WritingReadyWatcher";
 interface AssetGroup {
   key: string;
   label: string;
@@ -316,59 +317,72 @@ export default function BatchPage() {
   // "Writing 3 of 12": how far the writing has got, while it runs.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
+  // "Write listings" runs in the worker (fix/onboarding-followups, Part D): one request, then the page
+  // reads how far it has got. Closing the tab does not stop it; "Listings ready" comes on the next page
+  // the seller opens (WritingReadyWatcher), wherever that is.
+  const [writing, setWriting] = useState<Writing | null>(null);
+
   async function generateAll() {
     if (blockedByUnsorted) {
       setProblem(unsortedMessage(unsorted.length));
       return;
     }
-    const todo = groups.filter((g) => !g.done);
-    if (todo.length === 0) {
+    if (groups.every((g) => g.done)) {
       setNotice("Every group already has content.");
       return;
     }
     setBusy("__all__");
     setFailures([]);
-    let generated = 0;
-    let failed = 0;
-    let skipped = 0;
-    const allFailures: { original_filename: string; error: string }[] = [];
-    setProgress({ done: 0, total: todo.length });
-    for (const [i, g] of todo.entries()) {
-      setNotice(`Writing ${i + 1} of ${todo.length}: ${g.label}…`);
-      try {
-        const res = await api.generate(id, bulkProfileId || undefined, g.key, { ignoreUnsorted });
-        if (res.paused) {
-          // Paused on our side: stop asking. Nothing failed; the rest simply wait.
-          setProblem(res.paused);
-          break;
-        }
-        generated += res.generated;
-        failed += res.failed;
-        skipped += res.skipped;
-        allFailures.push(...res.failures);
-      } catch (e: any) {
-        if (e?.status === 409 && /another tab or window/.test(e.message ?? "")) {
-          // Being written elsewhere (another tab): stop here; nothing failed.
-          setProblem(e.message);
-          break;
-        }
-        failed += 1;
-        allFailures.push({ original_filename: g.label, error: e.message ?? String(e) });
-      }
-      setFailures([...allFailures]);
-      setProgress({ done: i + 1, total: todo.length });
-      await load();
-    }
-    setProgress(null);
-    setNotice(writtenLine(generated, failed, skipped));
-    setBusy(null);
-    // Said wherever the seller is now: the loop carries on when they open another page.
-    if (generated > 0) {
-      toast(`Listings ready: ${batch?.name ?? "your batch"}`, { action: { label: "Review", href: `/batches/${id}/review` } });
-    } else if (failed > 0) {
-      toast(`${failed} listing${failed === 1 ? "" : "s"} could not be written`, { tone: "error", action: { label: "See why", href: `/batches/${id}` } });
+    setProblem(null);
+    try {
+      setWriting(await api.writeBatch(id, bulkProfileId || undefined, { ignoreUnsorted }));
+    } catch (e: any) {
+      setProblem(e.message ?? String(e));
+      setBusy(null);
     }
   }
+
+  // A run already going when the page opens (started earlier, maybe in a tab since closed) is shown too.
+  useEffect(() => {
+    api.batchWriting(id).then((w) => {
+      if (w.state === "queued" || w.state === "running") {
+        setBusy("__all__");
+        setWriting(w);
+      }
+    }).catch(() => {});
+  }, [id]);
+
+  useEffect(() => {
+    if (!writing) return;
+    if (writing.state === "queued" || writing.state === "running") {
+      setProgress({ done: writing.done, total: writing.total });
+      setNotice(writingLine(writing.done, writing.total));
+      const t = setTimeout(async () => {
+        try {
+          const next = await api.batchWriting(id);
+          if (next.done !== writing.done) {
+            load();
+            loadGroups();
+          }
+          setWriting(next);
+        } catch {
+          setWriting({ ...writing }); // try again
+        }
+      }, 2000);
+      return () => clearTimeout(t);
+    }
+    setProgress(null);
+    setBusy(null);
+    setFailures(writing.failures.map((f) => ({ original_filename: f.file, error: f.error })));
+    if (writing.state === "paused" && writing.message) setProblem(writing.message);
+    setNotice(writing.state === "idle" ? null : writing.message && writing.state === "done" && !writing.total
+      ? writing.message : writtenLine(writing.written, writing.failed, writing.skipped));
+    load();
+    loadGroups();
+    // "Listings ready" is said once, by the watcher, from the server's note.
+    announceWritingDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [writing]);
 
   async function generate(groupKey?: string) {
     setBusy(groupKey ?? "__all__");

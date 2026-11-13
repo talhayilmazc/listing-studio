@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AUTH_START_URL, api } from "@/lib/api";
 import type { Shop, ShopsOut } from "@/lib/types";
 import { SCOPE_REASONS, TRADEMARK_NOTICE } from "@/lib/legal";
+import { EtsyRequestsCard } from "@/components/EtsyRequestsCard";
 import { disconnectedNotice } from "@/lib/shops";
 import { useShops } from "@/components/ShopProvider";
 import { connectBanner } from "@/lib/connectStatus";
@@ -180,6 +181,13 @@ export default function ConnectPage() {
           </div>
         </div>
       )}
+
+      {/* The remaining-quota indicator Etsy's terms ask for (it was a card on Home; Part F). */}
+      {shops && shops.length > 0 ? (
+        <div key="requests" id="etsy-requests" className="max-w-xl scroll-mt-24">
+          <EtsyRequestsCard />
+        </div>
+      ) : null}
 
       {shops && shops.length > 1 && (
         <section key="groups" className="card space-y-3 p-6" aria-labelledby="groups-heading">

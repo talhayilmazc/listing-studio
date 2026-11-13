@@ -171,7 +171,7 @@ async def _done_with(redis: Redis, request: Request, state: str | None, response
 
 
 def mask_email(email: str) -> str:
-    """``talha@example.com`` -> ``t***@example.com``: says which account without the address."""
+    """``seller@example.com`` -> ``s***@example.com``: says which account without the address."""
     name, _, domain = (email or "").partition("@")
     return f"{name[:1]}***@{domain}" if domain else "another account"
 

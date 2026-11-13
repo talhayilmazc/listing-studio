@@ -51,6 +51,7 @@ from app.pipeline.reference import (
     prefix_from_shop,
     production_partner_ids,
 )
+from app.pipeline import suggested_profile
 from app.pipeline.taxonomy import category_path, clothing_taxonomy_ids, infer_content_template
 from app.workers import gate
 
@@ -334,6 +335,12 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         # Every attribute the category offers, for the seller to set (pipeline/listing_attributes.py).
         payload["category_properties"] = listing_attributes.compact((category_properties or {}).get("results"))
         payload["category_names"] = category_path(category_nodes, listing.get("taxonomy_id"))
+        if profile.source == suggested_profile.SOURCE and not profile.confirmed and category_nodes:
+            # The suggestion's template follows its reference's category, as a detected profile's does.
+            profile.content_template = infer_content_template(
+                listing.get("taxonomy_id"), clothing_taxonomy_ids(category_nodes),
+                default=get_settings().default_content_template,
+            )
         payload["personalization"] = personalization_from_reference(personalization)
         payload["shipping_profile_type"] = shipping_type
 
@@ -707,7 +714,19 @@ async def _sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
                 existing.payload = row
                 existing.fetched_at = now
         await session.commit()
-        return f"synced:{len(rows)}"
+        # A new seller's first read of a shop: a suggested profile from its newest active listing,
+        # so writing does not wait behind the Profiles page (pipeline/suggested_profile.py).
+        suggestion = await suggested_profile.suggest(session, connection)
+        if suggestion is not None:
+            from app.core import audit
+
+            await session.commit()
+            audit.record(session, "profile.suggested", actor=None, target_tenant_id=tid,
+                         profile_id=str(suggestion.id), shop_id=str(connection.id))
+            await session.commit()
+    if suggestion is not None:
+        await _enqueue_job(ctx, "refresh_profile", str(suggestion.id))
+    return f"synced:{len(rows)}"
 
 
 async def sync_shop_counts(ctx: dict[str, Any], connection_id: str) -> str:

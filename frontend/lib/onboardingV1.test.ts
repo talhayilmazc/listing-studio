@@ -142,7 +142,7 @@ test("examples: labelled, offered to a new seller, never given a way to Etsy on 
   assert.ok(card.includes("initial.is_example") && card.includes('data-testid="example-label"'));
   assert.ok(card.includes("missing.length > 0 && !initial.is_example"), "no Create draft on an example");
   const review = read("app/(app)/batches/[id]/review/page.tsx");
-  assert.ok(review.includes("!isExample && (") && review.includes('data-testid="example-banner"'));
+  assert.ok(review.includes("{!isExample ? (") && review.includes('data-testid="example-banner"'));
   assert.ok(read("app/(app)/upload/page.tsx").includes("api.tryExamples()"));
   assert.ok(read("components/SetupChecklist.tsx").includes("api.tryExamples()"));
 });

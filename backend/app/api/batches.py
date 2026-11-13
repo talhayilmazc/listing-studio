@@ -1496,6 +1496,103 @@ async def generate_content(
         await redis.delete(lock)
 
 
+async def _groups_to_write(session: AsyncSession, batch_id: uuid.UUID) -> list[str]:
+    """The batch's groups with no listing yet, by name."""
+    rows = (await session.execute(
+        select(Asset.id, Asset.group_key).where(
+            Asset.batch_id == batch_id, Asset.status == AssetStatus.processed, Asset.processed_key.is_not(None)
+        )
+    )).all()
+    written = set((await session.execute(
+        select(GeneratedContent.asset_id).where(GeneratedContent.batch_id == batch_id)
+    )).scalars())
+    groups: dict[str, bool] = {}
+    for asset_id, key in rows:
+        if grouping.is_unsorted(key):
+            continue
+        key = key or ""
+        groups[key] = groups.get(key, False) or asset_id in written
+    return sorted(k for k, done in groups.items() if not done)
+
+
+def _writing_out(state: dict[str, Any] | None) -> schemas.WritingOut:
+    if not state:
+        return schemas.WritingOut(state="idle")
+    return schemas.WritingOut(
+        state=state["state"], total=state["total"], done=state["done"], written=state["written"],
+        failed=state["failed"], skipped=state["skipped"], message=state.get("message"),
+        failures=[schemas.WritingFailure(**f) for f in state.get("failures", [])],
+    )
+
+
+@router.post("/batches/{batch_id}/write", response_model=schemas.WritingOut)
+async def write_batch(
+    batch_id: uuid.UUID,
+    body: schemas.GenerateRequest,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
+) -> schemas.WritingOut:
+    """"Write listings" for every group not written yet, in the worker (fix/onboarding-followups, Part D):
+    it keeps going when the tab is closed. The same checks as ``/generate`` before anything is queued;
+    the job writes each group through the same code (allowance, AI provider pause, metering). Progress:
+    ``GET /batches/{id}/writing``."""
+    from app.workers import writing
+
+    batch = await _get_batch(session, tenant, batch_id)
+    await _refuse_examples(session, batch_id)
+    await _refuse_unsorted(session, batch_id, body)
+    if body.profile_id is not None:
+        requested = await session.get(ListingProfile, body.profile_id)
+        if requested is None or requested.tenant_id != tenant.id:
+            raise HTTPException(status_code=404, detail="profile not found")
+    if not get_settings().llm_api_key:
+        raise HTTPException(status_code=503, detail="Writing listings is not available right now. Please try again later.")
+    groups = await _groups_to_write(session, batch_id)
+    name = (await names_for(session, [batch]))[batch.id]
+    await session.commit()
+    if await llm_status.current(redis):
+        return schemas.WritingOut(state="paused", message=llm_status.SELLER_MESSAGE)
+    if not groups:
+        return schemas.WritingOut(state="done", message="Every group is already written.")
+    state = await writing.start(
+        redis, enqueuer.enqueue, tenant_id=tenant.id, batch_id=batch_id, groups=groups,
+        profile_id=body.profile_id, ignore_unsorted=body.ignore_unsorted, name=name,
+    )
+    return _writing_out(state)
+
+
+@router.get("/batches/{batch_id}/writing", response_model=schemas.WritingOut)
+async def batch_writing(
+    batch_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+    redis: Redis = Depends(get_redis),
+) -> schemas.WritingOut:
+    """How far the worker has got writing this batch ("Writing 3 of 12"); ``idle`` when nothing was asked."""
+    from app.workers import writing
+
+    await _get_batch(session, tenant, batch_id)
+    await session.commit()
+    state = await writing.read(redis, batch_id)
+    if state and state.get("tenant_id") != str(tenant.id):
+        state = None
+    return _writing_out(state)
+
+
+@router.get("/writing/ready", response_model=list[schemas.WritingReady])
+async def writing_ready(
+    tenant: Tenant = Depends(active_tenant),
+    redis: Redis = Depends(get_redis),
+) -> list[schemas.WritingReady]:
+    """Batches the worker finished writing that the seller has not been told about: "Listings ready" on
+    whatever page they open next. Told once: reading clears them."""
+    from app.workers import writing
+
+    return [schemas.WritingReady(**note) for note in await writing.take_ready(redis, tenant.id)]
+
+
 async def _write_listings(
     batch_id: uuid.UUID, body: schemas.GenerateRequest, session: AsyncSession, tenant: Tenant,
     storage: Storage, enqueuer: Enqueuer, redis: Redis,

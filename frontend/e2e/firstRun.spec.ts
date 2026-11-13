@@ -139,9 +139,11 @@ test.describe("a new seller's first run", () => {
     }
 
     // --- Bulk approve: select the other two, "Approve selected" -------------------------------------------------
+    await page.getByTestId("select-toggle").click(); // Part H: one "Select" toggle, a checkbox per card
     await cards.nth(1).getByTestId("select-listing").check();
     await cards.nth(2).getByTestId("select-listing").check();
-    await page.getByTestId("approve-selected").click();
+    await expect(page.getByTestId("review-next")).toHaveText("Approve selected (2)");
+    await page.getByTestId("review-next").click();
     await expect(page.getByTestId("toast").filter({ hasText: "Approved 2" })).toBeVisible();
     await expect(cards.nth(1)).toHaveAttribute("data-approved", "true");
     await expect(cards.nth(2)).toHaveAttribute("data-approved", "true");
@@ -155,7 +157,10 @@ test.describe("a new seller's first run", () => {
     await expect(page.getByTestId("step-shop")).toHaveAttribute("data-state", "done");
     await expect(page.getByTestId("step-upload")).toHaveAttribute("data-state", "done");
     // The examples were approved to learn the screen; that is not the seller's own first approval.
-    await expect(page.getByTestId("step-approve")).toHaveAttribute("data-state", "now");
+    // Step 2, the listing settings, is next: this stub shop has no listings to suggest them from
+    // (Part E), so the step says it is reading the shop and links to Profiles.
+    await expect(page.getByTestId("step-profile")).toHaveAttribute("data-state", "now");
+    await expect(page.getByTestId("step-approve")).toHaveAttribute("data-state", "later");
 
     expect(errors, "no JavaScript error on the way").toEqual([]);
     const out = join(process.cwd(), "test-results");

@@ -9,15 +9,17 @@ import { WORDS } from "@/lib/words";
 import type { Onboarding } from "@/lib/types";
 
 /**
- * The first-run checklist at the top of Home (app/onboarding-v1): connect your shop, upload your
+ * The first-run checklist at the top of Home (app/onboarding-v1): connect your shop, confirm your listing settings, upload your
  * first design, review and approve, send or schedule it. Stored on the server and ticked by what
  * the seller did (GET /api/onboarding); each step's button goes straight to where it is done. Once
- * all four are done it is one "You're set up" note the seller can dismiss.
+ * all five are done it is one "You're set up" note the seller can dismiss.
  */
 export function SetupChecklist() {
   const [data, setData] = useState<Onboarding | null>(null);
   const [failed, setFailed] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmProblem, setConfirmProblem] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -27,6 +29,20 @@ export function SetupChecklist() {
       cancelled = true;
     };
   }, []);
+
+  // "Confirm your listing settings": the suggested profile is confirmed; nothing changes on Etsy.
+  async function confirmSuggestion(profileId: string) {
+    setConfirming(true);
+    setConfirmProblem(null);
+    try {
+      await api.confirmProfile(profileId);
+      setData(await api.onboarding());
+    } catch (e: any) {
+      setConfirmProblem(e?.message ?? String(e));
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   async function tryExamples() {
     setOpening(true);
@@ -42,7 +58,7 @@ export function SetupChecklist() {
   if (failed && data === null) return null; // the rest of Home still works; nothing guessed here
   if (data === null) {
     // The card's own size while it loads, so nothing under it moves.
-    return <div className="card h-[21rem] animate-pulse bg-white sm:h-[15rem]" aria-hidden data-testid="checklist-loading" />;
+    return <div className="card h-[30rem] animate-pulse bg-white sm:h-[22rem] lg:h-[15rem]" aria-hidden data-testid="checklist-loading" />;
   }
   const view = viewOf(data);
   if (view === "none") return null;
@@ -73,7 +89,7 @@ export function SetupChecklist() {
       </div>
       {/* Reserved: a usage line goes here later (trial or plan usage). Nothing is shown today. */}
       <UsageLine />
-      <ol className="mt-4 grid gap-3 lg:grid-cols-4">
+      <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {data.steps.map((step, n) => {
           const state = stateOf(step, data);
           return (
@@ -101,10 +117,23 @@ export function SetupChecklist() {
               </p>
               <p className="mt-1.5 text-sm text-slate-600">{step.body}</p>
               {state === "now" ? (
-                <div key="go" className="mt-auto pt-3">
-                  <Link href={step.href} className="btn-primary w-full" data-testid="checklist-next">
-                    {step.action}
-                  </Link>
+                <div key="go" className="mt-auto flex flex-col gap-2 pt-3">
+                  {step.confirm_profile_id ? (
+                    <button key="confirm" type="button" className="btn-primary w-full" data-testid="checklist-next"
+                      disabled={confirming} onClick={() => confirmSuggestion(step.confirm_profile_id as string)}>
+                      {confirming ? "Confirming…" : step.action}
+                    </button>
+                  ) : (
+                    <Link key="link" href={step.href} className="btn-primary w-full" data-testid="checklist-next">
+                      {step.action}
+                    </Link>
+                  )}
+                  {step.second_href ? (
+                    <Link key="second" href={step.second_href} className="tap text-center text-sm text-slate-700 underline" data-testid="checklist-second">
+                      {step.second_action}
+                    </Link>
+                  ) : null}
+                  {confirmProblem ? <p key="problem" role="alert" className="text-sm text-rose-700">{confirmProblem}</p> : null}
                 </div>
               ) : null}
             </li>

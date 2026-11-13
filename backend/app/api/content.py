@@ -308,6 +308,21 @@ async def unfinished_work(
     return found
 
 
+async def _shop_uses_partner(
+    session: AsyncSession, connection_id: uuid.UUID | None, seen: dict[uuid.UUID, bool | None]
+) -> bool | None:
+    """Whether the shop names a production partner on any of its own listings (the 6-hour cache;
+    None when the shop has not been read, so nothing is known)."""
+    if connection_id is None:
+        return None
+    if connection_id not in seen:
+        rows = list((await session.execute(
+            select(ShopListingCache.payload).where(ShopListingCache.connection_id == connection_id)
+        )).scalars())
+        seen[connection_id] = creativity.shop_uses_partner(rows) if rows else None
+    return seen[connection_id]
+
+
 async def contents_out(
     session: AsyncSession, pairs: list[tuple[GeneratedContent, Asset]]
 ) -> list[schemas.ContentOut]:
@@ -326,6 +341,7 @@ async def contents_out(
                 schemas.FindingOut(rule=f.rule, severity=f.severity.value, detail=f.detail)
             )
     outs = [_to_out(c, a, pubs[c.id], shops.get(c.id)) for c, a in pairs]
+    partner_shops: dict[uuid.UUID, bool | None] = {}  # one read per shop for the whole page
     gone = await deleted_drafts(session, [c.id for c, _ in pairs])
     for out in outs:
         out.deleted_on_etsy = gone.get(out.id, [])
@@ -353,7 +369,9 @@ async def contents_out(
         out.price = payload.get("price") if isinstance(payload.get("price"), (int, float)) else None
         out.currency = payload.get("currency") if out.price is not None else None
         # Etsy's Creativity Standards: a print-on-demand profile with no production partner.
-        out.production_note = creativity.production_note(profile) if profile is not None else None
+        out.production_note = creativity.production_note(
+            profile, shop_uses_partner=await _shop_uses_partner(session, profile.connection_id, partner_shops),
+        ) if profile is not None else None
         out.attributes = dict((c.attributes or {}).get("listing") or {})
     for out in outs:
         out.findings = findings.get(out.id, [])
