@@ -139,7 +139,7 @@ export function countLine(designs: number, photos: number, mockups: number): str
 
 /** Where "Add designs" goes: the bulk step with these templates chosen. */
 export const addDesignsHref = (templateIds: string[]) =>
-  `/templates/designs${templateIds.length ? `?templates=${templateIds.join(",")}` : ""}`;
+  `/mockups${templateIds.length ? `?templates=${templateIds.join(",")}` : ""}`;
 
 /** A template's designs can be added once at least one photo is confirmed. */
 export const canAddDesigns = (template: MockupTemplate) => template.confirmed > 0;

@@ -278,7 +278,7 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
       {templates.length === 0 ? (
         <p key="none" className="text-sm text-slate-600">
           <span>You have no mockup templates yet. </span>
-          <Link href="/templates" className="tap text-brand-700 underline">Add blank garment photos</Link>
+          <Link href="/mockups/templates" className="tap text-brand-700 underline">Add blank garment photos</Link>
         </p>
       ) : (
         <div key="form" className="space-y-5">
@@ -300,7 +300,7 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
                     {t.needs_check > 0 && (
                       <p key="check" className="-mt-1 mb-1 pl-6 text-xs text-amber-800" translate="no">
                         <span>{`${NEEDS_CHECK}: ${t.needs_check}. `}</span>
-                        <Link href="/templates" className="tap underline">Check them</Link>
+                        <Link href="/mockups/templates" className="tap underline">Check them</Link>
                       </p>
                     )}
                   </li>

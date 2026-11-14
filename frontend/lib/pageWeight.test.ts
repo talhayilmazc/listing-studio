@@ -55,12 +55,12 @@ test("a file that fails on the way is tried again by itself; a refusal is not", 
 });
 
 test("files are sent as chosen: nothing in the browser resizes or recompresses them", () => {
-  for (const file of ["lib/uploadQueue.ts", "lib/api.ts", "components/MockupUpload.tsx", "app/(app)/upload/page.tsx", "app/(app)/templates/page.tsx"]) {
+  for (const file of ["lib/uploadQueue.ts", "lib/api.ts", "components/MockupUpload.tsx", "app/(app)/upload/page.tsx", "app/(app)/mockups/templates/page.tsx"]) {
     const src = read(file);
     assert.ok(!/toBlob\(|toDataURL\(|createImageBitmap\(|OffscreenCanvas/.test(src), file);
   }
   // Every upload goes through the queue: no page sends its files one by one any more.
-  for (const file of ["components/MockupUpload.tsx", "app/(app)/upload/page.tsx", "app/(app)/templates/page.tsx"]) {
+  for (const file of ["components/MockupUpload.tsx", "app/(app)/upload/page.tsx", "app/(app)/mockups/templates/page.tsx"]) {
     const src = read(file);
     assert.ok(src.includes("runLimited(") && src.includes("withRetry("), file);
   }

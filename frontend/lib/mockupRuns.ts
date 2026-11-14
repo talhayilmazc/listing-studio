@@ -44,7 +44,7 @@ export function readyLine(run: { status: string; done: number; failed: number; d
 
 /** Where "Show" goes: the designs page with that run, scrolled to the design. */
 export const resultsHref = (runId: string, designId?: string | null) =>
-  `/templates/designs?run=${encodeURIComponent(runId)}${designId ? `&design=${encodeURIComponent(designId)}` : ""}`;
+  `/mockups?run=${encodeURIComponent(runId)}${designId ? `&design=${encodeURIComponent(designId)}` : ""}`;
 
 /** The results anchor of one design (scrolled to and highlighted). */
 export const designAnchor = (designId: string) => `design-${designId}`;
