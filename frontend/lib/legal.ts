@@ -31,7 +31,7 @@ export const LAST_UPDATED = "14 October 2026";
  * account; 1 November 2026: a cookieless visit counter on the public site, and the free tools; 2 November 2026: fixes to live listings) without asking them to agree again, so the version above stays.
  * Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "8 November 2026";
+export const PRIVACY_UPDATED = "14 November 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
@@ -84,6 +84,10 @@ export const RETENTION = {
   aiCallMonths: 25,
   /** A ZIP of mockups to download, after it is ready: MockupZip.RETENTION_HOURS */
   mockupZipHours: 24,
+  /** A Photoshop mockup you upload, at most (deleted sooner once the template is made): PsdUpload.FILE_HOURS */
+  psdFileHours: 24,
+  /** The record of a Photoshop mockup upload (file name, status), after it finished: PsdUpload.RETENTION_DAYS */
+  psdUploadDays: 7,
   /** How often expired data is looked for: the purge_expired cron */
   cleanupMinutes: 15,
 } as const;
