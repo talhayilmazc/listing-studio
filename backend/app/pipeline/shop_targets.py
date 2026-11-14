@@ -59,6 +59,40 @@ async def own_shop(session: AsyncSession, content: GeneratedContent) -> EtsyConn
     return connection if connection.status.value == "active" else None
 
 
+async def own_shops(session: AsyncSession, contents: list[GeneratedContent]) -> dict[uuid.UUID, EtsyConnection]:
+    """``own_shop`` for many listings in a few queries (a page of 50 asked 100 before: the identity
+    map holds objects weakly, so each ``session.get`` read its profile and shop again)."""
+    profile_ids = {c.listing_profile_id for c in contents if c.listing_profile_id is not None}
+    main: dict[uuid.UUID, uuid.UUID | None] = {}
+    if profile_ids:
+        main = dict((await session.execute(
+            select(ListingProfile.id, ListingProfile.connection_id).where(ListingProfile.id.in_(profile_ids))
+        )).all())
+    wanted: dict[uuid.UUID, uuid.UUID] = {}
+    rest: list[GeneratedContent] = []
+    for content in contents:
+        shop_id = main.get(content.listing_profile_id) if content.listing_profile_id is not None else None
+        if shop_id is not None:
+            wanted[content.id] = shop_id
+        else:
+            rest.append(content)
+    shops: dict[uuid.UUID, EtsyConnection] = {}
+    if wanted:
+        shops = {s.id: s for s in (await session.execute(
+            select(EtsyConnection).where(EtsyConnection.id.in_(set(wanted.values())))
+        )).scalars()}
+    out: dict[uuid.UUID, EtsyConnection] = {}
+    for content in contents:
+        if content.id in wanted:
+            shop = shops.get(wanted[content.id])
+            if shop is not None and shop.tenant_id == content.tenant_id and shop.status.value == "active":
+                out[content.id] = shop
+    for content in rest:  # no profile (older listings): the group's or the batch's shop, as stored
+        if (shop := await own_shop(session, content)) is not None:
+            out[content.id] = shop
+    return out
+
+
 def destination(value: Any) -> dict[str, list[uuid.UUID]] | None:
     """A stored ``send_to`` as {"group_ids": [...], "connection_ids": [...]} of UUIDs, or None."""
     if not isinstance(value, dict):

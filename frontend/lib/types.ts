@@ -1215,6 +1215,8 @@ export interface Writing {
   skipped: number;
   message: string | null;
   failures: { file: string; error: string }[];
+  /** Groups left as they were on purpose (Regenerate of an approved listing, a draft on Etsy), and why. */
+  skipped_groups?: { group_key: string; reason: string }[];
 }
 
 /** A batch the worker finished writing, not yet told: "Listings ready" on the next page. */

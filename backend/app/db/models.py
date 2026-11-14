@@ -827,6 +827,8 @@ class Asset(Base):
     __table_args__ = (
         # Upload retention looks for batches whose files are still kept (migration 0041).
         Index("ix_asset_files_kept", "batch_id", postgresql_where=text("files_removed_at IS NULL")),
+        # Uploads the worker has not prepared yet, for the recovery that queues them again (migration 0102).
+        Index("ix_asset_waiting", "uploaded_at", postgresql_where=text("status = 'uploaded'")),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -866,6 +868,10 @@ class Asset(Base):
     status: Mapped[AssetStatus] = mapped_column(
         _enum(AssetStatus, "asset_status"), nullable=False, default=AssetStatus.uploaded
     )
+    #: When the file arrived (fix/perf-and-memory): an upload is stored as it came and prepared by
+    #: the worker; one still ``uploaded`` long after this is queued again (workers/uploads.py).
+    #: NULL for photos uploaded before migration 0102 (all prepared in the request).
+    uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: When upload retention deleted this image's files: the original, the
     #: processed copy and their previews (pipeline/upload_retention.py). The row
     #: stays, so the batch, the listing text and its publication still read as

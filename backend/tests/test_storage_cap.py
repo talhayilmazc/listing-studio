@@ -1,10 +1,13 @@
 """Per-account storage cap: 5 GB by default, an admin's own number per account;
 an upload past it is refused before anything is stored, saying how much is used
-and what frees space."""
+and what frees space. Since uploads are prepared by the worker (fix/perf-and-memory) the
+file as it arrived is checked in the request, its processed copy when it is made: a copy past
+the cap is not kept and the photo says why."""
 
 from __future__ import annotations
 
 import io
+import random
 from collections.abc import Iterator
 
 import pytest
@@ -25,14 +28,18 @@ def _fresh() -> Iterator[None]:
     storage_cap.forget()
 
 
-def _png(size=(300, 300)) -> bytes:
+def _png(size=(300, 300), noisy: bool = False) -> bytes:
     buf = io.BytesIO()
-    Image.new("RGB", size, (200, 30, 30)).save(buf, "PNG")
+    if noisy:  # does not compress: about 270 KB as it arrives
+        Image.frombytes("RGB", size, random.Random(1).randbytes(size[0] * size[1] * 3)).save(buf, "PNG")
+    else:
+        Image.new("RGB", size, (200, 30, 30)).save(buf, "PNG")
     return buf.getvalue()
 
 
-async def _upload(client: AsyncClient, batch_id: str, name: str = "a.png"):  # noqa: F811
-    return await client.post(f"/api/batches/{batch_id}/assets", files={"file": (name, io.BytesIO(_png()), "image/png")})
+async def _upload(client: AsyncClient, batch_id: str, name: str = "a.png", *, noisy: bool = False):  # noqa: F811
+    data = _png(noisy=noisy)
+    return await client.post(f"/api/batches/{batch_id}/assets", files={"file": (name, io.BytesIO(data), "image/png")})
 
 
 async def test_the_default_is_5_gb_and_an_upload_past_the_cap_is_refused(client: AsyncClient, tmp_path) -> None:  # noqa: F811
@@ -46,7 +53,7 @@ async def test_the_default_is_5_gb_and_an_upload_past_the_cap_is_refused(client:
     assert first.status_code == 201, first.text
     storage_cap.forget()  # measure again: the first image is on disk now
     before = {p for p in tmp_path.rglob("*") if p.is_file()}
-    second = await _upload(client, batch, "b.png")
+    second = await _upload(client, batch, "b.png", noisy=True)
     assert second.status_code == 413
     detail = second.json()["detail"]
     assert detail.startswith("Your stored images use ") and "of your 0 MB limit" in detail
@@ -62,7 +69,14 @@ async def test_the_cap_counts_what_this_process_stores_before_the_next_measure(c
         await s.commit()
     batch = (await client.post("/api/batches")).json()["id"]
     assert (await _upload(client, batch)).status_code == 201
-    assert (await _upload(client, batch, "b.png")).status_code == 413  # no re-measure needed
+    # No re-measure needed: what this process stored counts. The file as it came fits; its processed
+    # copy does not, so it is not kept and the photo says why (the worker's step, here run at once).
+    second = await _upload(client, batch, "b.png")
+    assert second.status_code == 201 and second.json()["status"] == "failed", second.text
+    assert second.json()["error"].startswith("Your stored images use ")
+    async with client.sm() as s:  # type: ignore[attr-defined]
+        failed = (await s.execute(select(Asset).where(Asset.original_filename == "b.png"))).scalar_one()
+        assert failed.processed_key is None and failed.storage_key is None
 
 
 async def test_an_admin_sets_an_accounts_cap_or_puts_it_back_on_the_default(world) -> None:  # noqa: F811

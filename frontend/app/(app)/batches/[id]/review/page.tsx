@@ -24,6 +24,7 @@ import { BulkItemOptions } from "@/components/BulkItemOptions";
 import { AttributeBulkSet } from "@/components/BulkExtras";
 import { resumeTime } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
+import { going, waitForWriting } from "@/lib/writing";
 import { applyChange, cardKey, emptyHandWritten, needsById, pendingManualSteps, reviewActions } from "@/lib/review";
 import { anyUnsaved, flushAll } from "@/lib/cardSave";
 import { ReviewCard } from "@/components/ReviewCard";
@@ -322,8 +323,8 @@ export default function ReviewPage() {
     };
   }, []);
 
-  // "Generate the empty ones": only hand-written listings nothing was typed into, one
-  // group at a time (as the batch page writes), counted as Generate counts.
+  // "Generate the empty ones": only hand-written listings nothing was typed into, counted as Generate counts.
+  // One request: the worker writes them (fix/perf-and-memory) and the page follows how far it has got.
   const empties = emptyHandWritten(items ?? [], inView?.id ?? null);
   const [writing, setWriting] = useState<{ done: number; total: number } | null>(null);
   // Said before anything is written: how many, and what it uses of the allowance.
@@ -334,18 +335,14 @@ export default function ReviewPage() {
     setError(null);
     try {
       await flushAll(); // a card being typed into is not empty any more: the server sees it
-      const keys = emptyHandWritten(items ?? [], inView?.id ?? null);
-      setWriting({ done: 0, total: keys.length });
-      const failed: string[] = [];
-      for (const [n, key] of keys.entries()) {
-        const res = await api.generate(id, undefined, key, { onlyEmpty: true });
-        if (res.paused) {
-          failed.push(res.paused);
-          break;
-        }
-        for (const f of res.failures ?? []) failed.push(`${f.original_filename}: ${f.error}`);
-        setWriting({ done: n + 1, total: keys.length });
-      }
+      const first = await api.generate(id, undefined, undefined, { onlyEmpty: true });
+      const end = await waitForWriting(() => api.batchWriting(id), first, (w) => {
+        if (going(w)) setWriting({ done: w.done, total: w.total });
+      });
+      const failed = [
+        ...(end.state === "paused" && end.message ? [end.message] : []),
+        ...end.failures.map((f) => `${f.file}: ${f.error}`),
+      ];
       if (failed.length) setError(failed.join(" "));
       setApproveResult(null);
       load();

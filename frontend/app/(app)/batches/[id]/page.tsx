@@ -28,6 +28,8 @@ import { STATE_WORDS, profileIn, profileLocked, skuIn, stateIn } from "@/lib/ano
 import { Txt } from "@/components/Txt";
 import { toast } from "@/lib/toast";
 import { writingLine, writtenLine } from "@/lib/words";
+import { outcomeLine } from "@/lib/writing";
+import { LOOK_AGAIN_MS, preparingLine, stillPreparing } from "@/lib/preparing";
 import { announceWritingDone } from "@/components/WritingReadyWatcher";
 interface AssetGroup {
   key: string;
@@ -314,6 +316,22 @@ export default function BatchPage() {
   // as they happen.
   // Said before Generate writes anything: how many listings, and what it uses of the allowance.
   const [askGenerate, setAskGenerate] = useState<{ count: number; run: () => void } | null>(null);
+  // Photos the worker is still preparing (fix/perf-and-memory): looked at again until all are ready.
+  const preparing = batch ? preparingLine(batch.assets) : null;
+  useEffect(() => {
+    if (!preparing) return;
+    const t = setTimeout(async () => {
+      try {
+        const next = await api.getBatch(id);
+        setBatch(next);
+        if (!stillPreparing(next.assets)) loadGroups();
+      } catch {
+        // looked at again on the next turn
+      }
+    }, LOOK_AGAIN_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preparing, batch]);
   // "Writing 3 of 12": how far the writing has got, while it runs.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
@@ -375,8 +393,7 @@ export default function BatchPage() {
     setBusy(null);
     setFailures(writing.failures.map((f) => ({ original_filename: f.file, error: f.error })));
     if (writing.state === "paused" && writing.message) setProblem(writing.message);
-    setNotice(writing.state === "idle" ? null : writing.message && writing.state === "done" && !writing.total
-      ? writing.message : writtenLine(writing.written, writing.failed, writing.skipped));
+    setNotice(outcomeLine(writing, writtenLine));
     load();
     loadGroups();
     // "Listings ready" is said once, by the watcher, from the server's note.
@@ -384,23 +401,17 @@ export default function BatchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [writing]);
 
+  // Generate and Regenerate are written in the worker too (fix/perf-and-memory): the request answers at
+  // once and the page follows the run as "Write listings" does.
   async function generate(groupKey?: string) {
     setBusy(groupKey ?? "__all__");
     setNotice(null);
     setProblem(null);
     setFailures([]);
     try {
-      const res = await api.generate(id, bulkProfileId || undefined, groupKey, { ignoreUnsorted });
-      if (res.paused) {
-        setProblem(res.paused);
-        return;
-      }
-      setNotice(writtenLine(res.generated, res.failed, res.skipped));
-      setFailures(res.failures);
-      await load();
+      setWriting(await api.generate(id, bulkProfileId || undefined, groupKey, { ignoreUnsorted }));
     } catch (e: any) {
       setProblem(e.message ?? String(e));
-    } finally {
       setBusy(null);
     }
   }
@@ -415,26 +426,13 @@ export default function BatchPage() {
     setProblem(null);
     setFailures([]);
     try {
-      const res = await api.generate(id, bulkProfileId || undefined, g.key, {
+      setWriting(await api.generate(id, bulkProfileId || undefined, g.key, {
         replace: true,
         replaceApproved: approved,
         ignoreUnsorted,
-      });
-      if (res.paused) {
-        setProblem(res.paused);
-        return;
-      }
-      const why = (res.skipped_groups ?? []).map((s) => s.reason).join("; ");
-      setNotice(
-        res.generated
-          ? `New content written for ${g.label}${approved ? "; approve it again on the review page" : ""}.`
-          : why || `Nothing regenerated for ${g.label}.`,
-      );
-      setFailures(res.failures);
-      await load();
+      }));
     } catch (e: any) {
       setProblem(e.message ?? String(e));
-    } finally {
       setBusy(null);
     }
   }
@@ -684,6 +682,11 @@ export default function BatchPage() {
         </div>
       )}
 
+      {preparing && (
+        <p key="preparing" role="status" translate="no" className="card bg-slate-50 p-3 text-sm text-slate-700" data-testid="preparing">
+          {preparing}
+        </p>
+      )}
       {notice && (
         <div key="div-322-6" role="status" translate="no" className="card border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">
           <span>{notice}</span>

@@ -782,6 +782,8 @@ class WritingOut(BaseModel):
     skipped: int = 0
     message: str | None = None
     failures: list[WritingFailure] = Field(default_factory=list)
+    #: Groups left as they were, with why ("its content is approved; confirm to replace it").
+    skipped_groups: list[GroupSkipped] = Field(default_factory=list)
 
 
 class WritingReady(BaseModel):

@@ -58,6 +58,7 @@ from app.workers.sections import create_shop_section, sync_shop_sections
 from app.workers.usage import reconcile_usage
 from app.workers.writing import write_batch_listings
 from app.workers.psd import convert_psd
+from app.workers.uploads import process_upload, requeue_waiting_uploads
 from app.workers.listing_fixes import apply_listing_fix, read_listing_properties, undo_listing_fix, write_listing_fix_text
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
@@ -177,6 +178,7 @@ class WorkerSettings:
         write_listing_fix_text,
         write_batch_listings,
         convert_psd,
+        process_upload,
         apply_listing_fix,
         undo_listing_fix,
         generate_mockups,
@@ -201,6 +203,8 @@ class WorkerSettings:
         cron(fair_top_up, second=50, run_at_startup=True),
         # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
         cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
+        # Uploads stored but never prepared (the queue emptied, the worker died): queued again (workers/uploads.py).
+        cron(requeue_waiting_uploads, minute={3, 13, 23, 33, 43, 53}, second=25, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).
         cron(sync_all_sales, hour={2}, minute={33}, second=0, run_at_startup=False),
         # The listing counter against the drafts, once a day (workers/usage.py): read only, alerts.

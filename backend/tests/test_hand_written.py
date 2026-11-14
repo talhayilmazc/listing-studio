@@ -38,6 +38,7 @@ from app.db.models import (
 )
 from app.pipeline import approval, etsy_text, manual
 from app.pipeline.content import GeneratedListing, check_listing, policy_for
+from tests.writing_support import generate
 from tests.support import VALID_TITLE, fake_response
 from tests.test_multi_shop import world  # noqa: F401  (fixture)
 from tests.test_publish_api import _shop, ctx  # noqa: F401  (fixture)
@@ -239,8 +240,7 @@ async def test_generate_the_empty_ones_touches_only_empty_listings(ctx, llm) -> 
         batch_id, profile_id = batch.id, profile.id
     llm._responses += [fake_response(VISION), fake_response(_content_reply()), fake_response(VISION), fake_response(_content_reply())]
 
-    res = (await ctx["client"].post(f"/api/batches/{batch_id}/generate",
-                                    json={"profile_id": str(profile_id), "only_empty": True})).json()
+    res = await generate(ctx["client"], batch_id, {"profile_id": str(profile_id), "only_empty": True})
     assert (res["generated"], res["failed"], res["skipped"]) == (2, 0, 2), res
 
     async with ctx["sm"]() as s:
