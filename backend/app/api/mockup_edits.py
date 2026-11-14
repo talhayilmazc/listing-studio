@@ -450,6 +450,24 @@ async def restore_recolours(
 # --- making them again -----------------------------------------------------------------------------
 
 
+@router.post("/mockup-runs/{run_id}/rerun-changed", status_code=202, response_model=RunOut)
+async def rerun_changed(
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer), redis: Redis = Depends(get_redis),
+) -> RunOut:
+    """"Re-run only the changed ones" (B5): every mockup of the run is asked for, and the worker makes again only
+    those whose design file, photo, placement, recolouring or sharpening changed since they were made (their render
+    key); the rest are kept as they are and counted (``reused``). New designs of the batch get their mockups."""
+    run = await _own_run(session, tenant, run_id)
+    designs = await _batch_designs(session, run.batch_id)
+    if run.design_ids is not None:
+        ticked = {str(d) for d in run.design_ids}
+        designs = [d for d in designs if str(d.id) in ticked]
+    pairs = [(d.id, uuid.UUID(str(p))) for d in designs for p in run.photo_ids]
+    # model_construct: a large run may have more pairs than one request may send; these are the run's own.
+    return await rerender(run_id, RerenderIn.model_construct(pairs=pairs), session, tenant, enqueuer, redis)
+
+
 @router.post("/mockup-runs/{run_id}/rerender", status_code=202, response_model=RunOut)
 async def rerender(
     run_id: uuid.UUID, body: RerenderIn, session: AsyncSession = Depends(get_session, scope="function"),

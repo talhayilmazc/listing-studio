@@ -98,7 +98,7 @@ def test_the_editor_is_told_how_a_psd_design_starts() -> None:
     source = inspect.getsource(mockup_edits)
     assert 'size=1.0 if p.psd else p.size, align="centre" if p.psd else "top"' in source
     # The run renders a PSD photo with the stored adjustment (it used to be left out).
-    assert "placements[0][3])" in inspect.getsource(work.run)
+    assert "mockups.JPEG_QUALITY, placements[0][3], job.sharpen" in inspect.getsource(work.run)
 
 
 def test_the_editor_previews_a_design_at_most_1200_px_with_its_transparency() -> None:
@@ -200,3 +200,106 @@ async def test_placement_presets_are_saved_and_applied_to_every_design_keeping_e
     assert (await b.delete(f"/api/mockup-placement-presets/{pocket['id']}")).status_code == 404
     assert (await a.delete(f"/api/mockup-placement-presets/{pocket['id']}")).status_code == 204
     assert "Left pocket" not in [p["name"] for p in (await a.get(url)).json()]
+
+
+def _count_renders(monkeypatch) -> list[int]:  # noqa: ANN001
+    from app.pipeline import mockups as engine
+
+    calls: list[int] = []
+    real = engine.render_many
+
+    def counting(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "render_many", counting)
+    return calls
+
+
+async def test_a_new_run_keeps_every_unchanged_mockup_and_makes_none_again(mw, monkeypatch) -> None:  # noqa: F811
+    """B7: the same inputs, the same file: a second run of the same designs and templates renders nothing."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.db.models import MockupOutput, MockupRun
+    from app.workers import mockups as work
+    from tests.test_design_edits import _run_with_two_designs
+
+    r = await _run_with_two_designs(mw)
+    async with mw["sm"]() as s:
+        first = {(o.design_id, o.photo_id): (o.key, o.render_key) for o in (await s.execute(select(MockupOutput))).scalars()}
+    assert len(first) == 4 and all(rk for _, rk in first.values())
+    calls = _count_renders(monkeypatch)
+    res = await mw["a"].post(f"/api/batches/{r['batch']}/mockups", json={"template_ids": [r["template"]]})
+    run2 = uuid.UUID(res.json()["id"])
+    async with mw["sm"]() as s:
+        done = await work.run(s, mw["storage"], run2)
+        assert done.status == "succeeded" and done.reused == 4 and done.done == 4
+        second = {(o.design_id, o.photo_id): (o.key, o.render_key) for o in (await s.execute(
+            select(MockupOutput).where(MockupOutput.run_id == run2))).scalars()}
+        assert (await s.execute(select(MockupOutput).where(MockupOutput.run_id == r["run"]))).scalars().all() == []
+    assert calls == [] and second == first  # the same files, kept, nothing rendered
+    assert all(mw["storage"].exists(k) for k, _ in second.values())
+    # With sharpening the pixels differ: a new key, and they are made again.
+    res = await mw["a"].post(f"/api/batches/{r['batch']}/mockups", json={"template_ids": [r["template"]], "sharpen": "medium"})
+    async with mw["sm"]() as s:
+        done = await work.run(s, mw["storage"], uuid.UUID(res.json()["id"]))
+        assert done.reused == 0 and done.sharpen == "medium"
+    assert len(calls) == 4
+    assert not any(mw["storage"].exists(k) for k, _ in first.values())  # the old files went when not kept
+
+
+async def test_rerun_changed_makes_again_only_what_changed(mw, monkeypatch) -> None:  # noqa: F811
+    """B5: one design moved on one photo: "Re-run only the changed ones" makes that one mockup again; the three
+    unchanged ones are kept and are not reported as failed."""
+    from sqlalchemy import select
+
+    from app.db.models import MockupOutput
+    from app.pipeline import mockup_refresh
+    from app.workers import mockups as work
+    from tests.test_design_edits import _run_with_two_designs
+
+    r = await _run_with_two_designs(mw)
+    d0, p0 = r["designs"][0]["id"], r["photos"][0]["id"]
+    async with mw["sm"]() as s:
+        before = {(str(o.design_id), str(o.photo_id)): o.key for o in (await s.execute(select(MockupOutput))).scalars()}
+    await mw["a"].put("/api/mockup-adjustments", json={"design_id": d0, "photo_id": p0, "area": 0, "data": {"dx": 0.08}})
+    res = await mw["a"].post(f"/api/mockup-runs/{r['run']}/rerun-changed")
+    assert res.status_code == 202, res.text
+    assert len(res.json()["refreshing"]) == 4  # every mockup asked for; the worker decides
+    calls = _count_renders(monkeypatch)
+    turn = await mockup_refresh.take(mw["redis"], r["run"]) if hasattr(mockup_refresh, "take") else None
+    pairs = turn or [(__import__("uuid").UUID(d), __import__("uuid").UUID(p)) for d, p in before]
+    async with mw["sm"]() as s:
+        await work.refresh_turn(s, mw["storage"], r["run"], pairs, mw["redis"])
+    assert len(calls) == 1
+    async with mw["sm"]() as s:
+        after = {(str(o.design_id), str(o.photo_id)): o.key for o in (await s.execute(select(MockupOutput))).scalars()}
+    changed = [pair for pair in before if before[pair] != after[pair]]
+    assert changed == [(d0, p0)]
+    run = (await mw["a"].get(f"/api/mockup-runs/{r['run']}")).json()
+    assert run["reused"] == 3 and run["refresh_failed"] == []
+
+
+def test_mixing_in_linear_light_leaves_no_dark_rim() -> None:
+    """B6: a white design with soft edges on a black shirt: no edge pixel darker than both the shirt and the ink,
+    and half coverage is brighter than an sRGB mix (which reads as a dark rim)."""
+    from app.pipeline import mockups as engine
+
+    half_srgb = 0.5 * 0.0 + 0.5 * 1.0
+    half_linear = (0.5 * 0.0 ** engine.MIX_GAMMA + 0.5 * 1.0 ** engine.MIX_GAMMA) ** (1 / engine.MIX_GAMMA)
+    assert half_linear > half_srgb + 0.2
+    assert engine.ENGINE_VERSION == 4 and set(engine.SHARPEN) == {"off", "low", "medium"}
+
+
+def test_sharpening_changes_only_when_asked() -> None:
+    import pyvips
+
+    from app.pipeline import mockups as engine
+
+    img = pyvips.Image.gaussnoise(64, 64, mean=128, sigma=20).cast("uchar").bandjoin([128, 128]).copy(interpretation="srgb")
+    assert engine.sharpened(img, "off") is img
+    low, medium = engine.sharpened(img, "low"), engine.sharpened(img, "medium")
+    diff = lambda a, b: float((a.cast("float") - b.cast("float")).abs().avg())  # noqa: E731
+    assert 0 < diff(img, low) < diff(img, medium)

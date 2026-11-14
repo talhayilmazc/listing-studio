@@ -11,7 +11,7 @@ import { variantMockups } from "@/lib/variants";
 import { DesignEditor } from "@/components/DesignEditor";
 import { MockupTile } from "@/components/MockupTile";
 import { MockupDownloadOptions, useDownloadOptions } from "@/components/MockupDownloadOptions";
-import { selectedLabel, zipLine } from "@/lib/mockupDownloads";
+import { SHARPEN_LABELS, keptLine, selectedLabel, zipLine } from "@/lib/mockupDownloads";
 import { editorTiles, keepPolling, pairKey, stampsOf, tileState, updatingLine, type Optimistic, type TileState } from "@/lib/mockupTiles";
 import { announceRun } from "@/components/MockupRunWatcher";
 import { designAnchor } from "@/lib/mockupRuns";
@@ -75,6 +75,8 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
   const [chosen, setChosen] = useState<string[]>(initialTemplates ?? []);
   const [sides, setSides] = useState<"both" | "front" | "back">("both");
   const [garmentMode, setGarmentMode] = useState<"same" | "order">("same");
+  // Output sharpening (B6): off by default; a run keeps its choice for every remake.
+  const [sharpen, setSharpen] = useState<"off" | "low" | "medium">("off");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [designs, setDesigns] = useState<MockupDesign[]>([]);
   // The designs ticked for mockups (D3); null: every design.
@@ -238,7 +240,7 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
     lastProgress.current = { done: -1, at: Date.now() };
     try {
       setPhase("making");
-      const started = await api.startMockups(batchId, chosen, { sides, garment_mode: garmentMode, design_ids: ticked.length === designs.length ? null : ticked.map((d) => d.id) });
+      const started = await api.startMockups(batchId, chosen, { sides, garment_mode: garmentMode, sharpen, design_ids: ticked.length === designs.length ? null : ticked.map((d) => d.id) });
       setRun(started);
       announceRun(started); // a notification when they are done, from any page
     } catch (e: any) {
@@ -395,6 +397,13 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
                   </select>
                 </label>
               )}
+              <label key="sharpen" className="block min-w-0">
+                <span className="label">Sharpening</span>
+                <select className="field w-full" value={sharpen} onChange={(e) => setSharpen(e.target.value as typeof sharpen)}
+                  disabled={busy || phase === "done"} data-testid="mockup-sharpen">
+                  {SHARPEN_LABELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 text-sm text-slate-600" translate="no" data-testid="mockup-count">
@@ -853,12 +862,25 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
           <button type="button" className="btn-secondary" onClick={() => download()} disabled={!!busy || !selected.length} data-testid="mockup-zip">
             {busy === "zip" ? "Working…" : selected.length === run.designs.length ? "Download all (ZIP)" : `Download ${selected.length} (ZIP)`}
           </button>
+          <button type="button" className="btn-secondary" disabled={!!busy || !editable} onClick={async () => {
+            setError(null);
+            try {
+              onRun(await api.rerunChangedMockups(run.id));
+            } catch (e: any) {
+              setError(String(e.message ?? e));
+            }
+          }} data-testid="mockup-rerun-changed">
+            Re-run only the changed ones
+          </button>
           <button type="button" className="btn-secondary" onClick={() => download({ designIds: null, outputIds: picked })}
             disabled={!!busy || !picked.length} data-testid="mockup-zip-selected">
             <span translate="no">{selectedLabel(picked.length)}</span>
           </button>
         </div>
       )}
+      {keptLine(run.reused) && !(run.refreshing ?? []).length ? (
+        <p key="kept" role="status" className="text-sm text-slate-700" translate="no" data-testid="mockup-kept">{keptLine(run.reused)}</p>
+      ) : null}
       {said && (
         <div key="said" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
           <p className="min-w-0 flex-1 text-sm font-medium text-emerald-900">{said}</p>

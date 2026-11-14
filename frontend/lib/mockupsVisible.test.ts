@@ -51,3 +51,16 @@ test("downloads: the defaults, the ZIP's line and progress, the selection's butt
   const editor = read("../components/DesignEditor.tsx");
   assert.ok(editor.includes('data-testid="design-editor-download"'));
 });
+
+import { SHARPEN_LABELS, keptLine } from "./mockupDownloads.ts";
+
+test("the editor: sharpening on the run, kept mockups said, presets, the selection, Centre", () => {
+  assert.deepEqual(SHARPEN_LABELS.map(([v]) => v), ["off", "low", "medium"]);
+  assert.equal(keptLine(0), null);
+  assert.equal(keptLine(3), "3 mockups were kept as they were: nothing that shows in them had changed.");
+  const editor = read("../components/DesignEditor.tsx");
+  for (const id of ["design-editor-centre", "design-editor-presets", "design-editor-preset-all", "design-editor-preset-save",
+    "design-editor-presets-usual", "selectedScopeLabel(selected.length)"]) { // the scope buttons are built from APPLY_SCOPES
+    assert.ok(editor.includes(id), id);
+  }
+});

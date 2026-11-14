@@ -536,6 +536,9 @@ export interface MockupRun {
   refreshing?: { design_id: string; photo_id: string; from_stamp?: string }[];
   /** Mockups that could not be made again, with the reason. */
   refresh_failed?: { design_id: string; photo_id: string; reason: string }[];
+  /** Output sharpening (B6) and, of the last pass, how many mockups were kept as nothing had changed (B5/B7). */
+  sharpen?: "off" | "low" | "medium";
+  reused?: number;
 }
 
 /** One check of the search-readiness checklist: what the server found, and why. */

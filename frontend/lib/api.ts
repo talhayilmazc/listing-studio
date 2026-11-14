@@ -749,7 +749,8 @@ export const api = {
   startMockups: (
     batchId: string,
     templateIds: string[],
-    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order"; design_ids?: string[] | null } = {},
+    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order"; design_ids?: string[] | null;
+      sharpen?: "off" | "low" | "medium" } = {},
   ) =>
     req<MockupRun>(`/batches/${batchId}/mockups`, {
       method: "POST",
@@ -790,6 +791,8 @@ export const api = {
     req<{ changed: number }>("/mockup-recolours/restore", { method: "POST", body: JSON.stringify({ rows }) }),
   /** Make these mockups again: the run comes back with them in ``refreshing`` (asked for while
    * others are being made, they join the same queue). */
+  /** "Re-run only the changed ones" (B5): the worker makes again only what changed since it was made. */
+  rerunChangedMockups: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}/rerun-changed`, { method: "POST" }),
   rerenderMockups: (runId: string, pairs: [string, string][]) =>
     req<MockupRun>(`/mockup-runs/${runId}/rerender`, { method: "POST", body: JSON.stringify({ pairs }) }),
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */

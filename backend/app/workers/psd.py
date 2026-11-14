@@ -290,7 +290,8 @@ def load_template(storage: Any, photo: Any) -> Loaded:
     return Loaded(psd_template.spec_from(data, overlays), base, mask)
 
 
-def render_design(loaded: Loaded, design: Any, quality: int = 92, adjust: dict[str, Any] | None = None) -> bytes:
+def render_design(loaded: Loaded, design: Any, quality: int = 92, adjust: dict[str, Any] | None = None,
+                  sharpen: str = "off") -> bytes:
     """One design (a pyvips image, sRGB + alpha, as the mockup run loads it) on a PSD template, as JPEG, at the
     seller's placement inside the smart object (``adjust``, feature/mockups-editor B1)."""
     import io
@@ -306,6 +307,14 @@ def render_design(loaded: Loaded, design: Any, quality: int = 92, adjust: dict[s
     image = image.cast("uchar")
     rgba = np.ndarray(buffer=image.write_to_memory(), dtype=np.uint8, shape=[image.height, image.width, image.bands])
     out = io.BytesIO()
-    Image.fromarray(psd_template.render(loaded.spec, loaded.base, rgba[..., :4], loaded.mask, adjust), "RGB").save(
-        out, "JPEG", quality=quality, subsampling=0)
+    page = psd_template.render(loaded.spec, loaded.base, rgba[..., :4], loaded.mask, adjust)
+    from app.pipeline import mockups
+
+    if mockups.SHARPEN.get(sharpen or "off"):  # the run's output sharpening, as on photo templates (B6)
+        import pyvips
+
+        vimg = pyvips.Image.new_from_memory(np.ascontiguousarray(page).tobytes(), page.shape[1], page.shape[0], 3, "uchar")
+        vimg = mockups.sharpened(vimg.copy(interpretation="srgb"), sharpen)
+        page = np.ndarray(buffer=vimg.write_to_memory(), dtype=np.uint8, shape=[vimg.height, vimg.width, 3])
+    Image.fromarray(page, "RGB").save(out, "JPEG", quality=quality, subsampling=0)
     return out.getvalue()

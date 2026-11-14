@@ -1230,6 +1230,10 @@ class MockupRun(Base):
     garment_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="same")
     #: What a variant suffix named when the run started ("shirt" / "ink"): re-renders keep it.
     variant_suffix: Mapped[str] = mapped_column(Text, nullable=False, server_default="shirt")
+    #: Output sharpening for the run's mockups: "off", "low" or "medium" (feature/mockups-editor B6).
+    sharpen: Mapped[str] = mapped_column(Text, nullable=False, server_default="off")
+    #: Mockups of the last pass that were not made again because nothing that decides their pixels changed (B5/B7).
+    reused: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     #: The designs the seller ticked for this run (None: every design of the batch).
     design_ids: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
     created_at: Mapped[datetime] = mapped_column(
@@ -1270,6 +1274,9 @@ class MockupOutput(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     key: Mapped[str | None] = mapped_column(Text)
+    #: A hash of everything that decides the mockup's pixels (workers/mockups.py ``render_key``): the same key, the
+    #: same file, so an unchanged mockup is never made again (B5/B7). NULL for mockups made before migration 0105.
+    render_key: Mapped[str | None] = mapped_column(Text)
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     height: Mapped[int] = mapped_column(Integer, nullable=False)
     byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
