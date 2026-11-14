@@ -19,8 +19,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-#: The same patterns as .gitignore's "Database dumps and exports" block.
-FORBIDDEN = ("*.sql", "*.dump", "*.sql.gz", "*.rdb", "backup_*", "acts-*.json")
+#: The same patterns as .gitignore's "Database dumps and exports" block, and sellers' Photoshop mockups
+#: (customer files, feature/psd-templates: samples/psd/ only, never committed).
+FORBIDDEN = ("*.sql", "*.dump", "*.sql.gz", "*.rdb", "backup_*", "acts-*.json", "*.psd", "*.psb")
 
 
 def index_paths(data: bytes) -> list[str]:
@@ -60,6 +61,8 @@ def test_the_patterns_catch_what_they_should_and_nothing_else() -> None:
         "backup_2026-09-01.sql", "x/db.dump", "a.sql.gz", "docs/acts-1.json", "deploy/backup_db.sh",
         "backend/dump.rdb"]
     assert forbidden(["backend/alembic/versions/0049_drop_ad_spend.py", "facts.json", "sqlite.py"]) == []
+    assert forbidden(["samples/psd/mockup.psd", "x/big.PSB", "backend/app/pipeline/psd_read.py"]) == [
+        "samples/psd/mockup.psd", "x/big.PSB"]
 
 
 def test_no_dump_or_export_is_tracked() -> None:

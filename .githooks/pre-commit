@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Refuses a commit that adds a database dump or data export (see .gitignore).
+# Refuses a commit that adds a database dump or data export, or a seller's Photoshop mockup (see .gitignore).
 # Enable once per clone: git config core.hooksPath .githooks
-bad=$(git diff --cached --name-only --diff-filter=AR | grep -iE '(\.sql|\.dump|\.sql\.gz|\.rdb)$|(^|/)backup_[^/]*$|(^|/)acts-[^/]*\.json$')
+bad=$(git diff --cached --name-only --diff-filter=AR | grep -iE '(\.sql|\.dump|\.sql\.gz|\.rdb|\.psd|\.psb)$|(^|/)backup_[^/]*$|(^|/)acts-[^/]*\.json$')
 if [ -n "$bad" ]; then
-  echo "Refusing to commit database dumps or exports:" >&2
+  echo "Refusing to commit database dumps, exports or Photoshop files:" >&2
   echo "$bad" >&2
   exit 1
 fi
