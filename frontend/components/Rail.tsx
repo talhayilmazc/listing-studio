@@ -19,8 +19,9 @@ import { RailAllowance } from "./Allowance";
  * remaining Etsy request quota is shown on Overview, and a seller is told on every
  * page when it makes their work wait (PauseNotice); it is no longer a figure here.
  *
- * Six entries named by what the seller does, then Settings (app/onboarding-v1): profiles,
- * mockup templates and the account are under Settings, not beside the daily work.
+ * Seven entries named by what the seller does, then Settings (app/onboarding-v1; Mockups came back to the
+ * menu in feature/mockups-visible, 14 Nov 2026: sellers could not find it as a tab under Designs). Profiles
+ * and the account are under Settings; Mockup templates are under Mockups, with a link under Settings too.
  */
 
 type Item = { href: string; label: string; icon: Icon; also?: RegExp };
@@ -33,14 +34,15 @@ type Item = { href: string; label: string; icon: Icon; also?: RegExp };
  */
 export const NAV: Item[] = [
   { href: "/dashboard", label: "Home", icon: IconGrid },
-  { href: "/batches", label: "Designs", icon: IconLayers, also: /^\/(upload|templates\/designs)(\/|$)/ },
+  { href: "/batches", label: "Designs", icon: IconLayers, also: /^\/upload(\/|$)/ },
+  { href: "/mockups", label: "Mockups", icon: IconShirt },
   { href: "/review", label: "Review", icon: IconCheck },
   { href: "/scheduled", label: "Schedule", icon: IconClock, also: /^\/season-planner(\/|$)/ },
   { href: "/analytics", label: "Reports", icon: IconChart, also: /^\/listing-health(\/|$)/ },
   { href: "/connect", label: "Shops", icon: IconStore },
 ];
 
-export const SETTINGS: Item = { href: "/settings", label: "Settings", icon: IconGear, also: /^\/(profiles|templates)(\/|$)/ };
+export const SETTINGS: Item = { href: "/settings", label: "Settings", icon: IconGear, also: /^\/profiles(\/|$)/ };
 const ADMIN: Item = { href: "/admin", label: "Admin", icon: IconShield };
 
 export function isActive(pathname: string, item: Item): boolean {
@@ -50,7 +52,7 @@ export function isActive(pathname: string, item: Item): boolean {
     if (pathname.startsWith("/batches")) return true;
   }
   if (item.href === "/review" && /^\/batches\/[^/]+\/review$/.test(pathname)) return true;
-  if (item.also?.test(pathname) && !(item.href === "/settings" && pathname.startsWith("/templates/designs"))) return true;
+  if (item.also?.test(pathname)) return true;
   return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 

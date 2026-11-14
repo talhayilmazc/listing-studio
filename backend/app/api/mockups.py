@@ -535,6 +535,14 @@ class ZipOut(BaseModel):
     byte_size: int | None = None
     error: str | None = None
     expires_at: datetime | None = None
+    #: Progress while it is made (files written of ``total``).
+    total: int = 0
+    done: int = 0
+    #: The download options it is made with (pipeline/mockup_download.py).
+    options: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    #: What it holds, in words ("Spring drop · 3 designs" / "· 5 mockups").
+    label: str | None = None
 
 
 class PairOut(BaseModel):
@@ -591,7 +599,11 @@ class ListingsOut(BaseModel):
 
 class ZipRequest(BaseModel):
     design_ids: list[uuid.UUID] | None = None
+    #: "Download selected": these mockups only (of this run).
+    output_ids: list[uuid.UUID] | None = Field(None, max_length=2000)
     layout: Literal["folders", "flat"] = "folders"
+    #: Format, size, quality and names (pipeline/mockup_download.py ``Options``); none = the seller's saved ones.
+    options: dict[str, Any] | None = None
 
 
 # --- helpers --------------------------------------------------------------------------------
@@ -1981,9 +1993,13 @@ def _active(run: MockupRun) -> bool:
     return datetime.now(timezone.utc) - since < timedelta(seconds=get_settings().worker_job_timeout + 120)
 
 
-def _zip_out(z: MockupZip) -> ZipOut:
+def _zip_out(z: MockupZip, label: str | None = None) -> ZipOut:
+    from app.pipeline import mockup_download as dl
+
     return ZipOut(id=z.id, run_id=z.run_id, status=z.status, layout=z.layout, files=z.files, byte_size=z.byte_size,
-                  error=z.error, expires_at=z.expires_at)
+                  error=z.error, expires_at=z.expires_at, total=z.total or 0, done=z.done or 0,
+                  options=dl.Options.of({**(z.options or {}), "layout": z.layout}).as_dict(), created_at=z.created_at,
+                  label=label)
 
 
 async def _run_out(session: AsyncSession, run: MockupRun, redis: Any = None) -> RunOut:
@@ -2360,12 +2376,26 @@ async def request_zip(
     run_id: uuid.UUID, body: ZipRequest, session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> ZipOut:
-    """"Download": a ZIP built in the worker, private to the account, deleted 24 hours after it is ready."""
+    """"Download": a ZIP built in the worker (the memory budget's ``build_mockup_zip``), in the seller's options,
+    private to the account, deleted 48 hours after it is ready. ``output_ids``: "Download selected"."""
+    from app.pipeline import mockup_download as dl
+
     run = await _own_run(session, tenant, run_id)
     if _active(run):  # a run a stopped worker left behind does not block for ever (review R16)
         raise HTTPException(status_code=409, detail="The mockups are still being made.")
-    archive = MockupZip(tenant_id=tenant.id, run_id=run.id, layout=body.layout,
-                        design_ids=[str(d) for d in body.design_ids] if body.design_ids is not None else None)
+    if body.output_ids is not None:
+        ours = set((await session.execute(select(MockupOutput.id).where(
+            MockupOutput.run_id == run.id, MockupOutput.tenant_id == tenant.id))).scalars())
+        if not body.output_ids or any(o not in ours for o in body.output_ids):
+            raise HTTPException(status_code=404, detail="mockup not found")
+    options = dl.Options.of({**(body.options if body.options is not None else (tenant.mockup_download or {})),
+                             "layout": body.layout})
+    if body.options is not None:  # remembered for the seller's next download
+        tenant.mockup_download = options.as_dict()
+    archive = MockupZip(tenant_id=tenant.id, run_id=run.id, layout=options.layout, options=options.as_dict(),
+                        created_at=datetime.now(timezone.utc),
+                        design_ids=[str(d) for d in body.design_ids] if body.design_ids is not None else None,
+                        output_ids=[str(o) for o in body.output_ids] if body.output_ids is not None else None)
     session.add(archive)
     await session.commit()
     await submit_heavy(enqueuer, tenant.id, "build_mockup_zip", archive.id, job_id=f"mockup-zip:{archive.id}")
@@ -2401,11 +2431,11 @@ async def download_zip(
         raise HTTPException(status_code=410, detail="This download has expired; make a new one.")
     if archive.status != "ready" or not archive.key:
         raise HTTPException(status_code=409, detail="This download is not ready yet.")
-    try:
-        data = storage.get(archive.key)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=410, detail="This download has expired; make a new one.") from exc
+    from fastapi.responses import FileResponse
+
+    path = storage._path(archive.key)  # noqa: SLF001 - streamed from disk, never read whole into memory
+    if not path.is_file():
+        raise HTTPException(status_code=410, detail="This download has expired; make a new one.")
     stamp = (archive.ready_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
-    return Response(data, media_type="application/zip", headers={
-        "Content-Disposition": f'attachment; filename="mockups-{stamp}.zip"', "Cache-Control": "private, no-store",
-    })
+    return FileResponse(path, media_type="application/zip", filename=f"mockups-{stamp}.zip",
+                        headers={"Cache-Control": "private, no-store"})

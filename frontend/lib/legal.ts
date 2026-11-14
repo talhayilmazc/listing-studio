@@ -83,7 +83,7 @@ export const RETENTION = {
   /** Our own records of AI calls (model, tokens, cost): AiCall.RETENTION_DAYS */
   aiCallMonths: 25,
   /** A ZIP of mockups to download, after it is ready: MockupZip.RETENTION_HOURS */
-  mockupZipHours: 24,
+  mockupZipHours: 48,
   /** A Photoshop mockup you upload, at most (deleted sooner once the template is made): PsdUpload.FILE_HOURS */
   psdFileHours: 24,
   /** The record of a Photoshop mockup upload (file name, status), after it finished: PsdUpload.RETENTION_DAYS */

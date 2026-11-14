@@ -74,7 +74,7 @@ test("presets: manage them, assign them to a template, save a subgroup as one; s
   for (const id of ["subgroup-presets", "preset-add", "assign-presets", "assign-presets-go", "subgroup-save-preset", "template-file-prefix-input"]) {
     assert.ok(presets.includes(`data-testid="${id}"`), id);
   }
-  const page = read("app/(app)/templates/page.tsx");
+  const page = read("app/(app)/mockups/templates/page.tsx");
   assert.match(page, /<PresetsManager presets=\{presets\}/);
   assert.match(page, /<AssignPresets template=\{template\}/);
   assert.match(page, /<FilePrefixField template=\{template\}/);

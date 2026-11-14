@@ -10,6 +10,8 @@ import { DesignVariants } from "@/components/DesignVariants";
 import { variantMockups } from "@/lib/variants";
 import { DesignEditor } from "@/components/DesignEditor";
 import { MockupTile } from "@/components/MockupTile";
+import { MockupDownloadOptions, useDownloadOptions } from "@/components/MockupDownloadOptions";
+import { selectedLabel, zipLine } from "@/lib/mockupDownloads";
 import { editorTiles, keepPolling, pairKey, stampsOf, tileState, updatingLine, type Optimistic, type TileState } from "@/lib/mockupTiles";
 import { announceRun } from "@/components/MockupRunWatcher";
 import { designAnchor } from "@/lib/mockupRuns";
@@ -48,7 +50,7 @@ import { Txt } from "@/components/Txt";
  *    (10 photos: 10 mockups per design); photos still waiting for the seller's check are
  *    left out, and the page says how many. Progress per design.
  * 3. Per design or for all: "Use for listings" (a listing group per design, the
- *    chosen colour as its cover) and/or "Download" (a ZIP, private, kept 24 hours).
+ *    chosen colour as its cover) and/or "Download" (one image, the selected ones or a ZIP, in the seller's options; a ZIP is private and kept 48 hours).
  *
  * When a chosen template is split into subgroups ("White", "Black"), there is a slot per
  * subgroup: files dropped on a slot are for it; files dropped together pair into one design by
@@ -278,7 +280,7 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
       {templates.length === 0 ? (
         <p key="none" className="text-sm text-slate-600">
           <span>You have no mockup templates yet. </span>
-          <Link href="/templates" className="tap text-brand-700 underline">Add blank garment photos</Link>
+          <Link href="/mockups/templates" className="tap text-brand-700 underline">Add blank garment photos</Link>
         </p>
       ) : (
         <div key="form" className="space-y-5">
@@ -300,7 +302,7 @@ export function MockupUpload({ shop, initialTemplates, initialRun, initialDesign
                     {t.needs_check > 0 && (
                       <p key="check" className="-mt-1 mb-1 pl-6 text-xs text-amber-800" translate="no">
                         <span>{`${NEEDS_CHECK}: ${t.needs_check}. `}</span>
-                        <Link href="/templates" className="tap underline">Check them</Link>
+                        <Link href="/mockups/templates" className="tap underline">Check them</Link>
                       </p>
                     )}
                   </li>
@@ -680,7 +682,9 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
   const editable = finished || (run.refreshing ?? []).length > 0;
   const [selected, setSelected] = useState<string[]>(run.designs.map((d) => d.design_id));
   const [covers, setCovers] = useState<Record<string, string>>({});
-  const [layout, setLayout] = useState<"folders" | "flat">("folders");
+  // Downloads (feature/mockups-visible): the seller's options, remembered; mockups chosen one by one.
+  const [options, setOptions] = useDownloadOptions();
+  const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState<"listings" | "zip" | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -756,17 +760,21 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
       setBusy(null);
     }
   }
-  async function download() {
+  /** A ZIP made in the worker: the checked designs, one design (``designIds``), or the mockups picked. */
+  async function download(what: { designIds?: string[] | null; outputIds?: string[] } = {}) {
     setBusy("zip");
     setError(null);
     try {
-      setZip(await api.requestMockupZip(run.id, ids, layout));
+      const designIds = what.designIds !== undefined ? what.designIds : ids;
+      setZip(await api.requestMockupZip(run.id, designIds, options.layout, { outputIds: what.outputIds, options }));
     } catch (e: any) {
       setError(String(e.message ?? e));
     } finally {
       setBusy(null);
     }
   }
+  const outputOf = (designId: string, photoId: string) =>
+    run.designs.find((d) => d.design_id === designId)?.outputs.find((o) => o.photo_id === photoId) ?? null;
 
   return (
     <div className="space-y-3 border-t border-slate-200 pt-4" data-testid="mockup-results">
@@ -796,6 +804,20 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
                       disabled={!editable || !o.photo_id || !o.available}
                       onOpen={() => o.photo_id && adjust(d.design_id, o.photo_id)}
                       onRetry={() => o.photo_id && retry(d.design_id, o.photo_id)} />
+                    {finished && o.available ? (
+                      <div key="dl" className="mt-1 flex items-center justify-between gap-1">
+                        <label className="tap flex items-center" title="Select for Download selected">
+                          <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={picked.includes(o.id)}
+                            aria-label={`Select ${d.sku ?? d.original_filename} on ${o.photo_name ?? o.template_name}`}
+                            onChange={(e) => setPicked((all) => (e.target.checked ? [...all, o.id] : all.filter((x) => x !== o.id)))}
+                            data-testid="mockup-pick" />
+                        </label>
+                        <a className="tap text-xs font-medium text-brand-700 underline" href={api.mockupDownloadUrl(run.id, o.id, options)} download
+                          aria-label={`Download ${d.sku ?? d.original_filename} on ${o.photo_name ?? o.template_name}`} data-testid="mockup-download-one">
+                          Download
+                        </a>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -813,23 +835,27 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
                 </select>
               </label>
             )}
+            {finished && d.outputs.some((o) => o.available) && (
+              <button key="zip-one" type="button" className="btn-quiet mt-1 min-h-11 text-xs" disabled={!!busy}
+                onClick={() => download({ designIds: [d.design_id] })} data-testid="mockup-zip-design">
+                Download this design (ZIP)
+              </button>
+            )}
           </li>
         ))}
       </ul>
+      {finished && <MockupDownloadOptions key="options" options={options} onChange={setOptions} />}
       {finished && (
         <div key="actions" className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-primary" onClick={useForListings} disabled={!!busy || !selected.length} data-testid="mockup-use">
             {busy === "listings" ? "Working…" : "Use for listings"}
           </button>
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
-            <span>ZIP</span>
-            <select className="field text-xs" value={layout} onChange={(e) => setLayout(e.target.value as "folders" | "flat")}>
-              <option value="folders">A folder per design</option>
-              <option value="flat">All in one folder</option>
-            </select>
-          </label>
-          <button type="button" className="btn-secondary" onClick={download} disabled={!!busy || !selected.length} data-testid="mockup-zip">
-            {busy === "zip" ? "Working…" : "Download"}
+          <button type="button" className="btn-secondary" onClick={() => download()} disabled={!!busy || !selected.length} data-testid="mockup-zip">
+            {busy === "zip" ? "Working…" : selected.length === run.designs.length ? "Download all (ZIP)" : `Download ${selected.length} (ZIP)`}
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => download({ designIds: null, outputIds: picked })}
+            disabled={!!busy || !picked.length} data-testid="mockup-zip-selected">
+            <span translate="no">{selectedLabel(picked.length)}</span>
           </button>
         </div>
       )}
@@ -844,14 +870,15 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
           {zip.status === "ready" ? (
             <span key="ready">
               <a className="btn-primary min-h-11" href={api.mockupZipUrl(zip.id)} download data-testid="mockup-zip-download">Download the ZIP</a>
-              <span className="ml-2">{` ${zip.files} files, ${megabytes(zip.byte_size ?? 0)}. Kept 24 hours, then deleted.`}</span>
+              <span className="ml-2">{` ${zipLine(zip, megabytes(zip.byte_size ?? 0))}`}</span>
             </span>
-          ) : zip.status === "failed" ? (
-            <span key="failed" className="text-rose-700">{zip.error ?? "The ZIP could not be made."}</span>
-          ) : zip.status === "expired" ? (
-            <span key="expired">This download has expired; make a new one.</span>
+          ) : zip.status === "failed" || zip.status === "expired" ? (
+            <span key="failed" className="text-rose-700">{zipLine(zip)}</span>
           ) : (
-            <span key="building">Making the ZIP…</span>
+            <span key="building">
+              <span>{zipLine(zip)}</span>
+              <Link href="/mockups/downloads" className="tap ml-2 underline">All downloads</Link>
+            </span>
           )}
         </p>
       )}
@@ -859,6 +886,10 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
       {editing && edits && (
         <DesignEditor key={`${editing.designId}-${editing.photoId}`} runId={run.id} edits={edits} designId={editing.designId} photoId={editing.photoId}
           onClose={() => setEditing(null)} onEdited={edited} onRun={ran}
+          downloadHref={(() => {
+            const o = outputOf(editing.designId, editing.photoId);
+            return o?.available ? api.mockupDownloadUrl(run.id, o.id, options) : null;
+          })()}
           strip={<EditorStrip run={run} edits={edits} designId={editing.designId} touched={touched} stateOf={stateOf} onRetry={retry} />} />
       )}
     </div>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { HomeShortcuts } from "@/components/HomeShortcuts";
 import { api } from "@/lib/api";
 import type {
   Asset,
@@ -184,6 +185,8 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {fresh ? null : <HomeShortcuts key="shortcuts" />}
 
       {nothingYet ? null : (
         <div key="activity" className="grid gap-4 lg:grid-cols-2">

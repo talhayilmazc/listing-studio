@@ -29,6 +29,7 @@ import json
 import logging
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Any
@@ -997,34 +998,103 @@ async def make_listings(
 # --- download ---------------------------------------------------------------------------------
 
 
-async def build_zip(session: AsyncSession, storage: Storage, zip_id: uuid.UUID) -> MockupZip | None:
-    """Write the ZIP (stored, not compressed: the JPEGs already are)."""
-    archive = await session.get(MockupZip, zip_id)
-    if archive is None or archive.status not in ("queued", "building"):
-        return archive
-    archive.status = "building"
-    await session.commit()
-    by_design = await outputs_by_design(session, archive.run_id)
-    wanted = {uuid.UUID(str(i)) for i in archive.design_ids} if archive.design_ids is not None else set(by_design)
+@dataclass
+class DownloadEntry:
+    """One mockup to download (pipeline/mockup_download.py): its output, its design, what its name is made
+    of, and whether a draft sends it as a listing's cover (and with which crop)."""
+
+    output: MockupOutput
+    design: MockupDesign
+    item: Any
+    cover: bool = False
+    crop: dict | None = None
+
+
+async def download_entries(session: AsyncSession, run: MockupRun, *, design_ids: list[str] | None = None,
+                           output_ids: list[str] | None = None) -> list[DownloadEntry]:
+    """The run's mockups to download, design by design, each design's in the seller's photo order: the listing's
+    order when the mockups were used for listings (the cover first), else the run's (template order). Only
+    mockups whose file is still there."""
+    from app.pipeline import mockup_download as dl
+
+    by_design = await outputs_by_design(session, run.id)
+    wanted_designs = {uuid.UUID(str(i)) for i in design_ids} if design_ids is not None else set(by_design)
+    wanted_outputs = {uuid.UUID(str(i)) for i in output_ids} if output_ids is not None else None
+    if wanted_outputs is not None:  # chosen one by one: their designs, whatever design_ids says
+        wanted_designs = {d for d, outs in by_design.items() if any(o.id in wanted_outputs for o in outs)}
     designs = {d.id: d for d in (await session.execute(
-        select(MockupDesign).where(MockupDesign.id.in_(wanted)))).scalars()}
-    entries: list[tuple[str, str]] = []
-    folders: set[str] = set()
+        select(MockupDesign).where(MockupDesign.id.in_(wanted_designs), MockupDesign.tenant_id == run.tenant_id))).scalars()}
+    keys = [o.key for outs in by_design.values() for o in outs if o.key]
+    # Listing photos made from these mockups ("Use for listings": the asset reads the mockup's own file).
+    assets = {a.processed_key: a for a in (await session.execute(select(Asset).where(
+        Asset.tenant_id == run.tenant_id, Asset.processed_key.in_(keys), Asset.files_removed_at.is_(None)))).scalars()} if keys else {}
+    covers: dict[tuple[uuid.UUID, str], uuid.UUID] = {}
+    if assets:
+        groups = {(a.batch_id, a.group_key or "") for a in assets.values()}
+        rows = (await session.execute(select(Asset.id, Asset.batch_id, Asset.group_key, Asset.rank, Asset.original_filename)
+                                      .where(Asset.batch_id.in_({b for b, _ in groups}), Asset.processed_key.is_not(None)))).all()
+        for asset_id, batch_id, key, rank, name in sorted(rows, key=lambda r: (r.rank if r.rank is not None else 1_000_000, r.original_filename.lower())):
+            covers.setdefault((batch_id, key or ""), asset_id)
+    # Each template's file-name prefix (Part C: "CC-BR100-01.jpg"), by photo.
+    photo_ids = {o.photo_id for outs in by_design.values() for o in outs if o.photo_id}
+    prefixes = dict((await session.execute(select(MockupPhoto.id, MockupTemplate.file_prefix).join(
+        MockupTemplate, MockupTemplate.id == MockupPhoto.template_id).where(MockupPhoto.id.in_(photo_ids))) ).all()) if photo_ids else {}
+    entries: list[DownloadEntry] = []
     for design_id, outputs in by_design.items():
         design = designs.get(design_id)
         if design is None:
             continue
-        folder = mockups.safe_name(design_base(design), 60)
-        n, unique = 1, folder
-        while unique.lower() in folders:
-            n += 1
-            unique = f"{folder} ({n})"
-        folders.add(unique.lower())
-        for output in outputs:
-            if output.key and output.files_removed_at is None and storage.exists(output.key):
-                entries.append((f"{unique}/{output.filename}" if archive.layout == "folders" else output.filename, output.key))
+        chosen = [o for o in outputs if o.key and o.files_removed_at is None
+                  and (wanted_outputs is None or o.id in wanted_outputs)]
+
+        def order(o: MockupOutput) -> tuple[int, int]:
+            asset = assets.get(o.key)
+            return (0, asset.rank or 0) if asset is not None else (1, o.position)
+
+        everyone = sorted([o for o in outputs if o.key and o.files_removed_at is None], key=order)
+        number = {o.id: n for n, o in enumerate(everyone, 1)}  # a mockup's number does not change with the selection
+        for output in sorted(chosen, key=order):
+            asset = assets.get(output.key)
+            cover = asset is not None and covers.get((asset.batch_id, asset.group_key or "")) == asset.id
+            entries.append(DownloadEntry(
+                output=output, design=design, cover=cover, crop=asset.cover_crop if cover and asset is not None else None,
+                item=dl.Item(sku=design.parsed_sku, design_file=design.original_filename, template=output.template_name,
+                             colour=output.photo_name, n=number[output.id], prefix=prefixes.get(output.photo_id))))
+    return entries
+
+
+async def download_bytes(storage: Storage, entry: DownloadEntry, options: Any) -> bytes:
+    """One mockup's download: the pixels a draft sends (the cover made as the draft makes it), in ``options``."""
+    from app.pipeline import mockup_download as dl
+
+    stored = storage.get(entry.output.key)
+    return await image_work.run(lambda: dl.convert(dl.etsy_bytes(stored, cover=entry.cover, crop=entry.crop), options))
+
+
+#: Progress is written every this many files.
+ZIP_PROGRESS_EVERY = 5
+#: How big a ZIP's files are against the stored JPEGs, by format: the storage cap is checked before it is made.
+ZIP_SIZE_FACTOR = {"jpg": 1.1, "png": 4.0, "webp": 0.9}
+
+
+async def build_zip(session: AsyncSession, storage: Storage, zip_id: uuid.UUID) -> MockupZip | None:
+    """Write the ZIP (stored, not compressed: the images already are), file by file onto disk (never the whole
+    ZIP in memory), in the archive's options (pipeline/mockup_download.py), with its progress."""
+    from app.pipeline import mockup_download as dl
+
+    archive = await session.get(MockupZip, zip_id)
+    if archive is None or archive.status not in ("queued", "building"):
+        return archive
+    run = await session.get(MockupRun, archive.run_id)
+    if run is None:
+        return archive
+    archive.status = "building"
+    await session.commit()
+    options = dl.Options.of({**(archive.options or {}), "layout": archive.layout})
+    entries = await download_entries(session, run, design_ids=archive.design_ids, output_ids=archive.output_ids)
+    entries = [e for e in entries if storage.exists(e.output.key)]
     tenant = await session.get(Tenant, archive.tenant_id)
-    estimate = sum(len(storage.get(key)) for _, key in entries)  # a stored ZIP is its files plus headers
+    estimate = int(sum(e.output.byte_size or 0 for e in entries) * ZIP_SIZE_FACTOR[options.format])
     if tenant is not None:
         cap = storage_cap.limit(tenant)
         in_use = await asyncio.to_thread(storage_cap.used, storage, archive.tenant_id)
@@ -1039,19 +1109,40 @@ async def build_zip(session: AsyncSession, storage: Storage, zip_id: uuid.UUID) 
         await session.commit()
         return archive
 
-    def write() -> bytes:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as zf:
-            for name, key in entries:
-                info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))  # the same bytes every time
-                zf.writestr(info, storage.get(key))
-        return buf.getvalue()
-
-    data = await asyncio.to_thread(write)
+    file_names = dl.names([e.item for e in entries], options)
+    folders: dict[str, str] = {}
+    paths = [f"{dl.folder(e.item, folders, str(e.design.id))}/{name}" if options.layout == "folders" else name
+             for e, name in zip(entries, file_names, strict=True)]
+    archive.total, archive.done = len(entries), 0
+    await session.commit()
     key = f"{archive.tenant_id}/zips/{archive.id}.zip"
-    storage.put(key, data, "application/zip")
-    storage_cap.added(archive.tenant_id, len(data))
-    archive.key, archive.byte_size, archive.files = key, len(data), len(entries)
+    final = storage._path(key)  # noqa: SLF001 - written in place, file by file
+    final.parent.mkdir(parents=True, exist_ok=True)
+    partial = final.with_name(final.name + ".part")
+    try:
+        with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_STORED) as zf:
+            for n, (entry, path) in enumerate(zip(entries, paths, strict=True), 1):
+                body = await download_bytes(storage, entry, options)
+                info = zipfile.ZipInfo(path, date_time=(2026, 1, 1, 0, 0, 0))  # the same bytes every time
+                await asyncio.to_thread(zf.writestr, info, body)
+                if n % ZIP_PROGRESS_EVERY == 0 or n == len(entries):
+                    archive.done = n
+                    await session.commit()
+        size = partial.stat().st_size
+        if tenant is not None and await asyncio.to_thread(storage_cap.used, storage, archive.tenant_id) + size > storage_cap.limit(tenant):
+            partial.unlink(missing_ok=True)
+            days = await upload_retention.policy(session)
+            archive.status = "failed"
+            archive.error = storage_cap.message(storage_cap.used(storage, archive.tenant_id), storage_cap.limit(tenant), size,
+                                                days.drafted_days, days.unpublished_days)
+            await session.commit()
+            return archive
+        partial.replace(final)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    storage_cap.added(archive.tenant_id, size)
+    archive.key, archive.byte_size, archive.files = key, size, len(entries)
     archive.status, archive.ready_at = "ready", _now()
     archive.expires_at = archive.ready_at + timedelta(hours=MockupZip.RETENTION_HOURS)
     await session.commit()

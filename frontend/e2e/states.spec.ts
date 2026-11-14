@@ -15,7 +15,7 @@ import { signIn } from "./session";
 
 const EMAIL = process.env.LAYOUT_EMAIL;
 const PASSWORD = process.env.LAYOUT_PASSWORD;
-const PAGES = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs",
+const PAGES = ["/dashboard", "/batches", "/upload", "/profiles", "/mockups", "/mockups/templates", "/mockups/downloads",
   "/scheduled", "/analytics", "/connect", "/settings", "/admin"];
 /** What the app needs to draw its frame: these are never failed or slowed. */
 const FRAME = /\/api\/(account\/(me|session)|meta)(\?|$)/;

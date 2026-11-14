@@ -47,7 +47,7 @@ test("the seller confirms the right to use it, in the server's words", () => {
 });
 
 test("the templates page offers it next to the photo upload, and a PSD photo opens its preview", () => {
-  const page = read("../app/(app)/templates/page.tsx");
+  const page = read("../app/(app)/mockups/templates/page.tsx");
   assert.ok(page.includes("<PsdUpload onDone={load}"));
   assert.ok(page.includes("setPsdFocus(psd.upload_id)"));
   const panel = read("../components/PsdUpload.tsx");

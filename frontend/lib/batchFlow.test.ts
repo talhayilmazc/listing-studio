@@ -66,7 +66,7 @@ test("finished mockup runs: watched from every page, a notification with Show", 
   assert.equal(readRuns({ getItem: () => "not json" }).length, 0);
   assert.equal(readyLine({ status: "succeeded", done: 12, failed: 0, designs: [1, 2, 3] }), "Mockups ready: 12 mockups for 3 designs.");
   assert.match(readyLine({ status: "succeeded", done: 5, failed: 1, designs: [1] }), /1 could not be made/);
-  assert.equal(resultsHref("r1", "d9"), "/templates/designs?run=r1&design=d9");
+  assert.equal(resultsHref("r1", "d9"), "/mockups?run=r1&design=d9");
   assert.equal(designAnchor("d9"), "design-d9");
   const layout = read("app/(app)/layout.tsx");
   assert.match(layout, /<MockupRunWatcher \/>/);

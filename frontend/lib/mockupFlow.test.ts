@@ -12,10 +12,10 @@ import type { MockupPhoto, MockupTemplate } from "./types.ts";
 
 const FRONTEND = path.join(import.meta.dirname, "..");
 const read = (relative: string) => fs.readFileSync(path.join(FRONTEND, relative), "utf8").replace(/\r\n/g, "\n");
-const PAGE = "app/(app)/templates/page.tsx";
+const PAGE = "app/(app)/mockups/templates/page.tsx";
 const EDITOR = "components/PrintAreaEditor.tsx";
 const UPLOAD = "components/MockupUpload.tsx";
-const DESIGNS = "app/(app)/templates/designs/page.tsx";
+const DESIGNS = "app/(app)/mockups/page.tsx";
 
 const file = (name: string, type: string, size = 1000) => ({ name, type, size }) as File;
 const photo = (id: string, extra: Partial<MockupPhoto> = {}): MockupPhoto => ({
@@ -71,7 +71,7 @@ test("set the area once for many photos: select, apply by each one's own garment
 test("Add designs appears once a photo is confirmed, and right after the last check", () => {
   assert.equal(canAddDesigns(template([photo("a", { confirmed: false, needs_check: true })])), false);
   assert.equal(canAddDesigns(template([photo("a"), photo("b", { confirmed: false, needs_check: true })])), true);
-  assert.equal(addDesignsHref(["t1", "t2"]), "/templates/designs?templates=t1,t2");
+  assert.equal(addDesignsHref(["t1", "t2"]), "/mockups?templates=t1,t2");
   const page = read(PAGE);
   assert.match(page, /\{canAddDesigns\(template\) && \(\n\s*<Link key="add-designs" href=\{addDesignsHref\(\[template\.id\]\)\} className="btn-primary/);
   assert.match(page, /data-testid="templates-add-designs"/);
@@ -95,8 +95,8 @@ test("bulk designs: the step, ZIPs, per-design notes, skipped photos named", () 
   assert.equal(designNote({ has_alpha: true }), null);
   const t = template([photo("White"), photo("Black", { confirmed: false, needs_check: true })]);
   assert.deepEqual(printable([t], ["t"], "both").skippedNames, ["Black"]);
-  assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/templates\\\/designs\$\/, "Make mockups"\]/);
-  assert.match(read("e2e/layout.spec.ts"), /"\/templates\/designs"/);
+  assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/mockups\$\/, "Mockups"\]/);
+  assert.match(read("e2e/layout.spec.ts"), /"\/mockups"/);
 });
 
 test("what is in front: the live preview draws it over the design; the brush paints and erases it", () => {
@@ -119,7 +119,7 @@ test("the seller's own placement is named on the template and Reset says what it
   assert.equal(ownPlacementLine(4), "Using your own placement from 4 photos");
   assert.match(RESET_PLACEMENT, /standard placement/);
   assert.match(RESET_PLACEMENT, /stay as they are/);
-  const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "templates", "page.tsx"), "utf8");
+  const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "mockups", "templates", "page.tsx"), "utf8");
   assert.match(page, /ownPlacementLine\(template\.own_placement\)/);
   assert.match(page, /resetMockupPlacement/);
 });
@@ -135,7 +135,7 @@ test("one-time setup: after the first confirmed photo the others are offered; th
   assert.deepEqual(stillToCheck(later, "b"), ["c"]);
   assert.equal(firstConfirmOffer(template([waiting("a")]), "a"), null);
   assert.equal(confirmAllLabel(5), "Confirm all 5");
-  const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "templates", "page.tsx"), "utf8");
+  const page = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "(app)", "mockups", "templates", "page.tsx"), "utf8");
   assert.match(page, /template-photo-layout/);
   assert.match(page, /LAYOUT_LABELS/);
   assert.match(page, /<ConfirmGrid/);

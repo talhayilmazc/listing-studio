@@ -13,8 +13,8 @@ import { signIn } from "./session";
 const EMAIL = process.env.LAYOUT_EMAIL;
 const PASSWORD = process.env.LAYOUT_PASSWORD;
 
-const PAGES = ["/dashboard", "/batches", "/upload", "/templates/designs", "/review", "/scheduled", "/season-planner", "/analytics",
-  "/listing-health", "/connect", "/settings", "/profiles", "/templates", "/admin"];
+const PAGES = ["/dashboard", "/batches", "/upload", "/mockups", "/mockups/templates", "/mockups/downloads", "/review", "/scheduled", "/season-planner", "/analytics",
+  "/listing-health", "/connect", "/settings", "/profiles", "/admin"];
 
 async function audit(page: Page, where: string): Promise<string[]> {
   await page.waitForLoadState("networkidle").catch(() => undefined);

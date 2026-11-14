@@ -115,10 +115,10 @@ async def attention(session: AsyncSession, tenant: Tenant, redis: Redis | None =
         AttentionItem(key="unfinished", label=_plural(len(records), "draft on Etsy to finish or delete", "drafts on Etsy to finish or delete"),
                       count=len(records), href="/dashboard#unfinished-drafts", nav="/dashboard"),
         AttentionItem(key="photos", label=_plural(to_check, "mockup photo to check", "mockup photos to check"), count=to_check,
-                      href="/templates", nav=""),
+                      href="/mockups/templates", nav=""),
         AttentionItem(key="colours", label=_plural(colours, "photo colour to choose (light or dark)",
                                                    "photo colours to choose (light or dark)"),
-                      count=colours, href="/templates", nav=""),
+                      count=colours, href="/mockups/templates", nav=""),
     ]
     lost = await lost_shops(session, tid)
     items += [AttentionItem(key=f"lost:{shop.id}", count=1, href="/connect", nav="/connect", label=(

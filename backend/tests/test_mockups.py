@@ -456,7 +456,7 @@ async def test_use_for_listings_makes_a_group_per_design_with_the_chosen_cover(m
     assert res.status_code == 422
 
 
-async def test_a_zip_holds_the_chosen_mockups_and_expires_after_24_hours(mw) -> None:
+async def test_a_zip_holds_the_chosen_mockups_and_expires_after_48_hours(mw) -> None:
     import zipfile
     from datetime import datetime, timedelta, timezone
 
@@ -473,27 +473,27 @@ async def test_a_zip_holds_the_chosen_mockups_and_expires_after_24_hours(mw) -> 
     async with mw["sm"]() as s:
         done = await work.build_zip(s, mw["storage"], uuid.UUID(zip_id))
         assert done.status == "ready" and done.files == 4
-        assert done.expires_at - done.ready_at == timedelta(hours=24)
+        assert done.expires_at - done.ready_at == timedelta(hours=48)
     got = await mw["a"].get(f"/api/mockup-zips/{zip_id}/download")
     assert got.status_code == 200 and got.headers["content-type"] == "application/zip"
     assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == [
-        "BR5300/BR5300_Tee_Black.jpg", "BR5300/BR5300_Tee_White.jpg", "BR5301/BR5301_Tee_Black.jpg", "BR5301/BR5301_Tee_White.jpg",
+        "BR5300/BR5300_Tee_Black_02.jpg", "BR5300/BR5300_Tee_White_01.jpg", "BR5301/BR5301_Tee_Black_02.jpg", "BR5301/BR5301_Tee_White_01.jpg",
     ]
     # Flat, one design.
     res = await mw["a"].post(f"/api/mockup-runs/{run['id']}/zip", json={"layout": "flat", "design_ids": [designs[1]["id"]]})
     async with mw["sm"]() as s:
         flat = await work.build_zip(s, mw["storage"], uuid.UUID(res.json()["id"]))
     got = await mw["a"].get(f"/api/mockup-zips/{flat.id}/download")
-    assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == ["BR5301_Tee_Black.jpg", "BR5301_Tee_White.jpg"]
+    assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == ["BR5301_Tee_Black_02.jpg", "BR5301_Tee_White_01.jpg"]  # {SKU}_{template}_{colour}_{n} (feature/mockups-visible)
     # The same run, used for listings too.
     assert (await mw["a"].post(f"/api/mockup-runs/{run['id']}/listings", json={})).json()["groups"] == 2
     # Another account cannot see or download it.
     assert (await mw["b"].get(f"/api/mockup-zips/{zip_id}")).status_code == 404
     assert (await mw["b"].get(f"/api/mockup-zips/{zip_id}/download")).status_code == 404
-    # After 24 hours: deleted, and the link says so.
+    # After 48 hours (24 before feature/mockups-visible): deleted, and the link says so.
     async with mw["sm"]() as s:
         key = (await s.get(MockupZip, uuid.UUID(zip_id))).key
-        assert await work.expire_zips(s, mw["storage"], now=datetime.now(timezone.utc) + timedelta(hours=25)) == 2
+        assert await work.expire_zips(s, mw["storage"], now=datetime.now(timezone.utc) + timedelta(hours=49)) == 2
     assert not mw["storage"].exists(key)
     assert (await mw["a"].get(f"/api/mockup-zips/{zip_id}/download")).status_code == 410
     assert (await mw["a"].get(f"/api/mockup-zips/{zip_id}")).json()["status"] == "expired"

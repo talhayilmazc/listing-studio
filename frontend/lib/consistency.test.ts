@@ -10,11 +10,17 @@ import type { Onboarding } from "./types.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("the sidebar: six entries named by what the seller does, then Settings", () => {
+test("the sidebar: seven entries named by what the seller does, then Settings", () => {
   const rail = read("components/Rail.tsx");
   const labels = [...rail.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(labels, ["Home", "Designs", "Review", "Schedule", "Reports", "Shops", "Settings", "Admin"]);
-  assert.ok(!rail.includes('title: "Library"') && !rail.includes('title: "Workspace"'), "no section headings: six entries need none");
+  // Mockups back in the menu, right after Designs (feature/mockups-visible): at most 8 plus Settings.
+  assert.deepEqual(labels, ["Home", "Designs", "Mockups", "Review", "Schedule", "Reports", "Shops", "Settings", "Admin"]);
+  assert.ok(labels.indexOf("Settings") <= 8);
+  assert.ok(!rail.includes('title: "Library"') && !rail.includes('title: "Workspace"'), "no section headings: seven entries need none");
+  assert.deepEqual(tabsFor("/mockups")?.tabs.map((t) => t.label), ["Make mockups", "Templates", "Downloads"]);
+  assert.equal(tabsFor("/mockups/templates")?.current, "/mockups/templates");
+  assert.deepEqual(tabsFor("/mockups/templates")?.tabs.map((t) => t.label), ["Make mockups", "Templates", "Downloads"]);
+  assert.deepEqual(tabsFor("/batches")?.tabs.map((t) => t.label), ["Batches", "Upload designs"]);
   // What moved under an entry is a tab there, one click away.
   assert.equal(tabsFor("/profiles")?.current, "/profiles");
   assert.deepEqual(tabsFor("/settings")?.tabs.map((t) => t.label), ["Account", "Profiles", "Mockup templates"]);

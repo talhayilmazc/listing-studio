@@ -58,8 +58,8 @@ async def test_counts_and_links_and_only_the_sellers_own(world) -> None:  # noqa
     data = (await world["a"].get("/api/attention")).json()
     items = {i["key"]: (i["count"], i["href"], i["nav"]) for i in data["items"]}
     # Listed on Home, but no badge: checking mockup photos matters only when making mockups.
-    assert items["photos"] == (2, "/templates", "")  # not confirmed yet
-    assert items["colours"] == (1, "/templates", "")  # light or dark uncertain
+    assert items["photos"] == (2, "/mockups/templates", "")  # not confirmed yet
+    assert items["colours"] == (1, "/mockups/templates", "")  # light or dark uncertain
     # A link still being prepared is not broken (setup is automatic): neither listed nor a badge.
     assert "setup" not in items and "profiles" not in items and "refused" not in items
     assert items["approve"] == (1, "/review", "/review")

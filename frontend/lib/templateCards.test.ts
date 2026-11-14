@@ -80,7 +80,7 @@ test("the viewer: arrow buttons, the keyboard, swipes, Escape and Check from ins
   // Only a size the server serves (pipeline/thumbs.py SIZES): the viewer shows the 1200 px copy.
   const sizes = [...viewer.matchAll(/mockupPhotoImageUrl\(photo\.id, "(\w+)"\)/g)].map((m) => m[1]);
   assert.ok(sizes.length > 0 && sizes.every((s) => s === "medium"), String(sizes));
-  const page = read("app/(app)/templates/page.tsx");
+  const page = read("app/(app)/mockups/templates/page.tsx");
   // A photo opens the viewer; Check there opens the editor on it.
   assert.match(page, /data-testid="template-photo-open"/);
   assert.match(page, /onClick=\{onView\}/);
@@ -88,7 +88,7 @@ test("the viewer: arrow buttons, the keyboard, swipes, Escape and Check from ins
 });
 
 test("cards start collapsed, with Expand all and Collapse all, and the open state is kept per browser", () => {
-  const page = read("app/(app)/templates/page.tsx");
+  const page = read("app/(app)/mockups/templates/page.tsx");
   assert.match(page, /useState<string\[\]>\(\[\]\)/); // nothing open before storage is read
   assert.match(page, /readOpenTemplates\(stored\)/);
   assert.match(page, /try \{\s*stored = window\.localStorage;/); // storage access guarded

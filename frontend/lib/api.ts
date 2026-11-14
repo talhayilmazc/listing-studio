@@ -32,6 +32,7 @@ import type {
   MockupTemplate,
   SlotIn,
   MockupZip,
+  DownloadOptions,
   Checklist,
   GroupSchedule,
   Destination,
@@ -726,8 +727,22 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ design_ids: designIds, covers }),
     }),
-  requestMockupZip: (runId: string, designIds: string[] | null, layout: "folders" | "flat") =>
-    req<MockupZip>(`/mockup-runs/${runId}/zip`, { method: "POST", body: JSON.stringify({ design_ids: designIds, layout }) }),
+  /** A ZIP made in the worker: a whole run (``designIds`` null), some designs, or chosen mockups (``outputIds``),
+   * in ``options`` (given: also remembered as the seller's choice). */
+  requestMockupZip: (runId: string, designIds: string[] | null, layout: "folders" | "flat",
+    extra: { outputIds?: string[]; options?: DownloadOptions } = {}) =>
+    req<MockupZip>(`/mockup-runs/${runId}/zip`, {
+      method: "POST",
+      body: JSON.stringify({ design_ids: designIds, layout, output_ids: extra.outputIds ?? null, options: extra.options ?? null }),
+    }),
+  /** Mockups → Downloads: the account's ZIPs of the last 48 hours. */
+  mockupZips: () => req<MockupZip[]>(`/mockup-zips`),
+  mockupDownloadOptions: () => req<DownloadOptions>(`/mockup-download-options`),
+  saveMockupDownloadOptions: (options: DownloadOptions) =>
+    req<DownloadOptions>(`/mockup-download-options`, { method: "PUT", body: JSON.stringify(options) }),
+  /** One mockup, downloaded as it is (an attachment), in these options. */
+  mockupDownloadUrl: (runId: string, outputId: string, o: DownloadOptions) =>
+    `${BASE}/mockup-runs/${runId}/outputs/${outputId}/download?format=${o.format}&size=${o.size}&quality=${o.quality}&naming=${o.naming}`,
   mockupZip: (id: string) => req<MockupZip>(`/mockup-zips/${id}`),
   mockupZipUrl: (id: string) => `${BASE}/mockup-zips/${id}/download`,
   startMockups: (

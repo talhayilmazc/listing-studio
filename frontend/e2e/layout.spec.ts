@@ -2,7 +2,7 @@
  * The page ends where its footer ends, nothing is wider than the screen, and the
  * Admin tab bar stays where it is.
  *
- * The print-area editor (components/PrintAreaEditor.tsx) is opened on /templates and must fit
+ * The print-area editor (components/PrintAreaEditor.tsx) is opened on /mockups/templates and must fit
  * the screen with 44 px controls and its confirm button in view.
  *
  * Three faults these tests were written after:
@@ -30,7 +30,7 @@ import { signIn } from "./session";
 
 const PUBLIC = [...MARKETING_PAGES];
 const SIGN_IN = ["/login", "/register"];
-const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/templates", "/templates/designs", "/scheduled", "/season-planner", "/analytics", "/listing-health", "/connect", "/settings"];
+const SIGNED_IN = ["/dashboard", "/batches", "/upload", "/profiles", "/mockups", "/mockups/templates", "/mockups/downloads", "/scheduled", "/season-planner", "/analytics", "/listing-health", "/connect", "/settings"];
 const ADMIN_TABS = ["Users", "Invites", "Usage", "Funnel"];
 
 const EMAIL = process.env.LAYOUT_EMAIL;
@@ -218,13 +218,13 @@ test.describe("signed in", () => {
   });
 
   test("the print-area editor fits the screen, its controls are 44 px and nothing scrolls sideways", async ({ page }) => {
-    await page.goto("/templates");
+    await page.goto("/mockups/templates");
     await settle(page);
     // Template cards start collapsed: open them, then a photo opens in the viewer.
     const expand = page.getByTestId("templates-expand-all");
     await expand.waitFor({ state: "visible", timeout: 30_000 });
     if (await expand.isEnabled()) await expand.click();
-    await expectSound(page, "/templates with every card open");
+    await expectSound(page, "/mockups/templates with every card open");
     const open = page.getByTestId("template-photo-open").first();
     await open.waitFor({ state: "visible", timeout: 30_000 });
     await open.click();
@@ -260,7 +260,7 @@ test.describe("signed in", () => {
     const confirm = (await page.getByTestId("editor-confirm").boundingBox())!;
     expect(confirm.y + confirm.height, "Looks right is on screen without scrolling").toBeLessThanOrEqual(height + 1);
     await page.getByTestId("editor-close").click();
-    await expectSound(page, "/templates after the editor");
+    await expectSound(page, "/mockups/templates after the editor");
   });
 
   test("Shops: no reference listing button and no setup list; Connect a shop is laid out", async ({ page }) => {
@@ -918,7 +918,7 @@ test.describe("signed in", () => {
     expect(await boxes()).toEqual(loaded);
   });
   test("the sidebar, body text and primary buttons read at 4.5:1 or more", async ({ page }) => {
-    for (const path of ["/dashboard", "/batches", "/templates", "/profiles"]) {
+    for (const path of ["/dashboard", "/batches", "/mockups/templates", "/profiles"]) {
       await page.goto(path);
       await settle(page);
       const low = await page.evaluate(lowContrast);

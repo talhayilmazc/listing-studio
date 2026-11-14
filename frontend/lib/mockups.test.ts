@@ -36,7 +36,7 @@ const FRONTEND = path.join(import.meta.dirname, "..");
 const BACKEND = path.join(FRONTEND, "..", "backend", "app");
 const read = (relative: string) => fs.readFileSync(path.join(FRONTEND, relative), "utf8").replace(/\r\n/g, "\n");
 const backend = (relative: string) => fs.readFileSync(path.join(BACKEND, relative), "utf8");
-const PAGE = "app/(app)/templates/page.tsx";
+const PAGE = "app/(app)/mockups/templates/page.tsx";
 const UPLOAD = "components/MockupUpload.tsx";
 const EDITOR = "components/PrintAreaEditor.tsx";
 
@@ -166,9 +166,13 @@ test("the upload section: templates, editable SKUs, per-design progress, both ou
   assert.match(upload, /<span>\{d\.done\}<\/span><span> \/ <\/span><span>\{d\.total\}<\/span>/);
   assert.match(upload, /api\.useMockupsForListings\(run\.id, ids, covers\)/);
   assert.match(upload, /value=\{o\.photo_id \?\? ""\}/); // the cover is one of the run's photos
-  assert.match(upload, /api\.requestMockupZip\(run\.id, ids, layout\)/);
-  assert.match(upload, /Kept 24 hours, then deleted\./);
-  assert.match(upload, /<option value="folders">A folder per design<\/option>/);
+  // Downloads (feature/mockups-visible): the seller's options, a design's ZIP, "Download selected", one image.
+  assert.match(upload, /api\.requestMockupZip\(run\.id, designIds, options\.layout, \{ outputIds: what\.outputIds, options \}\)/);
+  assert.match(upload, /data-testid="mockup-download-one"/);
+  assert.match(upload, /data-testid="mockup-zip-selected"/);
+  assert.match(upload, /data-testid="mockup-zip-design"/);
+  assert.match(read("lib/mockupDownloads.ts"), /Kept \$\{KEPT_HOURS\} hours, then deleted\./);
+  assert.match(read("lib/mockupDownloads.ts"), /\["folders", "A folder per design"\]/);
   assert.equal(runLine({ status: "running", done: 3, total: 100, failed: 0 }), "Making mockups: 3 of 100");
   assert.equal(runLine({ status: "succeeded", done: 99, total: 100, failed: 1 }), "99 mockups made, 1 could not be made");
 });
@@ -232,12 +236,14 @@ test("nothing says a model draws or changes the design, or promises anything of 
 });
 
 test("templates are in the menu, the page title, the layout test, robots and the Privacy Policy", () => {
-  assert.match(read("lib/sectionTabs.ts"), /\{ href: "\/templates", label: "Mockup templates" \}/);
-  assert.match(read("components/Rail.tsx"), /also: \/\^\\\/\(profiles\|templates\)/);
-  assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/templates\$\/, "Mockup templates"\]/);
-  assert.match(read("e2e/layout.spec.ts"), /"\/templates"/);
+  // Mockups is its own menu entry (feature/mockups-visible); Templates is its tab, linked from Settings too.
+  assert.match(read("lib/sectionTabs.ts"), /\{ href: "\/mockups\/templates", label: "Templates" \}/);
+  assert.match(read("lib/sectionTabs.ts"), /\{ href: "\/mockups\/templates", label: "Mockup templates" \}/);
+  assert.match(read("components/Rail.tsx"), /\{ href: "\/mockups", label: "Mockups", icon: IconShirt \}/);
+  assert.match(read("components/TopStrip.tsx"), /\[\/\^\\\/mockups\\\/templates\$\/, "Mockups"\]/);
+  assert.match(read("e2e/layout.spec.ts"), /"\/mockups\/templates"/);
   assert.match(read("e2e/layout.spec.ts"), /editor-confirm/); // the editor is in the layout test too
-  assert.match(read("app/robots.ts"), /"\/templates"/);
+  assert.match(read("app/robots.ts"), /"\/mockups"/);
   const privacy = read("app/(marketing)/privacy/page.tsx");
   assert.match(privacy, /blank garment photos you save as mockup templates/);
   assert.match(privacy, /R\.mockupZipHours/);
@@ -262,7 +268,7 @@ test("a waiting mockup job says its real place; nothing when it is next or runni
   assert.equal(queueLine({ ahead: 0, minutes: 0 }), "");
   assert.equal(queueLine({ ahead: 3, minutes: 1 }), "3 ahead, about 1 minute");
   assert.equal(queueLine({ ahead: 12, minutes: 8 }), "12 ahead, about 8 minutes");
-  const page = fs.readFileSync(path.join(process.cwd(), "app/(app)/templates/page.tsx"), "utf8");
+  const page = fs.readFileSync(path.join(process.cwd(), "app/(app)/mockups/templates/page.tsx"), "utf8");
   const upload = fs.readFileSync(path.join(process.cwd(), "components/MockupUpload.tsx"), "utf8");
   assert.match(page, /queueLine\(photo\.queue\)/);
   assert.match(upload, /queueLine\(run\.queue\)/);

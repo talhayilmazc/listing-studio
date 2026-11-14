@@ -162,6 +162,9 @@ class Tenant(Base):
     #: "-white" goes on light shirts) or "ink" ("-white" ink goes on dark shirts). The upload
     #: page's setting, remembered for the account (pipeline/variants.py).
     variant_suffix: Mapped[str] = mapped_column(Text, nullable=False, server_default="shirt")
+    #: How the seller downloads mockups (pipeline/mockup_download.py ``Options``: format, size, quality, names,
+    #: ZIP folders); NULL = the defaults. Remembered from their last choice (feature/mockups-visible).
+    mockup_download: Mapped[dict | None] = mapped_column(JSON)
     # The seller's own costs for profit figures (v7 §C2): Etsy fee rates, product,
     # shipping and fixed costs. Editable, since fee rates change.
     cost_settings: Mapped[dict[str, Any]] = mapped_column(
@@ -1301,7 +1304,8 @@ class MockupZip(Base):
     ``RETENTION_HOURS`` after it is ready."""
 
     __tablename__ = "mockup_zip"
-    RETENTION_HOURS: ClassVar[int] = 24
+    #: 48 hours since feature/mockups-visible (the Downloads tab lists them; 24 before).
+    RETENTION_HOURS: ClassVar[int] = 48
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -1316,6 +1320,13 @@ class MockupZip(Base):
     layout: Mapped[str] = mapped_column(Text, nullable=False, server_default="folders")
     #: The designs it holds; null = all of the run's.
     design_ids: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
+    #: The mockups chosen one by one ("Download selected"); null = every mockup of its designs.
+    output_ids: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
+    #: The download options it is made with (pipeline/mockup_download.py ``Options``); null = the defaults.
+    options: Mapped[dict | None] = mapped_column(JSON)
+    #: Progress while it is made: files written of ``total``.
+    total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    done: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     key: Mapped[str | None] = mapped_column(Text)
     byte_size: Mapped[int | None] = mapped_column(BigInteger)
     files: Mapped[int | None] = mapped_column(Integer)
