@@ -36,3 +36,43 @@ already there before this work, what was missing, and what was added. Code: `bac
 | B7 Speed | Every render was made again, even when nothing had changed. | Unchanged renders are reused (a render key of everything that decides the pixels). Previews stay at the screen size (1200 px). Times measured below. |
 
 The sections below give each part's details, numbers and screenshots as it is built.
+
+## Details and numbers
+
+- **B1 Placement on PSD templates.** `psd_template.fit_canvas(design, canvas, adjust)`: the design's four corners
+  come from the same arithmetic the editor draws with (`design_edits.unit_points`, centred, size 1), it is drawn into
+  the smart object's canvas with premultiplied alpha (no fringe at soft edges), and the canvas goes onto the page
+  through its corners and mesh as before; what leaves the canvas is cut, as in Photoshop. The look (opacity,
+  brightness, contrast) applies too. "Centre" (`design_edits.centred`, TS `centred`) on every template.
+- **B2 Live preview.** The editor and the result tiles draw the design from a copy of at most 1,200 px with its
+  transparency (`GET /mockup-designs/{id}/file?size=preview`, made once beside the file); the full file is read
+  only to render. Saving re-renders only the touched mockups, as before.
+- **B3 Apply to all.** Four scopes: this design on all photos (every template of the run), all designs on this
+  photo, all designs on all photos of this template, and **the selected mockups** (ticked under the results).
+  Each change lands on top of each one's own placement; "Undo the last apply".
+- **B4 Presets.** `mockup_placement_preset` (migration 0104): per template, up to 30, named; "Add Full front, Chest
+  print and Left pocket" makes three to start from (our own values); a preset is the placement only, each mockup
+  keeps its own look; one click on the open mockup, or "All designs" on every design of the template (Undo).
+- **B5 Re-run only the changed ones.** `POST /mockup-runs/{id}/rerun-changed`: every mockup of the run is asked
+  for; the worker makes again only those whose render key changed and says how many were kept.
+- **B6 Quality.** Sharpening per run (off, low, medium: libvips unsharp mask on lightness). The print is mixed
+  with the photo in linear light (`MIX_GAMMA` 2.2: soft edges and opacity no longer darken), engine version 4. Light
+  and dark design variants and the white underbase on dark garments are unchanged.
+- **B7 Speed.** `mockup_output.render_key` (migration 0105): a hash of the engine, the photo (files, areas, size,
+  folds, what is in front, a PSD's placement), each design file with its trim, recolouring and placement, and the
+  sharpening. A new run keeps every earlier mockup with the same key (the file stays; nothing is rendered), and a
+  re-render keeps an unchanged one. The maps of a photo are made only when one of its mockups is really made.
+
+**Measured** (20 designs of 3000 x 3600 px x 5 templates of one photo each, the test image on the same machine,
+`MOCKUP_SPEED=1 docker compose run --rm tests -s tests/test_mockup_speed.py`):
+
+| | Before (4c98255) | After |
+|---|---|---|
+| First run, 100 mockups | 20.1 s (201 ms a mockup) | 19.6-20.5 s (linear-light mixing costs about 2%) |
+| The same run again | 18.8 s | 1.0-1.1 s (100 kept) |
+| One design moved, then "Re-run only the changed ones" | (not possible) | 1.6 s (1 of 100 made again) |
+| Process memory peak during the first run | +514 MB | +467-508 MB |
+
+Screenshots (synthetic demo account, its drawn tees and drawn designs; `frontend/scripts/editor-shots.mjs`):
+`docs/screens/mockups-editor/` at 1366 and 375 px: Home's shortcuts, the run form with sharpening, the results with
+downloads and the options, the editor, its presets, the Downloads tab.
