@@ -1,5 +1,6 @@
 "use client";
 
+import { PsdUpload } from "@/components/PsdUpload";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmGrid } from "@/components/ConfirmGrid";
@@ -74,6 +75,8 @@ export default function TemplatesPage() {
   }, []);
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ queue: string[]; index: number } | null>(null);
+  // A Photoshop mockup's upload to show in its panel (a template photo made from one was opened).
+  const [psdFocus, setPsdFocus] = useState<string | null>(null);
   // Photos just uploaded: each opens in the editor once it is ready.
   const [pending, setPending] = useState<string[]>([]);
   // The template whose last waiting photo was just confirmed: "All photos are ready".
@@ -198,6 +201,7 @@ export default function TemplatesPage() {
   }
 
   const anyConfirmed = (templates ?? []).filter(canAddDesigns);
+  const photoOf = (id: string | undefined) => (templates ?? []).flatMap((t) => t.photos).find((p) => p.id === id);
   const viewed = viewer ? (templates ?? []).find((t) => t.id === viewer.templateId) : undefined;
 
   return (
@@ -216,6 +220,7 @@ export default function TemplatesPage() {
       </div>
 
       <AddPhotos templates={templates ?? []} presets={presets.length} onAdded={(ids) => { setPending((p) => [...p, ...ids]); load(); }} />
+      <PsdUpload onDone={load} focus={psdFocus} onFocusSeen={() => setPsdFocus(null)} />
       <PresetsManager presets={presets} onChange={setPresets} />
       {error && <p key="error" role="alert" className="card p-4 text-sm text-rose-700">{error}</p>}
       {preparing && polls.current > 90 && (
@@ -252,7 +257,16 @@ export default function TemplatesPage() {
                 onMove={(by) => moveTemplate(t.id, by)}
                 onReload={load}
                 onChange={(u) => setTemplates((all) => (all ?? []).map((x) => (x.id === u.id ? u : x)))}
-                onOpen={(queue) => setEditor({ queue, index: 0 })}
+                onOpen={(queue) => {
+                  // A photo made from a Photoshop mockup has no area to check: its preview opens instead.
+                  const psd = photoOf(queue[0])?.psd;
+                  if (psd?.upload_id) {
+                    setPsdFocus(psd.upload_id);
+                    return;
+                  }
+                  const editable = queue.filter((id) => !photoOf(id)?.psd);
+                  if (editable.length) setEditor({ queue: editable, index: 0 });
+                }}
                 allReady={readyTemplate === t.id && t.needs_check === 0 && canAddDesigns(t)}
                 onReadySeen={() => setReadyTemplate(null)}
                 onAllConfirmed={() => setReadyTemplate(t.id)}
@@ -879,7 +893,7 @@ function PhotoTile({
             onChange={(e) => onSelect(e.target.checked)} aria-label={`Select ${photo.name}`} data-testid="template-photo-select" />
           <span className="min-w-0 truncate text-xs font-medium text-slate-800" title={photo.name} translate="no">{photo.name}</span>
         </label>
-        {ready && (
+        {ready && !photo.psd && (
           <label key="layout" className="block" title={LAYOUT_HINT}>
             <span className="sr-only">{`Layout of ${photo.name}`}</span>
             <select className="field w-full text-xs" value={(photo.layout as PhotoLayout) ?? "single"}
@@ -903,7 +917,7 @@ function PhotoTile({
         <div className="flex flex-wrap gap-1">
           {ready && (
             <button key="edit" type="button" className={`${photo.needs_check ? "btn-primary" : "btn-secondary"} min-h-11 flex-1 px-2 text-xs`} onClick={onOpen}>
-              {photo.needs_check ? "Check" : "Edit"}
+              {photo.needs_check ? "Check" : photo.psd ? "Preview" : "Edit"}
             </button>
           )}
           <button type="button" className="btn-secondary min-h-11 min-w-11 px-2 text-xs" onClick={() => onMove(-1)} disabled={first}
