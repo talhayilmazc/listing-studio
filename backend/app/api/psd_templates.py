@@ -2,8 +2,10 @@
 
 * ``POST /api/psd-uploads`` opens an upload: file name, size, the seller's rights confirmation. Refused at once
   above ``MAX_BYTES`` (500 MB), for a file that is not .psd/.psb, a full account or a full disk.
-* ``PUT /api/psd-uploads/{id}/chunk?offset=N`` sends one piece, at most ``CHUNK_BYTES`` (16 MB, well under
-  Cloudflare's 100 MB per request on every plan). A piece is first written to its own file (no database
+* ``PUT /api/psd-uploads/{id}/chunk?offset=N`` sends one piece, at most ``CHUNK_BYTES`` (8 MB: far under
+  Cloudflare's 100 MB per request on every plan, and under the 10 MB a Next.js server buffers of a request it
+  proxies; in production ``/api`` goes straight to the API, locally and in the browser tests through Next, where a
+  16 MB piece was cut off). A piece is first written to its own file (no database
   connection is held while it arrives), then appended under the row lock if it starts where the file ends. A
   piece that was already received (a retry after a lost answer) is accepted and changes nothing; one that would
   leave a gap is refused with where to start (409). After a network drop the page asks how much arrived
@@ -40,7 +42,7 @@ from app.workers import psd as psd_work
 router = APIRouter(prefix="/api", tags=["psd-templates"])
 
 MAX_BYTES = 500 * 1024 * 1024
-CHUNK_BYTES = 16 * 1024 * 1024
+CHUNK_BYTES = 8 * 1024 * 1024
 #: Kept free on the server's disk beyond the upload itself (the disk is 30 GB and shared).
 DISK_RESERVE = 3 * 1024 ** 3
 RIGHTS_STATEMENT = "I have the right to use this mockup for my listings."

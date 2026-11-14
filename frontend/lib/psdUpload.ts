@@ -2,7 +2,7 @@
  * Uploading a Photoshop mockup (feature/psd-templates; backend api/psd_templates.py). The words and the rules a
  * page needs, kept apart from the component so they can be tested.
  *
- * The file goes up in pieces (the server says how big: `chunk_size`, 16 MB). After a lost connection the page
+ * The file goes up in pieces (the server says how big: `chunk_size`, 8 MB). After a lost connection the page
  * asks the server how much arrived and goes on from there; a piece already received is accepted again and changes
  * nothing. The file is never resized or recompressed in the browser.
  */

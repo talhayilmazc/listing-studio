@@ -151,7 +151,7 @@ export function PsdUpload({ onDone, focus, onFocusSeen }: {
   return (
     <section ref={panel} className="card space-y-4 p-4 sm:p-5" aria-labelledby="psd-title" data-testid="psd-panel">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 flex-1 basis-64 space-y-1">
           <h2 id="psd-title" className="text-base font-semibold text-slate-900">{BUTTON}</h2>
           <p className="text-sm text-slate-600">{INTRO}</p>
         </div>

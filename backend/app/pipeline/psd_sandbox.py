@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -71,7 +72,11 @@ def run_child(module: str, args: list[str], *, memory_mb: int, seconds: int) -> 
     last_peak_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024
     if done.returncode == 0:
         return done.stdout
-    reason = done.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    lines = done.stderr.decode("utf-8", "replace").strip().splitlines()
+    reason = lines[-1:] or [""]
+    kind = next((line for line in reversed(lines) if line.startswith("child failed: ")), None)
+    if kind:
+        logging.getLogger(__name__).warning("psd %s: %s (exit %s)", module.rsplit(".", 1)[-1], kind, done.returncode)
     if done.returncode == OUT_OF_MEMORY or done.returncode in (-9, -11):  # killed: the memory limit
         raise ParseFailed(MEMORY_MESSAGE)
     if done.returncode == -24:  # SIGXCPU: the CPU-time limit
@@ -120,6 +125,8 @@ def child_main(work) -> int:  # noqa: ANN001 - a callable that does the child's 
     except BaseException as exc:  # noqa: BLE001 - the child reports, the parent decides
         if out_of_memory(exc):
             return OUT_OF_MEMORY
+        # For the operator's log: what kind of failure, never its message (it can carry layer names).
+        sys.stderr.write(f"child failed: {type(exc).__name__}\n")
         # A refusal written for the seller (psd_convert.Refused) is said as it is; anything else is "damaged".
         sys.stderr.write((getattr(exc, "plain", None) or DAMAGED) + "\n")
         return UNREADABLE

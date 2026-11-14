@@ -61,7 +61,9 @@ def sample_design() -> Any:
     from PIL import Image
 
     with Image.open(SAMPLE_DESIGN) as im:
-        return np.asarray(im.convert("RGBA"))
+        rgba = im.convert("RGBA")
+        box = rgba.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox()  # trimmed, as runs trim designs
+        return np.asarray(rgba.crop(box) if box else rgba)
 
 
 def render_preview(folder: str) -> bytes:
