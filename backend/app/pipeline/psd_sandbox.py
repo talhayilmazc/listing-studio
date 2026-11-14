@@ -49,6 +49,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 #: allocate and the process stalls instead of failing (seen while testing; the wall-clock timeout would catch it,
 #: three minutes later).
 _ENV = {"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+#: The peak memory of the largest child this process has run, in MB (``ru_maxrss`` of the children).
+last_peak_mb = 0
 MEMORY_MESSAGE = "it needs more memory than a template may use"
 DAMAGED = "it is not a Photoshop file, or it is damaged"
 
@@ -62,6 +64,11 @@ def run_child(module: str, args: list[str], *, memory_mb: int, seconds: int) -> 
         )
     except subprocess.TimeoutExpired:
         raise ParseFailed(f"reading it took longer than {max(1, seconds // 60)} minutes") from None
+    global last_peak_mb
+    import resource
+
+    # The largest child so far in this process (Linux reports kilobytes): the conversion's memory, for the logs.
+    last_peak_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024
     if done.returncode == 0:
         return done.stdout
     reason = done.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
@@ -100,7 +107,8 @@ def child_main(work) -> int:  # noqa: ANN001 - a callable that does the child's 
     except BaseException as exc:  # noqa: BLE001 - the child reports, the parent decides
         if out_of_memory(exc):
             return OUT_OF_MEMORY
-        sys.stderr.write(DAMAGED + "\n")
+        # A refusal written for the seller (psd_convert.Refused) is said as it is; anything else is "damaged".
+        sys.stderr.write((getattr(exc, "plain", None) or DAMAGED) + "\n")
         return UNREADABLE
 
 
