@@ -166,9 +166,13 @@ test("the upload section: templates, editable SKUs, per-design progress, both ou
   assert.match(upload, /<span>\{d\.done\}<\/span><span> \/ <\/span><span>\{d\.total\}<\/span>/);
   assert.match(upload, /api\.useMockupsForListings\(run\.id, ids, covers\)/);
   assert.match(upload, /value=\{o\.photo_id \?\? ""\}/); // the cover is one of the run's photos
-  assert.match(upload, /api\.requestMockupZip\(run\.id, ids, layout\)/);
-  assert.match(upload, /Kept 24 hours, then deleted\./);
-  assert.match(upload, /<option value="folders">A folder per design<\/option>/);
+  // Downloads (feature/mockups-visible): the seller's options, a design's ZIP, "Download selected", one image.
+  assert.match(upload, /api\.requestMockupZip\(run\.id, designIds, options\.layout, \{ outputIds: what\.outputIds, options \}\)/);
+  assert.match(upload, /data-testid="mockup-download-one"/);
+  assert.match(upload, /data-testid="mockup-zip-selected"/);
+  assert.match(upload, /data-testid="mockup-zip-design"/);
+  assert.match(read("lib/mockupDownloads.ts"), /Kept \$\{KEPT_HOURS\} hours, then deleted\./);
+  assert.match(read("lib/mockupDownloads.ts"), /\["folders", "A folder per design"\]/);
   assert.equal(runLine({ status: "running", done: 3, total: 100, failed: 0 }), "Making mockups: 3 of 100");
   assert.equal(runLine({ status: "succeeded", done: 99, total: 100, failed: 1 }), "99 mockups made, 1 could not be made");
 });

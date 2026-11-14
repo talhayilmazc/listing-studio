@@ -36,3 +36,18 @@ test("nothing links to the old addresses any more", () => {
     assert.doesNotMatch(read(file), /["`]\/templates(\/designs)?[?"`]/, file);
   }
 });
+
+import { DEFAULT_OPTIONS, making, selectedLabel, zipLine } from "./mockupDownloads.ts";
+
+test("downloads: the defaults, the ZIP's line and progress, the selection's button", () => {
+  assert.deepEqual(DEFAULT_OPTIONS, { format: "jpg", size: "original", quality: 92, naming: "full", layout: "folders" });
+  assert.equal(zipLine({ status: "building", total: 20, done: 5, files: null, error: null }), "Making the ZIP: 5 of 20");
+  assert.equal(zipLine({ status: "ready", total: 20, done: 20, files: 20, error: null }, "12 MB"), "20 files, 12 MB. Kept 48 hours, then deleted.");
+  assert.ok(making({ status: "queued" }) && !making({ status: "ready" }));
+  assert.equal(selectedLabel(3), "Download selected (3)");
+  const page = read("../app/(app)/mockups/downloads/page.tsx");
+  assert.ok(page.includes("api.mockupZips()") && page.includes('data-testid="download-zip"'));
+  assert.ok(!/google|drive/i.test(page.replace(/Google Drive, a folder/g, "")), "the app uploads nowhere");
+  const editor = read("../components/DesignEditor.tsx");
+  assert.ok(editor.includes('data-testid="design-editor-download"'));
+});

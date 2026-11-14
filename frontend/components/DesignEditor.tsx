@@ -52,8 +52,10 @@ type Drag =
 const COLOURS = [{ label: "Black", value: "#000000" }, { label: "White", value: "#ffffff" }];
 const STEP = { small: 0.005, big: 0.05 };
 
-export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip }: {
+export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip, downloadHref }: {
   runId: string;
+  /** This mockup's download as it is now (lib/mockupDownloads.ts), in the seller's options; none while there is no file. */
+  downloadHref?: string | null;
   edits: MockupEdits;
   designId: string;
   photoId: string;
@@ -358,6 +360,9 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
             </h2>
             <p className="truncate text-xs text-slate-500" translate="no">{`on ${photo.name}`}</p>
           </div>
+          {downloadHref ? (
+            <a key="download" className="btn-secondary min-h-11 px-4" href={downloadHref} download data-testid="design-editor-download">Download</a>
+          ) : null}
           <button type="button" className="btn-secondary min-h-11 px-4" onClick={onClose} data-testid="design-editor-close">Close</button>
         </header>
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

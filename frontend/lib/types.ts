@@ -490,6 +490,22 @@ export interface MockupZip {
   byte_size?: number | null;
   error?: string | null;
   expires_at?: string | null;
+  /** Progress while it is made: files written of ``total``. */
+  total?: number;
+  done?: number;
+  options?: DownloadOptions;
+  created_at?: string | null;
+  /** What it holds ("Spring drop · 3 designs"). */
+  label?: string | null;
+}
+
+/** How the seller downloads mockups (backend pipeline/mockup_download.py), remembered per account. */
+export interface DownloadOptions {
+  format: "jpg" | "png" | "webp";
+  size: "original" | "3000" | "2000" | "1080";
+  quality: 92 | 85;
+  naming: "full" | "sku" | "file";
+  layout: "folders" | "flat";
 }
 
 /** One "make the mockups" for a batch, with its progress per design. */
