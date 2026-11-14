@@ -7,6 +7,7 @@ import type { MockupAdjustmentRow, MockupEdits, MockupRecolourRow, MockupRun } f
 import { apply as applyH, homography as homographyOf, matrix3d, type Pt, type Quad } from "@/lib/areaEditor";
 import {
   APPLY_SCOPES,
+  selectedScopeLabel,
   LOOK_SLIDERS,
   NEUTRAL,
   RANGES,
@@ -53,8 +54,10 @@ type Drag =
 const COLOURS = [{ label: "Black", value: "#000000" }, { label: "White", value: "#ffffff" }];
 const STEP = { small: 0.005, big: 0.05 };
 
-export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip, downloadHref }: {
+export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip, downloadHref, selected = [] }: {
   runId: string;
+  /** The mockups ticked under the results, as (design, photo): "The selected mockups" applies to them (B3). */
+  selected?: [string, string][];
   /** This mockup's download as it is now (lib/mockupDownloads.ts), in the seller's options; none while there is no file. */
   downloadHref?: string | null;
   edits: MockupEdits;
@@ -314,9 +317,11 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
     try {
       await persist();
       const res = await api.applyAdjustment({ run_id: runId, design_id: designId, photo_id: photoId, area: areaIndex,
-        before: saved, after: clean(adjust), scope });
+        before: saved, after: clean(adjust), scope,
+        targets: scope === "selected" ? selected.map(([d, p]) => ({ design_id: d, photo_id: p })) : undefined });
       let recolour: MockupRecolourRow[] | undefined;
-      if (regions.length && scope !== "design_photos") {
+      // Recolouring goes to other designs only with "All designs…"; the selection carries the placement.
+      if (regions.length && scope !== "design_photos" && scope !== "selected") {
         recolour = (await api.saveRecolour(designId, { subgroup: recolourFor, regions, scope })).undo;
       }
       const pairs = dedupe([[designId, photoId], ...res.undo.map((r) => [r.design_id, r.photo_id] as [string, string]),
@@ -526,9 +531,10 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
             <fieldset className="space-y-2" data-testid="design-editor-apply">
               <legend className="label">Apply this change to…</legend>
               {(Object.keys(APPLY_SCOPES) as ApplyScope[]).map((s) => (
-                <button key={s} type="button" className="btn-secondary min-h-11 w-full text-left" disabled={busy || !edits.editable}
+                <button key={s} type="button" className="btn-secondary min-h-11 w-full text-left"
+                  disabled={busy || !edits.editable || (s === "selected" && !selected.length)}
                   onClick={() => applyTo(s)} data-testid={`design-editor-apply-${s}`}>
-                  {APPLY_SCOPES[s]}
+                  <span translate={s === "selected" ? "no" : undefined}>{s === "selected" ? selectedScopeLabel(selected.length) : APPLY_SCOPES[s]}</span>
                 </button>
               ))}
               <p className="text-xs text-slate-500">Each one moves, scales and turns by the same amount from its own fit.</p>

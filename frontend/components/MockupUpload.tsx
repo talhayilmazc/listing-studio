@@ -886,6 +886,8 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
       {editing && edits && (
         <DesignEditor key={`${editing.designId}-${editing.photoId}`} runId={run.id} edits={edits} designId={editing.designId} photoId={editing.photoId}
           onClose={() => setEditing(null)} onEdited={edited} onRun={ran}
+          selected={run.designs.flatMap((d) => d.outputs.filter((o) => picked.includes(o.id) && o.photo_id)
+            .map((o) => [d.design_id, o.photo_id as string] as [string, string]))}
           downloadHref={(() => {
             const o = outputOf(editing.designId, editing.photoId);
             return o?.available ? api.mockupDownloadUrl(run.id, o.id, options) : null;

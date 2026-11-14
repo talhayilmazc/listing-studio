@@ -59,7 +59,7 @@ from app.workers import mockups as work
 
 router = APIRouter(prefix="/api", tags=["mockups"])
 
-Scope = Literal["design_photos", "photo_designs", "template_all"]
+Scope = Literal["design_photos", "photo_designs", "template_all", "selected"]
 
 
 class Place(BaseModel):
@@ -77,11 +77,18 @@ class AdjustmentOut(Place):
     data: dict[str, Any] | None = None
 
 
+class Pair(BaseModel):
+    design_id: uuid.UUID
+    photo_id: uuid.UUID
+
+
 class ApplyIn(Place):
     run_id: uuid.UUID
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
     scope: Scope
+    #: "selected" (B3): the mockups the seller ticked, as (design, photo) pairs of this run.
+    targets: list[Pair] | None = Field(None, max_length=2000)
 
 
 class RecolourRow(BaseModel):
@@ -345,6 +352,13 @@ async def apply_adjustment(
         targets = [(design.id, p) for p in photos]
     elif body.scope == "photo_designs":
         targets = [(d.id, photo) for d in designs]
+    elif body.scope == "selected":
+        # Only this run's own designs and photos: anything else is not found.
+        by_photo = {p.id: p for p in photos}
+        ours = {d.id for d in designs}
+        if not body.targets or any(t.design_id not in ours or t.photo_id not in by_photo for t in body.targets):
+            raise HTTPException(status_code=404, detail="mockup not found")
+        targets = list({(t.design_id, t.photo_id): (t.design_id, by_photo[t.photo_id]) for t in body.targets}.values())
     else:
         targets = [(d.id, p) for d in designs for p in photos if p.template_id == photo.template_id]
     current, _ = await work.design_edits_for(session, list({d for d, _ in targets}), list({p.id for _, p in targets}))

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from tests.test_mockups import mw, world  # noqa: F401  (fixtures)
+
 from app.pipeline import design_edits as E
 from app.pipeline import psd_template as T
 
@@ -117,3 +119,36 @@ def test_the_editor_previews_a_design_at_most_1200_px_with_its_transparency() ->
     tiny = io.BytesIO()
     Image.new("RGBA", (600, 400), (0, 0, 0, 0)).save(tiny, "PNG")
     assert Image.open(io.BytesIO(design_preview(tiny.getvalue()))).size == (600, 400)  # never enlarged
+
+
+async def test_apply_to_the_selected_mockups_only_and_undo(mw) -> None:  # noqa: F811
+    """B3: the change goes to the ticked mockups (design, photo) of this run, nothing else; Undo restores them;
+    another run's or account's mockups are not found."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.db.models import MockupAdjustment
+    from tests.test_design_edits import _run_with_two_designs
+
+    r = await _run_with_two_designs(mw)
+    d0, d1 = r["designs"][0]["id"], r["designs"][1]["id"]
+    p0, p1 = r["photos"][0]["id"], r["photos"][1]["id"]
+    after = {"dx": 0.05, "scale": 1.2}
+    await mw["a"].put("/api/mockup-adjustments", json={"design_id": d0, "photo_id": p0, "area": 0, "data": after})
+    base = {"design_id": d0, "photo_id": p0, "area": 0, "run_id": str(r["run"]), "before": None, "after": after}
+
+    async def rows() -> dict:
+        async with mw["sm"]() as s:
+            return {(str(a.design_id), str(a.photo_id)): a.data for a in (await s.execute(select(MockupAdjustment))).scalars()}
+
+    picked = [{"design_id": d1, "photo_id": p1}]
+    res = (await mw["a"].post("/api/mockup-adjustments/apply", json={**base, "scope": "selected", "targets": picked})).json()
+    got = await rows()
+    assert res["changed"] == 1 and got[(d1, p1)]["dx"] == 0.05 and (d1, p0) not in got and (d0, p1) not in got
+    await mw["a"].post("/api/mockup-adjustments/restore", json={"rows": res["undo"]})
+    assert (d1, p1) not in await rows()
+    # Nothing ticked, or a mockup that is not this run's: refused.
+    assert (await mw["a"].post("/api/mockup-adjustments/apply", json={**base, "scope": "selected", "targets": []})).status_code == 404
+    stranger = [{"design_id": str(uuid.uuid4()), "photo_id": p1}]
+    assert (await mw["a"].post("/api/mockup-adjustments/apply", json={**base, "scope": "selected", "targets": stranger})).status_code == 404

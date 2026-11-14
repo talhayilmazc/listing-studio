@@ -766,7 +766,9 @@ export const api = {
   saveAdjustment: (row: MockupAdjustmentRow) =>
     req<MockupAdjustmentRow>("/mockup-adjustments", { method: "PUT", body: JSON.stringify(row) }),
   applyAdjustment: (body: { run_id: string; design_id: string; photo_id: string; area: number; before: unknown; after: unknown;
-    scope: "design_photos" | "photo_designs" | "template_all" }) =>
+    scope: "design_photos" | "photo_designs" | "template_all" | "selected";
+    /** "selected" (B3): the ticked mockups, as (design, photo) pairs. */
+    targets?: { design_id: string; photo_id: string }[] }) =>
     req<{ changed: number; undo: MockupAdjustmentRow[] }>("/mockup-adjustments/apply", { method: "POST", body: JSON.stringify(body) }),
   restoreAdjustments: (rows: MockupAdjustmentRow[]) =>
     req<{ changed: number }>("/mockup-adjustments/restore", { method: "POST", body: JSON.stringify({ rows }) }),

@@ -303,7 +303,13 @@ export const APPLY_SCOPES = {
   design_photos: "This design on all photos",
   photo_designs: "All designs on this photo",
   template_all: "All designs on all photos of this template",
+  selected: "The selected mockups",
 } as const;
+
+/** "The selected mockups (3)": the mockups ticked under the results (B3); none, and the button waits. */
+export function selectedScopeLabel(count: number): string {
+  return count ? `${APPLY_SCOPES.selected} (${count})` : `${APPLY_SCOPES.selected} (tick some under the results)`;
+}
 export type ApplyScope = keyof typeof APPLY_SCOPES;
 
 /** The look's sliders: label, field, step. */

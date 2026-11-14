@@ -104,5 +104,6 @@ test("Apply this change to…: the change composes on top of each one's own adju
       else close(got![k] as number, c.result[k], 1e-5);
     }
   }
-  assert.deepEqual(Object.keys(APPLY_SCOPES), ["design_photos", "photo_designs", "template_all"]);
+  // "The selected mockups" (B3): the ones ticked under the results.
+  assert.deepEqual(Object.keys(APPLY_SCOPES), ["design_photos", "photo_designs", "template_all", "selected"]);
 });
