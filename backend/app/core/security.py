@@ -233,10 +233,13 @@ class SecurityMiddleware:
                 return
 
         received = 0
+        waited = 0.0  # time spent waiting for the request's body: the sender's line, not our work
 
         async def counted_receive() -> Message:
-            nonlocal received
+            nonlocal received, waited
+            asked = time.perf_counter()
             message = await receive()
+            waited += time.perf_counter() - asked
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > limit:
@@ -245,7 +248,7 @@ class SecurityMiddleware:
 
         try:
             await self.app(scope, counted_receive, send_with_headers)
-            signals.request_done(path, answered["status"], time.perf_counter() - began)
+            signals.request_done(path, answered["status"], time.perf_counter() - began - waited, method=method)
         except BodyTooLarge:
             if not started:
                 if _file_limit(path) is not None:
@@ -255,7 +258,7 @@ class SecurityMiddleware:
             # Full trace to the log (scrubbed by logsafety); nothing internal
             # to the caller beyond an id they can quote to support.
             logger.exception("unhandled error in %s %s [%s]", method, path, request_id)
-            signals.request_done(path, 500, time.perf_counter() - began)
+            signals.request_done(path, 500, time.perf_counter() - began - waited, method=method)
             # This handler catches the exception before Sentry's ASGI hooks can,
             # so report it explicitly (a no-op when error tracking is off).
             capture(sys.exc_info()[1])

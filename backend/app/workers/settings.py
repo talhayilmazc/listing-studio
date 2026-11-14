@@ -204,7 +204,7 @@ class WorkerSettings:
         # Publish jobs a dead worker left "running" are queued again (workers/recovery.py).
         cron(recover_interrupted_jobs, minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}, second=10, run_at_startup=True),
         # Uploads stored but never prepared (the queue emptied, the worker died): queued again (workers/uploads.py).
-        cron(requeue_waiting_uploads, minute={3, 13, 23, 33, 43, 53}, second=25, run_at_startup=True),
+        cron(requeue_waiting_uploads, minute={6, 16, 26, 36, 46, 56}, second=25, run_at_startup=True),
         # The seller's own sales, once a day (v7 §C1).
         cron(sync_all_sales, hour={2}, minute={33}, second=0, run_at_startup=False),
         # The listing counter against the drafts, once a day (workers/usage.py): read only, alerts.

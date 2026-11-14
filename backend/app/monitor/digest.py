@@ -164,7 +164,8 @@ async def overall(session: AsyncSession, redis: Any, now: datetime) -> list[str]
     ]
     slow = await signals.slowest(redis, [yesterday, today])
     if slow:
-        out.append("slowest endpoints (p95): " + "; ".join(f"{r} {ms:,} ms ({n:,})" for r, ms, n in slow))
+        out.append("slowest endpoints (p95 of our own time, the request body's arrival left out): "
+                   + "; ".join(f"{r} {signals.said(ms, exact)} ({n:,})" for r, ms, n, exact in slow))
     else:
         out.append("slowest endpoints: no requests counted")
     peaks = {}

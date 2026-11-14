@@ -44,6 +44,10 @@ BEAT_TOO_OLD_SECONDS = 300
 POOL_SHARE = 0.8
 DISK_SHARE = 0.85
 MEMORY_SHARE = 0.9
+#: An endpoint whose p95 over the last hour is above this is an alert (fix/perf-and-memory), once it had at
+#: least this many requests in the hour: one slow request is not a p95.
+SLOW_P95_MS = 10_000
+SLOW_MIN_REQUESTS = 5
 #: A container's restart stays a problem this long, then it says "resolved" if it stayed up.
 RESTART_SHOWS_SECONDS = 3600
 WATCH_TOO_OLD_SECONDS = 300
@@ -283,6 +287,15 @@ async def _idle(redis: Any, now: datetime) -> list[Problem]:
         f"(idle_in_transaction_session_timeout, or Postgres restarted). Something held a transaction across slow work."))]
 
 
+async def _slow(redis: Any, now: datetime) -> list[Problem]:
+    slow = await signals.slow_in_the_last_hour(redis, now.timestamp(), over_ms=SLOW_P95_MS, at_least=SLOW_MIN_REQUESTS)
+    if not slow:
+        return []
+    return [Problem("slow_endpoints", "slow endpoints", (
+        f"p95 over the last hour above {SLOW_P95_MS // 1000} s: "
+        + "; ".join(f"{route} {signals.said(ms, True)} ({n} requests)" for route, ms, n in slow) + "."))]
+
+
 def disk_share(path: str | None = None) -> float | None:
     try:
         usage = shutil.disk_usage(path or get_settings().storage_dir)
@@ -394,6 +407,7 @@ async def problems(session: AsyncSession, redis: Any, now: datetime | None = Non
     found += await _beats(redis, now)
     found += await _pool(redis)
     found += await _idle(redis, now)
+    found += await _slow(redis, now)
     found += _disk()
     found += await _containers(redis, now)
     found += await _preflight(session, redis)
