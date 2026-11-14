@@ -17,8 +17,10 @@ The inspector is built and tested on synthetic files (`backend/tests/test_psd_in
 Run it on the samples (read only; the folder is bind-mounted read-only into a throwaway container, no volume):
 
 ```
-docker compose run --rm -v ./samples/psd:/samples:ro --entrypoint sh api \
-  -c 'python -m app.cli psd-inspect /samples/* --summary'
+# PowerShell
+docker compose run --rm -v "${PWD}/samples/psd:/samples:ro" --entrypoint sh api -c 'python -m app.cli psd-inspect /samples/* --summary'
+# Git Bash (a relative ./samples path is mangled by its path conversion)
+docker compose run --rm -v "$(pwd -W)/samples/psd:/samples:ro" --entrypoint sh api -c 'python -m app.cli psd-inspect /samples/* --summary'
 ```
 
 The full listing names layers and is for reading on this machine only. Paste only the lines under
