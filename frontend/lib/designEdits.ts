@@ -298,6 +298,17 @@ export function printPixels(src: { data: Uint8ClampedArray; width: number; heigh
   return { data: crop, width: tw, height: th };
 }
 
+/** What a placement preset holds (B4): where the design sits, never its look. */
+export const PLACEMENT_FIELDS = ["dx", "dy", "scale", "sx", "sy", "angle"] as const;
+
+/** ``current`` with a preset's placement in place of its own, its look kept (design_edits.with_placement). */
+export function withPlacement(current: Partial<Adjust> | null, placement: Partial<Adjust>): Adjust {
+  const a = full(current);
+  for (const k of PLACEMENT_FIELDS) a[k] = (placement[k] as number | undefined) ?? NEUTRAL[k];
+  a.corners = placement.corners ?? null;
+  return a;
+}
+
 /** "Apply this change to…": the three scopes, in the seller's words. */
 export const APPLY_SCOPES = {
   design_photos: "This design on all photos",

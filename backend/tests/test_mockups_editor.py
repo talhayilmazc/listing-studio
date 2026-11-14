@@ -152,3 +152,51 @@ async def test_apply_to_the_selected_mockups_only_and_undo(mw) -> None:  # noqa:
     assert (await mw["a"].post("/api/mockup-adjustments/apply", json={**base, "scope": "selected", "targets": []})).status_code == 404
     stranger = [{"design_id": str(uuid.uuid4()), "photo_id": p1}]
     assert (await mw["a"].post("/api/mockup-adjustments/apply", json={**base, "scope": "selected", "targets": stranger})).status_code == 404
+
+
+async def test_placement_presets_are_saved_and_applied_to_every_design_keeping_each_look(mw) -> None:  # noqa: F811
+    """B4: a named placement per template, saved from the editor, applied with one click to the open mockup (the
+    page sets it) or to every design on the template in a run; each mockup keeps its own look; Undo restores."""
+    from sqlalchemy import select
+
+    from app.db.models import MockupAdjustment, MockupPhoto, MockupPlacementPreset
+    from tests.test_design_edits import _run_with_two_designs
+
+    r = await _run_with_two_designs(mw)
+    d0, d1 = r["designs"][0]["id"], r["designs"][1]["id"]
+    p0 = r["photos"][0]["id"]
+    async with mw["sm"]() as s:
+        template = str((await s.get(MockupPhoto, __import__("uuid").UUID(p0))).template_id)
+    a = mw["a"]
+    url = f"/api/mockup-templates/{template}/placement-presets"
+    assert (await a.get(url)).json() == []
+    usual = (await a.post(f"{url}/usual")).json()
+    assert [p["name"] for p in usual] == ["Full front", "Chest print", "Left pocket"]
+    assert [p["name"] for p in (await a.post(f"{url}/usual")).json()] == ["Full front", "Chest print", "Left pocket"]  # not twice
+    # Saved from the editor: the placement only, the look left out; the same name again replaces it.
+    saved = (await a.post(url, json={"name": "Big back", "data": {"scale": 1.1, "dy": 0.05, "opacity": 0.4}})).json()
+    assert saved["data"]["scale"] == 1.1 and "opacity" not in saved["data"]
+    again = (await a.post(url, json={"name": "big back", "data": {"scale": 1.2}})).json()
+    assert again["id"] == saved["id"] and again["data"]["scale"] == 1.2
+    # d1 already has its own look on p0: it keeps it under the preset.
+    await a.put("/api/mockup-adjustments", json={"design_id": d1, "photo_id": p0, "area": 0, "data": {"brightness": 0.2, "dx": -0.3}})
+    pocket = next(p for p in usual if p["name"] == "Left pocket")
+    res = (await a.post(f"/api/mockup-placement-presets/{pocket['id']}/apply", json={"run_id": str(r["run"])})).json()
+    assert res["changed"] >= 2 and [d0, p0] in res["pairs"] and [d1, p0] in res["pairs"]
+    async with mw["sm"]() as s:
+        rows = {(str(x.design_id), str(x.photo_id)): x.data for x in (await s.execute(select(MockupAdjustment))).scalars()}
+    assert rows[(d1, p0)]["scale"] == 0.26 and rows[(d1, p0)]["dx"] == 0.26 and rows[(d1, p0)]["brightness"] == 0.2
+    assert rows[(d0, p0)]["scale"] == 0.26
+    # Undo: each back as it was.
+    await a.post("/api/mockup-adjustments/restore", json={"rows": res["undo"]})
+    async with mw["sm"]() as s:
+        rows = {(str(x.design_id), str(x.photo_id)): x.data for x in (await s.execute(select(MockupAdjustment))).scalars()}
+    assert rows[(d1, p0)]["dx"] == -0.3 and (d0, p0) not in rows
+    # Up to 30 per template; deleted on request; another account sees none of it.
+    assert MockupPlacementPreset.MAX_PER_TEMPLATE == 30
+    b = mw["b"]
+    assert (await b.get(url)).status_code == 404
+    assert (await b.post(f"/api/mockup-placement-presets/{pocket['id']}/apply", json={"run_id": str(r["run"])})).status_code == 404
+    assert (await b.delete(f"/api/mockup-placement-presets/{pocket['id']}")).status_code == 404
+    assert (await a.delete(f"/api/mockup-placement-presets/{pocket['id']}")).status_code == 204
+    assert "Left pocket" not in [p["name"] for p in (await a.get(url)).json()]

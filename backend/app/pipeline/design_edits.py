@@ -86,6 +86,25 @@ def clean(data: dict[str, Any] | None) -> dict[str, Any] | None:
     return out
 
 
+#: What a placement preset holds (B4): where the design sits, not its look.
+PLACEMENT_FIELDS = ("dx", "dy", "scale", "sx", "sy", "angle")
+
+
+def placement_only(data: dict[str, Any] | None) -> dict[str, Any]:
+    """The placement of an adjustment (a preset's content): its move, size, stretch, turn and free corners."""
+    a = full(clean(data))
+    return {**{k: a[k] for k in PLACEMENT_FIELDS}, "corners": a.get("corners")}
+
+
+def with_placement(current: dict[str, Any] | None, placement: dict[str, Any]) -> dict[str, Any] | None:
+    """``current`` with the preset's placement in place of its own, its look kept: what applying a preset stores."""
+    a = full(current)
+    for k in PLACEMENT_FIELDS:
+        a[k] = placement.get(k, NEUTRAL[k])
+    a["corners"] = placement.get("corners")
+    return clean(a)
+
+
 def full(data: dict[str, Any] | None) -> dict[str, Any]:
     """Every field, neutral where unset."""
     return {**NEUTRAL, "corners": None, **(data or {})}

@@ -90,7 +90,7 @@ test("every change reaches the mockups the same way, the results and the editor 
   const tile = read("components/MockupTile.tsx");
   const api = read("lib/api.ts");
   // Save (also Reset and the look), apply and undo all go through remake: preview first, then the run.
-  assert.equal((editor.match(/await remake\(/g) ?? []).length, 3);
+  assert.equal(editor.split("await remake(").length - 1, 4); // save, apply, undo, a placement preset on every design (B4)
   assert.match(editor, /await onEdited\(pairs\);\s*try \{\s*onRun\(await api\.rerenderMockups\(runId, pairs\)\);\s*\} catch \(e\) \{\s*onRun\(null\);/);
   assert.doesNotMatch(editor, /onSaved/);
   // The results reload the edits and mark the tiles at once; the server's answer is the state from then on.

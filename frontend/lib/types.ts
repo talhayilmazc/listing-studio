@@ -469,6 +469,8 @@ export interface MockupEdits {
   recolours: MockupRecolourRow[];
   editable: boolean;
 }
+/** A named placement on one template (B4): "Chest print", "Full front", "Left pocket". */
+export interface PlacementPreset { id: string; template_id: string; name: string; data: Record<string, unknown> }
 export interface MockupAdjustmentRow { design_id: string; photo_id: string; area: number; data: Record<string, unknown> | null }
 export interface MockupRecolourRow { design_id: string; subgroup: string; regions: unknown[] | null }
 

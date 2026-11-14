@@ -20,6 +20,7 @@ import type {
   FoundArea,
   UnfinishedDraft,
   MockupAdjustmentRow,
+  PlacementPreset,
   MockupDesign,
   MockupPlan,
   MockupEdits,
@@ -770,6 +771,17 @@ export const api = {
     /** "selected" (B3): the ticked mockups, as (design, photo) pairs. */
     targets?: { design_id: string; photo_id: string }[] }) =>
     req<{ changed: number; undo: MockupAdjustmentRow[] }>("/mockup-adjustments/apply", { method: "POST", body: JSON.stringify(body) }),
+  /** Placement presets per template (B4). */
+  placementPresets: (templateId: string) => req<PlacementPreset[]>(`/mockup-templates/${templateId}/placement-presets`),
+  savePlacementPreset: (templateId: string, name: string, data: unknown) =>
+    req<PlacementPreset>(`/mockup-templates/${templateId}/placement-presets`, { method: "POST", body: JSON.stringify({ name, data }) }),
+  addUsualPresets: (templateId: string) =>
+    req<PlacementPreset[]>(`/mockup-templates/${templateId}/placement-presets/usual`, { method: "POST" }),
+  deletePlacementPreset: (id: string) => req<void>(`/mockup-placement-presets/${id}`, { method: "DELETE" }),
+  /** The preset on every design on the template's photos of the run (each keeps its look); Undo rows back. */
+  applyPlacementPreset: (id: string, runId: string) =>
+    req<{ changed: number; undo: MockupAdjustmentRow[]; pairs: [string, string][] }>(`/mockup-placement-presets/${id}/apply`,
+      { method: "POST", body: JSON.stringify({ run_id: runId }) }),
   restoreAdjustments: (rows: MockupAdjustmentRow[]) =>
     req<{ changed: number }>("/mockup-adjustments/restore", { method: "POST", body: JSON.stringify({ rows }) }),
   saveRecolour: (designId: string, body: { subgroup: string; regions: unknown[]; scope?: "photo_designs" | "template_all" | null }) =>

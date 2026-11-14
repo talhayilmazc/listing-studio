@@ -1078,6 +1078,25 @@ class MockupSubgroupPreset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class MockupPlacementPreset(Base):
+    """A named placement on one template ("Chest print", "Full front", "Left pocket"), saved by the seller and
+    applied with one click (feature/mockups-editor B4): where the design sits relative to the template's automatic
+    fit (move, size, stretch, turn, free corners; pipeline/design_edits.py). The look (opacity, brightness,
+    contrast) is not part of it: each mockup keeps its own. The seller's own; deleted with the template."""
+
+    __tablename__ = "mockup_placement_preset"
+    __table_args__ = (UniqueConstraint("template_id", "name", name="uq_mockup_placement_preset_name"),)
+    MAX_PER_TEMPLATE: ClassVar[int] = 30
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mockup_template.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class MockupDesignVersion(Base):
     """A design's file for one more subgroup (by name): the design stays one listing; each
     subgroup's mockups use their own version. Deleted with the design."""
