@@ -815,8 +815,11 @@ function Results({ run, onRun, onOpen, focus }: { run: MockupRun; onRun: (r: Moc
                       onRetry={() => o.photo_id && retry(d.design_id, o.photo_id)} />
                     {finished && o.available ? (
                       <div key="dl" className="mt-1 flex items-center justify-between gap-1">
-                        <label className="tap flex items-center" title="Select for Download selected">
-                          <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={picked.includes(o.id)}
+                        {/* A 44 px box of its own around the checkbox: no .tap overlay over it (on a phone the
+                            overlay sat on top of the checkbox), the whole box ticks it. */}
+                        <label className="-ml-2.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center" title="Select for Download selected"
+                          data-testid="mockup-pick-box">
+                          <input type="checkbox" className="h-5 w-5 rounded border-slate-300" checked={picked.includes(o.id)}
                             aria-label={`Select ${d.sku ?? d.original_filename} on ${o.photo_name ?? o.template_name}`}
                             onChange={(e) => setPicked((all) => (e.target.checked ? [...all, o.id] : all.filter((x) => x !== o.id)))}
                             data-testid="mockup-pick" />

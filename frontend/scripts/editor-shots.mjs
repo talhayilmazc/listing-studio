@@ -84,7 +84,7 @@ for (const width of WIDTHS) {
     await page.getByTestId("mockup-templates").waitFor();
     const names = await page.getByTestId("mockup-templates").locator("label").allInnerTexts();
     const at = names.findIndex((l) => l.includes("Ten colours"));
-    await page.getByTestId("mockup-template").nth(at >= 0 ? at : 3).check({ force: true });
+    await page.getByTestId("mockup-template").nth(at >= 0 ? at : 3).check();
     await page.getByTestId("mockup-sharpen").selectOption("low");
     await shot(page, "run-form", width);
     await page.goto(runUrl);
@@ -92,8 +92,8 @@ for (const width of WIDTHS) {
   }
   // Results: tick two, open the options, ask for a ZIP of the selection.
   const picks = page.getByTestId("mockup-pick");
-  await picks.nth(0).check({ force: true });
-  await picks.nth(1).check({ force: true });
+  await picks.nth(0).check();
+  await picks.nth(1).check();
   await page.locator('[data-testid="download-options"] summary').click();
   await page.getByTestId("mockup-results").scrollIntoViewIfNeeded();
   await shot(page, "results-downloads", width);
