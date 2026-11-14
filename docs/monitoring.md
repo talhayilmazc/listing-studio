@@ -29,6 +29,7 @@ minutes unhealthy, then hourly, then once when it recovers.
 | shop connection refused | any refused callback, grouped by account and reason | that account connects, or a day passes |
 | shop connection failing | 2 or more tries in 24 hours and none succeeded | that account connects |
 | API errors | over 2% 5xx in 10 minutes, with at least 20 requests | the share falls |
+| slow endpoints | an endpoint's p95 over the last hour is above 10 s, with at least 5 requests (`rules.SLOW_P95_MS`, `SLOW_MIN_REQUESTS`) | the hour's p95 falls |
 | worker / scheduler not running | its heartbeat is over 5 minutes old | the heartbeat returns |
 | database connections | a process used over 80% of its pool | a report at or under 80% |
 | idle transaction timeout | fired in the last hour | an hour without it |
@@ -52,8 +53,16 @@ minutes unhealthy, then hourly, then once when it recovers.
 - **Per account, only accounts with something to say:** failed drafts, failed go-lives, held listings and
   why, missed slots, slots due in 24 hours that will fail, records out of step with Etsy, queue depth.
 - **Overall:** shop connections tried, succeeded and refused with reasons; sign-ups; Etsy calls of the daily
-  limit; slowest endpoints by p95 (rounded up to a bucket); memory peak per container; disk; open problems;
-  what the hourly cap kept back.
+  limit; slowest endpoints by p95; memory peak per container; disk; open problems; what the hourly cap kept
+  back.
+
+**Endpoint times (fix/perf-and-memory, 14 Nov 2026).** Each endpoint is "METHOD /path" with its ids taken out.
+The p95 is a time a request really took: the latest 2,000 requests per endpoint and day (and 1,000 per hour,
+for the alert) keep their own time in Redis (`monitor:ms:*`, 3 days; `monitor:ms-hour:*`, 3 hours). Counts
+from before that say "up to 3,200 ms" (the bucket's top was all that was known) or "over 25.6 s" for the
+last bucket. The time is ours: the wait for the request's body is left out (`core/security.py`, `waited`),
+so a seller's 50 MB photo on a slow line does not read as a slow endpoint. Before this, the digest's
+"60,000 ms" for uploads was the top bucket (anything over 25.6 s) and included that wait.
 
 ## The check before a run
 
