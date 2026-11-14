@@ -147,9 +147,37 @@ def _warp(warp: Any) -> tuple[str, int | None]:
     custom = _get(warp, "customEnvelopeWarp")
     if custom is None:
         return label, None
-    count = len(mesh_points(warp) or []) or None
+    points = mesh_points(warp) or []
+    count = len(points) or None
     split = _get(custom, "quiltSliceX") is not None or _get(custom, "quiltSliceY") is not None
-    return ("custom mesh (split)" if split or (count or 16) > 16 else "custom mesh"), count
+    if split or (count or 16) > 16:
+        return "custom mesh (split)", count
+    # Photoshop keeps a custom warp the designer opened and never moved: a regular grid over its bounds.
+    return ("custom mesh, unchanged" if mesh_bend(warp) == 0 else "custom mesh"), count
+
+
+def warp_bounds(warp: Any) -> tuple[float, float, float, float] | None:
+    """The warp's bounds (left, top, right, bottom) on the smart object's canvas."""
+    bounds = _get(warp, "bounds")
+    try:
+        return tuple(float(getattr(_get(bounds, k), "value", _get(bounds, k)))  # type: ignore[return-value]
+                     for k in ("Left", "Top ", "Rght", "Btom"))
+    except (TypeError, ValueError):
+        return None
+
+
+def mesh_bend(warp: Any) -> float | None:
+    """How far a 4 x 4 mesh is from the regular grid over its bounds, as a share of the bounds (0 = no bend)."""
+    points, box = mesh_points(warp), warp_bounds(warp)
+    if not points or len(points) != 16 or box is None:
+        return None
+    left, top, right, bottom = box
+    w, h = (right - left) or 1.0, (bottom - top) or 1.0
+    worst = 0.0
+    for k, (x, y) in enumerate(points):
+        gx, gy = left + w * (k % 4) / 3, top + h * (k // 4) / 3
+        worst = max(worst, abs(x - gx) / w, abs(y - gy) / h)
+    return 0.0 if worst < 0.002 else round(worst, 3)
 
 
 def mesh_points(warp: Any) -> list[tuple[float, float]] | None:

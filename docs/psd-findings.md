@@ -11,8 +11,8 @@ work is done.
 
 ## Step 0: what the samples contain
 
-**Status (14 November 2026): waiting for samples.** `samples/psd/` was empty, so nothing below is measured yet.
-The inspector is built and tested on synthetic files (`backend/tests/test_psd_inspect.py`).
+**Status (14 November 2026): 8 sellers' samples read; all 8 are supportable as they are.** Every file opened in the
+sandbox (13 s for all eight, 28 to 137 MB each); nothing was unreadable.
 
 Run it on the samples (read only; the folder is bind-mounted read-only into a throwaway container, no volume):
 
@@ -28,7 +28,46 @@ The full listing names layers and is for reading on this machine only. Paste onl
 
 | sample | summary |
 |---|---|
-| (none yet) | |
+| 1 | 3898x4094 PSD RGB 8-bit, 97.3 MB, 3 layers · 1 smart object: axis-aligned/custom mesh, unchanged · blend modes: normal 3 · adjustments 0, fills 0 · cannot read: 0 |
+| 2 | 3500x4000 PSD RGB 8-bit, 77.1 MB, 2 layers · 1 smart object: rotated or scaled/custom mesh, unchanged · blend modes: normal 2 · adjustments 0, fills 0 · cannot read: 0 |
+| 3 | 2048x2270 PSD RGB 8-bit, 28.3 MB, 3 layers · 1 smart object: rotated or scaled/custom mesh, unchanged · blend modes: normal 3 · adjustments 0, fills 0 · cannot read: 0 |
+| 4 | 4813x3213 PSD RGB 8-bit, 42.4 MB, 2 layers · 1 smart object: axis-aligned/custom mesh, unchanged · blend modes: normal 2 · adjustments 0, fills 0 · cannot read: 0 |
+| 5 | 3000x2400 PSD RGB 8-bit, 46.7 MB, 3 layers · 1 smart object: axis-aligned/custom mesh, unchanged · blend modes: normal 3 · adjustments 0, fills 0 · cannot read: 0 |
+| 6 | 4000x5227 PSD RGB 8-bit, 116.5 MB, 2 layers · 1 smart object: axis-aligned/custom mesh, unchanged · blend modes: normal 2 · adjustments 0, fills 0 · cannot read: 0 |
+| 7 | 4000x5461 PSD RGB 8-bit, 136.5 MB, 3 layers · 1 smart object: axis-aligned/custom mesh, unchanged · blend modes: normal 3 · adjustments 0, fills 0 · cannot read: 0 |
+| 8 | 3000x2400 PSD RGB 8-bit, 44.4 MB, 2 layers · 1 smart object: axis-aligned/custom mesh, unchanged · blend modes: normal 2 · adjustments 0, fills 0 · cannot read: 0 |
+
+### What the samples have in common
+
+- **One smart object each, embedded** (a PSB inside the PSD, 846 x 826 to 1505 x 1748 px: the design's canvas),
+  scaled onto the page: a plain rectangle in six, a slightly rotated one (about 1.5°) in two. No perspective.
+- **The warp is a custom mesh that bends nothing.** All eight store a 4 x 4 custom warp whose points form the
+  regular grid over its bounds: Photoshop keeps a custom warp a designer opened and never moved. The reader now
+  says "custom mesh, unchanged" for that case (`psd_read.mesh_bend`), and the renderer can treat it as no warp.
+- **Normal blending everywhere, full opacity.** No multiply or screen shading layers, no layer masks, no clipping,
+  no smart filters, no adjustment or fill layers, no layer effects on the smart object. The print sits flat on the
+  photo, as Photoshop shows it.
+- **Below the smart object:** one opaque photo layer (the whole canvas).
+- **Above it, in four files:**
+  - three have a pixel layer that is opaque where it exists and clear elsewhere, overlapping the print: something in front of the shirt (a hand, hair, a strap), covering the design;
+  - one has a small text label with a stroke effect in a corner, away from the print.
+
+### What we support, approximate, or cannot do
+
+| Feature | In the samples | Plan |
+|---|---|---|
+| Embedded smart object, scaled/rotated onto the page | 8 of 8 | Supported: the four corners map the design canvas onto the page |
+| Perspective corners | 0 | Supported (same corner mapping); synthetic tests only |
+| Custom mesh warp, unchanged | 8 of 8 | Treated as no warp |
+| Custom mesh warp, bent (one 4 x 4 patch) | 0 | Supported: bicubic bezier patch; synthetic tests only |
+| Split mesh (several patches), standard warp styles (arc, flag…) | 0 | Not yet: flagged to the seller; placed without the warp |
+| Normal blend, layers above and below | 8 of 8 | Supported |
+| Multiply, screen, overlay, soft light, linear burn | 0 | Supported for layers above; synthetic tests only |
+| Layer mask / clipping on the smart object | 0 | Mask supported; synthetic tests only |
+| Smart filters (Displace and others) | 0 | Not reproduced: said to the seller in plain words |
+| Text layer with a layer effect above the print | 1 | Flattened as Photoshop saved it (see the pixel differences) |
+| Linked smart objects, vector content, non-RGB, 16-bit | 0 | Refused with a plain reason |
+
 
 ### What the inspector reports
 

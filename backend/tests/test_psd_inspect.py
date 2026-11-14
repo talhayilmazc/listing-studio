@@ -36,12 +36,15 @@ def files(tmp_path: Path) -> dict[str, str]:
     ImageDraw.Draw(highlight).rectangle((0, 0, 399, 120), fill=(255, 255, 255, 90))
     mask = Image.new("L", SIZE, 0)
     mask.paste(255, (120, 120, 260, 230))
-    mesh = [(100 + 50 * i, 100 + 40 * j + (10 if i in (1, 2) and j in (1, 2) else 0)) for j in range(4) for i in range(4)]
+    # On the smart object's own canvas (300 x 200): the two middle rows pushed down 20 px.
+    mesh = [(100 * i, 200 * j / 3 + (20 if i in (1, 2) and j in (1, 2) else 0)) for j in range(4) for i in range(4)]
+    flat = [(100 * i, 200 * j / 3) for j in range(4) for i in range(4)]
     cases = {
         "plain": [Smart(art, _rect(100, 100, 150, 100))],
         "rotated": [Smart(art, [(150, 80), (290, 130), (240, 270), (100, 220)])],
         "perspective": [Smart(art, [(100, 100), (300, 110), (290, 250), (110, 240)])],
         "mesh": [Smart(art, _rect(100, 100, 150, 120), mesh=mesh)],
+        "flat_mesh": [Smart(art, _rect(100, 100, 150, 120), mesh=flat)],
         "mask": [Smart(art, _rect(100, 100, 200, 140), mask=mask)],
         "blends": [Smart(art, _rect(100, 100, 150, 100), blend="MULTIPLY"),
                    Pixel(highlight, name="Shine", blend="SCREEN", opacity=180)],
@@ -68,6 +71,8 @@ def test_each_shape_and_warp_is_named(files) -> None:
         "plain": "axis-aligned", "rotated": "rotated or scaled", "perspective": "perspective", "mesh": "axis-aligned"}
     assert shapes["plain"].warp == "none" and shapes["mesh"].warp == "custom mesh" and shapes["mesh"].warp_points == 16
     assert shapes["plain"].embedded_size == (300, 200) and shapes["plain"].kind == "embedded"
+    # A custom warp left as Photoshop opened it (a regular grid) bends nothing.
+    assert inspect_file(files["flat_mesh"]).smart_objects[0].warp == "custom mesh, unchanged"
     assert shapes["perspective"].quad[2] == (290.0, 250.0)
 
 
