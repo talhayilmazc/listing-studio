@@ -176,7 +176,8 @@ async def test_an_account_refusal_is_metered_and_still_pauses(ctx, llm, monkeypa
         return True
 
     monkeypatch.setattr(alerts, "send", quiet)
-    ctx["app"].dependency_overrides[deps.get_redis] = lambda: FakeAsyncRedis()
+    redis = FakeAsyncRedis()  # one Redis: the request queues the writing job, the worker reads it
+    ctx["app"].dependency_overrides[deps.get_redis] = lambda: redis
     batch, _, profile = await _group(ctx)
 
     class Limit(Exception):
