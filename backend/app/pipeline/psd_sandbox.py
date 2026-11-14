@@ -99,6 +99,19 @@ def out_of_memory(exc: BaseException) -> bool:
     return False
 
 
+def own_peak_mb() -> int:
+    """This process's own peak memory in MB (``VmHWM``: a new program starts from zero; ``ru_maxrss`` would carry a
+    large parent's peak across fork and exec)."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("VmHWM:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return 0
+
+
 def child_main(work) -> int:  # noqa: ANN001 - a callable that does the child's work
     """The child's body: run ``work``, map what goes wrong to an exit code and one plain line on stderr."""
     try:

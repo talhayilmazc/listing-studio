@@ -713,9 +713,16 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
             position = positions[photo.id]
             # One photo's maps at a time (~60 MB each at 2000 px): a 20-photo run
             # holding them all peaked 0.6 GB higher.
-            blank, mask = storage.get(photo.image_key or ""), storage.get(photo.mask_key or "")
-            occluder = storage.get(photo.occluder_key) if photo.occluder_key and photo.occlusion else None
             garments = areas[photo.id]
+            if photo.psd:
+                # Made from the seller's Photoshop mockup: placed as Photoshop would (workers/psd.py), no fabric maps.
+                from app.workers import psd as psd_work
+
+                blank = storage.get(photo.image_key or "")
+                maps = await image_work.run(psd_work.load_template, storage, photo)
+            else:
+                blank, mask = storage.get(photo.image_key or ""), storage.get(photo.mask_key or "")
+                occluder = storage.get(photo.occluder_key) if photo.occluder_key and photo.occlusion else None
             if not garments:
                 continue
             roles = photo_area_roles(photo)
@@ -745,7 +752,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     if r:
                         reach.append(r)
             await session.commit()  # (a total or a colour changed above: no connection across the maps)
-            maps = await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach)
+            if not photo.psd:
+                maps = await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach)
             settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
@@ -781,7 +789,11 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     continue
                 await session.commit()
                 try:
-                    jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
+                    if photo.psd:
+                        # One smart object: the first placement's design goes in it (adjustments are not applied).
+                        jpeg = await image_work.run(psd_work.render_design, maps, placements[0][0])
+                    else:
+                        jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
                     if not refreshing:
                         job.failed += len(group)

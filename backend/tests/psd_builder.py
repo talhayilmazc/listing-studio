@@ -63,6 +63,29 @@ def _perspective(content: Image.Image, quad: list[tuple[float, float]], size: tu
     return content.transform(size, Image.PERSPECTIVE, tuple(coeffs), Image.BICUBIC)
 
 
+def _drawn(spec: "Smart", size: tuple[int, int]) -> Image.Image:
+    """The smart object's pixels as Photoshop shows them: its content through its corners. A bent mesh is drawn
+    with the converter's own bezier patch (pipeline/psd_template.py), so that case checks consistency, not
+    Photoshop; the others use Pillow's perspective map, independent of our renderer."""
+    if not spec.mesh:
+        return _perspective(spec.content.convert("RGBA"), spec.quad, size)
+    import numpy as np
+
+    from app.pipeline import psd_template
+
+    w, h = spec.content.size
+    mesh = [(x / w, y / h) for x, y in spec.mesh]
+    placed, left, top = psd_template.warp(np.asarray(spec.content.convert("RGBA")), psd_template.Spec(
+        width=size[0], height=size[1], canvas=(w, h), quad=spec.quad, mesh=mesh))
+    page = np.zeros((size[1], size[0], 4), np.float32)
+    ph, pw = placed.shape[:2]
+    page[top:top + ph, left:left + pw] = placed
+    alpha = page[..., 3:4]
+    rgb = np.where(alpha > 0, page[..., :3] / np.maximum(alpha, 1e-6) * 255.0, 0)
+    out = np.concatenate([np.clip(rgb, 0, 255), np.clip(alpha, 0, 255)], axis=2)
+    return Image.fromarray((out + 0.5).astype(np.uint8), "RGBA")
+
+
 def _descriptor(smart: Smart, ident: str, size: tuple[int, int]) -> Any:
     from psd_tools.psd.descriptor import (Descriptor, DescriptorBlock, Double, Enumerated, Integer, List,
                                           ObjectArray, String, UnitFloat, UnitFloats)
@@ -125,17 +148,17 @@ def build(path: str, size: tuple[int, int], layers: list[Pixel | Smart], *, back
     from psd_tools.psd.linked_layer import LinkedLayer
     from psd_tools.psd.tagged_blocks import TaggedBlocks
 
-    psd = PSDImage.new("RGB", size, color=background)
+    # An RGBA document: psd-tools then keeps a layer's alpha as its transparency, as Photoshop does (in an RGB
+    # document frompil turns alpha into a layer mask).
+    psd = PSDImage.new("RGBA", size, color=background + (255,))
     back = PixelLayer.frompil(Image.new("RGBA", size, background + (255,)), psd, "Background")
-    if back.has_mask():
-        back.remove_mask()
     psd.append(back)
     linked = []
     for spec in layers:
         if isinstance(spec, Pixel):
             layer = PixelLayer.frompil(spec.image.convert("RGBA"), psd, spec.name, spec.top, spec.left)
         else:
-            page = _perspective(spec.content.convert("RGBA"), spec.quad, size)
+            page = _drawn(spec, size)
             box = page.getbbox() or (0, 0, 1, 1)
             layer = PixelLayer.frompil(page.crop(box), psd, spec.name, box[1], box[0])
             ident = str(uuidlib.uuid4())
@@ -145,9 +168,6 @@ def build(path: str, size: tuple[int, int], layers: list[Pixel | Smart], *, back
                 linked.append(LinkedLayer(kind=LinkedLayerType.DATA, version=7, uuid=ident, filename="design.png",
                                           filetype=b"png ", creator=b"8BIM", filesize=len(data), data=data,
                                           child_id="", mod_time=0.0, lock_state=0))
-        # psd-tools' frompil gives every layer a mask; a Photoshop layer has one only when the designer added it.
-        if layer.has_mask():
-            layer.remove_mask()
         if isinstance(spec, Smart) and spec.mask is not None:
             layer.create_mask(spec.mask.convert("L"), 0, 0)
         layer.blend_mode = BlendMode[spec.blend]

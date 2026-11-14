@@ -140,6 +140,14 @@ class QueueOut(BaseModel):
     minutes: int
 
 
+class PsdPhotoOut(BaseModel):
+    """A photo made from the seller's Photoshop mockup (feature/psd-templates): its upload (for the preview and
+    "Use this template") and what is drawn differently from Photoshop."""
+
+    upload_id: uuid.UUID | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
 class PhotoOut(BaseModel):
     id: uuid.UUID
     template_id: uuid.UUID
@@ -190,6 +198,8 @@ class PhotoOut(BaseModel):
     colour: str | None = None
     colour_lightness: float | None = None
     colour_source: str | None = None
+    #: Made from a Photoshop mockup: its placement is the smart object's (not editable here).
+    psd: PsdPhotoOut | None = None
     #: The suggestion was built from the seller's own placement, learnt from this many of
     #: their confirmed photos (None: the template standard).
     own_placement: int | None = None
@@ -623,7 +633,19 @@ def _photo_out(p: MockupPhoto) -> PhotoOut:
         ],
         found_areas=(found := found_garments(p)), garments_found=len(found), print_all=bool(p.print_all),
         colour=p.colour, colour_lightness=p.colour_lightness, colour_source=p.colour_source,
+        psd=PsdPhotoOut(upload_id=_uuid_or_none((p.psd or {}).get("upload_id")), notes=list((p.psd or {}).get("notes", [])))
+        if p.psd else None,
     )
+
+
+PSD_FIXED = ("This photo comes from your Photoshop mockup: its design area is the smart object's, as Photoshop "
+             "places it. To change it, change the smart object in Photoshop and upload the file again.")
+
+
+def _not_psd(photo: MockupPhoto) -> None:
+    """A photo made from a PSD keeps its smart object's placement (feature/psd-templates)."""
+    if photo.psd:
+        raise HTTPException(status_code=409, detail=PSD_FIXED)
 
 
 def found_garments(p: MockupPhoto) -> list[Quad]:
@@ -1247,6 +1269,7 @@ async def update_photo(
     if body.view is not None:
         photo.view = body.view
     if body.layout is not None:
+        _not_psd(photo)
         photo.layout, photo.layout_source = body.layout, "seller"
         resuggest(photo, body.layout)
     if body.subgroup_id is not None:
@@ -1275,6 +1298,7 @@ async def save_areas(
     """The editor's print areas, in the seller's order. ``confirm`` ("Looks right") marks
     the photo confirmed; saving without it leaves the photo waiting for the seller's check."""
     photo = await _own_photo(session, tenant, photo_id)
+    _not_psd(photo)
     _ready(photo)
     earlier = photo_areas(photo)
     valid = {str(g.id) for g in await _subgroups_of(session, photo.template_id)}
@@ -1326,6 +1350,7 @@ async def find_garment(
     garments), and its print area. Nothing is saved; nothing garment-shaped there gives a
     box where they tapped. No model runs (pipeline/garments.py ``find_at``)."""
     photo = await _own_photo(session, tenant, photo_id)
+    _not_psd(photo)
     _ready(photo)
     others = [_clean(a) for a in body.areas]
     # 1. A garment the analysis already found under the click (not yet given an area).
@@ -1361,6 +1386,7 @@ async def copy_areas(
     without a found garment on either, the same shares of the photo. Each one then waits
     for the seller's "Looks right" on its own photo."""
     source = await _own_photo(session, tenant, photo_id)
+    _not_psd(source)
     _ready(source)
     areas = photo_areas(source)
     out = []
@@ -1368,6 +1394,7 @@ async def copy_areas(
         if target_id == source.id:
             continue
         target = await _own_photo(session, tenant, target_id)
+        _not_psd(target)
         if target.template_id != source.template_id:
             raise HTTPException(status_code=422, detail="Areas can be copied only to photos of the same template.")
         if target.status != "ready":
@@ -1435,6 +1462,7 @@ async def save_front_brush(
     photo's size and combined with the analysis's map into the occluder every preview and
     mockup uses. On our server only; no model involved."""
     photo = await _own_photo(session, tenant, photo_id)
+    _not_psd(photo)
     _ready(photo)
     data = await file.read()
     if len(data) > MAX_BRUSH_BYTES:
@@ -1463,6 +1491,7 @@ async def clear_front_brush(
 ) -> PhotoOut:
     """The brush goes; what is in front is the analysis's map again."""
     photo = await _own_photo(session, tenant, photo_id)
+    _not_psd(photo)
     _ready(photo)
     await image_work.run(work.save_front, storage, photo, brush=None)
     await session.commit()

@@ -57,6 +57,7 @@ from app.workers.schedule import release_scheduled_publishes
 from app.workers.sections import create_shop_section, sync_shop_sections
 from app.workers.usage import reconcile_usage
 from app.workers.writing import write_batch_listings
+from app.workers.psd import convert_psd
 from app.workers.listing_fixes import apply_listing_fix, read_listing_properties, undo_listing_fix, write_listing_fix_text
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
@@ -175,6 +176,7 @@ class WorkerSettings:
         read_listing_properties,
         write_listing_fix_text,
         write_batch_listings,
+        convert_psd,
         apply_listing_fix,
         undo_listing_fix,
         generate_mockups,

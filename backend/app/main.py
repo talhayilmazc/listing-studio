@@ -30,6 +30,7 @@ from app.api import (
     health,
     imports,
     free_tools,
+    psd_templates,
     invite_requests,
     listing_health,
     shop_photos,
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     application.include_router(another_shop.router)
     application.include_router(events.router)
     application.include_router(onboarding.router)
+    application.include_router(psd_templates.router)
     return application
 
 

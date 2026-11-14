@@ -417,14 +417,14 @@ def _box(quad: list[tuple[float, float]]) -> list[float]:
 
 
 def _main(argv: list[str]) -> int:
-    from app.pipeline.psd_sandbox import child_main
+    from app.pipeline.psd_sandbox import child_main, own_peak_mb
 
     path, out = argv[0], argv[1]
     choice = int(argv[2]) if len(argv) > 2 and argv[2] != "-" else None
 
     def work() -> None:
         spec = convert(path, out, choice)
-        sys.stdout.write(json.dumps({"choice": spec["choice"]}))
+        sys.stdout.write(json.dumps({"choice": spec["choice"], "peak_mb": own_peak_mb()}))
 
     return child_main(work)
 

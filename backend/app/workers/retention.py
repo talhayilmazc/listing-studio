@@ -275,6 +275,10 @@ async def purge_expired(ctx: dict[str, Any]) -> dict[str, int]:
         result = await purge_expired_rows(session)
         # Mockup ZIPs to download: deleted MockupZip.RETENTION_HOURS after they were ready.
         result["mockup_zips"] = await expire_zips(session, get_storage())
+        # Photoshop mockups kept for a retry or a choice: deleted PsdUpload.FILE_HOURS after the upload.
+        from app.workers.psd import expire_psd_files
+
+        result["psd_files"] = await expire_psd_files(session, get_storage())
         # Batches the seller deleted more than seven days ago ("Restore" is over): removed for good.
         from app.pipeline import batch_delete
 
