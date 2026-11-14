@@ -283,13 +283,18 @@ async def test_limits_rights_and_failures_are_plain(mw, tmp_path) -> None:  # no
 
 
 async def test_one_conversion_at_a_time(mw, tmp_path) -> None:  # noqa: F811
-    from arq import Retry
-
     up = await _upload(mw, _psd_bytes(tmp_path, [Smart(_art(), _rect(100, 100, 150, 100))]))
     ctx = _ctx(mw)
+    queued: list = []
+
+    async def enqueue(function, *args, **options):  # noqa: ANN001, ANN002, ANN003
+        queued.append((function, args, options.get("_defer_by")))
+
+    ctx["enqueue"] = enqueue
     await ctx["redis"].set(psd_work.LOCK, "another")
-    with pytest.raises(Retry):
-        await psd_work.convert_psd(ctx, up["id"])
+    # Another is converting: this one waits by queuing itself again (a wait is never a failed try).
+    assert await psd_work.convert_psd(ctx, up["id"]) == "waiting"
+    assert queued == [("convert_psd", (up["id"],), 5.0)]
     await ctx["redis"].delete(psd_work.LOCK)
     assert await psd_work.convert_psd(ctx, up["id"]) == "ready"
 
