@@ -945,6 +945,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     sku_hist.add_argument("email")
     sku_hist.add_argument("--since", required=True, help="2026-10-28 or 2026-10-28T09:30 (UTC unless +03:00 is given)")
+    psd = sub.add_parser(
+        "psd-inspect",
+        help="what a Photoshop mockup contains: canvas, layers and blend modes, smart objects (size, corners, warp, "
+        "masks, smart filters), adjustment and fill layers, what cannot be read; READ ONLY, no database or network",
+    )
+    psd.add_argument("files", nargs="+")
+    psd.add_argument("--summary", action="store_true", help="also one line per file without names (docs/psd-findings.md)")
     ltext = sub.add_parser(
         "listing-text",
         help="where each listing's title, tags and description are stored (the listing's and each shop's) and what "
@@ -1027,6 +1034,12 @@ def main(argv: list[str] | None = None) -> int:
 
     from app.db.session import get_sessionmaker
 
+    if args.command == "psd-inspect":
+        from app.ops.psd_inspect import run as psd_inspect
+
+        text, fine = psd_inspect(args.files, summary_lines=args.summary)
+        sys.stdout.write(text)
+        return 0 if fine else 1
     if args.command == "free-tool-rules":
         from app.ops.free_tool_rules import render
 

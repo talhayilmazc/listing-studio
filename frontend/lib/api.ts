@@ -26,6 +26,7 @@ import type {
   MockupRecolourRow,
   SubgroupPreset,
   MockupPhoto,
+  PsdUploadState,
   MockupRun,
   MockupPlacement,
   MockupTemplate,
@@ -590,6 +591,16 @@ export const api = {
   orderMockupPhotos: (templateId: string, ids: string[]) =>
     req<MockupTemplate>(`/mockup-templates/${templateId}/photos/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
   mockupPhoto: (id: string) => req<MockupPhoto>(`/mockup-photos/${id}`),
+  /** Photoshop mockups (feature/psd-templates): the upload's state, finishing it, the smart object, the template. */
+  psdOpen: (filename: string, size: number) =>
+    req<PsdUploadState>("/psd-uploads", { method: "POST", body: JSON.stringify({ filename, size, rights_confirmed: true }) }),
+  psdUploads: () => req<PsdUploadState[]>("/psd-uploads"),
+  psdUpload: (id: string) => req<PsdUploadState>(`/psd-uploads/${id}`),
+  psdComplete: (id: string) => req<PsdUploadState>(`/psd-uploads/${id}/complete`, { method: "POST" }),
+  psdChoose: (id: string, index: number) =>
+    req<PsdUploadState>(`/psd-uploads/${id}/choice`, { method: "POST", body: JSON.stringify({ index }) }),
+  psdUse: (id: string) => req<PsdUploadState>(`/psd-uploads/${id}/use`, { method: "POST" }),
+  psdCancel: (id: string) => req<void>(`/psd-uploads/${id}`, { method: "DELETE" }),
   /** A version of personalization text within Etsy's limit, by the content model: an offer only, nothing saved. */
   shortenPersonalization: (field: "question" | "instructions", text: string) =>
     req<{ text: string | null; message: string | null }>("/personalization/shorten", { method: "POST", body: JSON.stringify({ field, text }) }),
@@ -1116,6 +1127,31 @@ export function uploadArchive(
   form.append("file", file, file.name);
   if (grouping) form.append("grouping", grouping);
   return postForm<ArchiveResult>(`${BASE}/batches/${batchId}/archive`, form, onProgress);
+}
+
+/** One piece of a Photoshop mockup (api/psd_templates.py), with progress inside the piece. A dropped
+ * connection is an ApiError with status 0; a gap is 409 and carries where the server's file ends. */
+export function putPsdPiece(id: string, offset: number, piece: Blob, onProgress: (sent: number) => void): Promise<PsdUploadState> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `${BASE}/psd-uploads/${id}/chunk?offset=${offset}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.ontimeout = () => reject(new ApiError("The connection stopped answering.", 0));
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let body: unknown;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        body = undefined;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as PsdUploadState);
+      else reject(new ApiError(messageFor(xhr.status, body, xhr.statusText), xhr.status));
+    };
+    xhr.onerror = () => reject(new ApiError("The upload could not reach the server.", 0));
+    xhr.send(piece);
+  });
 }
 
 /** How long an upload may take before the page stops waiting and says so. */

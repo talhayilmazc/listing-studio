@@ -440,6 +440,10 @@ export default function PrivacyPage() {
             period="Until you delete the template or your account. The designs you upload to make mockups, and the mockups made from them, are image files like the rest and are kept as above"
           />
           <Row
+            data="A Photoshop mockup (PSD) you upload to make a template from it, and the record of that upload (its file name and how the conversion went)"
+            period={<span>{`The file: deleted as soon as the template is made from it (or when you choose its design area and press Use this template), and at most ${R.psdFileHours} hours after you upload it, also when the conversion fails. The record: ${R.psdUploadDays} days after the upload finished. The template made from it (the layers below and above the design area, flattened to images, and where the design goes) is kept like the other templates`}</span>}
+          />
+          <Row
             data="A ZIP of mockups you ask to download (only you can download it)"
             period={<span>{`${R.mockupZipHours} hours after it is ready, then deleted automatically`}</span>}
           />

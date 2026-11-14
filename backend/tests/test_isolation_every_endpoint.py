@@ -146,6 +146,9 @@ async def _seed(sm, storage: LocalStorage, email: str, n: int) -> dict[str, Any]
         fix = M.ListingFix(tenant_id=tid, connection_id=shop.id, listing_id=n * 10 + 2, kinds=["tags"], state="proposed",
                            before={"tags": [f"secret tag {n}"]}, after={"tags": [f"secret tag {n}", "more"]})
         s.add(fix)
+        psd = M.PsdUpload(tenant_id=tid, filename=f"secret mockup {n}.psd", size=1000, rights_confirmed_at=datetime.now(timezone.utc),
+                          template_id=template.id, photo_id=photo.id, status="ready")
+        s.add(psd)
         await s.commit()
         return {
             "tenant": tid, "connection_id": shop.id, "shop_id": shop.id, "group_id": group.id, "profile_id": profile.id,
@@ -153,7 +156,7 @@ async def _seed(sm, storage: LocalStorage, email: str, n: int) -> dict[str, Any]
             "record_id": str(attempt.id), "listing_id": n * 10 + 2, "month": "2026-09", "template_id": template.id,
             "subgroup_id": subgroup.id, "photo_id": photo.id, "preset_id": preset.id, "design_id": design.id,
             "version_id": version.id, "run_id": run.id, "output_id": output.id, "zip_id": zipped.id,
-            "key": "creativity_production", "publication_id": publication.id, "fix_id": fix.id,
+            "key": "creativity_production", "publication_id": publication.id, "fix_id": fix.id, "upload_id": psd.id,
         }
 
 

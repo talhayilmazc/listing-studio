@@ -271,6 +271,35 @@ export interface MockupQueue {
 }
 
 /** One blank photo of a template (backend api/mockups.py PhotoOut). */
+/** A smart object of a Photoshop mockup the design can go in (feature/psd-templates). */
+export interface PsdOption {
+  index: number;
+  name: string;
+  /** Where it sits on the preview (left, top, right, bottom), in the template's pixels. */
+  box: number[] | null;
+  usable: boolean;
+}
+
+/** A Photoshop mockup on its way to becoming a template (backend api/psd_templates.py). */
+export interface PsdUploadState {
+  id: string;
+  filename: string;
+  size: number;
+  received: number;
+  chunk_size: number;
+  status: "receiving" | "queued" | "converting" | "ready" | "used" | "failed" | "cancelled";
+  error: string | null;
+  choice: number | null;
+  options: PsdOption[];
+  notes: string[];
+  can_choose: boolean;
+  template_id: string | null;
+  photo_id: string | null;
+  preview_url: string | null;
+  width: number | null;
+  height: number | null;
+}
+
 export interface MockupPhoto {
   id: string;
   template_id: string;
@@ -317,6 +346,8 @@ export interface MockupPhoto {
   colour?: "light" | "dark" | null;
   colour_lightness?: number | null;
   colour_source?: "auto" | "uncertain" | "seller" | null;
+  /** Made from a Photoshop mockup: its design area is the smart object's (feature/psd-templates). */
+  psd?: { upload_id: string | null; notes: string[] } | null;
 }
 
 /** A named group of blank photos (the same tee in ten colours, or several shots of one product). */

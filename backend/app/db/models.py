@@ -200,6 +200,44 @@ class Tenant(Base):
     )
 
 
+class PsdUpload(Base):
+    """A seller's Photoshop mockup on its way to becoming a template (feature/psd-templates, api/psd_templates.py).
+
+    Received in chunks (resumable), converted in the worker one at a time (workers/psd.py), then the seller
+    chooses the smart object and presses "Use this template". The PSD itself (``file_key``) is deleted after
+    a successful conversion with one smart object, when the template is used, or ``FILE_HOURS`` after the
+    upload, whichever comes first; the row is deleted ``RETENTION_DAYS`` after it finished. It holds only the
+    seller's file name and our own state, no Etsy content.
+    """
+
+    __tablename__ = "psd_upload"
+
+    FILE_HOURS: ClassVar[int] = 24
+    RETENTION_DAYS: ClassVar[int] = 7
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Declared total and what has arrived, in bytes.
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    received: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    #: receiving · queued · converting · ready · used · failed · cancelled
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="receiving")
+    error: Mapped[str | None] = mapped_column(Text)
+    #: The smart object the design goes in (its index among the file's smart objects); NULL: the default.
+    choice: Mapped[int | None] = mapped_column(Integer)
+    file_key: Mapped[str | None] = mapped_column(Text)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mockup_template.id", ondelete="SET NULL"), index=True)
+    photo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mockup_photo.id", ondelete="SET NULL"), index=True)
+    rights_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The conversion's numbers for the logs and the admin (seconds, peak MB); no content.
+    took_seconds: Mapped[float | None] = mapped_column(Float)
+    peak_mb: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class UsageEvent(Base):
     """A listing counted against the allowance (fix/usage-and-admin-publishing, core/usage.py).
 
@@ -980,6 +1018,10 @@ class MockupPhoto(Base):
     fold_strength: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.5")
     #: When the seller confirmed the photo is theirs or that they may use it.
     rights_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Made from the seller's Photoshop mockup (feature/psd-templates; pipeline/psd_template.py): the smart
+    #: object's placement, the overlay layers' keys with blend mode and opacity, the mask's key, the smart
+    #: objects to choose from and the notes. NULL: an ordinary photo. Its base is ``image_key``.
+    psd: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
     #: Raised on every change, so previews are not mistaken for an older version.
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     created_at: Mapped[datetime] = mapped_column(

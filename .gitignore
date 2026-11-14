@@ -36,6 +36,11 @@ frontend/tsconfig.tsbuildinfo
 # Production logs and exports used for diagnosis: may hold shop and listing details
 docs/samples/
 
+# Sellers' Photoshop mockups used to build PSD templates (feature/psd-templates): customer files, local only
+samples/
+*.psd
+*.psb
+
 # Evaluation sets and results: the seller's own design text
 backend/evals/data/
 

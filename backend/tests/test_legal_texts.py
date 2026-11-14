@@ -23,7 +23,7 @@ from app.core import app_settings, terms
 from app.core.config import Settings
 from app.db.models import (
     ListingFix,
-    AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, SellerEvent,
+    AiCall, DraftAttempt, DraftDismissal, InviteRequest, ListingProfile, ListingSnapshot, MockupZip, PsdUpload, SellerEvent,
     ShopListingCache, UploadBatch,
 )
 from app.etsy import oauth
@@ -149,6 +149,8 @@ def test_the_retention_figures_in_the_policy_are_the_settings_the_code_uses() ->
         "accountDeletionDays": account_jobs.DEADLINE_DAYS,
         "aiCallMonths": round(AiCall.RETENTION_DAYS / 30.4375),
         "mockupZipHours": MockupZip.RETENTION_HOURS,
+        "psdFileHours": PsdUpload.FILE_HOURS,
+        "psdUploadDays": PsdUpload.RETENTION_DAYS,
         "cleanupMinutes": _cleanup_minutes(),
     }
     assert _retention() == expected

@@ -53,6 +53,8 @@ _MOCKUP_PATH = re.compile(r"^/api/(mockup-templates/[^/]+/photos|batches/[^/]+/d
 # The Etsy statement CSV and Ads report (api/imports.py, MAX_BYTES): a busy shop's month is
 # several MB; at the 1 MB default every such file got "request body too large".
 _IMPORT_PATH = re.compile(r"^/api/analytics/import/(statement|ads)$")
+#: A piece of a Photoshop mockup (api/psd_templates.py): at most 8 MB each, streamed to disk.
+_PSD_CHUNK_PATH = re.compile(r"^/api/psd-uploads/[^/]+/chunk$")
 IMPORT_FILE_LIMIT = 8 * 1024 * 1024
 #: After refusing an upload, the rest of its body is read and discarded, up to this
 #: much (Cloudflare's own request cap), so the proxy in front can finish sending
@@ -143,6 +145,10 @@ def _file_limit(path: str) -> int | None:
         return get_settings().max_mockup_upload_bytes
     if _IMPORT_PATH.match(path):
         return IMPORT_FILE_LIMIT
+    if _PSD_CHUNK_PATH.match(path):
+        from app.api.psd_templates import chunk_limit
+
+        return chunk_limit()
     return None
 
 
