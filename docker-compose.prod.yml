@@ -40,8 +40,8 @@ x-memory:
   api: &memory-api 1815m
   worker: &memory-worker 2460m
   postgres: &memory-postgres 585m
-  frontend: &memory-frontend 120m
-  redis: &memory-redis 120m
+  frontend: &memory-frontend 256m
+  redis: &memory-redis 104m
   cloudflared: &memory-cloudflared 128m
 
 x-backend: &backend

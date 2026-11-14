@@ -145,10 +145,15 @@ The limits live in one block at the top of `docker-compose.prod.yml` (`x-memory`
 | api | 1,668 MB RSS | 1,575 MB | 1,815 MB | 15% | 2,400 MB |
 | worker | 2,136 MB | 2,136 MB | 2,460 MB | 15% | 3,000 MB |
 | postgres | 812 MB with file cache | 462 MB | 585 MB | 27% | 1,000 MB |
-| frontend | 104 MB | 104 MB | 120 MB | 15% | 200 MB |
-| redis | 11 MB | 11 MB | 120 MB (maxmemory 96 MB) | over 900% | 384 MB (maxmemory 256 MB) |
-| together | | | 5,100 MB | | 6,984 MB |
+| frontend | 119 MB (114 MB in production, 14 Nov 2026) | 119 MB | 256 MB | 115% | 256 MB |
+| redis | 11 MB | 11 MB | 104 MB (maxmemory 96 MB) | over 800% | 384 MB (maxmemory 256 MB) |
+| together | | | 5,220 MB | | 7,040 MB |
 | cloudflared | 29 MB idle | | 128 MB | | 128 MB |
+
+The frontend went from 120 to 256 MB on 14 Nov 2026: production reached 114 MB of 120, and the standalone server
+measured 75 MB idle and 119 MB under a burst of 2,000 page requests (64 MB after its garbage collection). The 136 MB
+came from redis (120 to 104 MB, still above its 96 MB `maxmemory`) and from what is left for cloudflared, the OS,
+Docker and the file cache (700 to 580 MB).
 
 "Can't be given back" is what a limit really has to hold. The API's RSS counts shared pages once for each
 of its three processes, and the kernel charges them once. Postgres's peak is mostly file cache, which the

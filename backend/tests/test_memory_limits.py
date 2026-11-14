@@ -14,12 +14,14 @@ import yaml
 COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.prod.yml"
 
 VM_MB = 5800
-#: Stays out of every limit but cloudflared's: cloudflared itself, the OS, Docker and the file cache.
-LEFT_FOR_THE_OS_MB = 700
+#: Stays out of every limit but cloudflared's: cloudflared itself, the OS, Docker and the file cache. 700 until
+#: 14 Nov 2026, when the frontend's limit went 120 -> 256 MB (production reached 114 MB; the standalone server
+#: measured 75 MB idle, 119 MB under a burst of 2,000 page requests): 120 MB of that came from here, 16 from redis.
+LEFT_FOR_THE_OS_MB = 580
 HEADROOM = 1.15
 
 #: The most each used in the load test, 100 sellers at once (load-output/report-*.txt).
-PEAK_MB = {"api": 1668, "worker": 2136, "postgres": 812, "frontend": 104, "redis": 11}
+PEAK_MB = {"api": 1668, "worker": 2136, "postgres": 812, "frontend": 119, "redis": 11}
 #: What a limit really has to hold, because the kernel can't give it back. The API's RSS counts
 #: shared pages once for each of its three processes (1,528 MB private + shared once). Postgres's
 #: peak is mostly file cache, which goes first at its limit (334 MB its own + 128 MB shared buffers).
