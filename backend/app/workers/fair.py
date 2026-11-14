@@ -315,9 +315,18 @@ async def heavy(ctx: dict[str, Any], function: str, *args: str) -> AsyncIterator
                       _job_id=f"heavy:{function}:{':'.join(args)}:{int(time.time() * 1000)}")
         yield False
         return
-    started = time.monotonic()
-    async with _heavy:
-        try:
-            yield True
-        finally:
-            await after_heavy(ctx, function, args[0] if args else "", time.monotonic() - started)
+    # The worker's memory budget (workers/memory_budget.py): its estimated peak, held while it runs. When it does
+    # not fit, it is queued again a few seconds later; its turn here stays its own (no ``after_heavy``).
+    from app.workers import memory_budget
+
+    async with memory_budget.reserve(ctx.get("redis"), function, memory_budget.HEAVY_MB.get(function, 0)) as fits:
+        if not fits:
+            await memory_budget.wait_turn(_enqueue_of(ctx), function, *args)
+            yield False
+            return
+        started = time.monotonic()
+        async with _heavy:
+            try:
+                yield True
+            finally:
+                await after_heavy(ctx, function, args[0] if args else "", time.monotonic() - started)

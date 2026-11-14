@@ -1,7 +1,8 @@
 """Converting a seller's Photoshop mockup into a template, in the worker (feature/psd-templates).
 
-**One conversion at a time, out of everyone's way.** ``convert_psd`` takes a Redis lock (``psd-convert``); a
-second one waits ``BUSY_RETRY_SECONDS`` and tries again. The work itself happens in a child process
+**One conversion at a time, out of everyone's way.** ``convert_psd`` takes a Redis lock (``psd-convert``) and
+the child's cap from the worker's memory budget (workers/memory_budget.py); a second one, or one that does not
+fit, is queued again a few seconds later (never a failed try). The work itself happens in a child process
 (``pipeline/psd_convert.py`` through ``psd_sandbox.run_child``) at the lowest CPU priority, with its own memory
 cap (``MEMORY_MB``) and a 3-minute CPU limit, started from a thread: the worker's event loop keeps serving
 drafts, publishing and listing writing while a PSD converts, and a crash in the parser fails only this file.
@@ -27,7 +28,6 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from arq import Retry
 
 from app.core.config import get_settings
 
@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 LOCK = "psd-convert"
 LOCK_SECONDS = 600
-BUSY_RETRY_SECONDS = 15
 #: The conversion's memory cap. The samples peaked at 265-574 MB (docs/psd-findings.md); the cap leaves room
 #: for 6000 px files, and the worker container keeps room for a mockup run beside it.
 MEMORY_MB = 1200
@@ -93,11 +92,21 @@ def _run(path: str, folder: str, choice: int | None) -> tuple[dict[str, Any], fl
 
 
 async def convert_psd(ctx: dict[str, Any], upload_id: str) -> str:
+    from app.workers import memory_budget
+    from app.workers.fair import _enqueue_of
+
     redis = ctx["redis"]
     if not await redis.set(LOCK, upload_id, nx=True, ex=LOCK_SECONDS):
-        raise Retry(defer=BUSY_RETRY_SECONDS)  # another PSD is converting: one at a time
+        # Another PSD is converting: one at a time. A wait, not a failed try (arq counts its retries).
+        await memory_budget.wait_turn(_enqueue_of(ctx), "convert_psd", upload_id)
+        return "waiting"
     try:
-        return await _convert(ctx, uuid.UUID(upload_id))
+        # The worker's memory budget (workers/memory_budget.py): the child's cap, held while it converts.
+        async with memory_budget.reserve(redis, "convert_psd", memory_budget.PSD_MB) as fits:
+            if not fits:
+                await memory_budget.wait_turn(_enqueue_of(ctx), "convert_psd", upload_id)
+                return "waiting"
+            return await _convert(ctx, uuid.UUID(upload_id))
     finally:
         await redis.delete(LOCK)
 

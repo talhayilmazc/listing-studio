@@ -40,12 +40,27 @@ def _ingestor(ctx: dict[str, Any]):  # noqa: ANN202
 
 
 async def process_upload(ctx: dict[str, Any], asset_id: str) -> str:
+    """Prepare one upload, inside the worker's memory budget (workers/memory_budget.py): its estimated peak
+    from its pixel count (a 12-48 MP photo 115-160 MB, a 250 MP design 413 MB). One that does not fit now is
+    queued again a few seconds later."""
+    from app.db.models import Asset, AssetStatus
+    from app.workers import memory_budget
+    from app.workers.fair import _enqueue_of
+
+    async with ctx["sessionmaker"]() as session:
+        row = (await session.execute(select(Asset.status, Asset.width, Asset.height).where(Asset.id == uuid.UUID(asset_id)))).first()
+    if row is None or row.status is not AssetStatus.uploaded:
+        return "nothing to do"
     redis = ctx.get("redis")
     lock = f"upload-prep:{asset_id}"
     if redis is not None and not await redis.set(lock, "1", nx=True, ex=LOCK_SECONDS):
         return "already running"
     try:
-        return await _ingestor(ctx).process_stored(uuid.UUID(asset_id))
+        async with memory_budget.reserve(redis, "process_upload", memory_budget.upload_mb(row.width, row.height)) as fits:
+            if not fits:
+                await memory_budget.wait_turn(_enqueue_of(ctx), "process_upload", asset_id)
+                return "waiting"
+            return await _ingestor(ctx).process_stored(uuid.UUID(asset_id))
     finally:
         if redis is not None:
             await redis.delete(lock)
