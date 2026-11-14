@@ -8,6 +8,7 @@ can silently operate on somebody else's data.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
@@ -98,6 +99,11 @@ def get_storage() -> Storage:
     return LocalStorage(get_settings().storage_dir)
 
 
+async def _process_in_worker(asset_id: uuid.UUID) -> None:
+    """An upload is processed by the worker, never in the request (fix/perf-and-memory)."""
+    await _upload_queue().enqueue("process_upload", str(asset_id), _job_id=f"process-upload:{asset_id}")
+
+
 @lru_cache
 def get_ingestor() -> BatchIngestor:
     return BatchIngestor(
@@ -105,6 +111,7 @@ def get_ingestor() -> BatchIngestor:
         storage=get_storage(),
         processor=ImageProcessor(),
         sku_parser=SkuParser(),
+        dispatch=_process_in_worker,
     )
 
 
@@ -172,6 +179,12 @@ async def submit_heavy(enqueuer: object, tenant_id: object, function: str, ref: 
 
 @lru_cache
 def get_enqueuer() -> Enqueuer:
+    return Enqueuer(get_settings().redis_url)
+
+
+@lru_cache
+def _upload_queue() -> Enqueuer:
+    """One queue connection per process for the uploads' ``process_upload`` jobs."""
     return Enqueuer(get_settings().redis_url)
 
 

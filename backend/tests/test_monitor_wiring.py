@@ -55,7 +55,7 @@ async def test_the_middleware_counts_answers_and_server_errors() -> None:
     await signals.flush(redis, "api", now=now)
     assert await signals.errors_over(redis, 10, now) == (2, 1)
     slowest = await signals.slowest(redis, [time.strftime("%Y-%m-%d", time.gmtime(now))])
-    assert {row[0] for row in slowest} == {"/api/_ok", "/api/_boom"}
+    assert {row[0] for row in slowest} == {"GET /api/_ok", "GET /api/_boom"}  # the method too: an upload is not a list
 
 
 async def test_a_scanners_404s_are_not_endpoints() -> None:

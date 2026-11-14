@@ -3,7 +3,15 @@
 For each uploaded file this stores the original, runs it through the image
 processor, stores the derivative, and writes an :class:`Asset` row with a 1-based
 display ``rank``. A file that fails to process is recorded as a ``failed`` asset
-(original still kept) rather than aborting the whole batch.
+rather than aborting the whole batch.
+
+The upload page's per-file flow (``add_file``) never processes inside the request
+(fix/perf-and-memory, 14 Nov 2026: a 250-megapixel design took 5 s of CPU and 1.3 GB, and
+three at a time per seller queued uploads past 60 s): the request admits the file (its
+header only), stores the bytes as they came (``storage_key``, ``{tenant}/{batch}/incoming/``)
+and writes the row as ``uploaded``; the worker's ``process_upload`` job makes the processed
+copy (``process_stored``) and removes the incoming file. An ingestor built without a
+``dispatch`` (scripts, tests) runs the same step right after storing.
 
 No Etsy dependency: taxonomy mapping, content generation and draft creation come
 in later parts of the pipeline.
@@ -13,7 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable
+from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
@@ -60,12 +69,16 @@ class BatchIngestor:
         processor: ImageProcessor,
         sku_parser: SkuParser,
         config: IngestConfig | None = None,
+        dispatch: Callable[[uuid.UUID], Awaitable[None]] | None = None,
     ) -> None:
         self._sm = sessionmaker
         self._storage = storage
         self._processor = processor
         self._sku = sku_parser
         self._config = config or IngestConfig()
+        #: Hands a stored upload to the worker (the API's ``process_upload`` job); None runs
+        #: ``process_stored`` here, after the request's row is committed.
+        self._dispatch = dispatch
 
     async def ingest(self, tenant_id: uuid.UUID, files: list[UploadFile]) -> uuid.UUID:
         """Ingest ``files`` for a tenant and return the created batch id."""
@@ -128,13 +141,15 @@ class BatchIngestor:
         group_key: str | None = None,
         mode: str | None = None,
     ) -> Asset:
-        """Process and persist one uploaded file.
+        """Store one uploaded file and hand it to the worker (or process it here, see ``dispatch``).
 
         ``rank`` follows arrival order for now; ``finalize_batch`` re-ranks each
         folder group alphabetically (D1). ``group_key`` (the folder) groups a
-        listing's images and drives the SKU (D2).
+        listing's images and drives the SKU (D2). Returns the row as it stands: ``uploaded``
+        while the worker prepares it.
         """
-        # Admission comes before storage: a refused file never lands on disk.
+        # Admission comes before storage: a refused file never lands on disk. It reads the
+        # header only (format, size), never the pixels.
         admitted = _admit(upload)
 
         used = await session.scalar(
@@ -145,18 +160,31 @@ class BatchIngestor:
             raise UploadTooLarge(
                 f"a batch is limited to {ceiling // (1024 * 1024)} MB in total"
             )
-
         room = await self._room(session, tenant_id)
+        if room is not None:
+            # The file is kept as it came until the worker has prepared it: it needs the room now. The
+            # processed copy is checked again when it is made.
+            room(len(upload.data))
         batch = await session.get(UploadBatch, batch_id)
-        # No connection is held while the image is processed (see core/image_work.py).
+        mode = mode if mode is not None else (batch.grouping_mode if batch is not None else None)
         await session.commit()
-        asset = await self._ingest_one(
-            tenant_id, batch_id, 0, upload, admitted, group_key, room,
-            mode=mode if mode is not None else (batch.grouping_mode if batch is not None else None),
+
+        asset_id = uuid.uuid4()
+        folder = group_key or None
+        group_key, sku = grouping.place(folder, upload.filename, self._sku, mode)
+        # Extension and type come from the sniffed contents, never the filename.
+        incoming = f"{tenant_id}/{batch_id}/incoming/{asset_id}{admitted.ext}"
+        await asyncio.to_thread(self._storage.put, incoming, upload.data, admitted.mime)
+        storage_cap.added(tenant_id, len(upload.data))
+        asset = Asset(
+            id=asset_id, batch_id=batch_id, tenant_id=tenant_id, original_filename=upload.filename,
+            parsed_sku=sku, group_key=group_key, upload_folder=folder, storage_key=incoming,
+            mime_type=admitted.mime, width=admitted.width, height=admitted.height,
+            byte_size=len(upload.data), rank=0, status=AssetStatus.uploaded, uploaded_at=datetime.now(timezone.utc),
         )
         # The upload page sends three files of a batch at once: the batch's count and each
-        # file's place are taken under the batch's row lock, after the (slow) image work,
-        # so two files never get the same rank and the count is never one short.
+        # file's place are taken under the batch's row lock, so two files never get the same
+        # rank and the count is never one short.
         batch = await session.scalar(
             select(UploadBatch).where(UploadBatch.id == batch_id).with_for_update()
             .execution_options(populate_existing=True)
@@ -175,8 +203,66 @@ class BatchIngestor:
             if batch.status is UploadBatchStatus.uploading:
                 batch.status = UploadBatchStatus.processing
         await session.commit()
+        if self._dispatch is not None:
+            await self._dispatch(asset_id)
+        else:
+            await self.process_stored(asset_id)
         await session.refresh(asset)
         return asset
+
+    async def process_stored(self, asset_id: uuid.UUID) -> str:
+        """Make the processed copy of a stored upload (the worker's ``process_upload``). Safe to
+        run again: a row that is no longer ``uploaded`` is left alone. Returns what happened."""
+        async with self._sm() as session:
+            asset = await session.get(Asset, asset_id)
+            if asset is None or asset.status is not AssetStatus.uploaded or not asset.storage_key:
+                return "nothing to do"
+            incoming, tenant_id, batch_id = asset.storage_key, asset.tenant_id, asset.batch_id
+            try:
+                data: bytes | None = await asyncio.to_thread(self._storage.get, incoming)
+            except (FileNotFoundError, KeyError):
+                data = None
+            room = await self._room(session, tenant_id)
+            await session.commit()  # no connection is held through the image work
+            error: str | None = None
+            processed = None
+            if data is None:
+                error = "The uploaded file was lost before it was prepared. Upload it again."
+            else:
+                try:
+                    processed = await image_work.run(self._processor.process, data, self._config.processing)
+                except ImageProcessingError:
+                    error = "This image could not be read. Save it again as PNG or JPEG and upload it again."
+                del data
+            key: str | None = None
+            if processed is not None:
+                try:
+                    if room is not None:
+                        room(len(processed.data))
+                except storage_cap.StorageFull as exc:
+                    error = str(exc)
+                else:
+                    key = f"{tenant_id}/{batch_id}/processed/{asset_id}{processed.extension}"
+                    await asyncio.to_thread(self._storage.put, key, processed.data, processed.mime_type)
+                    storage_cap.added(tenant_id, len(processed.data))
+            asset = await session.get(Asset, asset_id, populate_existing=True)
+            if asset is None or asset.status is not AssetStatus.uploaded:
+                if key:  # deleted (or finished by another run) meanwhile: nothing keeps this copy
+                    await asyncio.to_thread(self._storage.delete_with_derivatives, key)
+                return "nothing to do"
+            asset.storage_key = None
+            if key and processed is not None:
+                asset.processed_key = key
+                asset.mime_type = processed.mime_type
+                asset.width, asset.height = processed.width, processed.height
+                asset.status = AssetStatus.processed
+            else:
+                asset.status = AssetStatus.failed
+                asset.error = error
+            await session.commit()
+        freed = await asyncio.to_thread(self._storage.delete_with_derivatives, incoming)
+        storage_cap.added(tenant_id, -freed)
+        return "processed" if key else "failed"
 
     async def finalize_batch(self, session: AsyncSession, batch_id: uuid.UUID) -> UploadBatch:
         """Mark the batch ready if any asset processed, else failed.
@@ -193,8 +279,9 @@ class BatchIngestor:
         _rerank(assets)
         batch.file_count = len(assets)
 
-        processed = sum(1 for a in assets if a.status is AssetStatus.processed)
-        batch.status = UploadBatchStatus.ready if processed > 0 else UploadBatchStatus.failed
+        # A photo the worker is still preparing counts: it becomes a processed one (or says why not).
+        usable = sum(1 for a in assets if a.status in (AssetStatus.processed, AssetStatus.uploaded))
+        batch.status = UploadBatchStatus.ready if usable > 0 else UploadBatchStatus.failed
         await session.commit()
         await session.refresh(batch)
         return batch

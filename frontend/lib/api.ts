@@ -390,7 +390,8 @@ export const api = {
     groupKey?: string,
     opts: { replace?: boolean; replaceApproved?: boolean; ignoreUnsorted?: boolean; onlyEmpty?: boolean } = {},
   ) =>
-    req<GenerateResult>(`/batches/${id}/generate`, {
+    // Queued in the worker and answered at once (fix/perf-and-memory); follow it with batchWriting.
+    req<Writing>(`/batches/${id}/generate`, {
       method: "POST",
       body: JSON.stringify({
         ...(profileId ? { profile_id: profileId } : {}),

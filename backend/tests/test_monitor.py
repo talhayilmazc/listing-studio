@@ -483,7 +483,7 @@ async def test_the_digest_says_per_account_and_overall_with_no_address_and_no_to
         "sign-ups: 2",
         "Etsy calls: yesterday 45,678 of ",
         ", today so far 1,234",
-        "/api/batches/{id} 3,200 ms (1)",
+        "/api/batches/{id} 3,000 ms (1)",  # the request's own time, not its bucket's top
         "memory peak: worker 1,500 MB",
     ):
         assert expected in text, f"{expected!r} not in:\n{text}"

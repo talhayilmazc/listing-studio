@@ -58,7 +58,8 @@ async def _save(redis: Any, batch_id: uuid.UUID | str, state: dict[str, Any]) ->
 
 
 async def start(redis: Any, enqueue: Any, *, tenant_id: uuid.UUID, batch_id: uuid.UUID, groups: list[str],
-                profile_id: uuid.UUID | None, ignore_unsorted: bool, name: str) -> dict[str, Any]:
+                profile_id: uuid.UUID | None, ignore_unsorted: bool, name: str,
+                options: dict[str, bool] | None = None) -> dict[str, Any]:
     """Record what is to be written and queue the job. A run already going for this batch is returned as it is."""
     now = await read(redis, batch_id)
     if now and now.get("state") in ("queued", "running"):
@@ -68,6 +69,9 @@ async def start(redis: Any, enqueue: Any, *, tenant_id: uuid.UUID, batch_id: uui
         "total": len(groups), "done": 0, "written": 0, "failed": 0, "skipped": 0, "failures": [],
         "state": "queued", "message": None, "started_at": time.time(),
         "profile_id": str(profile_id) if profile_id else None, "ignore_unsorted": ignore_unsorted,
+        # Generate's choices (Regenerate, "Generate the empty ones"): each group is written with them.
+        "options": {k: bool(v) for k, v in (options or {}).items() if k in ("replace", "replace_approved", "only_empty")},
+        "skipped_groups": [],
     }
     await _save(redis, batch_id, state)
     await enqueue("write_batch_listings", str(batch_id), _job_id=job_id(batch_id))
@@ -111,7 +115,7 @@ async def write_batch_listings(ctx: dict[str, Any], batch_id: str) -> str:
             await redis.expire(lock, LOCK_SECONDS)
             body = schemas.GenerateRequest(
                 group_key=key, profile_id=uuid.UUID(state["profile_id"]) if state["profile_id"] else None,
-                ignore_unsorted=state["ignore_unsorted"],
+                ignore_unsorted=state["ignore_unsorted"], **state.get("options", {}),
             )
             async with ctx["sessionmaker"]() as session:
                 tenant = await session.get(Tenant, tenant_id)
@@ -135,6 +139,7 @@ async def write_batch_listings(ctx: dict[str, Any], batch_id: str) -> str:
             state["failed"] += result.failed
             state["skipped"] += result.skipped
             state["failures"] += [{"file": f.original_filename, "error": f.error} for f in result.failures]
+            state.setdefault("skipped_groups", []).extend(g.model_dump() for g in result.skipped_groups)
             await _save(redis, batch_id, state)
         else:
             state["state"] = "done"

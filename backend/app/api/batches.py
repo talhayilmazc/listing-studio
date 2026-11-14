@@ -1352,6 +1352,22 @@ async def _refuse_unsorted(session: AsyncSession, batch_id: uuid.UUID, body: sch
         )
 
 
+def preparing_line(n: int) -> str:
+    return (f"{n} photo{'s are' if n != 1 else ' is'} still being prepared. Writing can start when "
+            f"{'they are' if n != 1 else 'it is'} ready, usually within a minute.")
+
+
+async def _refuse_preparing(session: AsyncSession, batch_id: uuid.UUID, group_key: str | None) -> None:
+    """Uploads are prepared by the worker (fix/perf-and-memory): a listing is not written from a group
+    whose photos are not ready yet (its cover may not be the one the seller will see)."""
+    query = select(func.count()).select_from(Asset).where(Asset.batch_id == batch_id, Asset.status == AssetStatus.uploaded)
+    if group_key is not None:
+        query = query.where(Asset.group_key == group_key)
+    n = int(await session.scalar(query) or 0)
+    if n:
+        raise HTTPException(status_code=409, detail=preparing_line(n))
+
+
 EXAMPLE_WRITTEN = "The example listings are already written. Upload a design of your own to have Listyro write it."
 
 
@@ -1452,19 +1468,24 @@ WRITING_ELSEWHERE = ("Listings are being written in another tab or window right 
                      "then try again.")
 
 
-@router.post("/batches/{batch_id}/generate", response_model=schemas.GenerateResult)
+@router.post("/batches/{batch_id}/generate", response_model=schemas.WritingOut)
 async def generate_content(
     batch_id: uuid.UUID,
     body: schemas.GenerateRequest,
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
-    storage: Storage = Depends(get_storage),
     enqueuer: Enqueuer = Depends(get_enqueuer),
     redis: Redis = Depends(get_redis),
-) -> schemas.GenerateResult:
+) -> schemas.WritingOut:
+    """Generate, Regenerate and "Generate the empty ones": written in the worker, like "Write listings"
+    (fix/perf-and-memory: the AI took up to 12.8 s at p95 inside this request). The checks that can
+    refuse at once still do; then the job is queued and its state returned. Progress and the outcome:
+    ``GET /batches/{id}/writing``."""
+    from app.workers import writing
+
     # Ownership first: a caller with no claim on this batch must learn nothing
     # about it, not even whether the service is configured (production-spec B3).
-    await _get_batch(session, tenant, batch_id)
+    batch = await _get_batch(session, tenant, batch_id)
     await _refuse_examples(session, batch_id)
     await _refuse_unsorted(session, batch_id, body)
     if body.profile_id is not None:
@@ -1478,26 +1499,46 @@ async def generate_content(
             status_code=503,
             detail="Writing listings is not available right now. Please try again later.",
         )
+    await _refuse_preparing(session, batch_id, body.group_key)
+    if body.group_key is not None:
+        groups = [body.group_key]
+        # One group asked for with nothing left to write it with: refused now, as before, not later.
+        old = await session.scalar(select(func.count()).select_from(GeneratedContent).join(
+            Asset, Asset.id == GeneratedContent.asset_id).where(
+            GeneratedContent.batch_id == batch_id, Asset.group_key == body.group_key))
+        now = await allowance.status(session, tenant)
+        design = allowance.design_key(batch_id, body.group_key)
+        kind = await allowance.rewrite_kind(session, tenant, design, now) if old else allowance.GENERATION
+        if kind == allowance.GENERATION and now.remaining <= 0 and (not old or body.replace or body.only_empty):
+            raise HTTPException(status_code=429, detail=now.message())
+    elif body.replace or body.only_empty:
+        groups = await _groups_to_write(session, batch_id, written_too=True)
+    else:
+        groups = await _groups_to_write(session, batch_id)
+    name = (await names_for(session, [batch]))[batch.id]
     await session.commit()  # nothing was written: no connection held across Redis (core/db_release.py)
     # Our account with the AI provider is refused (usage limit, credit): do not
     # try, do not fail anything, say so. Checked again by itself in a few minutes.
     if await llm_status.current(redis):
-        return schemas.GenerateResult(generated=0, failed=0, skipped=0, paused=llm_status.SELLER_MESSAGE)
-
-    # One writing request per account at a time (quality pass 2026-10, review R20): "Generate all"
-    # sends its groups one by one, so this only stops a second tab or a double click, which
-    # could write the same group twice and spend past the allowance between its check and use.
-    lock = f"generating:{tenant.id}"
-    if not await redis.set(lock, "1", nx=True, ex=GENERATE_LOCK_SECONDS):
+        return schemas.WritingOut(state="paused", message=llm_status.SELLER_MESSAGE)
+    # One writing run per account at a time (quality pass 2026-10, review R20): a second tab or a double
+    # click could write the same group twice and spend past the allowance between its check and use.
+    running = await writing.read(redis, batch_id)
+    if await redis.exists(f"generating:{tenant.id}") or (running and running.get("state") in ("queued", "running")):
         raise HTTPException(status_code=409, detail=WRITING_ELSEWHERE)
-    try:
-        return await _write_listings(batch_id, body, session, tenant, storage, enqueuer, redis)
-    finally:
-        await redis.delete(lock)
+    if not groups:
+        return schemas.WritingOut(state="done", message="Every group is already written.")
+    state = await writing.start(
+        redis, enqueuer.enqueue, tenant_id=tenant.id, batch_id=batch_id, groups=groups,
+        profile_id=body.profile_id, ignore_unsorted=body.ignore_unsorted, name=name,
+        options={"replace": body.replace, "replace_approved": body.replace_approved, "only_empty": body.only_empty},
+    )
+    return _writing_out(state)
 
 
-async def _groups_to_write(session: AsyncSession, batch_id: uuid.UUID) -> list[str]:
-    """The batch's groups with no listing yet, by name."""
+async def _groups_to_write(session: AsyncSession, batch_id: uuid.UUID, *, written_too: bool = False) -> list[str]:
+    """The batch's groups with no listing yet, by name (``written_too``: every group with photos; Regenerate
+    and "Generate the empty ones" decide per group which they write)."""
     rows = (await session.execute(
         select(Asset.id, Asset.group_key).where(
             Asset.batch_id == batch_id, Asset.status == AssetStatus.processed, Asset.processed_key.is_not(None)
@@ -1512,7 +1553,7 @@ async def _groups_to_write(session: AsyncSession, batch_id: uuid.UUID) -> list[s
             continue
         key = key or ""
         groups[key] = groups.get(key, False) or asset_id in written
-    return sorted(k for k, done in groups.items() if not done)
+    return sorted(k for k, done in groups.items() if written_too or not done)
 
 
 def _writing_out(state: dict[str, Any] | None) -> schemas.WritingOut:
@@ -1522,6 +1563,7 @@ def _writing_out(state: dict[str, Any] | None) -> schemas.WritingOut:
         state=state["state"], total=state["total"], done=state["done"], written=state["written"],
         failed=state["failed"], skipped=state["skipped"], message=state.get("message"),
         failures=[schemas.WritingFailure(**f) for f in state.get("failures", [])],
+        skipped_groups=[schemas.GroupSkipped(**g) for g in state.get("skipped_groups", [])],
     )
 
 
@@ -1549,6 +1591,7 @@ async def write_batch(
             raise HTTPException(status_code=404, detail="profile not found")
     if not get_settings().llm_api_key:
         raise HTTPException(status_code=503, detail="Writing listings is not available right now. Please try again later.")
+    await _refuse_preparing(session, batch_id, None)
     groups = await _groups_to_write(session, batch_id)
     name = (await names_for(session, [batch]))[batch.id]
     await session.commit()

@@ -15,6 +15,7 @@ from app.api import deps
 from app.db.models import Asset, GeneratedContent, ListingProfile
 from app.pipeline.llm import AnthropicLLMClient
 from app.pipeline.storage import LocalStorage
+from tests.writing_support import generate_response
 from tests.support import VALID_TITLE, FakeMessages, fake_response
 from tests.test_publish_api import _add_content, ctx  # noqa: F401  (fixture)
 
@@ -66,8 +67,10 @@ async def _group(ctx, *, approved=False, listing_id=None, tokens=(500, 100)):  #
 
 
 async def _generate(ctx, batch, profile, **flags):  # noqa: F811
+    """Generate as the page does: the request queues the writing job, the worker writes (tests/writing_support.py)."""
     body = {"profile_id": str(profile), "group_key": "G1", **flags}
-    return (await ctx["client"].post(f"/api/batches/{batch}/generate", json=body)).json()
+    resp, result = await generate_response(ctx["client"], batch, body)
+    return result if result is not None else resp.json()
 
 
 async def _contents(ctx, batch):  # noqa: F811

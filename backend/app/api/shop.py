@@ -344,13 +344,27 @@ async def shops_overview(
     return schemas.ShopsOverviewOut(shops=rows, total=add_up([r.summary for r in rows]))
 
 
+async def _state_rows(
+    session: AsyncSession, tenant: Tenant, connection: EtsyConnection
+) -> list[tuple[datetime, str | None, int | None]]:
+    """Each cached listing's (fetched_at, state, state_timestamp): the three fields the summary counts,
+    read from the JSON in the database. Loading whole listings decoded megabytes of JSON per shop on
+    every page (6.4 s at p95 in production, 14 Nov 2026; fix/perf-and-memory)."""
+    rows = await session.execute(select(
+        ShopListingCache.fetched_at,
+        ShopListingCache.payload["state"].as_string(),
+        ShopListingCache.payload["state_timestamp"].as_string(),
+    ).where(ShopListingCache.tenant_id == tenant.id, ShopListingCache.connection_id == connection.id))
+    return [(fetched, state, _as_int(stamp)) for fetched, state, stamp in rows.all()]
+
+
 async def summary_of(
     session: AsyncSession, tenant: Tenant, connection: EtsyConnection | None, enqueuer: Enqueuer, redis: Redis
 ) -> schemas.ShopSummaryOut:
-    everything = await _shop_rows(session, tenant, connection) if connection else []
-    newest = max((c.fetched_at for c in everything), default=None)
+    everything = await _state_rows(session, tenant, connection) if connection else []
+    newest = max((fetched for fetched, _, _ in everything), default=None)
     # Counts are derived from listing content, so expired rows do not count.
-    cached = [c for c in everything if not _is_stale(c.fetched_at)]
+    cached = [row for row in everything if not _is_stale(row[0])]
     # How many listings went live this month needs the listings themselves.
     published_known = bool(cached)
     # How many there are in each state does not: Etsy reports that with one
@@ -384,16 +398,13 @@ async def summary_of(
                 app_last += 1
 
     active = draft = this_count = last_count = 0
-    for row in cached:
-        payload = row.payload or {}
-        state = payload.get("state")
+    for _, state, stamp in cached:
         if state == "active":
             active += 1
         elif state == "draft":
             draft += 1
         # "Published" = went live, which is what state_timestamp records for an
         # active listing. Drafts have never been published, so they never count.
-        stamp = _as_int(payload.get("state_timestamp"))
         if state == "active" and stamp is not None:
             went_live = datetime.fromtimestamp(stamp, timezone.utc)
             if went_live >= this_month:

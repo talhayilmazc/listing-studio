@@ -470,11 +470,25 @@ async def test_an_upload_holds_no_connection_while_its_image_is_processed(ctx, o
         return await real(function, *args, **kwargs)
 
     monkeypatch.setattr(image_work, "run", watching)
+    from app.pipeline.images import ImageProcessor
+    from app.pipeline.ingest import BatchIngestor
+    from app.pipeline.sku import SkuParser
+
+    queued: list[Any] = []
+
+    async def dispatch(asset_id: Any) -> None:
+        queued.append(asset_id)
+
+    ingestor = BatchIngestor(sessionmaker=ctx["sm"], storage=LocalStorage(tmp_path), processor=ImageProcessor(),
+                             sku_parser=SkuParser(), dispatch=dispatch)
     ctx["app"].dependency_overrides[deps.get_storage] = lambda: LocalStorage(tmp_path)
+    ctx["app"].dependency_overrides[deps.get_ingestor] = lambda: ingestor
     created = await ctx["client"].post("/api/batches", json={})
     assert created.status_code == 201, created.text
     buf = io.BytesIO()
     Image.new("RGB", (900, 900), "orange").save(buf, "JPEG")
     res = await ctx["client"].post(f"/api/batches/{created.json()['id']}/assets", files={"file": ("A1.jpg", buf.getvalue(), "image/jpeg")})
     assert res.status_code == 201, res.text
+    assert seen == [] and len(queued) == 1, "the request processed the image itself (fix/perf-and-memory: the worker does)"
+    await ingestor.process_stored(queued[0])  # the worker's step
     assert seen == [0], "a transaction was open while the image was processed: it holds a pooled connection"

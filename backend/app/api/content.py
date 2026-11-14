@@ -230,12 +230,7 @@ async def _own_shops(
     same shop the review page's matrix calls its own."""
     from app.pipeline import shop_targets
 
-    out: dict[uuid.UUID, uuid.UUID] = {}
-    for content in contents:
-        shop = await shop_targets.own_shop(session, content)
-        if shop is not None:
-            out[content.id] = shop.id
-    return out
+    return {content_id: shop.id for content_id, shop in (await shop_targets.own_shops(session, contents)).items()}
 
 
 async def unfinished_work(
@@ -316,10 +311,14 @@ async def _shop_uses_partner(
     if connection_id is None:
         return None
     if connection_id not in seen:
-        rows = list((await session.execute(
-            select(ShopListingCache.payload).where(ShopListingCache.connection_id == connection_id)
-        )).scalars())
-        seen[connection_id] = creativity.shop_uses_partner(rows) if rows else None
+        # Only the two partner fields, never the whole listing: a shop of 2,000 listings decoded
+        # 8 MB of JSON on every review page and profile list (fix/perf-and-memory).
+        rows = (await session.execute(select(
+            ShopListingCache.payload["production_partners"], ShopListingCache.payload["production_partner_ids"],
+        ).where(ShopListingCache.connection_id == connection_id))).all()
+        seen[connection_id] = creativity.shop_uses_partner(
+            {"production_partners": partners, "production_partner_ids": ids} for partners, ids in rows
+        ) if rows else None
     return seen[connection_id]
 
 

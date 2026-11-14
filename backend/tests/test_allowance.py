@@ -227,7 +227,8 @@ async def test_generating_for_all_with_nothing_to_write_is_not_refused(ctx, llm)
     batch, _, profile = await _group(ctx)  # the one group already has content
     await _tenant(ctx, allowance_amount=0)
     resp = await ctx["client"].post(f"/api/batches/{batch}/generate", json={"profile_id": str(profile)})
-    assert resp.status_code == 200 and resp.json()["skipped"] == 1
+    # Nothing to write: not refused (the request answers at once; no job is queued).
+    assert resp.status_code == 200 and resp.json()["state"] == "done", resp.text
 
 
 async def test_there_is_no_free_path_to_a_listing(ctx, llm) -> None:  # noqa: F811
