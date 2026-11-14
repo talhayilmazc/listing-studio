@@ -150,7 +150,7 @@ function AreaPrint({ edits, design, photo, area, scale }: {
   const [size, setSize] = useState<[number, number] | null>(null);
   useEffect(() => {
     let gone = false;
-    designPixels(api.mockupDesignFileUrl(design.id, file.version_id, file.stamp)).then((src) => {
+    designPixels(api.mockupDesignFileUrl(design.id, file.version_id, file.stamp, true)).then((src) => {
       const out = canvas.current;
       if (gone || !src || !out) return;
       const printed = printPixels(src, trimOn(file, src.width, src.height), regions, adjust);

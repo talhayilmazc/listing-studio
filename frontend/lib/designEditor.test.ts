@@ -20,9 +20,11 @@ test("move, scale with proportions kept by default (Shift switches), turn, free 
 });
 
 test("the preview is drawn with the renderer's own rules (points, look, recolouring)", () => {
-  assert.match(editor, /photoPoints\(areaPx, tw, th, photo\.size, adjust\)/);
+  assert.ok(editor.includes("photoPoints(areaPx, tw, th, photo.size, adjust, align)")); // a PSD starts centred (B1)
   // Recolouring, the trim and the look: the one pipeline the result tiles' preview draws too.
-  assert.match(editor, /printPixels\(src, trim, previewRegions, adjust\)/);
+  // The preview copy (at most 1200 px, B2/B7) is cropped with its own trim box.
+  assert.ok(editor.includes("printPixels(src, trimOn(file, src.width, src.height), previewRegions, adjust)"));
+  assert.ok(editor.includes("api.mockupDesignFileUrl(design.id, file.version_id, file.stamp, true)"));
   assert.match(editor, /matrix3d\(tw, th, screen\)/);
 });
 

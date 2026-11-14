@@ -234,13 +234,29 @@ async def get_edits(
     )
 
 
+#: The editor's and the tiles' copy of a design (feature/mockups-editor B2/B7): at most this long side, transparency
+#: kept, made once beside the file. The full file is for rendering only.
+PREVIEW_SIDE = 1200
+
+
+def design_preview(data: bytes) -> bytes:
+    """A design file at most ``PREVIEW_SIDE`` px on its long side, as a WebP with its alpha (never flattened:
+    the screen copies of photos are flattened onto white, a design must not be)."""
+    import pyvips
+
+    image = pyvips.Image.thumbnail_buffer(data, PREVIEW_SIDE, height=PREVIEW_SIDE, size="down")
+    return image.write_to_buffer(".webp", Q=90, alpha_q=100, smart_subsample=False)
+
+
 @router.get("/mockup-designs/{design_id}/file")
 async def design_file(
     design_id: uuid.UUID, request: Request, version: uuid.UUID | None = Query(None), v: str | None = Query(None, max_length=40),
+    size: str | None = Query(None, pattern="^preview$", description="preview: at most 1200 px, transparency kept"),
     session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
 ) -> Response:
-    """A design file as stored (never changed): the editor previews recolouring on it. Full
-    size, as the editor's arithmetic needs its pixels; kept by the browser with its ``stamp``."""
+    """A design file as stored (never changed): the editor previews placement and recolouring on it, kept by the
+    browser with its ``stamp``. ``size=preview``: a copy of at most 1,200 px with its transparency (the editor's
+    arithmetic works in shares of the file, so any size gives the same placement)."""
     design = await _own_design(session, tenant, design_id)
     key = design.design_key
     if version is not None:
@@ -250,6 +266,19 @@ async def design_file(
         key = found.design_key
     if not key:
         raise HTTPException(status_code=410, detail="this design's file has been removed")
+    if size == "preview":
+        from app.core import image_work
+
+        copy = f"{key}.preview{PREVIEW_SIDE}.webp"  # beside the file: deleted with it (delete_with_derivatives)
+        if not storage.exists(copy):
+            try:
+                original = storage.get(key)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=410, detail="this design's file has been removed") from exc
+            await session.commit()
+            storage.put(copy, await image_work.run(design_preview, original), "image/webp")
+        return await images.send_stored(request, storage, key=copy, url_version=images.stamp(key), asked=v, size=None,
+                                        media_type="image/webp")
     return await images.send_stored(request, storage, key=key, url_version=images.stamp(key), asked=v, size=None,
                                     media_type="image/png")
 

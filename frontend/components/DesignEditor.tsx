@@ -148,13 +148,14 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
       source.current = ctx.getImageData(0, 0, c.width, c.height);
       setLoaded((n) => n + 1);
     };
-    img.src = api.mockupDesignFileUrl(design.id, file.version_id, file.stamp);
+    img.src = api.mockupDesignFileUrl(design.id, file.version_id, file.stamp, true);
   }, [design.id, file.version_id]);
   useEffect(() => {
     const src = source.current;
     const out = canvas.current;
     if (!src || !out) return;
-    const printed = printPixels(src, trim, previewRegions, adjust);
+    // The preview copy is at most 1200 px: its own trim box (the arithmetic above works in shares of the file).
+    const printed = printPixels(src, trimOn(file, src.width, src.height), previewRegions, adjust);
     out.width = printed.width;
     out.height = printed.height;
     out.getContext("2d")!.putImageData(new ImageData(printed.data, printed.width, printed.height), 0, 0);

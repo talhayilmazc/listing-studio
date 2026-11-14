@@ -108,7 +108,7 @@ test("every change reaches the mockups the same way, the results and the editor 
     assert.ok(tile.includes(`data-testid="${id}"`), id);
   }
   assert.match(tile, /printPixels\(src, trimOn\(file, src\.width, src\.height\), regions, adjust\)/);
-  assert.match(tile, /photoPoints\(quad, size\[0\], size\[1\], photo\.size, adjust\)/);
+  assert.ok(tile.includes('photoPoints(quad, size[0], size[1], photo.size, adjust, photo.align ?? "top")'));
   assert.match(api, /mockupOutputImageUrl: [^]*?query\(\{ size, v: stamp \}\)/); // query() encodes it
   assert.match(api, /req<MockupRun>\(`\/mockup-runs\/\$\{runId\}\/rerender`/);
 });

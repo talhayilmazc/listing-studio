@@ -759,9 +759,10 @@ export const api = {
   batchDesigns: (batchId: string) => req<MockupDesign[]>(`/batches/${batchId}/designs`),
   /** The design editor (backend api/mockup_edits.py): every edit is a render-time layer. */
   mockupEdits: (runId: string) => req<MockupEdits>(`/mockup-runs/${runId}/edits`),
-  /** A design file at full size (the editor's arithmetic needs its pixels); with its ``stamp`` the browser keeps it. */
-  mockupDesignFileUrl: (designId: string, versionId?: string | null, stamp?: string) =>
-    `${BASE}/mockup-designs/${designId}/file` + query({ version: versionId ?? undefined, v: stamp }),
+  /** A design file; with its ``stamp`` the browser keeps it. ``preview`` (the editor and the tiles, B2/B7): at most
+   * 1200 px with its transparency; the arithmetic works in shares of the file, so it places the same. */
+  mockupDesignFileUrl: (designId: string, versionId?: string | null, stamp?: string, preview = false) =>
+    `${BASE}/mockup-designs/${designId}/file` + query({ version: versionId ?? undefined, v: stamp, size: preview ? "preview" : undefined }),
   saveAdjustment: (row: MockupAdjustmentRow) =>
     req<MockupAdjustmentRow>("/mockup-adjustments", { method: "PUT", body: JSON.stringify(row) }),
   applyAdjustment: (body: { run_id: string; design_id: string; photo_id: string; area: number; before: unknown; after: unknown;

@@ -97,3 +97,23 @@ def test_the_editor_is_told_how_a_psd_design_starts() -> None:
     assert 'size=1.0 if p.psd else p.size, align="centre" if p.psd else "top"' in source
     # The run renders a PSD photo with the stored adjustment (it used to be left out).
     assert "placements[0][3])" in inspect.getsource(work.run)
+
+
+def test_the_editor_previews_a_design_at_most_1200_px_with_its_transparency() -> None:
+    """B2/B7: the editor and the tiles draw a small copy; the full file is for rendering only."""
+    import io
+
+    from PIL import Image
+
+    from app.api.mockup_edits import PREVIEW_SIDE, design_preview
+
+    big = Image.new("RGBA", (4000, 3000), (0, 0, 0, 0))
+    big.paste((200, 30, 30, 255), (1000, 1000, 3000, 2000))
+    buf = io.BytesIO()
+    big.save(buf, "PNG")
+    small = Image.open(io.BytesIO(design_preview(buf.getvalue())))
+    assert max(small.size) == PREVIEW_SIDE and small.size == (1200, 900)
+    assert small.mode == "RGBA" and small.getpixel((10, 10))[3] == 0 and small.getpixel((600, 450))[3] == 255
+    tiny = io.BytesIO()
+    Image.new("RGBA", (600, 400), (0, 0, 0, 0)).save(tiny, "PNG")
+    assert Image.open(io.BytesIO(design_preview(tiny.getvalue()))).size == (600, 400)  # never enlarged
