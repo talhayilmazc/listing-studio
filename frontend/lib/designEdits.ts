@@ -107,20 +107,24 @@ export function compose(base: Partial<Adjust> | null, change: Adjust): Adjust | 
 
 const dist = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
+/** How a design sits before any adjustment: "top" (a photo's print area) or "centre" (a PSD's smart object). */
+export type Align = "top" | "centre";
+
 /** The automatic fit (mockups.place): [u0, v0, du, dv, areaW, areaH]. */
-export function fitBox(area: Quad, dw: number, dh: number, size: number): [number, number, number, number, number, number] {
+export function fitBox(area: Quad, dw: number, dh: number, size: number, align: Align = "top"): [number, number, number, number, number, number] {
   const [tl, tr, br, bl] = area;
   const areaW = (dist(tl, tr) + dist(bl, br)) / 2;
   const areaH = (dist(tl, bl) + dist(tr, br)) / 2;
   const scale = Math.min(areaW / dw, areaH / dh) * size;
   const du = (dw * scale) / areaW;
   const dv = (dh * scale) / areaH;
-  return [(1 - du) / 2, 0, du, dv, areaW, areaH];
+  return [(1 - du) / 2, align === "centre" ? (1 - dv) / 2 : 0, du, dv, areaW, areaH];
 }
 
 /** The design's corners (TL, TR, BR, BL) in the area's unit square, after the adjustment. */
-export function unitPoints(area: Quad, dw: number, dh: number, size: number, adjust: Partial<Adjust> | null): Pt[] {
-  const [u0, v0, du, dv, areaW, areaH] = fitBox(area, dw, dh, size);
+export function unitPoints(area: Quad, dw: number, dh: number, size: number, adjust: Partial<Adjust> | null,
+  align: Align = "top"): Pt[] {
+  const [u0, v0, du, dv, areaW, areaH] = fitBox(area, dw, dh, size, align);
   const a = full(adjust);
   const cu = u0 + du / 2 + a.dx;
   const cv = v0 + dv / 2 + a.dy;
@@ -138,9 +142,17 @@ export function unitPoints(area: Quad, dw: number, dh: number, size: number, adj
 }
 
 /** The design's corners in photo pixels (the unit points through the area's perspective). */
-export function photoPoints(area: Quad, dw: number, dh: number, size: number, adjust: Partial<Adjust> | null): Quad {
+export function photoPoints(area: Quad, dw: number, dh: number, size: number, adjust: Partial<Adjust> | null,
+  align: Align = "top"): Quad {
   const h = homography([[0, 0], [1, 0], [1, 1], [0, 1]], area);
-  return unitPoints(area, dw, dh, size, adjust).map((p) => apply(h, p)) as Quad;
+  return unitPoints(area, dw, dh, size, adjust, align).map((p) => apply(h, p)) as Quad;
+}
+
+/** "Centre": the design's middle on the area's middle, its size, turn and look kept (design_edits.centred). */
+export function centred(area: Quad, dw: number, dh: number, size: number, adjust: Partial<Adjust> | null,
+  align: Align = "top"): Adjust {
+  const [, v0, , dv] = fitBox(area, dw, dh, size, align);
+  return { ...full(adjust), dx: 0, dy: 0.5 - (v0 + dv / 2) };
 }
 
 /** The unit-square point of a photo point (to turn a drag into an adjustment). */

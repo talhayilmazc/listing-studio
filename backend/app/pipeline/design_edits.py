@@ -133,22 +133,24 @@ def _square_to_quad(q: list[Point]) -> list[list[float]]:
     return sq(q)
 
 
-def fit_box(corners_px: list[Point], design_size: tuple[int, int], size: float) -> tuple[float, float, float, float, float, float]:
+def fit_box(corners_px: list[Point], design_size: tuple[int, int], size: float,
+            align: str = "top") -> tuple[float, float, float, float, float, float]:
     """The automatic fit (pipeline/mockups.py ``place``): (u0, v0, du, dv) in the area's unit
-    square, and the area's width and height in pixels."""
+    square, and the area's width and height in pixels. ``align``: "top" (a photo's print area: the
+    design hangs from the collar) or "centre" (a PSD's smart object: centred, as Photoshop places it)."""
     tl, tr, br, bl = corners_px
     area_w = (math.dist(tl, tr) + math.dist(bl, br)) / 2
     area_h = (math.dist(tl, bl) + math.dist(tr, br)) / 2
     dw, dh = design_size
     scale = min(area_w / dw, area_h / dh) * size
     du, dv = dw * scale / area_w, dh * scale / area_h
-    return (1 - du) / 2, 0.0, du, dv, area_w, area_h
+    return (1 - du) / 2, (1 - dv) / 2 if align == "centre" else 0.0, du, dv, area_w, area_h
 
 
 def unit_points(corners_px: list[Point], design_size: tuple[int, int], size: float,
-                adjust: dict[str, Any] | None) -> list[Point]:
+                adjust: dict[str, Any] | None, align: str = "top") -> list[Point]:
     """The design's corners (TL, TR, BR, BL) in the area's unit square, after the adjustment."""
-    u0, v0, du, dv, area_w, area_h = fit_box(corners_px, design_size, size)
+    u0, v0, du, dv, area_w, area_h = fit_box(corners_px, design_size, size, align)
     a = full(adjust)
     cu, cv = u0 + du / 2 + float(a["dx"]), v0 + dv / 2 + float(a["dy"])
     hw = du * area_w / 2 * float(a["scale"]) * float(a["sx"])
@@ -166,12 +168,21 @@ def unit_points(corners_px: list[Point], design_size: tuple[int, int], size: flo
 
 
 def photo_points(corners_px: list[Point], design_size: tuple[int, int], size: float,
-                 adjust: dict[str, Any] | None) -> list[Point]:
+                 adjust: dict[str, Any] | None, align: str = "top") -> list[Point]:
     """The design's corners in photo pixels: the unit points through the area's perspective."""
     from app.pipeline.mockups import apply
 
     h = _square_to_quad(list(corners_px))
-    return [apply(h, u, v) for u, v in unit_points(corners_px, design_size, size, adjust)]
+    return [apply(h, u, v) for u, v in unit_points(corners_px, design_size, size, adjust, align)]
+
+
+def centred(corners_px: list[Point], design_size: tuple[int, int], size: float, adjust: dict[str, Any] | None,
+            align: str = "top") -> dict[str, Any] | None:
+    """The "Centre" button: the adjustment with the design's middle on the area's middle (size, turn, look kept)."""
+    _, v0, _, dv, _, _ = fit_box(corners_px, design_size, size, align)
+    a = full(adjust)
+    a["dx"], a["dy"] = 0.0, 0.5 - (v0 + dv / 2)
+    return clean(a)
 
 
 # --- the look -----------------------------------------------------------------------------------

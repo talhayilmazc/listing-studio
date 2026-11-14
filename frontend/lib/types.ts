@@ -459,7 +459,9 @@ export interface MockupOutput {
 export interface MockupEdits {
   run_id: string;
   photos: { id: string; template_id: string; name: string; width: number; height: number; size: number;
-    areas: { print_area: number[][]; subgroup: string | null }[] }[];
+    areas: { print_area: number[][]; subgroup: string | null }[];
+    /** "centre" for a Photoshop mockup's smart object (its design fills the canvas, size 1); else "top". */
+    align?: "top" | "centre"; psd?: boolean }[];
   designs: { id: string; original_filename: string; sku: string | null;
     files: { version_id: string | null; subgroup: string | null; filename: string; width: number; height: number;
       trim: number[] | null; trim_size: number[] | null; stamp?: string }[] }[];

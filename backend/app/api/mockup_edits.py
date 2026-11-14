@@ -156,6 +156,10 @@ class EditPhoto(BaseModel):
     height: int
     size: float
     areas: list[EditArea]
+    #: How the design sits before any adjustment: "top" (a photo's print area) or "centre" (a Photoshop
+    #: mockup's smart object, where it fills the canvas as Photoshop places it: ``size`` 1).
+    align: str = "top"
+    psd: bool = False
 
 
 class EditsOut(BaseModel):
@@ -211,7 +215,8 @@ async def get_edits(
     return EditsOut(
         run_id=run.id,
         photos=[EditPhoto(
-            id=p.id, template_id=p.template_id, name=p.name, width=p.width or 1, height=p.height or 1, size=p.size,
+            id=p.id, template_id=p.template_id, name=p.name, width=p.width or 1, height=p.height or 1,
+            size=1.0 if p.psd else p.size, align="centre" if p.psd else "top", psd=bool(p.psd),
             areas=[EditArea(print_area=a, subgroup=n) for a, n in zip(
                 work.photo_print_areas(p), work.area_subgroup_names(p, groups.get(p.template_id, [])))],
         ) for p in photos],

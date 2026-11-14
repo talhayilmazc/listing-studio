@@ -13,6 +13,7 @@ import {
   type Adjust,
   type ApplyScope,
   type Region,
+  centred,
   clean,
   fileFor,
   full,
@@ -159,7 +160,9 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
     out.getContext("2d")!.putImageData(new ImageData(printed.data, printed.width, printed.height), 0, 0);
   }, [loaded, previewRegions, adjust.opacity, adjust.brightness, adjust.contrast, tw, th]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const points = photoPoints(areaPx, tw, th, photo.size, adjust);
+  // A Photoshop mockup's design starts centred in its smart object, filling it (B1); a photo's hangs from the collar.
+  const align = photo.align ?? "top";
+  const points = photoPoints(areaPx, tw, th, photo.size, adjust, align);
   const centre: Pt = [points.reduce((s, p) => s + p[0], 0) / 4, points.reduce((s, p) => s + p[1], 0) / 4];
   const handle: Pt = (() => {
     const top: Pt = [(points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2];
@@ -435,9 +438,13 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
                 onClick={() => setFree(!free)} data-testid="design-editor-free">
                 Free corners
               </button>
-              <button type="button" className="btn-secondary col-span-2 min-h-11" onClick={() => { setAdjust({ ...NEUTRAL }); setFree(false); }}
+              <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setAdjust(centred(areaPx, tw, th, photo.size, adjust, align))}
+                data-testid="design-editor-centre">
+                Centre
+              </button>
+              <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => { setAdjust({ ...NEUTRAL }); setFree(false); }}
                 data-testid="design-editor-reset">
-                Reset to the automatic fit
+                Reset
               </button>
             </div>
             <p className="text-xs text-slate-500">

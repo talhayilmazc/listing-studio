@@ -290,8 +290,9 @@ def load_template(storage: Any, photo: Any) -> Loaded:
     return Loaded(psd_template.spec_from(data, overlays), base, mask)
 
 
-def render_design(loaded: Loaded, design: Any, quality: int = 92) -> bytes:
-    """One design (a pyvips image, sRGB + alpha, as the mockup run loads it) on a PSD template, as JPEG."""
+def render_design(loaded: Loaded, design: Any, quality: int = 92, adjust: dict[str, Any] | None = None) -> bytes:
+    """One design (a pyvips image, sRGB + alpha, as the mockup run loads it) on a PSD template, as JPEG, at the
+    seller's placement inside the smart object (``adjust``, feature/mockups-editor B1)."""
     import io
 
     import numpy as np
@@ -305,6 +306,6 @@ def render_design(loaded: Loaded, design: Any, quality: int = 92) -> bytes:
     image = image.cast("uchar")
     rgba = np.ndarray(buffer=image.write_to_memory(), dtype=np.uint8, shape=[image.height, image.width, image.bands])
     out = io.BytesIO()
-    Image.fromarray(psd_template.render(loaded.spec, loaded.base, rgba[..., :4], loaded.mask), "RGB").save(
+    Image.fromarray(psd_template.render(loaded.spec, loaded.base, rgba[..., :4], loaded.mask, adjust), "RGB").save(
         out, "JPEG", quality=quality, subsampling=0)
     return out.getvalue()

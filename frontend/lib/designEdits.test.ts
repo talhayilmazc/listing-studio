@@ -16,6 +16,7 @@ import {
   delta,
   lookPixels,
   photoPoints,
+  centred,
   recolourPixels,
   regionMask,
   unitPoints,
@@ -29,11 +30,16 @@ const close = (a: number, b: number, eps = 1e-3) => assert.ok(Math.abs(a - b) <=
 test("the design's corners match the server for every adjustment (moved, scaled, stretched, turned, free corners)", () => {
   assert.ok(cases.points.length >= 7);
   for (const c of cases.points) {
-    const unit = unitPoints(c.quad as Quad, c.design[0], c.design[1], c.size, c.adjust);
+    // A photo's print area hangs the design from the top; a PSD's smart object centres it (B1).
+    const unit = unitPoints(c.quad as Quad, c.design[0], c.design[1], c.size, c.adjust, c.align);
     unit.forEach((p, i) => { close(p[0], c.unit[i][0], 1e-5); close(p[1], c.unit[i][1], 1e-5); });
-    const photo = photoPoints(c.quad as Quad, c.design[0], c.design[1], c.size, c.adjust);
+    const photo = photoPoints(c.quad as Quad, c.design[0], c.design[1], c.size, c.adjust, c.align);
     photo.forEach((p, i) => { close(p[0], c.photo[i][0], 1e-2); close(p[1], c.photo[i][1], 1e-2); });
+    // Centre: the same adjustment on both sides.
+    const mid = centred(c.quad as Quad, c.design[0], c.design[1], c.size, c.adjust, c.align);
+    for (const key of ["dx", "dy", "scale", "angle"] as const) close(mid[key], c.centred[key], 1e-4); // the server stores 5 decimals
   }
+  assert.ok(cases.points.some((c: { align: string }) => c.align === "centre"));
 });
 
 test("no adjustment is the automatic fit the editor already draws", () => {

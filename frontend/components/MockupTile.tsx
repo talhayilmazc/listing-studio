@@ -164,7 +164,7 @@ function AreaPrint({ edits, design, photo, area, scale }: {
     };
   }, [design.id, file.version_id, JSON.stringify(regions), adjust.opacity, adjust.brightness, adjust.contrast]); // eslint-disable-line react-hooks/exhaustive-deps
   const quad = a.print_area.map(([x, y]) => [x * photo.width, y * photo.height]) as Quad;
-  const points = size ? photoPoints(quad, size[0], size[1], photo.size, adjust) : null;
+  const points = size ? photoPoints(quad, size[0], size[1], photo.size, adjust, photo.align ?? "top") : null;
   const screen = points ? (points.map(([x, y]) => [x * scale, y * scale]) as Quad) : null;
   return (
     <canvas ref={canvas} aria-hidden className="pointer-events-none absolute left-0 top-0 max-w-none"

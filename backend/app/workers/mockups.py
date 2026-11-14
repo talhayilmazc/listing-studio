@@ -791,8 +791,9 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                 await session.commit()
                 try:
                     if photo.psd:
-                        # One smart object: the first placement's design goes in it (adjustments are not applied).
-                        jpeg = await image_work.run(psd_work.render_design, maps, placements[0][0])
+                        # One smart object: the first placement's design goes in it, at the seller's placement inside it (B1).
+                        jpeg = await image_work.run(psd_work.render_design, maps, placements[0][0], mockups.JPEG_QUALITY,
+                                                    placements[0][3])
                     else:
                         jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
                 except mockups.MockupError as exc:
