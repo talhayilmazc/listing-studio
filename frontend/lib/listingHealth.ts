@@ -1,27 +1,27 @@
 /**
- * Listing health's words: what each check is and whose rule it is. The verdicts come from the server
- * (backend/app/pipeline/listing_health.py), never from here. A rule is either Etsy's, with the words quoted
- * and the page that states them (docs/guide-sources.md), or ours, and it says so. Nothing here predicts how
- * a listing will do: Etsy publishes no such figure.
+ * Listing health's words (docs/listing-health.md). The buckets and the problems come from the server
+ * (backend/app/pipeline/listing_health.py), never from here: this file only names them and says whose rule each is.
+ * A rule is Etsy's, with the words quoted and the page that states them (docs/guide-sources.md), or ours, and it says
+ * so. Nothing on this page is a grade, and nothing predicts how a listing will do.
  */
-import type { Rule } from "./freeTools/check.ts";
-import { TAG_RULES } from "./freeTools/tagCheck.ts";
-import { TITLE_RULES } from "./freeTools/titleCheck.ts";
 import { READ } from "./marketing/sources.ts";
+import type { Source } from "./marketing/content.ts";
 
-export type Verdict = "pass" | "fail" | "warn" | "note";
+export type Bucket = "fix_now" | "worth_improving" | "selling" | "too_new" | "nothing_to_fix" | "not_judged";
+export type Show = "to_do" | "all" | Bucket;
 
-export type HealthCheck = { id: string; kind: "etsy" | "advice"; verdict: Verdict; detail: string };
+export type HealthProblem = { id: string; kind: "etsy" | "advice"; level: "fix_now" | "worth_improving"; sentence: string; fixes: string[] };
 
 export type HealthListing = {
-  listing_id: number; title: string; url: string; image: string | null; tags: string[]; score: number; to_fix: number;
-  checks: HealthCheck[]; brands: string[]; attributes_read: boolean;
+  listing_id: number; title: string; url: string; image: string | null; tags: string[]; state: string; bucket: Bucket;
+  problems: HealthProblem[]; suggestions: HealthProblem[]; note: string | null; brands: string[];
+  recent_sales: number; past_sales: number; favourites: number; attributes_read: boolean;
   profile_id: string | null; profile_name: string | null; profile_unclear: boolean;
 };
 
 export type HealthPage = {
-  connection_id: string | null; shop_name: string | null; reading: boolean; total: number; average: number | null;
-  needs_work: number; page: number; pages: number; listings: HealthListing[];
+  connection_id: string | null; shop_name: string | null; reading: boolean; total: number; counts: Partial<Record<Bucket, number>>;
+  sales_known: boolean; selling_days: number; new_days: number; show: Show; page: number; pages: number; listings: HealthListing[];
   max_per_approval: number; undo_days: number; rewrite_rule: string;
 };
 
@@ -35,40 +35,70 @@ export type Fix = {
 export type PreviewAnswer = { fixes: Fix[]; skipped: { listing_id: number; title: string; reason: string }[]; still_reading: number[] };
 export type RewriteCheck = { rule: string; free: number; counted: number; remaining: number; fits: boolean };
 
-/** Not one of ours to apply on its own, so the buttons never run it without saying the rule first. */
+/** The three figures at the top, and the quieter ones beside them. Counts of listings, never a grade. */
+export const BUCKETS: { bucket: Bucket; label: string; about: string; tone: "failed" | "attention" | "done" | "neutral" }[] = [
+  { bucket: "fix_now", label: "Fix now", about: "Real problems: a brand name, something Etsy rejects, no main photo, a required attribute, a listing that stopped selling.", tone: "failed" },
+  { bucket: "worth_improving", label: "Worth improving", about: "No sale in the selling window, and something we can fix with one click.", tone: "attention" },
+  { bucket: "selling", label: "Selling", about: "A sale in the selling window. Left as it is.", tone: "done" },
+  { bucket: "too_new", label: "Too new to judge", about: "Younger than the new-listing window, with no sale yet.", tone: "neutral" },
+  { bucket: "nothing_to_fix", label: "Nothing to fix", about: "No sale, and nothing we can fix with one click.", tone: "neutral" },
+  { bucket: "not_judged", label: "Sales not read yet", about: "Without your sales we cannot tell what sells, so no title or tag change is suggested.", tone: "neutral" },
+];
+export const MAIN_BUCKETS: Bucket[] = ["fix_now", "worth_improving", "selling"];
+export const bucketOf = (bucket: Bucket) => BUCKETS.find((b) => b.bucket === bucket)!;
+
+export const SELLING_NOTE = "Changing the title or tags of a selling listing can lower its search position.";
+export const SAID_FIRST = "Listings that sell are left alone. Real problems come first, then listings that have not sold lately and that we can improve with one click. It does not predict how Etsy ranks your listing.";
+
+type Rule = { name: string } & ({ kind: "etsy"; quote: string; source: Source } | { kind: "advice"; why: string });
+
+/** Every problem the server can name. Etsy's are quoted from a page we read (docs/guide-sources.md). */
+export const PROBLEMS: Record<string, Rule> = {
+  brand: { name: "Brand or character name", kind: "advice", why: "We look for names on our own list in any form. The warning is the app's; the decision is yours." },
+  title_rejected: { name: "Title Etsy does not accept", kind: "etsy", quote: "A listing's title can be up to 140 characters long.", source: READ.createListing },
+  tags_rejected: { name: "Tags Etsy does not accept", kind: "etsy", quote: "Each tag can contain up to 20 characters. Tags can only include spaces, letters, numbers. You're able to use ' and - within words and phrases, but cannot start your tag with these characters.", source: READ.tags },
+  main_photo: { name: "No main photo", kind: "etsy", quote: "Make your first listing photo the clearest, most realistic representation of the item buyers will receive.", source: READ.imageHelp },
+  required_attribute: { name: "Required attribute empty", kind: "etsy", quote: "Fill out both attributes and tags for your listings to make sure potential buyers find and see your items on Etsy.", source: READ.attributes },
+  stopped_selling: { name: "Stopped selling", kind: "etsy", quote: "If an item has been purchased or its listing has expired, you can start selling it again by renewing the listing.", source: READ.renew },
+  stray_characters: { name: "Stray characters", kind: "advice", why: "Invisible characters or leftover code characters (such as }] at the end of a sentence) show up as junk to buyers." },
+  tags_missing: { name: "Tags left unused", kind: "etsy", quote: "You can use up to 13 tags per listing.", source: READ.tags },
+  attributes_missing: { name: "Attributes left empty", kind: "etsy", quote: "Attributes can also help buyers find your items more easily in search results.", source: READ.attributes },
+  title_guidance: { name: "Title against the search guidance", kind: "etsy", quote: "Consider using less than 15 words when including the traits that make your item special.", source: READ.createListing },
+  dated_tags: { name: "Tags for a holiday that has passed", kind: "advice", why: "A tag such as \"christmas 2024\" describes a season that is over. Only suggested for listings that are not selling." },
+  seasonal: { name: "Seasonal", kind: "advice", why: "The season planner schedules seasonal listings before their holiday. Our advice, only for listings that are not selling." },
+};
+
+/** What each fix does. "edit" and "season_planner" are links; the others make a preview first. */
 export const FIX_KINDS = [
   { kind: "tags", label: "Add missing tags", about: "From the tags on your profile's reference listing. Your tags stay." },
   { kind: "attributes", label: "Fill attributes", about: "From your profile's reference listing, in the same category. A filled one is never changed." },
-  { kind: "rewrite", label: "Rewrite title and tags", about: "Written by AI, from this listing's own text and the rules above. Uses your allowance." },
-  { kind: "clean_text", label: "Remove stray characters", about: "The same words without invisible or leftover code characters. You see the cleaned text before anything changes. Uses no allowance." },
+  { kind: "fix_tags", label: "Fix tags Etsy rejects", about: "Only what Etsy rejects changes: a tag too long or with characters Etsy does not take. Uses no allowance." },
+  { kind: "rewrite", label: "Rewrite title and tags", about: "Written by AI, from this listing's own text. Uses your allowance." },
+  { kind: "clean_text", label: "Remove stray characters", about: "The same words without invisible or leftover code characters. Uses no allowance." },
 ] as const;
+export const PREVIEW_KINDS = FIX_KINDS.map((f) => f.kind as string);
 
-const fromTools = (rules: Rule[], prefix: string, ids: Record<string, string>): Record<string, Rule> =>
-  Object.fromEntries(rules.map((rule) => [ids[rule.id] ?? `${prefix}${rule.id}`, rule]));
+/** The previews a listing's own problems offer, in the order above. Nothing else is offered for it. */
+export function fixesFor(listing: Pick<HealthListing, "problems">): string[] {
+  const offered = new Set(listing.problems.flatMap((p) => p.fixes));
+  return PREVIEW_KINDS.filter((k) => offered.has(k));
+}
 
-export const RULES: Record<string, Rule> = {
-  ...fromTools(TITLE_RULES, "title_", { item_first: "item_first", repeats: "repeats", subjective: "subjective", commerce: "commerce", gift: "gift", shorter: "shorter" }),
-  ...fromTools(TAG_RULES, "tag_", { duplicates: "tag_duplicates", title_words: "tag_title_words", phrases: "tag_phrases", all: "tag_all" }),
-  attributes: { id: "attributes", name: "Attributes filled", kind: "etsy", quote: "Fill out both attributes and tags for your listings to make sure potential buyers find and see your items on Etsy.", source: READ.attributes },
-  materials: { id: "materials", name: "Materials listed", kind: "advice", why: "A buyer of clothes wants to know what it is made of. We read the listing's own field and never make one up." },
-  photos: { id: "photos", name: "At least 5 photos", kind: "advice", why: "Our rule of thumb: several views of the item answer questions before they are asked." },
-  description: { id: "description", name: "A description with some length", kind: "advice", why: "Our rule of thumb is at least 160 characters, enough to say what it is, what it is made of and how it fits." },
-  section: { id: "section", name: "In a shop section", kind: "advice", why: "Sections help a buyer browse your shop." },
-  stray_characters: { id: "stray_characters", name: "Fix now: no stray characters", kind: "advice", why: "Invisible characters or leftover code characters (such as }] at the end of a sentence) show up as junk to buyers. Remove stray characters fixes them after you see the cleaned text." },
-  personalization: { id: "personalization", name: "Personalization asks for what the title promises", kind: "advice", why: "If the title says personalized, the listing should ask the buyer what to put on it." },
-  brand: { id: "brand", name: "No brand or character names", kind: "advice", why: "We look for names on our own list in any form. The warning is the app's; the decision is yours." },
+/** A Shop Manager link or the season planner, when a problem asks for one. */
+export const links = (listing: Pick<HealthListing, "problems" | "suggestions">) => {
+  const all = [...listing.problems, ...listing.suggestions].flatMap((p) => p.fixes);
+  return { edit: all.includes("edit"), seasonPlanner: all.includes("season_planner") };
 };
 
-export const VERDICT_WORDS: Record<Verdict, string> = { pass: "Fine", fail: "Fix this", warn: "Worth a look", note: "Your call" };
-export const VERDICT_TONE = { pass: "done", fail: "failed", warn: "attention", note: "neutral" } as const;
-export const KIND_WORDS = { etsy: "Etsy's rule", advice: "Our advice" } as const;
-
-export const SAID_FIRST = "A tidy-up list against Etsy's published rules and our own advice. It does not predict how Etsy ranks your listing.";
-
-/** The worst of what the listing needs, for the seller's eye. */
-export const scoreTone = (score: number): "done" | "attention" | "failed" => (score >= 90 ? "done" : score >= 70 ? "attention" : "failed");
-
-export const toLookAt = (listing: HealthListing): HealthCheck[] => listing.checks.filter((c) => c.verdict === "fail" || c.verdict === "warn");
+/** Sales and favourites, as facts about the listing: never a grade. */
+export function factsLine(listing: Pick<HealthListing, "recent_sales" | "past_sales" | "favourites">, sellingDays: number): string {
+  const parts = [];
+  if (listing.recent_sales) parts.push(`${listing.recent_sales} sold in the last ${sellingDays} days`);
+  else if (listing.past_sales) parts.push(`${listing.past_sales} sold in the past year`);
+  else parts.push("no sales in the past year");
+  if (listing.favourites) parts.push(`${listing.favourites} favourite${listing.favourites === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
 
 /** Selecting more than one approval may hold keeps the first ones, and says so. */
 export function withinCap(ids: number[], cap: number): { ids: number[]; left: number } {
@@ -124,8 +154,8 @@ export function approvalSentence(count: number, undoDays: number): string {
 
 export function rewriteSentence(check: RewriteCheck): string {
   const parts = [];
-  if (check.free) parts.push(`${check.free} free`);
-  if (check.counted) parts.push(`${check.counted} counted as listing${check.counted === 1 ? "" : "s"} generated`);
+  if (check.free) parts.push(`${check.free} already counted, so free`);
+  if (check.counted) parts.push(`${check.counted} counted as listing${check.counted === 1 ? "" : "s"}`);
   const here = parts.length ? `For these: ${parts.join(", ")}.` : "";
   return check.fits ? here : `${here} You have ${check.remaining} left this period, so this will not run. Choose fewer.`;
 }

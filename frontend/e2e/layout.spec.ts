@@ -217,6 +217,35 @@ test.describe("signed in", () => {
     }
   });
 
+  test("Listing health: three counts, Fix now first, a selling listing left alone, nothing that reads as a grade", async ({ page }) => {
+    await page.goto("/listing-health");
+    await settle(page);
+    const counts = page.getByTestId("health-counts");
+    await expect(counts).toBeVisible({ timeout: 30_000 });
+    for (const bucket of ["fix_now", "worth_improving", "selling"]) await expect(page.getByTestId(`health-count-${bucket}`)).toContainText(/\d+ listings?/);
+    const main = page.locator("main");
+    expect(await main.innerText(), "no percentage or score on the page").not.toMatch(/\d+\s?%|\bscore\b|checks met/i);
+    // To do: Fix now first, then Worth improving; never a selling listing without a Fix now risk.
+    const rows = page.getByTestId("health-row");
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+    const buckets = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-bucket")));
+    expect(buckets.length).toBeGreaterThan(0);
+    expect(buckets[0]).toBe("fix_now");
+    expect(buckets.indexOf("worth_improving") === -1 || buckets.lastIndexOf("fix_now") < buckets.indexOf("worth_improving")).toBe(true);
+    expect(buckets.every((b) => b === "fix_now" || b === "worth_improving")).toBe(true);
+    await expect(page.getByTestId("health-problems").first()).toContainText("Fix now:");
+    await expectSound(page, "/listing-health (to do)");
+    // Selling: the note, and no title or tag fix offered.
+    await page.getByTestId("health-count-selling").click();
+    await settle(page);
+    const selling = page.locator('[data-testid="health-row"][data-bucket="selling"]');
+    await expect(selling.first()).toBeVisible({ timeout: 15_000 });
+    await expect(selling.first().getByTestId("health-note")).toHaveText("Changing the title or tags of a selling listing can lower its search position.");
+    await expect(selling.getByRole("button", { name: /Rewrite title and tags|Add missing tags/ })).toHaveCount(0);
+    await expect(page.locator('[data-testid="health-row"]:not([data-bucket="selling"])')).toHaveCount(0);
+    await expectSound(page, "/listing-health (selling)");
+  });
+
   test("the print-area editor fits the screen, its controls are 44 px and nothing scrolls sideways", async ({ page }) => {
     await page.goto("/mockups/templates");
     await settle(page);
