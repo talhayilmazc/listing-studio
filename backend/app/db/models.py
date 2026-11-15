@@ -397,7 +397,7 @@ class BrandKept(Base):
         ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
     )
     listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    #: The name as our list writes it ("Disney"); compared without case.
+    #: The name as our trademark list writes it (compliance/trademarks.txt); compared without case.
     brand: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
