@@ -44,6 +44,7 @@ from app.db.models import (
     UsageEvent,
     ContentVersion,
     DraftAttempt,
+    BrandKept,
     DraftDismissal,
     EtsyConnection,
     InviteRequest,
@@ -249,6 +250,7 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
     await session.execute(delete(LedgerDaily).where(LedgerDaily.connection_id == connection_id))
     await session.execute(delete(DraftAttempt).where(DraftAttempt.connection_id == connection_id))
     await session.execute(delete(DraftDismissal).where(DraftDismissal.connection_id == connection_id))
+    await session.execute(delete(BrandKept).where(BrandKept.connection_id == connection_id))
     await session.execute(delete(LedgerSync).where(LedgerSync.connection_id == connection_id))
     # Imported statements and Ads reports, and the order lines: the shop's, so they go with it.
     for table in (SaleLine, AdsDaily, AdCharge, StatementImport, StatementOrder, StatementListingFee):

@@ -129,6 +129,25 @@ async def _shop_rows(
     return list(rows.scalars())
 
 
+async def sync_if_stale(
+    redis: Redis, enqueuer: Enqueuer, connection: EtsyConnection, cached: list[ShopListingCache]
+) -> tuple[bool, shop_sync.SyncState]:
+    """Is the shop's six-hour copy stale, and is a sync on its way? Queues the shop's listing sync when it is
+    stale: every page that shows the shop's listings asks the same way (this page, Listing health)."""
+    newest = max((c.fetched_at for c in cached), default=None)
+    sync = await shop_sync.state(redis, connection.id)
+    # A shop read in the last six hours is current even with no listings to cache (an empty shop was
+    # "stale" forever: "0 · syncing…" for good, and a sync asked for on every look).
+    stale = _is_stale(max((t for t in (newest, sync.synced_at) if t is not None), default=None))
+    if stale and not sync.syncing and (job_id := await shop_sync.try_now(redis, connection.id)):
+        # One at a time per shop, however many pages ask while it is stale, and at most one try per ten
+        # minutes: a sync that fails is not asked again (and every page reloaded) on each look.
+        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=job_id)
+        await shop_sync.requested(redis, connection.id)
+        sync = await shop_sync.state(redis, connection.id)
+    return stale, sync
+
+
 @router.get("/listings", response_model=schemas.ShopListingsOut)
 async def list_shop_listings(
     shop: uuid.UUID | None = None,
@@ -143,17 +162,7 @@ async def list_shop_listings(
     if connection is None:
         return schemas.ShopListingsOut(listings=[], stale=False)
     cached = await _shop_rows(session, tenant, connection)
-    newest = max((c.fetched_at for c in cached), default=None)
-    sync = await shop_sync.state(redis, connection.id)
-    # A shop read in the last six hours is current even with no listings to cache (an empty shop was
-    # "stale" forever: "0 · syncing…" for good, and a sync asked for on every look).
-    stale = _is_stale(max((t for t in (newest, sync.synced_at) if t is not None), default=None))
-    if stale and not sync.syncing and (job_id := await shop_sync.try_now(redis, connection.id)):
-        # One at a time per shop, however many pages ask while it is stale, and at most one try per ten
-        # minutes: a sync that fails is not asked again (and every page reloaded) on each look.
-        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=job_id)
-        await shop_sync.requested(redis, connection.id)
-        sync = await shop_sync.state(redis, connection.id)
+    stale, sync = await sync_if_stale(redis, enqueuer, connection, cached)
     # Expired rows are never shown (CLAUDE.md: past its age, listing content is
     # re-fetched, not displayed). The retention job deletes them; this filter
     # covers the minutes between a row expiring and the next sweep.

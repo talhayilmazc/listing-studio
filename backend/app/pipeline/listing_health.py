@@ -44,6 +44,10 @@ BUCKETS = (FIX_NOW, IMPROVE, SELLING, TOO_NEW, NOTHING, NOT_JUDGED)
 EDIT, SEASON_PLANNER = "edit", "season_planner"
 
 SELLING_NOTE = "Changing the title or tags of a selling listing can lower its search position."
+#: Said on a listing whose every brand name the seller kept ("Keep it, I know the risk").
+KEPT_NOTE = "Brand name kept by you."
+#: The action that keeps a brand name: only the brand problem offers it, never another Fix now kind.
+KEEP_BRAND = "keep_brand"
 NOT_JUDGED_NOTE = ("Your sales have not been read yet, so we cannot tell which listings sell. Until they are, "
                    "we suggest no title or tag changes. Reports reads them.")
 #: States a listing is in when buyers cannot buy it, and it may have sold before.
@@ -82,6 +86,8 @@ class Verdict:
     #: Quiet pointers that move no listing into a bucket (a seasonal listing and the season planner).
     suggestions: list[Problem] = field(default_factory=list)
     brands: list[str] = field(default_factory=list)
+    #: Brand names on the listing the seller chose to keep: no longer a Fix now problem.
+    kept_brands: list[str] = field(default_factory=list)
     recent_units: int = 0
     past_units: int = 0
     favourites: int = 0
@@ -240,15 +246,31 @@ def _filled(properties: list[dict[str, Any]]) -> set[int]:
     return {int(p["property_id"]) for p in properties if p.get("property_id") is not None and (p.get("value_ids") or p.get("values"))}
 
 
+def brands_in(listing: dict[str, Any]) -> list[str]:
+    """The listed brand names in a listing's title and tags, in any form, as our list writes them, once each."""
+    spotted = trademarks.all_marks()
+    texts = [decode_etsy_text(listing.get("title")) or "", *(decode_etsy_text(t) or "" for t in listing.get("tags") or [])]
+    return list(dict.fromkeys(s.term for text in texts for s in spotted.spot(text)))
+
+
+def brand_sentence(brands: list[str]) -> str:
+    """Plain and factual, no legal advice beyond it."""
+    if len(brands) == 1:
+        return f"Uses the name '{brands[0]}', a trademark of another company. Etsy can remove listings like this and may restrict the shop."
+    names = ", ".join(f"'{b}'" for b in brands[:-1]) + f" and '{brands[-1]}'"
+    return f"Uses the names {names}, trademarks of other companies. Etsy can remove listings like this and may restrict the shop."
+
+
 def _sold(n: int) -> str:
     return f"{n} sale{'' if n == 1 else 's'}"
 
 
 def fix_now_problems(
     listing: dict[str, Any], *, properties: list[dict[str, Any]] | None, required: list[dict[str, Any]] | None,
-    reference_attributes: list[dict[str, Any]] | None, past_units: int,
+    reference_attributes: list[dict[str, Any]] | None, past_units: int, kept_brands: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[Problem], list[str]]:
-    """The real problems, and the brand names found. Each is either Etsy's (a limit it states or rejects) or a risk."""
+    """The real problems, and the brand names found. Each is either Etsy's (a limit it states or rejects) or a risk.
+    ``kept_brands`` (folded): names the seller kept on this listing; only a name not among them is a problem."""
     title = decode_etsy_text(listing.get("title")) or ""
     tags = [decode_etsy_text(t) or "" for t in listing.get("tags") or []]
     description = decode_etsy_text(listing.get("description")) or ""
@@ -261,10 +283,10 @@ def fix_now_problems(
             "sold_out": f"It is sold out. It made {_sold(past_units)} in the past year; renewing it in Shop Manager lets you sell it again.",
         }[state]
         out.append(Problem("stopped_selling", ETSY, FIX_NOW, sentence, (EDIT,)))
-    spotted = trademarks.all_marks()
-    brands = list(dict.fromkeys(s.term for text in (title, *tags) for s in spotted.spot(text)))
-    if brands:
-        out.append(Problem("brand", ADVICE, FIX_NOW, " ".join(trademarks.BRAND_WARNING.format(brand=b) for b in brands), ("rewrite", EDIT)))
+    brands = brands_in(listing)
+    warned = [b for b in brands if b.casefold() not in kept_brands]
+    if warned:
+        out.append(Problem("brand", ADVICE, FIX_NOW, brand_sentence(warned), ("rewrite", EDIT, KEEP_BRAND)))
     if title.strip():
         rejected = [c.detail for c in title_checks(title, short_style=False) if c.verdict == FAIL]
         if rejected:
@@ -363,6 +385,7 @@ def classify(
     short_style: bool = True,
     now: datetime | None = None,
     windows: Windows = Windows(),
+    kept_brands: set[str] | frozenset[str] = frozenset(),
 ) -> Verdict | None:
     """One listing's bucket. ``None``: not shown (a draft, or an inactive listing that never sold).
 
@@ -373,10 +396,12 @@ def classify(
     state = str(listing.get("state") or "active")
     if state != "active" and not (state in STOPPED and past_units > 0):
         return None
+    kept = frozenset(k.casefold() for k in kept_brands)
     problems, brands = fix_now_problems(listing, properties=properties, required=required,
-                                        reference_attributes=reference_attributes, past_units=past_units)
+                                        reference_attributes=reference_attributes, past_units=past_units, kept_brands=kept)
     verdict = Verdict(bucket=FIX_NOW, brands=brands, recent_units=recent_units, past_units=past_units,
                       favourites=int(listing.get("num_favorers") or 0), age_days=_age_days(listing, now))
+    verdict.kept_brands = [b for b in brands if b.casefold() in kept]
     selling = recent_units > 0
     young = verdict.age_days is not None and verdict.age_days < windows.new_days
     judged = sales_known and not selling and not young and state == "active"

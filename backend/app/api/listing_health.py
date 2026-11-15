@@ -10,6 +10,11 @@
 ``POST /listing-health/apply``     the seller's approval of selected previews. At most 50 live listings.
 ``POST /listing-health/undo``      writes back the copy kept when the fix was made, for 7 days.
 ``POST /listing-health/discard``   drops previews nobody approved.
+``GET  /listing-health/sales``     each of the account's shops: whether its sales were read, and how far a read is.
+``POST /listing-health/sales/read`` "Read sales" / "Read sales for all N shops": queued, read one after another
+                                   (workers/sales.py::advance_queue), the same estimate and first read as Reports.
+``POST /listing-health/brands/keep``  "Keep it, I know the risk": the listing's brand names stop being Fix now.
+``POST /listing-health/brands/warn``  "Show the warning again".
 
 Only the seller's own shops, read from their own shop copy and their own sales: another account's shop, listing or
 fix is 404, and nothing here reads any other seller's data. Every write to Etsy is a job that a click approved.
@@ -27,14 +32,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_session
-from app.api.shop import _is_stale, _shop_rows, selected_shop
+from redis.asyncio import Redis
+
+from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session
+from app.api.shop import _is_stale, _shop_rows, selected_shop, sync_if_stale
 from app.api.shops import shop_label
 from app.core import allowance, audit, usage
 from app.core.config import get_settings
 from app.db.models import (
     AllowanceUse,
     Asset,
+    BrandKept,
     EtsyConnection,
     GeneratedContent,
     ListingFix,
@@ -46,9 +54,10 @@ from app.db.models import (
     ShopListingCache,
     Tenant,
 )
-from app.etsy.shops import owned_shop
+from app.etsy.shops import active_shops, owned_shop
 from app.pipeline import listing_fixes as F
 from app.pipeline import listing_health as H
+from app.workers import sales as sales_worker
 from app.workers.listing_fixes import READ_AT_ONCE, read_spec
 
 router = APIRouter(prefix="/api", tags=["listing-health"])
@@ -106,6 +115,8 @@ class ListingHealthOut(BaseModel):
     suggestions: list[ProblemOut] = []
     note: str | None = None
     brands: list[str]
+    #: Brand names the seller kept on this listing ("Keep it, I know the risk"): no longer Fix now.
+    kept_brands: list[str] = []
     #: Units sold in the selling window, and in the history kept (13 months); favourites from Etsy's listing data.
     recent_sales: int = 0
     past_sales: int = 0
@@ -123,6 +134,8 @@ class HealthPageOut(BaseModel):
     shop_name: str | None = None
     #: The shop's copy is being read: nothing to show until it is.
     reading: bool = False
+    #: A sync of the copy is queued or running (False while reading: the last try failed, it is tried again soon).
+    syncing: bool = False
     total: int = 0
     #: Listings per bucket (H.BUCKETS); the page's three figures are fix_now, worth_improving and selling.
     counts: dict[str, int] = {}
@@ -353,8 +366,18 @@ def _active(rows: list[ShopListingCache]) -> list[ShopListingCache]:
 Judged = tuple[ShopListingCache, H.Verdict, ListingProfile | None, bool]
 
 
+async def _kept(session: AsyncSession, tenant: Tenant, connection_id: uuid.UUID) -> dict[int, set[str]]:
+    """The brand names the seller kept, per listing in this shop (folded)."""
+    rows = await session.execute(select(BrandKept.listing_id, BrandKept.brand).where(
+        BrandKept.tenant_id == tenant.id, BrandKept.connection_id == connection_id))
+    out: dict[int, set[str]] = {}
+    for listing_id, brand in rows.all():
+        out.setdefault(int(listing_id), set()).add(brand.casefold())
+    return out
+
+
 def _judge_rows(rows: list[ShopListingCache], profiles: _Profiles, sales: _Sales, w: H.Windows,
-                chosen: uuid.UUID | None = None) -> list[Judged]:
+                chosen: uuid.UUID | None = None, kept: dict[int, set[str]] | None = None) -> list[Judged]:
     now = datetime.now(timezone.utc)
     out: list[Judged] = []
     for row in rows:
@@ -366,6 +389,7 @@ def _judge_rows(rows: list[ShopListingCache], profiles: _Profiles, sales: _Sales
             reference_attributes=profiles.attributes_of(profile, row.payload),
             tags_to_add=profiles.tags_to_add(row.payload, profile, unclear),
             short_style=profiles.short_style(row.payload, profile), now=now, windows=w,
+            kept_brands=(kept or {}).get(lid, set()),
         )
         if verdict is not None:
             out.append((row, verdict, profile, unclear))
@@ -384,6 +408,7 @@ async def listing_health(
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
     enqueuer: Enqueuer = Depends(get_enqueuer),
+    redis: Redis = Depends(get_redis),
 ) -> HealthPageOut:
     w = windows()
     show = show if show in SHOWS else TO_DO
@@ -391,14 +416,17 @@ async def listing_health(
     if connection is None:
         return HealthPageOut(selling_days=w.selling_days, new_days=w.new_days, rewrite_rule=rewrite_rule())
     rows = await _shop_rows(session, tenant, connection)
-    if not rows or _is_stale(max(r.fetched_at for r in rows)):
-        await enqueuer.enqueue("sync_shop_listings", str(connection.id), _job_id=f"sync:{connection.id}")
-        return HealthPageOut(connection_id=connection.id, shop_name=shop_label(connection), reading=True,
+    # The shop's own listing sync, as every page that shows its listings asks for it: once per shop, at most
+    # one try per ten minutes (etsy/shop_sync.py). A shop read in the last six hours with no listings is current.
+    stale, state = await sync_if_stale(redis, enqueuer, connection, rows)
+    if stale:
+        return HealthPageOut(connection_id=connection.id, shop_name=shop_label(connection), reading=True, syncing=state.syncing,
                              selling_days=w.selling_days, new_days=w.new_days, rewrite_rule=rewrite_rule())
     profiles = await _Profiles(session, tenant, connection.id).load()
     sales = await _sales(session, tenant, connection, w)
+    kept = await _kept(session, tenant, connection.id)
     # Regular expressions over a whole shop: off the event loop.
-    judged = await asyncio.to_thread(_judge_rows, _fresh(rows), profiles, sales, w)
+    judged = await asyncio.to_thread(_judge_rows, _fresh(rows), profiles, sales, w, None, kept)
     judged.sort(key=lambda item: (*item[1].sort_key(), int(item[0].listing_id)))
     counts = {b: sum(1 for _, v, _, _ in judged if v.bucket == b) for b in H.BUCKETS}
     if show == "all":
@@ -421,7 +449,7 @@ async def listing_health(
             listing_id=int(row.listing_id), title=text["title"], url=_url(int(row.listing_id), row.payload), image=_image(row.payload),
             tags=text["tags"], state=str(row.payload.get("state") or "active"), bucket=verdict.bucket,
             problems=[_problem_out(p) for p in verdict.problems], suggestions=[_problem_out(p) for p in verdict.suggestions],
-            note=verdict.note, brands=verdict.brands, recent_sales=verdict.recent_units, past_sales=verdict.past_units,
+            note=verdict.note, brands=verdict.brands, kept_brands=verdict.kept_brands, recent_sales=verdict.recent_units, past_sales=verdict.past_units,
             favourites=verdict.favourites, attributes_read="_properties" in row.payload, profile_id=profile.id if profile else None,
             profile_name=profile.name if profile else None, profile_unclear=unclear,
         ))
@@ -534,7 +562,8 @@ async def preview(
     # The listing's own problems decide which fixes it may get: a selling listing's title and tags are left alone.
     w = windows()
     sales = await _sales(session, tenant, connection, w)
-    verdicts = {int(r.listing_id): v for r, v, _, _ in _judge_rows(rows, profiles, sales, w, body.profile_id)}
+    kept = await _kept(session, tenant, connection.id)
+    verdicts = {int(r.listing_id): v for r, v, _, _ in _judge_rows(rows, profiles, sales, w, body.profile_id, kept)}
     skipped: list[SkippedOut] = []
     allowed_rows = []
     for row in rows:
@@ -759,3 +788,185 @@ async def discard_fixes(
         await session.delete(fix)
     await session.commit()
     return ApproveOut(started=0, message=f"Dropped {len(gone)} preview{'' if len(gone) == 1 else 's'}.")
+
+
+# --- sales: read them from here -------------------------------------------------------------------------
+
+READ_LINE = "To see which listings sell, read this shop's sales first. It runs in the background."
+NO_PERMISSION = "This shop was connected before sales could be read. Connect it again in Shops to allow it."
+
+
+class ShopSalesOut(BaseModel):
+    connection_id: uuid.UUID
+    shop_name: str
+    #: never | counted | queued | counting | reading | waiting | complete | failed | no_permission
+    state: str
+    #: Listing health can tell which of its listings sell.
+    known: bool
+    #: Its sales were never read, and "Read sales" can do it (a stopped read included).
+    needs_read: bool
+    #: Waiting behind another of the account's shops.
+    waiting_turn: bool = False
+    #: Reports' own estimate (sales in the 13 months read, days the read takes), once counted.
+    window_count: int | None = None
+    days_estimate: int | None = None
+    read_count: int = 0
+    resumes_at: datetime | None = None
+    note: str | None = None
+
+
+class HealthSalesOut(BaseModel):
+    shops: list[ShopSalesOut]
+    #: Shops "Read sales for all" would start.
+    to_read: int
+    read_line: str = READ_LINE
+
+
+class ReadSalesIn(BaseModel):
+    #: The shops to read; empty: every shop whose sales were never read.
+    connection_ids: list[uuid.UUID] = []
+
+
+def _shop_sales(connection: EtsyConnection, sync: SalesSync | None, turn: uuid.UUID | None, w: H.Windows) -> ShopSalesOut:
+    from app.api.analytics import _sync_out  # Reports' figures, so both pages say the same
+
+    out = _sync_out(connection, sync)
+    since = datetime.now(timezone.utc).date() - timedelta(days=w.selling_days)
+    known = sync is not None and sync.state == "complete" and (connection.sales_history_from is None or connection.sales_history_from <= since)
+    queued = sync is not None and sync.queued_at is not None
+    if not out.can_read:
+        state = "no_permission"
+    elif sync is None:
+        state = "never"
+    elif sync.state == "estimated":
+        state = "queued" if queued else "counted"
+    elif sync.state == "estimating":
+        state = "counting"
+    else:
+        state = sync.state  # queued, reading, waiting, complete, failed
+    return ShopSalesOut(
+        connection_id=connection.id, shop_name=shop_label(connection), state=state, known=known,
+        needs_read=state in ("never", "counted", "failed"),
+        waiting_turn=state == "queued" and turn != connection.id,
+        window_count=out.window_count, days_estimate=out.days_estimate, read_count=out.read_count, resumes_at=out.resumes_at,
+        note=NO_PERMISSION if state == "no_permission" else (sales_worker.QUEUE_WAITING if state == "queued" else out.note),
+    )
+
+
+async def _sales_page(session: AsyncSession, tenant: Tenant, turn: uuid.UUID | None = None) -> HealthSalesOut:
+    w = windows()
+    shops = await active_shops(session, tenant.id)
+    syncs = {s.connection_id: s for s in (await session.execute(select(SalesSync).where(SalesSync.tenant_id == tenant.id))).scalars()}
+    if turn is None:
+        turn = next((s.connection_id for s in sorted((s for s in syncs.values() if s.queued_at is not None), key=lambda s: s.queued_at)
+                     if s.state in ("estimating", "reading")), None)
+    out = [_shop_sales(c, syncs.get(c.id), turn, w) for c in shops]
+    return HealthSalesOut(shops=out, to_read=sum(1 for s in out if s.needs_read))
+
+
+@router.get("/listing-health/sales", response_model=HealthSalesOut)
+async def health_sales(
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+) -> HealthSalesOut:
+    """Every shop of the account: whether its sales were read. No Etsy call; Home's card reads it too."""
+    return await _sales_page(session, tenant)
+
+
+@router.post("/listing-health/sales/read", response_model=HealthSalesOut, status_code=202)
+async def read_sales(
+    body: ReadSalesIn,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> HealthSalesOut:
+    """"Read sales" for one shop, or for every shop never read: they are counted and read one after another, each
+    with Reports' estimate and first read, as upkeep inside the app's Etsy budget and each shop's daily share."""
+    shops = await active_shops(session, tenant.id)
+    if body.connection_ids:
+        mine = {c.id: c for c in shops}
+        if any(cid not in mine for cid in body.connection_ids):
+            raise HTTPException(status_code=404, detail="Shop not found")
+        wanted = [mine[cid] for cid in dict.fromkeys(body.connection_ids)]
+    else:
+        page = await _sales_page(session, tenant)
+        needing = {s.connection_id for s in page.shops if s.needs_read}
+        wanted = [c for c in shops if c.id in needing]
+    if not wanted:
+        raise HTTPException(status_code=409, detail="Every shop's sales are read or being read already.")
+    queued = await sales_worker.queue_reads(session, wanted)
+    await session.commit()
+    for sync in queued:
+        if sync.state == "reading":  # a stopped read that carries on where it stopped
+            await enqueuer.enqueue("sync_sales", str(sync.connection_id),
+                                   _job_id=f"sales-resume:{sync.connection_id}:{datetime.now(timezone.utc):%Y%m%d%H%M}")
+    turn = await sales_worker.advance_queue(enqueuer.enqueue, session, tenant.id)
+    return await _sales_page(session, tenant, turn)
+
+
+# --- brand names the seller keeps -------------------------------------------------------------------------
+
+
+class KeepBrandIn(BaseModel):
+    connection_id: uuid.UUID
+    listing_id: int
+
+
+class KeepBrandOut(BaseModel):
+    listing_id: int
+    kept_brands: list[str]
+    message: str
+
+
+async def _listing_for_brand(session: AsyncSession, tenant: Tenant, body: KeepBrandIn) -> ShopListingCache:
+    if await owned_shop(session, tenant.id, body.connection_id) is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    row = await session.get(ShopListingCache, (tenant.id, body.listing_id))
+    if row is None or row.connection_id != body.connection_id or not _fresh([row]):
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return row
+
+
+@router.post("/listing-health/brands/keep", response_model=KeepBrandOut)
+async def keep_brand(
+    body: KeepBrandIn,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+) -> KeepBrandOut:
+    """"Keep it, I know the risk": every brand name on the listing now stops being Fix now there. Only brand names:
+    nothing else Listing health says is kept. A brand name added later is warned about again. Nothing goes to Etsy."""
+    row = await _listing_for_brand(session, tenant, body)
+    brands = H.brands_in(row.payload)
+    if not brands:
+        raise HTTPException(status_code=409, detail="This listing has no brand name to keep.")
+    have = (await _kept(session, tenant, body.connection_id)).get(body.listing_id, set())
+    new = [b for b in brands if b.casefold() not in have]
+    for brand in new:
+        session.add(BrandKept(tenant_id=tenant.id, connection_id=body.connection_id, listing_id=body.listing_id, brand=brand))
+    if new:
+        audit.record(session, "listing.brand_kept", actor=tenant, target_tenant_id=tenant.id, connection_id=str(body.connection_id),
+                     listing_id=body.listing_id, brands=new, trigger="seller_click")
+    await session.commit()
+    return KeepBrandOut(listing_id=body.listing_id, kept_brands=brands,
+                        message="Kept. Listing health no longer counts this brand name as Fix now on this listing.")
+
+
+@router.post("/listing-health/brands/warn", response_model=KeepBrandOut)
+async def warn_again(
+    body: KeepBrandIn,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+) -> KeepBrandOut:
+    """"Show the warning again": the listing's kept brand names are Fix now again."""
+    await _listing_for_brand(session, tenant, body)
+    gone = list((await session.execute(select(BrandKept).where(
+        BrandKept.tenant_id == tenant.id, BrandKept.connection_id == body.connection_id, BrandKept.listing_id == body.listing_id,
+    ))).scalars())
+    if not gone:
+        raise HTTPException(status_code=409, detail="No brand name is kept on this listing.")
+    for kept in gone:
+        await session.delete(kept)
+    audit.record(session, "listing.brand_warning_restored", actor=tenant, target_tenant_id=tenant.id, connection_id=str(body.connection_id),
+                 listing_id=body.listing_id, brands=[k.brand for k in gone], trigger="seller_click")
+    await session.commit()
+    return KeepBrandOut(listing_id=body.listing_id, kept_brands=[], message="The warning is shown again.")
