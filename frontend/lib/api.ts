@@ -1,4 +1,4 @@
-import type { Fix, HealthPage, PreviewAnswer, RewriteCheck } from "./listingHealth";
+import type { Fix, HealthPage, HealthSales, PreviewAnswer, RewriteCheck } from "./listingHealth";
 import type { AttributeBulk, Attributes, AttributeValue } from "./listingAttributes";
 import type { PhotoBulk, ShopPhotos } from "./shopPhotos";
 import type { PlanPreview, PlannerChoice, PlannerState } from "./seasonPlan";
@@ -1116,6 +1116,15 @@ export const api = {
     req<{ started: number; expired: number; message: string }>("/listing-health/apply", { method: "POST", body: JSON.stringify({ fix_ids: fixIds, confirm: true }) }),
   listingFixUndo: (fixIds: string[]) =>
     req<{ started: number; message: string }>("/listing-health/undo", { method: "POST", body: JSON.stringify({ fix_ids: fixIds, confirm: true }) }),
+  /** Each shop's sales read, for Listing health's line and Home's card. No Etsy call. */
+  healthSales: () => req<HealthSales>("/listing-health/sales"),
+  /** "Read sales" (one shop) or "Read sales for all N shops" (none given): read one after another. */
+  healthReadSales: (shops: string[] = []) =>
+    req<HealthSales>("/listing-health/sales/read", { method: "POST", body: JSON.stringify({ connection_ids: shops }) }),
+  keepBrand: (shop: string, listingId: number) =>
+    req<{ listing_id: number; kept_brands: string[]; message: string }>("/listing-health/brands/keep", { method: "POST", body: JSON.stringify({ connection_id: shop, listing_id: listingId }) }),
+  warnBrandAgain: (shop: string, listingId: number) =>
+    req<{ listing_id: number; kept_brands: string[]; message: string }>("/listing-health/brands/warn", { method: "POST", body: JSON.stringify({ connection_id: shop, listing_id: listingId }) }),
   listingFixDiscard: (fixIds: string[]) =>
     req<{ started: number; message: string }>("/listing-health/discard", { method: "POST", body: JSON.stringify({ fix_ids: fixIds }) }),
   analyticsShops: (month?: string | null) =>

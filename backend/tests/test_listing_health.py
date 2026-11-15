@@ -157,10 +157,14 @@ def test_without_read_sales_no_title_or_tag_change_is_suggested() -> None:
 # --- each Fix now rule ------------------------------------------------------------------------------------
 
 
-def test_fix_now_brand_is_the_apps_sentence_in_any_form() -> None:
+def test_fix_now_brand_is_said_plainly_in_any_form() -> None:
     verdict = judge(listing(title="DisneyWorld Family Shirt", tags=["mick ey tee", *GOOD_TAGS[:12]]))
     assert sorted(verdict.brands) == ["Disney", "Mickey"] and ids(verdict) == {"brand"}
-    assert trademarks.BRAND_WARNING.format(brand="Disney") in verdict.problems[0].sentence
+    assert verdict.problems[0].sentence == ("Uses the names 'Disney' and 'Mickey', trademarks of other companies. "
+                                            "Etsy can remove listings like this and may restrict the shop.")
+    one = judge(listing(title="Epcot Family Shirt"))
+    assert one.problems[0].sentence == "Uses the name 'Epcot', a trademark of another company. Etsy can remove listings like this and may restrict the shop."
+    assert H.KEEP_BRAND in one.problems[0].fixes
 
 
 @pytest.mark.parametrize("title", ["a" * 141, "Frog \U0001F600 Shirt", "Mom & Dad & Kids Shirt"])

@@ -378,6 +378,32 @@ class InviteRequest(Base):
     invite_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invite_code.id", ondelete="SET NULL"), index=True)
 
 
+class BrandKept(Base):
+    """A brand name the seller chose to keep on one of their live listings ("Keep it, I know the risk" on
+    Listing health, api/listing_health.py): per shop, per Etsy listing id and per brand word. Listing health
+    then stops counting that word as Fix now on that listing; another brand word on it brings the warning
+    back. "Show the warning again" deletes the rows.
+
+    The seller's own decision and a listing id, no listing text. Removed with the shop (a reconnected shop
+    warns again) and with the account.
+    """
+
+    __tablename__ = "brand_kept"
+    __table_args__ = (UniqueConstraint("connection_id", "listing_id", "brand", name="uq_brand_kept_shop_listing_brand"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("etsy_connection.id", ondelete="CASCADE"), nullable=False
+    )
+    listing_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: The name as our trademark list writes it (compliance/trademarks.txt); compared without case.
+    brand: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class ListingFix(Base):
     """A fix to a seller's own live listing: what it was, what it becomes, and how that went
     (api/listing_health.py, workers/listing_fixes.py).
@@ -2074,6 +2100,10 @@ class SalesSync(Base):
     #: while it waits for the next night) or "done". Shops in it share a nightly
     #: slice of the app's budget and are read one at a time (workers/sales.py).
     reread: Mapped[str | None] = mapped_column(Text)
+    #: The seller asked for this shop's sales from Listing health ("Read sales", "Read sales for all"): the
+    #: account's shops are counted and read one after another (workers/sales.py::advance_queue). Cleared
+    #: when its turn ends (read, paused until tomorrow, or stopped). A new row waits in state "queued".
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(

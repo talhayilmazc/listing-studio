@@ -322,22 +322,9 @@ async def estimate_sales(
     sync = await session.get(SalesSync, connection.id)
     if sync is not None and sync.state in ("reading", "waiting"):
         raise HTTPException(status_code=409, detail="your sales are being read already")
-    if sync is None:
-        sync = SalesSync(connection_id=connection.id, tenant_id=tenant.id)
-        session.add(sync)
-    sync.state = "estimating"
-    sync.requests_used = 0
-    sync.note = None
-    ledger = await session.get(LedgerSync, connection.id)
-    if ledger is None:
-        ledger = LedgerSync(connection_id=connection.id, tenant_id=tenant.id)
-        session.add(ledger)
-    if ledger.state not in ("reading", "waiting", "complete"):
-        ledger.state, ledger.requests_used, ledger.note = "estimating", 0, None
+    sync, ledger = await sales_worker.prepare_estimate(session, connection)
     await session.commit()
-    await enqueuer.enqueue("estimate_sales", str(connection.id), _job_id=f"sales-estimate:{connection.id}:{_today()}")
-    if ledger.state == "estimating":
-        await enqueuer.enqueue("estimate_ledger", str(connection.id), _job_id=f"ledger-estimate:{connection.id}:{_today()}")
+    await sales_worker.queue_estimate(enqueuer.enqueue, connection.id, ledger)
     return _sync_out(connection, sync, ledger)
 
 
@@ -353,16 +340,10 @@ async def start_sales_read(
     sync = await session.get(SalesSync, connection.id)
     if sync is None or sync.state not in ("estimated", "complete", "failed") or sync.pages_estimate is None:
         raise HTTPException(status_code=409, detail="see what reading your sales costs first")
-    await sales_worker.begin_first_read(session, sync)
-    ledger = await session.get(LedgerSync, connection.id)
-    start_ledger = ledger is not None and ledger.state in ("estimated", "failed") and ledger.window_start is not None
-    if start_ledger:
-        await ledger_worker.begin(session, ledger)
+    started = await sales_worker.start_first_read(session, sync)
     await session.commit()
-    await enqueuer.enqueue("sync_sales", str(connection.id), _job_id=f"sales-read:{connection.id}:start:{sync.started_at}")
-    if start_ledger:
-        await enqueuer.enqueue("sync_ledger", str(connection.id), _job_id=f"ledger-read:{connection.id}:start:{ledger.started_at}")
-    return _sync_out(connection, sync, ledger)
+    await sales_worker.queue_first_read(enqueuer.enqueue, sync, started)
+    return _sync_out(connection, sync, await session.get(LedgerSync, connection.id))
 
 
 @router.post("/sales/resume", response_model=SalesSyncOut, status_code=202)

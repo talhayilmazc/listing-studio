@@ -14,13 +14,13 @@ export type HealthProblem = { id: string; kind: "etsy" | "advice"; level: "fix_n
 
 export type HealthListing = {
   listing_id: number; title: string; url: string; image: string | null; tags: string[]; state: string; bucket: Bucket;
-  problems: HealthProblem[]; suggestions: HealthProblem[]; note: string | null; brands: string[];
+  problems: HealthProblem[]; suggestions: HealthProblem[]; note: string | null; brands: string[]; kept_brands: string[];
   recent_sales: number; past_sales: number; favourites: number; attributes_read: boolean;
   profile_id: string | null; profile_name: string | null; profile_unclear: boolean;
 };
 
 export type HealthPage = {
-  connection_id: string | null; shop_name: string | null; reading: boolean; total: number; counts: Partial<Record<Bucket, number>>;
+  connection_id: string | null; shop_name: string | null; reading: boolean; syncing: boolean; total: number; counts: Partial<Record<Bucket, number>>;
   sales_known: boolean; selling_days: number; new_days: number; show: Show; page: number; pages: number; listings: HealthListing[];
   max_per_approval: number; undo_days: number; rewrite_rule: string;
 };
@@ -54,7 +54,7 @@ type Rule = { name: string } & ({ kind: "etsy"; quote: string; source: Source } 
 
 /** Every problem the server can name. Etsy's are quoted from a page we read (docs/guide-sources.md). */
 export const PROBLEMS: Record<string, Rule> = {
-  brand: { name: "Brand or character name", kind: "advice", why: "We look for names on our own list in any form. The warning is the app's; the decision is yours." },
+  brand: { name: "Brand or character name", kind: "advice", why: "We look for names on our own list in any form. The warning is the app's; the decision is yours: \"Keep it, I know the risk\" stops it for this listing." },
   title_rejected: { name: "Title Etsy does not accept", kind: "etsy", quote: "A listing's title can be up to 140 characters long.", source: READ.createListing },
   tags_rejected: { name: "Tags Etsy does not accept", kind: "etsy", quote: "Each tag can contain up to 20 characters. Tags can only include spaces, letters, numbers. You're able to use ' and - within words and phrases, but cannot start your tag with these characters.", source: READ.tags },
   main_photo: { name: "No main photo", kind: "etsy", quote: "Make your first listing photo the clearest, most realistic representation of the item buyers will receive.", source: READ.imageHelp },
@@ -158,4 +158,68 @@ export function rewriteSentence(check: RewriteCheck): string {
   if (check.counted) parts.push(`${check.counted} counted as listing${check.counted === 1 ? "" : "s"}`);
   const here = parts.length ? `For these: ${parts.join(", ")}.` : "";
   return check.fits ? here : `${here} You have ${check.remaining} left this period, so this will not run. Choose fewer.`;
+}
+
+// --- a brand name the seller keeps ------------------------------------------------------------------------
+
+export const KEEP_BRAND = "keep_brand";
+export const KEEP_LABEL = "Keep it, I know the risk";
+export const KEPT_NOTE = "Brand name kept by you";
+export const WARN_AGAIN = "Show the warning again";
+/** Only the brand problem offers it (the server says so in its fixes): never another Fix now kind. */
+export const offersKeep = (problem: Pick<HealthProblem, "id" | "fixes">): boolean => problem.id === "brand" && problem.fixes.includes(KEEP_BRAND);
+
+// --- the shop's sales, read from this page ------------------------------------------------------------------
+
+export type ShopSalesState = "never" | "counted" | "queued" | "counting" | "reading" | "waiting" | "complete" | "failed" | "no_permission";
+export type ShopSales = {
+  connection_id: string; shop_name: string; state: ShopSalesState; known: boolean; needs_read: boolean; waiting_turn: boolean;
+  window_count: number | null; days_estimate: number | null; read_count: number; resumes_at: string | null; note: string | null;
+};
+export type HealthSales = { shops: ShopSales[]; to_read: number; read_line: string };
+
+/** A read is under way somewhere: the page looks again until it ends. */
+export const salesMoving = (s: Pick<ShopSales, "state">): boolean => ["queued", "counting", "reading"].includes(s.state);
+
+/** Reports' own estimate for a shop already counted (sales and days, never an Etsy request count). */
+export function estimateLine(s: Pick<ShopSales, "window_count" | "days_estimate">): string {
+  if (s.window_count === null) return "";
+  const sales = `About ${s.window_count.toLocaleString("en-US")} sale${s.window_count === 1 ? "" : "s"} in the last 13 months to read`;
+  const days = s.days_estimate ?? 1;
+  return days > 1 ? `${sales}; it takes about ${days} days.` : `${sales}; it finishes today.`;
+}
+
+/** Where a shop's read stands, in one line; empty for a shop whose sales are read. */
+export function progressLine(s: ShopSales): string {
+  switch (s.state) {
+    case "queued": return s.waiting_turn ? "Waiting for its turn: your shops are read one after another." : "Starting…";
+    case "counting": return "Counting this shop's sales…";
+    case "reading": return `Reading sales: ${s.read_count.toLocaleString("en-US")} of ${(s.window_count ?? 0).toLocaleString("en-US")}`;
+    case "waiting": return "Today's share for reading sales is used; it carries on after the daily reset.";
+    case "failed": return s.note ?? "Reading this shop's sales stopped.";
+    case "no_permission": return s.note ?? "Connect this shop again in Shops to allow reading its sales.";
+    // Read, but the seller deleted their sales history inside the selling window.
+    case "complete": return s.known ? "" : "Your sales history starts too recently to tell which listings sell.";
+    default: return "";
+  }
+}
+
+export const readAllLabel = (n: number): string => `Read sales for all ${n} shops`;
+
+/** The shop's read has just ended: Listing health looks again, and its listings leave "Not judged". */
+export function readEnded(before: ShopSales | undefined, after: ShopSales | undefined): boolean {
+  return !!before && !!after && !before.known && after.known;
+}
+
+/** Home's small card, when some connected shop's sales were never read. Null: no card. */
+export function homeSalesCard(sales: Pick<HealthSales, "to_read"> | null): { text: string; href: string; link: string } | null {
+  if (!sales || sales.to_read <= 0) return null;
+  const n = sales.to_read;
+  return {
+    text: n === 1
+      ? "One of your shops has not had its sales read, so Listing health cannot tell which of its listings sell."
+      : `${n} of your shops have not had their sales read, so Listing health cannot tell which of their listings sell.`,
+    href: "/listing-health",
+    link: n === 1 ? "Read its sales" : "Read their sales",
+  };
 }

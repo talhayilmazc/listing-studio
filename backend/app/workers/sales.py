@@ -25,6 +25,12 @@ number of listings, and everything here is built around that:
 * **Never before the seller's "Delete my sales history"** (``etsy_connection.sales_history_from``):
   :func:`_add_totals` drops anything older, whatever read brought it in.
 
+* **One after another, when asked from Listing health** ("Read sales", "Read sales for all N shops";
+  :func:`queue_reads`, :func:`advance_queue`): the account's queued shops are counted and read in turn,
+  each with the same estimate and first read as Reports' "Count my sales" / "Start reading"
+  (:func:`prepare_estimate`, :func:`start_first_read`). A shop's turn ends when it is read, paused until
+  tomorrow (its own daily share is used, so the next may go), or stopped.
+
 * **Once more, for shops read before order lines were kept** (the re-read).
   The same read as the first one, over the same 13 months, but started by the
   app rather than the seller, so it is rationed: all re-reads together use at
@@ -45,7 +51,7 @@ import logging
 import math
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -53,7 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import limits
 from app.core.config import get_settings
-from app.db.models import ConnectionStatus, EtsyConnection, SaleLine, SalesDaily, SalesSync, Tenant
+from app.db.models import ConnectionStatus, EtsyConnection, LedgerSync, SaleLine, SalesDaily, SalesSync, Tenant
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline.sales import REFRESH_DAYS, aggregate, history_floor, lines as order_lines, sale_day, sale_key
 from app.workers import gate
@@ -374,7 +380,9 @@ async def estimate_sales(ctx: dict[str, Any], connection_id: str) -> str:
         if SCOPE not in (connection.scopes or []):
             return "no-permission"
         tenant_id = connection.tenant_id
-    return await _run_gated(ctx, "estimate_sales", connection_id, tenant_id, lambda: _estimate(ctx, connection_id))
+    outcome = await _run_gated(ctx, "estimate_sales", connection_id, tenant_id, lambda: _estimate(ctx, connection_id))
+    await _next_in_queue(ctx, tenant_id)  # a shop queued from Listing health starts its read once counted
+    return outcome
 
 
 async def _estimate(ctx: dict[str, Any], connection_id: str) -> str:
@@ -443,7 +451,9 @@ async def sync_sales(ctx: dict[str, Any], connection_id: str) -> str:
         if sync is None or sync.state not in ("reading", "waiting", "complete"):
             return "not-started"  # the first read starts when the seller has seen its cost
         tenant_id = connection.tenant_id
-    return await _run_gated(ctx, "sync_sales", connection_id, tenant_id, lambda: _sync(ctx, connection_id))
+    outcome = await _run_gated(ctx, "sync_sales", connection_id, tenant_id, lambda: _sync(ctx, connection_id))
+    await _next_in_queue(ctx, tenant_id)  # read, paused until tomorrow or stopped: the next queued shop's turn
+    return outcome
 
 
 async def _sync(ctx: dict[str, Any], connection_id: str) -> str:
@@ -714,4 +724,144 @@ async def sync_all_sales(ctx: dict[str, Any]) -> int:
     # the nightly share. Each shop that finishes hands the turn to the next.
     async with ctx["sessionmaker"]() as session:
         await advance_rereads(ctx, session)
+        # Shops queued from Listing health whose turn never came (a lost job, a restart): carry on.
+        tenants = (await session.execute(select(SalesSync.tenant_id).where(SalesSync.queued_at.is_not(None)).distinct())).scalars().all()
+        for tenant_id in tenants:
+            await advance_queue(_ctx_enqueue(ctx), session, tenant_id)
     return len(due)
+
+
+# --- starting a read: the one path Reports and Listing health share ------------------------------------
+
+Enqueue = Callable[..., Awaitable[Any]]
+
+
+def _ctx_enqueue(ctx: dict[str, Any]) -> Enqueue:
+    async def enqueue(function: str, *args: Any, **kwargs: Any) -> Any:
+        return await _enqueue_job(ctx, function, *args, **kwargs)
+    return enqueue
+
+
+async def prepare_estimate(session: AsyncSession, connection: EtsyConnection) -> tuple[SalesSync, LedgerSync]:
+    """Count the shop's sales (and its ledger entries) before reading them: Reports' "Count my sales" and
+    a queued shop's turn. Does not commit; :func:`queue_estimate` after the commit."""
+    sync = await session.get(SalesSync, connection.id)
+    if sync is None:
+        sync = SalesSync(connection_id=connection.id, tenant_id=connection.tenant_id)
+        session.add(sync)
+    sync.state = "estimating"
+    sync.requests_used = 0
+    sync.note = None
+    ledger = await session.get(LedgerSync, connection.id)
+    if ledger is None:
+        ledger = LedgerSync(connection_id=connection.id, tenant_id=connection.tenant_id)
+        session.add(ledger)
+    if ledger.state not in ("reading", "waiting", "complete"):
+        ledger.state, ledger.requests_used, ledger.note = "estimating", 0, None
+    return sync, ledger
+
+
+async def queue_estimate(enqueue: Enqueue, connection_id: uuid.UUID, ledger: LedgerSync) -> None:
+    today = _now().date()
+    await enqueue("estimate_sales", str(connection_id), _job_id=f"sales-estimate:{connection_id}:{today}")
+    if ledger.state == "estimating":
+        await enqueue("estimate_ledger", str(connection_id), _job_id=f"ledger-estimate:{connection_id}:{today}")
+
+
+async def start_first_read(session: AsyncSession, sync: SalesSync) -> LedgerSync | None:
+    """The read after the count: Reports' "Start reading" and a queued shop's turn. Starts the ledger's
+    first read beside it when that was counted (returned). Does not commit; :func:`queue_first_read` after."""
+    from app.workers import ledger as ledger_worker
+
+    await begin_first_read(session, sync)
+    ledger = await session.get(LedgerSync, sync.connection_id)
+    if ledger is not None and ledger.state in ("estimated", "failed") and ledger.window_start is not None:
+        await ledger_worker.begin(session, ledger)
+        return ledger
+    return None
+
+
+async def queue_first_read(enqueue: Enqueue, sync: SalesSync, ledger: LedgerSync | None) -> None:
+    cid = sync.connection_id
+    await enqueue("sync_sales", str(cid), _job_id=f"sales-read:{cid}:start:{sync.started_at}")
+    if ledger is not None:
+        await enqueue("sync_ledger", str(cid), _job_id=f"ledger-read:{cid}:start:{ledger.started_at}")
+
+
+# --- Listing health's queue: the account's shops one after another ---------------------------------------
+
+#: Said for a shop waiting behind another of the account's shops.
+QUEUE_WAITING = "Waiting for its turn: your shops are read one after another."
+#: States a shop is in while its turn lasts.
+_TURN = ("estimating", "reading")
+
+
+async def queue_reads(session: AsyncSession, connections: list[EtsyConnection]) -> list[SalesSync]:
+    """Put these shops in the account's line, in the order given. A shop already read, or waiting for
+    tomorrow's share of its read, is left as it is; a stopped read carries on from where it stopped
+    (:func:`resume`). Does not commit; then :func:`advance_queue`. Returns the shops queued now (a resumed
+    read in progress among them: the caller queues its next run)."""
+    now = _now()
+    out: list[SalesSync] = []
+    for n, connection in enumerate(connections):
+        if SCOPE not in (connection.scopes or []):
+            continue
+        sync = await session.get(SalesSync, connection.id)
+        if sync is None:
+            sync = SalesSync(connection_id=connection.id, tenant_id=connection.tenant_id, state="queued")
+            session.add(sync)
+        elif sync.state == "failed":
+            await resume(session, sync)
+        if sync.state in ("complete", "waiting") or sync.queued_at is not None:
+            continue
+        sync.queued_at = now + timedelta(microseconds=n)
+        sync.updated_at = now
+        out.append(sync)
+    return out
+
+
+async def advance_queue(enqueue: Enqueue, session: AsyncSession, tenant_id: uuid.UUID) -> uuid.UUID | None:
+    """Give the account's next queued shop its turn when no queued shop has one; returns the shop whose turn
+    it is. A shop in its turn is counting or reading; one that is read, waiting for tomorrow's share or
+    stopped leaves the line. Every read is upkeep: the app's budget and each shop's daily share hold. Commits."""
+    rows = (await session.execute(
+        select(SalesSync, EtsyConnection)
+        .join(EtsyConnection, EtsyConnection.id == SalesSync.connection_id)
+        .where(SalesSync.tenant_id == tenant_id, SalesSync.queued_at.is_not(None))
+        .order_by(SalesSync.queued_at, EtsyConnection.position)
+    )).all()
+    turn: uuid.UUID | None = None
+    for sync, connection in rows:
+        if connection.status != ConnectionStatus.active or SCOPE not in (connection.scopes or []):
+            sync.queued_at = None
+            continue
+        if sync.state in _TURN:
+            turn = sync.connection_id
+            updated = sync.updated_at if sync.updated_at.tzinfo else sync.updated_at.replace(tzinfo=timezone.utc)
+            if sync.state == "estimating" and _now() - updated > timedelta(hours=1):
+                # A count whose job was lost (Redis emptied): ask again, or the line would stop here.
+                sync.updated_at = _now()
+                await session.commit()
+                await enqueue("estimate_sales", str(connection.id), _job_id=f"sales-estimate:{connection.id}:{_now():%Y%m%d%H%M}")
+            break
+        if sync.state == "queued":
+            _, ledger = await prepare_estimate(session, connection)
+            await session.commit()
+            await queue_estimate(enqueue, connection.id, ledger)
+            return connection.id
+        if sync.state == "estimated":
+            ledger = await start_first_read(session, sync)
+            await session.commit()
+            await queue_first_read(enqueue, sync, ledger)
+            logger.info("sales: queued read of shop %s started", connection.id)
+            return connection.id
+        sync.queued_at = None  # read, waiting for tomorrow's share, or stopped: its turn is over
+    await session.commit()
+    return turn
+
+
+async def _next_in_queue(ctx: dict[str, Any], tenant_id: uuid.UUID) -> None:
+    async with ctx["sessionmaker"]() as session:
+        if await session.scalar(select(func.count()).select_from(SalesSync).where(
+                SalesSync.tenant_id == tenant_id, SalesSync.queued_at.is_not(None))):
+            await advance_queue(_ctx_enqueue(ctx), session, tenant_id)

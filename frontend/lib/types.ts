@@ -1814,7 +1814,7 @@ export interface ImportStatus {
 /** Where reading the shop's sales stands, and what it costs (v7 §C1). */
 export interface SalesSync {
   can_read: boolean;
-  state: "none" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed";
+  state: "none" | "queued" | "estimating" | "estimated" | "reading" | "waiting" | "complete" | "failed";
   total_count: number | null;
   window_count: number | null;
   days_estimate: number | null;

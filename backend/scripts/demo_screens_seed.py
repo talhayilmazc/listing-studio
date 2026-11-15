@@ -257,6 +257,8 @@ async def main():
                                description="A soft cotton tee for a family trip."))
         await s.flush()
         await listing_health_demo(s, t, shops[0], prof, now)
+        if len(shops) > 1:
+            await never_read_demo(s, t, shops[1], now)
         for n in range(12):
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,
@@ -320,12 +322,26 @@ async def listing_health_demo(s, t, shop, prof, now):
             s.add(SalesDaily(connection_id=shop.id, listing_id=item.listing_id, day=today - timedelta(days=back), tenant_id=t.id,
                              units=units, orders=units, revenue_minor=2400 * units, currency="USD"))
     prof.cached_payload = {**(prof.cached_payload or {}), "taxonomy_id": fx.TAXONOMY, "attributes": fx.REFERENCE_ATTRIBUTES}
+    # A selling listing whose brand name the seller kept ("Keep it, I know the risk").
+    s.add(BrandKept(tenant_id=t.id, connection_id=shop.id, listing_id=5100, brand="Disney"))
     s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=5200, kinds=["tags"], state="proposed",
                      before={"tags": fx._TAGS13B[:6]}, after={"tags": [*fx._TAGS13B[:6], "cotton tee", "soft graphic top"]}))
     s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=5201, kinds=["attributes"], state="applied", applied_at=now - timedelta(hours=3),
                      written_at=now - timedelta(hours=3), approved_at=now - timedelta(hours=3), undo_until=now + timedelta(days=7) - timedelta(hours=3),
                      before={"attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [], "values": []}]},
                      after={"attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}))
+
+
+async def never_read_demo(s, t, shop, now):
+    """A second shop with listings in its copy and its sales never read: Listing health's "Read sales" line
+    (fix/health-sales-and-brand). The same fixture listings under ids of their own."""
+    from tests import health_fixture as fx
+
+    every = fx.shop(now)
+    for item in every[:3] + [i for i in every if i.listing_id in (5100, 5200, 5202, 5203, 5400)]:
+        lid = item.listing_id + 900000
+        s.add(ShopListingCache(tenant_id=t.id, connection_id=shop.id, listing_id=lid, fetched_at=now,
+                               payload={**item.payload, "listing_id": lid, "url": f"https://www.etsy.com/listing/{lid}"}))
 
 
 async def profile_links(s, t, prof, shops, now):
