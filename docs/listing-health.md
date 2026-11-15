@@ -41,16 +41,16 @@ A seller's best-selling listing scored about 50%. Version 1 (`pipeline/listing_h
 
 Run on the synthetic shop in `backend/app/pipeline/health_fixture.py` (34 active listings, 16 with a sale in the last 60 days). The shop is **synthetic** and shaped like the early-access print-on-demand shops in general (long keyword titles, all 13 tags, no materials, some without a section); production data is never copied to a development machine, so this is a model of the problem, not a measurement of real shops. `python -m app.cli listing-health-report <e-mail>` (read only) gives the same table for a real account on the server.
 
-Version 1's average score: **74% for the selling listings and 85% for the others.** The listings that sell scored worse than the ones that do not.
+Version 1's average score: **76% for the selling listings (lowest 64%) and 88% for the others.** The listings that sell scored worse than the ones that do not.
 
 | Rule | Fires on selling (16) | Fires on not selling (18) |
 |---|---|---|
 | repeats | 16 (100%) | 2 |
 | shorter | 16 (100%) | 18 |
-| attributes | 16 (100%) | 18 |
 | title_words | 14 (87%) | 0 |
 | gift | 14 (87%) | 1 |
 | materials | 12 (75%) | 18 |
+| attributes (vs the reference listing) | 7 (43%) | 2 |
 | photos | 5 (31%) | 1 |
 | subjective | 3 (18%) | 1 |
 | tag_title_words | 3 (18%) | 2 |
@@ -60,7 +60,7 @@ Version 1's average score: **74% for the selling listings and 85% for the others
 
 ### Findings
 
-- **Wrong or irrelevant on selling listings** (fire on most of them): `repeats`, `shorter`, `title_words`, `gift`, `materials`, and `attributes` when it compares with the profile's reference listing. They describe the long keyword style, which is how these listings were written and how they sell. Telling the seller to change them asks them to risk what works.
+- **Wrong or irrelevant on selling listings** (fire on most of them; `attributes` on almost half, by comparing with the profile's reference listing): `repeats`, `shorter`, `title_words`, `gift`, `materials`. They describe the long keyword style, which is how these listings were written and how they sell. Telling the seller to change them asks them to risk what works.
 - **Not about the listing's problems at all**: `shorter` and `materials` fire on nearly every listing whether it sells or not, so they separate nothing.
 - **Rules of thumb with no source**: `photos` (5), `description` (160), `section`, `tag_phrases`, `tag_title_words`, `item_first`. Ours, never measured, and nothing a seller could act on in one click.
 - **Real problems** fire rarely and were drowned out: `brand`, `stray_characters`, the Etsy limits (title over 140, tag over 20, characters), and a missing main photo or required attribute (version 1 did not check either).

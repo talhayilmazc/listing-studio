@@ -25,6 +25,9 @@ REFERENCE_ATTRIBUTES = [
     {"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]},
 ]
 
+#: Only the required attribute filled: the reference listing also fills Sleeve length.
+PARTIAL = [dict(REFERENCE_ATTRIBUTES[0])]
+
 LONG_DESCRIPTION = (
     "A soft cotton tee with a hand-drawn design across the chest, printed to order and shipped in a recycled mailer. "
     "Unisex fit; see the size chart in the photos. Wash inside out on cold, hang to dry. "
@@ -59,7 +62,7 @@ def _row(lid: int, title: str, tags: list[str], created_days: int, now: datetime
         "listing_id": lid, "state": "active", "title": title, "tags": list(tags), "url": f"https://www.etsy.com/listing/{lid}",
         "description": LONG_DESCRIPTION, "materials": [], "images": _images(8), "shop_section_id": 11, "taxonomy_id": TAXONOMY,
         "personalization": None, "num_favorers": 0, "original_creation_timestamp": made, "state_timestamp": made,
-        "_properties": [{"property_id": 1, "property_name": "Primary color", "value_ids": [1], "values": ["Black"]}],
+        "_properties": [dict(a) for a in REFERENCE_ATTRIBUTES],
     }
     payload.update(more)
     return payload
@@ -102,7 +105,7 @@ def shop(now: datetime) -> list[Item]:
         if n % 3 == 1:
             extra["images"] = _images(4)
         if n % 2 == 1:
-            extra["_properties"] = []
+            extra["_properties"] = PARTIAL
         out.append(Item(lid, _row(lid, title, tagsets[n % 3], 400 - n * 10, now, **extra),
                         _steady(2 + n, start=n % 3), "a best seller in the long keyword style"))
     # Selling, and something is wrong all the same: a brand in the title, stray characters.
@@ -113,7 +116,7 @@ def shop(now: datetime) -> list[Item]:
     # Not selling for 60 days, with something we can fix with one click.
     out.append(Item(5200, _row(5200, "Frog Reading Club Shirt, Book Lover Tee", _TAGS13B[:6], 200, now, num_favorers=14),
                     _steady(20, start=80), "no sale in 60 days, 6 tags (Add missing tags)"))
-    out.append(Item(5201, _row(5201, "Vintage Bicycle Tee, Cycling Shirt", _TAGS13[:13], 220, now, _properties=[], num_favorers=9),
+    out.append(Item(5201, _row(5201, "Vintage Bicycle Tee, Cycling Shirt", _TAGS13[:13], 220, now, _properties=PARTIAL, num_favorers=9),
                     _steady(30, start=95), "no sale in 60 days, attributes missing (Fill attributes)"))
     out.append(Item(5202, _row(5202, "Cute Nurse Shirt, Perfect Nurse Gift for Her, Best Nurse Ever Shirt, Free Shipping", _TAGS13, 180, now,
                                num_favorers=22), {120: 1, 150: 1, 200: 2}, "no sale in 60 days, a title against the search guidance (Rewrite)"))
