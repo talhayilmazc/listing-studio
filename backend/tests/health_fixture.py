@@ -5,7 +5,7 @@ Nothing here is a real seller's. The shape is what those shops look like in gene
 app), all 13 tags, a long reference description, 6-10 mockup photos, often no materials and sometimes no
 section, attributes partly filled; sales concentrated in a few listings, most listings selling rarely or never.
 
-Used by the diagnosis (``scripts/health_diagnosis.py``), the tests (``tests/test_listing_health.py``) and the
+Test data, so it lives with the tests (app/ may write "state" "active" in one place only: tests/test_commercial_audit.py). Used by the diagnosis (``scripts/health_diagnosis.py``), the tests (``tests/test_listing_health.py``) and the
 demo account (``scripts/demo_screens_seed.py``), so the three agree on the same listings.
 """
 

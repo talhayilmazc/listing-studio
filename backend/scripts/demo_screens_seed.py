@@ -308,10 +308,10 @@ SRC = {"shipping_profile": "Standard US shipping", "return_policy": "returns, ex
 
 
 async def listing_health_demo(s, t, shop, prof, now):
-    """Listing health's mixed shop (app/pipeline/health_fixture.py, the same listings the tests and the diagnosis use):
+    """Listing health's mixed shop (tests/health_fixture.py, the same listings the tests and the diagnosis use):
     best sellers in the long keyword style, real problems, listings worth improving, too new ones; their sales; a preview
     waiting and a fix to undo."""
-    from app.pipeline import health_fixture as fx
+    from tests import health_fixture as fx
 
     today = now.date()
     for item in fx.shop(now):

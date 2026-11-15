@@ -1,4 +1,4 @@
-"""Listing health version 2 on the synthetic shop (app/pipeline/health_fixture.py): the bucket of every listing.
+"""Listing health version 2 on the synthetic shop (tests/health_fixture.py): the bucket of every listing.
 
     docker compose run --rm -w /app -e PYTHONPATH=/app --entrypoint python tests scripts/health_diagnosis.py
 
@@ -8,7 +8,7 @@ Synthetic data only; for a real account use ``python -m app.cli listing-health-r
 from collections import Counter
 from datetime import datetime, timezone
 
-from app.pipeline import health_fixture as fx
+from tests import health_fixture as fx
 from app.pipeline import listing_fixes as F
 from app.pipeline import listing_health as H
 

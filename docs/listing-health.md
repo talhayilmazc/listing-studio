@@ -39,7 +39,7 @@ A seller's best-selling listing scored about 50%. Version 1 (`pipeline/listing_h
 
 ### What fires on listings that sell
 
-Run on the synthetic shop in `backend/app/pipeline/health_fixture.py` (34 active listings, 16 with a sale in the last 60 days). The shop is **synthetic** and shaped like the early-access print-on-demand shops in general (long keyword titles, all 13 tags, no materials, some without a section); production data is never copied to a development machine, so this is a model of the problem, not a measurement of real shops. For a real account on the server, `python -m app.cli listing-health-report <e-mail>` (read only, counts only) gives version 2's buckets and how often each problem fires on selling and non-selling listings.
+Run on the synthetic shop in `backend/tests/health_fixture.py` (34 active listings, 16 with a sale in the last 60 days). The shop is **synthetic** and shaped like the early-access print-on-demand shops in general (long keyword titles, all 13 tags, no materials, some without a section); production data is never copied to a development machine, so this is a model of the problem, not a measurement of real shops. For a real account on the server, `python -m app.cli listing-health-report <e-mail>` (read only, counts only) gives version 2's buckets and how often each problem fires on selling and non-selling listings.
 
 Version 1's average score: **76% for the selling listings (lowest 64%) and 88% for the others.** The listings that sell scored worse than the ones that do not.
 

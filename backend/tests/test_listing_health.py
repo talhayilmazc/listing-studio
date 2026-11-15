@@ -224,7 +224,7 @@ def test_dated_holiday_tags_are_a_suggestion_only_for_a_listing_that_does_not_se
 
 
 def test_the_fixture_shop_falls_into_the_buckets_the_docs_give() -> None:
-    from app.pipeline import health_fixture as fx
+    from tests import health_fixture as fx
 
     found: dict[str, int] = {}
     for item in fx.shop(NOW):
