@@ -162,7 +162,9 @@ test("the upload section: templates, editable SKUs, per-design progress, both ou
   assert.match(read("app/(app)/upload/page.tsx"), /<MockupUpload key="mockups" shop=\{null\} \/>/); // uploads are not tied to a shop (B1)
   assert.match(upload, /data-testid="mockup-template"/);
   assert.match(upload, /api\.updateMockupDesign\(design\.id, sku\.trim\(\) \|\| null\)/);
-  assert.match(upload, /api\.startMockups\(batchId, chosen, \{ sides, garment_mode: garmentMode, design_ids: /);
+  assert.match(upload, /api\.startMockups\(batchId, chosen, \{ sides, garment_mode: garmentMode, sharpen, design_ids: /);
+  assert.match(upload, /data-testid="mockup-sharpen"/);
+  assert.match(upload, /data-testid="mockup-rerun-changed"/);
   assert.match(upload, /<span>\{d\.done\}<\/span><span> \/ <\/span><span>\{d\.total\}<\/span>/);
   assert.match(upload, /api\.useMockupsForListings\(run\.id, ids, covers\)/);
   assert.match(upload, /value=\{o\.photo_id \?\? ""\}/); // the cover is one of the run's photos

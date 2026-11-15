@@ -20,6 +20,7 @@ import type {
   FoundArea,
   UnfinishedDraft,
   MockupAdjustmentRow,
+  PlacementPreset,
   MockupDesign,
   MockupPlan,
   MockupEdits,
@@ -748,7 +749,8 @@ export const api = {
   startMockups: (
     batchId: string,
     templateIds: string[],
-    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order"; design_ids?: string[] | null } = {},
+    options: { sides?: "front" | "back" | "both"; garment_mode?: "same" | "order"; design_ids?: string[] | null;
+      sharpen?: "off" | "low" | "medium" } = {},
   ) =>
     req<MockupRun>(`/batches/${batchId}/mockups`, {
       method: "POST",
@@ -759,14 +761,28 @@ export const api = {
   batchDesigns: (batchId: string) => req<MockupDesign[]>(`/batches/${batchId}/designs`),
   /** The design editor (backend api/mockup_edits.py): every edit is a render-time layer. */
   mockupEdits: (runId: string) => req<MockupEdits>(`/mockup-runs/${runId}/edits`),
-  /** A design file at full size (the editor's arithmetic needs its pixels); with its ``stamp`` the browser keeps it. */
-  mockupDesignFileUrl: (designId: string, versionId?: string | null, stamp?: string) =>
-    `${BASE}/mockup-designs/${designId}/file` + query({ version: versionId ?? undefined, v: stamp }),
+  /** A design file; with its ``stamp`` the browser keeps it. ``preview`` (the editor and the tiles, B2/B7): at most
+   * 1200 px with its transparency; the arithmetic works in shares of the file, so it places the same. */
+  mockupDesignFileUrl: (designId: string, versionId?: string | null, stamp?: string, preview = false) =>
+    `${BASE}/mockup-designs/${designId}/file` + query({ version: versionId ?? undefined, v: stamp, size: preview ? "preview" : undefined }),
   saveAdjustment: (row: MockupAdjustmentRow) =>
     req<MockupAdjustmentRow>("/mockup-adjustments", { method: "PUT", body: JSON.stringify(row) }),
   applyAdjustment: (body: { run_id: string; design_id: string; photo_id: string; area: number; before: unknown; after: unknown;
-    scope: "design_photos" | "photo_designs" | "template_all" }) =>
+    scope: "design_photos" | "photo_designs" | "template_all" | "selected";
+    /** "selected" (B3): the ticked mockups, as (design, photo) pairs. */
+    targets?: { design_id: string; photo_id: string }[] }) =>
     req<{ changed: number; undo: MockupAdjustmentRow[] }>("/mockup-adjustments/apply", { method: "POST", body: JSON.stringify(body) }),
+  /** Placement presets per template (B4). */
+  placementPresets: (templateId: string) => req<PlacementPreset[]>(`/mockup-templates/${templateId}/placement-presets`),
+  savePlacementPreset: (templateId: string, name: string, data: unknown) =>
+    req<PlacementPreset>(`/mockup-templates/${templateId}/placement-presets`, { method: "POST", body: JSON.stringify({ name, data }) }),
+  addUsualPresets: (templateId: string) =>
+    req<PlacementPreset[]>(`/mockup-templates/${templateId}/placement-presets/usual`, { method: "POST" }),
+  deletePlacementPreset: (id: string) => req<void>(`/mockup-placement-presets/${id}`, { method: "DELETE" }),
+  /** The preset on every design on the template's photos of the run (each keeps its look); Undo rows back. */
+  applyPlacementPreset: (id: string, runId: string) =>
+    req<{ changed: number; undo: MockupAdjustmentRow[]; pairs: [string, string][] }>(`/mockup-placement-presets/${id}/apply`,
+      { method: "POST", body: JSON.stringify({ run_id: runId }) }),
   restoreAdjustments: (rows: MockupAdjustmentRow[]) =>
     req<{ changed: number }>("/mockup-adjustments/restore", { method: "POST", body: JSON.stringify({ rows }) }),
   saveRecolour: (designId: string, body: { subgroup: string; regions: unknown[]; scope?: "photo_designs" | "template_all" | null }) =>
@@ -775,6 +791,8 @@ export const api = {
     req<{ changed: number }>("/mockup-recolours/restore", { method: "POST", body: JSON.stringify({ rows }) }),
   /** Make these mockups again: the run comes back with them in ``refreshing`` (asked for while
    * others are being made, they join the same queue). */
+  /** "Re-run only the changed ones" (B5): the worker makes again only what changed since it was made. */
+  rerunChangedMockups: (runId: string) => req<MockupRun>(`/mockup-runs/${runId}/rerun-changed`, { method: "POST" }),
   rerenderMockups: (runId: string, pairs: [string, string][]) =>
     req<MockupRun>(`/mockup-runs/${runId}/rerender`, { method: "POST", body: JSON.stringify({ pairs }) }),
   /** The checklist for the card's unsaved text: nothing is saved, nothing read from Etsy. */

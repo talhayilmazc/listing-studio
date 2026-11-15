@@ -502,6 +502,8 @@ class RunRequest(BaseModel):
     garment_mode: Literal["same", "order"] = "same"
     #: The designs to make mockups of (ticked in the list); null: every design of the batch.
     design_ids: list[uuid.UUID] | None = Field(default=None, max_length=2000)
+    #: Output sharpening (B6): off, low or medium.
+    sharpen: Literal["off", "low", "medium"] = "off"
 
 
 class OutputOut(BaseModel):
@@ -581,6 +583,9 @@ class RunOut(BaseModel):
     #: Mockups being made again after the seller's edits (pipeline/mockup_refresh.py): each
     #: tile shows a preview and "Updating…" until its new file is in.
     refreshing: list[RefreshingOut] = Field(default_factory=list)
+    #: The run's output sharpening (B6) and, of its last pass, how many mockups were kept as nothing had changed.
+    sharpen: str = "off"
+    reused: int = 0
     #: Mockups that could not be made again, with the reason ("Try again" on the tile).
     refresh_failed: list[RefreshFailedOut] = Field(default_factory=list)
 
@@ -2058,6 +2063,7 @@ async def _run_out(session: AsyncSession, run: MockupRun, redis: Any = None) -> 
         ],
         zips=[_zip_out(z) for z in zips],
         refreshing=[RefreshingOut(design_id=d, photo_id=p, from_stamp=stamp) for (d, p), stamp in waiting.items()],
+        sharpen=run.sharpen or "off", reused=run.reused or 0,
         refresh_failed=[RefreshFailedOut(design_id=d, photo_id=p, reason=why) for (d, p), why in failed.items()],
     )
 
@@ -2303,7 +2309,7 @@ async def start_run(
     colours = [work.photo_colours(p) for p in photos]
     versions = await _versions_of(session, [d.id for d in chosen])
     total = sum(sum(work.prints_on(d, versions.get(d.id, []), n, c, meaning) for n, c in zip(names, colours)) for d in chosen)
-    run = MockupRun(tenant_id=tenant.id, batch_id=batch_id, template_ids=[str(t.id) for t in templates],
+    run = MockupRun(tenant_id=tenant.id, batch_id=batch_id, template_ids=[str(t.id) for t in templates], sharpen=body.sharpen,
                     photo_ids=[str(p.id) for p in photos], skipped=skipped, variant_suffix=meaning,
                     total=total, sides=body.sides, garment_mode=body.garment_mode,
                     design_ids=[str(d.id) for d in chosen] if body.design_ids is not None else None)

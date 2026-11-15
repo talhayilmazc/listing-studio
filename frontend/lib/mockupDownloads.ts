@@ -36,6 +36,15 @@ export function zipLine(zip: Pick<MockupZip, "status" | "files" | "total" | "don
   }
 }
 
+/** Output sharpening (B6), in the seller's words. */
+export const SHARPEN_LABELS: ["off" | "low" | "medium", string][] = [["off", "Off"], ["low", "Low"], ["medium", "Medium"]];
+
+/** After a pass: how many were kept as they were (B5/B7), or null when none. */
+export function keptLine(reused: number | undefined): string | null {
+  if (!reused) return null;
+  return `${reused} ${reused === 1 ? "mockup was" : "mockups were"} kept as ${reused === 1 ? "it was" : "they were"}: nothing that shows in ${reused === 1 ? "it" : "them"} had changed.`;
+}
+
 /** Still being made: the page looks again. */
 export const making = (zip: Pick<MockupZip, "status">): boolean => zip.status === "queued" || zip.status === "building";
 

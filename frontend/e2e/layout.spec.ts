@@ -336,7 +336,7 @@ test.describe("signed in", () => {
   test("a hand-written batch: Approve all says one line, marks each card, and offers Generate the empty ones", async ({ page }) => {
     await page.goto("/batches");
     await settle(page);
-    const link = page.locator('a[href^="/batches/"]', { hasText: "Hand-written" }).first();
+    const link = page.locator('a[href^="/batches/"]', { hasText: /Hand-written(?! in )/ }).first();
     await link.waitFor({ state: "visible", timeout: 30_000 });
     const href = (await link.getAttribute("href"))!;
     await page.goto(`${href.replace(/\/review$/, "")}/review`);
@@ -364,7 +364,7 @@ test.describe("signed in", () => {
   test("a hand-written title is saved as typed: it survives leaving the page and a reload", async ({ page }) => {
     await page.goto("/batches");
     await settle(page);
-    const href = (await page.locator('a[href^="/batches/"]', { hasText: "Hand-written" }).first().getAttribute("href"))!;
+    const href = (await page.locator('a[href^="/batches/"]', { hasText: /Hand-written(?! in )/ }).first().getAttribute("href"))!;
     const review = `${href.replace(/\/review$/, "")}/review`;
     await page.goto(review);
     await settle(page);

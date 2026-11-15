@@ -59,7 +59,7 @@ from app.workers import mockups as work
 
 router = APIRouter(prefix="/api", tags=["mockups"])
 
-Scope = Literal["design_photos", "photo_designs", "template_all"]
+Scope = Literal["design_photos", "photo_designs", "template_all", "selected"]
 
 
 class Place(BaseModel):
@@ -77,11 +77,18 @@ class AdjustmentOut(Place):
     data: dict[str, Any] | None = None
 
 
+class Pair(BaseModel):
+    design_id: uuid.UUID
+    photo_id: uuid.UUID
+
+
 class ApplyIn(Place):
     run_id: uuid.UUID
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
     scope: Scope
+    #: "selected" (B3): the mockups the seller ticked, as (design, photo) pairs of this run.
+    targets: list[Pair] | None = Field(None, max_length=2000)
 
 
 class RecolourRow(BaseModel):
@@ -156,6 +163,10 @@ class EditPhoto(BaseModel):
     height: int
     size: float
     areas: list[EditArea]
+    #: How the design sits before any adjustment: "top" (a photo's print area) or "centre" (a Photoshop
+    #: mockup's smart object, where it fills the canvas as Photoshop places it: ``size`` 1).
+    align: str = "top"
+    psd: bool = False
 
 
 class EditsOut(BaseModel):
@@ -211,7 +222,8 @@ async def get_edits(
     return EditsOut(
         run_id=run.id,
         photos=[EditPhoto(
-            id=p.id, template_id=p.template_id, name=p.name, width=p.width or 1, height=p.height or 1, size=p.size,
+            id=p.id, template_id=p.template_id, name=p.name, width=p.width or 1, height=p.height or 1,
+            size=1.0 if p.psd else p.size, align="centre" if p.psd else "top", psd=bool(p.psd),
             areas=[EditArea(print_area=a, subgroup=n) for a, n in zip(
                 work.photo_print_areas(p), work.area_subgroup_names(p, groups.get(p.template_id, [])))],
         ) for p in photos],
@@ -229,13 +241,29 @@ async def get_edits(
     )
 
 
+#: The editor's and the tiles' copy of a design (feature/mockups-editor B2/B7): at most this long side, transparency
+#: kept, made once beside the file. The full file is for rendering only.
+PREVIEW_SIDE = 1200
+
+
+def design_preview(data: bytes) -> bytes:
+    """A design file at most ``PREVIEW_SIDE`` px on its long side, as a WebP with its alpha (never flattened:
+    the screen copies of photos are flattened onto white, a design must not be)."""
+    import pyvips
+
+    image = pyvips.Image.thumbnail_buffer(data, PREVIEW_SIDE, height=PREVIEW_SIDE, size="down")
+    return image.write_to_buffer(".webp", Q=90, alpha_q=100, smart_subsample=False)
+
+
 @router.get("/mockup-designs/{design_id}/file")
 async def design_file(
     design_id: uuid.UUID, request: Request, version: uuid.UUID | None = Query(None), v: str | None = Query(None, max_length=40),
+    size: str | None = Query(None, pattern="^preview$", description="preview: at most 1200 px, transparency kept"),
     session: AsyncSession = Depends(get_session, scope="function"), tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
 ) -> Response:
-    """A design file as stored (never changed): the editor previews recolouring on it. Full
-    size, as the editor's arithmetic needs its pixels; kept by the browser with its ``stamp``."""
+    """A design file as stored (never changed): the editor previews placement and recolouring on it, kept by the
+    browser with its ``stamp``. ``size=preview``: a copy of at most 1,200 px with its transparency (the editor's
+    arithmetic works in shares of the file, so any size gives the same placement)."""
     design = await _own_design(session, tenant, design_id)
     key = design.design_key
     if version is not None:
@@ -245,6 +273,19 @@ async def design_file(
         key = found.design_key
     if not key:
         raise HTTPException(status_code=410, detail="this design's file has been removed")
+    if size == "preview":
+        from app.core import image_work
+
+        copy = f"{key}.preview{PREVIEW_SIDE}.webp"  # beside the file: deleted with it (delete_with_derivatives)
+        if not storage.exists(copy):
+            try:
+                original = storage.get(key)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=410, detail="this design's file has been removed") from exc
+            await session.commit()
+            storage.put(copy, await image_work.run(design_preview, original), "image/webp")
+        return await images.send_stored(request, storage, key=copy, url_version=images.stamp(key), asked=v, size=None,
+                                        media_type="image/webp")
     return await images.send_stored(request, storage, key=key, url_version=images.stamp(key), asked=v, size=None,
                                     media_type="image/png")
 
@@ -311,6 +352,13 @@ async def apply_adjustment(
         targets = [(design.id, p) for p in photos]
     elif body.scope == "photo_designs":
         targets = [(d.id, photo) for d in designs]
+    elif body.scope == "selected":
+        # Only this run's own designs and photos: anything else is not found.
+        by_photo = {p.id: p for p in photos}
+        ours = {d.id for d in designs}
+        if not body.targets or any(t.design_id not in ours or t.photo_id not in by_photo for t in body.targets):
+            raise HTTPException(status_code=404, detail="mockup not found")
+        targets = list({(t.design_id, t.photo_id): (t.design_id, by_photo[t.photo_id]) for t in body.targets}.values())
     else:
         targets = [(d.id, p) for d in designs for p in photos if p.template_id == photo.template_id]
     current, _ = await work.design_edits_for(session, list({d for d, _ in targets}), list({p.id for _, p in targets}))
@@ -400,6 +448,24 @@ async def restore_recolours(
 
 
 # --- making them again -----------------------------------------------------------------------------
+
+
+@router.post("/mockup-runs/{run_id}/rerun-changed", status_code=202, response_model=RunOut)
+async def rerun_changed(
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant), enqueuer: Enqueuer = Depends(get_enqueuer), redis: Redis = Depends(get_redis),
+) -> RunOut:
+    """"Re-run only the changed ones" (B5): every mockup of the run is asked for, and the worker makes again only
+    those whose design file, photo, placement, recolouring or sharpening changed since they were made (their render
+    key); the rest are kept as they are and counted (``reused``). New designs of the batch get their mockups."""
+    run = await _own_run(session, tenant, run_id)
+    designs = await _batch_designs(session, run.batch_id)
+    if run.design_ids is not None:
+        ticked = {str(d) for d in run.design_ids}
+        designs = [d for d in designs if str(d.id) in ticked]
+    pairs = [(d.id, uuid.UUID(str(p))) for d in designs for p in run.photo_ids]
+    # model_construct: a large run may have more pairs than one request may send; these are the run's own.
+    return await rerender(run_id, RerenderIn.model_construct(pairs=pairs), session, tenant, enqueuer, redis)
 
 
 @router.post("/mockup-runs/{run_id}/rerender", status_code=202, response_model=RunOut)

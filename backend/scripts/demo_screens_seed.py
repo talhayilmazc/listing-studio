@@ -136,7 +136,8 @@ async def main():
                     p.how_made_production, p.how_made_tools = "altered", ["computerized"]
                 s.add(p); profs[(shop.shop_name, name)] = p
         plan = await profile_links(s, t, profs[("Northwind Tees", "Standard Tee")], shops, now)
-        b = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=18, connection_id=shops[0].id, name="Summer drop")
+        b = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=18, connection_id=shops[0].id, name="Summer drop",
+                        created_at=now - timedelta(minutes=1))
         s.add(b); await s.flush()
         for i, (sku, art, title, tags) in enumerate(DESIGNS):
             prof = profs[("Northwind Tees", "Crewneck Sweatshirt" if art == "paw" else "Standard Tee")]
@@ -175,7 +176,8 @@ async def main():
                                   draft_at=at - timedelta(hours=2), publish_at=at))
         # A batch written by hand, nothing typed yet (the layout test presses "Approve all"
         # here: one summary line, the cards marked, "Generate the empty ones").
-        hand = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name="Hand-written")
+        hand = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name="Hand-written",
+                           created_at=now - timedelta(minutes=2))
         s.add(hand); await s.flush()
         for sku, art in (("HW2001", "mountain"), ("HW2002", "heart"), ("HW2003", "cup")):
             key = f"demo-shots/{hand.id}/{sku}-front.jpg"
@@ -191,7 +193,7 @@ async def main():
         # A batch published in the first shop only (the "Publish in another shop" screens: the
         # shops' status, the dialog with its SKU preview, the profile control that stays).
         sent = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=4, connection_id=shops[0].id,
-                           name="Published in Northwind")
+                           name="Published in Northwind", created_at=now - timedelta(minutes=3))
         s.add(sent); await s.flush()
         for n, (_sku, art, title, tags) in enumerate(DESIGNS[:4]):
             code = f"NWT{430 + n}"
@@ -215,9 +217,10 @@ async def main():
                                      state="active", profile_id=prof.id, title=title, sku=code, published_at=now - timedelta(days=1)))
         # The sellers' flows the layout run walks every time (frontend/e2e/layout.spec.ts):
         # a batch written by hand, approved and published in the first shop; and one never sent.
-        for bname, source, published, codes in (("Hand-written in Northwind", "manual", True, ("PCS417", "PCS418", "PCS419")),
-                                                ("Never sent", "ai", False, ("NEW501", "NEW502", "NEW503"))):
-            fb = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name=bname)
+        for minutes, (bname, source, published, codes) in enumerate((("Hand-written in Northwind", "manual", True, ("PCS417", "PCS418", "PCS419")),
+                                                ("Never sent", "ai", False, ("NEW501", "NEW502", "NEW503"))), start=4):
+            fb = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shops[0].id, name=bname,
+                             created_at=now - timedelta(minutes=minutes))
             s.add(fb); await s.flush()
             for n, code in enumerate(codes):
                 _sku, art, title, tags = DESIGNS[n + 2]
@@ -237,7 +240,8 @@ async def main():
                                              state="active", profile_id=prof.id, title=title, sku=code, published_at=now - timedelta(days=1)))
         # A listing whose text names a brand in a form the filter lets through: the warning on the
         # card, the workspace row and the send summary (frontend/e2e/layout.spec.ts).
-        fb = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=1, connection_id=shops[0].id, name="Brand names")
+        fb = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=1, connection_id=shops[0].id, name="Brand names",
+                         created_at=now - timedelta(minutes=6))
         s.add(fb); await s.flush()
         _sku, art, _title, tags = DESIGNS[0]
         key = f"demo-shots/{fb.id}/BRAND601-front.jpg"

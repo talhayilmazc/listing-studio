@@ -3,16 +3,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import type { MockupAdjustmentRow, MockupEdits, MockupRecolourRow, MockupRun } from "@/lib/types";
+import type { MockupAdjustmentRow, MockupEdits, MockupRecolourRow, MockupRun, PlacementPreset } from "@/lib/types";
 import { apply as applyH, homography as homographyOf, matrix3d, type Pt, type Quad } from "@/lib/areaEditor";
 import {
   APPLY_SCOPES,
+  selectedScopeLabel,
+  withPlacement,
   LOOK_SLIDERS,
   NEUTRAL,
   RANGES,
   type Adjust,
   type ApplyScope,
   type Region,
+  centred,
   clean,
   fileFor,
   full,
@@ -52,8 +55,10 @@ type Drag =
 const COLOURS = [{ label: "Black", value: "#000000" }, { label: "White", value: "#ffffff" }];
 const STEP = { small: 0.005, big: 0.05 };
 
-export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip, downloadHref }: {
+export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdited, onRun, strip, downloadHref, selected = [] }: {
   runId: string;
+  /** The mockups ticked under the results, as (design, photo): "The selected mockups" applies to them (B3). */
+  selected?: [string, string][];
   /** This mockup's download as it is now (lib/mockupDownloads.ts), in the seller's options; none while there is no file. */
   downloadHref?: string | null;
   edits: MockupEdits;
@@ -110,6 +115,41 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastApply, setLastApply] = useState<{ adjust?: MockupAdjustmentRow[]; recolour?: MockupRecolourRow[]; pairs: [string, string][] } | null>(null);
+  // Placement presets of this photo's template (B4): one click sets one here, or puts it on every design.
+  const [presets, setPresets] = useState<PlacementPreset[] | null>(null);
+  const [presetName, setPresetName] = useState("");
+  useEffect(() => {
+    api.placementPresets(photo.template_id).then(setPresets).catch(() => setPresets([]));
+  }, [photo.template_id]);
+  async function savePreset() {
+    const name = presetName.trim();
+    if (!name) return;
+    setError(null);
+    try {
+      await api.savePlacementPreset(photo.template_id, name, clean(adjust) ?? {});
+      setPresets(await api.placementPresets(photo.template_id));
+      setPresetName("");
+      setNote(`Saved "${name}" for this template.`);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+  async function presetOnAll(p: PlacementPreset) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.applyPlacementPreset(p.id, runId);
+      setAdjust(withPlacement(adjust, p.data as Partial<Adjust>));
+      setSaved(clean(withPlacement(adjust, p.data as Partial<Adjust>)));
+      setLastApply({ adjust: res.undo, pairs: res.pairs });
+      await remake(res.pairs);
+      setNote(`"${p.name}" put on ${res.pairs.length} ${res.pairs.length === 1 ? "mockup" : "mockups"} of this template; they are being made again.`);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // The photo fits the stage, its proportions kept.
   const stage = useRef<HTMLDivElement>(null);
@@ -147,19 +187,22 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
       source.current = ctx.getImageData(0, 0, c.width, c.height);
       setLoaded((n) => n + 1);
     };
-    img.src = api.mockupDesignFileUrl(design.id, file.version_id, file.stamp);
+    img.src = api.mockupDesignFileUrl(design.id, file.version_id, file.stamp, true);
   }, [design.id, file.version_id]);
   useEffect(() => {
     const src = source.current;
     const out = canvas.current;
     if (!src || !out) return;
-    const printed = printPixels(src, trim, previewRegions, adjust);
+    // The preview copy is at most 1200 px: its own trim box (the arithmetic above works in shares of the file).
+    const printed = printPixels(src, trimOn(file, src.width, src.height), previewRegions, adjust);
     out.width = printed.width;
     out.height = printed.height;
     out.getContext("2d")!.putImageData(new ImageData(printed.data, printed.width, printed.height), 0, 0);
   }, [loaded, previewRegions, adjust.opacity, adjust.brightness, adjust.contrast, tw, th]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const points = photoPoints(areaPx, tw, th, photo.size, adjust);
+  // A Photoshop mockup's design starts centred in its smart object, filling it (B1); a photo's hangs from the collar.
+  const align = photo.align ?? "top";
+  const points = photoPoints(areaPx, tw, th, photo.size, adjust, align);
   const centre: Pt = [points.reduce((s, p) => s + p[0], 0) / 4, points.reduce((s, p) => s + p[1], 0) / 4];
   const handle: Pt = (() => {
     const top: Pt = [(points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2];
@@ -310,9 +353,11 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
     try {
       await persist();
       const res = await api.applyAdjustment({ run_id: runId, design_id: designId, photo_id: photoId, area: areaIndex,
-        before: saved, after: clean(adjust), scope });
+        before: saved, after: clean(adjust), scope,
+        targets: scope === "selected" ? selected.map(([d, p]) => ({ design_id: d, photo_id: p })) : undefined });
       let recolour: MockupRecolourRow[] | undefined;
-      if (regions.length && scope !== "design_photos") {
+      // Recolouring goes to other designs only with "All designs…"; the selection carries the placement.
+      if (regions.length && scope !== "design_photos" && scope !== "selected") {
         recolour = (await api.saveRecolour(designId, { subgroup: recolourFor, regions, scope })).undo;
       }
       const pairs = dedupe([[designId, photoId], ...res.undo.map((r) => [r.design_id, r.photo_id] as [string, string]),
@@ -435,9 +480,13 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
                 onClick={() => setFree(!free)} data-testid="design-editor-free">
                 Free corners
               </button>
-              <button type="button" className="btn-secondary col-span-2 min-h-11" onClick={() => { setAdjust({ ...NEUTRAL }); setFree(false); }}
+              <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setAdjust(centred(areaPx, tw, th, photo.size, adjust, align))}
+                data-testid="design-editor-centre">
+                Centre
+              </button>
+              <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => { setAdjust({ ...NEUTRAL }); setFree(false); }}
                 data-testid="design-editor-reset">
-                Reset to the automatic fit
+                Reset
               </button>
             </div>
             <p className="text-xs text-slate-500">
@@ -515,12 +564,47 @@ export function DesignEditor({ runId, edits, designId, photoId, onClose, onEdite
               <p className="text-xs text-slate-500">Choose a tool, then draw on the design. The colour replaces the selected pixels; their transparency stays. Your file is never changed.</p>
             </fieldset>
 
+            <fieldset className="space-y-2" data-testid="design-editor-presets">
+              <legend className="label">Placement presets</legend>
+              {presets === null ? (
+                <div key="wait" className="h-11 animate-pulse rounded bg-slate-50" />
+              ) : presets.length === 0 ? (
+                <button key="usual" type="button" className="btn-secondary min-h-11 w-full" disabled={busy}
+                  onClick={async () => setPresets(await api.addUsualPresets(photo.template_id))} data-testid="design-editor-presets-usual">
+                  Add Full front, Chest print and Left pocket
+                </button>
+              ) : (
+                <ul key="list" className="space-y-1.5">
+                  {presets.map((p) => (
+                    <li key={p.id} className="flex items-center gap-1.5">
+                      <button type="button" className="btn-secondary min-h-11 min-w-0 flex-1 truncate text-left" disabled={busy}
+                        onClick={() => setAdjust(withPlacement(adjust, p.data as Partial<Adjust>))} data-testid="design-editor-preset">
+                        <span translate="no">{p.name}</span>
+                      </button>
+                      <button type="button" className="btn-quiet min-h-11 shrink-0 px-2 text-xs" disabled={busy || !edits.editable}
+                        onClick={() => presetOnAll(p)} title={`${p.name} on every design of this template`} data-testid="design-editor-preset-all">
+                        All designs
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex items-center gap-1.5">
+                <input className="field min-w-0 flex-1" placeholder="Name this placement" maxLength={60} value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)} data-testid="design-editor-preset-name" />
+                <button type="button" className="btn-secondary min-h-11 shrink-0 px-3" disabled={busy || !presetName.trim()}
+                  onClick={savePreset} data-testid="design-editor-preset-save">Save</button>
+              </div>
+              <p className="text-xs text-slate-500">A preset is where the design sits on this template; each mockup keeps its own look.</p>
+            </fieldset>
+
             <fieldset className="space-y-2" data-testid="design-editor-apply">
               <legend className="label">Apply this change to…</legend>
               {(Object.keys(APPLY_SCOPES) as ApplyScope[]).map((s) => (
-                <button key={s} type="button" className="btn-secondary min-h-11 w-full text-left" disabled={busy || !edits.editable}
+                <button key={s} type="button" className="btn-secondary min-h-11 w-full text-left"
+                  disabled={busy || !edits.editable || (s === "selected" && !selected.length)}
                   onClick={() => applyTo(s)} data-testid={`design-editor-apply-${s}`}>
-                  {APPLY_SCOPES[s]}
+                  <span translate={s === "selected" ? "no" : undefined}>{s === "selected" ? selectedScopeLabel(selected.length) : APPLY_SCOPES[s]}</span>
                 </button>
               ))}
               <p className="text-xs text-slate-500">Each one moves, scales and turns by the same amount from its own fit.</p>

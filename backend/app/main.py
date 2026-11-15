@@ -40,6 +40,7 @@ from app.api import (
     meta,
     mockup_edits,
     mockup_downloads,
+    mockup_presets,
     mockups,
     pnl,
     profile_links,
@@ -159,6 +160,7 @@ def create_app() -> FastAPI:
     application.include_router(attention.router)
     application.include_router(mockups.router)
     application.include_router(mockup_downloads.router)
+    application.include_router(mockup_presets.router)
     application.include_router(mockup_edits.router)
     application.include_router(distribution.router)
     application.include_router(send.router)

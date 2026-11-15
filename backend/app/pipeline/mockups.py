@@ -54,7 +54,14 @@ from app.pipeline.images import ImageProcessingError, ProcessingSpec
 #: Raised whenever the rendering changes, so old previews are not mistaken for new.
 #: 2: the surface and creases bend the print; the occluder puts it behind hair and skin.
 #: 3: colour kept (ICC profiles applied, 4:4:4 at quality 92, a gentler sheen).
-ENGINE_VERSION = 3
+#: 4: the print is mixed with the photo in linear light (soft edges and opacity: no dark rim), and an optional
+#:    output sharpening (feature/mockups-editor B6).
+ENGINE_VERSION = 4
+#: The gamma the print and the photo are mixed in (linear light; sRGB is close to a 2.2 power).
+MIX_GAMMA = 2.2
+#: Output sharpening (B6): off, or libvips's unsharp mask on the lightness with these (sigma, m2). Small on
+#: purpose: a mockup is a photo, not a print proof.
+SHARPEN = {"off": None, "low": (0.5, 1.0), "medium": (0.7, 2.0)}
 
 #: The image pipeline's own output (pipeline/images.py, ProcessingSpec): its size limits.
 OUTPUT = ProcessingSpec()
@@ -941,11 +948,22 @@ class Settings:
     occlusion: bool = True
     #: The seller's adjustment of this design here, and its look (pipeline/design_edits.py).
     adjust: dict | None = None
+    #: Output sharpening for the whole mockup: "off", "low" or "medium" (B6; the run's choice).
+    sharpen: str = "off"
+
+
+def sharpened(image, level: str):  # noqa: ANN001, ANN201 - pyvips.Image
+    """The finished mockup with the run's output sharpening (none for "off" or an unknown level)."""
+    amount = SHARPEN.get(level or "off")
+    if not amount:
+        return image
+    sigma, m2 = amount
+    return image.sharpen(sigma=sigma, x1=2.0, m1=0.0, m2=m2).cast("uchar")
 
 
 def render(maps: Maps, design, settings: Settings, *, quality: int = JPEG_QUALITY) -> bytes:  # noqa: ANN001
     """One mockup, as JPEG bytes. Same maps, design and settings: same bytes."""
-    return jpeg(_print_on(maps, maps.blank, design, settings), quality)
+    return jpeg(sharpened(_print_on(maps, maps.blank, design, settings), settings.sharpen), quality)
 
 
 def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], settings: Settings, *,
@@ -960,7 +978,7 @@ def render_many(maps: Maps, placements: list[tuple[Any, list[list[float]]]], set
         behind = settings.occlusion and (extra[0] if extra else True)
         adjust = extra[1] if len(extra) > 1 else None
         result = _print_on(maps, result, design, Settings(corners, settings.size, settings.fold, behind, adjust))
-    return jpeg(result, quality)
+    return jpeg(sharpened(result, settings.sharpen), quality)
 
 
 def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, ANN202
@@ -1041,7 +1059,9 @@ def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, AN
     printed = 1 - (1 - printed) * (1 - sheen)  # screen: the highlights survive the ink
 
     photo = base.crop(left, top, rw, rh).cast("float") / 255
-    out = photo * (1 - a) + printed * a
+    # Mixed in linear light (B6): where the print only partly covers the photo (a soft edge, opacity) the mix is
+    # what light does, not a darker blend of two encoded values.
+    out = (photo ** MIX_GAMMA * (1 - a) + printed ** MIX_GAMMA * a) ** (1 / MIX_GAMMA)
     region = (out * 255).rint().maxpair(0).minpair(255).cast("uchar")
     return base.insert(region, left, top).copy_memory()
 

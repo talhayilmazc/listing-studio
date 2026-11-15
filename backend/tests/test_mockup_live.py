@@ -63,8 +63,11 @@ async def test_a_second_request_joins_the_queue_and_every_mockup_is_made_again(m
     # The one worker job makes them all, then lets go of the run.
     assert await work.rerender_mockups(_ctx(mw), str(r["run"])) == "succeeded"
     after = await _outputs(mw)
-    for pair in ((d0, p0), (d0, p1), (d1, p1)):
-        assert after[pair][0] == before[pair][0] and after[pair][1] != before[pair][1], pair  # same record, new file
+    # The changed one: same record, new file. Asked for with nothing changed (feature/mockups-editor B5/B7): kept as
+    # it is, the same file, and not a failure.
+    assert after[(d0, p0)][0] == before[(d0, p0)][0] and after[(d0, p0)][1] != before[(d0, p0)][1]
+    for pair in ((d0, p1), (d1, p1)):
+        assert after[pair] == before[pair], pair
     assert after[(d1, p0)] == before[(d1, p0)]  # not asked for: unchanged
     done = await _run_json(mw, r["run"])
     assert done["refreshing"] == [] and done["refresh_failed"] == [] and done["status"] == "succeeded"
@@ -119,6 +122,8 @@ async def test_a_failed_remake_is_reported_and_can_be_retried(mw, monkeypatch) -
         raise M.MockupError("the photo's file could not be read")
 
     monkeypatch.setattr(M, "render_many", broken)
+    # Changed (a mockup asked for with nothing changed is kept, not made again: B5/B7).
+    await mw["a"].put("/api/mockup-adjustments", json={"design_id": d0, "photo_id": p0, "area": 0, "data": {"dx": 0.07}})
     await mw["a"].post(f"/api/mockup-runs/{r['run']}/rerender", json={"pairs": [[d0, p0]]})
     await work.rerender_mockups(_ctx(mw), str(r["run"]))
     out = await _run_json(mw, r["run"])

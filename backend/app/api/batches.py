@@ -437,7 +437,7 @@ async def list_batches(
     batches = list((await session.execute(
         select(UploadBatch)
         .where(UploadBatch.tenant_id == tenant.id, UploadBatch.deleted_at.is_(None))
-        .order_by(UploadBatch.created_at.desc())
+        .order_by(UploadBatch.created_at.desc(), UploadBatch.id.desc())  # ties: the same order on every load
     )).scalars())
     overviews = await batch_overviews(session, tenant.id, batches)
     summaries = await _summaries(session, tenant.id, batches)

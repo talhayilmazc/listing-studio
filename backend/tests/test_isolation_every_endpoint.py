@@ -142,7 +142,8 @@ async def _seed(sm, storage: LocalStorage, email: str, n: int) -> dict[str, Any]
                                 template_name=f"Template{n}", position=1, filename=f"o{n}.jpg", width=40, height=50,
                                 byte_size=10)
         zipped = M.MockupZip(tenant_id=tid, run_id=run.id)
-        s.add_all([output, zipped])
+        placement = M.MockupPlacementPreset(tenant_id=tid, template_id=template.id, name=f"Chest{n}", data={"scale": 0.7})
+        s.add_all([output, zipped, placement])
         fix = M.ListingFix(tenant_id=tid, connection_id=shop.id, listing_id=n * 10 + 2, kinds=["tags"], state="proposed",
                            before={"tags": [f"secret tag {n}"]}, after={"tags": [f"secret tag {n}", "more"]})
         s.add(fix)
@@ -156,6 +157,7 @@ async def _seed(sm, storage: LocalStorage, email: str, n: int) -> dict[str, Any]
             "record_id": str(attempt.id), "listing_id": n * 10 + 2, "month": "2026-09", "template_id": template.id,
             "subgroup_id": subgroup.id, "photo_id": photo.id, "preset_id": preset.id, "design_id": design.id,
             "version_id": version.id, "run_id": run.id, "output_id": output.id, "zip_id": zipped.id,
+            "placement_id": placement.id,
             "key": "creativity_production", "publication_id": publication.id, "fix_id": fix.id, "upload_id": psd.id,
         }
 

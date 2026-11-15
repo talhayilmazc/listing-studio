@@ -459,7 +459,9 @@ export interface MockupOutput {
 export interface MockupEdits {
   run_id: string;
   photos: { id: string; template_id: string; name: string; width: number; height: number; size: number;
-    areas: { print_area: number[][]; subgroup: string | null }[] }[];
+    areas: { print_area: number[][]; subgroup: string | null }[];
+    /** "centre" for a Photoshop mockup's smart object (its design fills the canvas, size 1); else "top". */
+    align?: "top" | "centre"; psd?: boolean }[];
   designs: { id: string; original_filename: string; sku: string | null;
     files: { version_id: string | null; subgroup: string | null; filename: string; width: number; height: number;
       trim: number[] | null; trim_size: number[] | null; stamp?: string }[] }[];
@@ -467,6 +469,8 @@ export interface MockupEdits {
   recolours: MockupRecolourRow[];
   editable: boolean;
 }
+/** A named placement on one template (B4): "Chest print", "Full front", "Left pocket". */
+export interface PlacementPreset { id: string; template_id: string; name: string; data: Record<string, unknown> }
 export interface MockupAdjustmentRow { design_id: string; photo_id: string; area: number; data: Record<string, unknown> | null }
 export interface MockupRecolourRow { design_id: string; subgroup: string; regions: unknown[] | null }
 
@@ -532,6 +536,9 @@ export interface MockupRun {
   refreshing?: { design_id: string; photo_id: string; from_stamp?: string }[];
   /** Mockups that could not be made again, with the reason. */
   refresh_failed?: { design_id: string; photo_id: string; reason: string }[];
+  /** Output sharpening (B6) and, of the last pass, how many mockups were kept as nothing had changed (B5/B7). */
+  sharpen?: "off" | "low" | "medium";
+  reused?: number;
 }
 
 /** One check of the search-readiness checklist: what the server found, and why. */

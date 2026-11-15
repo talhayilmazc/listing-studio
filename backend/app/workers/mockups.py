@@ -574,7 +574,7 @@ def design_base(design: MockupDesign) -> str:
     return design.parsed_sku or PurePosixPath(design.original_filename.replace("\\", "/")).stem or "design"
 
 
-async def replace_earlier(session: AsyncSession, storage: Storage, batch_id: uuid.UUID) -> int:
+async def replace_earlier(session: AsyncSession, storage: Storage, batch_id: uuid.UUID, keep: set[str] | None = None) -> int:
     """Remove what an earlier run made for this batch: its outputs and their files,
     the listing photos made from them, and mockups made as photos before outputs
     existed. Only while nothing is written for the batch (the API checks)."""
@@ -582,7 +582,7 @@ async def replace_earlier(session: AsyncSession, storage: Storage, batch_id: uui
         select(Asset).where(Asset.batch_id == batch_id, Asset.mockup_design_id.is_not(None))
     )).scalars())
     outputs = list((await session.execute(select(MockupOutput).where(MockupOutput.batch_id == batch_id))).scalars())
-    keys = {a.processed_key for a in assets if a.processed_key} | {o.key for o in outputs if o.key}
+    keys = ({a.processed_key for a in assets if a.processed_key} | {o.key for o in outputs if o.key}) - (keep or set())
     for key in keys:
         await asyncio.to_thread(storage.delete_with_derivatives, key)
     if assets:
@@ -614,6 +614,21 @@ def regions_for(recolour: dict[tuple[uuid.UUID, str], list], design_id: uuid.UUI
     return recolour.get((design_id, (subgroup or "").casefold())) or recolour.get((design_id, "")) or None
 
 
+def render_key(photo: MockupPhoto, garments: list, prints: list, sharpen: str) -> str:
+    """Everything that decides a mockup's pixels, hashed (B5/B7): the engine, the photo (its files, areas, size,
+    folds, what is in front, a PSD's placement), each design file and its trim, recolouring and placement on each
+    area, and the output sharpening. The same key: the same file, so it is not made again."""
+    import hashlib
+
+    payload = {
+        "engine": mockups.ENGINE_VERSION, "quality": mockups.JPEG_QUALITY, "sharpen": sharpen or "off",
+        "photo": [str(photo.id), photo.image_key, photo.mask_key, photo.occluder_key if photo.occlusion else None,
+                  photo.size, photo.fold_strength, photo.occlusion, getattr(photo, "version", None), photo.psd or None],
+        "areas": garments, "prints": prints,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
 async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
               refresh: list[tuple[uuid.UUID, uuid.UUID]] | None = None) -> MockupRun | None:
     """Make one run's mockups. Returns the run, or None when there is nothing to do.
@@ -643,12 +658,22 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
         ticked = {str(x) for x in job.design_ids}
         designs = [d for d in designs if str(d.id) in ticked]
     existing: dict[tuple[uuid.UUID, uuid.UUID], MockupOutput] = {}
+    # Mockups an earlier run made that nothing has changed since (their render key): their files are kept and used
+    # again, not made again (B5/B7). The rest of the earlier run goes as before.
+    earlier: dict[str, tuple[str, int, int, int]] = {}
+    job.reused = 0
+    job.unchanged_pairs = set()  # (design, photo) kept as they were in this pass (not a mapped column)
     if refreshing:
         for row in (await session.execute(select(MockupOutput).where(MockupOutput.run_id == job.id))).scalars():
             if row.photo_id is not None:
                 existing[(row.design_id, row.photo_id)] = row
     else:
-        await replace_earlier(session, storage, job.batch_id)
+        for row in (await session.execute(select(MockupOutput).where(
+                MockupOutput.batch_id == job.batch_id, MockupOutput.render_key.is_not(None), MockupOutput.key.is_not(None),
+                MockupOutput.files_removed_at.is_(None)))).scalars():
+            if storage.exists(row.key):
+                earlier.setdefault(row.render_key, (row.key, row.width, row.height, row.byte_size))
+        await replace_earlier(session, storage, job.batch_id, keep={k for k, *_ in earlier.values()})
     await session.commit()
 
     tenant = await session.get(Tenant, job.tenant_id)
@@ -720,7 +745,6 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                 from app.workers import psd as psd_work
 
                 blank = storage.get(photo.image_key or "")
-                maps = await image_work.run(psd_work.load_template, storage, photo)
             else:
                 blank, mask = storage.get(photo.image_key or ""), storage.get(photo.mask_key or "")
                 occluder = storage.get(photo.occluder_key) if photo.occluder_key and photo.occlusion else None
@@ -753,9 +777,19 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     if r:
                         reach.append(r)
             await session.commit()  # (a total or a colour changed above: no connection across the maps)
-            if not photo.psd:
-                maps = await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach)
-            settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion)
+            # The maps are made only when a mockup of this photo is really made (an unchanged one is not).
+            made_maps: list[Any] = []
+
+            async def maps_now() -> Any:
+                if not made_maps:
+                    if photo.psd:
+                        made_maps.append(await image_work.run(psd_work.load_template, storage, photo))
+                    else:
+                        made_maps.append(await image_work.run(mockups.build_maps, blank, mask, occluder, garments, reach))
+                return made_maps[0]
+
+            settings = mockups.Settings(garments[0], photo.size, photo.fold_strength, photo.occlusion,
+                                        sharpen=job.sharpen or "off")
             # Which designs go on one mockup: every design alone on all garments ("same"),
             # or one design per garment in order ("order").
             # A front & back photo always shows one design, front and back.
@@ -774,6 +808,7 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                 files = {d.id: files_for_areas(d, versions.get(d.id, []), area_names, colours, meaning)
                          for d in dict.fromkeys(shown)}
                 placements = []
+                prints: list[Any] = []  # what decides each print's pixels, for the render key
                 for k, (d, a, r, n, o) in enumerate(chosen):
                     f = files[d.id][k]
                     if f is None:
@@ -784,32 +819,53 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     img = design_for(r, front_img, back_img, fallback)
                     if img is not None:
                         placements.append((img, a, o, adjustments.get((d.id, photo.id, k))))
+                        prints.append([k, f.design_key, f.back_key, r, fallback, f.trims, regions,
+                                       adjustments.get((d.id, photo.id, k)), o])
                 if not placements:
                     if not refreshing:
                         job.total = max(0, job.total - len(group))  # nothing of these designs belongs on this photo
                     continue
                 await session.commit()
+                rkey = render_key(photo, garments, prints, job.sharpen or "off")
+                # Unchanged since it was made (the same render key, its file still there): kept, not made again.
+                same = [existing.get((d.id, photo.id)) for d in group] if refreshing else []
+                if refreshing and same and all(r is not None and r.render_key == rkey and r.key and storage.exists(r.key)
+                                               for r in same):
+                    job.reused += len(group)
+                    job.unchanged_pairs |= {(d.id, photo.id) for d in group}
+                    made += 1
+                    await session.commit()
+                    continue
+                reuse = earlier.pop(rkey, None) if not refreshing else None
                 try:
-                    if photo.psd:
-                        # One smart object: the first placement's design goes in it (adjustments are not applied).
-                        jpeg = await image_work.run(psd_work.render_design, maps, placements[0][0])
+                    if reuse is not None:
+                        jpeg = None
+                    elif photo.psd:
+                        # One smart object: the first placement's design goes in it, at the seller's placement inside it (B1).
+                        jpeg = await image_work.run(psd_work.render_design, await maps_now(), placements[0][0],
+                                                    mockups.JPEG_QUALITY, placements[0][3], job.sharpen or "off")
                     else:
-                        jpeg = await image_work.run(mockups.render_many, maps, placements, settings)
+                        jpeg = await image_work.run(mockups.render_many, await maps_now(), placements, settings)
                 except mockups.MockupError as exc:
                     if not refreshing:
                         job.failed += len(group)
                     job.error = f"{template_name} – {photo.name}: {exc}"
                     await session.commit()
                     continue
-                if cap is not None and in_use + len(jpeg) > cap:
-                    raise storage_cap.StorageFull(
-                        storage_cap.message(in_use, cap, len(jpeg), days.drafted_days, days.unpublished_days)
-                    )
                 output_id = uuid.uuid4()
-                key = f"{job.tenant_id}/{job.batch_id}/mockups/{output_id}.jpg"
-                storage.put(key, jpeg, "image/jpeg")
-                storage_cap.added(job.tenant_id, len(jpeg))
-                in_use += len(jpeg)
+                if reuse is not None:  # the earlier run's file, as it was
+                    key, out_w, out_h, size = reuse
+                    job.reused += len(group)
+                else:
+                    if cap is not None and in_use + len(jpeg) > cap:
+                        raise storage_cap.StorageFull(
+                            storage_cap.message(in_use, cap, len(jpeg), days.drafted_days, days.unpublished_days)
+                        )
+                    key = f"{job.tenant_id}/{job.batch_id}/mockups/{output_id}.jpg"
+                    storage.put(key, jpeg, "image/jpeg")
+                    storage_cap.added(job.tenant_id, len(jpeg))
+                    in_use += len(jpeg)
+                    out_w, out_h, size = (await maps_now()).width, (await maps_now()).height, len(jpeg)
                 # One output per design shown (they share the file): each design's
                 # listing and ZIP folder has the mockup it is printed on.
                 replaced: set[str] = set()
@@ -818,14 +874,14 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                     if row is not None:
                         if row.key and row.key != key:
                             replaced.add(row.key)
-                        row.key, row.byte_size, row.width, row.height = key, len(jpeg), maps.width, maps.height
+                        row.key, row.byte_size, row.width, row.height, row.render_key = key, size, out_w, out_h, rkey
                         continue
                     session.add(MockupOutput(
                         id=output_id if k == 0 else uuid.uuid4(), tenant_id=job.tenant_id, run_id=job.id,
                         batch_id=job.batch_id, design_id=design.id, photo_id=photo.id,
                         template_name=template_name, photo_name=photo.name, position=position,
                         filename=output_filename(design, photo, template_name, prefixes, numbered, taken), key=key,
-                        width=maps.width, height=maps.height, byte_size=len(jpeg),
+                        width=out_w, height=out_h, byte_size=size, render_key=rkey,
                     ))
                     job.done += 1
                 for old in replaced:  # the earlier file of a re-rendered mockup
@@ -833,6 +889,8 @@ async def run(session: AsyncSession, storage: Storage, run_id: uuid.UUID,
                 made += 1
                 await session.commit()
         job.status = "succeeded" if made or not job.total or refreshing else "failed"
+        for old_key, *_ in earlier.values():  # kept for reuse and not needed after all
+            await asyncio.to_thread(storage.delete_with_derivatives, old_key)
     except storage_cap.StorageFull as exc:
         job.status, job.error = "failed", str(exc)
     except Exception:  # an unexpected fault: the run says so, the log has the rest
@@ -917,6 +975,7 @@ async def refresh_turn(session: AsyncSession, storage: Storage, run_id: uuid.UUI
     job.status, job.error = "queued", None  # run() makes only a run that is waiting
     await session.commit()
     done = await run(session, storage, run_id, refresh=turn)
+    unchanged = set(getattr(done, "unchanged_pairs", set()) or set())  # nothing changed: kept, not a failure (B5)
     reason = (done.error if done is not None else None) or "This mockup could not be made again."
     session.expire_all()
     after = await keys()
@@ -924,6 +983,8 @@ async def refresh_turn(session: AsyncSession, storage: Storage, run_id: uuid.UUI
     for pair in turn:
         if pair not in before and pair not in after:
             continue  # this design does not print on this photo
+        if pair in unchanged and after.get(pair) is not None:
+            continue
         if after.get(pair) is None or after.get(pair) == before.get(pair):
             failed[pair] = reason
     job = await session.get(MockupRun, run_id)

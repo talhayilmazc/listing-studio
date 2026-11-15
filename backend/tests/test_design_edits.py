@@ -41,7 +41,7 @@ def test_the_shared_cases_are_what_the_code_gives() -> None:
     """The fixture the editor is tested against is the server's own arithmetic."""
     for c in CASES["points"]:
         pts = [tuple(p) for p in c["quad"]]
-        unit = E.unit_points(pts, tuple(c["design"]), c["size"], c["adjust"])
+        unit = E.unit_points(pts, tuple(c["design"]), c["size"], c["adjust"], c.get("align", "top"))
         assert [[round(u, 6), round(v, 6)] for u, v in unit] == c["unit"], c["name"]
     for c in CASES["looks"]:
         d = np.array(c["pixels"], np.uint8).reshape(10, 14, 4)

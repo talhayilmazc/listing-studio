@@ -109,6 +109,29 @@ async def test_every_status_a_batch_can_be_in_several_at_once(world) -> None:  #
     assert str(live.id) not in theirs and str(half.id) not in theirs
 
 
+async def test_batches_made_at_the_same_instant_list_in_the_same_order_every_time(world) -> None:  # noqa: F811
+    """Newest first; batches with the same time (one transaction, the demo seed) keep one order, whatever is updated.
+
+    The list once sorted by the time alone: Postgres then returns ties in the order the rows happen to lie, which
+    changes when a row is updated, so a batch could jump to the top between two loads of the page.
+    """
+    alice = world["alice"]
+    async with world["sm"]() as s:
+        made = [await _batch(s, alice) for _ in range(4)]
+        for b in made:
+            b.created_at = NOW
+        await s.commit()
+    ours = {str(b.id) for b in made}
+    first = [b["id"] for b in (await world["a"].get("/api/batches")).json() if b["id"] in ours]
+    assert first == sorted(ours, reverse=True)  # the tie is broken by id, newest time first
+    async with world["sm"]() as s:
+        b = await s.get(UploadBatch, made[-1].id)
+        b.name = "Renamed"
+        await s.commit()
+    again = [b["id"] for b in (await world["a"].get("/api/batches")).json() if b["id"] in ours]
+    assert again == first
+
+
 # --- mockups: only the ticked designs, counts per subgroup; scheduling ------------------------------
 
 

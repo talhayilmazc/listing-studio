@@ -103,13 +103,19 @@ def compose(page: np.ndarray, rgba: np.ndarray, left: int, top: int, mode: str, 
         page[ys:ye, x0:x1] = b * (1 - alpha) + blend(mode, b, s) * alpha
 
 
-def fit_canvas(design: np.ndarray, canvas: tuple[int, int]) -> np.ndarray:
+def fit_canvas(design: np.ndarray, canvas: tuple[int, int], adjust: dict[str, Any] | None = None) -> np.ndarray:
     """The design inside the smart object's canvas: as large as fits, centred, transparent around it (what
-    Photoshop's placing does when the design is not the canvas's shape). Same shape: unchanged."""
+    Photoshop's placing does when the design is not the canvas's shape). Same shape: unchanged.
+
+    ``adjust`` (the seller's placement, pipeline/design_edits.py: moved, scaled, stretched, turned, free corners)
+    is applied here, inside the canvas, as if the layer were resized inside the smart object in Photoshop: the
+    canvas then goes onto the page through its corners and mesh as always, and what leaves the canvas is cut."""
     from PIL import Image
 
     cw, ch = canvas
     h, w = design.shape[:2]
+    if adjust:
+        return _adjusted_canvas(design, canvas, adjust)
     if (w, h) == (cw, ch):
         return design
     scale = min(cw / w, ch / h)
@@ -118,6 +124,27 @@ def fit_canvas(design: np.ndarray, canvas: tuple[int, int]) -> np.ndarray:
     out = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     out.paste(im, ((cw - nw) // 2, (ch - nh) // 2))
     return np.asarray(out)
+
+
+def _adjusted_canvas(design: np.ndarray, canvas: tuple[int, int], adjust: dict[str, Any]) -> np.ndarray:
+    """The design drawn into the canvas at the seller's placement: its four corners from the same arithmetic the
+    editor draws with (``design_edits.unit_points``, centred), sampled with premultiplied alpha so a transparent
+    design keeps no dark or light fringe at its edges."""
+    from PIL import Image
+
+    from app.pipeline import design_edits
+
+    cw, ch = canvas
+    h, w = design.shape[:2]
+    rect = [(0.0, 0.0), (float(cw), 0.0), (float(cw), float(ch)), (0.0, float(ch))]
+    pts = [(u * cw, v * ch) for u, v in design_edits.unit_points(rect, (w, h), 1.0, adjust, "centre")]
+    # PIL's PERSPECTIVE takes the output -> input matrix.
+    to_design = np.linalg.inv(homography([(0, 0), (w, 0), (w, h), (0, h)], pts))
+    to_design = to_design / to_design[2, 2]
+    coeffs = tuple(float(c) for c in to_design.ravel()[:8])
+    image = Image.fromarray(np.ascontiguousarray(design[..., :4]), "RGBA").convert("RGBa")  # premultiplied
+    placed = image.transform((cw, ch), Image.PERSPECTIVE, coeffs, Image.BICUBIC).convert("RGBA")
+    return np.asarray(placed)
 
 
 def homography(src: list[tuple[float, float]], dst: list[tuple[float, float]]) -> np.ndarray:
@@ -224,10 +251,15 @@ def warp(canvas_rgba: np.ndarray, spec: Spec) -> tuple[np.ndarray, int, int]:
     return out, left, top
 
 
-def render(spec: Spec, base_rgb: np.ndarray, design_rgba: np.ndarray, mask: np.ndarray | None = None) -> np.ndarray:
-    """The mockup, uint8 RGB at the stored size."""
+def render(spec: Spec, base_rgb: np.ndarray, design_rgba: np.ndarray, mask: np.ndarray | None = None,
+           adjust: dict[str, Any] | None = None) -> np.ndarray:
+    """The mockup, uint8 RGB at the stored size. ``adjust``: the seller's placement and look of the design."""
+    from app.pipeline import design_edits
+
     page = _f(base_rgb)
-    canvas = fit_canvas(design_rgba, spec.canvas)
+    if adjust:
+        design_rgba = design_edits.look_rgba(design_rgba, adjust)  # opacity, brightness, contrast: the design's own pixels
+    canvas = fit_canvas(design_rgba, spec.canvas, adjust)
     placed, left, top = warp(canvas, spec)
     if placed.size:
         h, w = placed.shape[:2]
