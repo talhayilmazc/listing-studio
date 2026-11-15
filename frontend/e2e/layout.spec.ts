@@ -877,7 +877,8 @@ test.describe("signed in", () => {
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     const { width } = page.viewportSize()!;
     await page.waitForTimeout(500);
-    await page.screenshot({ path: `../docs/screens/photo-crop/crop-editor-${width}.png` });
+    // Into test-results/ (git-ignored): docs/screens/ keeps only pictures someone chose to commit.
+    await page.screenshot({ path: `test-results/screens/photo-crop/crop-editor-${width}.png` });
     await expectSound(page, "/batches/<batch>/review with the crop open");
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
@@ -893,7 +894,7 @@ test.describe("signed in", () => {
     await expect(tab.getByText("Upcoming, next 7 days")).toBeVisible();
     await expect(tab.getByText("Needs attention")).toBeVisible();
     await page.waitForTimeout(400);
-    await page.screenshot({ path: "../docs/screens/admin-publishing/publishing-tab-1366.png", fullPage: true });
+    await page.screenshot({ path: "test-results/screens/admin-publishing/publishing-tab-1366.png", fullPage: true });
     await expectSound(page, "/admin Publishing");
     await page.getByRole("tab", { name: "Users" }).click();
     // Each seller is drawn twice (a phone card and a table row): the one on screen.
@@ -906,7 +907,7 @@ test.describe("signed in", () => {
       await expect(section.getByTestId("publishing-detail").first()).not.toContainText("Reading", { timeout: 15_000 });
     }
     await page.waitForTimeout(400);
-    await section.screenshot({ path: "../docs/screens/admin-publishing/account-publishing-1366.png" });
+    await section.screenshot({ path: "test-results/screens/admin-publishing/account-publishing-1366.png" });
   });
 
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {
