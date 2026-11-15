@@ -1918,6 +1918,7 @@ export interface Allowance {
   /** The listing counter's number, the old one, and which `used` is ("shadow" | "on"). */
   listings_counted?: number;
   old_used?: number;
+  live_rewrites?: number;
   counter?: "shadow" | "on" | string;
 }
 
@@ -2575,7 +2576,7 @@ export interface AdminPublishing {
   upcoming: AdminPublishingPage;
   attention: AdminPublishingPage;
   activity: { account: string; account_id: string; day: string; drafts: number; live_by_app: number; by_seller: number; failures: number }[];
-  counted: { account: string; account_id: string; counter: string; new: number; old: number }[];
+  counted: { account: string; account_id: string; counter: string; new: number; old: number; live?: number }[];
   states: string[];
 }
 

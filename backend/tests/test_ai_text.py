@@ -197,14 +197,15 @@ async def test_scan_lists_counts_and_ids_only_and_fixes_only_what_is_not_on_etsy
 # --- Listing health: "Fix now: description has stray characters" -------------------------------------
 def test_listing_health_marks_stray_characters_fix_now_and_offers_the_cleaned_text() -> None:
     listing = {"title": "Slow Mornings Club Shirt", "tags": ["cozy tee"], "description": REAL_SAMPLES[1][0], "images": []}
-    check = next(c for c in listing_health.score(listing).checks if c.id == "stray_characters")
-    assert check.verdict == listing_health.FAIL and check.detail == "Description has stray characters."
+    verdict = listing_health.classify(listing, recent_units=3, past_units=3, sales_known=True)
+    check = next(p for p in verdict.problems if p.id == "stray_characters")
+    assert verdict.bucket == listing_health.FIX_NOW and check.sentence.startswith("Description has stray characters.")
     before, after = listing_fixes.stray(listing)
     assert before == {"description": REAL_SAMPLES[1][0]} and after == {"description": REAL_SAMPLES[1][1]}
     assert listing_fixes.CLEAN in listing_fixes.KINDS
     fine = {**listing, "description": "A clean one."}
     assert listing_fixes.stray(fine) is None
-    assert next(c for c in listing_health.score(fine).checks if c.id == "stray_characters").verdict == listing_health.PASS
+    assert "stray_characters" not in {p.id for p in listing_health.classify(fine, recent_units=3, past_units=3, sales_known=True).problems}
 
 
 async def test_an_approved_clean_text_fix_writes_the_description_and_nothing_else() -> None:

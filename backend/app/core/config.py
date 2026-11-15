@@ -246,6 +246,11 @@ class Settings(BaseSettings):
     # "on" makes every screen and the allowance check read the new one. A config change only.
     usage_counter: str = "shadow"
 
+    # Listing health (docs/listing-health.md): a sale this recent makes a listing "selling" (no title or tag
+    # change is ever suggested for it); a listing younger than this with no sale is "too new to judge".
+    listing_health_selling_days: int = Field(default=60, ge=1, le=365)
+    listing_health_new_days: int = Field(default=30, ge=0, le=365)
+
     # Shown in the UI (ToU requires a visible support email): the product's own mailbox, never a
     # person's (fix/onboarding-followups, Part G). A personal mailbox here (gmail.com and the like) is
     # replaced by the default and logged, so no page, legal text or message can show one.

@@ -31,4 +31,6 @@ export const READ = {
   feesPolicy: { label: "Etsy: Fees & Payments Policy (page last updated 5 October 2026)", url: "https://www.etsy.com/legal/fees" },
   etsyPayments: { label: "Etsy: Etsy Payments Policy (page last updated 31 July 2026)", url: "https://www.etsy.com/legal/etsy-payments" },
   regulatoryFee: { label: "Etsy Help: What is a Regulatory Operating Fee?", url: "https://help.etsy.com/hc/articles/1500011073202" },
+  renew: { label: "Etsy Help: How to Renew or Hide Your Listings", url: `${HELP_CENTER}/360000344368-How-to-Renew-or-Hide-Your-Listings` },
+  deactivate: { label: "Etsy Help: How to Deactivate a Listing", url: `${HELP_CENTER}/360000336187-How-to-Deactivate-a-Listing` },
 } satisfies Record<string, Source>;

@@ -7,6 +7,9 @@ A fix is a before and an after, shown to the seller before anything happens:
   id means nothing elsewhere). No AI, nothing counted. Never overwrites a value the listing has.
 * **rewrite**: a new title and tags by the content model, from the listing's own text. Under the allowance's
   rewrite rule, said before it runs.
+* **fix_tags**: the same tags without what Etsy rejects: a tag over 20 characters or with characters Etsy does
+  not take is cleaned (dropped when nothing usable is left), a leading ' or - is removed, duplicates go, at most 13.
+  No AI, nothing counted.
 * **clean_text**: the same title, tags and description without stray characters (invisible characters,
   leftover code characters; pipeline/ai_text.py). No AI, nothing counted. Only the fields that change.
 
@@ -30,8 +33,11 @@ PREVIEW_HOURS = 6
 #: The model is given this much of the description: enough to know the item.
 DESCRIPTION_CHARS = 1500
 
-TAGS, ATTRIBUTES, REWRITE, CLEAN = "tags", "attributes", "rewrite", "clean_text"
-KINDS = (TAGS, ATTRIBUTES, REWRITE, CLEAN)
+TAGS, ATTRIBUTES, REWRITE, CLEAN, FIX_TAGS = "tags", "attributes", "rewrite", "clean_text", "fix_tags"
+KINDS = (TAGS, ATTRIBUTES, REWRITE, CLEAN, FIX_TAGS)
+#: The fixes that change a listing's title or tags by choice: never made for a selling listing unless one of its
+#: Fix now problems asks for it (api/listing_health.py).
+TITLE_OR_TAGS = (TAGS, REWRITE)
 #: The text fields a fix may write, in the order they are compared and written.
 TEXT_FIELDS = ("title", "tags", "description")
 
@@ -191,3 +197,23 @@ async def rewrite(client: Any, listing: dict[str, Any]) -> dict[str, Any] | None
         system=SYSTEM, content_blocks=[{"type": "text", "text": prompt}], schema=SCHEMA, max_tokens=600,
     )
     return usable_rewrite(result.data or {})
+
+
+def fixed_tags(tags: list[str]) -> list[str] | None:
+    """The fix_tags fix: the listing's tags as Etsy would accept them, or None when they already are.
+    Only what Etsy rejects changes; every acceptable tag stays as it is, in its order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in tags:
+        tag = " ".join((decode_etsy_text(raw) or "").split())
+        if etsy_text.tag_errors([tag]) or etsy_text.tags_starting_badly([tag]):
+            tag = "".join(ch for ch in tag if ch == " " or etsy_text._tag_char_ok(ch))
+            tag = " ".join(tag.split()).lstrip("'-").strip()
+        key = tag.casefold()
+        if not tag or len(tag) > etsy_text.MAX_TAG or key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    out = out[:etsy_text.MAX_TAGS]
+    current = [" ".join((decode_etsy_text(t) or "").split()) for t in tags]
+    return None if out == current else out

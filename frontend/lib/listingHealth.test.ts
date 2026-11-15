@@ -5,39 +5,58 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { checkTags } from "./freeTools/tagCheck.ts";
 import { checkTitle } from "./freeTools/titleCheck.ts";
-import { approvalSentence, diffOf, FIX_KINDS, isWorking, RULES, rewriteSentence, scoreTone, toLookAt, withinCap, type HealthListing } from "./listingHealth.ts";
+import { approvalSentence, BUCKETS, diffOf, factsLine, FIX_KINDS, fixesFor, isWorking, links, MAIN_BUCKETS, PROBLEMS, rewriteSentence, SELLING_NOTE, withinCap, type HealthProblem } from "./listingHealth.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const sources = readFileSync(new URL("../../docs/guide-sources.md", import.meta.url), "utf8").replace(/\s+/g, " ");
 const server = readFileSync(new URL("../../backend/app/pipeline/listing_health.py", import.meta.url), "utf8");
 const PAGE = "app/(app)/listing-health/page.tsx";
 
-test("every check the server can give has words here, and no others", () => {
-  const ids = [...server.matchAll(/Check\("([a-z_]+)"/g)].map((m) => m[1]);
-  assert.ok(ids.length >= 20);
-  for (const id of ids) assert.ok(RULES[id], id);
-  assert.deepEqual([...new Set(ids)].sort(), Object.keys(RULES).sort());
+test("every problem the server can name has words here, and no others", () => {
+  const ids = [...server.matchAll(/Problem\("([a-z_]+)"/g)].map((m) => m[1]);
+  assert.ok(ids.length >= 12);
+  for (const id of ids) assert.ok(PROBLEMS[id], id);
+  assert.deepEqual([...new Set(ids)].sort(), Object.keys(PROBLEMS).sort());
 });
 
 test("Etsy's rule is quoted from a page we read, with its link; ours says it is ours", () => {
-  const kinds = Object.fromEntries([...server.matchAll(/Check\("([a-z_]+)", (ETSY|ADVICE)/g)].map((m) => [m[1], m[2].toLowerCase()]));
-  for (const [id, rule] of Object.entries(RULES)) {
-    assert.equal(rule.kind, kinds[id], `${id}: the server and the page must agree whose rule it is`);
+  const kinds = Object.fromEntries([...server.matchAll(/Problem\("([a-z_]+)", (ETSY|ADVICE)/g)].map((m) => [m[1], m[2].toLowerCase()]));
+  for (const [id, rule] of Object.entries(PROBLEMS)) {
+    if (kinds[id]) assert.equal(rule.kind, kinds[id], `${id}: the server and the page must agree whose rule it is`);
+    else assert.ok(server.includes(`Problem("${id}", kind,`), `${id}: whose rule it is depends on what fired`);
     if (rule.kind === "etsy") {
-      assert.ok(rule.source.url.startsWith("https://"), id);
-      assert.ok(sources.includes(rule.quote.replace(/\s+/g, " ")) || read("lib/freeTools/titleCheck.ts").includes(rule.quote) || read("lib/freeTools/tagCheck.ts").includes(rule.quote), id);
+      assert.ok(rule.source.url.startsWith("https://help.etsy.com/"), id);
+      assert.ok(sources.includes(rule.quote.replace(/\s+/g, " ")), `${id}: its quote is in docs/guide-sources.md`);
+      assert.ok(sources.includes(rule.source.url), `${id}: its page is in docs/guide-sources.md`);
     } else {
       assert.ok(rule.why.length > 10, id);
     }
   }
-  assert.ok(sources.includes(RULES.attributes.kind === "etsy" ? RULES.attributes.quote : ""), "the attributes quote is in guide-sources");
 });
 
-test("the page promises no ranking, and shows the scope of its figure", () => {
+test("nothing on the page reads as a grade, and nothing promises a ranking", () => {
   const page = read(PAGE) + read("lib/listingHealth.ts");
   assert.ok(!/rank higher|more views|more sales|boost|guarantee|SEO score|Etsy score/i.test(page));
+  assert.ok(!/\bscore\b|checks met|on average|\d+%|%\s*of/i.test(page.replace(/It does not predict how Etsy ranks your listing/, "")));
   assert.ok(page.includes("It does not predict how Etsy ranks your listing"));
   assert.ok(!/<h1[^>]*>[^<]*Etsy/.test(page));
+  assert.deepEqual(MAIN_BUCKETS, ["fix_now", "worth_improving", "selling"]);
+  assert.deepEqual(MAIN_BUCKETS.map((b) => BUCKETS.find((x) => x.bucket === b)?.label), ["Fix now", "Worth improving", "Selling"]);
+  assert.equal(SELLING_NOTE, "Changing the title or tags of a selling listing can lower its search position.");
+  assert.ok(server.includes(`SELLING_NOTE = "${SELLING_NOTE}"`), "the same note on the server");
+});
+
+test("a listing is offered only the fixes its own problems ask for", () => {
+  const listing = (problems: HealthProblem[]) => ({ problems, suggestions: [] });
+  assert.deepEqual(fixesFor(listing([])), []); // a selling listing: nothing
+  assert.deepEqual(fixesFor(listing([{ id: "brand", kind: "advice", level: "fix_now", sentence: "", fixes: ["rewrite", "edit"] }])), ["rewrite"]);
+  assert.deepEqual(fixesFor(listing([{ id: "tags_missing", kind: "etsy", level: "worth_improving", sentence: "", fixes: ["tags"] },
+    { id: "dated_tags", kind: "advice", level: "worth_improving", sentence: "", fixes: ["rewrite", "season_planner"] }])), ["tags", "rewrite"]);
+  assert.deepEqual(links({ problems: [{ id: "main_photo", kind: "etsy", level: "fix_now", sentence: "", fixes: ["edit"] }], suggestions: [] }), { edit: true, seasonPlanner: false });
+  assert.equal(factsLine({ recent_sales: 4, past_sales: 30, favourites: 1 }, 60), "4 sold in the last 60 days · 1 favourite");
+  assert.equal(factsLine({ recent_sales: 0, past_sales: 0, favourites: 0 }, 60), "no sales in the past year");
+  const page = read(PAGE);
+  assert.ok(page.includes("fixesFor(l).includes(f.kind)"), "the bulk bar offers only what the chosen listings' problems ask for");
 });
 
 test("the page writes only from Approve and Undo, and each listing links back to Etsy", () => {
@@ -55,7 +74,7 @@ test("a rewrite says the rule before it runs", () => {
   assert.ok(page.includes("ask.check.rule") && page.includes("rewriteSentence(ask.check)"));
   assert.equal(page.match(/preview\(ask\.ids, "rewrite", true\)/g)?.length, 1, "accept_rewrite is sent from the question only");
   assert.ok(FIX_KINDS.find((f) => f.kind === "rewrite")?.about.includes("allowance"));
-  assert.equal(rewriteSentence({ rule: "r", free: 2, counted: 1, remaining: 5, fits: true }), "For these: 2 free, 1 counted as listing generated.");
+  assert.equal(rewriteSentence({ rule: "r", free: 2, counted: 1, remaining: 5, fits: true }), "For these: 2 already counted, so free, 1 counted as listing.");
   assert.ok(rewriteSentence({ rule: "r", free: 0, counted: 9, remaining: 5, fits: false }).includes("will not run"));
 });
 
@@ -80,12 +99,7 @@ test("the diff shows what goes and what comes, and nothing that stays the same a
 });
 
 test("small things", () => {
-  assert.equal(scoreTone(95), "done");
-  assert.equal(scoreTone(75), "attention");
-  assert.equal(scoreTone(40), "failed");
   assert.ok(isWorking({ state: "writing" }) && isWorking({ state: "undoing" }) && !isWorking({ state: "applied" }));
-  const row = { checks: [{ id: "a", kind: "etsy", verdict: "fail", detail: "" }, { id: "b", kind: "advice", verdict: "note", detail: "" }] } as HealthListing;
-  assert.deepEqual(toLookAt(row).map((c) => c.id), ["a"]);
 });
 
 // The same answers as the free tools, from the same shared cases: backend/scripts/free_tool_cases.py writes the

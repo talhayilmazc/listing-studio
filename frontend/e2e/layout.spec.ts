@@ -217,6 +217,35 @@ test.describe("signed in", () => {
     }
   });
 
+  test("Listing health: three counts, Fix now first, a selling listing left alone, nothing that reads as a grade", async ({ page }) => {
+    await page.goto("/listing-health");
+    await settle(page);
+    const counts = page.getByTestId("health-counts");
+    await expect(counts).toBeVisible({ timeout: 30_000 });
+    for (const bucket of ["fix_now", "worth_improving", "selling"]) await expect(page.getByTestId(`health-count-${bucket}`)).toContainText(/\d+ listings?/);
+    const main = page.locator("main");
+    expect(await main.innerText(), "no percentage or score on the page").not.toMatch(/\d+\s?%|\bscore\b|checks met/i);
+    // To do: Fix now first, then Worth improving; never a selling listing without a Fix now risk.
+    const rows = page.getByTestId("health-row");
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+    const buckets = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-bucket")));
+    expect(buckets.length).toBeGreaterThan(0);
+    expect(buckets[0]).toBe("fix_now");
+    expect(buckets.indexOf("worth_improving") === -1 || buckets.lastIndexOf("fix_now") < buckets.indexOf("worth_improving")).toBe(true);
+    expect(buckets.every((b) => b === "fix_now" || b === "worth_improving")).toBe(true);
+    await expect(page.getByTestId("health-problems").first()).toContainText("Fix now:");
+    await expectSound(page, "/listing-health (to do)");
+    // Selling: the note, and no title or tag fix offered.
+    await page.getByTestId("health-count-selling").click();
+    await settle(page);
+    const selling = page.locator('[data-testid="health-row"][data-bucket="selling"]');
+    await expect(selling.first()).toBeVisible({ timeout: 15_000 });
+    await expect(selling.first().getByTestId("health-note")).toHaveText("Changing the title or tags of a selling listing can lower its search position.");
+    await expect(selling.getByRole("button", { name: /Rewrite title and tags|Add missing tags/ })).toHaveCount(0);
+    await expect(page.locator('[data-testid="health-row"]:not([data-bucket="selling"])')).toHaveCount(0);
+    await expectSound(page, "/listing-health (selling)");
+  });
+
   test("the print-area editor fits the screen, its controls are 44 px and nothing scrolls sideways", async ({ page }) => {
     await page.goto("/mockups/templates");
     await settle(page);
@@ -848,7 +877,8 @@ test.describe("signed in", () => {
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     const { width } = page.viewportSize()!;
     await page.waitForTimeout(500);
-    await page.screenshot({ path: `../docs/screens/photo-crop/crop-editor-${width}.png` });
+    // Into test-results/ (git-ignored): docs/screens/ keeps only pictures someone chose to commit.
+    await page.screenshot({ path: `test-results/screens/photo-crop/crop-editor-${width}.png` });
     await expectSound(page, "/batches/<batch>/review with the crop open");
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
@@ -864,7 +894,7 @@ test.describe("signed in", () => {
     await expect(tab.getByText("Upcoming, next 7 days")).toBeVisible();
     await expect(tab.getByText("Needs attention")).toBeVisible();
     await page.waitForTimeout(400);
-    await page.screenshot({ path: "../docs/screens/admin-publishing/publishing-tab-1366.png", fullPage: true });
+    await page.screenshot({ path: "test-results/screens/admin-publishing/publishing-tab-1366.png", fullPage: true });
     await expectSound(page, "/admin Publishing");
     await page.getByRole("tab", { name: "Users" }).click();
     // Each seller is drawn twice (a phone card and a table row): the one on screen.
@@ -877,7 +907,7 @@ test.describe("signed in", () => {
       await expect(section.getByTestId("publishing-detail").first()).not.toContainText("Reading", { timeout: 15_000 });
     }
     await page.waitForTimeout(400);
-    await section.screenshot({ path: "../docs/screens/admin-publishing/account-publishing-1366.png" });
+    await section.screenshot({ path: "test-results/screens/admin-publishing/account-publishing-1366.png" });
   });
 
   test("Admin: no tab scrolls sideways, and the tab bar does not move", async ({ page }) => {

@@ -261,8 +261,8 @@ async def main():
             lid = 7000 + n; d = DESIGNS[n % 6]
             s.add(ShopListingCache(tenant_id=t.id, connection_id=shops[0].id, listing_id=lid, fetched_at=now,
                                    payload={"listing_id": lid, "state": "active", "title": d[2], "url": "https://www.etsy.com/listing/%d" % lid,
-                                            "tags": ["cotton tee", "soft graphic top", "unisex shirt", "everyday wear"], "taxonomy_id": 1623, "materials": ["cotton"], "images": [{}] * 6,
-                                            "description": "A soft cotton tee with a hand-drawn design, printed to order. " * 4, "shop_section_id": 1, "_properties": [],
+                                            "tags": ["cotton tee", "soft graphic top", "unisex shirt", "everyday wear"], "taxonomy_id": 1623, "materials": ["cotton"], "images": [{"url_170x135": "https://i.etsystatic.com/demo/%d.jpg" % lid}] * 6,
+                                            "description": "A soft cotton tee with a hand-drawn design, printed to order. " * 4, "shop_section_id": 1, "_properties": [{"property_id": 1, "property_name": "Primary color", "value_ids": [1], "values": ["Black"]}, {"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}],
                                             "skus": ["%s-%d" % (d[0], n)], "price": {"amount": 2400, "divisor": 100, "currency_code": "USD"},
                                             "original_creation_timestamp": int((now - timedelta(days=30 + n * 25)).timestamp()),
                                             "state_timestamp": int((now - timedelta(days=30 + n * 25)).timestamp())}))
@@ -308,30 +308,24 @@ SRC = {"shipping_profile": "Standard US shipping", "return_policy": "returns, ex
 
 
 async def listing_health_demo(s, t, shop, prof, now):
-    """Active listings for Listing health: tidy ones and ones with something to fix, a preview waiting and a fix to undo."""
-    def row(lid, title, tags, **more):
-        payload = {"listing_id": lid, "state": "active", "title": title, "tags": tags, "url": "https://www.etsy.com/listing/%d" % lid,
-                   "description": "A soft cotton tee with a hand-drawn design across the chest, printed to order and shipped in a recycled mailer. " * 2,
-                   "materials": ["cotton"], "images": [{}] * 6, "shop_section_id": 1, "taxonomy_id": 1623, "personalization": None,
-                   "_properties": [{"property_id": 1, "property_name": "Style", "value_ids": [3], "values": ["Retro"]}], **more}
-        s.add(ShopListingCache(tenant_id=t.id, connection_id=shop.id, listing_id=lid, fetched_at=now, payload=payload))
+    """Listing health's mixed shop (tests/health_fixture.py, the same listings the tests and the diagnosis use):
+    best sellers in the long keyword style, real problems, listings worth improving, too new ones; their sales; a preview
+    waiting and a fix to undo."""
+    from tests import health_fixture as fx
 
-    full = ["retro nurse top", "scrub life", "hospital crew", "night shift", "er staff", "nursing school", "rn week", "clinic team",
-            "ward humor", "care worker", "medical team", "healing hands", "shift change"]
-    row(8101, "Cute Nurse Shirt, Perfect Nurse Gift for Her, Free Shipping", full[:5], materials=[], images=[{}] * 2, shop_section_id=None)
-    row(8102, "Personalized Name Sweatshirt, Teacher Crewneck", full[:9], description="Short.")
-    row(8103, "DisneyWorld Family Trip Tee", full[:13])
-    row(8104, "Frog Reading Club Shirt, Book Lover Tee", full[:6])
-    row(8105, "Mountain Trail Tee, Green Cotton Hiking Top", full[:13])
-    row(8106, "Sunset Lake Tee, Soft Cotton Summer Top", full[:13])
-    prof.cached_payload = {**(prof.cached_payload or {}), "taxonomy_id": 1623,
-                           "attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}
-    s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=8104, kinds=["tags"], state="proposed",
-                     before={"tags": full[:6]}, after={"tags": [*full[:6], "cotton tee", "soft graphic top"]}))
-    s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=8105, kinds=["tags", "attributes"], state="applied", applied_at=now - timedelta(hours=3),
+    today = now.date()
+    for item in fx.shop(now):
+        s.add(ShopListingCache(tenant_id=t.id, connection_id=shop.id, listing_id=item.listing_id, fetched_at=now, payload=item.payload))
+        for back, units in item.sales.items():
+            s.add(SalesDaily(connection_id=shop.id, listing_id=item.listing_id, day=today - timedelta(days=back), tenant_id=t.id,
+                             units=units, orders=units, revenue_minor=2400 * units, currency="USD"))
+    prof.cached_payload = {**(prof.cached_payload or {}), "taxonomy_id": fx.TAXONOMY, "attributes": fx.REFERENCE_ATTRIBUTES}
+    s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=5200, kinds=["tags"], state="proposed",
+                     before={"tags": fx._TAGS13B[:6]}, after={"tags": [*fx._TAGS13B[:6], "cotton tee", "soft graphic top"]}))
+    s.add(ListingFix(tenant_id=t.id, connection_id=shop.id, listing_id=5201, kinds=["attributes"], state="applied", applied_at=now - timedelta(hours=3),
                      written_at=now - timedelta(hours=3), approved_at=now - timedelta(hours=3), undo_until=now + timedelta(days=7) - timedelta(hours=3),
-                     before={"tags": full[:11], "attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [], "values": []}]},
-                     after={"tags": full[:13], "attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}))
+                     before={"attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [], "values": []}]},
+                     after={"attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}))
 
 
 async def profile_links(s, t, prof, shops, now):

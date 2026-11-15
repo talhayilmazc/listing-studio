@@ -152,6 +152,8 @@ class Counted(BaseModel):
     counter: str
     new: int
     old: int
+    #: Of ``new``: live Etsy listings our AI rewrote (Listing health).
+    live: int = 0
 
 
 class Page(BaseModel):
@@ -336,7 +338,7 @@ async def counted(session: AsyncSession, tenants: dict[uuid.UUID, Tenant], now: 
     for tenant in sorted(tenants.values(), key=lambda t: t.email):
         s = await allowance.status(session, tenant, now)
         if s.listings or s.old_used:
-            out.append(Counted(account=tenant.email, account_id=tenant.id, counter=s.counter, new=s.listings, old=s.old_used))
+            out.append(Counted(account=tenant.email, account_id=tenant.id, counter=s.counter, new=s.listings, old=s.old_used, live=s.live_rewrites))
     return out
 
 

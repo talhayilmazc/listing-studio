@@ -1,37 +1,53 @@
-"""How a seller's own active listing does against the app's rules: pure, from what the shop sync read.
+"""Listing health, version 2: what sells is left alone, real problems come first (docs/listing-health.md).
 
-Nothing here is new law. The title and tag checks call the rules the app writes by and the free tools
-copy (``etsy_text``, ``search_rules``, ``compliance/trademarks``), and ``free_tool_cases.json`` proves the
-browser's checkers give these same verdicts. Each check says whose rule it is: ``etsy`` (quoted with its
-page in ``frontend/lib/listingHealth.ts``) or ``advice`` (ours, and labelled so).
+Every listing goes into exactly one bucket (:func:`classify`):
 
-The score is the share of checks met, among those that could be judged. What could not be judged (the
-attributes before they are read) is left out, not counted as met or missed. It is a tidy-up list, and it
-says nothing about how Etsy ranks a listing: Etsy publishes no such figure.
+* **Fix now**: real problems only. A brand or character name, something Etsy rejects (a title or tag past its
+  limits or characters), no main photo, a required attribute missing, an inactive, expired or sold-out listing that
+  used to sell, stray characters. Shown whether or not the listing sells.
+* **Selling**: a sale within the selling window (``LISTING_HEALTH_SELLING_DAYS``, 60). Nothing about its title or
+  tags is ever suggested: only a Fix now problem moves it.
+* **Too new to judge**: younger than ``LISTING_HEALTH_NEW_DAYS`` (30) and no sale yet. Quiet, not a warning.
+* **Worth improving**: no sale in the window **and** at least one concrete issue with a one-click fix.
+* **Nothing to fix**: no sale, and nothing we can fix with one click.
+* **Not judged yet**: the shop's sales have not been read, so nobody can say what sells. No title or tag change is
+  suggested until they are.
 
-A listing written in the profile's long keyword style is not told off for being long keyword style: the
-short-title advice applies only where the seller has not chosen otherwise (``content.uses_search_style``
-makes the same decision for what the app writes).
+There is no score and no percentage: a share of style checks read as a grade and could not tell a listing that
+sells from one that does not (a seller's best seller scored 50%).
+
+The title and tag checks are the rules the app writes by and the free tools copy (``etsy_text``, ``search_rules``,
+``compliance/trademarks``); ``free_tool_cases.json`` proves the browser's checkers give the same verdicts.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from app.compliance import trademarks
-from app.pipeline import ai_text, etsy_text, search_rules
+from app.pipeline import ai_text, etsy_text, search_rules, season_calendar
 from app.pipeline.reference import decode_etsy_text
 
 PASS, FAIL, WARN, NOTE = "pass", "fail", "warn", "note"
 ETSY, ADVICE = "etsy", "advice"
 
-#: Our advice, not Etsy's numbers.
-MIN_PHOTOS = 5
-MIN_DESCRIPTION = 160
+FIX_NOW, IMPROVE, SELLING, TOO_NEW, NOTHING, NOT_JUDGED = (
+    "fix_now", "worth_improving", "selling", "too_new", "nothing_to_fix", "not_judged")
+#: The buckets in the order the page lists them: Fix now first.
+BUCKETS = (FIX_NOW, IMPROVE, SELLING, TOO_NEW, NOTHING, NOT_JUDGED)
 
-_PERSONALIZED = re.compile(r"\b(personali[sz]ed?|personali[sz]ation|custom name)\b", re.IGNORECASE)
+#: Fixes a problem can offer. The first five are the preview kinds (pipeline/listing_fixes.py); "edit" is a link
+#: to the listing in Shop Manager (nothing we can change for the seller); "season_planner" opens the planner.
+EDIT, SEASON_PLANNER = "edit", "season_planner"
+
+SELLING_NOTE = "Changing the title or tags of a selling listing can lower its search position."
+NOT_JUDGED_NOTE = ("Your sales have not been read yet, so we cannot tell which listings sell. Until they are, "
+                   "we suggest no title or tag changes. Reports reads them.")
+#: States a listing is in when buyers cannot buy it, and it may have sold before.
+STOPPED = ("inactive", "expired", "sold_out")
 
 
 @dataclass(frozen=True)
@@ -43,14 +59,44 @@ class Check:
 
 
 @dataclass(frozen=True)
-class Health:
-    score: int
-    checks: list[Check] = field(default_factory=list)
+class Windows:
+    """How far back a sale makes a listing "selling", and how young a listing is too new to judge."""
+    selling_days: int = 60
+    new_days: int = 30
+
+
+@dataclass(frozen=True)
+class Problem:
+    id: str
+    kind: str
+    #: FIX_NOW or IMPROVE.
+    level: str
+    sentence: str
+    fixes: tuple[str, ...] = ()
+
+
+@dataclass
+class Verdict:
+    bucket: str
+    problems: list[Problem] = field(default_factory=list)
+    #: Quiet pointers that move no listing into a bucket (a seasonal listing and the season planner).
+    suggestions: list[Problem] = field(default_factory=list)
     brands: list[str] = field(default_factory=list)
+    recent_units: int = 0
+    past_units: int = 0
+    favourites: int = 0
+    age_days: int | None = None
+    note: str | None = None
 
     @property
-    def to_fix(self) -> int:
-        return sum(1 for c in self.checks if c.verdict in (FAIL, WARN))
+    def fixes(self) -> set[str]:
+        """Every fix this listing's problems offer: the only ones a preview may make for it."""
+        return {f for p in self.problems for f in p.fixes}
+
+    def sort_key(self) -> tuple:
+        """Fix now first; then the listings with the most past sales, then favourites."""
+        first = self.recent_units if self.bucket == SELLING else self.past_units
+        return (BUCKETS.index(self.bucket), -first, -self.favourites)
 
 
 def _quoted(items: list[str]) -> str:
@@ -140,71 +186,218 @@ def tag_checks(tags: list[str], title: str = "") -> list[Check]:
     ]
 
 
-def attribute_check(properties: list[dict[str, Any]] | None, reference: list[dict[str, Any]] | None) -> Check | None:
-    """``properties`` is None until they are read: then it cannot be judged, and is left out.
 
-    ``reference``: the matching profile's reference listing's attributes. One it has that this listing
-    lacks is a fix we can offer; with no profile to compare, having any at all is what can be said."""
-    if properties is None:
+
+# --- version 2: the buckets ----------------------------------------------------------------------------------
+
+_HOLIDAY_WORDS = {
+    "christmas": "christmas", "xmas": "christmas", "halloween": "halloween", "thanksgiving": "thanksgiving",
+    "valentine": "valentines", "valentines": "valentines", "valentine's": "valentines", "easter": "easter",
+    "mothers day": "mothers_day", "mother's day": "mothers_day", "fathers day": "fathers_day", "father's day": "fathers_day",
+    "4th of july": "july_4", "fourth of july": "july_4", "july 4th": "july_4", "new year": "new_year", "new years": "new_year",
+    "new year's": "new_year", "st patricks": "st_patricks", "st patrick's": "st_patricks", "saint patrick": "st_patricks",
+    "back to school": "back_to_school",
+}
+_HOLIDAY = re.compile(r"(?<![a-z])(" + "|".join(sorted((re.escape(w) for w in _HOLIDAY_WORDS), key=len, reverse=True)) + r")(?![a-z])")
+_YEAR = re.compile(r"(?<!\d)(20\d\d)(?!\d)")
+
+
+def holidays_in(text: str) -> list[str]:
+    """The season planner's holidays a piece of text names, in order, once each."""
+    return list(dict.fromkeys(_HOLIDAY_WORDS[m.group(1)] for m in _HOLIDAY.finditer(text.lower().replace("’", "'"))))
+
+
+def dated_tags(tags: list[str], today: datetime) -> list[str]:
+    """Tags naming a holiday with a year that has passed ("christmas 2024"): out of date whatever the season."""
+    out = []
+    for tag in tags:
+        keys = holidays_in(tag)
+        years = [int(y) for y in _YEAR.findall(tag)]
+        if keys and years and all(season_calendar._DATES[keys[0]](y) < today.date() for y in years):
+            out.append(tag)
+    return out
+
+
+def _photo_missing(listing: dict[str, Any]) -> bool | None:
+    """None when the sync did not read the photos."""
+    images = listing.get("images")
+    if not isinstance(images, list):
         return None
-    filled = [p for p in properties if p.get("value_ids") or p.get("values")]
-    have = {p.get("property_id") for p in filled}
-    missing = [str(p.get("property_name") or p.get("property_id")) for p in reference or []
-               if (p.get("value_ids") or p.get("values")) and p.get("property_id") not in have]
-    if missing:
-        return Check("attributes", ETSY, WARN, f"Your profile's reference listing also has: {', '.join(missing)}.")
-    if not filled:
-        return Check("attributes", ETSY, WARN, "No attributes are filled.")
-    return Check("attributes", ETSY, PASS, f"{_plural(len(filled), 'attribute')} filled.")
+    if not images:
+        return True
+    first = images[0] if isinstance(images[0], dict) else {}
+    return not any(str(v).startswith("http") for k, v in first.items() if k.startswith("url_"))
 
 
-def _has_personalization(listing: dict[str, Any]) -> bool | None:
-    """None when the sync did not read it (a row from before it asked)."""
-    if "personalization" not in listing:
+def _age_days(listing: dict[str, Any], now: datetime) -> int | None:
+    made = listing.get("original_creation_timestamp") or listing.get("created_timestamp") or listing.get("creation_timestamp")
+    if not made:
         return None
-    value = listing.get("personalization")
-    return bool(value and (not isinstance(value, dict) or value.get("personalization_questions") or value.get("questions") or value.get("question_text")))
+    return max(0, int((now - datetime.fromtimestamp(int(made), tz=timezone.utc)).total_seconds() // 86400))
 
 
-def score(
-    listing: dict[str, Any],
-    *,
-    properties: list[dict[str, Any]] | None = None,
-    reference_attributes: list[dict[str, Any]] | None = None,
-    short_style: bool = True,
-) -> Health:
-    """Every check on one listing, as Etsy's API gave it."""
+def _filled(properties: list[dict[str, Any]]) -> set[int]:
+    return {int(p["property_id"]) for p in properties if p.get("property_id") is not None and (p.get("value_ids") or p.get("values"))}
+
+
+def _sold(n: int) -> str:
+    return f"{n} sale{'' if n == 1 else 's'}"
+
+
+def fix_now_problems(
+    listing: dict[str, Any], *, properties: list[dict[str, Any]] | None, required: list[dict[str, Any]] | None,
+    reference_attributes: list[dict[str, Any]] | None, past_units: int,
+) -> tuple[list[Problem], list[str]]:
+    """The real problems, and the brand names found. Each is either Etsy's (a limit it states or rejects) or a risk."""
     title = decode_etsy_text(listing.get("title")) or ""
     tags = [decode_etsy_text(t) or "" for t in listing.get("tags") or []]
     description = decode_etsy_text(listing.get("description")) or ""
-    checks = [*title_checks(title, short_style=short_style), *tag_checks(tags, title)]
-    attribute = attribute_check(properties, reference_attributes)
-    if attribute is not None:
-        checks.append(attribute)
-    materials = listing.get("materials") or []
-    checks.append(Check("materials", ADVICE, PASS if materials else WARN, f"{_plural(len(materials), 'material')}." if materials else "None listed."))
-    images = listing.get("images")
-    if isinstance(images, list):
-        checks.append(Check("photos", ADVICE, PASS if len(images) >= MIN_PHOTOS else WARN, f"{_plural(len(images), 'photo')}."))
-    size = len(description.strip())
-    checks.append(Check("description", ADVICE, PASS if size >= MIN_DESCRIPTION else WARN, f"{size} characters."))
-    # Fix now: invisible or leftover code characters (pipeline/ai_text.py); the clean_text fix removes them.
-    stray = [name for name, bad in (("title", ai_text.junk(title)), ("tags", any(ai_text.junk(t) for t in tags)),
-                                    ("description", ai_text.junk(description, lines=True))) if bad]
-    checks.append(Check("stray_characters", ADVICE, FAIL if stray else PASS,
-                        f"Description has stray characters." if stray == ["description"] else
-                        f"Stray characters in the {', '.join(stray)}." if stray else "None found."))
-    section = listing.get("shop_section_id")
-    checks.append(Check("section", ADVICE, PASS if section else WARN, "In a section." if section else "In no section."))
-    if _PERSONALIZED.search(title):
-        has = _has_personalization(listing)
-        if has is not None:
-            checks.append(Check("personalization", ADVICE, PASS if has else WARN,
-                                "It asks the buyer for the personalization." if has else "The title says personalized, and the listing asks the buyer nothing."))
+    out: list[Problem] = []
+    state = str(listing.get("state") or "active")
+    if state in STOPPED and past_units > 0:
+        sentence = {
+            "expired": f"It has expired. It made {_sold(past_units)} in the past year; renewing it in Shop Manager lets you sell it again.",
+            "inactive": f"It is inactive, so buyers can no longer buy it. It made {_sold(past_units)} in the past year; reactivate it in Shop Manager.",
+            "sold_out": f"It is sold out. It made {_sold(past_units)} in the past year; renewing it in Shop Manager lets you sell it again.",
+        }[state]
+        out.append(Problem("stopped_selling", ETSY, FIX_NOW, sentence, (EDIT,)))
     spotted = trademarks.all_marks()
     brands = list(dict.fromkeys(s.term for text in (title, *tags) for s in spotted.spot(text)))
-    checks.append(Check("brand", ADVICE, WARN if brands else PASS,
-                        " ".join(trademarks.BRAND_WARNING.format(brand=b) for b in brands) if brands else "None found."))
-    judged = [c for c in checks if c.verdict != NOTE]
-    met = sum(1 for c in judged if c.verdict == PASS)
-    return Health(round(100 * met / len(judged)) if judged else 100, checks, brands)
+    if brands:
+        out.append(Problem("brand", ADVICE, FIX_NOW, " ".join(trademarks.BRAND_WARNING.format(brand=b) for b in brands), ("rewrite", EDIT)))
+    if title.strip():
+        rejected = [c.detail for c in title_checks(title, short_style=False) if c.verdict == FAIL]
+        if rejected:
+            out.append(Problem("title_rejected", ETSY, FIX_NOW,
+                               f"Etsy does not accept this title (at most {etsy_text.MAX_TITLE} characters, letters, numbers and "
+                               f"punctuation, each of % : & + once): {' '.join(rejected)}", ("rewrite", EDIT)))
+    tag_fails = [c.detail for c in tag_checks(tags) if c.id in ("tag_count", "tag_length", "tag_characters") and c.verdict == FAIL]
+    tag_fails += [c.detail for c in tag_checks(tags) if c.id == "tag_start" and c.verdict == WARN]
+    if tag_fails:
+        out.append(Problem("tags_rejected", ETSY, FIX_NOW,
+                           f"Etsy does not accept some tags (at most {etsy_text.MAX_TAGS} tags of up to {etsy_text.MAX_TAG} characters, "
+                           f"letters, numbers, spaces, ' and - inside a tag, never at its start): {' '.join(tag_fails)}", ("fix_tags",)))
+    if state == "active" and _photo_missing(listing):
+        out.append(Problem("main_photo", ETSY, FIX_NOW, "It has no main photo, or its first photo has no image. Add one in Shop Manager.", (EDIT,)))
+    if properties is not None and required:
+        have = _filled(properties)
+        missing = [r for r in required if r.get("id") is not None and int(r["id"]) not in have]
+        if missing:
+            from_reference = {int(p["property_id"]) for p in reference_attributes or [] if p.get("value_ids") or p.get("values")}
+            fixes = ("attributes",) if any(int(m["id"]) in from_reference for m in missing) else (EDIT,)
+            out.append(Problem("required_attribute", ETSY, FIX_NOW,
+                               f"Etsy marks {', '.join(str(m.get('name')) for m in missing)} as required in this category, and it is empty.", fixes))
+    stray = [name for name, bad in (("title", ai_text.junk(title)), ("tags", any(ai_text.junk(t) for t in tags)),
+                                    ("description", ai_text.junk(description, lines=True))) if bad]
+    if stray:
+        sentence = "Description has stray characters." if stray == ["description"] else f"Stray characters in the {', '.join(stray)}."
+        out.append(Problem("stray_characters", ADVICE, FIX_NOW, sentence + " Buyers see them as junk.", ("clean_text",)))
+    return out, brands
+
+
+def improvements(
+    listing: dict[str, Any], *, properties: list[dict[str, Any]] | None, reference_attributes: list[dict[str, Any]] | None,
+    tags_to_add: list[str], short_style: bool, now: datetime, required_ids: set[int],
+) -> list[Problem]:
+    """Concrete issues with a one-click fix. Asked only of a listing that has not sold in the window."""
+    title = decode_etsy_text(listing.get("title")) or ""
+    tags = [decode_etsy_text(t) or "" for t in listing.get("tags") or []]
+    out: list[Problem] = []
+    unique = len({" ".join(t.lower().split()) for t in tags if t.strip()})
+    if unique < etsy_text.MAX_TAGS:
+        out.append(Problem("tags_missing", ETSY, IMPROVE,
+                           f"{unique} of {etsy_text.MAX_TAGS} tags used. Etsy lets you add up to {etsy_text.MAX_TAGS}.",
+                           ("tags",) if tags_to_add else ("rewrite",)))
+    if properties is not None and reference_attributes:
+        have = _filled(properties)
+        lacking = [str(p.get("property_name") or p.get("property_id")) for p in reference_attributes
+                   if (p.get("value_ids") or p.get("values")) and p.get("property_id") is not None
+                   and int(p["property_id"]) not in have and int(p["property_id"]) not in required_ids]
+        if lacking:
+            out.append(Problem("attributes_missing", ETSY, IMPROVE,
+                               f"Your profile's reference listing also fills {', '.join(lacking)}; this one leaves it empty.", ("attributes",)))
+    if short_style and title.strip():
+        said: list[str] = []
+        kind = ADVICE
+        count = search_rules.word_count(title)
+        if count > search_rules.MAX_TITLE_WORDS:
+            said.append(f"The title has {count} words; Etsy's Help suggests fewer than 15.")
+            kind = ETSY
+        repeated = search_rules.repeated_words(title)
+        if repeated:
+            said.append(f"It repeats {_quoted(repeated)}.")
+        found = _longest([t for t in (*search_rules.SUBJECTIVE, *search_rules.COMMERCE) if search_rules._has(title, t)] + search_rules.gift_in(title))
+        if found:
+            said.append(f"It uses {_quoted(found)}, which our advice keeps out of titles.")
+        if said:
+            out.append(Problem("title_guidance", kind, IMPROVE, " ".join(said), ("rewrite",)))
+    dated = dated_tags(tags, now)
+    if dated:
+        out.append(Problem("dated_tags", ADVICE, IMPROVE, f"Tags for a holiday that has passed: {_quoted(dated)}.", ("rewrite", SEASON_PLANNER)))
+    return out
+
+
+def season_suggestion(listing: dict[str, Any], now: datetime) -> Problem | None:
+    """A seasonal listing that is not selling: when its holiday comes next, and the planner that schedules it."""
+    title = decode_etsy_text(listing.get("title")) or ""
+    tags = [decode_etsy_text(t) or "" for t in listing.get("tags") or []]
+    keys = holidays_in(" ".join([title, *tags]))
+    if not keys:
+        return None
+    season = season_calendar.season_of(season_calendar.BY_KEY[keys[0]], now.date())
+    return Problem("seasonal", ADVICE, IMPROVE,
+                   f"Seasonal: {season.holiday.name} is on {season.on:%b} {season.on.day}. The season planner can schedule it.",
+                   (SEASON_PLANNER,))
+
+
+def classify(
+    listing: dict[str, Any],
+    *,
+    recent_units: int,
+    past_units: int,
+    sales_known: bool,
+    properties: list[dict[str, Any]] | None = None,
+    required: list[dict[str, Any]] | None = None,
+    reference_attributes: list[dict[str, Any]] | None = None,
+    tags_to_add: list[str] | None = None,
+    short_style: bool = True,
+    now: datetime | None = None,
+    windows: Windows = Windows(),
+) -> Verdict | None:
+    """One listing's bucket. ``None``: not shown (a draft, or an inactive listing that never sold).
+
+    ``recent_units``: units sold within ``windows.selling_days``; ``past_units``: all the shop's kept history (13
+    months). ``properties`` is None until the attributes are read; ``required`` is the category's required attributes
+    from a profile in the same category, None when no profile knows them."""
+    now = now or datetime.now(timezone.utc)
+    state = str(listing.get("state") or "active")
+    if state != "active" and not (state in STOPPED and past_units > 0):
+        return None
+    problems, brands = fix_now_problems(listing, properties=properties, required=required,
+                                        reference_attributes=reference_attributes, past_units=past_units)
+    verdict = Verdict(bucket=FIX_NOW, brands=brands, recent_units=recent_units, past_units=past_units,
+                      favourites=int(listing.get("num_favorers") or 0), age_days=_age_days(listing, now))
+    selling = recent_units > 0
+    young = verdict.age_days is not None and verdict.age_days < windows.new_days
+    judged = sales_known and not selling and not young and state == "active"
+    extra = improvements(listing, properties=properties, reference_attributes=reference_attributes, tags_to_add=tags_to_add or [],
+                         short_style=short_style, now=now, required_ids={int(r["id"]) for r in required or [] if r.get("id") is not None}) if judged else []
+    if judged:
+        hint = season_suggestion(listing, now)
+        if hint is not None:
+            verdict.suggestions.append(hint)
+    if problems:
+        verdict.problems = problems + extra
+        verdict.note = SELLING_NOTE if selling else None
+        return verdict
+    if selling:
+        verdict.bucket, verdict.note = SELLING, SELLING_NOTE
+    elif young:
+        verdict.bucket = TOO_NEW
+    elif not sales_known:
+        verdict.bucket, verdict.note = NOT_JUDGED, NOT_JUDGED_NOTE
+    elif extra:
+        verdict.bucket, verdict.problems = IMPROVE, extra
+    else:
+        verdict.bucket = NOTHING
+    return verdict

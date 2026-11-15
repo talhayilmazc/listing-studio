@@ -9,33 +9,34 @@ import { StatusChip } from "@/components/StatusChip";
 import { useSession } from "@/components/SessionProvider";
 import { formatWhen } from "@/lib/schedule";
 import {
-  approvalSentence, diffOf, FIX_KINDS, FIX_WORDS, isWorking, KIND_WORDS, RULES, rewriteSentence, SAID_FIRST, scoreTone, toLookAt, VERDICT_TONE,
-  VERDICT_WORDS, withinCap, type DiffLine, type Fix, type HealthCheck, type HealthListing, type HealthPage, type PreviewAnswer, type RewriteCheck,
+  approvalSentence, bucketOf, BUCKETS, diffOf, factsLine, FIX_KINDS, FIX_WORDS, fixesFor, isWorking, links, MAIN_BUCKETS, PROBLEMS,
+  rewriteSentence, SAID_FIRST, withinCap, type Bucket, type DiffLine, type Fix, type HealthListing, type HealthPage, type HealthProblem,
+  type PreviewAnswer, type RewriteCheck, type Show,
 } from "@/lib/listingHealth";
 
 import { Txt } from "@/components/Txt";
-type Show = "needs_work" | "all";
 type RewriteAsk = { ids: number[]; check: RewriteCheck };
 
 const MAX_ASKS_FOR_ATTRIBUTES = 20;
 const WAITING = (f: Fix) => f.state === "proposed" || f.state === "writing" || f.state === "could_not_write";
+const EDIT_URL = (id: number) => `https://www.etsy.com/your/shops/me/listing-editor/edit/${id}`;
 
 /**
- * The seller's own active listings against Etsy's published rules and our advice. A preview shows each change
- * before and after; only "Approve" writes to a live listing, at most 50 at a time, read back, with Undo for 7 days.
+ * The seller's own listings in buckets (docs/listing-health.md): Fix now, Worth improving, Selling. What sells is left
+ * alone. A preview shows each change before and after; only "Approve" writes to a live listing, at most 50 at a time,
+ * read back, with Undo for 7 days. The figures are counts of listings, never a grade.
  */
 export default function ListingHealthPage() {
   const { selected } = useShops();
   const { timeZone } = useSession();
   const shop = selected?.id ?? null;
-  const [show, setShow] = useState<Show>("needs_work");
+  const [show, setShow] = useState<Show>("to_do");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<HealthPage | null>(null);
   const [fixes, setFixes] = useState<Fix[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [chosen, setChosen] = useState<number[]>([]);
-  const [open, setOpen] = useState<number | null>(null);
   const [approving, setApproving] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<PreviewAnswer["skipped"]>([]);
   const [ask, setAsk] = useState<RewriteAsk | null>(null);
@@ -63,7 +64,7 @@ export default function ListingHealthPage() {
 
   // Attributes are read in the background. A read that cannot finish must not keep this page asking for ever.
   const asks = useRef(0);
-  const unread = (data?.listings ?? []).some((l) => !l.attributes_read);
+  const unread = (data?.listings ?? []).some((l) => !l.attributes_read && l.state === "active");
   const working = data?.reading || fixes.some(isWorking) || (unread && asks.current < MAX_ASKS_FOR_ATTRIBUTES);
   useEffect(() => {
     if (!working) return;
@@ -136,14 +137,19 @@ export default function ListingHealthPage() {
     return () => { live = false; };
   }, [unclear, shop]);
 
-  const pageIds = (data?.listings ?? []).map((l) => l.listing_id);
+  const listings = data?.listings ?? [];
+  const pageIds = listings.filter((l) => fixesFor(l).length).map((l) => l.listing_id);
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => chosen.includes(id));
   const toggle = (id: number) => setChosen((was) => (was.includes(id) ? was.filter((x) => x !== id) : withinCap([...was, id], cap).ids));
+  // Only the fixes the chosen listings' own problems offer.
+  const bulkKinds = FIX_KINDS.filter((f) => listings.some((l) => chosen.includes(l.listing_id) && fixesFor(l).includes(f.kind)));
+  const pick = (next: Show) => { setShow(next); setPage(1); setChosen([]); };
+  const count = (b: Bucket) => data?.counts?.[b] ?? 0;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-slate-600">Your active listings against Etsy&apos;s rules and our advice. Nothing changes on Etsy until you approve it.</p>
+        <p className="text-sm text-slate-600">What sells is left alone. Real problems come first. Nothing changes on Etsy until you approve it.</p>
         {selected && <ShopBadge key="shopbadge-131-10" name={selected.shop_name} />}
         <Help label="About Listing health">
           <span><span><span>{SAID_FIRST}</span> Attributes are read for the listings on screen. Previews last 6 hours; after that, preview again.</span></span>
@@ -158,11 +164,28 @@ export default function ListingHealthPage() {
 
       {data && !data.reading && selected && (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Figure label="Active listings" value={String(data.total)} />
-            <Figure label="Checks met, on average" value={data.average === null ? "No listings" : `${data.average}%`} />
-            <Figure label="With something to look at" value={String(data.needs_work)} />
+          <div className="grid gap-3 sm:grid-cols-3" data-testid="health-counts">
+            {MAIN_BUCKETS.map((b) => (
+              <button key={b} type="button" aria-pressed={show === b} data-testid={`health-count-${b}`}
+                className={"card p-3 text-left transition-colors hover:border-slate-400" + (show === b ? " border-slate-900" : "")}
+                onClick={() => pick(show === b ? "to_do" : b)}>
+                <span className="flex items-center gap-2">
+                  <StatusChip tone={bucketOf(b).tone}>{bucketOf(b).label}</StatusChip>
+                </span>
+                <span className="mt-1 block text-lg font-semibold text-slate-900" translate="no">
+                  <span><span>{count(b)}</span><span> listing</span><Txt>{count(b) === 1 ? "" : "s"}</Txt></span>
+                </span>
+                <span className="block text-xs text-slate-600">{bucketOf(b).about}</span>
+              </button>
+            ))}
           </div>
+
+          {!data.sales_known && (
+            <p key="p-sales" className="card p-3 text-sm text-slate-700" data-testid="health-sales-unknown">
+              <span>Your sales have not been read yet, so we cannot tell which listings sell. Until they are, no title or tag change is suggested. </span>
+              <a className="tap underline" href="/analytics">Reports reads them</a>
+            </p>
+          )}
 
           {waiting.length > 0 && (
             <section key="section-153-10" className="card space-y-3 p-4" data-testid="health-previews">
@@ -208,6 +231,12 @@ export default function ListingHealthPage() {
             </section>
           )}
 
+          {skipped.length > 0 && waiting.length === 0 && (
+            <ul key="ul-skipped-alone" className="card space-y-1 p-3 text-sm text-slate-700" data-testid="health-skipped">
+              {skipped.map((s) => <li key={s.listing_id}><span translate="no"><span><span>{s.title || `Listing ${s.listing_id}`}</span>: <span>{s.reason}</span></span></span></li>)}
+            </ul>
+          )}
+
           {ask && (
             <section key="section-197-10" className="card space-y-2 border-amber-200 bg-amber-50 p-4" data-testid="health-rewrite-rule">
               <h2 className="font-semibold text-slate-900"><span translate="no"><span><span>Rewrite </span><span>{ask.ids.length}</span><span> listing</span><Txt>{ask.ids.length === 1 ? "" : "s"}</Txt><span>?</span></span></span></h2>
@@ -222,12 +251,19 @@ export default function ListingHealthPage() {
           )}
 
           <section className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className={show === "needs_work" ? "btn-secondary font-semibold" : "btn-secondary"} aria-pressed={show === "needs_work"}
-                onClick={() => { setShow("needs_work"); setPage(1); }}>Something to look at</button>
-              <button type="button" className={show === "all" ? "btn-secondary font-semibold" : "btn-secondary"} aria-pressed={show === "all"}
-                onClick={() => { setShow("all"); setPage(1); }}>All active</button>
-              {data.listings.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Show">
+              <ShowButton current={show} value="to_do" onPick={pick}>
+                <span translate="no"><span><span>To do </span><span>{count("fix_now") + count("worth_improving")}</span></span></span>
+              </ShowButton>
+              {BUCKETS.filter((b) => !MAIN_BUCKETS.includes(b.bucket) && count(b.bucket) > 0).map((b) => (
+                <ShowButton key={b.bucket} current={show} value={b.bucket} onPick={pick}>
+                  <span translate="no"><span><span>{b.label}</span><span> </span><span>{count(b.bucket)}</span></span></span>
+                </ShowButton>
+              ))}
+              <ShowButton current={show} value="all" onPick={pick}>
+                <span translate="no"><span><span>All </span><span>{data.total}</span></span></span>
+              </ShowButton>
+              {pageIds.length > 0 && (
                 <label key="label-216-14" className="tap-row flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={allOnPage} onChange={() => setChosen(allOnPage ? chosen.filter((id) => !pageIds.includes(id)) : withinCap([...chosen, ...pageIds], cap).ids)} />
                   <span>Select this page</span>
@@ -248,21 +284,20 @@ export default function ListingHealthPage() {
             {chosen.length > 0 && (
               <div key="div-224-12" className="card flex flex-wrap items-center gap-2 p-3" data-testid="health-bulk">
                 <span className="w-full text-sm font-medium text-slate-800 sm:w-auto"><span translate="no"><span><span>{chosen.length}</span> selected · at most <span>{cap}</span> in one approval</span></span></span>
-                {FIX_KINDS.map((f) => (
+                {bulkKinds.map((f) => (
                   <button key={f.kind} type="button" className="btn-secondary" disabled={busy} title={f.about} onClick={() => void startFix(chosen, f.kind)}>{f.label}</button>
                 ))}
               </div>
             )}
 
-            {data.listings.length === 0 && (
-              <p key="p-233-12" className="card p-4 text-sm text-slate-700">{show === "needs_work" ? "Nothing to look at: every active listing meets these checks." : "This shop has no active listings."}</p>
+            {listings.length === 0 && (
+              <p key="p-233-12" className="card p-4 text-sm text-slate-700" data-testid="health-empty">{show === "to_do" ? "Nothing to do: no real problems, and nothing we can improve with one click among the listings that have not sold lately." : "No listings here."}</p>
             )}
 
             <ul className="space-y-2">
-              {data.listings.map((listing) => (
-                <Row key={listing.listing_id} listing={listing} open={open === listing.listing_id} busy={busy} chosen={chosen.includes(listing.listing_id)}
-                  onOpen={() => setOpen(open === listing.listing_id ? null : listing.listing_id)} onChoose={() => toggle(listing.listing_id)}
-                  onFix={(kind) => void startFix([listing.listing_id], kind)} />
+              {listings.map((listing) => (
+                <Row key={listing.listing_id} listing={listing} busy={busy} chosen={chosen.includes(listing.listing_id)} sellingDays={data.selling_days}
+                  onChoose={() => toggle(listing.listing_id)} onFix={(kind) => void startFix([listing.listing_id], kind)} />
               ))}
             </ul>
 
@@ -308,24 +343,24 @@ export default function ListingHealthPage() {
   );
 }
 
-function Figure({ label, value }: { label: string; value: string }) {
+function ShowButton({ current, value, onPick, children }: { current: Show; value: Show; onPick: (v: Show) => void; children: React.ReactNode }) {
   return (
-    <div className="card p-3">
-      <p className="text-xs font-medium text-slate-600">{label}</p>
-      <p className="text-lg font-semibold text-slate-900" translate="no">{value}</p>
-    </div>
+    <button type="button" className={current === value ? "btn-secondary font-semibold" : "btn-secondary"} aria-pressed={current === value}
+      data-testid={`health-show-${value}`} onClick={() => onPick(value)}>{children}</button>
   );
 }
 
-function Row({ listing, open, busy, chosen, onOpen, onChoose, onFix }: {
-  listing: HealthListing; open: boolean; busy: boolean; chosen: boolean; onOpen: () => void; onChoose: () => void; onFix: (kind: string) => void;
+function Row({ listing, busy, chosen, sellingDays, onChoose, onFix }: {
+  listing: HealthListing; busy: boolean; chosen: boolean; sellingDays: number; onChoose: () => void; onFix: (kind: string) => void;
 }) {
-  const look = toLookAt(listing);
+  const offered = fixesFor(listing);
+  const go = links(listing);
+  const bucket = bucketOf(listing.bucket);
   return (
-    <li className="card p-3" data-testid="health-row">
+    <li className="card p-3" data-testid="health-row" data-bucket={listing.bucket}>
       <div className="flex items-start gap-3">
         <label className="tap-row flex items-center">
-          <input type="checkbox" checked={chosen} aria-label={`Select ${listing.title}`} onChange={onChoose} />
+          <input type="checkbox" checked={chosen} disabled={!offered.length} aria-label={`Select ${listing.title}`} onChange={onChoose} />
         </label>
         {listing.image && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -334,59 +369,60 @@ function Row({ listing, open, busy, chosen, onOpen, onChoose, onFix }: {
         <div className="min-w-0 flex-1">
           <a href={listing.url} target="_blank" rel="noreferrer" className="tap block break-words text-sm font-medium text-brand-700 underline"><span translate="no">{listing.title}</span></a>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <StatusChip tone={scoreTone(listing.score)}><span><span><span>{listing.score}</span>% of checks met</span></span></StatusChip>
-            {look.length > 0 && <span key="span-314-12" translate="no"><span><span>{look.length}</span> to look at</span></span>}
-            {listing.brands.length > 0 && <span key="span-315-12" className="font-medium text-amber-800" translate="no"><span>Brand: <span>{listing.brands.join(", ")}</span></span></span>}
+            <StatusChip tone={bucket.tone}>{bucket.label}</StatusChip>
+            <span translate="no">{factsLine(listing, sellingDays)}</span>
             {listing.profile_name && <span key="span-316-12" translate="no"><span>Profile: <span>{listing.profile_name}</span></span></span>}
             {listing.profile_unclear && <span key="span-317-12" translate="no">More than one profile fits this category</span>}
-            {!listing.attributes_read && <span key="span-318-12" translate="no">Reading attributes…</span>}
+            {!listing.attributes_read && listing.state === "active" && <span key="span-318-12" translate="no">Reading attributes…</span>}
           </div>
         </div>
-        <button type="button" className="tap shrink-0 text-sm font-medium text-brand-700 underline" aria-expanded={open} onClick={onOpen}>{open ? "Close" : "Fix"}</button>
       </div>
-      {open && (
-        <div key="div-323-6" className="mt-3 space-y-3 border-t border-slate-200 pt-3">
-          <div className="flex flex-wrap gap-2">
-            {FIX_KINDS.map((f) => (
-              <button key={f.kind} type="button" className="btn-secondary" disabled={busy} title={f.about} onClick={() => onFix(f.kind)}>{f.label}</button>
-            ))}
-          </div>
-          <Checks checks={listing.checks} />
+      {(listing.problems.length > 0 || listing.suggestions.length > 0 || listing.note) && (
+        <div key="div-problems" className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+          {listing.note && <p key="p-note" className="text-sm text-slate-700" data-testid="health-note" translate="no">{listing.note}</p>}
+          {listing.problems.length > 0 && (
+            <ul key="ul-problems" className="space-y-2" data-testid="health-problems">
+              {listing.problems.map((p) => <Problem key={p.id} problem={p} />)}
+            </ul>
+          )}
+          {listing.suggestions.length > 0 && (
+            <ul key="ul-suggestions" className="space-y-2">
+              {listing.suggestions.map((p) => <Problem key={p.id} problem={p} />)}
+            </ul>
+          )}
+          {(offered.length > 0 || go.edit || go.seasonPlanner) && (
+            <div key="div-fixes" className="flex flex-wrap gap-2">
+              {FIX_KINDS.filter((f) => offered.includes(f.kind)).map((f) => (
+                <button key={f.kind} type="button" className="btn-secondary" disabled={busy} title={f.about} onClick={() => onFix(f.kind)}>{f.label}</button>
+              ))}
+              {go.edit && <a key="a-edit" className="btn-secondary" href={EDIT_URL(listing.listing_id)} target="_blank" rel="noreferrer">Edit in Shop Manager</a>}
+              {go.seasonPlanner && <a key="a-season" className="btn-secondary" href="/season-planner">Open the season planner</a>}
+            </div>
+          )}
         </div>
       )}
     </li>
   );
 }
 
-function Checks({ checks }: { checks: HealthCheck[] }) {
-  const order = [...checks].sort((a, b) => rank(a) - rank(b));
+function Problem({ problem }: { problem: HealthProblem }) {
+  const rule = PROBLEMS[problem.id];
   return (
-    <ul className="space-y-2" data-testid="health-checks">
-      {order.map((check) => {
-        const rule = RULES[check.id];
-        return (
-          <li key={check.id} className="text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusChip tone={VERDICT_TONE[check.verdict]}>{VERDICT_WORDS[check.verdict]}</StatusChip>
-              <span className="font-medium text-slate-800">{rule?.name ?? check.id}</span>
-              <span className="text-xs text-slate-600">{KIND_WORDS[check.kind]}</span>
-            </div>
-            <p className="mt-0.5 break-words text-slate-700" translate="no">{check.detail}</p>
-            {rule?.kind === "etsy" && (
-              <p key="p-351-12" className="mt-0.5 text-xs text-slate-600">
-                <span><span>&ldquo;<span>{rule.quote}</span>&rdquo; </span></span>
-                <a className="tap underline" href={rule.source.url} target="_blank" rel="noreferrer">{rule.source.label}</a>
-              </p>
-            )}
-            {rule?.kind === "advice" && <p key="p-357-12" className="mt-0.5 text-xs text-slate-600">{rule.why}</p>}
-          </li>
-        );
-      })}
-    </ul>
+    <li className="text-sm">
+      <p className="break-words text-slate-800">
+        {problem.level === "fix_now" && <span key="span-fixnow" className="mr-1 font-semibold text-rose-800">Fix now:</span>}
+        <span translate="no">{problem.sentence}</span>
+      </p>
+      {rule?.kind === "etsy" && (
+        <p key="p-etsy" className="mt-0.5 text-xs text-slate-600">
+          <span><span>Etsy: &ldquo;<span>{rule.quote}</span>&rdquo; </span></span>
+          <a className="tap underline" href={rule.source.url} target="_blank" rel="noreferrer">{rule.source.label}</a>
+        </p>
+      )}
+      {rule?.kind === "advice" && <p key="p-advice" className="mt-0.5 text-xs text-slate-600"><span>Our advice: </span><span>{rule.why}</span></p>}
+    </li>
   );
 }
-
-const rank = (c: HealthCheck) => ({ fail: 0, warn: 1, note: 2, pass: 3 })[c.verdict];
 
 function Diff({ lines }: { lines: DiffLine[] }) {
   if (!lines.length) return null;

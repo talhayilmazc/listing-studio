@@ -98,6 +98,22 @@ https://help.etsy.com/hc/en-us/articles/360040496854-How-to-File-a-DMCA-Counter-
 - A counter notice includes "a statement under penalty of perjury that you have a good faith belief that the material was removed or disabled as the result of a mistake or misidentification."
 - "Unless the complaining party notifies Etsy of legal action seeking a court order to restrain you from infringing activity, you may relist the removed material 10 business days after Etsy processes your counter notice."
 
+### How to Renew or Hide Your Listings
+https://help.etsy.com/hc/en-us/articles/360000344368-How-to-Renew-or-Hide-Your-Listings
+
+Read directly on 15 November 2026 (HTTP 200), for Listing health.
+
+- "If an item has been purchased or its listing has expired, you can start selling it again by renewing the listing."
+- "New listings are set to renew automatically when they expire by default."
+
+### How to Deactivate a Listing
+https://help.etsy.com/hc/en-us/articles/360000336187-How-to-Deactivate-a-Listing
+
+Read directly on 15 November 2026 (HTTP 200), for Listing health.
+
+- "Deactivating listings removes them from your shop page, and buyers can no longer buy them."
+- "However, the listing still exists in your Shop Manager and you can reactivate it."
+
 ### Why Was My Listing Removed by Etsy?
 https://help.etsy.com/hc/en-us/articles/360061329494-Why-Was-My-Listing-Removed-by-Etsy
 

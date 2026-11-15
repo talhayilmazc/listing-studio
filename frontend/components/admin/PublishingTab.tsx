@@ -96,7 +96,8 @@ export function PublishingTab({ onError }: { onError: (message: string | null) =
               <th className="py-2 pr-3 font-medium">Account</th>
               <th className="py-2 pr-3 font-medium">Counter</th>
               <th className="py-2 pr-3 text-right font-medium">Old</th>
-              <th className="py-2 text-right font-medium">New</th>
+              <th className="py-2 pr-3 text-right font-medium">New</th>
+              <th className="py-2 text-right font-medium" title="Of New: live Etsy listings our AI rewrote in Listing health">Live rewrites</th>
             </tr>
           </thead>
           <tbody translate="no">
@@ -105,7 +106,8 @@ export function PublishingTab({ onError }: { onError: (message: string | null) =
                 <td className="py-1.5 pr-3">{c.account}</td>
                 <td className="py-1.5 pr-3">{c.counter}</td>
                 <td className="py-1.5 pr-3 text-right tabular-nums">{c.old}</td>
-                <td className="py-1.5 text-right tabular-nums">{c.new}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{c.new}</td>
+                <td className="py-1.5 text-right tabular-nums">{c.live ?? 0}</td>
               </tr>
             ))}
           </tbody>
