@@ -251,7 +251,7 @@ async def limits_report(sm: async_sessionmaker, email: str) -> str:
         f"account: {tenant.email}   time zone: {limits.zone_of(tenant)}",
         f"1. Listings: {a.used} used of {a.amount} ({a.period}, {'its own' if a.custom else 'the default'}); "
         f"{a.remaining} left; resets {allowance.reset_label(a.resets_at, a.time_zone)}",
-        f"   counter: {a.counter} (USAGE_COUNTER); counted (first AI write or first draft): {a.listings}; listings written (old): {a.old_used}",
+        f"   counter: {a.counter} (USAGE_COUNTER); counted (first AI write or first draft): {a.listings} (of which live listings our AI rewrote: {a.live_rewrites}); listings written (old): {a.old_used}",
         f"   stored: allowance_amount={tenant.allowance_amount!r} allowance_period={tenant.allowance_period!r}",
         f"2. Etsy requests today: {c.used} used of {c.limit} ({'follows the default' if c.follows_default else 'its own number'}); "
         f"{c.remaining} left; upkeep not counted: {c.upkeep}; resets {c.resets_label} (00:00 UTC)",
@@ -825,6 +825,8 @@ def main(argv: list[str] | None = None) -> int:
     usage_cmd.add_argument("email", nargs="?")
     usage_cmd.add_argument("--all", action="store_true", help="every account")
     usage_cmd.add_argument("--apply", action="store_true", help="add the missing rows (orphans are only listed)")
+    health_cmd = sub.add_parser("listing-health-report", help="READ ONLY: Listing health's buckets and problem counts per shop for an account")
+    health_cmd.add_argument("email")
     limits_cmd = sub.add_parser(
         "limits-report",
         help="an account's listing allowance, Etsy ceiling and the app's budget as every screen shows them, and their changes",
@@ -1183,6 +1185,10 @@ def main(argv: list[str] | None = None) -> int:
         print(asyncio.run(profile_shop_report(sm, args.email)))
     elif args.command == "usage-reconcile":
         print(asyncio.run(usage_reconcile(sm, args.email, every=args.all, apply=args.apply)))
+    elif args.command == "listing-health-report":
+        from app.ops.listing_health_report import run as health_report
+
+        print(asyncio.run(health_report(sm, args.email)))
     elif args.command == "limits-report":
         print(asyncio.run(limits_report(sm, args.email)))
     elif args.command == "upload-retention":

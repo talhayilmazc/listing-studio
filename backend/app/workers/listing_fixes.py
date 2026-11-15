@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from app.core import ai_meter, allowance, audit, limits, llm_status
+from app.core import ai_meter, allowance, audit, limits, llm_status, usage
 from app.core.config import get_settings
 from app.core.llm_status import LLMUnavailable
 from app.db.models import ListingFix, ListingPublication, ShopListingCache, Tenant
@@ -104,6 +104,18 @@ async def write_listing_fix_text(ctx: dict[str, Any], fix_id: str) -> str:
             await session.commit()
             return "no-listing"
         listing, tenant_id = dict(row.payload), fix.tenant_id
+        # The allowance, before the model is called: a rewrite that would count when none is left is not made.
+        tenant = await session.get(Tenant, tenant_id)
+        current = await allowance.status(session, tenant)
+        if usage.mode() == "on":
+            counts = fix.listing_id not in await usage.live_counted_already(
+                session, tenant_id, fix.connection_id, [fix.listing_id], current.period_start, current.resets_at)
+        else:
+            counts = (fix.allowance_kind or allowance.GENERATION) == allowance.GENERATION
+        if counts and current.remaining <= 0:
+            fix.state, fix.note = "could_not_write", current.message(1) + " Nothing was written and nothing was counted."
+            await session.commit()
+            return "allowance"
         redis = ctx.get("redis")
         written = None
         try:
@@ -127,6 +139,11 @@ async def write_listing_fix_text(ctx: dict[str, Any], fix_id: str) -> str:
         fix.after = {**fix.after, **written}
         fix.state = "proposed"
         allowance.record(session, tenant_id, fix.allowance_kind or allowance.GENERATION, design=fix.design)
+        # The listing counter (core/usage.py): this live listing counts once in the period, in this same commit.
+        counted = await usage.record_live_rewrite(session, tenant_id, fix.connection_id, fix.listing_id,
+                                                  current.period_start, current.resets_at)
+        if usage.mode() == "on":
+            fix.allowance_kind = usage.LIVE_COUNTED if counted else usage.LIVE_FREE
         await session.commit()
         return "written"
 

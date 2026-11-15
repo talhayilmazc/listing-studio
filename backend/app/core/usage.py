@@ -46,7 +46,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.models import ConnectionStatus, EtsyConnection, GeneratedContent, ListingPublication, UploadBatch, UsageEvent
+from app.db.models import ConnectionStatus, EtsyConnection, GeneratedContent, ListingFix, ListingPublication, UploadBatch, UsageEvent
 
 MODES = ("shadow", "on")
 
@@ -154,6 +154,67 @@ async def record_first_draft(session: AsyncSession, publication: ListingPublicat
     await session.execute(statement)
 
 
+#: A rewrite of a listing that is already live on Etsy (Listing health's "Rewrite title and tags"). It is not a
+#: ``generated_content`` row, so it has its own key: the Etsy listing in its shop, in the allowance period.
+LIVE_SOURCE = "live_rewrite"
+#: ``ListingFix.allowance_kind`` under the counter: this rewrite counted, or the listing was counted already.
+LIVE_COUNTED, LIVE_FREE = "live_counted", "live_free"
+
+
+def live_key(connection_id: uuid.UUID, listing_id: int, period_start: datetime) -> str:
+    """One per live Etsy listing per allowance period: however often our AI rewrites it in that period, one row."""
+    return f"live:{connection_id}:{int(listing_id)}:{_aware(period_start).astimezone(timezone.utc):%Y-%m-%dT%H:%MZ}"
+
+
+async def live_counted_already(session: AsyncSession, tenant_id: uuid.UUID, connection_id: uuid.UUID,
+                               listing_ids: Iterable[int], start: datetime, end: datetime) -> set[int]:
+    """Which of these live listings count nothing more if our AI rewrites them now: rewritten already in this
+    period, or the Listyro listing the Etsy listing is was counted in this period (its first AI write or draft)."""
+    ids = {int(i) for i in listing_ids}
+    if not ids:
+        return set()
+    by_key = {live_key(connection_id, i, start): i for i in ids}
+    done = {by_key[k] for k in (await session.execute(select(UsageEvent.listing_key).where(
+        UsageEvent.tenant_id == tenant_id, UsageEvent.listing_key.in_(list(by_key))))).scalars()}
+    drafts = (await session.execute(select(
+        ListingPublication.id, ListingPublication.etsy_listing_id, ListingPublication.content_id, ListingPublication.former_content_id,
+    ).where(ListingPublication.tenant_id == tenant_id, ListingPublication.connection_id == connection_id,
+            ListingPublication.etsy_listing_id.in_(list(ids))))).all()
+    by_pub = {pid: int(lid) for pid, lid, _, _ in drafts}
+    by_listing_key = {key_of(c or f, pid): int(lid) for pid, lid, c, f in drafts}
+    if by_pub:
+        rows = (await session.execute(select(UsageEvent.listing_key, UsageEvent.publication_id).where(
+            UsageEvent.tenant_id == tenant_id, UsageEvent.at >= start, UsageEvent.at < end,
+            UsageEvent.listing_key.in_(list(by_listing_key)) | UsageEvent.publication_id.in_(list(by_pub)),
+        ))).all()
+        for key, pub in rows:
+            done.add(by_listing_key.get(key) or by_pub[pub])
+    return done
+
+
+async def record_live_rewrite(session: AsyncSession, tenant_id: uuid.UUID, connection_id: uuid.UUID, listing_id: int,
+                              start: datetime, end: datetime) -> bool:
+    """Count a live listing our AI has just rewritten, unless it counts already this period. Called before the commit
+    that saves the AI's result, so the two land together. True when this call counted it. Two at once count once: the
+    key is unique per account."""
+    if int(listing_id) in await live_counted_already(session, tenant_id, connection_id, [listing_id], start, end):
+        return False
+    statement = _insert_statement(session, {
+        "id": uuid.uuid4(), "tenant_id": tenant_id, "listing_key": live_key(connection_id, listing_id, start), "content_id": None,
+        "publication_id": None, "connection_id": connection_id, "at": datetime.now(timezone.utc), "source": LIVE_SOURCE,
+    }).on_conflict_do_nothing(index_elements=["tenant_id", "listing_key"]).returning(UsageEvent.__table__.c.id)
+    return (await session.execute(statement)).first() is not None
+
+
+async def used_and_live(session: AsyncSession, tenant_id: uuid.UUID, start: datetime, end: datetime) -> tuple[int, int]:
+    """:func:`used`, and how many of those are live listings our AI rewrote, in one query."""
+    total, live = (await session.execute(
+        select(func.count(), func.count().filter(UsageEvent.source == LIVE_SOURCE)).select_from(UsageEvent)
+        .where(UsageEvent.tenant_id == tenant_id, UsageEvent.at >= start, UsageEvent.at < end)
+    )).one()
+    return int(total or 0), int(live or 0)
+
+
 async def used(session: AsyncSession, tenant_id: uuid.UUID, start: datetime, end: datetime) -> int:
     """Listings counted in [start, end): the one number every reader uses."""
     return int(await session.scalar(
@@ -241,16 +302,22 @@ class Reconciled:
     missing: list[tuple[uuid.UUID, str]] = field(default_factory=list)
     #: Usage rows with no AI write and no successful draft behind them, while that could still be seen.
     orphans: list[tuple[uuid.UUID, str]] = field(default_factory=list)
+    #: Live-listing rewrites our records say counted, with no usage row: (account, "live:<shop>:<listing>").
+    live_missing: list[tuple[uuid.UUID, str]] = field(default_factory=list)
+    #: Live-listing rewrites counted (their own kind; never orphans: the fix that made them is kept only 7 days).
+    live: int = 0
 
     @property
     def clean(self) -> bool:
-        return not self.missing and not self.orphans
+        return not self.missing and not self.orphans and not self.live_missing
 
     def lines(self) -> list[str]:
         out = [f"Listings written by our AI or drafted, with no usage row: {len(self.missing)}"]
         out += [f"  missing  account {t}  listing {k}" for t, k in self.missing]
         out.append(f"Usage rows with no AI write and no successful draft: {len(self.orphans)}")
         out += [f"  orphan   account {t}  listing {k}" for t, k in self.orphans]
+        out.append(f"Live listings rewritten by our AI, counted: {self.live}; marked counted with no usage row: {len(self.live_missing)}")
+        out += [f"  missing  account {t}  {k}" for t, k in self.live_missing]
         return out
 
 
@@ -270,8 +337,17 @@ async def reconcile(session: AsyncSession, tenant_id: uuid.UUID | None = None) -
         select(EtsyConnection.id).where(EtsyConnection.status == ConnectionStatus.active))).scalars())
     out = Reconciled()
     out.missing = sorted((t, k) for t, k in expected if (t, k) not in covered)
+    out.live = sum(1 for row in counted.values() if row.source == LIVE_SOURCE)
+    live_seen = {(t, k.rsplit(":", 1)[0]) for (t, k), row in counted.items() if row.source == LIVE_SOURCE}
+    fixes = select(ListingFix.tenant_id, ListingFix.connection_id, ListingFix.listing_id).where(ListingFix.allowance_kind == LIVE_COUNTED)
+    if tenant_id is not None:
+        fixes = fixes.where(ListingFix.tenant_id == tenant_id)
+    for t, connection_id, listing_id in (await session.execute(fixes)).all():
+        prefix = f"live:{connection_id}:{int(listing_id)}"
+        if (t, prefix) not in live_seen and (t, prefix) not in out.live_missing:
+            out.live_missing.append((t, prefix))
     for (t, k), row in sorted(counted.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
-        if (t, k) in expected or row.publication_id in pub_key:
+        if (t, k) in expected or row.publication_id in pub_key or row.source == LIVE_SOURCE:
             continue
         # A disconnected shop's drafts were purged with it, a deleted batch's listings with it: their
         # counts are history, not orphans.

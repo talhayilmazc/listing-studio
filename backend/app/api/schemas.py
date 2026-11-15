@@ -486,6 +486,8 @@ class AllowanceOut(BaseModel):
     #: ``used`` is ("shadow" | "on"): admin shows both side by side while in shadow mode.
     listings_counted: int = 0
     old_used: int = 0
+    #: Of listings_counted: live Etsy listings our AI rewrote (Listing health), once each per period.
+    live_rewrites: int = 0
     counter: str = "shadow"
 
 

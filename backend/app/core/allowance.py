@@ -134,6 +134,8 @@ class AllowanceStatus:
 
     #: "shadow" or "on" (USAGE_COUNTER): which count ``used`` is.
     counter: str = "shadow"
+    #: Of ``listings``: live Etsy listings our AI rewrote (Listing health), once each per period.
+    live_rewrites: int = 0
 
     @property
     def old_used(self) -> int:
@@ -198,8 +200,11 @@ async def status(session: AsyncSession, tenant: Tenant, now: datetime | None = N
     )
     from app.core import usage
 
+    counted, live = await usage.used_and_live(session, tenant.id, start, reset)
+
     return AllowanceStatus(
-        listings=await usage.used(session, tenant.id, start, reset),
+        listings=counted,
+        live_rewrites=live,
         counter=usage.mode(),
         amount=amount,
         period=period,
@@ -322,6 +327,7 @@ def status_out(s: AllowanceStatus) -> dict[str, Any]:
         "remaining": s.remaining,
         # The listing counter (core/usage.py), and which count ``used`` is (USAGE_COUNTER).
         "listings_counted": s.listings,
+        "live_rewrites": s.live_rewrites,
         "old_used": s.old_used,
         "counter": s.counter,
         "period_start": s.period_start,
