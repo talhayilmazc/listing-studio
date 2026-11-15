@@ -246,6 +246,45 @@ test.describe("signed in", () => {
     await expectSound(page, "/listing-health (selling)");
   });
 
+  test("Listing health: a shop whose sales were never read says so with one button; a kept brand name is quiet", async ({ page }) => {
+    // HEALTH_SHOTS=1: also the pictures in docs/screens/listing-health-v2/ (375 and 1366 px). Nothing is pressed
+    // that would queue a read or change what is kept: the demo stays as seeded for the next width.
+    const shot = async (name: string) => {
+      const width = page.viewportSize()?.width;
+      if (process.env.HEALTH_SHOTS && (width === 375 || width === 1366)) {
+        await page.screenshot({ path: `../docs/screens/listing-health-v2/${name}-${width}.png` });
+      }
+    };
+    await page.goto("/listing-health");
+    await settle(page);
+    await expect(page.getByTestId("health-counts")).toBeVisible({ timeout: 30_000 });
+    // The first shop's sales are read: no sales line there.
+    await expect(page.getByTestId("health-sales-line")).toHaveCount(0);
+    await page.getByTestId("health-count-selling").click();
+    await settle(page);
+    const kept = page.getByTestId("health-kept-brand").first();
+    await expect(kept).toContainText("Brand name kept by you: Disney", { timeout: 15_000 });
+    await expect(kept.getByTestId("health-warn-again")).toHaveText("Show the warning again");
+    await kept.scrollIntoViewIfNeeded();
+    await shot("kept-brand");
+    await expectSound(page, "/listing-health (a kept brand name)");
+    // A shop never read: the line, its button, and "Read sales for all N shops".
+    const sales = await page.evaluate(async () => (await fetch("/api/listing-health/sales", { credentials: "include" })).json());
+    const never = (sales.shops as { connection_id: string; shop_name: string; needs_read: boolean }[]).find((s) => s.shop_name === "Juniper Print Co." && s.needs_read);
+    test.skip(!never, "one shop: no shop whose sales were never read");
+    await page.evaluate((id) => { localStorage.setItem("listyro.shop", id); localStorage.setItem("listyro.shop.single", id); }, never!.connection_id);
+    await page.goto("/listing-health");
+    await settle(page);
+    const line = page.getByTestId("health-sales-line");
+    await expect(line).toContainText("To see which listings sell, read this shop's sales first.", { timeout: 30_000 });
+    await expect(line.getByTestId("health-read-sales")).toHaveText("Read sales");
+    await expect(page.getByTestId("health-read-all")).toHaveText(`Read sales for all ${sales.to_read} shops`);
+    expect(await page.getByTestId("health-sales").innerText(), "no Etsy request count for the seller").not.toMatch(/request/i);
+    await expect(page.getByTestId("health-keep-brand").first()).toHaveText("Keep it, I know the risk", { timeout: 15_000 });
+    await shot("never-read");
+    await expectSound(page, "/listing-health (sales never read)");
+  });
+
   test("the print-area editor fits the screen, its controls are 44 px and nothing scrolls sideways", async ({ page }) => {
     await page.goto("/mockups/templates");
     await settle(page);
