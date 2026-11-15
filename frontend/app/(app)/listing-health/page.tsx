@@ -8,10 +8,11 @@ import { useShops } from "@/components/ShopProvider";
 import { StatusChip } from "@/components/StatusChip";
 import { useSession } from "@/components/SessionProvider";
 import { formatWhen } from "@/lib/schedule";
+import { HealthSales } from "@/components/HealthSales";
 import {
-  approvalSentence, bucketOf, BUCKETS, diffOf, factsLine, FIX_KINDS, FIX_WORDS, fixesFor, isWorking, links, MAIN_BUCKETS, PROBLEMS,
-  rewriteSentence, SAID_FIRST, withinCap, type Bucket, type DiffLine, type Fix, type HealthListing, type HealthPage, type HealthProblem,
-  type PreviewAnswer, type RewriteCheck, type Show,
+  approvalSentence, bucketOf, BUCKETS, diffOf, factsLine, FIX_KINDS, FIX_WORDS, fixesFor, isWorking, KEEP_LABEL, KEPT_NOTE, links, MAIN_BUCKETS,
+  offersKeep, PROBLEMS, readEnded, rewriteSentence, SAID_FIRST, salesMoving, WARN_AGAIN, withinCap, type Bucket, type DiffLine, type Fix,
+  type HealthListing, type HealthPage, type HealthProblem, type HealthSales as Sales, type PreviewAnswer, type RewriteCheck, type Show,
 } from "@/lib/listingHealth";
 
 import { Txt } from "@/components/Txt";
@@ -45,6 +46,9 @@ export default function ListingHealthPage() {
   const [pickedProfile, setPickedProfile] = useState("");
   const seen = useRef(new Set<string>());
   const latest = useRef(0);
+  // Each shop's sales read: the line, the button, and the refresh when this shop's read ends.
+  const [sales, setSales] = useState<Sales | null>(null);
+  const lastSales = useRef<Sales | null>(null);
 
   const load = useCallback(async () => {
     const call = ++latest.current;
@@ -60,17 +64,33 @@ export default function ListingHealthPage() {
   }, [shop, page, show]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const takeSales = useCallback((next: Sales) => {
+    const was = lastSales.current?.shops.find((s) => s.connection_id === shop);
+    const now = next.shops.find((s) => s.connection_id === shop);
+    lastSales.current = next;
+    setSales(next);
+    if (readEnded(was, now)) void load(); // the listings leave "Not judged" for their buckets
+  }, [shop, load]);
+  useEffect(() => { lastSales.current = null; api.healthSales().then(takeSales).catch(() => undefined); }, [takeSales]);
+  const salesLive = (sales?.shops ?? []).some(salesMoving);
+  useEffect(() => {
+    if (!salesLive) return;
+    const timer = setInterval(() => { api.healthSales().then(takeSales).catch(() => undefined); }, 5000);
+    return () => clearInterval(timer);
+  }, [salesLive, takeSales]);
   useEffect(() => { setChosen([]); setPage(1); setApproving([]); setPickedProfile(""); seen.current = new Set(); }, [shop]);
 
   // Attributes are read in the background. A read that cannot finish must not keep this page asking for ever.
   const asks = useRef(0);
   const unread = (data?.listings ?? []).some((l) => !l.attributes_read && l.state === "active");
   const working = data?.reading || fixes.some(isWorking) || (unread && asks.current < MAX_ASKS_FOR_ATTRIBUTES);
+  const slow = !!data?.reading && !data.syncing;
   useEffect(() => {
     if (!working) return;
-    const timer = setInterval(() => { asks.current += 1; void load(); }, 3000);
+    const timer = setInterval(() => { asks.current += 1; void load(); }, slow ? 30000 : 3000);
     return () => clearInterval(timer);
-  }, [working, load]);
+  }, [working, slow, load]);
   useEffect(() => { asks.current = 0; }, [shop, page, show]);
 
   const waiting = fixes.filter(WAITING);
@@ -113,6 +133,12 @@ export default function ListingHealthPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const keep = (listingId: number, again: boolean) => {
+    if (!data?.connection_id) return;
+    const id = data.connection_id;
+    return act(() => (again ? api.warnBrandAgain(id, listingId) : api.keepBrand(id, listingId)));
   };
 
   const act = async (run: () => Promise<{ message: string }>) => {
@@ -160,7 +186,14 @@ export default function ListingHealthPage() {
       {notice && <p key="p-140-6" className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"><span translate="no">{notice}</span></p>}
 
       {!selected && <p key="p-142-6" className="card p-4 text-sm text-slate-700">Connect a shop to see how its listings do.</p>}
-      {data?.reading && <p key="p-143-6" className="card p-4 text-sm text-slate-700"><span translate="no"><span><span>Reading </span><Txt>{data.shop_name}</Txt><span>&apos;s listings from Etsy…</span></span></span></p>}
+      {data?.reading && (
+        <p key="p-143-6" className="card p-4 text-sm text-slate-700" data-testid="health-reading">
+          <span translate="no">{data.syncing ? "Reading your shop…" : "Your shop's listings could not be read just now. Listing health tries again in a few minutes."}</span>
+          <span className="block text-xs text-slate-600"><Txt>{data.shop_name}</Txt></span>
+        </p>
+      )}
+
+      {selected && <HealthSales key="sales" sales={sales} shopId={shop} onChange={takeSales} />}
 
       {data && !data.reading && selected && (
         <>
@@ -180,12 +213,6 @@ export default function ListingHealthPage() {
             ))}
           </div>
 
-          {!data.sales_known && (
-            <p key="p-sales" className="card p-3 text-sm text-slate-700" data-testid="health-sales-unknown">
-              <span>Your sales have not been read yet, so we cannot tell which listings sell. Until they are, no title or tag change is suggested. </span>
-              <a className="tap underline" href="/analytics">Reports reads them</a>
-            </p>
-          )}
 
           {waiting.length > 0 && (
             <section key="section-153-10" className="card space-y-3 p-4" data-testid="health-previews">
@@ -297,7 +324,8 @@ export default function ListingHealthPage() {
             <ul className="space-y-2">
               {listings.map((listing) => (
                 <Row key={listing.listing_id} listing={listing} busy={busy} chosen={chosen.includes(listing.listing_id)} sellingDays={data.selling_days}
-                  onChoose={() => toggle(listing.listing_id)} onFix={(kind) => void startFix([listing.listing_id], kind)} />
+                  onChoose={() => toggle(listing.listing_id)} onFix={(kind) => void startFix([listing.listing_id], kind)}
+                  onKeep={(again) => void keep(listing.listing_id, again)} />
               ))}
             </ul>
 
@@ -350,8 +378,9 @@ function ShowButton({ current, value, onPick, children }: { current: Show; value
   );
 }
 
-function Row({ listing, busy, chosen, sellingDays, onChoose, onFix }: {
+function Row({ listing, busy, chosen, sellingDays, onChoose, onFix, onKeep }: {
   listing: HealthListing; busy: boolean; chosen: boolean; sellingDays: number; onChoose: () => void; onFix: (kind: string) => void;
+  onKeep: (again: boolean) => void;
 }) {
   const offered = fixesFor(listing);
   const go = links(listing);
@@ -375,6 +404,12 @@ function Row({ listing, busy, chosen, sellingDays, onChoose, onFix }: {
             {listing.profile_unclear && <span key="span-317-12" translate="no">More than one profile fits this category</span>}
             {!listing.attributes_read && listing.state === "active" && <span key="span-318-12" translate="no">Reading attributes…</span>}
           </div>
+          {listing.kept_brands.length > 0 && !listing.problems.some((p) => p.id === "brand") && (
+            <p key="kept" className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-slate-600" data-testid="health-kept-brand">
+              <span translate="no">{`${KEPT_NOTE}: ${listing.kept_brands.join(", ")}`}</span>
+              <button type="button" className="tap underline hover:text-slate-900" disabled={busy} data-testid="health-warn-again" onClick={() => onKeep(true)}>{WARN_AGAIN}</button>
+            </p>
+          )}
         </div>
       </div>
       {(listing.problems.length > 0 || listing.suggestions.length > 0 || listing.note) && (
@@ -390,13 +425,16 @@ function Row({ listing, busy, chosen, sellingDays, onChoose, onFix }: {
               {listing.suggestions.map((p) => <Problem key={p.id} problem={p} />)}
             </ul>
           )}
-          {(offered.length > 0 || go.edit || go.seasonPlanner) && (
+          {(offered.length > 0 || go.edit || go.seasonPlanner || listing.problems.some(offersKeep)) && (
             <div key="div-fixes" className="flex flex-wrap gap-2">
               {FIX_KINDS.filter((f) => offered.includes(f.kind)).map((f) => (
                 <button key={f.kind} type="button" className="btn-secondary" disabled={busy} title={f.about} onClick={() => onFix(f.kind)}>{f.label}</button>
               ))}
               {go.edit && <a key="a-edit" className="btn-secondary" href={EDIT_URL(listing.listing_id)} target="_blank" rel="noreferrer">Edit in Shop Manager</a>}
               {go.seasonPlanner && <a key="a-season" className="btn-secondary" href="/season-planner">Open the season planner</a>}
+              {listing.problems.some(offersKeep) && (
+                <button key="keep" type="button" className="btn-quiet" disabled={busy} data-testid="health-keep-brand" onClick={() => onKeep(false)}>{KEEP_LABEL}</button>
+              )}
             </div>
           )}
         </div>

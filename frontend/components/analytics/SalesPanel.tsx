@@ -47,7 +47,7 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
   // While estimating or reading, look again every few seconds; refresh the
   // figures every third look, so partial totals appear as they land.
   const ledgerLive = sync?.ledger.state === "estimating" || sync?.ledger.state === "reading" || sync?.ledger.history_state === "reading";
-  const live = sync?.state === "estimating" || sync?.state === "reading" || ledgerLive || updating !== null;
+  const live = sync?.state === "queued" || sync?.state === "estimating" || sync?.state === "reading" || ledgerLive || updating !== null;
   // Only the background history is moving: a slower look is enough.
   const historyOnly = sync?.state === "complete" && sync.ledger.state === "complete" && updating === null;
   useEffect(() => {
@@ -117,6 +117,10 @@ export function SalesPanel({ shopId, onProgress }: { shopId: string | null; onPr
             Count my sales
           </button>
         </div>
+      )}
+
+      {sync.state === "queued" && (
+        <p key="queued" className="text-brand-700">Waiting for its turn: your shops are read one after another.</p>
       )}
 
       {sync.state === "estimating" && (

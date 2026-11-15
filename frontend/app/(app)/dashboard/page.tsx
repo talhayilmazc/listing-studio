@@ -28,6 +28,7 @@ import { NeedsAttention } from "@/components/NeedsAttention";
 import { SetupChecklist } from "@/components/SetupChecklist";
 import { Txt } from "@/components/Txt";
 import { RequestsLow } from "@/components/EtsyRequestsCard";
+import { SalesNotReadCard } from "@/components/SalesNotReadCard";
 
 /** Thumbnails for the activity timeline, loaded after the page paints. */
 type Thumbs = Record<string, Asset[]>;
@@ -176,6 +177,7 @@ export default function Dashboard() {
       {fresh ? null : <UnfinishedDrafts key="unfinished" />}
       {/* The detailed requests card is on Shops; Home warns only when under 20% is left. */}
       <RequestsLow quota={quota} />
+      {fresh ? null : <SalesNotReadCard key="sales-not-read" />}
       {fresh ? null : (
         <div key="shops" className="grid gap-4 lg:grid-cols-2">
           {allShops ? (
