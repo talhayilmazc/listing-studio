@@ -107,6 +107,9 @@ class SendStateOut(BaseModel):
     label: str
     #: "Make a group of all my shops" is offered (several shops, no groups yet).
     offer_all_shops: bool
+    #: Every shop this batch's listings go to as things stand (the choice, or each listing's own shop):
+    #: the page says when that is not the shop the seller is working on.
+    goes_to: list[uuid.UUID] = []
 
 
 class SendIn(BaseModel):
@@ -297,9 +300,12 @@ async def _state(session: AsyncSession, tenant: Tenant, batch: UploadBatch) -> S
     chosen = _out(batch.send_to)
     contents = await _contents(session, tenant, batch, None)
     label = names.label(chosen) if chosen is not None else await _default_label(session, contents, names, shops)
+    goes_to: dict[uuid.UUID, None] = {}
+    for c in contents:
+        goes_to.update((s.id, None) for s in await shop_targets.wanted(session, c, shops, names.members))
     return SendStateOut(
         shops=[ShopChoice(id=c.id, name=shop_label(c)) for c in shops], groups=groups, send_to=chosen,
-        label=label, offer_all_shops=len(shops) > 1 and not groups,
+        label=label, offer_all_shops=len(shops) > 1 and not groups, goes_to=list(goes_to),
     )
 
 

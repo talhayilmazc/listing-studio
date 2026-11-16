@@ -13,6 +13,7 @@ import {
   startingToday,
 } from "@/lib/whereWhen";
 import { DestinationPicker } from "./DestinationPicker";
+import { useShops } from "./ShopProvider";
 import { Txt } from "./Txt";
 import { Help } from "./Help";
 
@@ -58,6 +59,8 @@ export function WhereAndWhen({
   onDone: () => void;
 }) {
   const [state, setState] = useState<SendState | null>(null);
+  // The shop the seller is working on (the switcher; none on "All shops").
+  const { scope: workingOn } = useShops();
   const [remembered] = useState(rememberedWhen);
   const [when, setWhen] = useState<SendWhen>(remembered.when);
   const [schedule, setSchedule] = useState<GroupSchedule>(() => startingToday(today(timeZone), remembered.schedule));
@@ -77,6 +80,11 @@ export function WhereAndWhen({
   }, [batchId]);
 
   const destKey = state ? JSON.stringify(state.send_to) : "";
+  // Where these go now, named, when the shop the seller is working on is not among them.
+  const goesTo = state?.goes_to ?? [];
+  const elsewhere = state && workingOn && state.shops.length > 1 && goesTo.length > 0 && !goesTo.includes(workingOn.id)
+    ? goesTo.map((id) => state.shops.find((s) => s.id === id)?.name ?? "another shop").join(", ")
+    : null;
   useEffect(() => {
     if (!state) return;
     let cancelled = false;
@@ -163,6 +171,18 @@ export function WhereAndWhen({
         {state && !oneShop && (
           <DestinationPicker key="picker" state={state} value={state.send_to} label={state.label} onChange={choose} disabled={busy} />
         )}
+        {elsewhere && workingOn ? (
+          // Never another shop silently: the panel names where these go, and says when that is not the shop
+          // the seller is working on, with the one click that sends them there instead.
+          <span key="elsewhere" role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 bg-amber-50 px-2 py-1 text-xs text-amber-950"
+            data-testid="send-elsewhere">
+            <span translate="no">{`You are working on ${workingOn.name}; these go to ${elsewhere}.`}</span>
+            <button type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={busy} data-testid="send-here"
+              onClick={() => choose({ group_ids: [], connection_ids: [workingOn.id] })}>
+              <span translate="no">{`Send to ${workingOn.name} instead`}</span>
+            </button>
+          </span>
+        ) : null}
         {state?.offer_all_shops && (
           <button key="all" type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={allShops} disabled={busy}
             data-testid="all-shops">

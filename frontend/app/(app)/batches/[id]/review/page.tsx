@@ -20,6 +20,7 @@ import type {
 import { UnfinishedDrafts } from "@/components/UnfinishedDrafts";
 import { Help } from "@/components/Help";
 import { ListingChange, WhereAndWhen } from "@/components/WhereAndWhen";
+import { profileNote } from "@/lib/profileShopNote";
 import { BulkItemOptions } from "@/components/BulkItemOptions";
 import { AttributeBulkSet } from "@/components/BulkExtras";
 import { resumeTime } from "@/lib/format";
@@ -699,6 +700,22 @@ export default function ReviewPage() {
                 <span translate="no">
                   <span>{`→ ${rowOf[c.id].label} · `}</span>
                   <ListingChange batchId={id} state={sendState} row={rowOf[c.id]} onDone={() => setSendTick((n) => n + 1)} />
+                  {(() => {
+                    // The profile is another shop's: the listing still goes where the panel says, and the card
+                    // says so; one click takes that shop's own profile when it has exactly one of this kind.
+                    const note = profileNote(profiles, c.profile_id ?? null, rowOf[c.id].cells);
+                    return note ? (
+                      <span key="profile-shop" className="mt-1 block text-amber-900" data-testid="card-profile-shop">
+                        <span>{note.text}</span>
+                        {note.own ? (
+                          <button key="own" type="button" className="tap ml-2 text-brand-700 underline" data-testid="card-own-profile"
+                            onClick={() => changeProfile(c.group_key ?? null, note.own!.id)}>
+                            {`Use ${note.shop}'s profile “${note.own.name}”`}
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : null;
+                  })()}
                 </span>
               ) : undefined}
             />

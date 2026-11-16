@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -254,3 +255,40 @@ async def test_send_to_names_the_shops_the_summary_counts(world) -> None:  # noq
     assert preview["shops"] == 2
     assert state["label"] == "Frost Tees + " + next(c["name"] for c in state["shops"] if c["id"] == str(world["a2"]))
     assert all(r["label"] == state["label"] for r in preview["rows"])
+
+
+async def test_a_batch_uploaded_for_one_shop_goes_to_that_shop_whatever_shop_its_profile_is_from(world) -> None:  # noqa: F811
+    """Production, 16 November 2026: six listings uploaded while the seller worked on one shop read
+    "Send to: <another shop>": a new batch started from where the account's last batch went, and with no
+    choice at all from the main shop of each listing's profile. A batch uploaded for shop A, with a profile
+    of shop B: the destination is A, named, before anything is sent; the seller's own later choice stays."""
+    a, other = world["a2"], world["a1"]  # the upload is for a2; the profile (pa1) is Frost Tees' (a1)
+    await _send_to(world, connection_ids=[str(other)])  # where the account's last batch went
+    made = await world["a"].post("/api/batches", json={"connection_id": str(a)})
+    assert made.status_code == 201, made.text
+    batch = uuid.UUID(made.json()["id"])
+    async with world["sm"]() as s:
+        asset = Asset(tenant_id=world["alice"], batch_id=batch, original_filename="PCS603.png", storage_key="pcs603",
+                      status=AssetStatus.processed, rank=1)
+        s.add(asset)
+        await s.flush()
+        s.add(GeneratedContent(tenant_id=world["alice"], batch_id=batch, asset_id=asset.id, listing_profile_id=world["pa1"],
+                               title=f"{PREFIX_A}, {BODY}", tags=["shirt", *[f"tag{n}" for n in range(12)]],
+                               description="Body.", approved=True))
+        await s.commit()
+    state = (await world["a"].get(f"/api/batches/{batch}/send")).json()
+    name = next(c["name"] for c in state["shops"] if c["id"] == str(a))
+    assert state["send_to"] == {"group_ids": [], "connection_ids": [str(a)]}
+    assert state["label"] == name and state["goes_to"] == [str(a)]
+    preview = (await world["a"].post(f"/api/batches/{batch}/send/preview", json={"when": "drafts"})).json()
+    assert preview["shops"] == 1 and [[c["shop_id"] for c in r["cells"]] for r in preview["rows"]] == [[str(a)]]
+    # The seller's own choice afterwards is kept as chosen.
+    chosen = await world["a"].put(f"/api/batches/{batch}/send-to", json={"send_to": {"connection_ids": [str(a), str(other)]}})
+    assert chosen.status_code == 200 and sorted(chosen.json()["goes_to"]) == sorted([str(a), str(other)])
+    # No shop named (the switcher on "All shops"): the account's last choice, as before, and it is named.
+    plain = (await world["a"].post("/api/batches")).json()["id"]
+    state = (await world["a"].get(f"/api/batches/{plain}/send")).json()
+    # (Which earlier batch is "the last" is by creation time; both were made in this test's one instant.)
+    assert state["send_to"]["connection_ids"] in ([str(other)], [str(a), str(other)]) and state["label"].startswith(("Frost Tees", name))
+    # Another account's shop is not a shop to upload for.
+    assert (await world["b"].post("/api/batches", json={"connection_id": str(a)})).status_code == 404
