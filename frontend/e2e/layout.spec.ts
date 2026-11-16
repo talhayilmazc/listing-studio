@@ -425,7 +425,14 @@ test.describe("signed in", () => {
     const summary = page.getByTestId("approve-summary");
     await expect(summary).toContainText("3 listings have no title yet: write them, or press Generate");
     // Each card is marked once, in place; the long rule list is not repeated per listing.
-    await expect(page.getByTestId("card-needs")).toHaveCount(3);
+    // (The reason of a listing that was not approved is on its own card, with the one thing that fixes it;
+    // the card's quieter "Not approved yet: …" line gives way to it, so nothing is said twice.)
+    await expect(page.getByTestId("card-blocked")).toHaveCount(3);
+    for (const blocked of await page.getByTestId("card-blocked").all()) {
+      await expect(blocked).toContainText("Not approved: title is empty");
+      await expect(blocked.getByRole("button", { name: "Fix the title" })).toBeVisible();
+    }
+    await expect(page.getByTestId("card-needs")).toHaveCount(0);
     await expect(page.getByText("expected exactly 13 tags")).toHaveCount(0);
     await expect(page.getByText("must name the product type")).toHaveCount(0);
     await expectSound(page, "/batches/<batch>/review after Approve all on a hand-written batch");
