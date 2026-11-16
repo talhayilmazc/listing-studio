@@ -24,12 +24,17 @@ const EMAIL = process.env.LAYOUT_EMAIL;
 const PASSWORD = process.env.LAYOUT_PASSWORD;
 const BATCH = "Trip tees";
 
-/** The batch's address ("/batches/<id>"), from the Designs list. */
+/** The batch's address ("/batches/<id>"). Asked of the API once a run: opening the Designs page before and
+ *  after every test reads every batch of the demo, and the run then meets the API's own request limit. */
+let found: string | null = null;
 async function batchHref(page: Page): Promise<string> {
-  await page.goto("/batches");
-  const link = page.locator('a[href^="/batches/"]', { hasText: BATCH }).first();
-  await expect(link, "the demo has no Trip tees batch: seed-demo again").toBeVisible({ timeout: 30_000 });
-  return (await link.getAttribute("href"))!.replace(/\/review$/, "");
+  if (found) return found;
+  const answer = await page.request.get("/api/batches");
+  expect(answer.status(), "the list of batches").toBe(200);
+  const batch = ((await answer.json()) as { id: string; name: string }[]).find((b) => b.name === BATCH);
+  expect(batch, "the demo has no Trip tees batch: seed-demo again").toBeTruthy();
+  found = `/batches/${batch!.id}`;
+  return found;
 }
 
 /** As seeded: nothing approved, no section chosen, each listing going to its profile's shop. */
@@ -72,7 +77,17 @@ async function bringUp(page: Page, i: number): Promise<void> {
 test.describe("review: a section that sticks, an Approve that approves", () => {
   test.skip(!EMAIL || !PASSWORD, "set LAYOUT_EMAIL and LAYOUT_PASSWORD (the demo admin from `seed-demo --admin`) to run these");
 
-  test.beforeEach(async ({ page }) => signIn(page, EMAIL!, PASSWORD!));
+  // The API allows 1,200 requests a minute from one address (core/ratelimit.py). Each of these tests opens
+  // the dashboard and the review page (about 80 requests) and takes about three seconds against the
+  // production image: back to back they pass that limit and the API answers 429. So a test starts no
+  // sooner than six seconds after the one before it.
+  let began = 0;
+  test.beforeEach(async ({ page }) => {
+    const wait = began + 6_000 - Date.now();
+    if (wait > 0) await page.waitForTimeout(wait);
+    began = Date.now();
+    await signIn(page, EMAIL!, PASSWORD!);
+  });
   test.afterEach(async ({ page }) => {
     const href = await batchHref(page).catch(() => null);
     if (href) await reset(page, href);
