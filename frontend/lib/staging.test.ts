@@ -126,7 +126,7 @@ test("the upload page: no shop, one Add files button, the listings arranged in p
   for (const gone of ["For shop", "ShopPicker", "Add photos", "Add folder", "Add ZIP files", "Choose ZIP files", "uploadShop"]) {
     assert.ok(!page.includes(gone), gone);
   }
-  assert.ok(page.includes('data-testid="add-files"') && page.includes("<StagingBoard") && page.includes("api.createBatch(null)"));
+  assert.ok(page.includes('data-testid="add-files"') && page.includes("<StagingBoard") && page.includes("api.createBatch(workingOn?.id ?? null)"));
   const board = read("components/StagingBoard.tsx");
   for (const piece of ['data-testid="new-listing"', 'data-testid="add-to-listing"', 'data-testid="move-to"', "e.target === e.currentTarget"]) {
     assert.ok(board.includes(piece), piece);

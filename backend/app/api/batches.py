@@ -193,6 +193,14 @@ async def create_batch(
         chosen = shops[0]
     batch = await ingestor.create_batch(session, tenant.id)
     batch.connection_id = chosen.id if chosen else None
+    if body is not None and body.connection_id is not None and chosen is not None:
+        # The seller uploaded this while working on that shop: its listings go there until the seller
+        # says otherwise on "Where and when" (16 November 2026). Not where the account's last batch
+        # went, and not the main shop of whichever profile a listing takes: a batch uploaded for ILC
+        # read "Send to: JPH". No shop named (the switcher on "All shops"): the last choice, as before.
+        from app.pipeline.shop_targets import stored_value
+
+        batch.send_to = stored_value([], [chosen.id])
     await session.commit()
     await session.refresh(batch)
     return await _summary(session, batch)

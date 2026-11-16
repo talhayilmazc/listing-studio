@@ -34,7 +34,7 @@ import { shopCover } from "@/lib/shopPhotos";
 import { SkuEditor } from "@/components/SkuEditor";
 import { profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 import { textFor } from "@/lib/review";
-import { fixFor, stoppedByBrand } from "@/lib/reviewBar";
+import { fixFor, stoppedByBrand } from "@/lib/notApproved";
 import { KEEP_LABEL, KEPT_NOTE } from "@/lib/listingHealth";
 import type { BatchShops } from "@/lib/types";
 import { ListingPersonalization } from "./ListingPersonalization";
@@ -578,23 +578,6 @@ export function ReviewCard({
       data-approved={approved}
       ref={rootRef}
     >
-      {/* This listing's own Approve, where the card begins, at every width (hotfix/review-regressions): the
-          one in the card's action bar is at its far end, a screen or two down (the photos come first on a
-          phone). Same button, same Undo. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5" data-testid="card-approve-row">
-        <span className={"text-sm " + (approved ? "font-medium text-emerald-800" : "text-slate-700")} translate="no">
-          {approved ? "✓ Approved" : "Not approved yet"}
-        </span>
-        <button type="button" aria-pressed={approved} onClick={toggleApprove} disabled={bulkRunning} data-testid="approve-top"
-          className={approved ? "btn-secondary" : "btn-primary"}>
-          {approved ? "Take approval back" : "Approve"}
-        </button>
-      </div>
-      {whyNot ? (
-        <div key="blocked-top" className="border-b border-slate-200 pb-3">
-          <Blocked why={whyNot} testId="card-blocked" onFix={focusField} onKeep={keepBrand} keeping={keeping} />
-        </div>
-      ) : null}
       <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
         {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
         <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
@@ -689,17 +672,6 @@ export function ReviewCard({
           ) : null}
           {tab === "shops" ? (
             <PerShop key="per-shop" contentId={initial.id} batchId={batchId ?? null} shopData={shopData ?? null} shopNames={shopNames ?? {}} />
-          ) : null}
-          {/* The production-partner note (Part H): only where the profile's shop uses a partner (the server
-              decides), and inside "Per shop"; with one shop there is no tab, so it is at the card's foot. */}
-          {initial.production_note && (tab === "shops" || Object.keys(shopNames ?? {}).length <= 1) ? (
-            <p key="partner" className={"mx-5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 " + (tab === "shops" ? "mb-5" : "order-last mb-5")}
-              data-testid="card-production-note">
-              <span>{initial.production_note}</span>{" "}
-              {initial.profile_id ? (
-                <a key="open" href={`/profiles?profile=${initial.profile_id}`} className="tap text-brand-700 underline">Open the profile</a>
-              ) : null}
-            </p>
           ) : null}
           <div className="space-y-5 p-5" hidden={tab !== "listing"}>
             {Object.keys(shopNames ?? {}).length > 1 && (
@@ -945,7 +917,7 @@ export function ReviewCard({
             )}
           </div>
 
-          {whyNot ? <Blocked key="blocked-foot" why={whyNot} testId="card-blocked-foot" onFix={focusField} onKeep={keepBrand} keeping={keeping} /> : null}
+          {whyNot ? <Blocked key="blocked" why={whyNot} testId="card-blocked" onFix={focusField} onKeep={keepBrand} keeping={keeping} /> : null}
           {/* Sticky action bar: stays reachable while this card is on screen. */}
           <div className="sticky bottom-0 mt-auto border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1014,7 +986,7 @@ export function ReviewCard({
                     {p.state !== "active" && (
                       <button key="button-361-20"
                         type="button"
-                        className="btn-secondary px-2.5 py-1 text-xs"
+                        className="btn-primary px-2.5 py-1 text-xs"
                         onClick={() => publishNow(p.connection_id)}
                         disabled={publishing}
                         title="Make this draft active on Etsy"
@@ -1126,7 +1098,7 @@ export function ReviewCard({
 }
 
 /** A refused approval says why in the server's own list; show the reasons, not the JSON. */
-/** Why a listing was not approved, on its card, with the one action that fixes it (lib/reviewBar.ts::fixFor). */
+/** Why a listing was not approved, on its card, with the one action that fixes it (lib/notApproved.ts::fixFor). */
 function Blocked({ why, testId, onFix, onKeep, keeping }: {
   why: string; testId: string; onFix: (which: "title" | "tags") => void; onKeep: () => void; keeping: boolean;
 }) {

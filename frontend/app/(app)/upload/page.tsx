@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, uploadArchive, uploadAsset } from "@/lib/api";
+import { useShops } from "@/components/ShopProvider";
 import { UPLOAD_PARALLEL, UPLOAD_TRIES, runLimited, withRetry } from "@/lib/uploadQueue";
 import { StatusPill } from "@/components/StatusPill";
 import { relativeTime } from "@/lib/format";
@@ -61,6 +62,9 @@ const IMAGE_RE = /\.(png|jpe?g|webp|heic|heif|gif|tiff?)$/i;
 const ZIP_RE = /\.zip$/i;
 
 export default function UploadPage() {
+  // The shop the seller is working on (the switcher; none on "All shops"): the upload is for it, and its
+  // listings go there until the seller chooses otherwise on the review page's "Where and when".
+  const { scope: workingOn } = useShops();
   const router = useRouter();
   // Chosen but not yet sent (staging): folders and ZIPs, each removable.
   const [staged, setStaged] = useState<StagedGroup<File>[]>([]);
@@ -433,7 +437,7 @@ export default function UploadPage() {
       batch = { id: joining };
     } else {
       try {
-        batch = await api.createBatch(null);
+        batch = await api.createBatch(workingOn?.id ?? null);
       } catch (e: any) {
         setNotes([String(e.message ?? e)]);
         setPhase("staging");

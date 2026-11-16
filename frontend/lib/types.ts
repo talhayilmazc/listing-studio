@@ -2185,6 +2185,8 @@ export interface SendState {
   label: string;
   /** "Make a group of all my shops" (several shops, no groups yet). */
   offer_all_shops: boolean;
+  /** Every shop the batch's listings go to as things stand (the choice, or each listing's own shop). */
+  goes_to?: string[];
 }
 
 export type SendWhen = "drafts" | "publish" | "spread";
