@@ -492,12 +492,19 @@ export const api = {
   /** The title and tags of the listing's profile's reference listing (the seller's own). */
   referenceText: (contentId: string) => req<ReferenceText>(`/content/${contentId}/reference-text`),
   // Occasion, Holiday and Section per shop on the review card (Etsy's own values).
+  /** "Keep it, I know the risk" beside "Not approved: Remove: <brand>": the seller's decision for this listing
+   *  and those names is recorded, and the listing is approved. The warning stays; the text is not changed. */
+  keepBrands: (contentId: string, shopId: string | null = null) =>
+    req<ContentUpdateResult>(`/content/${contentId}/brands/keep`, { method: "POST", body: JSON.stringify({ connection_id: shopId }) }),
+  /** "Stop keeping it": the kept names stop the listing again (an approval that no longer holds is withdrawn). */
+  stopKeepingBrands: (contentId: string) => req<ContentUpdateResult>(`/content/${contentId}/brands/unkeep`, { method: "POST" }),
   itemOptions: (contentId: string) => req<ItemOptions>(`/content/${contentId}/options`),
   /** Only the fields sent change: values ([] = none), null = back to the writer's;
-   *  sections per shop: an id, null (no section) or "default" (the suggestion). */
+   *  sections per shop: an id, "none" (the seller picked "No section") or "default" (the suggestion).
+   *  Never null: the server refuses it, so a lost value is not saved as "no section, as you chose". */
   setItemOptions: (
     contentId: string,
-    body: { occasion?: string[] | null; holiday?: string[] | null; sections?: Record<string, number | null | "default"> },
+    body: { occasion?: string[] | null; holiday?: string[] | null; sections?: Record<string, number | "none" | "default"> },
   ) => req<ItemOptions>(`/content/${contentId}/options`, { method: "PUT", body: JSON.stringify(body) }),
   setItemOptionsForSelected: (
     batchId: string,
@@ -506,7 +513,7 @@ export const api = {
       occasion?: string[] | null;
       holiday?: string[] | null;
       section_connection_id?: string;
-      section_id?: number | null | "default";
+      section_id?: number | "none" | "default";
     },
   ) =>
     req<{ updated: number; skipped: { content_id: string; reason: string }[] }>(`/batches/${batchId}/options`, {

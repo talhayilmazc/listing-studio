@@ -190,6 +190,8 @@ export interface Content {
   currency?: string | null;
   /** One of the example designs: labelled, never sent to Etsy. */
   is_example?: boolean;
+  /** Brand names the seller kept on this listing ("Keep it, I know the risk"): warned about, not stopped. */
+  kept_brands?: string[];
   /** The cover the title and tags were written from; differs from asset_id once the cover changed. */
   written_from_asset_id?: string | null;
   title: string | null;

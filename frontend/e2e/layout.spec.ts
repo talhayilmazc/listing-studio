@@ -409,8 +409,8 @@ test.describe("signed in", () => {
     const href = (await link.getAttribute("href"))!;
     await page.goto(`${href.replace(/\/review$/, "")}/review`);
     await settle(page);
-    // Part H: Approve all and Generate the empty ones are in "More"; the bar's primary is "Approve".
-    await expect(page.getByTestId("review-next")).toHaveText("Approve");
+    // Part H: Approve all and Generate the empty ones are in "More"; the bar's primary approves the listing on screen.
+    await expect(page.getByTestId("review-next")).toHaveText("Approve this listing");
     await page.getByTestId("review-more").locator("summary").click();
     const generate = page.getByTestId("generate-empty");
     await expect(generate).toContainText("Generate the empty ones (3)");
@@ -419,7 +419,9 @@ test.describe("signed in", () => {
       const box = (await generate.boundingBox())!;
       expect(box.height, "Generate the empty ones is 44 px on a phone").toBeGreaterThanOrEqual(44);
     }
+    await expect(page.getByTestId("approve-all")).toHaveText("Approve all 3 waiting");
     await page.getByTestId("approve-all").click();
+    await page.getByTestId("approve-all-confirm").click(); // it asks first, with the count
     const summary = page.getByTestId("approve-summary");
     await expect(summary).toContainText("3 listings have no title yet: write them, or press Generate");
     // Each card is marked once, in place; the long rule list is not repeated per listing.

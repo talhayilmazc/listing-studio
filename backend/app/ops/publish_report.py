@@ -268,7 +268,7 @@ async def gather(session: AsyncSession, tenant: Tenant, since: date, now: dateti
 async def _text_checks(session: AsyncSession, tenant_id: uuid.UUID, contents: dict, profiles: dict) -> dict:
     """Per listing: what Etsy would refuse in its text now and how many notes it has, by the same
     decision approval and sending use (content.check_listing); computed here, nothing written."""
-    from app.compliance.trademarks import tenant_blocklist
+    from app.compliance.trademarks import kept_brands, tenant_blocklist, without
     from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
 
     marks = await tenant_blocklist(session, tenant_id)
@@ -278,7 +278,7 @@ async def _text_checks(session: AsyncSession, tenant_id: uuid.UUID, contents: di
         check = check_listing(
             GeneratedListing(title=content.title or "", tags=list(content.tags or []), description=content.description or ""),
             policy_for(profile.content_template) if profile is not None else None,
-            trademarks=marks, title_rules=bounds_for(profile))
+            trademarks=without(marks, kept_brands(content.attributes)), title_rules=bounds_for(profile))
         out[content.id] = (check.errors, len(check.warnings))
     return out
 

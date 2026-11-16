@@ -328,6 +328,8 @@ class ContentOut(BaseModel):
     # after one rewrite (kept as written, never cut); one sentence each. Cleared
     # when the seller edits the title.
     title_warnings: list[str] = Field(default_factory=list)
+    #: Brand names the seller kept on this listing ("Keep it, I know the risk"): warned about, not stopped.
+    kept_brands: list[str] = Field(default_factory=list)
     #: A listing the seller wrote: what Etsy would refuse (``errors``, blocking) and the
     #: app's quality rules it does not meet (``warnings``, not blocking), for its saved text.
     validation: ValidationInfo | None = None
@@ -624,6 +626,12 @@ class ApproveAllResult(BaseModel):
 class ContentUpdateResult(BaseModel):
     content: ContentOut
     validation: ValidationInfo
+
+
+class KeepBrands(BaseModel):
+    """"Keep it, I know the risk" on a review card; the shop in view, as Approve takes it."""
+
+    connection_id: uuid.UUID | None = None
 
 
 class QuotaDay(BaseModel):
@@ -1491,12 +1499,14 @@ class ItemOptionsOut(BaseModel):
 
 class ItemOptionsUpdate(BaseModel):
     """Only the fields sent change. ``occasion`` / ``holiday``: Etsy's values ([] =
-    none); null = back to the writer's. ``sections``: per shop, a section id, null
-    (no section) or "default" (the suggestion again)."""
+    none); null = back to the writer's. ``sections``: per shop, a section id, "none"
+    (the seller picked "No section") or "default" (the suggestion again). A null is
+    refused: a value lost on its way must never be saved as "no section, as you chose"
+    (hotfix/review-regressions)."""
 
     occasion: list[str] | None = Field(default=None, max_length=20)
     holiday: list[str] | None = Field(default=None, max_length=20)
-    sections: dict[uuid.UUID, int | Literal["default"] | None] | None = None
+    sections: dict[uuid.UUID, int | Literal["default", "none"] | None] | None = None
 
 
 class ItemOptionsBulk(BaseModel):
@@ -1507,7 +1517,8 @@ class ItemOptionsBulk(BaseModel):
     holiday: list[str] | None = Field(default=None, max_length=20)
     #: One shop's section for every selected listing that goes there.
     section_connection_id: uuid.UUID | None = None
-    section_id: int | Literal["default"] | None = None
+    #: A section id, "none" (no section) or "default" (the suggestion); null is refused.
+    section_id: int | Literal["default", "none"] | None = None
 
 
 class BulkSkipped(BaseModel):

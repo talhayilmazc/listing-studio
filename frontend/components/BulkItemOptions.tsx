@@ -96,7 +96,10 @@ export function BulkItemOptions({
       if (holiday !== KEEP) body.holiday = holiday === NONE ? [] : [holiday];
       if (shop && section !== KEEP) {
         body.section_connection_id = shop;
-        body.section_id = section === NONE ? null : Number(section);
+        // "none" is the seller's own "No section"; an id that is not a number is never sent as that.
+        const sectionId = Number(section);
+        if (section !== NONE && !Number.isFinite(sectionId)) throw new Error("Choose a section from the list.");
+        body.section_id = section === NONE ? "none" : sectionId;
       }
       const res = await api.setItemOptionsForSelected(batchId, body);
       setResult(

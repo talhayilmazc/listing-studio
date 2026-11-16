@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_quota, get_session, submit_draft
 from app.api.distribution import ScheduleIn, _capacity, _contents, _why_not
-from app.compliance.trademarks import brand_warnings, tenant_blocklist
+from app.compliance.trademarks import brand_warnings, kept_brands, tenant_blocklist, without
 from app.compliance.check import personalization_hold
 from app.pipeline import schedule_times
 from app.pipeline.personalization import HELD_NOTE
@@ -456,7 +456,8 @@ async def _brands_going(session: AsyncSession, tenant: Tenant, work: _Work) -> l
     lines: dict[str, None] = {}
     for content, shop, _ in work.actions:
         title, tags, description = shop_listing.text_for(content, shop.id)
-        lines.update(dict.fromkeys(brand_warnings(title, list(tags), description, in_force)))
+        # A name the seller kept on this listing is warned about here too: kept is not hidden.
+        lines.update(dict.fromkeys(brand_warnings(title, list(tags), description, without(in_force, kept_brands(content.attributes)))))
     return list(lines)
 
 

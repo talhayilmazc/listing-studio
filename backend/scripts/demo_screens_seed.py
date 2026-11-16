@@ -256,6 +256,7 @@ async def main():
                                listing_profile_id=prof.id, source="manual", title="DisneyWorld Family Trip Tee", tags=tags,
                                description="A soft cotton tee for a family trip."))
         await s.flush()
+        await review_regressions_demo(s, storage, t, shops[0], prof, now)
         await listing_health_demo(s, t, shops[0], prof, now)
         if len(shops) > 1:
             await never_read_demo(s, t, shops[1], now)
@@ -330,6 +331,36 @@ async def listing_health_demo(s, t, shop, prof, now):
                      written_at=now - timedelta(hours=3), approved_at=now - timedelta(hours=3), undo_until=now + timedelta(days=7) - timedelta(hours=3),
                      before={"attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [], "values": []}]},
                      after={"attributes": [{"property_id": 2, "property_name": "Sleeve length", "value_ids": [9], "values": ["Short"]}]}))
+
+
+#: The first shop's own sections, as if its sections had just been read (kept 24 hours).
+SECTIONS = [{"id": 41000001, "title": "Christmas Collection"}, {"id": 41000002, "title": "Thanksgiving and Fall"},
+            {"id": 41000003, "title": "Western Collection"}, {"id": 41000004, "title": "New Years"}]
+
+
+async def review_regressions_demo(s, storage, t, shop, prof, now):
+    """"Trip tees": three listings nobody approved yet, in a shop with sections (hotfix/review-regressions,
+    frontend/e2e/review.spec.ts). No section fits any of them clearly; one names a brand in a form the filter lets
+    through (a warning, it can be approved), one names a brand the account's filter stops (it cannot, and says why)."""
+    shop.sections, shop.sections_at = SECTIONS, now
+    batch = UploadBatch(tenant_id=t.id, status=UploadBatchStatus.ready, file_count=3, connection_id=shop.id, name="Trip tees",
+                        created_at=now - timedelta(minutes=9))
+    s.add(batch); await s.flush()
+    tags = DESIGNS[0][3]
+    for sku, art, title in (("TRIP701", "mountain", "Desert Sunset Shirt, Retro Road Trip Tee"),
+                            ("TRIP702", "heart", "DisneyWorld Family Trip Tee, Matching Vacation Shirt"),
+                            ("TRIP703", "cup", "Mickey Ears Family Vacation Shirt")):
+        key = f"demo-shots/{batch.id}/{sku}-front.jpg"
+        storage.put(key, jpg(art, "front"), "image/jpeg")
+        a = Asset(batch_id=batch.id, tenant_id=t.id, original_filename=f"{sku}/front.jpg", storage_key=key, processed_key=key,
+                  status=AssetStatus.processed, rank=1, group_key=sku, parsed_sku=sku, mime_type="image/jpeg", width=1000, height=1250)
+        s.add(a)
+        s.add(ListingGroupSetting(tenant_id=t.id, batch_id=batch.id, group_key=sku, connection_id=shop.id, profile_id=prof.id))
+        await s.flush()
+        s.add(GeneratedContent(tenant_id=t.id, batch_id=batch.id, asset_id=a.id, approved=False, listing_profile_id=prof.id,
+                               title=title, tags=tags, description="A soft cotton tee for the road. " + REF.split("\n\n", 1)[1],
+                               attributes={"vision": {"theme": "road trip"}}, model_used="claude-sonnet-5", input_tokens=4200, output_tokens=520))
+    await s.flush()
 
 
 async def never_read_demo(s, t, shop, now):

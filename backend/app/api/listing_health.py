@@ -37,6 +37,7 @@ from redis.asyncio import Redis
 from app.api.deps import Enqueuer, active_tenant, get_enqueuer, get_redis, get_session
 from app.api.shop import _is_stale, _shop_rows, selected_shop, sync_if_stale
 from app.api.shops import shop_label
+from app.compliance import trademarks
 from app.core import allowance, audit, usage
 from app.core.config import get_settings
 from app.db.models import (
@@ -389,7 +390,9 @@ def _judge_rows(rows: list[ShopListingCache], profiles: _Profiles, sales: _Sales
             reference_attributes=profiles.attributes_of(profile, row.payload),
             tags_to_add=profiles.tags_to_add(row.payload, profile, unclear),
             short_style=profiles.short_style(row.payload, profile), now=now, windows=w,
-            kept_brands=(kept or {}).get(lid, set()),
+            # Kept here on Listing health, or on the review card before it was sent (the same decision).
+            kept_brands=(kept or {}).get(lid, set()) | {k.casefold() for k in trademarks.kept_brands(
+                getattr(profiles.written.get(lid, (None, None))[1], "attributes", None))},
         )
         if verdict is not None:
             out.append((row, verdict, profile, unclear))

@@ -34,6 +34,8 @@ import { shopCover } from "@/lib/shopPhotos";
 import { SkuEditor } from "@/components/SkuEditor";
 import { profileIn, profileLocked, skuIn, stateIn } from "@/lib/anotherShop";
 import { textFor } from "@/lib/review";
+import { fixFor, stoppedByBrand } from "@/lib/reviewBar";
+import { KEEP_LABEL, KEPT_NOTE } from "@/lib/listingHealth";
 import type { BatchShops } from "@/lib/types";
 import { ListingPersonalization } from "./ListingPersonalization";
 import { personalizationLine } from "@/lib/personalization";
@@ -62,6 +64,7 @@ export function ReviewCard({
   onSelect,
   optionsVersion = 0,
   needs,
+  blocked,
   profiles,
   onProfile,
   destination,
@@ -86,6 +89,8 @@ export function ReviewCard({
   destination?: React.ReactNode;
   /** "Approve all" did not approve this listing: what it needs, short ("needs a title"). */
   needs?: string[];
+  /** The page's Approve did not approve this listing: the server's reason, said here on its card. */
+  blocked?: string;
   /** Ticked for "Set for selected" on the review page. */
   selected?: boolean;
   onSelect?: (on: boolean) => void;
@@ -323,6 +328,11 @@ export function ReviewCard({
     }
   }
 
+  // Why this listing could not be approved, from its own button (the page's Approve gives ``blocked``):
+  // said on the card with the one action that fixes it, never as small grey text and never not at all.
+  const [refused, setRefused] = useState<string | null>(null);
+  const whyNot = approved ? null : refused ?? blocked ?? null;
+
   async function setApproval(on: boolean) {
     const res = await api.approve(initial.id, on, textShop?.id ?? null);
     setApproved(res.content.approved);
@@ -342,16 +352,64 @@ export function ReviewCard({
   }
 
   async function toggleApprove() {
-    if (!(await saveNow())) return; // approving what is on the card, never older text
+    if (!approved && !valid) {
+      setRefused(errors.join("; "));
+      return;
+    }
+    if (!(await saveNow())) {
+      // What is typed could not be saved, so nothing was approved: said, not left to be guessed.
+      if (!approved) setRefused("What you typed on this listing could not be saved, so it was not approved. Check the message beside Save, then press Approve again.");
+      return;
+    }
     try {
       const now = await setApproval(!approved);
       setMessage(null);
+      setRefused(null);
       // The button "Approve" gives the note "Approved", with Undo instead of a question first.
       toast(now ? "Approved" : "Approval taken back", {
         action: { label: "Undo", run: () => setApproval(!now).then(() => undefined).catch(() => undefined) },
       });
     } catch (e: any) {
-      setMessage(approveError(e.message ?? String(e)));
+      setMessage(null);
+      setRefused(approveError(e.message ?? String(e)).replace(/^Not approved: /, ""));
+    }
+  }
+
+  // "Keep it, I know the risk" beside "Not approved: Remove: <brand>": the seller's decision for this listing
+  // and those names is recorded, and the listing is approved. The warning stays on the card; nothing is edited.
+  const [kept, setKept] = useState<string[]>(initial.kept_brands ?? []);
+  const [keeping, setKeeping] = useState(false);
+  async function keepBrand() {
+    if (!(await saveNow())) return;
+    setKeeping(true);
+    try {
+      const res = await api.keepBrands(initial.id, textShop?.id ?? null);
+      setApproved(res.content.approved);
+      setKept(res.content.kept_brands ?? []);
+      setBrands(res.validation.brand_warnings ?? []);
+      setNotes(res.validation.warnings ?? []);
+      setRefused(null);
+      onChange?.({ id: initial.id, approved: res.content.approved, kept_brands: res.content.kept_brands });
+      toast("Approved", { action: { label: "Undo", run: () => setApproval(false).then(() => undefined).catch(() => undefined) } });
+    } catch (e: any) {
+      setRefused(approveError(e.message ?? String(e)).replace(/^Not approved: /, ""));
+    } finally {
+      setKeeping(false);
+    }
+  }
+
+  async function stopKeeping() {
+    setKeeping(true);
+    try {
+      const res = await api.stopKeepingBrands(initial.id);
+      setApproved(res.content.approved);
+      setKept(res.content.kept_brands ?? []);
+      setBrands(res.validation.brand_warnings ?? []);
+      onChange?.({ id: initial.id, approved: res.content.approved, kept_brands: res.content.kept_brands });
+    } catch (e: any) {
+      setMessage(e.message ?? String(e));
+    } finally {
+      setKeeping(false);
     }
   }
 
@@ -520,6 +578,23 @@ export function ReviewCard({
       data-approved={approved}
       ref={rootRef}
     >
+      {/* This listing's own Approve, where the card begins, at every width (hotfix/review-regressions): the
+          one in the card's action bar is at its far end, a screen or two down (the photos come first on a
+          phone). Same button, same Undo. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5" data-testid="card-approve-row">
+        <span className={"text-sm " + (approved ? "font-medium text-emerald-800" : "text-slate-700")} translate="no">
+          {approved ? "✓ Approved" : "Not approved yet"}
+        </span>
+        <button type="button" aria-pressed={approved} onClick={toggleApprove} disabled={bulkRunning} data-testid="approve-top"
+          className={approved ? "btn-secondary" : "btn-primary"}>
+          {approved ? "Take approval back" : "Approve"}
+        </button>
+      </div>
+      {whyNot ? (
+        <div key="blocked-top" className="border-b border-slate-200 pb-3">
+          <Blocked why={whyNot} testId="card-blocked" onFix={focusField} onKeep={keepBrand} keeping={keeping} />
+        </div>
+      ) : null}
       <div className="grid gap-0 lg:grid-cols-[minmax(0,46%)_1fr]">
         {/* The design dominates: shown whole, on a neutral transparency backdrop. */}
         <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
@@ -663,7 +738,7 @@ export function ReviewCard({
                 )}
               </p>
             )}
-            {needs && needs.length > 0 && !approved && !valid && (
+            {needs && needs.length > 0 && !approved && !valid && !whyNot && (
               // "Approve all" skipped it: said here, on the card, once.
               <p key="needs" role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" data-testid="card-needs">
                 <span>Not approved yet: </span><span>{needs.join(", ")}</span>
@@ -851,6 +926,12 @@ export function ReviewCard({
                 <ul className="space-y-1" translate="no">
                   {brands.map((b) => <li key={b}>{b}</li>)}
                 </ul>
+                {kept.length > 0 ? (
+                  <p key="kept" className="mt-1 flex flex-wrap items-center gap-x-2 font-medium" data-testid="card-kept-brand">
+                    <span translate="no">{`${KEPT_NOTE}: ${kept.join(", ")}`}</span>
+                    <button type="button" className="tap font-normal underline" disabled={keeping} onClick={stopKeeping} data-testid="card-stop-keeping">Stop keeping it</button>
+                  </p>
+                ) : null}
               </div>
             )}
             {notes.length > 0 && (
@@ -864,6 +945,7 @@ export function ReviewCard({
             )}
           </div>
 
+          {whyNot ? <Blocked key="blocked-foot" why={whyNot} testId="card-blocked-foot" onFix={focusField} onKeep={keepBrand} keeping={keeping} /> : null}
           {/* Sticky action bar: stays reachable while this card is on screen. */}
           <div className="sticky bottom-0 mt-auto border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -875,7 +957,6 @@ export function ReviewCard({
                 <button
                   type="button"
                   aria-pressed={approved}
-                  disabled={!valid && !approved}
                   onClick={toggleApprove}
                   data-testid="approve-toggle"
                   className={approved ? "btn-secondary border-emerald-600 text-emerald-800" : "btn-primary"}
@@ -1045,6 +1126,30 @@ export function ReviewCard({
 }
 
 /** A refused approval says why in the server's own list; show the reasons, not the JSON. */
+/** Why a listing was not approved, on its card, with the one action that fixes it (lib/reviewBar.ts::fixFor). */
+function Blocked({ why, testId, onFix, onKeep, keeping }: {
+  why: string; testId: string; onFix: (which: "title" | "tags") => void; onKeep: () => void; keeping: boolean;
+}) {
+  const fix = fixFor(why);
+  return (
+    <p role="alert" className="mx-5 mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900" data-testid={testId}>
+      <span className="min-w-0 flex-1">
+        <span className="font-medium">Not approved: </span>
+        <span translate="no" className="break-words">{why}</span>
+      </span>
+      {fix ? (
+        <button key="fix" type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => onFix(fix.field)}>{fix.label}</button>
+      ) : null}
+      {stoppedByBrand(why) ? (
+        // The seller's own decision for this listing and these names (as on Listing health): recorded, then approved.
+        <button key="keep" type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={keeping} onClick={onKeep} data-testid={`${testId}-keep`}>
+          {KEEP_LABEL}
+        </button>
+      ) : null}
+    </p>
+  );
+}
+
 function approveError(message: string): string {
   try {
     const detail = JSON.parse(message);

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.api.item_options import _property
+from app.compliance import trademarks
 from app.compliance.trademarks import blocklist_for_tenant, filter_on
 from app.db.models import GeneratedContent, ListingProfile, Tenant
 from app.pipeline import checklist, manual
@@ -83,7 +84,8 @@ async def checklists_for(
             unsaved.get("description", content.description or ""),
             title_rules=bounds_for(profile),
             prefix=profile.title_prefix if profile is not None else None,
-            blocklist=blocklist,
+            # Less the names the seller kept on this listing: the same list approval and sending use.
+            blocklist=trademarks.without(blocklist, trademarks.kept_brands(content.attributes)),
             filter_on=on,
             characters=[str(c) for c in vision.get("characters") or []],
             options=_options(content, profile),
