@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { ItemOptions as Options, PropertyOptions, ShopSection } from "@/lib/types";
+import { SECTION_NOT_SAVED, pickOf, sectionLabel } from "@/lib/sections";
 import { Sheet } from "./Sheet";
 import { Txt } from "./Txt";
 
@@ -17,10 +18,17 @@ export function ItemOptions({ contentId, onChanged, properties = true }: { conte
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const polls = useRef(0);
+  // A read that started before a save (the 3-second look for a shop's sections) must never put the
+  // older answer over what was just saved: every save moves the mark, and a read that began before
+  // the mark, or lands while a save is on its way, is dropped (hotfix/review-regressions).
+  const mark = useRef(0);
+  const saving = useRef(0);
 
   const load = useCallback(async () => {
+    const began = mark.current;
     try {
-      setOptions(await api.itemOptions(contentId));
+      const next = await api.itemOptions(contentId);
+      if (began === mark.current && saving.current === 0) setOptions(next);
     } catch (e: any) {
       setError(e.message ?? String(e));
     }
@@ -48,15 +56,31 @@ export function ItemOptions({ contentId, onChanged, properties = true }: { conte
     return () => clearTimeout(t);
   }, [waiting, options, load]);
 
-  async function save(body: Parameters<typeof api.setItemOptions>[1]) {
+  // One save at a time, in the order they were asked for: two answers can never land out of order.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  function save(body: Parameters<typeof api.setItemOptions>[1], quiet = false): Promise<string | null> {
+    const run = queue.current.then(() => saveNow(body, quiet));
+    queue.current = run.catch(() => undefined);
+    return run;
+  }
+  /** Saves, and answers with why it could not (null: saved). ``quiet``: the caller says the failure itself. */
+  async function saveNow(body: Parameters<typeof api.setItemOptions>[1], quiet: boolean): Promise<string | null> {
     setBusy(true);
     setError(null);
+    mark.current += 1;
+    saving.current += 1;
     try {
-      setOptions(await api.setItemOptions(contentId, body));
+      const next = await api.setItemOptions(contentId, body);
+      mark.current += 1;
+      setOptions(next);
       onChanged?.();
+      return null;
     } catch (e: any) {
-      setError(e.message ?? String(e));
+      const why = String(e.message ?? e);
+      if (!quiet) setError(why);
+      return why;
     } finally {
+      saving.current -= 1;
       setBusy(false);
     }
   }
@@ -87,7 +111,7 @@ export function ItemOptions({ contentId, onChanged, properties = true }: { conte
           contentId={contentId}
           busy={busy}
           many={options.shops.length > 1}
-          onPick={(pick) => save({ sections: { [shop.connection_id]: pick } })}
+          onPick={(pick) => save({ sections: { [shop.connection_id]: pick } }, true)}
           onCreated={() => {
             polls.current = 0;
             load();
@@ -218,14 +242,6 @@ function ValuePicker({
   );
 }
 
-const SECTION_SOURCE: Record<ShopSection["source"], string> = {
-  seller: "your choice",
-  carried: "",
-  profile: "the profile's in this shop",
-  suggested: "suggested",
-  none: "",
-};
-
 function SectionRow({
   shop,
   contentId,
@@ -238,12 +254,39 @@ function SectionRow({
   contentId: string;
   busy: boolean;
   many: boolean;
-  onPick: (pick: number | null | "default") => void;
+  onPick: (pick: number | "none" | "default") => Promise<string | null>;
   onCreated: () => void;
 }) {
   const [asking, setAsking] = useState<{ title: string; message: string } | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // What the seller picked, shown from the moment it is picked (the control no longer snaps back to the
+  // old value while it saves); the server's answer takes over when it arrives. A pick that could not be
+  // saved is said here, on the card, and can be tried again: never a silent return to the old value.
+  const [picked, setPicked] = useState<string | null>(null);
+  const [notSaved, setNotSaved] = useState<{ pick: number | "none" | "default" | null; why: string } | null>(null);
+  const server = shop.selected_id === null ? "none" : String(shop.selected_id);
+
+  // The control is never disabled while it saves (a focused select that goes disabled and comes back is
+  // where browsers differ); a pick made meanwhile is saved after it, and the latest one is what is shown.
+  const turn = useRef(0);
+  async function choose(pick: number | "none" | "default", shown: string | null) {
+    const mine = ++turn.current;
+    setPicked(shown);
+    setNotSaved(null);
+    const why = await onPick(pick);
+    if (mine !== turn.current) return; // a newer pick is on its way: its answer decides
+    setPicked(null);
+    if (why) setNotSaved({ pick, why });
+  }
+  function onSelect(value: string) {
+    const pick = pickOf(value, shop.sections ?? []);
+    if (pick === undefined) {
+      setNotSaved({ pick: null, why: "That section is not in this shop's list." });
+      return;
+    }
+    void choose(pick, value);
+  }
 
   async function create(confirm: boolean) {
     if (!shop.missing_title) return;
@@ -280,10 +323,10 @@ function SectionRow({
           <select
             key="select"
             className="field w-auto max-w-full py-1.5 text-sm"
-            value={shop.selected_id === null ? "none" : String(shop.selected_id)}
-            disabled={busy}
-            onChange={(e) => onPick(e.target.value === "none" ? null : Number(e.target.value))}
+            value={picked ?? server}
+            onChange={(e) => onSelect(e.target.value)}
             aria-label={`Section in ${shop.shop_name ?? "shop"}`}
+            data-testid="section-select"
           >
             <option value="none">No section</option>
             {shop.sections.map((s) => (
@@ -296,10 +339,22 @@ function SectionRow({
       </label>
       {shop.sections !== null && (
         <p key="why" className="text-[11px] text-slate-500" translate="no">
-          <span>{[SECTION_SOURCE[shop.source], shop.reason].filter(Boolean).join(" · ")}</span>
-          {shop.source === "seller" && (
-            <button key="default" type="button" className="tap ml-2 text-brand-700 underline" onClick={() => onPick("default")} disabled={busy}>
+          <span data-testid="section-why">{picked !== null ? "Saving…" : sectionLabel(shop)}</span>
+          {shop.source === "seller" && picked === null && (
+            <button key="default" type="button" className="tap ml-2 text-brand-700 underline" onClick={() => void choose("default", null)} disabled={busy}>
               Use the suggestion
+            </button>
+          )}
+        </p>
+      )}
+      {notSaved && (
+        <p key="not-saved" role="alert" className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800" data-testid="section-not-saved">
+          <span className="font-medium">{SECTION_NOT_SAVED}</span>
+          <span translate="no">{` ${notSaved.why}`}</span>
+          {notSaved.pick !== null && (
+            <button key="again" type="button" className="tap ml-2 font-medium underline" disabled={busy}
+              onClick={() => void choose(notSaved.pick!, notSaved.pick === "default" ? null : String(notSaved.pick))}>
+              Try again
             </button>
           )}
         </p>

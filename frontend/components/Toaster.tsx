@@ -40,7 +40,10 @@ export function Toaster() {
     <div
       aria-live="polite"
       role="status"
-      className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4"
+      // Above a page's own bar at the foot of the screen (the review page's, below 1280 px): a note never
+      // lies over its buttons (hotfix/review-regressions; the page sets --bottom-bar to the bar's height).
+      className="pointer-events-none fixed inset-x-0 z-[60] flex flex-col items-center gap-2 px-4"
+      style={{ bottom: "calc(1rem + var(--bottom-bar, 0px))" }}
       data-testid="toaster"
     >
       {list.map((t) => (

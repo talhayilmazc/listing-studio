@@ -26,6 +26,7 @@ import time
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -376,6 +377,49 @@ async def tenant_blocklist(session, tenant_id) -> Blocklist:  # noqa: ANN001
     from app.db.models import Tenant
 
     return blocklist_for_tenant(await session.get(Tenant, tenant_id))
+
+
+# --- "Keep it, I know the risk" on one listing (hotfix/review-regressions) ---------------------------
+#
+# With the account's filter on, a listed name written whole stops a listing ("Remove: Mickey (title)"). A
+# seller who knowingly sells such a design can say so for that listing and that name: the name is then
+# warned about, as with the filter off, and no longer stops that listing. The list itself is not changed,
+# the warning is never hidden, the text is never edited. Stored with the listing
+# (``generated_content.attributes["brands_kept"]``), so a rewritten listing is asked again, and a name not
+# kept still stops it.
+
+#: The key in ``generated_content.attributes``.
+KEPT = "brands_kept"
+
+
+def kept_brands(attributes: Any) -> list[str]:
+    """The names the seller kept on a listing, as the list writes them."""
+    raw = attributes.get(KEPT) if isinstance(attributes, dict) else None
+    return [str(name) for name in raw] if isinstance(raw, list) else []
+
+
+@lru_cache(maxsize=512)
+def _compiled_without(terms: tuple[str, ...], dropped: frozenset[str]) -> Blocklist:
+    return compile_blocklist([t for t in terms if t.casefold() not in dropped])
+
+
+def without(blocklist: Blocklist, kept: Iterable[str]) -> Blocklist:
+    """``blocklist`` without the names kept: they no longer stop the listing (``find``); the warning about
+    them comes from the whole list (:func:`brand_warnings`), as for any name the filter did not stop."""
+    names = tuple(term for term, _ in blocklist.terms)
+    dropped = frozenset(k.casefold() for k in kept) & frozenset(t.casefold() for t in names)
+    return _compiled_without(names, dropped) if dropped else blocklist
+
+
+def stopped_in(title: str, tags: list[str], description: str, blocklist: Blocklist) -> list[str]:
+    """The names ``blocklist`` stops in this text, each once, as the list writes them."""
+    return list(dict.fromkeys([*blocklist.find(title), *(t for tag in tags for t in blocklist.find(tag)), *blocklist.find(description)]))
+
+
+async def listing_blocklist(session, content) -> Blocklist:  # noqa: ANN001
+    """The blocklist in force for one listing: the account's, less the names the seller kept on it. Every
+    place that decides whether this listing may be approved, sent or published asks this."""
+    return without(await tenant_blocklist(session, content.tenant_id), kept_brands(content.attributes))
 
 
 def trademark_summary(title: str, tags: list[str], description: str, blocklist: Blocklist) -> str | None:

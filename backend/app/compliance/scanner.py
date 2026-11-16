@@ -25,7 +25,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.compliance.trademarks import Blocklist, configured_blocklist, tenant_blocklist, trademark_summary
+from app.compliance.trademarks import Blocklist, configured_blocklist, listing_blocklist, trademark_summary
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent
 
 TRADEMARK = "trademark"
@@ -96,7 +96,7 @@ async def rescan(session: AsyncSession, content: GeneratedContent) -> list[Findi
         content.title or "",
         list(content.tags or []),
         content.description or "",
-        await tenant_blocklist(session, content.tenant_id),
+        await listing_blocklist(session, content),
         characters=list(vision.get("characters") or []),
     )
     await session.execute(

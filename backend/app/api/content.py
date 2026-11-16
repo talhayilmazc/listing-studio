@@ -29,7 +29,9 @@ from app.db.models import (
 from app.etsy.manual_fields import manual_fields_for
 from app.etsy.publisher import link_for
 from app.compliance.scanner import rescan
-from app.compliance.trademarks import tenant_blocklist
+from app.compliance import trademarks
+from app.core import audit
+from app.compliance.trademarks import listing_blocklist, tenant_blocklist
 from app.etsy.scheduling import cancel_for_content, state_of
 from app.pipeline import approval, creativity, funnel, manual, shop_listing, versions
 from app.workers.recovery import WAIT_PERSONALIZATION
@@ -385,7 +387,7 @@ async def contents_out(
             check = check_listing(
                 GeneratedListing(title=c.title or "", tags=list(c.tags or []), description=c.description or ""),
                 policy_for(profile.content_template) if profile is not None else None,
-                trademarks=marks,
+                trademarks=trademarks.without(marks, trademarks.kept_brands(c.attributes)),
                 title_rules=bounds_for(profile),
             )
             by_id[c.id].validation = schemas.ValidationInfo(valid=check.valid, errors=check.errors, warnings=check.warnings,
@@ -449,6 +451,7 @@ def _to_out(
         group_key=asset.group_key or "",
         source=manual.MANUAL if manual.is_manual(content) else manual.AI,
         title_warnings=[str(w) for w in (content.attributes or {}).get(TITLE_WARNINGS) or []],
+        kept_brands=trademarks.kept_brands(content.attributes),
         shop_texts={k: schemas.ShopTextOut(**shop_listing.text_in(content, k)) for k in (content.shop_overrides or {})
                     if shop_listing.text_in(content, k)},
         edited_for=[k for k in (content.shop_overrides or {}) if shop_listing.edited_after_approval(content, k)],
@@ -526,7 +529,7 @@ async def _validation(
         listing,
         policy,
         hand_written=manual.is_manual(content),
-        trademarks=await tenant_blocklist(session, content.tenant_id),
+        trademarks=await listing_blocklist(session, content),
         title_rules=bounds_for(profile),
         for_seller=True,
     )
@@ -775,6 +778,66 @@ async def approve_content(
     return schemas.ContentUpdateResult(
         content=(await contents_out(session, [(content, asset)]))[0], validation=validation
     )
+
+
+#: Said when "Keep it" is pressed on a listing the filter does not stop.
+NOTHING_TO_KEEP = "This listing has no brand name that stops it."
+
+
+@router.post("/content/{content_id}/brands/keep", response_model=schemas.ContentUpdateResult)
+async def keep_brands(
+    content_id: uuid.UUID,
+    body: schemas.KeepBrands,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.ContentUpdateResult:
+    """"Keep it, I know the risk" beside "Not approved: Remove: Mickey (title)" on the review card: the
+    seller's decision for this listing and those names is recorded (who, which listing, which words) and
+    the listing is approved, as its Approve button would. The names are warned about from then on, not
+    stopped; the list is not changed, the text is not edited, and a name not kept still stops the listing.
+    Anything else that stops approval is answered as Approve answers it (422, with the reasons)."""
+    content = await _get(session, tenant, content_id)
+    shop = await _shop_in_view(session, tenant, body.connection_id)
+    in_force = await listing_blocklist(session, content)
+    texts = [(content.title or "", list(content.tags or []), content.description or "")]
+    if shop is not None and shop_listing.text_in(content, shop):
+        texts.append(shop_listing.text_for(content, shop))
+    found = list(dict.fromkeys(name for title, tags, description in texts
+                               for name in trademarks.stopped_in(title, list(tags), description, in_force)))
+    if not found:
+        raise HTTPException(status_code=409, detail=NOTHING_TO_KEEP)
+    content.attributes = {**(content.attributes or {}), trademarks.KEPT: [*trademarks.kept_brands(content.attributes), *found]}
+    audit.record(session, "listing.brand_kept", actor=tenant, target_tenant_id=tenant.id, content_id=str(content.id),
+                 brands=found, where="review", trigger="seller_click")
+    await session.commit()  # the decision stands, whatever approval answers
+    return await approve_content(content_id, schemas.ApproveUpdate(approved=True, connection_id=body.connection_id), session, tenant)
+
+
+@router.post("/content/{content_id}/brands/unkeep", response_model=schemas.ContentUpdateResult)
+async def stop_keeping_brands(
+    content_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+) -> schemas.ContentUpdateResult:
+    """"Stop keeping it": the names kept on this listing stop it again, as the account's filter says. A
+    listing that can then no longer be approved has its approval (and its schedules) withdrawn, as taking
+    the approval back does."""
+    content = await _get(session, tenant, content_id)
+    kept = trademarks.kept_brands(content.attributes)
+    if not kept:
+        raise HTTPException(status_code=409, detail="No brand name is kept on this listing.")
+    content.attributes = {k: v for k, v in (content.attributes or {}).items() if k != trademarks.KEPT}
+    audit.record(session, "listing.brand_warning_restored", actor=tenant, target_tenant_id=tenant.id, content_id=str(content.id),
+                 brands=kept, where="review", trigger="seller_click")
+    await rescan(session, content)
+    validation = await _validation(session, content)
+    if content.approved and not validation.valid:
+        approval.set_approved(content, False, approval.VIA_CARD)
+        await cancel_for_content(session, content.id, actor=tenant)
+    await session.commit()
+    await session.refresh(content)
+    asset = await session.get(Asset, content.asset_id)
+    return schemas.ContentUpdateResult(content=(await contents_out(session, [(content, asset)]))[0], validation=validation)
 
 
 async def _shop_in_view(session: AsyncSession, tenant: Tenant, shop_id: uuid.UUID | None) -> uuid.UUID | None:

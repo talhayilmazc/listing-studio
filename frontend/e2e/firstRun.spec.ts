@@ -142,7 +142,7 @@ test.describe("a new seller's first run", () => {
     await page.getByTestId("select-toggle").click(); // Part H: one "Select" toggle, a checkbox per card
     await cards.nth(1).getByTestId("select-listing").check();
     await cards.nth(2).getByTestId("select-listing").check();
-    await expect(page.getByTestId("review-next")).toHaveText("Approve selected (2)");
+    await expect(page.getByTestId("review-next")).toHaveText("Approve 2 selected");
     await page.getByTestId("review-next").click();
     await expect(page.getByTestId("toast").filter({ hasText: "Approved 2" })).toBeVisible();
     await expect(cards.nth(1)).toHaveAttribute("data-approved", "true");

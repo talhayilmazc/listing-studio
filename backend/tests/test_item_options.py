@@ -295,7 +295,7 @@ async def test_a_section_per_shop_and_one_missing_is_offered_not_made(client: As
     assert (await client.put(url, json={"sections": {str(w["a"]): 20}})).status_code == 422
     assert (await client.put(f"/api/content/{w['teacher']}/options", json={"sections": {str(w["b"]): 20}})).status_code == 422
     assert (await client.put(url, json={"sections": {str(uuid.uuid4()): 1}})).status_code == 404
-    out = (await client.put(url, json={"sections": {str(w["b"]): None}})).json()
+    out = (await client.put(url, json={"sections": {str(w["b"]): "none"}})).json()
     assert next(s for s in out["shops"] if s["shop_name"] == "Shop B")["reason"].startswith("no section")
 
 

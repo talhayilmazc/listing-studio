@@ -186,6 +186,11 @@ async def options_out(session: AsyncSession, tenant: Tenant, content: GeneratedC
     return out
 
 
+#: The seller picked "No section" (the select's own value). Only this saves "no section, as you chose".
+NO_SECTION = "none"
+NOT_CHOSEN = 'No section was chosen. Reload the page, then pick the section (or "No section") again.'
+
+
 async def _apply(session: AsyncSession, tenant: Tenant, content: GeneratedContent, fields: set[str],
                  occasion: list[str] | None, holiday: list[str] | None,
                  sections: dict[uuid.UUID, int | str | None] | None) -> None:
@@ -215,6 +220,10 @@ async def _apply(session: AsyncSession, tenant: Tenant, content: GeneratedConten
                 chosen.pop(str(shop.id), None)
                 continue
             if pick is None:
+                # A null is a value that got lost (a number that was not one, an older page): it was
+                # saved as the seller's own "no section" and the card then said they chose it.
+                raise HTTPException(status_code=422, detail=NOT_CHOSEN)
+            if pick == NO_SECTION:
                 chosen[str(shop.id)] = {"id": None, "title": None}
                 continue
             listed = fresh_sections(shop)

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.scanner import rescan
-from app.compliance.trademarks import tenant_blocklist
+from app.compliance.trademarks import listing_blocklist
 from app.db.models import ComplianceFinding, ComplianceSeverity, GeneratedContent, ListingProfile
 from app.pipeline import manual, personalization
 from app.pipeline.content import GeneratedListing, bounds_for, check_listing, policy_for
@@ -73,7 +73,7 @@ async def listing_problem(session: AsyncSession, content: GeneratedContent, shop
         GeneratedListing(title=title, tags=tags, description=description),
         policy,
         hand_written=manual.is_manual(content),
-        trademarks=await tenant_blocklist(session, content.tenant_id),
+        trademarks=await listing_blocklist(session, content),
         title_rules=bounds_for(profile),
         for_seller=True,
     ).errors

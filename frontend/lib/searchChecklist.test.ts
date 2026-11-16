@@ -34,7 +34,8 @@ test("the review card shows the checklist and keeps it current as the seller edi
 test("the checklist never blocks approval or a draft", () => {
   const card = code(read(CARD));
   for (const [, condition] of card.matchAll(/disabled=\{([^}]*)\}/g)) assert.doesNotMatch(condition, /checklist|check\b|checks/i, condition);
-  assert.match(card, /aria-pressed=\{approved\}\n\s*disabled=\{!valid && !approved\}/, "approval still follows the existing validation only");
+  // The button is never a dead one (hotfix/review-regressions): pressed on an invalid listing, it says why.
+  assert.match(card, /async function toggleApprove\(\) \{\n\s*if \(!approved && !valid\) \{\n\s*setRefused\(errors\.join/, "approval still follows the existing validation only");
   assert.doesNotMatch(card, /checklist[^;\n]*(approve|createDraft)/i);
 });
 
