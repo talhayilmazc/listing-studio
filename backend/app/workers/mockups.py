@@ -470,6 +470,30 @@ def find_at(blank: bytes, ground: bytes, occluder: bytes | None, tap: tuple[floa
     return corners, round(float(again.confidence) * 0.8, 3), again.kind
 
 
+def whole_at(blank: bytes, ground: bytes, occluder: bytes | None, taps: list[tuple[float, float]], name: str = "",
+             personal: dict[str, dict[str, float]] | None = None) -> tuple[list[list[float]], float, str] | None:
+    """"This photo has one product" (api/mockups.py): the one garment under the photo's areas (``taps``:
+    their centres, shares of the photo) and its one print area, as shares, with confidence and kind; None
+    when nothing garment-shaped is there. In the API process, without a model, as ``find_at``."""
+    import numpy as np
+    from PIL import Image
+
+    from app.pipeline import garments
+
+    im = Image.open(io.BytesIO(blank)).convert("RGB")
+    scale = min(1.0, garments.WORK / max(im.size))
+    if scale < 1.0:
+        im = im.resize((round(im.width * scale), round(im.height * scale)), Image.BILINEAR)
+    w, h = im.size
+    rgb = np.asarray(im, dtype=np.uint8)
+    occ = _plane(occluder, w, h) if occluder else None
+    found = garments.whole_at(rgb, _plane(ground, w, h), occ, [(x * w, y * h) for x, y in taps], name, personal)
+    if found is None:
+        return None
+    corners = [[round(min(max(x / w, 0.0), 1.0), 4), round(min(max(y / h, 0.0), 1.0), 4)] for x, y in found.corners]
+    return corners, round(float(found.confidence), 3), found.kind
+
+
 def candidate_at(photo: MockupPhoto, x: float, y: float, others: list[list[list[float]]]) -> dict | None:
     """"Click a garment to add an area", step 1: a garment the analysis found under the click
     that has no area yet (``analysis["candidates"]``): its torso, between its armpits from its

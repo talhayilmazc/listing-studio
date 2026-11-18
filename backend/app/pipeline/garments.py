@@ -778,6 +778,83 @@ def _flat(rgb: np.ndarray, probs: np.ndarray, fg: np.ndarray, lab: np.ndarray, h
     for f in out:
         if all((f.region & k.region).sum() < 0.5 * f.region.sum() for k in kept):
             kept.append(f)
+
+    def rebuild(region: np.ndarray) -> Found | None:
+        g = _flat_landmarks(region, hint, cover=(fg > 0.5) & ~region)
+        if g is None:
+            return None
+        found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"],
+                        personal=personal)
+        found.confidence = g["confidence"] * found.info.get("on_region", 1.0)
+        found.info["method"] = "outline"
+        found.notes.extend(g["notes"])
+        found.info["colour"] = [round(float(c), 1) for c in np.median(lab[region], axis=0)]
+        found.info["axis_estimate"] = round(_orientation(region, estimate=True), 1)
+        found.info.update({"top_point": g["top"], "region_chest": g["chest"], "tilt": g["angle"],
+                           "neckline": g["neckline"], "layout_found": g["layout"],
+                           "sleeve_ratio": g["sleeve_ratio"], "fill": g["fill"], "aspect": g["aspect"]})
+        return found
+
+    return join_pieces(kept, lab, rebuild)
+
+
+#: Two regions are pieces of ONE garment, not two garments: a folded shirt cut in two by a necklace, a fold
+#: line or its own shadow. The same colour (chroma-weighted CIELAB), regions that lie over each other along a
+#: long border (the regions grown from two seeds on one piece of fabric run into each other; measured as the
+#: overlap of the two, each grown a little, in sides of the smaller) and a union that is one solid shape. Set
+#: on the seller's photos (docs/mockups.md, 18 November 2026): the pieces of one shirt measured colour
+#: 1.7-2.2, border 4.1-6.2 and solidity 0.96; shirts of one colour lying side by side measured border
+#: 0.6-3.0 with solidity 0.75-0.90, never all three.
+PIECES = {"colour": 8.0, "border": 2.5, "solid": 0.91}
+
+
+def same_garment(a: np.ndarray, b: np.ndarray, lab: np.ndarray) -> bool:
+    """Whether regions ``a`` and ``b`` (bool masks) are pieces of one garment: see PIECES."""
+    from scipy import ndimage as ndi
+    from skimage import morphology
+
+    if not a.any() or not b.any():
+        return False
+    weights = np.array([0.5, 1.0, 1.0])
+    if float(np.linalg.norm((np.median(lab[a], axis=0) - np.median(lab[b], axis=0)) * weights)) >= PIECES["colour"]:
+        return False
+    h, w = a.shape
+    r = max(2, int(0.008 * max(h, w)))
+    border = float((ndi.binary_dilation(a, iterations=r) & ndi.binary_dilation(b, iterations=r)).sum()) / (2 * r + 1)
+    if border < PIECES["border"] * float(np.sqrt(min(a.sum(), b.sum()))):
+        return False
+    union = ndi.binary_closing(a | b, iterations=r)
+    hull = morphology.convex_hull_image(union)
+    return float(union.sum()) / max(1.0, float(hull.sum())) >= PIECES["solid"]
+
+
+def join_pieces(found: list[Found], lab: np.ndarray, rebuild: Any = None) -> list[Found]:
+    """One garment is never several areas: a smaller region that is a piece of a bigger one (``same_garment``)
+    is not a garment of its own. A folded garment is read again from the two pieces together (``rebuild``:
+    its real outline, collar and print area); otherwise the piece is left out (a backdrop of the shirt's
+    colour is not part of the shirt). Largest first."""
+    from scipy import ndimage as ndi
+
+    order = sorted(found, key=lambda f: -int(f.region.sum()))
+    kept: list[Found] = []
+    for f in order:
+        whole = next((k for k in kept if same_garment(k.region, f.region, lab)), None)
+        if whole is None:
+            kept.append(f)
+            continue
+        joined = None
+        if whole.layout == "folded" and rebuild is not None:
+            h, w = f.region.shape
+            raw = whole.region | f.region
+            region = ndi.binary_fill_holes(ndi.binary_closing(raw, iterations=max(2, int(0.008 * max(h, w)))))
+            _ENCLOSED[id(region)] = region & ~raw
+            joined = rebuild(region)
+        if joined is not None:
+            joined.notes.append("pieces of one garment joined")
+            joined.info["pieces"] = int(whole.info.get("pieces", 1)) + 1
+            kept[kept.index(whole)] = joined
+        else:
+            whole.info["pieces"] = int(whole.info.get("pieces", 1)) + 1
     return kept
 
 
@@ -1497,7 +1574,13 @@ def main_index(found: list[Found], shape: tuple[int, int]) -> int:
 #: side by side or stacked. Several garments: two or more garment-sized regions otherwise
 #: (each at least LAYOUT["garment_size"] of the largest). Words in the file name ("front",
 #: "back", "FB") are a hint that lets a pair of different sizes (a collage inset) count.
-LAYOUT = {"pair_size": 0.6, "pair_colour": 15.0, "garment_size": 0.35}
+#: ``sure``: a photo has several garments only when at least two of its garment-sized candidates are each
+#: found with this confidence; otherwise it has one (the default). On the seller's photos a hat and a pair
+#: of sandals beside one cream shirt read 0.38 and 0.62, and were "several"; every photo that really has
+#: several garments has at least two candidates above 0.5 (docs/mockups.md). ``second``: with exactly two
+#: candidates the smaller must be at least this share of the larger (a cap beside a tee measured 0.38; two
+#: shirts side by side 0.79-1.0).
+LAYOUT = {"pair_size": 0.6, "pair_colour": 15.0, "garment_size": 0.35, "sure": 0.45, "edge": 0.15, "second": 0.5}
 
 
 def _name_says_front_back(name: str) -> bool:
@@ -1505,6 +1588,14 @@ def _name_says_front_back(name: str) -> bool:
 
     n = name.lower()
     return bool(("front" in n and "back" in n) or re.search(r"(^|[^a-z])fb([^a-z]|$)", n))
+
+
+def _along_two_edges(region: np.ndarray) -> bool:
+    """Whether ``region`` runs along two or more edges of the photo (at least ``LAYOUT["edge"]`` of each): the
+    backdrop does, a garment laid out for a product photo does not."""
+    share = LAYOUT["edge"]
+    edges = (region[0], region[-1], region[:, 0], region[:, -1])
+    return sum(float(e.mean()) >= share for e in edges) >= 2
 
 
 def guess_layout(found: list[Found], main: int, lab: np.ndarray, name: str = "") -> tuple[str, bool, tuple[int, int] | None]:
@@ -1515,7 +1606,15 @@ def guess_layout(found: list[Found], main: int, lab: np.ndarray, name: str = "")
         return "single", True, None
     sizes = [int(g.region.sum()) for g in found]
     largest = max(sizes)
-    big = [i for i in sorted(range(len(found)), key=lambda i: -sizes[i]) if sizes[i] >= LAYOUT["garment_size"] * largest]
+    # A garment of its own: garment-sized, found with confidence, and not the backdrop (a region other than the
+    # largest that runs along two edges of the photo: a flag of the shirt's colour lying under it was "the back").
+    big = [i for i in sorted(range(len(found)), key=lambda i: -sizes[i])
+           if sizes[i] >= LAYOUT["garment_size"] * largest and found[i].confidence >= LAYOUT["sure"]
+           and (sizes[i] == largest or not _along_two_edges(found[i].region))]
+    # Two candidates only, the second well under half the first: a cap or a bag beside one shirt, not a second
+    # product. (Many small garments beside a bigger one are still several: three or more are counted as they are.)
+    if len(big) == 2 and sizes[big[1]] < LAYOUT["second"] * largest:
+        big = big[:1]
     hint = _name_says_front_back(name)
     if len(big) < 2 and not hint:
         return "single", True, None
@@ -1598,6 +1697,55 @@ def detect(rgb: np.ndarray, runner: Any, saliency: Any, name: str = "", personal
                      {"person_share": round(person_share, 4), "kind_hint": hint, "found": len(candidates)},
                      foreground=fg, candidates=candidates, main=main, layout=layout, layout_confident=confident,
                      pair=pair, area_checks=area_checks)
+
+
+# --- "This photo has one product": the one garment under the seller's areas --------------------
+
+
+def whole_at(rgb: np.ndarray, fg: np.ndarray, occluder: np.ndarray | None, taps: list[tuple[float, float]],
+             name: str = "", personal: Personal = None) -> Found | None:
+    """The one garment the photo's areas lie on, whole, and its one print area. ``taps``: the centres of
+    the areas (pixels of ``rgb``). The fabric reached from each (the same colour, inside the foreground)
+    is taken together when it is the colour of the largest piece: a shirt the analysis had cut in two is
+    one shirt again, and a hat beside it is not part of it. Then the detector's own landmarks and print
+    rule. No model runs. None when nothing garment-shaped is there (the caller keeps one of the areas)."""
+    from scipy import ndimage as ndi
+
+    h, w = fg.shape
+    with _FIND:
+        try:
+            lab = _lab(rgb)
+            ground = fg > 0.3
+            pieces: list[tuple[np.ndarray, np.ndarray]] = []
+            for tx, ty in taps:
+                x, y = int(round(min(max(tx, 0), w - 1))), int(round(min(max(ty, 0), h - 1)))
+                colour = lab[max(0, y - 2):y + 3, max(0, x - 2):x + 3].reshape(-1, 3).mean(0)
+                near = (np.linalg.norm((lab - colour) * np.array([0.3, 1.0, 1.0]), axis=-1) < 12.0) & ground
+                cc, _ = ndi.label(near)
+                if cc[y, x]:
+                    pieces.append((cc == cc[y, x], colour))
+            if not pieces:
+                return None
+            pieces.sort(key=lambda t: -int(t[0].sum()))
+            raw, base = pieces[0][0].copy(), pieces[0][1]
+            for piece, colour in pieces[1:]:
+                if float(np.linalg.norm((colour - base) * np.array([0.5, 1.0, 1.0]))) < 1.5 * PIECES["colour"]:
+                    raw |= piece
+            region = ndi.binary_fill_holes(ndi.binary_closing(raw, iterations=max(2, int(0.008 * max(h, w)))))
+            if region.sum() < 0.005 * h * w:
+                return None
+            _ENCLOSED[id(region)] = region & ~raw
+            g = _flat_landmarks(region, _kind_from_name(name))
+            if g is None:
+                return None
+            hair_acc = (occluder > 0.5) if occluder is not None else np.zeros((h, w), bool)
+            found = _finish(region, hair_acc, g["neck"], g["armpits"], g["bottom"], g["kind"], "front", g["layout"],
+                            personal=personal)
+            found.confidence = g["confidence"] * found.info.get("on_region", 1.0)
+            found.info["method"] = "one product"
+            return found
+        finally:
+            _ENCLOSED.clear()
 
 
 # --- one garment from the seller's tap ("Add area") ---------------------------------------------

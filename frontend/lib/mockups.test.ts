@@ -85,8 +85,9 @@ test("no upload waits silently: progress, the server's own error, and a timeout"
   assert.match(api, /return postForm<MockupPhoto>\(`\$\{BASE\}\/mockup-templates\/\$\{templateId\}\/photos`, form, onProgress, UPLOAD_TIMEOUT_MS\);/);
   assert.match(api, /return postForm<MockupDesign>\(`\$\{BASE\}\/batches\/\$\{batchId\}\/designs`, form, onProgress, UPLOAD_TIMEOUT_MS\);/);
   const page = read(PAGE);
-  assert.match(page, /api\.addMockupPhoto\(templateId, row\.file, row\.name, confirmed, \(pct\) => update\(row\.key, \{ pct \}\)\)/);
-  assert.match(page, /update\(row\.key, \{ state: "error", message: String\(e\.message \?\? e\) \}\)/);
+  // A template photo has its own sender since 18 November 2026 (lib/mockupPhotoUpload.ts: pieces, "Processing…", Try again).
+  assert.match(page, /sendPhoto\(templateId, row\.file, row\.name, row\.upload, \(phase, pct\) => update\(row\.key, \{ phase, pct \}\)\)/);
+  assert.match(page, /update\(row\.key, \{ state: "error", phase: undefined, again: true, message: refused \? String\(e\.message \?\? e\) : undefined \}\)/);
   const upload = read(UPLOAD);
   assert.match(upload, /api\.addMockupDesign\(id, u\.file, \(pct\) => update\(u\.key, \{ pct \}\),/);
   assert.match(upload, /update\(u\.key, \{ state: "error", message: String\(e\.message \?\? e\) \}\)/);

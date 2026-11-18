@@ -290,7 +290,7 @@ def test_mixing_in_linear_light_leaves_no_dark_rim() -> None:
     half_srgb = 0.5 * 0.0 + 0.5 * 1.0
     half_linear = (0.5 * 0.0 ** engine.MIX_GAMMA + 0.5 * 1.0 ** engine.MIX_GAMMA) ** (1 / engine.MIX_GAMMA)
     assert half_linear > half_srgb + 0.2
-    assert engine.ENGINE_VERSION == 4 and set(engine.SHARPEN) == {"off", "low", "medium"}
+    assert engine.ENGINE_VERSION == 5 and set(engine.SHARPEN) == {"off", "low", "medium"}
 
 
 def test_sharpening_changes_only_when_asked() -> None:
