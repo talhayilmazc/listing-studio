@@ -8,7 +8,9 @@ import { FileDrop } from "@/components/FileDrop";
 import { PhotoViewer } from "@/components/PhotoViewer";
 import { PrintAreaEditor } from "@/components/PrintAreaEditor";
 import { AssignPresets, FilePrefixField, PresetsManager, SaveAsPreset } from "@/components/SubgroupPresets";
-import { UPLOAD_PARALLEL, runLimited, withRetry } from "@/lib/uploadQueue";
+import { runLimited, withRetry } from "@/lib/uploadQueue";
+import { PHOTOS_AT_ONCE, type Phase, couldNot, newUploadId, progressLine, sendPhoto } from "@/lib/mockupPhotoUpload";
+import { ONE_PRODUCT, ONE_PRODUCT_HINT, offersOneProduct, oneProduct } from "@/lib/mockupOneProduct";
 import { api } from "@/lib/api";
 import { pick } from "@/lib/fileDrop";
 import type { MockupPhoto, MockupSubgroup, MockupTemplate, SubgroupPreset } from "@/lib/types";
@@ -304,7 +306,15 @@ export default function TemplatesPage() {
   );
 }
 
-type Row = { key: string; file: File; name: string; pct: number; state: "waiting" | "sending" | "done" | "error"; message?: string };
+type Row = {
+  key: string; file: File; name: string; pct: number; state: "waiting" | "sending" | "done" | "error"; message?: string;
+  /** This file's own id for the server: sent again with it, a photo is never added twice. */
+  upload: string;
+  /** While sending: the bytes are on their way, or they have left and the server is working ("Processing…"). */
+  phase?: Phase;
+  /** It was sent and did not arrive: "Couldn't upload <file>. Try again" sends this file only. */
+  again?: boolean;
+};
 
 /** Upload one or many photos: into a new template (named from them) or an existing one. */
 function AddPhotos({ templates, onAdded, into, presets = 0 }: {
@@ -325,7 +335,7 @@ function AddPhotos({ templates, onAdded, into, presets = 0 }: {
     // why and the others go on. Chosen again: added to what is waiting.
     const next = pick(files).map(({ file, problem }, i) => ({
       key: `${Date.now()}-${i}-${file.name}-${file.size}`, file, name: nameFromFile(file.name), pct: 0,
-      state: problem ? "error" : "waiting", message: problem ?? undefined,
+      state: problem ? "error" : "waiting", message: problem ?? undefined, upload: newUploadId(),
     }) as Row);
     setRows((now) => [...now.filter((r) => r.state !== "done"), ...next]);
     if (!name) setName(templateNameFrom(next.filter((r) => r.state === "waiting").map((r) => r.name)));
@@ -333,6 +343,31 @@ function AddPhotos({ templates, onAdded, into, presets = 0 }: {
 
   const update = (key: string, patch: Partial<Row>) => setRows((all) => all.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const sendable = rows.filter((r) => r.state === "waiting");
+  // The template these rows went to: "Try again" sends a file there, not to another new template.
+  const sentTo = useRef<string | null>(null);
+
+  /** One file on its way: its progress, then "Processing…", then the photo; or why it did not arrive. */
+  async function sendRow(templateId: string, row: Row): Promise<string | null> {
+    update(row.key, { state: "sending", pct: 0, phase: "sending", message: undefined, again: false });
+    try {
+      const photo = await sendPhoto(templateId, row.file, row.name, row.upload, (phase, pct) => update(row.key, { phase, pct }));
+      update(row.key, { state: "done", pct: 100, phase: undefined });
+      return photo.id;
+    } catch (e: any) {
+      // The server's own reason when it gave one (not a photo, too large, a full template); else nothing arrived.
+      const refused = typeof e?.status === "number" && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
+      update(row.key, { state: "error", phase: undefined, again: true, message: refused ? String(e.message ?? e) : undefined });
+      return null;
+    }
+  }
+
+  /** "Try again": this file only, into the template the others went to. */
+  async function again(row: Row) {
+    const templateId = sentTo.current;
+    if (!templateId || busy) return;
+    const id = await sendRow(templateId, row);
+    if (id) onAdded([id]);
+  }
 
   async function add() {
     if (!sendable.length || !confirmed) return;
@@ -340,25 +375,22 @@ function AddPhotos({ templates, onAdded, into, presets = 0 }: {
     setError(null);
     const added: string[] = [];
     try {
-      const templateId = target === "new" ? (await api.createMockupTemplate(name.trim() || "Template", presets > 0 && usePresets)).id : target;
-      // Three at a time, each tried again by itself if it fails on the way (lib/uploadQueue.ts).
+      const templateId = sentTo.current && target === "new" && rows.some((r) => r.state === "done" || r.again)
+        ? sentTo.current  // more photos chosen after some were sent: the same new template, not another
+        : target === "new" ? (await api.createMockupTemplate(name.trim() || "Template", presets > 0 && usePresets)).id : target;
+      sentTo.current = templateId;
+      // Two at a time; a photo over 8 MB in pieces, each tried again by itself (lib/mockupPhotoUpload.ts).
       const chosenOrder: (string | null)[] = sendable.map(() => null);
-      await runLimited(sendable, UPLOAD_PARALLEL, async (row, i) => {
-        update(row.key, { state: "sending", pct: 0 });
-        try {
-          const photo = await withRetry(() => api.addMockupPhoto(templateId, row.file, row.name, confirmed, (pct) => update(row.key, { pct })));
-          chosenOrder[i] = photo.id;
-          update(row.key, { state: "done", pct: 100 });
-        } catch (e: any) {
-          update(row.key, { state: "error", message: String(e.message ?? e) });
-        }
+      await runLimited(sendable, PHOTOS_AT_ONCE, async (row, i) => {
+        chosenOrder[i] = await sendRow(templateId, row);
       });
       added.push(...chosenOrder.filter((id): id is string => id !== null));
       // They arrive in any order: put them after the template's earlier photos, in the order chosen.
       if (added.length > 1) {
         const template = await api.mockupTemplate(templateId);
         const earlier = template.photos.filter((p) => !added.includes(p.id)).map((p) => p.id);
-        await api.orderMockupPhotos(templateId, [...earlier, ...added]);
+        // A busy server here must not cost the order the seller chose: tried again by itself (lib/uploadQueue.ts).
+        await withRetry(() => api.orderMockupPhotos(templateId, [...earlier, ...added]));
       }
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -414,16 +446,28 @@ function AddPhotos({ templates, onAdded, into, presets = 0 }: {
               <div className="flex min-w-0 items-center gap-2">
                 <input className="field min-w-0 flex-1" value={r.name} maxLength={MAX_NAME} aria-label={`Name for ${r.file.name}`}
                   onChange={(e) => update(r.key, { name: e.target.value })} disabled={busy || r.state !== "waiting"} />
-                <span className="w-20 shrink-0 text-right text-xs tabular-nums text-slate-500" translate="no">
-                  {r.state === "sending" ? `${r.pct}%` : r.state === "done" ? "Added" : r.state === "error" ? "Not added" : ""}
+                <span className="w-28 shrink-0 text-right text-xs tabular-nums text-slate-500" translate="no" data-testid="template-row-state">
+                  {r.state === "sending" ? progressLine(r.phase ?? "sending", r.pct) : r.state === "done" ? "Added" : r.state === "error" ? "Not added" : ""}
                 </span>
               </div>
               <div className="progress mt-2" aria-hidden>
-                <div className="progress-fill" style={{ width: `${r.state === "done" ? 100 : r.pct}%` }} />
+                <div className={"progress-fill" + (r.phase === "processing" ? " animate-pulse" : "")}
+                  style={{ width: `${r.state === "done" || r.phase === "processing" ? 100 : r.state === "error" ? 0 : Math.min(99, r.pct)}%` }} />
               </div>
-              <p className="mt-1 min-h-[1rem] truncate text-xs text-slate-500" title={r.file.name} translate="no">
-                {r.message ? <span className="text-rose-700">{r.message}</span> : r.file.name}
-              </p>
+              {r.again ? (
+                // Sent, and it did not arrive: said on its own row, with the one thing to do. Only this file goes again.
+                <div key="again" role="alert" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-rose-700" data-testid="template-row-failed">
+                  <button type="button" className="tap font-medium underline" onClick={() => again(r)} disabled={busy} translate="no"
+                    data-testid="template-row-again">
+                    {couldNot(r.file.name)}
+                  </button>
+                  {r.message ? <span key="why" translate="no">{r.message}</span> : null}
+                </div>
+              ) : (
+                <p key="name" className="mt-1 min-h-[1rem] truncate text-xs text-slate-500" title={r.file.name} translate="no">
+                  {r.message ? <span className="text-rose-700">{r.message}</span> : r.file.name}
+                </p>
+              )}
             </li>
           ))}
         </ul>
@@ -557,6 +601,16 @@ function TemplateCard({
   async function setLayout(photo: MockupPhoto, layout: PhotoLayout) {
     try {
       await api.updateMockupPhoto(photo.id, { layout });
+      onReload();
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    }
+  }
+
+  /** "This photo has one product": the seller's word; every area becomes one. */
+  async function setOneProduct(photo: MockupPhoto) {
+    try {
+      await oneProduct(photo.id);
       onReload();
     } catch (e: any) {
       setMessage(String(e.message ?? e));
@@ -791,7 +845,7 @@ function TemplateCard({
               <PhotoTile photo={p} first={i === 0} last={i === template.photos.length - 1}
                 selected={selected.includes(p.id)} onSelect={(on) => toggle(p.id, on)}
                 onView={() => onView(i)} onOpen={() => onOpen([p.id])} onMove={(by) => order(p.id, by)} onRemove={() => removePhoto(p)}
-                onLayout={(layout) => setLayout(p, layout)} onColour={(c) => setColour(p, c)}
+                onLayout={(layout) => setLayout(p, layout)} onColour={(c) => setColour(p, c)} onOneProduct={() => setOneProduct(p)}
                 subgroups={template.subgroups ?? []} onSubgroup={(id) => setPhotoSubgroup(p, id)} />
             </li>
           ))}
@@ -831,6 +885,7 @@ function PhotoTile({
   onMove,
   onRemove,
   onLayout,
+  onOneProduct,
   onColour,
   subgroups,
   onSubgroup,
@@ -847,6 +902,8 @@ function PhotoTile({
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
   onLayout: (layout: PhotoLayout) => void;
+  /** "This photo has one product". */
+  onOneProduct: () => void;
   onColour: (colour: "light" | "dark") => void;
   subgroups: MockupSubgroup[];
   onSubgroup: (id: string) => void;
@@ -903,6 +960,12 @@ function PhotoTile({
               ))}
             </select>
           </label>
+        )}
+        {offersOneProduct(photo) && (
+          <button key="one" type="button" className="btn-secondary min-h-11 w-full px-2 text-xs" onClick={onOneProduct} title={ONE_PRODUCT_HINT}
+            data-testid="template-photo-one-product">
+            {ONE_PRODUCT}
+          </button>
         )}
         {ready && <ColourToggle key="colour" photo={photo} onChoose={onColour} compact />}
         {ready && subgroups.length > 1 && (

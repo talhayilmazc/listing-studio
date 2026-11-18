@@ -1191,12 +1191,170 @@ async def delete_template(
 # --- photos ---------------------------------------------------------------------------------
 
 
+#: A photo over this size goes up in pieces of this size (the page's lib/mockupPhotoUpload.ts): 8 MB, as a
+#: Photoshop mockup does (api/psd_templates.py). On production a seller's fifth photo never reached the API
+#: (most likely cut on the way: one request per file, up to 30 MB) and the page sat at 100% with no word.
+PHOTO_PIECE_BYTES = 8 * 1024 * 1024
+#: An unfinished upload's pieces, and the record of a finished one (so a repeated request answers with the
+#: same photo instead of adding it twice), are kept this long.
+PHOTO_UPLOAD_KEPT_SECONDS = 24 * 3600
+UPLOAD_NOT_FOUND = "This upload is no longer here. Send the photo again."
+
+
+class PhotoPieceOut(BaseModel):
+    #: How much of the file the server holds: the page goes on from here.
+    received: int
+    size: int
+
+
+class AssembledIn(BaseModel):
+    upload: uuid.UUID
+    filename: str = Field(min_length=1, max_length=255)
+    name: str = Field(default="", max_length=1000)
+    rights_confirmed: bool = False
+
+
+def _incoming(storage: Storage, tenant_id: uuid.UUID, upload: uuid.UUID, suffix: str) -> Any:
+    """The file of one upload on its way, in the account's own folder (another account's upload id is not there)."""
+    path = storage._path(f"{tenant_id}/templates/incoming/{upload}.{suffix}")  # noqa: SLF001 - appended piece by piece
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _sweep_incoming(folder: Any) -> None:
+    """Pieces and records nobody came back for: removed after a day."""
+    import time
+
+    cutoff = time.time() - PHOTO_UPLOAD_KEPT_SECONDS
+    for item in folder.iterdir():
+        try:
+            if item.is_file() and item.stat().st_mtime < cutoff:
+                item.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
+def _append_piece(piece: Any, target: Any, offset: int, size: int) -> tuple[int, bool]:
+    """Append ``piece`` (sent for ``offset``) to ``target`` under the file's own lock (the API runs as two
+    processes, and a retry may arrive while the request it replaces is still writing). Returns (bytes held,
+    whether a piece is missing before this one). A piece that is already here changes nothing."""
+    import fcntl
+    import shutil
+
+    with open(target, "ab") as dst:
+        fcntl.flock(dst, fcntl.LOCK_EX)
+        try:
+            received = dst.seek(0, 2)
+            length = piece.stat().st_size
+            if offset > received:
+                return received, True
+            if offset + length > received and received < size:
+                with open(piece, "rb") as src:
+                    src.seek(received - offset)
+                    shutil.copyfileobj(src, dst, 1024 * 1024)
+                dst.flush()
+                received = dst.tell()
+            return received, False
+        finally:
+            fcntl.flock(dst, fcntl.LOCK_UN)
+
+
+def _added_before(storage: Storage, tenant_id: uuid.UUID, upload: uuid.UUID | None) -> uuid.UUID | None:
+    """The photo an upload already became, if this request is a repeat of one whose answer was lost."""
+    if upload is None:
+        return None
+    done = _incoming(storage, tenant_id, upload, "done")
+    try:
+        return uuid.UUID(done.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+@router.put("/mockup-templates/{template_id}/photos", response_model=PhotoPieceOut)
+async def put_photo_piece(
+    template_id: uuid.UUID,
+    request: Request,
+    upload: uuid.UUID = Query(),
+    offset: int = Query(ge=0),
+    size: int = Query(gt=0),
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+) -> PhotoPieceOut:
+    """One piece (at most 8 MB) of a photo too large for one request. The answer says how much of the file
+    is here: a piece sent again changes nothing, one that would leave a gap is refused with where to go on
+    (409). Nothing becomes a photo until ``…/photos/assembled``."""
+    limit = get_settings().max_mockup_upload_bytes
+    if size > limit:
+        raise HTTPException(status_code=413,
+                            detail=f"This file is {size / (1024 * 1024):.1f} MB: the limit is {limit // (1024 * 1024)} MB per file.")
+    await _own_template(session, tenant, template_id)
+    target = _incoming(storage, tenant.id, upload, "part")
+    if offset == 0 and not target.exists():
+        await _room(session, storage, tenant, size)  # a full account says so before the first byte is kept
+        await asyncio.to_thread(_sweep_incoming, target.parent)
+    await session.commit()  # no connection is held while the piece arrives (core/db_release.py)
+    piece = target.with_name(f"{upload}.{offset}.{uuid.uuid4().hex[:8]}.piece")
+    written = 0
+    try:
+        with open(piece, "wb") as fh:
+            async for part in request.stream():
+                written += len(part)
+                if written > PHOTO_PIECE_BYTES:
+                    raise HTTPException(status_code=413, detail=f"A piece is at most {PHOTO_PIECE_BYTES // (1024 * 1024)} MB.")
+                fh.write(part)
+        if offset + written > size:
+            raise HTTPException(status_code=422, detail="This piece goes past the end of the file.")
+        received, gap = await asyncio.to_thread(_append_piece, piece, target, offset, size)
+        if gap:
+            raise HTTPException(status_code=409, detail={"message": "A piece is missing before this one.", "received": received})
+    finally:
+        piece.unlink(missing_ok=True)
+    return PhotoPieceOut(received=received, size=size)
+
+
+@router.post("/mockup-templates/{template_id}/photos/assembled", response_model=PhotoOut, status_code=201)
+async def add_assembled_photo(
+    template_id: uuid.UUID,
+    body: AssembledIn,
+    session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant),
+    storage: Storage = Depends(get_storage),
+    enqueuer: Enqueuer = Depends(get_enqueuer),
+) -> PhotoOut:
+    """The photo whose pieces have all arrived joins the template, exactly as one sent in a single request
+    does. Asked again after a lost answer, it answers with the same photo."""
+    if not body.rights_confirmed:
+        raise HTTPException(status_code=422, detail=f"Please confirm: “{RIGHTS_STATEMENT}”")
+    template = await _own_template(session, tenant, template_id)
+    before = _added_before(storage, tenant.id, body.upload)
+    if before is not None:
+        photo = await session.get(MockupPhoto, before)
+        if photo is not None and photo.tenant_id == tenant.id:
+            return _photo_out(photo)
+    target = _incoming(storage, tenant.id, body.upload, "part")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=UPLOAD_NOT_FOUND)
+    await session.commit()
+    # The same bound on uploaded bytes in this process's memory as a single-request photo (core/image_work.py).
+    budget = image_work._budget()  # noqa: SLF001
+    held = await budget.take(target.stat().st_size)
+    try:
+        data = await asyncio.to_thread(target.read_bytes)
+        photo = await _photo_from(session, tenant, storage, enqueuer, template, data, body.filename, body.name, body.upload)
+    finally:
+        budget.give(held)
+    target.unlink(missing_ok=True)
+    return photo
+
+
 @router.post("/mockup-templates/{template_id}/photos", response_model=PhotoOut, status_code=201)
 async def add_photo(
     template_id: uuid.UUID,
     file: UploadFile,
     name: str = Form("", max_length=1000),
     rights_confirmed: bool = Form(False),
+    upload: uuid.UUID | None = Form(None),
     _turn: None = Depends(image_work.upload_turn, scope="function"),
     session: AsyncSession = Depends(get_session, scope="function"),
     tenant: Tenant = Depends(active_tenant),
@@ -1204,10 +1362,26 @@ async def add_photo(
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> PhotoOut:
     """A blank photo joins the template, at once, "preparing"; the worker suggests its
-    print areas, which the seller then confirms. The seller confirms they may use it."""
+    print areas, which the seller then confirms. The seller confirms they may use it.
+    ``upload``: the page's own id for this file; the same id again (a retry after a lost answer)
+    answers with the photo it already became."""
     if not rights_confirmed:
         raise HTTPException(status_code=422, detail=f"Please confirm: “{RIGHTS_STATEMENT}”")
     template = await _own_template(session, tenant, template_id)
+    before = _added_before(storage, tenant.id, upload)
+    if before is not None:
+        existing = await session.get(MockupPhoto, before)
+        if existing is not None and existing.tenant_id == tenant.id:
+            return _photo_out(existing)
+    data = await file.read()
+    return await _photo_from(session, tenant, storage, enqueuer, template, data, file.filename or "", name, upload)
+
+
+async def _photo_from(
+    session: AsyncSession, tenant: Tenant, storage: Storage, enqueuer: Enqueuer, template: MockupTemplate,
+    data: bytes, filename: str, name: str, upload: uuid.UUID | None,
+) -> PhotoOut:
+    """The whole file, however it arrived, becomes the template's next photo."""
 
     async def limits() -> None:
         count = await session.scalar(select(func.count()).select_from(MockupPhoto).where(MockupPhoto.tenant_id == tenant.id))
@@ -1218,7 +1392,6 @@ async def add_photo(
             raise HTTPException(status_code=409, detail=f"A template holds up to {MAX_PHOTOS_PER_TEMPLATE} photos; start another template.")
 
     await limits()  # before any work on the file: a full template says so at once
-    data = await file.read()
     _admitted(data)
     await session.commit()  # no connection is held while the photo is resized (core/image_work.py)
     source = await _resized(data, "a photo")
@@ -1234,7 +1407,7 @@ async def add_photo(
     last = await session.scalar(select(func.max(MockupPhoto.position)).where(MockupPhoto.template_id == template.id))
     photo = MockupPhoto(
         id=photo_id, tenant_id=tenant.id, template_id=template.id, subgroup_id=(await _subgroups_of(session, template.id))[0].id,
-        name=clean_name(name, PurePosixPath((file.filename or "").replace("\\", "/")).stem),
+        name=clean_name(name, PurePosixPath((filename or "").replace("\\", "/")).stem),
         position=int(last or 0) + 1, status="preparing", source_key=key, print_area_source="default",
         size=mockups.DEFAULT_SIZE, fold_strength=mockups.DEFAULT_FOLD, rights_confirmed_at=datetime.now(timezone.utc),
     )
@@ -1242,6 +1415,10 @@ async def add_photo(
     audit.record(session, "mockup_photo.created", actor=tenant, target_tenant_id=tenant.id, by="seller",
                  object_id=str(photo_id), rights_confirmed=True)
     await session.commit()
+    if upload is not None:  # a repeat of this request answers with this photo
+        done = _incoming(storage, tenant.id, upload, "done")
+        done.write_text(str(photo_id), encoding="utf-8")
+        await asyncio.to_thread(_sweep_incoming, done.parent)  # records and pieces older than a day go
     await submit_heavy(enqueuer, tenant.id, "prepare_mockup_template", photo_id, job_id=f"mockup-photo:{photo_id}")
     return _photo_out(photo)
 
@@ -1354,6 +1531,61 @@ async def save_areas(
     photo.confirmed_at = datetime.now(timezone.utc) if body.confirm else None
     photo.version += 1
     await placement.record(session, photo)  # "Looks right" teaches the seller's placement
+    await session.commit()
+    return _photo_out(photo)
+
+
+@router.post("/mockup-photos/{photo_id}/one-product", response_model=PhotoOut)
+async def one_product(
+    photo_id: uuid.UUID, session: AsyncSession = Depends(get_session, scope="function"),
+    tenant: Tenant = Depends(active_tenant), storage: Storage = Depends(get_storage),
+) -> PhotoOut:
+    """"This photo has one product": the seller's word, in one click. Every area on the photo becomes ONE:
+    the garment they lie on, read whole (``garments.whole_at``; no model), else the analysis's main garment,
+    else the largest of the areas. The photo's layout is "one garment" by the seller's choice and the area is
+    the seller's: neither is changed by a later analysis (``prepare``, ``resuggest``, ``mockup-redetect``).
+    The photo then waits for "Looks right" like any changed area."""
+    photo = await _own_photo(session, tenant, photo_id)
+    _not_psd(photo)
+    _ready(photo)
+    rows = photo_areas(photo)
+    one: dict[str, Any] | None = None
+    if len(rows) == 1:
+        one = dict(rows[0])
+    else:
+        def centre(q: list[list[float]]) -> tuple[float, float]:
+            return sum(p[0] for p in q) / 4, sum(p[1] for p in q) / 4
+
+        def size(q: list[list[float]]) -> float:
+            return abs(sum(q[i][0] * q[(i + 1) % 4][1] - q[(i + 1) % 4][0] * q[i][1] for i in range(4))) / 2
+
+        blank = storage.get(photo.image_key or "")
+        ground = storage.get(photo.foreground_key) if photo.foreground_key else storage.get(photo.mask_key or "")
+        occluder = storage.get(photo.occluder_key) if photo.occluder_key else None
+        personal = await placement.personal(session, tenant.id)
+        await session.commit()
+        found = await image_work.run(work.whole_at, blank, ground, occluder,
+                                     [centre(r["print_area"]) for r in rows if r.get("print_area")], photo.name, personal)
+        photo = await _own_photo(session, tenant, photo_id)
+        main = next((c for c in (photo.analysis or {}).get("candidates") or [] if c.get("main")), None)
+        largest = max(rows, key=lambda r: size(r["print_area"]))
+        if found is not None:
+            corners, confidence, kind = found
+            one = {**_kept(rows, corners), "print_area": corners, "detected_area": corners, "confidence": confidence, "kind": kind,
+                   "tone": largest.get("tone")}
+        elif main is not None and main.get("print_area"):
+            one = {**main, "detected_area": main["print_area"]}
+        else:
+            one = dict(largest)
+    one.update({"source": "seller", "role": "back" if photo.view == "back" else "front", "main": True})
+    one.setdefault("occlusion", True)
+    photo.garments = [one]
+    photo.print_area, photo.print_area_source = one["print_area"], "seller"
+    photo.layout, photo.layout_source = "single", "seller"
+    photo.print_all = False
+    photo.confirmed_at = None
+    photo.version += 1
+    await placement.record(session, photo)
     await session.commit()
     return _photo_out(photo)
 

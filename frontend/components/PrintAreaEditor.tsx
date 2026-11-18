@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ONE_PRODUCT, ONE_PRODUCT_HINT, offersOneProduct, oneProduct } from "@/lib/mockupOneProduct";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import type { MockupPhoto, MockupSubgroup } from "@/lib/types";
@@ -540,6 +541,15 @@ export function PrintAreaEditor({
     }
   }
 
+  /** "This photo has one product": every area becomes one, on the one garment (the seller's word). */
+  async function one() {
+    try {
+      onChanged(await oneProduct(photo.id));
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    }
+  }
+
   async function chooseDesign(file: File | undefined) {
     if (!file) return;
     // Shown here only; nothing is uploaded. Cropped to its pixels the way the server trims it,
@@ -728,6 +738,12 @@ export function PrintAreaEditor({
                 </select>
                 <span className="mt-1 block text-xs text-slate-500">{dirty ? "Save or reset your changes to change the layout." : LAYOUT_HINT}</span>
               </label>
+              {offersOneProduct(photo) && (
+                <button key="one" type="button" className="btn-secondary min-h-11 w-full" onClick={one} disabled={dirty} title={ONE_PRODUCT_HINT}
+                  data-testid="editor-one-product">
+                  {ONE_PRODUCT}
+                </button>
+              )}
               <ColourToggle photo={photo} onChoose={(colour) => setting({ colour })} />
               <div className="grid grid-cols-3 gap-2" role="toolbar" aria-label="Edit the print area">
                 <button type="button" className="btn-secondary min-h-11 px-2" onClick={() => setH((n) => undo(n))} disabled={!h.past.length} data-testid="editor-undo">Undo</button>

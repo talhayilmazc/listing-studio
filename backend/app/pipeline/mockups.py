@@ -56,7 +56,9 @@ from app.pipeline.images import ImageProcessingError, ProcessingSpec
 #: 3: colour kept (ICC profiles applied, 4:4:4 at quality 92, a gentler sheen).
 #: 4: the print is mixed with the photo in linear light (soft edges and opacity: no dark rim), and an optional
 #:    output sharpening (feature/mockups-editor B6).
-ENGINE_VERSION = 4
+#: 5: a design is never cut off inside its print area by the garment's outline; the ink sits in the cloth (an
+#:    edge as soft as the photo's, more of the weave); its colour is unchanged (18 November 2026).
+ENGINE_VERSION = 5
 #: The gamma the print and the photo are mixed in (linear light; sRGB is close to a 2.2 power).
 MIX_GAMMA = 2.2
 #: Output sharpening (B6): off, or libvips's unsharp mask on the lightness with these (sigma, m2). Small on
@@ -97,8 +99,11 @@ MAX_SHIFT = 0.02
 CREASE_LIFT = 0.45
 #: How strongly a crease pulls the print into its line.
 CREASE_PULL = 0.012
-#: How much fabric texture shows through the ink (as a share of its brightness).
-TEXTURE_AMOUNT = 0.035
+#: How much fabric texture shows through the ink (as a share of its brightness). Was 0.035: on the seller's
+#: worn white tees the print read as a flat sticker (docs/mockups.md, 18 November 2026).
+TEXTURE_AMOUNT = 0.05
+#: The print's edge is softened by a blur of this share of the photo's width (0.7 px at 2,000 px), inwards only.
+EDGE_SOFT = 1 / 2800
 #: The brightness white ink reaches under even light (an underbase is not paper white).
 WHITE_INK = 0.93
 #: Garments darker than this (average brightness, 0..1) get a full underbase, as
@@ -720,7 +725,8 @@ def with_unmasked_areas(mask_u8, area: Any):  # noqa: ANN001, ANN201 - pyvips on
     garment photo where 3 of 6 were found) lay outside the mask: it printed nothing, or
     printed on maps measured from nothing. Every area the seller set renders: such an area
     (covered less than ``UNMASKED_COVER``) is added, grown a little so its shading has
-    fabric around it to be measured from."""
+    fabric around it to be measured from. And every area is added as it is (engine 5): a design is
+    never cut off inside its own print area."""
     import numpy as np
     from PIL import Image, ImageDraw
 
@@ -737,7 +743,14 @@ def with_unmasked_areas(mask_u8, area: Any):  # noqa: ANN001, ANN201 - pyvips on
         shape = Image.new("L", (w, h), 0)
         ImageDraw.Draw(shape).polygon(pts, fill=255)
         inside = np.asarray(shape) > 0
-        if not inside.any() or float(np.mean(current[inside] >= 128)) >= UNMASKED_COVER:
+        if not inside.any():
+            continue
+        # The seller's area is the seller's word: inside it the design is never cut off by the garment's
+        # outline as the analysis drew it (a label, a necklace, a pale shirt's edge on a pale backdrop left
+        # holes in it, and the design stopped there). Outside the area the outline still clips.
+        if float(np.mean(current[inside] >= 128)) < 1.0:
+            added = np.asarray(shape) if added is None else np.maximum(added, np.asarray(shape))
+        if float(np.mean(current[inside] >= 128)) >= UNMASKED_COVER:
             continue
         cx, cy = sum(p[0] for p in pts) / 4, sum(p[1] for p in pts) / 4
         grown = [(cx + (x - cx) * (1 + UNMASKED_GROW), cy + (y - cy) * (1 + UNMASKED_GROW)) for x, y in pts]
@@ -1036,6 +1049,10 @@ def _print_on(maps: Maps, base, design, settings: Settings):  # noqa: ANN001, AN
 
     mask = maps.mask.crop(mx, my, rw, rh)
     a = ink_alpha * mask
+    # Ink on cloth, not a sticker (engine 5): the print's edge is as soft as the photo around it, softened
+    # inwards only (no ink is added outside the design). The ink's own colour is not thinned: letting the
+    # fabric show through it was tried on the seller's photos and washed a red out to salmon.
+    a = a.minpair(a.gaussblur(max(0.5, W * EDGE_SOFT), precision="float"))
     if maps.hide is not None and fold > 0:  # fabric folded over the print hides it
         a = a * (1 - maps.hide.crop(mx, my, rw, rh) * min(1.0, fold * 1.6))
     if settings.occlusion and maps.occluder is not None:  # behind hair, skin, straps
