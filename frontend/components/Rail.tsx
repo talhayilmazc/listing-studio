@@ -21,7 +21,9 @@ import { RailAllowance } from "./Allowance";
  *
  * Seven entries named by what the seller does, then Settings (app/onboarding-v1; Mockups came back to the
  * menu in feature/mockups-visible, 14 Nov 2026: sellers could not find it as a tab under Designs). Profiles
- * and the account are under Settings; Mockup templates are under Mockups, with a link under Settings too.
+ * has its own entry right under Shops (feature/manual-profiles, 21 Nov 2026: a profile can be made and edited
+ * by hand, so it is where a seller sets a shop up); Settings keeps its Profiles tab, the same page. Mockup
+ * templates are under Mockups, with a link under Settings too.
  */
 
 type Item = { href: string; label: string; icon: Icon; also?: RegExp };
@@ -40,9 +42,10 @@ export const NAV: Item[] = [
   { href: "/scheduled", label: "Schedule", icon: IconClock, also: /^\/season-planner(\/|$)/ },
   { href: "/analytics", label: "Reports", icon: IconChart, also: /^\/listing-health(\/|$)/ },
   { href: "/connect", label: "Shops", icon: IconStore },
+  { href: "/profiles", label: "Profiles", icon: IconTag },
 ];
 
-export const SETTINGS: Item = { href: "/settings", label: "Settings", icon: IconGear, also: /^\/profiles(\/|$)/ };
+export const SETTINGS: Item = { href: "/settings", label: "Settings", icon: IconGear };
 const ADMIN: Item = { href: "/admin", label: "Admin", icon: IconShield };
 
 export function isActive(pathname: string, item: Item): boolean {
