@@ -109,7 +109,8 @@ async def write(
         # Nothing was read from the cover, so there is no cover it was written from.
         written_from_asset_id=None,
         title="",
-        tags=[],
+        # The profile's default tags, when it has any (the seller's own words): the listing starts with them.
+        tags=list(profile.default_tags or [])[:13],
         description=description_for(profile, ""),
         taxonomy_id=(profile.cached_payload or {}).get("taxonomy_id"),
         listing_profile_id=profile.id,

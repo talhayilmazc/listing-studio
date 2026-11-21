@@ -513,6 +513,19 @@ def text_problems(*, title_prefix: str | None = None, default_tags: list[str] | 
     return out
 
 
+def with_default_tags(default: list[str] | None, written: list[str] | None) -> list[str]:
+    """A written listing's tags with the profile's default tags first: each tag once (whatever its case), 13 in
+    all. A profile without default tags: the tags as written."""
+    if not default:
+        return list(written or [])
+    out: list[str] = []
+    for tag in [*default, *(written or [])]:
+        t = _text(tag)
+        if t and t.lower() not in {x.lower() for x in out}:
+            out.append(t)
+    return out[:MAX_TAGS]
+
+
 def clean_tags(tags: list[str] | None) -> list[str]:
     seen: list[str] = []
     for tag in tags or []:

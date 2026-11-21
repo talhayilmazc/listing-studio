@@ -25,7 +25,7 @@ from app.compliance.scanner import rescan
 from app.compliance.trademarks import characters_seen
 from app.core.llm_status import LLMUnavailable
 from app.db.models import Asset, GeneratedContent, ListingProfile
-from app.pipeline import item_options
+from app.pipeline import item_options, profile_values
 from app.pipeline.content import ContentGenerator, ContentValidationError
 from app.pipeline.llm import Usage
 from app.pipeline.reference import replace_title_block, with_opening
@@ -192,7 +192,8 @@ async def generate_listing_content(
         asset_id=asset_id,
         written_from_asset_id=asset_id,
         title=listing.title,
-        tags=listing.tags,
+        # The profile's default tags first (the seller's own words), then the writer's, 13 in all.
+        tags=profile_values.with_default_tags(profile.default_tags, listing.tags),
         description=description,
         taxonomy_id=taxonomy_id,  # from the reference listing (never re-selected)
         listing_profile_id=profile.id,

@@ -414,3 +414,26 @@ async def test_disconnecting_its_main_shop_moves_a_profile_made_by_hand_with_its
         assert (payload["shipping_profile_id"], payload["return_policy_id"], payload["readiness_state_id"],
                 payload["production_partner_ids"]) == (2501, 2601, 2701, [2801])
         assert payload["price"] == 24.5 and len(payload["inventory_products"]) == 3  # its own values are as they were
+
+
+async def test_default_tags_start_every_listing_written_with_the_profile(world) -> None:  # noqa: F811
+    from app.db.models import Asset
+    from app.pipeline import manual
+
+    written = [f"tag {n}" for n in range(13)]
+    assert V.with_default_tags(None, written) == written and V.with_default_tags([], written) == written  # none: as written
+    mixed = V.with_default_tags(["Soft Tee", "gift for her"], ["soft tee", *written])
+    assert mixed[:2] == ["Soft Tee", "gift for her"] and len(mixed) == 13 and "soft tee" not in mixed[2:]
+    await _offer(world, world["a1"], _main())
+    made = (await _create(world, world["a1"])).json()
+    async with world["sm"]() as s:
+        profile = await s.get(ListingProfile, uuid.UUID(made["id"]))
+        content = await s.get(GeneratedContent, world["contents"][0])
+        asset = await s.get(Asset, content.asset_id)
+        mine = await manual.write(s, tenant_id=world["alice"], batch_id=content.batch_id, asset=asset, profile=profile)
+        assert mine.tags == ["soft tee", "gift for her"] and mine.title == ""
+        # A profile without default tags: the listing starts empty, as before.
+        plain = await s.get(ListingProfile, world["pa1"])
+        plain.cached_payload = dict(PAYLOAD)
+        assert (await manual.write(s, tenant_id=world["alice"], batch_id=content.batch_id, asset=asset, profile=plain)).tags == []
+        await s.rollback()
