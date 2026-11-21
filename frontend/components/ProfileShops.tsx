@@ -121,6 +121,17 @@ export function ProfileShops({ profile, onChange }: { profile: Profile; onChange
                   stop using here
                 </button>
               )}
+              {!l.main && l.partner_note && (
+                // The shop lacks the profile's production partner: drafts are made without one; the Shops
+                // table has the picker, or Refresh once it is added on Etsy.
+                <span key="partner" className="basis-full text-amber-800" data-testid="profile-shop-partner">
+                  <Txt>{l.partner_note}</Txt>
+                  <span> </span>
+                  <button type="button" className="tap text-brand-700 underline" onClick={() => setChanging(true)}>
+                    {l.partner === "choose" ? "Choose" : "Open"}
+                  </button>
+                </span>
+              )}
             </li>
           );
         })}

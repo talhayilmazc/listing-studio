@@ -376,7 +376,7 @@ def _pick(link: ProfileShopLink, shop_plan: dict[str, Any], resource: str, ids: 
     notes = dict(link.notes or {})
     notes.pop(resource, None)
     link.notes = notes or None
-    link.status = "incomplete" if notes else "ready"
+    link.status = "incomplete" if L.holds(notes) else "ready"
     names = {int(o["id"]): o.get("label") for o in entry.get("options") or [] if o.get("id") is not None}
     shop_plan[resource] = {
         "linked": value, "how": "your choice", "label": ", ".join(str(names.get(i)) for i in sorted(ids)),

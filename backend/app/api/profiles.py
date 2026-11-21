@@ -170,7 +170,7 @@ def links_out(profile: ListingProfile, links: list[ProfileShopLink], names: dict
             # nothing was refused, and the shop is set up by itself the first time it is used
             # (a draft there sets it up first), so it reads as ready, never "no match".
             out.append(schemas.ProfileLinkOut(connection_id=shop_id, shop_name=names[shop_id], ready=True,
-                                              status="ready", checked_at=link.checked_at))
+                                              status="ready", checked_at=link.checked_at, **_partner(state, names[shop_id])))
             continue
         out.append(schemas.ProfileLinkOut(
             connection_id=shop_id, shop_name=names[shop_id], ready=state.ready, status=state.status,
@@ -178,8 +178,17 @@ def links_out(profile: ListingProfile, links: list[ProfileShopLink], names: dict
             missing=[schemas.LinkMissingOut(resource=r, label=links_mod.LABEL[r], reason=why)
                      for r, why in state.missing.items()],
             notice=(link.notes or {}).get("notice"),
+            **_partner(state, names[shop_id]),
         ))
     return out
+
+
+def _partner(state: profile_shops.LinkState, shop_name: str | None) -> dict[str, str]:
+    """The Shops row's word on a shop that lacks the profile's production partner."""
+    if state.partner is None:
+        return {}
+    return {"partner": "none" if state.partner == links_mod.NO_PARTNER else "choose",
+            "partner_note": links_mod.partner_note(shop_name, state.partner)}
 
 
 async def _out(session: AsyncSession, tenant: Tenant, profile: ListingProfile) -> schemas.ProfileOut:

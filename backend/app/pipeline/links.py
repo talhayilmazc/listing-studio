@@ -72,6 +72,33 @@ AMBIGUOUS = "several in this shop match; choose one"
 NOT_CREATABLE = "Etsy's API cannot create this; choose one of this shop's"
 CALCULATED = "the main shop's is a calculated shipping profile, which Etsy's API cannot create; choose one of this shop's"
 CURRENCY = "this shop sells in {target}, the profile's prices are in {source}"
+#: Production partners in another shop. Etsy's API has no call that makes one (only
+#: getShopProductionPartners), so a shop without the main shop's partner cannot be given it here.
+#: It does not stop a draft: ``production_partner_ids`` is nullable and not required on
+#: createDraftListing in Etsy's schema (read 21 November 2026), so the draft is made without one
+#: and the seller adds the partner on Etsy before publishing; a scheduled go-live is held until
+#: then (workers/schedule.py). A partner of the same name added later is linked by itself.
+NO_PARTNER = "this shop has no production partner on Etsy"
+PARTNER_PICK = "no production partner of the same name in this shop; choose one of this shop's"
+PARTNER_REASONS = frozenset({NO_PARTNER, PARTNER_PICK})
+
+
+def partner_note(shop_name: str | None, reason: str | None = None) -> str:
+    """What the seller is told about a shop that lacks the profile's production partner."""
+    shop = shop_name or "This shop"
+    if reason == PARTNER_PICK or reason == AMBIGUOUS:
+        return (f"{shop} has no production partner with the same name as the main shop's. Drafts are made without "
+                f"one; choose one of {shop}'s here before publishing.")
+    return (f"{shop} has no production partner on Etsy. Drafts are made without one; add it on Etsy "
+            "(Shop Manager → Settings → Production partners) before publishing, then press Refresh.")
+
+
+def go_live_held(shop_name: str | None) -> str:
+    """Why a scheduled go-live did not happen in a shop that lacks the profile's production partner."""
+    shop = shop_name or "this shop"
+    return (f"Not published: {shop} has no production partner on Etsy, and its profile says a partner makes this item. "
+            "Add it on Etsy (Shop Manager → Settings → Production partners), press Refresh on the profile's Shops "
+            "table, then publish or schedule it again.")
 
 
 def results(resp: Any) -> list[dict[str, Any]]:
@@ -479,8 +506,10 @@ def plan_resource(resource: str, wanted: Any, source: ShopSettings, target: Shop
             names.append(label_of(PARTNERS, row))
             found, why = _match(target.partners, PARTNERS, lambda r, name=name: same_name(r.get("partner_name"), name))
             if found is None:
-                return Outcome(resource, reason=why if why == AMBIGUOUS else NOT_CREATABLE, options=options,
-                               source_label=", ".join(names))
+                # Etsy's API cannot make a partner: the seller picks one of the shop's, or, in a
+                # shop that has none, adds it on Etsy (the draft is made without one meanwhile).
+                reason = why if why == AMBIGUOUS else PARTNER_PICK if options else NO_PARTNER
+                return Outcome(resource, reason=reason, options=options, source_label=", ".join(names))
             ids.append(found)
         return Outcome(resource, linked=sorted(ids), how="same name", options=options, source_label=", ".join(names),
                        label=", ".join(label_of(PARTNERS, target.find(PARTNERS, i) or {}) for i in sorted(ids)))
@@ -570,7 +599,7 @@ def set_up_again(link: Any, payload: dict[str, Any] | None) -> bool:
     """A link that is only missing settings nothing was tried for ("no match", written before
     every setup copied what a shop lacks): it is set up again by itself. A link Etsy refused,
     or one waiting for the seller's pick, is not (it would only be refused again)."""
-    gaps = missing(payload, link)
+    gaps = blocking(payload, link)
     return bool(gaps) and all(why == NOT_FOUND for why in gaps.values()) and not (link.notes or {}).get("error")
 
 
@@ -603,6 +632,29 @@ def missing(payload: dict[str, Any] | None, link: Any) -> dict[str, str]:
     return out
 
 
+def blocking(payload: dict[str, Any] | None, link: Any) -> dict[str, str]:
+    """What stops a draft in a non-main shop: every missing setting but the production partners
+    (a draft is made without them, NO_PARTNER)."""
+    return {r: why for r, why in missing(payload, link).items() if r != PARTNERS}
+
+
+def holds(notes: dict[str, Any] | None) -> bool:
+    """Whether a link's notes leave it incomplete: any note but the production partners' and the
+    line about what the app did there by itself ("notice": nothing is asked of the seller)."""
+    return any(key not in (PARTNERS, "notice") for key in (notes or {}))
+
+
+def partner_gap(payload: dict[str, Any] | None, link: Any, main_shop: Any = None) -> str | None:
+    """Why a non-main shop has no production partner although the profile's reference names one
+    (NO_PARTNER, PARTNER_PICK, AMBIGUOUS); None when it has one, needs none, or is the main shop."""
+    if link is None or (main_shop is not None and getattr(link, "connection_id", None) == main_shop):
+        return None
+    if wanted(payload, PARTNERS) in (None, "", []) or link.production_partner_ids:
+        return None
+    reason = (link.notes or {}).get(PARTNERS)
+    return reason if reason in PARTNER_REASONS or reason == AMBIGUOUS else NO_PARTNER
+
+
 #: Marks a reference built for a shop other than the profile's main shop.
 LINKED = "linked"
 
@@ -620,7 +672,9 @@ def shop_reference(payload: dict[str, Any], link: Any | None) -> dict[str, Any]:
     "Could not find readiness_state_id ... associated with shop"); the inventory's
     own product and offering ids; and the main shop's image ids (size charts are
     copied into the shop instead, workers/publish.py). ``shop_missing`` lists what
-    this shop still lacks: the draft is not started while anything is in it.
+    this shop still lacks: the draft is not started while anything is in it. Production
+    partners are never in it: a shop without the profile's partner gets its draft without one
+    (``partner_missing``; NO_PARTNER).
     """
     if link is None:
         return dict(payload)
@@ -633,6 +687,10 @@ def shop_reference(payload: dict[str, Any], link: Any | None) -> dict[str, Any]:
             continue  # not needed here either
         out[key] = values[key]
         if values[key] in (None, "", []):
+            if resource == PARTNERS:
+                # No partner in this shop: the draft is made without one (never the main shop's id).
+                out["partner_missing"] = True
+                continue
             missing_here.append(resource)
     readiness = values["readiness_state_id"]
     products = []

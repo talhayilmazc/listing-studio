@@ -274,8 +274,13 @@ def partner_state(profile: Any, link: Any = None) -> str:
     if profile is None:
         return PARTNER_OK
     payload = getattr(profile, "cached_payload", None) or {}
-    partners = (link.production_partner_ids if link is not None and getattr(link, "connection_id", None) != profile.connection_id
-                else payload.get("production_partner_ids"))
+    other_shop = link is not None and getattr(link, "connection_id", None) != profile.connection_id
+    partners = link.production_partner_ids if other_shop else payload.get("production_partner_ids")
+    if other_shop and not partners and payload.get("production_partner_ids"):
+        # The reference names a partner this shop does not have (Etsy's API cannot make one): the
+        # draft is made without it and the Shops row says what to add on Etsy (links.NO_PARTNER);
+        # never a reason not to send. A scheduled go-live is held instead (workers/schedule.py).
+        return PARTNER_OK
     if payload.get("who_made") == "someone_else" and not partners:
         return PARTNER_REQUIRED
     return PARTNER_NOTE if creativity.production_note(profile) else PARTNER_OK

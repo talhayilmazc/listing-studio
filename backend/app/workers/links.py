@@ -192,7 +192,9 @@ def _apply(link: ProfileShopLink, outcomes: dict[str, L.Outcome], currency_note:
     if currency_note:
         notes["currency"] = currency_note
     link.notes = notes or None
-    link.status = "incomplete" if notes else "ready"
+    # A shop without the profile's production partner is still ready: its drafts are made
+    # without one (links.NO_PARTNER); the note stays for the Shops row.
+    link.status = "incomplete" if L.holds(notes) else "ready"
     link.checked_at = datetime.now(timezone.utc)
     return left
 
@@ -733,17 +735,64 @@ async def _refresh_shop_links(ctx: dict[str, Any], connection_id: str) -> str:
                 else:
                     setattr(link, key, [])
                     notes[resource] = "it is no longer in this shop; choose another or set it up again"
+            # A production partner the shop lacked: the shop has partners now (the seller added one
+            # on Etsy), so the profile is resolved there again and one of the same name is linked
+            # by itself; a shop that has none (any more) says so.
+            lacks = L.partner_gap(profile.cached_payload, link, profile.connection_id)
+            found = False
+            if lacks is not None and not target.options(L.PARTNERS):
+                notes[L.PARTNERS] = L.NO_PARTNER
+            elif lacks is not None and lacks != L.AMBIGUOUS:
+                found = partner_match(profile.cached_payload, await _cached_lists(ctx, profile.connection_id), target)
+                if not found:
+                    notes[L.PARTNERS] = L.PARTNER_PICK  # it has partners now, none of that name: the seller picks
             link.notes = notes or None
             link.checked_at = now
-            if gone:
+            if gone or found:
                 link.status = "checking"
                 again.add(profile.id)
             else:
-                link.status = "incomplete" if L.missing(profile.cached_payload, link) or notes else "ready"
+                link.status = "incomplete" if L.blocking(profile.cached_payload, link) or L.holds(notes) else "ready"
         await session.commit()
     for profile_id in sorted(again, key=str):
         await _enqueue_job(ctx, "link_profile", str(profile_id))
     return f"checked:{len(again)} re-resolved"
+
+
+def partner_match(payload: dict[str, Any] | None, main_lists: dict[str, Any] | None, target: L.ShopSettings) -> bool:
+    """Whether ``target`` now has a production partner for each one the reference names, by name
+    (the main shop's list as last read; not known = worth resolving again, which reads it)."""
+    if main_lists is None:
+        return True
+    source = L.ShopSettings(partners=main_lists.get("partners") or [])
+    outcome = L.plan_resource(L.PARTNERS, L.wanted(payload, L.PARTNERS), source, target)
+    return outcome.linked not in (None, [])
+
+
+async def relink_partners(ctx: dict[str, Any], *, connection_id: uuid.UUID | None = None,
+                          profile_id: uuid.UUID | None = None) -> int:
+    """A shop that lacked a profile's production partner is looked at again whenever the seller
+    refreshes (the shop's listings are read, or the profile is refreshed): the shop's lists are
+    read fresh and a partner of the same name, added on Etsy since, is linked by itself. The
+    seller never needs "stop using here" and "Use in…" again. Returns the shops queued."""
+    from app.workers.profiles import _enqueue_job
+
+    shops: set[uuid.UUID] = set()
+    async with ctx["sessionmaker"]() as session:
+        query = (select(ProfileShopLink, ListingProfile)
+                 .join(ListingProfile, ListingProfile.id == ProfileShopLink.profile_id)
+                 .where(ProfileShopLink.connection_id != ListingProfile.connection_id,
+                        ProfileShopLink.status.in_(("ready", "incomplete")), ListingProfile.confirmed.is_(True)))
+        if connection_id is not None:
+            query = query.where(ProfileShopLink.connection_id == connection_id)
+        if profile_id is not None:
+            query = query.where(ProfileShopLink.profile_id == profile_id)
+        for link, profile in (await session.execute(query)).all():
+            if L.partner_gap(profile.cached_payload, link, profile.connection_id) is not None:
+                shops.add(link.connection_id)
+    for shop in sorted(shops, key=str):
+        await _enqueue_job(ctx, "refresh_shop_links", str(shop))
+    return len(shops)
 
 
 async def link_plan(ctx: dict[str, Any], profile_id: uuid.UUID) -> dict[str, Any]:
