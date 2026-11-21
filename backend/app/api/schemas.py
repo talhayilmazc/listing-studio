@@ -1169,6 +1169,11 @@ class ProfileLinkOut(BaseModel):
     #: One line about what the app did on its own there: "Shipping profile "MemoPaid" was
     #: created in PCS, a copy of the main shop's." / "… is no longer in PCS: a new copy was made."
     notice: str | None = None
+    #: The shop lacks the profile's production partner: "none" (the shop has no partner on Etsy)
+    #: or "choose" (it has partners, none of the same name), with the sentence the row shows.
+    #: Drafts are made without one; a scheduled go-live there is held.
+    partner: str | None = None
+    partner_note: str | None = None
 
 
 class ProfileOut(BaseModel):

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import { announceProfilesChanged, panelSettings } from "@/lib/shopSetup";
+import { announceProfilesChanged, panelSettings, partnerCell } from "@/lib/shopSetup";
 import {
   COLUMN_LABELS,
   SETTING_COLUMNS,
@@ -153,6 +153,53 @@ export function ProfileShopTable({
     act(plan.actions, plan);
   }
 
+  // The production partner a shop uses for this profile: a picker of the shop's own, or, in a shop that has
+  // none on Etsy, what to add there and Refresh (Etsy's API cannot make one).
+  async function refresh(shopId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.checkShopAgain(profileId, shopId);
+      setTries(0);
+      await load();
+      onChanged();
+      announceProfilesChanged();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function partner(row: TableRow) {
+    if (row.main) return <span key="ref" className="text-slate-600">the reference listing&apos;s</span>;
+    const shop = setup?.shops.find((s) => s.connection_id === row.shopId);
+    if (!shop || shop.lists_missing || shop.link.status === "checking") {
+      return <span key="reading" translate="no" className="text-slate-600">{pending}</span>;
+    }
+    const cell = partnerCell(shop);
+    if (cell.kind === "unneeded") return <span key="unneeded" className="text-slate-600">none needed</span>;
+    if (cell.kind === "none") {
+      return (
+        <div key="none" data-testid="partner-none">
+          <p className="text-amber-800"><Txt>{cell.text}</Txt></p>
+          <button type="button" className="btn-secondary mt-1 px-2 py-1 text-xs" disabled={busy} onClick={() => refresh(row.shopId)}
+            data-testid="partner-refresh">
+            Refresh
+          </button>
+        </div>
+      );
+    }
+    return (
+      <select key="pick" className="field w-full py-1 text-xs" value={cell.value ?? ""} disabled={busy}
+        onChange={(e) => e.target.value && act([{ kind: "pick", shopId: row.shopId, resource: "production_partners", id: Number(e.target.value) }])}
+        aria-label={`Production partner in ${row.shopName}`} data-testid="partner-pick">
+        {cell.value === null && <option key="none" value="">Choose…</option>}
+        {cell.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+    );
+  }
+
   const applyLink = (row: TableRow, column: Column) =>
     last && last.shopId === row.shopId && last.column === column && rows.length > 1 ? (
       <button key="apply" type="button" className="tap mt-0.5 block text-[11px] text-brand-700 underline" disabled={busy}
@@ -187,11 +234,15 @@ export function ProfileShopTable({
     return (
     <div className="space-y-2" data-testid="profile-shop-table">
       <div className="overflow-x-auto rounded-md border border-slate-200">
-        <table className="w-full min-w-[56rem] text-left text-xs">
+        <table className="w-full min-w-[66rem] text-left text-xs">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-2 py-1.5 font-medium">Shop</th>
-              {(["shipping_profile", "return_policy", "readiness_state", "section", "prefix", "daily"] as Column[]).map((c) => (
+              {(["shipping_profile", "return_policy", "readiness_state"] as Column[]).map((c) => (
+                <th key={c} className="px-2 py-1.5 font-medium">{COLUMN_LABELS[c]}</th>
+              ))}
+              <th key="partner" className="px-2 py-1.5 font-medium">Production partner</th>
+              {(["section", "prefix", "daily"] as Column[]).map((c) => (
                 <th key={c} className="px-2 py-1.5 font-medium">{COLUMN_LABELS[c]}</th>
               ))}
             </tr>
@@ -231,6 +282,7 @@ export function ProfileShopTable({
                     </td>
                   );
                 })}
+                <td className="max-w-[16rem] px-2 py-1.5" data-testid="partner-cell">{partner(row)}</td>
                 <td className="px-2 py-1.5">
                   {row.sections === null ? (
                     <span key="reading" translate="no" className="text-slate-600">{pending}</span>
@@ -270,7 +322,9 @@ export function ProfileShopTable({
         <span>Each value is used in that shop only.</span>
         <Help label="the Shops table">
           Shipping, returns and processing are each shop&apos;s own; a choice here is used by every profile with the same
-          main-shop setting. &ldquo;A day&rdquo; is the shop&apos;s limit when a schedule spreads listings out, for every
+          main-shop setting. A production partner is the shop&apos;s own too: one of the same name is used by itself.
+          Etsy does not let apps add one, so a shop without it gets its drafts without a partner until you add it on
+          Etsy. &ldquo;A day&rdquo; is the shop&apos;s limit when a schedule spreads listings out, for every
           profile. &ldquo;apply to all shops&rdquo; and &ldquo;Copy from shop…&rdquo; go by name; a shop without that
           name is skipped and said.
         </Help>

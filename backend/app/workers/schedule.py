@@ -29,7 +29,7 @@ from app.db.models import (
     TenantStatus,
 )
 from app.etsy.scheduling import EDITED_FOR_SHOP, NOT_APPROVED, new_publish_job
-from app.pipeline import shop_listing
+from app.pipeline import links, profile_shops, shop_listing
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,10 @@ async def release_scheduled_publishes(ctx: dict[str, Any]) -> dict[str, int]:
                 problem = await listing_problem(session, content, publication.connection_id)
                 if problem:
                     reason = f"Not published: {problem}"
+                elif await profile_shops.partner_gap_for(session, content, publication.connection_id):
+                    # The profile says a partner makes it and this shop has none on Etsy: the draft
+                    # was made without one, the go-live waits for the seller (pipeline/links.py).
+                    reason = links.go_live_held(connection.shop_name)
             if reason is not None:
                 publication.schedule_note = reason
                 held += 1

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ListingProfile, ProfileShopLink
+from app.db.models import GeneratedContent, ListingProfile, ProfileShopLink
 from app.pipeline import links as L
 
 CHECKING = "being set up in this shop; it takes a minute"
@@ -26,6 +26,9 @@ class LinkState:
     reason: str | None = None  # why it is not ready, one line
     missing: dict[str, str] = field(default_factory=dict)  # resource -> why
     status: str = "ready"
+    #: The shop lacks the profile's production partner (links.NO_PARTNER, PARTNER_PICK): said on
+    #: the Shops row; drafts are made without one, a scheduled go-live is held.
+    partner: str | None = None
 
 
 def state_of(profile: ListingProfile, link: ProfileShopLink | None) -> LinkState | None:
@@ -42,13 +45,32 @@ def state_of(profile: ListingProfile, link: ProfileShopLink | None) -> LinkState
     if link.status == "error":
         return LinkState(link.connection_id, False, False, str(notes.get("error") or "setting it up failed; try again"),
                          status="error")
-    missing = L.missing(profile.cached_payload, link)
+    # Production partners never stop a shop being used: Etsy's API cannot make one, and a draft
+    # is accepted without (links.NO_PARTNER). The row says so instead.
+    missing = L.blocking(profile.cached_payload, link)
+    partner = L.partner_gap(profile.cached_payload, link, profile.connection_id)
     if missing:
         # The reason that asks something of the seller (a refusal, a tie to pick), never "no
         # match", which is only a setting not copied yet (every setup copies it).
         first = next((r for r, why in missing.items() if why != L.NOT_FOUND), next(iter(missing)))
-        return LinkState(link.connection_id, False, False, f"{L.LABEL[first]}: {missing[first]}", missing, "incomplete")
-    return LinkState(link.connection_id, False, True)
+        return LinkState(link.connection_id, False, False, f"{L.LABEL[first]}: {missing[first]}", missing, "incomplete",
+                         partner=partner)
+    return LinkState(link.connection_id, False, True, partner=partner)
+
+
+async def partner_gap_for(session: AsyncSession, content: GeneratedContent, shop_id: uuid.UUID) -> tuple[ListingProfile, str] | None:
+    """The profile a listing goes to ``shop_id`` with and why that shop lacks its production
+    partner (links.NO_PARTNER, PARTNER_PICK); None when it has one, needs none, is the profile's
+    main shop, or the profile is not set up there yet (nothing is known until it is)."""
+    from app.pipeline import shop_listing
+
+    profile_id = shop_listing.profile_in(content, shop_id) or content.listing_profile_id
+    profile = await session.get(ListingProfile, profile_id) if profile_id else None
+    if profile is None or profile.connection_id == shop_id:
+        return None
+    link = await link_for(session, profile, shop_id)
+    reason = L.partner_gap(profile.cached_payload, link, profile.connection_id)
+    return (profile, reason) if reason else None
 
 
 async def links_of(session: AsyncSession, profile_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[ProfileShopLink]]:

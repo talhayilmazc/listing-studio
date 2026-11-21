@@ -752,6 +752,10 @@ export interface ProfileLink {
   checked_at: string | null;
   /** One line about what the app did there on its own ("… was created in PCS, a copy of the main shop's"). */
   notice?: string | null;
+  /** The shop lacks the profile's production partner: "none" (no partner on Etsy) or "choose" (none of the
+   * same name). Drafts are made without one; a scheduled go-live there is held. */
+  partner?: "none" | "choose" | string | null;
+  partner_note?: string | null;
 }
 
 export interface Profile {

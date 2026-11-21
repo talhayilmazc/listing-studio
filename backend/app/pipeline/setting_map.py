@@ -139,7 +139,7 @@ def fill(profile: ListingProfile, link: ProfileShopLink, maps: dict[Key, ShopSet
     if changed:
         link.notes = notes or None
         if link.status != "checking":
-            still = L.missing(profile.cached_payload, link) or notes.get("currency") or notes.get("error")
+            still = L.blocking(profile.cached_payload, link) or notes.get("currency") or notes.get("error")
             link.status = ("error" if notes.get("error") else "incomplete") if still else "ready"
     return changed
 

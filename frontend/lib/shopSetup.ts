@@ -56,6 +56,34 @@ export function panelSettings(shop: ShopSetup): PanelSetting[] {
 }
 
 /**
+ * The production partner cell of one shop's row. Etsy's API cannot make a partner, so there are three cases:
+ * the profile's reference names none ("unneeded": nothing to choose); the shop has partners (a picker: the one of
+ * the same name is linked by itself, else the seller chooses, one click, saved); the shop has none on Etsy
+ * ("none": the sentence below and Refresh; drafts are made without one meanwhile).
+ */
+export type PartnerCell =
+  | { kind: "unneeded" }
+  | { kind: "pick"; value: number | null; options: { id: number; label: string }[] }
+  | { kind: "none"; text: string };
+
+export function noPartnerText(shopName: string | null | undefined): string {
+  return `${shopName || "This shop"} has no production partner on Etsy. Drafts are made without one; add it on Etsy ` +
+    "(Shop Manager → Settings → Production partners) before publishing, then press Refresh.";
+}
+
+export function partnerCell(shop: Pick<ShopSetup, "settings" | "shop_name">): PartnerCell {
+  const s = shop.settings.find((x: SettingUse) => x.resource === "production_partners");
+  if (!s) return { kind: "unneeded" };
+  const options = [...s.options];
+  const value = s.linked_ids.length >= 1 ? s.linked_ids[0] : null;
+  if (value !== null && !options.some((o) => o.id === value)) {
+    options.unshift({ id: value, label: s.linked_label ?? "Reading this shop's list…" });
+  }
+  if (options.length === 0) return { kind: "none", text: noPartnerText(shop.shop_name) };
+  return { kind: "pick", value, options };
+}
+
+/**
  * The shops "Use in" offers for a profile: every shop of the account except the
  * profile's main shop, each with where it stands. A shop the profile is already used in is
  * offered too: choosing it again sets it up again.

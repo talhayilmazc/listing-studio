@@ -467,6 +467,20 @@ async def _brands_going(session: AsyncSession, tenant: Tenant, work: _Work) -> l
     return list(lines)
 
 
+async def _partner_notes(session: AsyncSession, work: _Work) -> list[str]:
+    """Said before a go-live is scheduled: a shop that lacks the profile's production partner gets
+    its drafts, and its go-live is held until the seller adds the partner on Etsy."""
+    from app.pipeline import profile_shops
+
+    shops: dict[uuid.UUID, str] = {}
+    for content, shop, _ in work.actions:
+        if shop.id not in shops and await profile_shops.partner_gap_for(session, content, shop.id):
+            shops[shop.id] = shop_label(shop)
+    return [f"{name} has no production partner on Etsy, and the profile says a partner makes these: the drafts are made, "
+            "and going live there is held until you add it on Etsy (Shop Manager → Settings → Production partners) and "
+            "press Refresh on the profile's Shops table." for name in shops.values()]
+
+
 async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, batch: UploadBatch,
                    body: SendIn) -> tuple[SendPreviewOut, _Work, G.Plan | None]:
     zone = tenant.time_zone if valid_zone(tenant.time_zone) else "UTC"
@@ -527,6 +541,8 @@ async def _preview(session: AsyncSession, tenant: Tenant, quota: DailyQuota, bat
         span = (f", {_day(first)}" + (f" – {_day(last)}" if last and last != first else "")) if first else ""
         sentence = f"{head}: {_plural(total, 'listing')}{span}."
         button = f"Schedule {_plural(total, 'listing')}" + (f" from {_day(first)}" if first else "")
+    if body.when != "drafts":
+        notes += await _partner_notes(session, work)
     if disabled is None:
         if not work.rows and work.left_out and all(x.reason == "not approved yet" for x in work.left_out):
             disabled = "Approve listings first."

@@ -79,3 +79,26 @@ test("no setup dialog, no Finish setup, no Shops-page button; the card has the l
   assert.ok(panel.includes("api.pickInShop(") && panel.includes("panelSettings("));
   assert.ok(read("app/(app)/profiles/page.tsx").includes("PROFILES_CHANGED"), "every card reloads when one changes");
 });
+
+// Production partners in another shop (21 November 2026): a picker of the shop's own, or, in a shop that has
+// none on Etsy, what to add there (Etsy's API cannot make a partner); never a dead end.
+test("the production partner cell: a picker, the no-partner sentence, or nothing to choose", async () => {
+  const { partnerCell, noPartnerText } = await import("./shopSetup.ts");
+  const use = (over: Record<string, unknown>) => ({
+    resource: "production_partners", label: "Production partners", source_label: "Print Co", linked_ids: [], linked_label: null,
+    how: null, default: "choose", reason: null, creatable: false, create_summary: null, options: [], ...over,
+  });
+  assert.deepEqual(partnerCell({ shop_name: "GLHCUSTOMWEAR", settings: [] } as any), { kind: "unneeded" });
+  const none = partnerCell({ shop_name: "GLHCUSTOMWEAR", settings: [use({})] } as any);
+  assert.equal(none.kind, "none");
+  assert.equal((none as { text: string }).text,
+    "GLHCUSTOMWEAR has no production partner on Etsy. Drafts are made without one; add it on Etsy " +
+    "(Shop Manager → Settings → Production partners) before publishing, then press Refresh.");
+  assert.equal(noPartnerText(null).startsWith("This shop has no production partner on Etsy."), true);
+  const options = [{ id: 3, label: "Other Printer" }, { id: 4, label: "Second Printer" }];
+  assert.deepEqual(partnerCell({ shop_name: "B", settings: [use({ options })] } as any), { kind: "pick", value: null, options });
+  assert.deepEqual(partnerCell({ shop_name: "B", settings: [use({ options, linked_ids: [4] })] } as any), { kind: "pick", value: 4, options });
+  const table = (await import("node:fs")).readFileSync(new URL("../components/ProfileShopTable.tsx", import.meta.url), "utf8");
+  for (const id of ["partner-cell", "partner-pick", "partner-none", "partner-refresh"]) assert.ok(table.includes(`data-testid="${id}"`), id);
+  assert.ok(table.includes('resource: "production_partners"') && table.includes("api.checkShopAgain(profileId, shopId)"));
+});

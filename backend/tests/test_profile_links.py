@@ -94,7 +94,7 @@ def test_no_match_offers_a_copy_only_where_etsys_api_can_create_it() -> None:
     assert plan[L.RETURNS].creatable and plan[L.RETURNS].create["return_deadline"] == 30
     assert plan[L.READINESS].creatable and plan[L.READINESS].create["min_processing_time"] == 1
     partners = plan[L.PARTNERS]
-    assert not partners.creatable and partners.reason == L.NOT_CREATABLE
+    assert not partners.creatable and partners.reason == L.PARTNER_PICK
     assert partners.options == [{"id": 3, "label": "Other Printer"}]  # the seller picks once
 
 
@@ -530,7 +530,8 @@ async def test_state_of_reports_what_is_missing() -> None:
     link = ProfileShopLink(connection_id=uuid.uuid4(), status="incomplete", shipping_profile_id=1,
                            notes={"return_policy": L.NOT_FOUND})
     state = profile_shops.state_of(profile, link)
-    assert not state.ready and set(state.missing) == {"return_policy", "readiness_state", "production_partners"}
+    assert not state.ready and set(state.missing) == {"return_policy", "readiness_state"}
+    assert state.partner == L.NO_PARTNER  # a note on the row, never what stops a draft
     assert state.reason.startswith("Return policy")
 
 

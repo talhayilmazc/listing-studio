@@ -175,9 +175,23 @@ async def refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
         if profile is None:
             return "missing"
         tenant_id = profile.tenant_id
-    return await _run_gated(
+    result = await _run_gated(
         ctx, "refresh_profile", profile_id, tenant_id, lambda: _refresh_profile(ctx, profile_id)
     )
+    await _relink_partners(ctx, profile_id=uuid.UUID(profile_id))
+    return result
+
+
+async def _relink_partners(ctx: dict[str, Any], **which: Any) -> None:
+    """After a refresh: a shop that lacked a profile's production partner is looked at again, so a
+    partner of the same name added on Etsy is linked by itself (workers/links.py). Never fails
+    the job it follows."""
+    try:
+        from app.workers.links import relink_partners
+
+        await relink_partners(ctx, **which)
+    except Exception:  # noqa: BLE001
+        logger.warning("looking for a production partner again failed", exc_info=True)
 
 
 class ShopAccessLost(Exception):
@@ -634,6 +648,8 @@ async def sync_shop_listings(ctx: dict[str, Any], connection_id: str) -> str:
             tenant_id,
             lambda: _sync_shop_listings(ctx, connection_id),
         )
+        if result.startswith("synced:"):
+            await _relink_partners(ctx, connection_id=uuid.UUID(connection_id))
         return result
     finally:
         if redis is not None:
