@@ -768,6 +768,11 @@ export interface Profile {
   reference_listing_id: number | null;
   /** Every shop the profile is used in, the main one first. */
   links: ProfileLink[];
+  /** Made by hand: no reference listing, never refreshed (feature/manual-profiles). */
+  manual?: boolean;
+  /** The fields that are the seller's own value ("your value"); every field on a manual profile. */
+  own_fields?: string[];
+  default_tags?: string[];
   content_template: string;
   source: string; // "manual" | "detected" | "suggested" (pipeline/suggested_profile.py)
   confirmed: boolean;

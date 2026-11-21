@@ -5,6 +5,7 @@ import { ListingStyle } from "./ListingStyle";
 import { presetPlacement, type ChartPosition } from "@/lib/chartOrder";
 import { ChartPlacementEditor } from "./ChartPlacementEditor";
 import { ProfileShops } from "./ProfileShops";
+import { ProfileForm } from "./ProfileForm";
 import { HowMadePicker } from "./HowMadePicker";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -31,6 +32,10 @@ export function ProfileCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
+  // The profile form (feature/manual-profiles): every setting, editable.
+  const [editing, setEditing] = useState(false);
+  const manual = !!profile.manual;
+  const ownCount = manual ? 0 : (profile.own_fields ?? []).length;
 
   // A freshly created/detected profile has its reference fetched in the background
   // (refresh_profile is enqueued on create). Poll until the cached payload lands so
@@ -126,6 +131,7 @@ export function ProfileCard({
 
   return (
     <div
+      data-testid="profile-card"
       // Anchor target for the rail's profile children.
       id={"profile-" + profile.id}
       className={
@@ -156,7 +162,9 @@ export function ProfileCard({
                   ? profile.confirmed
                     ? "Reference images are renewing; they come back shortly"
                     : "Reference images are shown for 6 hours after each refresh"
-                  : "no reference image"}
+                  : manual
+                    ? "Made by hand · your own values"
+                    : "no reference image"}
           </div>
         )}
         <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
@@ -166,6 +174,7 @@ export function ProfileCard({
             <Chip tone="amber">needs confirmation</Chip>
           )}
           {profile.source === "detected" && <Chip key="chip-161-10" tone="slate">detected</Chip>}
+          {manual && <Chip key="chip-manual" tone="slate">made by hand</Chip>}
         </div>
         {/* ToU: product imagery always links back to the listing on Etsy. */}
         {backLink && <a key="back"
@@ -202,13 +211,17 @@ export function ProfileCard({
               >
                 <span>Listing #<span>{profile.reference_listing_id}</span> ↗</span>
               </a>
+            ) : manual ? (
+              <span key="manual" className="text-slate-600" data-testid="profile-manual">No reference listing</span>
             ) : (
               <span className="text-amber-700">No reference listing yet</span>
             )}
             <span>·</span>
             <span
               className={
-                profile.refresh_error
+                manual
+                  ? "text-emerald-700"
+                  : profile.refresh_error
                   ? "text-rose-700"
                   : profile.is_fresh
                     ? "text-emerald-700"
@@ -217,7 +230,9 @@ export function ProfileCard({
                       : "text-amber-700"
               }
             >
-              {profile.refresh_error
+              {manual
+                ? "your own values · never needs a refresh"
+                : profile.refresh_error
                 ? "refresh failed · see below"
                 : profile.refreshing
                 ? "refreshing from Etsy…"
@@ -434,9 +449,19 @@ export function ProfileCard({
               {busy === "confirm" ? "Confirming…" : "Confirm"}
             </button>
           )}
-          <button className="btn-secondary" onClick={refresh} disabled={busy !== null}>
-            {busy === "refresh" ? "Refreshing…" : profile.confirmed ? "Refresh now" : "Refresh reference"}
+          {!manual && (
+            <button key="refresh" className="btn-secondary" onClick={refresh} disabled={busy !== null}>
+              {busy === "refresh" ? "Refreshing…" : profile.confirmed ? "Refresh now" : "Refresh reference"}
+            </button>
+          )}
+          <button className="btn-secondary" onClick={() => setEditing(true)} disabled={busy !== null} data-testid="profile-edit">
+            Edit
           </button>
+          {ownCount > 0 && (
+            <span key="own" className="text-xs text-amber-800" translate="no" data-testid="profile-own-count">
+              {`${ownCount} of your own value${ownCount === 1 ? "" : "s"}`}
+            </span>
+          )}
           <button
             className="tap ml-auto text-xs text-rose-600 hover:text-rose-700 max-sm:px-2 max-sm:py-2"
             onClick={remove}
@@ -446,6 +471,7 @@ export function ProfileCard({
           </button>
         </div>
       </div>
+      {editing && <ProfileForm key="form" mode={{ kind: "edit", profileId: profile.id }} onSaved={onChange} onClose={() => setEditing(false)} />}
     </div>
   );
 }
