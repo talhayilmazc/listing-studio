@@ -64,7 +64,7 @@ from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline import chart_order, design_match, how_made, item_options, skus, versions
 from app.pipeline.attribute_fill import garment_attributes
-from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
+from app.pipeline.attributes import ResolvedAttribute, resolve_optional_attributes, resolve_required_attributes
 from app.pipeline.profile_values import named_attributes
 from app.pipeline.personalization import differs as personalization_differs
 from app.pipeline.personalization import etsy_problems as personalization_problems
@@ -885,6 +885,12 @@ async def publish_content(
     resolved = [*resolved, *garment_attributes(
         props.get("results", []), reference_attributes, vision, {a.property_id for a in resolved}
     )]
+    # Every attribute the seller set on the profile itself is written, optional ones too (the listing's own
+    # values, below, still come first).
+    for row in named_attributes(props.get("results", []), [], reference.get("attribute_values")):
+        if row["property_id"] not in {a.property_id for a in resolved}:
+            resolved.append(ResolvedAttribute(int(row["property_id"]), str(row["property_name"]), list(row["value_ids"]),
+                                              list(row["values"]), row.get("scale_id")))
     # What the seller set wins: a value of theirs replaces the reference's, and one they cleared is not written
     # (unless Etsy requires it: then the reference's value stays).
     mine = {n.strip().lower() for n in seller_attributes or ()}

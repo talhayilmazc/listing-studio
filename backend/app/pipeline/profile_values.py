@@ -387,7 +387,8 @@ def problems(values: dict[str, Any], *, options: dict[str, Any] | None = None, n
             out["price"] = f"The price must be between {MIN_PRICE:.2f} and {MAX_PRICE:,.0f}: Etsy takes nothing outside that."
     if has("quantity"):
         quantity = _number(values.get("quantity"))
-        if quantity is None or quantity != int(quantity) or not 1 <= quantity <= MAX_QUANTITY:
+        given = values.get("quantity") not in (None, "")  # none of its own: the app's own stock setting is sent
+        if given and (quantity is None or quantity != int(quantity) or not 1 <= quantity <= MAX_QUANTITY):
             out["quantity"] = f"The quantity must be a whole number from 1 to {MAX_QUANTITY}: Etsy's limit for a listing."
     if has("variations") and isinstance(values.get("variations"), dict) and values["variations"].get("properties"):
         raw_names = [_text(n) for n in values["variations"].get("properties") or []]
