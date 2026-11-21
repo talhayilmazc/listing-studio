@@ -209,7 +209,8 @@ export default function ProfilesPage() {
     }
   }
   const failing = (profiles ?? []).filter((p) => p.refresh_error && p.reference_listing_id != null);
-  const needsReference = (profiles ?? []).filter((p) => p.reference_listing_id == null);
+  // (A profile made by hand has no reference listing and needs none.)
+  const needsReference = (profiles ?? []).filter((p) => p.reference_listing_id == null && !p.manual);
 
   async function linkThese(sg: LinkSuggestion) {
     const [keep, ...rest] = sg.profiles;

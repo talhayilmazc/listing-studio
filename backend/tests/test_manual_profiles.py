@@ -391,3 +391,26 @@ async def test_use_in_works_for_a_profile_made_by_hand(world) -> None:  # noqa: 
         profile = await s.get(ListingProfile, uuid.UUID(made["id"]))
         # What a setup needs of it is there: the main shop's ids, by the same keys as a reference listing's.
         assert [L.wanted(profile.cached_payload, r) for r in L.RESOURCES] == [501, 601, 701, [801]]
+
+
+async def test_disconnecting_its_main_shop_moves_a_profile_made_by_hand_with_its_values(world) -> None:  # noqa: F811
+    """A profile that follows a listing then waits for a listing of the new main shop; one made by hand has
+    none to wait for: its values stay and its shop's own settings become the new main shop's."""
+    from app.pipeline import profile_shops
+
+    await _offer(world, world["a1"], _main())
+    made = (await _create(world, world["a1"])).json()
+    pid = uuid.UUID(made["id"])
+    async with world["sm"]() as s:
+        s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=pid, connection_id=world["a2"], shipping_profile_id=2501,
+                              return_policy_id=2601, readiness_state_id=2701, production_partner_ids=[2801], status="ready"))
+        await s.commit()
+        await profile_shops.detach_shop(s, world["a1"])
+        await s.commit()
+        profile = await s.get(ListingProfile, pid)
+        assert profile is not None and profile.manual and profile.connection_id == world["a2"]
+        assert profile.refresh_error is None and targets.is_fresh(profile)
+        payload = profile.cached_payload
+        assert (payload["shipping_profile_id"], payload["return_policy_id"], payload["readiness_state_id"],
+                payload["production_partner_ids"]) == (2501, 2601, 2701, [2801])
+        assert payload["price"] == 24.5 and len(payload["inventory_products"]) == 3  # its own values are as they were

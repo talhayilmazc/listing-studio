@@ -253,6 +253,22 @@ async def detach_shop(session: AsyncSession, connection_id: uuid.UUID) -> dict[s
             deleted += 1
             continue
         heir = others[0]
+        if profile.manual:
+            # A profile made by hand has no listing to choose again: its values stay, and the shop-specific
+            # ones become the new main shop's own (what its link held there).
+            from app.pipeline import profile_values
+
+            profile.connection_id = heir.connection_id
+            profile.own_values = {**(profile.own_values or {}), "shipping_profile_id": heir.shipping_profile_id,
+                                  "return_policy_id": heir.return_policy_id, "readiness_state_id": heir.readiness_state_id,
+                                  "production_partner_ids": list(heir.production_partner_ids or []),
+                                  "shipping_profile_type": None}
+            profile_values.rebuild(profile)
+            heir.shipping_profile_id = heir.return_policy_id = heir.readiness_state_id = None
+            heir.production_partner_ids = None
+            heir.notes, heir.status = None, "ready"
+            moved += 1
+            continue
         profile.connection_id = heir.connection_id
         profile.reference_listing_id = None
         profile.cached_payload = None
