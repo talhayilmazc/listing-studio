@@ -1627,6 +1627,15 @@ class ListingProfile(Base):
     #: Per shop (B7): {connection id: {"section_title": ..., "title_prefix": ...}}; a shop not
     #: listed follows the profile (pipeline/profile_shop_settings.py).
     shop_settings: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: Made by hand (feature/manual-profiles): no reference listing; its settings are the seller's
+    #: own, in ``own_values`` (pipeline/profile_values.py). Never refreshed from a listing.
+    manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: A manual profile: every value of the profile form. A profile that follows a reference
+    #: listing: only the fields the seller changed ("your value"), which a Refresh never overwrites.
+    #: The seller's own settings, not Etsy content: kept until the profile is deleted.
+    own_values: Mapped[dict[str, Any] | None] = mapped_column(JSONB_TYPE)
+    #: Tags every listing written with this profile starts with (the seller's own words).
+    default_tags: Mapped[list[str] | None] = mapped_column(JSONB_TYPE)
     #: How listings are written with this profile: "classic" ("Long keyword":
     #: 110-140 character keyword titles) or "search" ("Short, clear title":
     #: at most 15 words, tags that do not repeat it, a design-specific description
