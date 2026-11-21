@@ -23,6 +23,7 @@ _BY_JOB: dict[str, str] = {
     "refresh_profile_images": "profiles",
     "detect_profiles": "profiles",
     "refresh_shop_links": "profiles",
+    "read_profile_options": "profiles",
     "link_profile": "profile_setup",
     "create_link_resources": "profile_setup",
     "sync_sales": "sales",

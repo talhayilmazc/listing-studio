@@ -65,6 +65,9 @@ JOB_COST: dict[str, int] = {
     "create_link_resources": 200,
     # One shop's four lists, checked for every profile linked to it (upkeep).
     "refresh_shop_links": 4,
+    # What the profile form offers: the shop's four lists and its currency, the category tree and one
+    # category's attributes (each kept, so usually none of them is asked for; upkeep).
+    "read_profile_options": 7,
     # Views and favourites of a shop's app-published listings: one request per
     # 100 listings, up to 1,000 (upkeep; Part D).
     "read_listing_stats": 10,
@@ -116,7 +119,7 @@ JOB_COST: dict[str, int] = {
 # listing work. Creating a shop section and updating a draft's SKU are the
 # seller's own changes on Etsy and still count toward their ceiling.
 UPKEEP = frozenset(
-    {"read_listing_properties", "refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
+    {"read_listing_properties", "refresh_profile", "read_reference_size", "refresh_profile_images", "refresh_shop_links", "read_profile_options", "sync_shop_listings", "sync_shop_counts", "sync_shop_sections", "detect_profiles", "sync_sales", "estimate_sales",
      "sync_ledger", "estimate_ledger", "backfill_ledger", "read_listing_stats", "preflight_shop", "reconcile_listings", "link_profile", "create_link_resources"}
 )
 

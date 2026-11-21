@@ -158,6 +158,9 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
         update(ListingProfile)
         .where(
             ListingProfile.cached_payload.is_not(None),
+            # A profile made by hand holds the seller's own settings, not a copy of a listing: only what was
+            # read from Etsy about its category goes (below).
+            ListingProfile.manual.is_(False),
             or_(
                 ListingProfile.updated_at.is_(None),
                 ListingProfile.updated_at
@@ -166,6 +169,7 @@ async def purge_expired_rows(session: AsyncSession, *, now: datetime | None = No
         )
         .values(cached_payload=null())
     )
+    await _strip_manual_category_lists(session, now)
     await session.commit()
     counts = {
         "snapshots": snapshots.rowcount or 0,
@@ -266,6 +270,32 @@ async def purge_shop_etsy_content(session: AsyncSession, connection_id: uuid.UUI
         "profiles_moved": detached["profiles_moved"],
         "profile_links": detached["profile_links"],
     }
+
+
+#: What a manual profile's payload holds that was read from Etsy: its category's attribute lists and names.
+MANUAL_ETSY_KEYS = ("category_attributes", "category_attribute_limits", "category_properties", "category_names",
+                    "category_read_at")
+
+
+async def _strip_manual_category_lists(session: AsyncSession, now: datetime) -> int:
+    """A profile made by hand keeps its own values; its category's lists, read from Etsy, go after 24 hours
+    like every profile's (they are read again when the profile's form is opened)."""
+    stripped = 0
+    limit = now - timedelta(seconds=ListingProfile.CACHE_MAX_AGE_SECONDS)
+    rows = await session.execute(select(ListingProfile).where(ListingProfile.manual.is_(True),
+                                                               ListingProfile.cached_payload.is_not(None)))
+    for profile in rows.scalars():
+        payload = profile.cached_payload or {}
+        read_at = payload.get("category_read_at")
+        try:
+            fresh = read_at is not None and datetime.fromisoformat(str(read_at)) > limit
+        except ValueError:
+            fresh = False
+        if fresh or not any(key in payload for key in MANUAL_ETSY_KEYS):
+            continue
+        profile.cached_payload = {k: v for k, v in payload.items() if k not in MANUAL_ETSY_KEYS}
+        stripped += 1
+    return stripped
 
 
 async def purge_expired(ctx: dict[str, Any]) -> dict[str, int]:

@@ -71,7 +71,10 @@ router = APIRouter(prefix="/api", tags=["batches"])
 
 
 def _profile_is_fresh(profile: ListingProfile) -> bool:
-    """A profile is usable once its reference payload is cached and <24h old."""
+    """A profile is usable once its reference payload is cached and <24h old (a profile made by hand:
+    once it has its values)."""
+    if profile.manual:
+        return bool(profile.cached_payload)
     if not profile.cached_payload or profile.updated_at is None:
         return False
     updated = profile.updated_at

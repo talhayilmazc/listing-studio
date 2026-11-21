@@ -225,6 +225,8 @@ def to_payload(values: dict[str, Any], *, currency: str | None, keep: dict[str, 
         "attributes": [],
         "attribute_values": {k: v for k, v in (values.get("attributes") or {}).items() if v not in (None, "", [])},
         "images": [],
+        # Whether its shipping profile is calculated by Etsy (then a draft needs the weight and packed size).
+        "shipping_profile_type": values.get("shipping_profile_type"),
         "manual": True,
     }
     table = clean_variations(values.get("variations"))
@@ -234,7 +236,7 @@ def to_payload(values: dict[str, Any], *, currency: str | None, keep: dict[str, 
         if prices:
             payload["price"] = min(prices)  # the listing's own price: its lowest option's, as Etsy shows it
     for key in ("category_attributes", "category_attribute_limits", "category_properties", "category_names",
-                "category_read_at", "shipping_profile_type", "shop_id"):
+                "category_read_at", "shop_id"):
         if keep and keep.get(key) is not None:
             payload[key] = keep[key]
     return payload
