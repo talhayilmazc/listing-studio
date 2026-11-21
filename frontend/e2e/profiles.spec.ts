@@ -48,6 +48,7 @@ async function write(page: Page, method: string, url: string, data: unknown): Pr
 test.describe("profiles made and edited by hand", () => {
   test.skip(!EMAIL || !PASSWORD, "set LAYOUT_EMAIL and LAYOUT_PASSWORD (the demo admin from `seed-demo --admin`) to run these");
   const made: string[] = [];
+  const batches: string[] = [];
 
   test.beforeEach(async ({ page }, info) => {
     test.skip(info.project.name === "tablet-768", "a desktop and a phone");
@@ -55,6 +56,9 @@ test.describe("profiles made and edited by hand", () => {
     await signIn(page, EMAIL!, PASSWORD!);
   });
   test.afterEach(async ({ page }) => {
+    for (const id of batches.splice(0)) {
+      await page.evaluate((bid) => fetch(`/api/batches/${bid}`, { method: "DELETE", credentials: "include" }), id);
+    }
     for (const id of made.splice(0)) {
       await page.evaluate((pid) => fetch(`/api/profiles/${pid}`, { method: "DELETE", credentials: "include" }), id);
     }
@@ -191,32 +195,50 @@ test.describe("profiles made and edited by hand", () => {
       await expect(theirs.getByTestId("profile-own-count")).toHaveCount(0);
     }
 
-    // 6. The new profile on a batch, and a draft sent with it.
-    const batches = (await (await page.request.get("/api/batches")).json()) as { id: string; name?: string }[];
-    let sent: { batch: string; content: string } | null = null;
-    for (const batch of batches) {
-      const rows = await page.request.get(`/api/batches/${batch.id}/shops/${scratch.connection_id}/rows`);
-      if (!rows.ok()) continue;
-      const open = ((await rows.json()).rows as { content_id: string; state: string; approved: boolean; errors: string[] }[])
-        .find((r) => r.state === "new" && r.approved && r.errors.length === 0);
-      if (!open) continue;
-      const chosen = await write(page, "PUT", `/api/batches/${batch.id}/shops/${scratch.connection_id}/profile`,
-        { content_ids: [open.content_id], profile_id: scratch.id });
-      expect(chosen.status, JSON.stringify(chosen.body)).toBe(200);
-      const row = (chosen.body.rows as { content_id: string; state: string; profile_id: string | null; reason: string | null }[])
-        .find((r) => r.content_id === open.content_id)!;
-      if (row.state !== "new") continue;  // this listing cannot go there with it (its own reason): try another
-      expect(row.profile_id).toBe(scratch.id);
-      sent = { batch: batch.id, content: open.content_id };
-      break;
-    }
-    expect(sent, "a demo batch has an approved listing that can go to the profile's shop").not.toBeNull();
-    const draft = await write(page, "POST", `/api/batches/${sent!.batch}/another-shop`,
-      { connection_id: scratch.connection_id, content_ids: [sent!.content], sku_mode: "keep" });
+    // 6. The new profile on a batch of the test's own (the demo's batches are left as they are), and a draft
+    //    sent with it: one design uploaded, the profile chosen for it, a listing written by hand, approved, sent.
+    const created = await write(page, "POST", "/api/batches", { connection_id: scratch.connection_id });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const batch = created.body.id as string;
+    batches.push(batch);
+    const uploaded = await page.evaluate(async (id) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 900; canvas.height = 900;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#f4f1ea"; ctx.fillRect(0, 0, 900, 900);
+      ctx.fillStyle = "#14162b"; ctx.font = "700 96px sans-serif"; ctx.fillText("Pine ridge", 180, 470);
+      const blob: Blob = await new Promise((done) => canvas.toBlob((b) => done(b!), "image/png"));
+      const form = new FormData();
+      form.append("file", blob, "PRF100.png");
+      form.append("grouping", "one");
+      const res = await fetch(`/api/batches/${id}/assets`, { method: "POST", credentials: "include", body: form });
+      return res.status;
+    }, batch);
+    expect(uploaded).toBe(201);
+    expect((await write(page, "POST", `/api/batches/${batch}/finalize`, {})).status).toBe(200);
+    // The worker prepares the photo; the batch is ready when no photo waits.
+    await expect.poll(async () => {
+      const detail = await (await page.request.get(`/api/batches/${batch}`)).json();
+      const assets = (detail.assets ?? []) as { status: string }[];
+      return assets.length > 0 && assets.every((a) => a.status === "processed");
+    }, { timeout: 90_000, intervals: [1000] }).toBe(true);
+    const assigned = await write(page, "PUT", `/api/batches/${batch}/groups`, { profile_id: scratch.id });
+    expect(assigned.status, JSON.stringify(assigned.body)).toBe(200);
+    expect((assigned.body as { profile_id: string | null }[]).every((g) => g.profile_id === scratch.id)).toBe(true);
+    const written = await write(page, "POST", `/api/batches/${batch}/manual`, {});
+    expect(written.status, JSON.stringify(written.body)).toBe(200);
+    const listing = ((await (await page.request.get(`/api/batches/${batch}/content`)).json()) as { id: string; tags: string[] }[])[0];
+    // The profile's default tags start the listing written with it.
+    expect(listing.tags).toContain("soft tee");
+    const text = await write(page, "PATCH", `/api/content/${listing.id}`, { title: "Pine Ridge Camping Shirt for Hikers" });
+    expect(text.status, JSON.stringify(text.body)).toBe(200);
+    const approved = await write(page, "POST", `/api/content/${listing.id}/approve`, { approved: true, connection_id: null });
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    const draft = await write(page, "POST", `/api/batches/${batch}/send`, { when: "drafts" });
     expect(draft.status, JSON.stringify(draft.body)).toBe(200);
-    expect(draft.body.jobs.length).toBe(1);
+    expect(draft.body.jobs.length, JSON.stringify(draft.body)).toBe(1);
     // The batch page says at once what became of it: being made, made, or (no Etsy on this machine) why not.
-    await page.goto(`/batches/${sent!.batch}?shop=${scratch.connection_id}`);
+    await page.goto(`/batches/${batch}?shop=${scratch.connection_id}`);
     const workspace = page.getByTestId("shop-workspace");
     await expect(workspace).toBeVisible({ timeout: 60_000 });
     await expect(workspace.getByTestId("workspace-row-trying").or(workspace.getByTestId("workspace-row-failed"))
