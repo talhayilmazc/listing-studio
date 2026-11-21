@@ -95,3 +95,28 @@ describe("the controls say where they apply", () => {
     assert.ok(card.includes("?select=${initial.id}"));
   });
 });
+
+// A send that stopped before Etsy (21 November 2026): the result says how many drafts were made and why the
+// others were not, as soon as none is still being made; the shop's own line says the same.
+it("the send's result: made, not made with the reason, waiting; settled once nothing is being made", async () => {
+  const { sendResult, failedLine } = await import("./anotherShop.ts");
+  const rows = [
+    { content_id: "a", shop_state: "drafted", last_try: null },
+    { content_id: "b", shop_state: "not_sent", last_try: { status: "failed" as const, reason: "BCT does not have the processing profile this listing used; set it up in BCT, then finish the draft" } },
+    { content_id: "c", shop_state: "not_sent", last_try: { status: "working" as const, reason: null } },
+    { content_id: "d", shop_state: "not_sent", last_try: { status: "waiting" as const, reason: "Preparing BCT's shipping, return and processing settings; the draft is made right after." } },
+  ];
+  assert.equal(sendResult(rows, ["a", "b", "c"], "BCT").settled, false);  // one is still being made
+  const done = sendResult(rows, ["a", "b"], "BCT");
+  assert.deepEqual([done.settled, done.made, done.failed], [true, 1, 1]);
+  assert.equal(done.line, "1 of 2 drafts made in BCT. 1 not made: BCT does not have the processing profile this listing used; set it up in BCT, then finish the draft");
+  assert.equal(sendResult(rows, ["a"], "BCT").line, "1 draft made in BCT.");
+  const waits = sendResult(rows, ["a", "d"], "BCT");
+  assert.equal(waits.settled, true);
+  assert.equal(waits.line, "1 of 2 drafts made in BCT. 1 waiting: Preparing BCT's shipping, return and processing settings; the draft is made right after.");
+  assert.equal(sendResult(rows, ["zz"], "BCT").settled, false);  // not read yet: still being made
+  assert.equal(failedLine({ failed: 0 }), null);
+  assert.equal(failedLine({ failed: 2, failure: "Etsy refused the copy." }), "2 drafts not made: Etsy refused the copy.");
+  const page = (await import("node:fs")).readFileSync(new URL("../components/ShopWorkspace.tsx", import.meta.url), "utf8");
+  for (const id of ["workspace-row-failed", "workspace-row-trying", "workspace-send-result", "shop-bar-failed"]) assert.ok(page.includes(id), id);
+});

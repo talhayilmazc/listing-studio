@@ -26,6 +26,44 @@ export function replacePrefix(sku: string | null | undefined, from: string, to: 
 }
 
 /** One shop's line on the batch page: "published 14" or "not sent". */
+/** One row as the send's result reads it. */
+export interface TriedRow {
+  content_id: string;
+  shop_state: string;
+  last_try?: { status: "working" | "waiting" | "failed"; reason: string | null } | null;
+}
+
+/**
+ * After "Send N to <shop>": what became of the drafts asked for. ``settled`` once none is still being made (a
+ * draft that waits and carries on by itself is settled: its row says why). The line says how many were made
+ * and, right away, why the others were not ("2 not made: BCT does not have …"); the rows carry the action.
+ */
+export function sendResult(rows: TriedRow[], ids: string[], shopName: string): {
+  settled: boolean; made: number; failed: number; waiting: number; line: string;
+} {
+  let made = 0, failed = 0, waiting = 0, working = 0;
+  let why: string | null = null, wait: string | null = null;
+  for (const id of ids) {
+    const row = rows.find((r) => r.content_id === id);
+    if (row && row.shop_state !== "not_sent") made += 1;
+    else if (row?.last_try?.status === "failed") { failed += 1; why = why ?? row.last_try.reason; }
+    else if (row?.last_try?.status === "waiting") { waiting += 1; wait = wait ?? row.last_try.reason; }
+    else working += 1;
+  }
+  const n = ids.length;
+  const drafts = (k: number) => `${k} draft${k === 1 ? "" : "s"}`;
+  let line = failed || waiting ? `${made} of ${drafts(n)} made in ${shopName}.` : `${drafts(made)} made in ${shopName}.`;
+  if (failed) line += ` ${failed} not made: ${why ?? "the row says why"}`;
+  if (waiting) line += `${failed && !/[.!?]$/.test(line) ? "." : ""} ${waiting} waiting: ${wait ?? "it carries on by itself"}`;
+  return { settled: working === 0, made, failed, waiting, line };
+}
+
+/** "2 drafts not made: <reason>": the shop's own line when its last drafts stopped. */
+export function failedLine(shop: { failed?: number; failure?: string | null }): string | null {
+  if (!shop.failed) return null;
+  return `${shop.failed} draft${shop.failed === 1 ? "" : "s"} not made: ${shop.failure ?? "the rows say why"}`;
+}
+
 export function shopLine(shop: BatchShops["shops"][number]): string {
   if (shop.total === 0) return "nothing written yet";
   const parts = (["published", "scheduled", "drafted"] as const)

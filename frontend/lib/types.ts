@@ -2409,6 +2409,10 @@ export interface BatchShops {
     drafted: number;
     scheduled: number;
     published: number;
+    /** Listings whose last draft there was not made, the reason most share and what fixes it. */
+    failed?: number;
+    failure?: string | null;
+    advice?: ErrorAdvice | null;
   }[];
   listings: {
     content_id: string;
@@ -2479,6 +2483,8 @@ export interface AnotherShopPreview {
     /** A production partner in that shop: required (not sent until set), note (quiet), ok. */
     partner: "ok" | "note" | "required";
     partner_profile_id: string | null;
+    /** Its last draft job there, while it is not in the shop: being made, waiting, or not made (why, and what fixes it). */
+    last_try?: { status: "working" | "waiting" | "failed"; reason: string | null; advice?: ErrorAdvice | null } | null;
     /** It goes to that shop with its own photo order, and with attributes of its own. */
     photos_own?: boolean;
     attributes_own?: boolean;
