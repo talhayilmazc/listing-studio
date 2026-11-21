@@ -112,6 +112,8 @@ class Asked(BaseModel):
     #: The main shop's own setting, by name, and why it has no counterpart here.
     source: str | None = None
     reason: str
+    #: Etsy's API can make a copy of the main shop's in this shop (as "Use in…" does): offered beside the question.
+    creatable: bool = False
 
 
 class ValuesOut(BaseModel):
@@ -532,6 +534,9 @@ async def copy_form(profile: uuid.UUID = Query(...), shop: uuid.UUID = Query(...
             out.reading = True
             return out
         link = await profile_shops.link_for(session, source, target.id)
+        if link is not None and link.status == "checking":
+            out.reading = True  # the main shop's settings are being matched or copied there: ask again in a moment
+            return out
         linked = L.link_values(link) if link is not None else {}
         plan = L.plan_shop(payload, source_lists, target_lists)
         for resource, outcome in plan.items():
@@ -551,9 +556,11 @@ async def copy_form(profile: uuid.UUID = Query(...), shop: uuid.UUID = Query(...
                 if resource == L.PARTNERS and outcome.reason == L.NO_PARTNER:
                     out.partner_note = L.partner_note(name, L.NO_PARTNER).replace(", then press Refresh.", ".")
                 else:
-                    out.asked.append(Asked(field=field, label=V.LABELS[field], source=outcome.source_label,
+                    can = bool(outcome.creatable) and (target.scopes is None or L.CREATE_SCOPE.get(resource) in set(target.scopes))
+                    out.asked.append(Asked(field=field, label=V.LABELS[field], source=outcome.source_label, creatable=can,
                                            reason=f"{name} has no {L.LABEL[resource].lower()} like "
-                                                  f"{outcome.source_label or 'the main shop’s'}: choose one of {name}'s."))
+                                                  f"{outcome.source_label or 'the main shop’s'}: choose one of {name}'s"
+                                                  + (", or copy the main shop's there." if can else ".")))
         if payload.get("currency") and target_lists.currency and payload["currency"] != target_lists.currency:
             out.notes.append(f"{name} sells in {target_lists.currency}; the prices were copied as numbers from "
                              f"{payload['currency']}. Check them.")

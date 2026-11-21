@@ -215,10 +215,29 @@ async def test_a_copy_to_an_empty_shop_with_no_partner_is_made_with_the_note_and
     assert (values["shipping_profile_id"], values["readiness_state_id"]) == (4501, 4701)
     # No counterpart: asked in the form, never guessed.
     assert values["return_policy_id"] is None and [a["field"] for a in form["asked"]] == ["return_policy_id"]
+    # Etsy's API can make a return policy: a copy of the main shop's is offered beside the question, as "Use in…" does.
+    assert form["asked"][0]["creatable"] is True and form["asked"][0]["reason"].endswith("or copy the main shop's there.")
     # No partner in the shop: not asked (there is nothing to choose), said, and the profile goes without one.
     assert values["production_partner_ids"] == [] and form["partner_note"] == (
         "GLHCUSTOMWEAR has no production partner on Etsy. Drafts are made without one; add it on Etsy "
         "(Shop Manager → Settings → Production partners) before publishing.")
+    # While the main shop's settings are being matched or copied there ("Copy the main shop's there"), the form waits;
+    # afterwards it uses what the profile's own link to that shop holds.
+    async with world["sm"]() as s:
+        s.add(ProfileShopLink(tenant_id=world["alice"], profile_id=world["pa1"], connection_id=new_id, status="checking"))
+        await s.commit()
+    assert (await world["a"].get(f"/api/profile-form/copy?profile={world['pa1']}&shop={new_id}")).json()["reading"] is True
+    async with world["sm"]() as s:
+        link = (await s.execute(select(ProfileShopLink).where(ProfileShopLink.profile_id == world["pa1"],
+                                                             ProfileShopLink.connection_id == new_id))).scalar_one()
+        link.status, link.shipping_profile_id, link.return_policy_id, link.readiness_state_id = "ready", 4501, 4601, 4701
+        await s.commit()
+    linked = (await world["a"].get(f"/api/profile-form/copy?profile={world['pa1']}&shop={new_id}")).json()
+    assert linked["values"]["return_policy_id"] == 4601 and linked["asked"] == []
+    async with world["sm"]() as s:
+        await s.delete((await s.execute(select(ProfileShopLink).where(ProfileShopLink.profile_id == world["pa1"],
+                                                                     ProfileShopLink.connection_id == new_id))).scalar_one())
+        await s.commit()
     # Saving before the question is answered is refused in plain words; answered, it is made.
     refused = await world["a"].post("/api/profile-form", json={"connection_id": str(new_id), "name": form["name"], "values": values})
     assert refused.status_code == 422 and refused.json()["detail"]["fields"] == {

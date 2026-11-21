@@ -197,6 +197,23 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
     }
   }
 
+  /** A copy: the source profile is used in this shop, so what the shop lacks is matched or copied there. */
+  async function copyFromMain() {
+    if (mode.kind !== "copy") return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.useProfileIn(mode.profileId, { scope: "shops", connection_ids: [mode.shopId] });
+      tries.current = 0;
+      setLoaded(null);
+      await read();
+    } catch (e: any) {
+      setMessage(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function useListing(field: string) {
     if (mode.kind !== "edit") return;
     setBusy(true);
@@ -277,7 +294,18 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
             {(loaded?.notes ?? []).map((n) => <p key={n} className="rounded-md bg-slate-50 p-2 text-xs text-slate-700"><Txt>{n}</Txt></p>)}
             {(loaded?.asked ?? []).length > 0 && (
               <ul key="asked" className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950" data-testid="copy-asked">
-                {loaded!.asked.map((a) => <li key={a.field}><Txt>{a.reason}</Txt></li>)}
+                {loaded!.asked.map((a) => (
+                  <li key={a.field} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Txt>{a.reason}</Txt>
+                    {a.creatable && mode.kind === "copy" && (
+                      // As "Use in…" does: the main shop's own setting is copied into this shop on Etsy, then used here.
+                      <button key="copy" type="button" className="btn-secondary px-2 py-1 text-xs" disabled={busy} onClick={copyFromMain}
+                        data-testid="copy-create">
+                        Copy the main shop&apos;s there
+                      </button>
+                    )}
+                  </li>
+                ))}
               </ul>
             )}
             {options?.reading && <p key="opts" className="text-xs text-amber-800">This shop&apos;s lists could not be read yet; its settings can be chosen once they are.</p>}

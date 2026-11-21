@@ -72,7 +72,7 @@ export interface ProfileValues {
   default_tags: string[];
   personalization: Personalization | null;
   category_path: string[];
-  asked: { field: string; label: string; source: string | null; reason: string }[];
+  asked: { field: string; label: string; source: string | null; reason: string; creatable?: boolean }[];
   notes: string[];
   partner_note: string | null;
 }
