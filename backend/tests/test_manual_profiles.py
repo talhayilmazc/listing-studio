@@ -437,3 +437,12 @@ async def test_default_tags_start_every_listing_written_with_the_profile(world) 
         plain.cached_payload = dict(PAYLOAD)
         assert (await manual.write(s, tenant_id=world["alice"], batch_id=content.batch_id, asset=asset, profile=plain)).tags == []
         await s.rollback()
+
+
+async def test_a_profile_made_by_hand_is_never_given_a_reference_listing(world) -> None:  # noqa: F811
+    await _offer(world, world["a1"], _main())
+    made = (await _create(world, world["a1"])).json()
+    res = await world["a"].put(f"/api/profiles/{made['id']}/reference", json={"reference_listing_id": 1})
+    assert res.status_code == 409 and "made by hand" in res.json()["detail"]
+    # "Use the listing's value again" has no listing to go back to either.
+    assert (await world["a"].delete(f"/api/profiles/{made['id']}/values?field=price")).status_code == 409

@@ -591,6 +591,10 @@ async def set_reference(
     from app.etsy.shops import NOT_YOUR_LISTING, owned_listing
 
     profile = await _get(session, tenant, profile_id)
+    if profile.manual:
+        # Its values are the seller's own (feature/manual-profiles): a listing's settings are a new profile.
+        raise HTTPException(status_code=409, detail="This profile was made by hand and does not follow a listing. "
+                                                    "To copy a listing's settings, make a new profile from that listing.")
     cached = await owned_listing(session, tenant.id, body.reference_listing_id)
     if cached is None:
         raise HTTPException(status_code=404, detail=NOT_YOUR_LISTING)
