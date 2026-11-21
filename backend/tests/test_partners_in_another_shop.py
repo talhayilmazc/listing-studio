@@ -221,3 +221,48 @@ async def test_a_shop_that_has_the_partner_is_as_it_was(world, fake_etsy) -> Non
     bare = ProfileShopLink(connection_id=extra["a3"], status="incomplete", shipping_profile_id=1, notes={"return_policy": L.NOT_FOUND})
     state = profile_shops.state_of(ListingProfile(connection_id=world["a1"], cached_payload=PAYLOAD), bare)
     assert not state.ready and set(state.missing) == {"return_policy", "readiness_state"} and state.partner == L.NO_PARTNER
+
+
+async def test_a_send_that_stopped_before_etsy_says_why_on_the_shop_row_with_the_action(world, fake_etsy) -> None:  # noqa: F811
+    """The batch page's shop workspace: a draft job that failed, waits or is still being made is said on its row
+    and on the shop's line at once, with the one action that fixes it."""
+    from app.db.models import JobStatus
+
+    extra = await _use_in_caps(world, fake_etsy, [])
+    first, second = world["contents"][0], world["contents"][1]
+    refusal = ("Frost Caps: Shipping profile: Etsy refused the copy of the shipping profile because of its origin postal code. "
+               "Change its origin postal code on the shipping profile in Frost Tees's Shop Manager and press Refresh.")
+    async with world["sm"]() as s:
+        s.add(Job(tenant_id=world["alice"], connection_id=extra["a3"], type=JobType.create_draft, status=JobStatus.failed,
+                  payload={"content_id": str(first)}, last_error=refusal))
+        s.add(Job(tenant_id=world["alice"], connection_id=extra["a3"], type=JobType.create_draft, status=JobStatus.queued,
+                  payload={"content_id": str(second)}, paused_reason="shop_setup"))
+        await s.commit()
+    rows = (await world["a"].get(f"/api/batches/{world['batch']}/shops/{extra['a3']}/rows")).json()["rows"]
+    by_id = {r["content_id"]: r for r in rows}
+    failed, waiting = by_id[str(first)]["last_try"], by_id[str(second)]["last_try"]
+    assert failed["status"] == "failed" and failed["reason"] == refusal
+    assert failed["advice"]["action"] in ("set_up_shop", "profiles", "retry") and failed["advice"]["label"]
+    assert waiting["status"] == "waiting" and waiting["reason"].startswith("Preparing Frost Caps's shipping, return and processing settings")
+    shops = {s["name"]: s for s in (await world["a"].get(f"/api/batches/{world['batch']}/shops")).json()["shops"]}
+    assert (shops["Frost Caps"]["failed"], shops["Frost Caps"]["failure"]) == (1, refusal)
+    assert shops["Frost Caps"]["advice"]["label"] and shops["Frost Tees"]["failed"] == 0 and shops["Frost Tees"]["failure"] is None
+
+    # A newer job says what is true now: being made, then nothing once it made the draft.
+    async with world["sm"]() as s:
+        retry = Job(tenant_id=world["alice"], connection_id=extra["a3"], type=JobType.create_draft, status=JobStatus.running,
+                    payload={"content_id": str(first)}, created_at=datetime.now(timezone.utc) + timedelta(minutes=1))
+        s.add(retry)
+        await s.commit()
+        retry_id = retry.id
+    row = next(r for r in (await world["a"].get(f"/api/batches/{world['batch']}/shops/{extra['a3']}/rows")).json()["rows"]
+               if r["content_id"] == str(first))
+    assert row["last_try"] == {"status": "working", "reason": None, "advice": None}
+    async with world["sm"]() as s:
+        (await s.get(Job, retry_id)).status = JobStatus.succeeded
+        await s.commit()
+    row = next(r for r in (await world["a"].get(f"/api/batches/{world['batch']}/shops/{extra['a3']}/rows")).json()["rows"]
+               if r["content_id"] == str(first))
+    assert row["last_try"] is None
+    # Another account sees nothing of it.
+    assert (await world["b"].get(f"/api/batches/{world['batch']}/shops/{extra['a3']}/rows")).status_code == 404

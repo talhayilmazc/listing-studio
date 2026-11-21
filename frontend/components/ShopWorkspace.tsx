@@ -6,11 +6,13 @@ import {
   STATE_WORDS,
   addTagsTo,
   addWordsTo,
+  failedLine,
   removeTagsFrom,
   removeWordsFrom,
   replaceIn,
   replacePrefix,
   selectable,
+  sendResult,
   sendSummary,
   shopColour,
   shopLine,
@@ -23,11 +25,15 @@ import { ShopPhotoEditor } from "./ShopPhotoEditor";
 import { AttributesEditor } from "./AttributesEditor";
 import { AttributeBulkSet, PhotoBulk } from "./BulkExtras";
 import { StatusChip } from "./StatusChip";
+import { ErrorNote } from "./ErrorNote";
 
 import { Txt } from "@/components/Txt";
 type Row = AnotherShopPreview["rows"][number];
 /** A shop name ending a sentence: one full stop, even for "Juniper Print Co.". */
 const said = (name: string) => (name.endsWith(".") ? name : `${name}.`);
+// After a send the rows are read again every few seconds until no draft is still being made (about two minutes at most).
+const WATCH_MS = 2500;
+const WATCH_TRIES = 48;
 interface Shop {
   id: string;
   name: string;
@@ -83,6 +89,9 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
   const [problem, setProblem] = useState<string | null>(null);
   const [summary, setSummary] = useState<AnotherShopPreview | null>(null);
   const [sent, setSent] = useState<string[] | null>(null);
+  // The drafts just asked for: followed until none is still being made, so one that stopped says why at once.
+  const [watch, setWatch] = useState<{ ids: string[]; tries: number } | null>(null);
+  const [outcome, setOutcome] = useState<{ line: string; failed: boolean } | null>(null);
 
   const load = useCallback(async () => {
     if (!shopId) return setLoaded(null);
@@ -99,8 +108,26 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
     setSent(null);
     setNotice(null);
     setProblem(null);
+    setWatch(null);
+    setOutcome(null);
     load();
   }, [load]);
+  useEffect(() => {
+    if (!watch || !preview || !shop) return;
+    const result = sendResult(preview.rows, watch.ids, shop.name);
+    if (result.settled || watch.tries >= WATCH_TRIES) {
+      setOutcome({ line: result.line, failed: result.failed > 0 });
+      setNotice(null);
+      setWatch(null);
+      onChanged();
+      return;
+    }
+    const t = setTimeout(() => {
+      setWatch((w) => (w ? { ...w, tries: w.tries + 1 } : w));
+      load();
+    }, WATCH_MS);
+    return () => clearTimeout(t);
+  }, [watch, preview, shop, load, onChanged]);
   useEffect(() => {
     if (preview && preselect.length) setPicked((cur) => (cur.length ? cur : preselect.filter((id) => preview.rows.some((r) => r.content_id === id && selectable(r)))));
   }, [preview, preselect]);
@@ -147,9 +174,21 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
     await run(async () => {
       const res = await api.anotherShop(batchId, { connection_id: shopId, content_ids: ids, sku_mode: "keep" });
       setNotice(res.message);
+      setOutcome(null);
       setSummary(null);
       setPicked([]);
       setSent(ids);
+      setWatch({ ids, tries: 0 });
+    });
+  }
+
+  /** One listing's draft asked for again (after what stopped it was fixed, or by itself for a shop setting). */
+  async function again(contentId: string) {
+    if (!shopId) return;
+    await run(async () => {
+      await api.anotherShop(batchId, { connection_id: shopId, content_ids: [contentId], sku_mode: "keep" });
+      setOutcome(null);
+      setWatch({ ids: [contentId], tries: 0 });
     });
   }
 
@@ -172,6 +211,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
             <span>{`${counts.drafted} drafted`}</span>
             <span>{`${counts.scheduled} scheduled`}</span>
             <span>{`${counts.published} published`}</span>
+            {failedLine(counts) && <span key="failed" className="basis-full font-medium text-rose-800" data-testid="shop-bar-failed">{failedLine(counts)}</span>}
           </span>
         ) : (
           <span key="hint" className="text-xs text-slate-600">
@@ -182,7 +222,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
       {!shop && shopData && (
         <ul key="all" className="flex flex-wrap gap-x-5 gap-y-1 px-1 text-xs text-slate-600" data-testid="shop-bar-all">
           {shopData.shops.filter((s) => s.not_sent < s.total).map((s) => (
-            <li key={s.shop_id}><span translate="no">{`${s.name} · ${shopLine(s)}`}</span></li>
+            <li key={s.shop_id}><span translate="no">{`${s.name} · ${shopLine(s)}${failedLine(s) ? ` · ${failedLine(s)}` : ""}`}</span></li>
           ))}
         </ul>
       )}
@@ -198,6 +238,12 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
             <span className="text-slate-600" translate="no">{`${chosen.length} of ${open.length} selected`}</span>
           </div>
           {notice && <p key="notice" role="status" className="text-sm text-brand-800" translate="no">{notice}</p>}
+          {outcome && (
+            <p key="outcome" role={outcome.failed ? "alert" : "status"} translate="no" data-testid="workspace-send-result"
+              className={"text-sm " + (outcome.failed ? "font-medium text-rose-800" : "text-brand-800")}>
+              {outcome.line}
+            </p>
+          )}
           {problem && <p key="problem" role="alert" className="text-sm text-rose-700">{problem}</p>}
           <ul className="space-y-2">
             {rows.map((r) => (
@@ -205,7 +251,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
                 cover={coverOf[r.content_id]} profiles={shopProfiles} picked={chosen.includes(r.content_id)}
                 rewriteRule={preview.rewrite_rule} busy={busy}
                 onPick={(on) => setPicked((cur) => (on ? [...cur, r.content_id] : cur.filter((x) => x !== r.content_id)))}
-                run={run} reload={load} />
+                run={run} reload={load} onAgain={() => again(r.content_id)} />
             ))}
           </ul>
           {sent && sent.length > 0 && (
@@ -239,7 +285,7 @@ export const ShopWorkspace = forwardRef<ShopWorkspaceHandle, {
 });
 
 function WorkspaceRow({
-  row, shop, colour, batchId, cover, profiles, picked, rewriteRule, busy, onPick, run, reload,
+  row, shop, colour, batchId, cover, profiles, picked, rewriteRule, busy, onPick, run, reload, onAgain,
 }: {
   row: Row;
   shop: Shop;
@@ -253,6 +299,8 @@ function WorkspaceRow({
   onPick: (on: boolean) => void;
   run: (what: () => Promise<unknown>, done?: string) => Promise<void>;
   reload: () => Promise<void>;
+  /** Ask for this listing's draft in the shop again. */
+  onAgain: () => void;
 }) {
   const locked = row.state === "there";
   const [sku, setSku] = useState(row.sku ?? "");
@@ -351,6 +399,19 @@ function WorkspaceRow({
               {row.partner === "required" && row.partner_profile_id && (
                 <a key="profile" href={`/profiles#profile-${row.partner_profile_id}`} className="tap ml-2 text-brand-700 underline">Open the profile</a>
               )}
+            </p>
+          )}
+          {row.last_try?.status === "failed" && (
+            // Its last draft here was not made: why, in plain words, and the one action that fixes it.
+            <div key="tried" className="sm:col-span-full" translate="no">
+              <ErrorNote testId="workspace-row-failed" message={`Draft not made: ${row.last_try.reason ?? "the draft could not be made"}`}
+                advice={row.last_try.advice}
+                onAction={row.last_try.advice && ["retry", "set_up_shop"].includes(row.last_try.advice.action) ? () => onAgain() : undefined} />
+            </div>
+          )}
+          {row.last_try && row.last_try.status !== "failed" && (
+            <p key="trying" role="status" className="text-slate-600 sm:col-span-full" translate="no" data-testid="workspace-row-trying">
+              {row.last_try.status === "working" ? `Creating the draft in ${shop.name}…` : row.last_try.reason}
             </p>
           )}
           {row.partner === "note" && (

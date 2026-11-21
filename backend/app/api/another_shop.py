@@ -65,6 +65,9 @@ from app.db.models import (
     Asset,
     EtsyConnection,
     GeneratedContent,
+    Job,
+    JobStatus,
+    JobType,
     ListingProfile,
     ListingPublication,
     ShopListingCache,
@@ -92,6 +95,15 @@ STATE_WORDS = {shop_listing.NOT_SENT: "not sent", shop_listing.DRAFTED: "drafted
 # --- schemas --------------------------------------------------------------------------------------
 
 
+class LastTry(BaseModel):
+    """The last draft job of a listing that is not in the shop yet: being made, waiting (it carries on by
+    itself: why), or not made (why, in plain words, and the one action that fixes it; etsy/advice.py)."""
+
+    status: Literal["working", "waiting", "failed"]
+    reason: str | None = None
+    advice: schemas.AdviceOut | None = None
+
+
 class ShopStatusOut(BaseModel):
     shop_id: uuid.UUID
     name: str
@@ -101,6 +113,10 @@ class ShopStatusOut(BaseModel):
     drafted: int
     scheduled: int
     published: int
+    #: Listings whose last draft there was not made, with the reason most of them share and what fixes it.
+    failed: int = 0
+    failure: str | None = None
+    advice: schemas.AdviceOut | None = None
 
 
 class ListingShopOut(BaseModel):
@@ -213,6 +229,8 @@ class AnotherShopRow(BaseModel):
     #: It goes to that shop with its own photo order (its first the cover there), and with attributes of its own.
     photos_own: bool = False
     attributes_own: bool = False
+    #: Its last draft job there, while it is not in the shop: said on the row right away.
+    last_try: LastTry | None = None
 
 
 class AnotherShopPreview(BaseModel):
@@ -333,6 +351,49 @@ def _apply_text(content: GeneratedContent, shop_id: uuid.UUID, text: ShopTextIn 
         shop_listing.set_override(content, shop_id, **{name: None if value == own[name] else value})
 
 
+#: A draft job that waits and carries on by itself, in the seller's words (``job.paused_reason``).
+WAITING = {
+    "shop_setup": "Preparing {shop}'s shipping, return and processing settings; the draft is made right after.",
+    "personalization_held": "Held: its personalization question does not follow Etsy's rules. Fix it on the profile or the "
+                            "listing and the draft is made by itself.",
+    "llm_unavailable": "Waiting for the title to be fitted to {shop}; it carries on by itself.",
+}
+
+
+async def last_tries(session: AsyncSession, tenant_id: uuid.UUID, shops: dict[uuid.UUID, str],
+                     content_ids: list[uuid.UUID]) -> dict[tuple[uuid.UUID, uuid.UUID], LastTry]:
+    """(shop, listing) -> what became of its last draft job there, for jobs that have not made a draft: so a send
+    that stopped before Etsy (a shop setting, a calculated shipping profile without a weight, a refusal) is said
+    where the seller is looking, at once, with what fixes it. A job that succeeded or was cancelled says nothing."""
+    from app.pipeline.unfinished import plain_error
+
+    if not shops or not content_ids:
+        return {}
+    key = Job.payload["content_id"].as_string()
+    newest: dict[tuple[uuid.UUID, uuid.UUID], Job] = {}
+    ids = [str(i) for i in content_ids]
+    for start in range(0, len(ids), 500):
+        rows = await session.execute(select(Job).where(
+            Job.tenant_id == tenant_id, Job.type == JobType.create_draft, Job.connection_id.in_(list(shops)),
+            key.in_(ids[start:start + 500])).order_by(Job.created_at))
+        for job in rows.scalars():
+            newest[(job.connection_id, uuid.UUID(str(job.payload["content_id"])))] = job
+    out: dict[tuple[uuid.UUID, uuid.UUID], LastTry] = {}
+    for pair, job in newest.items():
+        shop = shops[pair[0]]
+        if job.status is JobStatus.failed:
+            reason = plain_error(job.last_error, shop) or "the draft could not be made"
+            out[pair] = LastTry(status="failed", reason=reason,
+                                advice=schemas.advice_out(reason, (job.payload or {}).get("etsy_error")))
+        elif job.status in (JobStatus.queued, JobStatus.running):
+            if job.paused_reason:
+                waiting = WAITING.get(job.paused_reason, "Waiting for Etsy; it carries on by itself.").format(shop=shop)
+                out[pair] = LastTry(status="waiting", reason=waiting)
+            else:
+                out[pair] = LastTry(status="working")
+    return out
+
+
 async def _why_not_here(session: AsyncSession, content: GeneratedContent, shop: EtsyConnection,
                         profile: ListingProfile | None, row: AnotherShopRow, *, reading: bool = False) -> str | None:
     """Why this listing cannot go to that shop now: not approved (or edited for that shop since),
@@ -423,6 +484,7 @@ async def _work(
     publications = {p.content_id: p for p in (await session.execute(select(ListingPublication).where(
         ListingPublication.connection_id == shop.id, ListingPublication.content_id.in_([c.id for c in contents]),
         ListingPublication.state != "deleted_on_etsy"))).scalars()} if contents else {}
+    tries = await last_tries(session, tenant.id, {shop.id: shop_label(shop)}, [c.id for c in contents])
     for content in contents:
         asset = assets.get(content.asset_id)
         key = (asset.group_key if asset else None) or ""
@@ -444,6 +506,7 @@ async def _work(
             pub = publications.get(content.id)
             row.listing_link = link_for(pub.etsy_listing_id, pub.state) if pub is not None else None
             continue
+        row.last_try = tries.get((shop.id, content.id))
         _apply_text(content, shop.id, body.texts.get(content.id))
         row.title, row.tags, row.description = shop_listing.text_for(content, shop.id)
         row.own_text = bool(shop_listing.text_in(content, shop.id))
@@ -531,11 +594,22 @@ async def batch_shops(batch_id: uuid.UUID, session: AsyncSession = Depends(get_s
     shops = await active_shops(session, tenant.id)
     states = await shop_listing.states(session, contents)
     out_shops: list[ShopStatusOut] = []
+    tries = await last_tries(session, tenant.id, {s.id: shop_label(s) for s in shops}, [c.id for c in contents])
     for shop in shops:
         counts = {s: 0 for s in shop_listing.STATES}
+        failures: list[LastTry] = []
         for content in contents:
-            counts[states[content.id].get(shop.id, shop_listing.NOT_SENT)] += 1
-        out_shops.append(ShopStatusOut(shop_id=shop.id, name=shop_label(shop), total=len(contents), **counts))
+            state = states[content.id].get(shop.id, shop_listing.NOT_SENT)
+            counts[state] += 1
+            last = tries.get((shop.id, content.id))
+            if state == shop_listing.NOT_SENT and last is not None and last.status == "failed":
+                failures.append(last)
+        # The reason most of them share, said once on the shop's row with what fixes it.
+        reasons = [f.reason or "" for f in failures]
+        first = max(failures, key=lambda f: reasons.count(f.reason or "")) if failures else None
+        out_shops.append(ShopStatusOut(shop_id=shop.id, name=shop_label(shop), total=len(contents), **counts,
+                                       failed=len(failures), failure=first.reason if first else None,
+                                       advice=first.advice if first else None))
     listings = []
     for content in contents:
         asset = assets.get(content.asset_id)
