@@ -208,7 +208,11 @@ def test_only_heavy_work_reserves_memory() -> None:
     hold them up. The only callers are the heavy jobs."""
     callers = sorted(p.relative_to(APP).as_posix() for p in APP.rglob("*.py")
                      if "memory_budget" in p.read_text(encoding="utf-8") and p.name != "memory_budget.py")
-    assert callers == ["workers/fair.py", "workers/psd.py", "workers/uploads.py"], callers
+    assert callers == ["workers/fair.py", "workers/listing_video.py", "workers/psd.py", "workers/uploads.py"], callers
+    # A listing video's reading takes a small lease (feature/listing-video); sending it with a draft takes none.
+    video = (APP / "workers" / "listing_video.py").read_text(encoding="utf-8")
+    assert video.count("memory_budget.reserve(") == 1
+    assert video.index("memory_budget.reserve(") < video.index("async def send(") < video.index("async def after_draft(")
     fair = (APP / "workers" / "fair.py").read_text(encoding="utf-8")
     # In fair.py only the heavy mockup jobs' guard reserves; drafts' fair turns do not.
     assert fair.count("memory_budget.reserve(") == 1 and "async def heavy(" in fair

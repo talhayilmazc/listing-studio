@@ -47,6 +47,7 @@ import { LiveChecks } from "./LiveChecks";
 import { ErrorNote } from "./ErrorNote";
 import { toast } from "@/lib/toast";
 import { formatPrice } from "@/lib/reviewKeys";
+import { VideoSlot } from "./VideoSlot";
 // The classic bounds; a listing carries its own profile's (title_min/max_length).
 const DEFAULT_MIN_TITLE = 110;
 const DEFAULT_MAX_TITLE = 140;
@@ -601,6 +602,12 @@ export function ReviewCard({
             example={Boolean(initial.is_example)}
             batchId={batchId ?? null}
           />
+          {batchId && !initial.is_example && (
+            // The listing's video (feature/listing-video): one quiet line when there is none.
+            <div key="video" className="border-t border-slate-100 px-4 py-2">
+              <VideoSlot batchId={batchId} groupKey={initial.group_key ?? ""} contentId={initial.id} />
+            </div>
+          )}
           {shopCover(shopData?.listings, initial.id, inView?.id) && inView && (
             <p key="shop-cover" className="border-t border-slate-100 px-4 py-1.5 text-xs text-slate-600" data-testid="card-shop-cover">
               <span translate="no">{`Cover and photo order in ${inView.name}: its own`}</span>

@@ -252,6 +252,18 @@ async def _errors(redis: Any, now: datetime) -> list[Problem]:
     return []
 
 
+async def _videos(redis: Any, now: datetime) -> list[Problem]:
+    """Many listing videos failing at once (monitor/videos.py): one alert. Each seller already sees their own."""
+    from app.monitor import videos
+
+    failed = await videos.count(redis, videos.HOUR, now.timestamp())
+    if failed > videos.ALERT_OVER:
+        return [Problem("video_uploads_failing", "Listing videos", (
+            f"{failed} listing videos could not be added to their drafts on Etsy in the last hour "
+            "(the drafts themselves were made; each seller sees the reason and Try again)."))]
+    return []
+
+
 async def _beats(redis: Any, now: datetime) -> list[Problem]:
     stamp = now.timestamp()
     await redis.set(FIRST_TICK, str(stamp), nx=True, ex=30 * 86400)
@@ -404,6 +416,7 @@ async def problems(session: AsyncSession, redis: Any, now: datetime | None = Non
     found += await _tokens(session, now, names)
     found += await _connections(session, redis, now)
     found += await _errors(redis, now)
+    found += await _videos(redis, now)
     found += await _beats(redis, now)
     found += await _pool(redis)
     found += await _idle(redis, now)

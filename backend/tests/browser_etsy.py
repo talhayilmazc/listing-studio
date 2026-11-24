@@ -34,8 +34,17 @@ _ID = re.compile("/[0-9]+")
 
 
 class BrowserEtsy(FakeEtsy):
-    def __init__(self, on_sent: Callable[[dict[str, Any]], Awaitable[None]] | None = None) -> None:
+    def __init__(self, on_sent: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+                 on_video: Callable[[dict[str, Any]], Awaitable[None]] | None = None) -> None:
         super().__init__()
+        #: listing id -> its videos, as getListingVideos answers (feature/listing-video).
+        self.videos: dict[int, list[dict[str, Any]]] = {}
+        #: Every uploadListingVideo, as sent: {"shop_id", "listing_id", "name", "bytes", "video_id"}.
+        self.video_uploads: list[dict[str, Any]] = []
+        #: Etsy's refusal of the next video uploads (its own words), while set.
+        self.refuse_video: str | None = None
+        self._on_video = on_video
+        self._next_video = 880000
         #: Every createDraftListing, as sent: {"shop_id", "form": {field: value}}; with the listing it made.
         self.sent: list[dict[str, Any]] = []
         self._on_sent = on_sent
@@ -74,6 +83,11 @@ class BrowserEtsy(FakeEtsy):
         if method == "GET" and (m := re.fullmatch(r"(?:/shops/\d+)?/listings/(\d+)/properties", path)):
             rows = list(self.properties.get(int(m.group(1)), {}).values())
             return self._seen(method, path, httpx.Response(200, json={"count": len(rows), "results": rows}))
+        if m := re.fullmatch(r"/shops/(\d+)/listings/(\d+)/videos(?:/(\d+))?", path):
+            return self._seen(method, path, await self._video(request, int(m.group(1)), int(m.group(2)), m.group(3)))
+        if method == "GET" and (m := re.fullmatch(r"/listings/(\d+)/videos", path)):
+            rows = self.videos.get(int(m.group(1)), [])
+            return self._seen(method, path, httpx.Response(200, json={"count": len(rows), "results": rows}))
         if method == "POST" and (m := re.fullmatch(r"/shops/(\d+)/listings", path)):
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
             response = await super().handle(request)
@@ -102,6 +116,32 @@ class BrowserEtsy(FakeEtsy):
             })
             return httpx.Response(200, json=row)
         return await super().handle(request)
+
+    async def _video(self, request: httpx.Request, shop_id: int, listing_id: int, video_id: str | None) -> httpx.Response:
+        """uploadListingVideo and deleteListingVideo, as Etsy's developer pages describe them: one video a
+        request, at most two active on a listing (a third is a 409), a delete answers 204."""
+        rows = self.videos.setdefault(listing_id, [])
+        if request.method == "DELETE" and video_id:
+            self.videos[listing_id] = [v for v in rows if v["video_id"] != int(video_id)]
+            return httpx.Response(204)
+        if request.method != "POST":
+            return httpx.Response(404, json={"error": "no route"})
+        body = request.content
+        if self.refuse_video:
+            return httpx.Response(400, json={"error": self.refuse_video})
+        if len([v for v in rows if v["video_state"] == "active"]) >= 2:
+            return httpx.Response(409, json={"error": "The listing already has 2 active videos."})
+        named = re.search(rb'filename="([^"]*)"', body)
+        self._next_video += 1
+        row = {"video_id": self._next_video, "video_state": "active", "height": 1920, "width": 1080,
+               "thumbnail_url": "https://example.test/t.jpg", "video_url": "https://example.test/v.mp4"}
+        rows.append(row)
+        record = {"shop_id": shop_id, "listing_id": listing_id, "name": named.group(1).decode() if named else "",
+                  "bytes": len(body), "video_id": row["video_id"], "content_type": request.headers.get("content-type", "").split(";")[0]}
+        self.video_uploads.append(record)
+        if self._on_video is not None:
+            await self._on_video(record)
+        return httpx.Response(201, json=row)
 
     def _seen(self, method: str, path: str, response: httpx.Response) -> httpx.Response:
         self.requests.append(method + " " + _ID.sub("/{id}", path))

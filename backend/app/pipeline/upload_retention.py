@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.models import AppSetting, Asset, MockupDesign, MockupDesignVersion, MockupOutput, UploadBatch
 from app.pipeline import group_state as gs
+from app.pipeline import listing_videos
 from app.pipeline.images import ImageProcessingError, resize_preview
 from app.pipeline.storage import Storage
 
@@ -272,6 +273,8 @@ async def run(
         if apply:
             kept = await asyncio.to_thread(_thumbnail, storage, group)
             await asyncio.to_thread(_delete, storage, group)
+            # The group's video goes with its photos (pipeline/listing_videos.py).
+            await listing_videos.remove_files(session, storage, group.batch_id, group.group_key, now, apply=True)
             await session.execute(
                 update(Asset)
                 .where(Asset.id.in_([i.id for i in group.images]))

@@ -492,6 +492,12 @@ async def _run_publish_job(ctx: dict[str, Any], job_id: str) -> str:
                     return "succeeded"
             return await recovery.after_failure(ctx, session, uuid.UUID(job_id), exc, "run_publish_job")
 
+        # The listing's video, when it has one (workers/listing_video.py): after the draft and its images,
+        # and never the draft's failure. A listing without a video: nothing is read or sent.
+        from app.workers import listing_video
+
+        await listing_video.after_draft(ctx, session, content=content, connection=connection, asset=asset,
+                                        access_token=access_token, tenant=tenant)
         if over:
             # Never silently: the job says which photos it left out (file names only).
             job.payload = {**(job.payload or {}), "left_out": [a.original_filename for a in over]}

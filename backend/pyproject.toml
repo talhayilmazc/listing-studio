@@ -23,7 +23,10 @@ dependencies = [
     "certifi>=2026.10.19",
     "anthropic>=0.69",
     "argon2-cffi>=23.1",
-    "sentry-sdk>=2.0",
+    # Below 3: sentry-sdk 3.0.0 refuses the option the privacy promise rests on (send_default_pii=False,
+    # core/errortracking.py: "Unknown option"), so with it error tracking would not start. An image rebuilt
+    # on 24 November 2026 picked 3.0.0 up by itself; moving to 3 is its own change, read against its docs.
+    "sentry-sdk>=2.0,<3",
     # Image analysis for mockup templates, on our own CPU (pipeline/mockup_vision.py):
     # LiteRT runs Google's MediaPipe models (Apache-2.0); numpy holds the tensors.
     "ai-edge-litert==2.3.0",
@@ -33,6 +36,10 @@ dependencies = [
     "onnxruntime==1.20.1",
     "scipy==1.13.1",
     "scikit-image==0.24.0",
+    # A listing video's poster frame (pipeline/listing_videos.py): the wrapper (BSD-2) carries a static ffmpeg
+    # program (GPL build), run as a separate process for one frame; nothing of it is linked into the app, and
+    # a video without a poster is sent to Etsy all the same.
+    "imageio-ffmpeg>=0.5.1",
     # Sellers' own Photoshop mockups (pipeline/psd_read.py, feature/psd-templates): psd-tools (MIT),
     # parsed in a child process with time and memory limits (pipeline/psd_sandbox.py).
     "psd-tools==1.24.0",

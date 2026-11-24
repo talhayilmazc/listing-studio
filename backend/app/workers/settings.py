@@ -66,6 +66,7 @@ from app.workers.writing import write_batch_listings
 from app.workers.psd import convert_psd
 from app.workers.uploads import process_upload, requeue_waiting_uploads
 from app.workers.listing_fixes import apply_listing_fix, read_listing_properties, undo_listing_fix, write_listing_fix_text
+from app.workers.listing_video import attach_listing_video, process_listing_video
 from app.workers.skus import update_sku_on_etsy
 from app.workers.upkeep import daily_upkeep
 from app.monitor import signals
@@ -181,6 +182,8 @@ class WorkerSettings:
         sync_shop_sections,
         create_shop_section,
         update_sku_on_etsy,
+        process_listing_video,
+        attach_listing_video,
         read_listing_properties,
         write_listing_fix_text,
         write_batch_listings,

@@ -612,6 +612,15 @@ export const api = {
     req<PsdUploadState>(`/psd-uploads/${id}/choice`, { method: "POST", body: JSON.stringify({ index }) }),
   psdUse: (id: string) => req<PsdUploadState>(`/psd-uploads/${id}/use`, { method: "POST" }),
   psdCancel: (id: string) => req<void>(`/psd-uploads/${id}`, { method: "DELETE" }),
+  /** A listing's video (feature/listing-video; lib/videoRules.ts): the batch's videos and what became of each on Etsy. */
+  batchVideos: (batch: string) => req<import("./videoRules").BatchVideos>(`/batches/${batch}/videos`),
+  openVideo: (batch: string, body: { filename: string; size: number; group_key: string | null; upload_folder: string | null; place: boolean; connection_id: string | null }) =>
+    req<import("./videoRules").ListingVideo>(`/batches/${batch}/videos`, { method: "POST", body: JSON.stringify(body) }),
+  video: (id: string) => req<import("./videoRules").ListingVideo>(`/listing-videos/${id}`),
+  removeVideo: (id: string) => req<void>(`/listing-videos/${id}`, { method: "DELETE" }),
+  /** "Try again" / "Add it to the draft" / "Replace video": only on the seller's confirmed click. */
+  sendVideo: (id: string, body: { content_id: string; connection_id: string; replace: boolean; confirm: boolean }) =>
+    req<import("./videoRules").VideoDraft>(`/listing-videos/${id}/send`, { method: "POST", body: JSON.stringify(body) }),
   /** A version of personalization text within Etsy's limit, by the content model: an offer only, nothing saved. */
   shortenPersonalization: (field: "question" | "instructions", text: string) =>
     req<{ text: string | null; message: string | null }>("/personalization/shorten", { method: "POST", body: JSON.stringify({ field, text }) }),
@@ -1214,6 +1223,30 @@ export function putPsdPiece(id: string, offset: number, piece: Blob, onProgress:
         body = undefined;
       }
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as PsdUploadState);
+      else reject(new ApiError(messageFor(xhr.status, body, xhr.statusText), xhr.status));
+    };
+    xhr.onerror = () => reject(new ApiError("The upload could not reach the server.", 0));
+    xhr.send(piece);
+  });
+}
+
+/** One piece of a listing's video (api/listing_videos.py): the same 8 MB pieces, with progress inside the piece. */
+export function putVideoPiece(id: string, offset: number, piece: Blob, onProgress: (sent: number) => void): Promise<import("./videoRules").ListingVideo> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `${BASE}/listing-videos/${id}/chunk?offset=${offset}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.ontimeout = () => reject(new ApiError("The connection stopped answering.", 0));
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let body: unknown;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        body = undefined;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as import("./videoRules").ListingVideo);
       else reject(new ApiError(messageFor(xhr.status, body, xhr.statusText), xhr.status));
     };
     xhr.onerror = () => reject(new ApiError("The upload could not reach the server.", 0));

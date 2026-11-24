@@ -31,7 +31,7 @@ export const LAST_UPDATED = "14 October 2026";
  * account; 1 November 2026: a cookieless visit counter on the public site, and the free tools; 2 November 2026: fixes to live listings) without asking them to agree again, so the version above stays.
  * Never earlier than LAST_UPDATED.
  */
-export const PRIVACY_UPDATED = "14 November 2026";
+export const PRIVACY_UPDATED = "24 November 2026";
 
 /** The sentence beside the tick at signup and on the one-time acceptance screen. */
 export const CONSENT_STATEMENT = "I agree to the Terms of Service and Privacy Policy";
@@ -95,7 +95,7 @@ export const RETENTION = {
 /** Why each Etsy permission is asked for: the feature that uses it. */
 export const SCOPE_REASONS: { scope: string; reason: string }[] = [
   { scope: "listings_r", reason: "Read your own listings: to choose a reference listing for a profile, show your shop's listings, and read the views and favourites of listings made with Listyro." },
-  { scope: "listings_w", reason: "Create draft listings from your designs, upload their images, set their variations and SKUs, publish a draft when you approve it, and change a live listing's title, tags and attributes when you approve a listing health fix." },
+  { scope: "listings_w", reason: "Create draft listings from your designs, upload their images and video, set their variations and SKUs, publish a draft when you approve it, and change a live listing's title, tags and attributes when you approve a listing health fix." },
   { scope: "shops_r", reason: "Read your shop's name, sections, shipping profiles, return policies and production partners, so drafts use your shop's own settings." },
   { scope: "shops_w", reason: "Create a shop section you confirm, and copy your main shop's shipping profile, return policy and processing profile into your other shops when a reference listing is used there (only where a shop has none, once per shop)." },
   { scope: "transactions_r", reason: "Read your own shop's sales and its payment account ledger for your profit, cost and ads reporting. Nothing about buyers is stored." },

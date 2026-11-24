@@ -703,6 +703,36 @@ class EtsyApiClient:
             tenant_limit=tenant_limit,
         )
 
+    # --- A listing's video (feature/listing-video; pipeline/video_rules.py) ---------------------
+    async def get_listing_videos(
+        self, listing_id: int, *, access_token: str, tenant_id: Any = None, tenant_limit: int | None = None
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET", f"/application/listings/{listing_id}/videos",
+            access_token=access_token, tenant_id=tenant_id, tenant_limit=tenant_limit,
+        )
+
+    async def upload_listing_video(
+        self, shop_id: int, listing_id: int, *, video: Any, filename: str, mime_type: str, access_token: str,
+        tenant_id: Any = None, tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """uploadListingVideo. ``video`` is an open file, sent as a stream (never held in memory whole; httpx
+        rewinds it for a 429's resend). Not repeated on no answer: Etsy may have it (the caller looks first)."""
+        return await self._request(
+            "POST", f"/application/shops/{shop_id}/listings/{listing_id}/videos",
+            access_token=access_token, data={"name": filename},
+            files={"video": (filename, video, mime_type)}, tenant_id=tenant_id, tenant_limit=tenant_limit,
+        )
+
+    async def delete_listing_video(
+        self, shop_id: int, listing_id: int, video_id: int, *, access_token: str, tenant_id: Any = None,
+        tenant_limit: int | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE", f"/application/shops/{shop_id}/listings/{listing_id}/videos/{video_id}",
+            access_token=access_token, tenant_id=tenant_id, tenant_limit=tenant_limit,
+        )
+
     async def update_listing_inventory(
         self,
         listing_id: int,

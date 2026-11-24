@@ -1,0 +1,40 @@
+{
+  "_about": "A listing video's rules (backend/app/pipeline/video_rules.py and frontend/lib/videoRules.ts read these same cases). The limits are Etsy's Help article's, read by the owner on 24 November 2026.",
+  "files": [
+    {"name": "clip.mp4", "size": 5000000, "problem": null},
+    {"name": "CLIP.MOV", "size": 104857600, "problem": null},
+    {"name": "clip.avi", "size": 5000000, "problem": null},
+    {"name": "clip.flv", "size": 5000000, "problem": null},
+    {"name": "clip.3gp", "size": 5000000, "problem": null},
+    {"name": "clip.mpeg", "size": 5000000, "problem": null},
+    {"name": "clip.mpg", "size": 5000000, "problem": null},
+    {"name": "clip.wmv", "size": 5000000, "problem": "Choose a video file: MP4, MOV, FLV, AVI, 3GP or MPEG."},
+    {"name": "photo.jpg", "size": 5000000, "problem": "Choose a video file: MP4, MOV, FLV, AVI, 3GP or MPEG."},
+    {"name": "clip.mp4", "size": 136314880, "problem": "This video is 130 MB; Etsy takes videos up to 100 MB."},
+    {"name": "clip.mp4", "size": 0, "problem": "This file could not be read as a video. Export it again as MP4 or MOV and add it again."}
+  ],
+  "durations": [
+    {"seconds": 8, "problem": null, "label": "0:08"},
+    {"seconds": 3, "problem": null, "label": "0:03"},
+    {"seconds": 15, "problem": null, "label": "0:15"},
+    {"seconds": 15.02, "problem": null, "label": "0:15"},
+    {"seconds": 2.9, "problem": null, "label": "0:03"},
+    {"seconds": 4.6, "problem": null, "label": "0:05"},
+    {"seconds": 2, "problem": "This video is 2 s; Etsy takes 3–15 s.", "label": "0:02"},
+    {"seconds": 22, "problem": "This video is 22 s; Etsy takes 3–15 s.", "label": "0:22"},
+    {"seconds": 75.4, "problem": "This video is 75.4 s; Etsy takes 3–15 s.", "label": "1:15"},
+    {"seconds": 0, "problem": "This file could not be read as a video. Export it again as MP4 or MOV and add it again.", "label": "0:00"}
+  ],
+  "frames": [
+    {"width": 1080, "height": 1920, "problem": null},
+    {"width": 1920, "height": 1080, "problem": null},
+    {"width": 500, "height": 1000, "problem": null},
+    {"width": 540, "height": 960, "problem": null},
+    {"width": 1000, "height": 1000, "problem": null},
+    {"width": null, "height": null, "problem": null},
+    {"width": 320, "height": 568, "problem": "This video is 320 px; Etsy needs at least 500 px."},
+    {"width": 854, "height": 480, "problem": "This video is 480 px; Etsy needs at least 500 px."},
+    {"width": 1920, "height": 800, "problem": "This video is 2.4:1; Etsy takes shapes between 2:1 and 1:2."},
+    {"width": 600, "height": 1300, "problem": "This video is 1:2.2; Etsy takes shapes between 2:1 and 1:2."}
+  ]
+}

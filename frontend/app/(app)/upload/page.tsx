@@ -36,6 +36,8 @@ import { GroupingChoice, GroupingResult } from "@/components/GroupingChoice";
 import { MockupUpload } from "@/components/MockupUpload";
 
 import { Txt } from "@/components/Txt";
+import { BatchVideoUploads } from "@/components/BatchVideoUploads";
+import { VIDEO_RE } from "@/lib/videoRules";
 interface Row {
   /** Stable identity: a ZIP's row is replaced by its images once unpacked. */
   key: string;
@@ -102,6 +104,7 @@ export default function UploadPage() {
   const [arrangedByHand, setArrangedByHand] = useState(false);
   // Files in chosen folders that are not images or ZIPs, left out.
   const [ignored, setIgnored] = useState(0);
+  const [videoItems, setVideoItems] = useState<Item[]>([]);
   const [phase, setPhase] = useState<"staging" | "uploading" | "done">("staging");
   // Uploads are not tied to a shop (B1): where a listing goes is chosen on the review page.
   // The upload itself: one row per file.
@@ -209,7 +212,10 @@ export default function UploadPage() {
     (items: Item[]) => {
       const images = items.filter((it) => IMAGE_RE.test(it.file.name));
       const zips = items.filter((it) => ZIP_RE.test(it.file.name)).map((it) => it.file);
-      const others = items.length - images.length - zips.length;
+      // A video among them is its listing's video (feature/listing-video): never a photo, sent after the photos.
+      const videos = items.filter((it) => VIDEO_RE.test(it.file.name));
+      if (videos.length) setVideoItems((v) => [...v, ...videos]);
+      const others = items.length - images.length - zips.length - videos.length;
       const incoming = images.map((it) => ({ file: it.file, relpath: it.relpath }));
       if (phase === "done" && batchId && summary && summary.regroupable !== false) {
         // The last upload is finished but nothing is written from it yet: these join
@@ -559,7 +565,7 @@ export default function UploadPage() {
       ref={filesRef}
       type="file"
       multiple
-      accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff,.zip,application/zip"
+      accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff,.zip,application/zip,.mp4,.mov,.flv,.avi,.3gp,.mpeg,.mpg,video/*"
       className="hidden"
       data-testid="files-input"
       onChange={(e) => {
@@ -784,6 +790,8 @@ export default function UploadPage() {
         {folderInput}
         {filesInput}
       </div>
+
+      <BatchVideoUploads key="videos" items={videoItems} batchId={batchId} ready={phase === "done"} />
 
       {!busy && summary && (
         <div key="choice" className="card space-y-3 p-4">

@@ -50,6 +50,7 @@ DESTRUCTIVE = frozenset({
     "batch.deleted",
     "batch.purged",
     "image.deleted",
+    "listing_video.deleted",
     "shop.disconnected",
     "publication.deleted_on_etsy",
     "schedule.cancelled",
