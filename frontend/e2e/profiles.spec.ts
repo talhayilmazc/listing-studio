@@ -109,15 +109,15 @@ test.describe("profiles made and edited by hand", () => {
     // The category's attributes cannot be read (a failed request on the desktop, no answer for 15 seconds on the
     // phone): the form says so and offers "Try again"; nothing else in it waits for them.
     const stuck: (() => void)[] = [];
-    await page.route("**/api/profile-form/category**", (route) => (phone ? new Promise<void>((done) => stuck.push(done)).then(() => route.abort()) : route.abort()));
+    await page.route("**/api/profile-form/category**", (route) => (phone ? new Promise<void>((done) => stuck.push(done)).then(() => route.abort().catch(() => undefined)) : route.abort()));
     await form.getByTestId("form-category-search").fill("t-shirt");
     await form.getByTestId("form-category-option").first().click();
     await expect(form.getByTestId("form-category-chosen")).toContainText("T-shirts");
     await group(page, "Details");
     if (phone) await expect(form.getByTestId("form-attributes-reading")).toBeVisible();
     await expect(form.getByTestId("form-attributes-failed")).toContainText("Couldn't read this category's attributes.", { timeout: 25_000 });
+    stuck.forEach((done) => done());  // the request that never answered is let go, then the address answers again
     await page.unroute("**/api/profile-form/category**");
-    stuck.forEach((done) => done());
     await form.getByTestId("form-attributes-retry").click();
     await expect(form.getByTestId("form-attributes")).toBeVisible({ timeout: 30_000 });
     await group(page, "Price & variations");
