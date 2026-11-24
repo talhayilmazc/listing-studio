@@ -42,6 +42,27 @@ perms="$(stat -c %a "$ENV_FILE" 2>/dev/null || echo "?")"
 
 [ "$(get APP_ENV)" = "production" ] && pass "APP_ENV=production" || fail "APP_ENV must be production"
 
+# Migrations: exactly one head. Two branches that each added "the next" migration leave two, and
+# `alembic upgrade head` then refuses to run: the deploy would stop with the old schema. Read from
+# the files themselves (a head is a revision that no other migration names as its down_revision),
+# so this needs no container.
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-backend/alembic/versions}"
+if ls "$MIGRATIONS_DIR"/*.py >/dev/null 2>&1; then
+  revisions="$(grep -hE '^revision[^a-z_]' "$MIGRATIONS_DIR"/*.py | grep -oE '"[^"]+"' | tr -d '"' | sort -u)"
+  parents="$(grep -hE '^down_revision[^a-z_]' "$MIGRATIONS_DIR"/*.py | grep -oE '"[^"]+"' | tr -d '"' | sort -u)"
+  heads="$(comm -23 <(echo "$revisions") <(echo "$parents") | grep -v '^$')"
+  head_count="$(echo "$heads" | grep -c .)"
+  if [ "$head_count" = "1" ]; then
+    pass "one migration head ($heads)"
+  elif [ "$head_count" = "0" ]; then
+    fail "no migration head found in $MIGRATIONS_DIR: the migrations cannot be read"
+  else
+    fail "$head_count migration heads ($(echo "$heads" | xargs)): alembic cannot upgrade; make one follow the other (its down_revision) before deploying"
+  fi
+else
+  warn "no migrations in $MIGRATIONS_DIR: the single-head check did not run"
+fi
+
 # The development switch that refuses every Etsy call before it is sent
 # (backend/app/etsy/guard.py). Left on in production the app looks healthy and
 # does nothing on Etsy. Compose's environment outranks .env, so both are read.

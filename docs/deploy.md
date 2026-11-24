@@ -391,6 +391,15 @@ and every screenshot on the site was broken. Do not update by hand with
 `up --build`: that is how a full disk took the site down.
 
 - Migrations run when the API starts.
+- **Exactly one migration head.** `deploy/preflight.sh` reads the migration files and fails when more
+  than one revision is nobody's `down_revision` ("2 migration heads (…)"): with two heads
+  `alembic upgrade head` refuses to run and the API would start on the old schema. This happens when
+  two branches each add "the next" migration. Today the chain ends `0106_health_sales_and_brand` →
+  `0108_manual_profiles`. **`fix/usage-reconcile-shops` carries `0107_publication_made_from`, which
+  also follows 0106: before that branch is merged, its migration must be moved after 0108** (rename
+  it `0109_publication_made_from` and set its `down_revision` to `"0108_manual_profiles"`; nothing
+  else in it changes). `backend/tests/test_preflight_script.py` fails if the repository ever has
+  two heads.
 - `up --build` recreates the worker along with everything else. This matters:
   the worker has no reload, and an old worker silently runs old job code.
 - If you bump the pinned `cloudflared` image, update it in both

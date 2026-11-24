@@ -180,12 +180,36 @@ def _patched(products: list[dict[str, Any]], table: dict[str, Any]) -> list[dict
 # --- values <-> payload -------------------------------------------------------------------------
 
 
+def description_body(description: Any) -> str:
+    """The part of a payload's description that every listing keeps: what follows its title block.
+
+    The draft path treats everything before a description's first blank line as the reference listing's own
+    title block and replaces it (reference.with_opening, replace_title_block); the rest is carried over. The form
+    shows and takes only that rest ("every listing made with the profile ends with it"). A description with no
+    blank line is all body."""
+    text = str(description or "")
+    lines = text.split("\n")
+    blank = next((i for i, line in enumerate(lines) if line.strip() == ""), None)
+    if blank is None:
+        return text.strip()
+    return "\n".join(lines[blank + 1:]).strip("\n")
+
+
+def description_template(body: Any) -> str:
+    """The seller's own description as the payload holds it: an empty title block, then all of it. So the draft
+    path, which replaces a description's title block, drops nothing the seller wrote (a first paragraph typed
+    into the form was once taken for a title block and left out of every listing)."""
+    text = _text(body).strip("\n")
+    return f"\n{text}" if text else ""
+
+
 def from_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     """The form's values for a payload (a reference listing's settings, or a manual profile's)."""
     p = payload or {}
     out: dict[str, Any] = {k: p.get(k) for k in PAYLOAD_FIELDS if k not in ("variations", "attributes", "materials",
                                                                              "production_partner_ids", "quantity")}
     out["quantity"] = p.get("quantity")
+    out["description"] = description_body(p.get("description"))
     out["variations"] = variations_of(p)
     out["materials"] = list(p.get("materials") or [])
     out["production_partner_ids"] = [int(i) for i in p.get("production_partner_ids") or []]
@@ -220,7 +244,7 @@ def to_payload(values: dict[str, Any], *, currency: str | None, keep: dict[str, 
         "processing_min": None, "processing_max": None,
         **{k: values.get(k) for k in ("item_weight", "item_weight_unit", "item_length", "item_width", "item_height",
                                       "item_dimensions_unit")},
-        "description": _text(values.get("description")),
+        "description": description_template(values.get("description")),
         "inventory_products": [], "price_on_property": [], "quantity_on_property": [], "sku_on_property": [],
         "attributes": [],
         "attribute_values": {k: v for k, v in (values.get("attributes") or {}).items() if v not in (None, "", [])},
@@ -301,6 +325,8 @@ def apply(payload: dict[str, Any], own: dict[str, Any] | None) -> dict[str, Any]
         elif field == "quantity":
             n = _number(value)
             out["quantity"] = int(n) if n is not None else None
+        elif field == "description":
+            out["description"] = description_template(value)
         else:
             out[field] = value
     out["_listing"] = kept

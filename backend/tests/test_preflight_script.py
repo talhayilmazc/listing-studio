@@ -263,3 +263,74 @@ def test_the_checklist_says_what_was_done() -> None:
         assert needed in text, needed
     assert "sudo apt-get install -y rclone" not in text
 
+
+
+# --- Migrations: exactly one head --------------------------------------------------------------------------
+
+
+def _migration(folder: Path, revision: str, parent: str | None) -> None:
+    folder.mkdir(exist_ok=True)
+    down = f'"{parent}"' if parent else "None"
+    (folder / f"{revision}.py").write_text(f'revision: str = "{revision}"\ndown_revision: str | None = {down}\n')
+
+
+def _heads_run(tmp_path: Path, folder: Path | None) -> subprocess.CompletedProcess:
+    if shutil.which("bash") is None or not SCRIPT.exists():
+        pytest.skip("no bash, or deploy/ is not here (the dev container mounts only backend/)")
+    env_file = tmp_path / "production.env"
+    env_file.write_text("APP_ENV=production\n")
+    env_file.chmod(0o600)
+    compose = tmp_path / "compose.yml"
+    compose.write_text("services:\n  api:\n    environment:\n      STORAGE_DIR: /data/storage\n")
+    environment = {
+        "PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "ENV_FILE": str(env_file), "COMPOSE_FILE": str(compose),
+        "OPS_ENV": str(tmp_path / "none.env"), "CREDS_DIR": str(tmp_path / "creds"), "BACKUP_DIR": str(tmp_path),
+    }
+    if folder is not None:
+        environment["MIGRATIONS_DIR"] = str(folder)
+    return subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=environment, timeout=60)
+
+
+def test_two_migration_heads_fail_preflight_and_both_are_named(tmp_path) -> None:
+    """Two branches each added "the next" migration after 0106: alembic cannot upgrade, so the deploy stops here."""
+    folder = tmp_path / "versions"
+    _migration(folder, "0105_a", None)
+    _migration(folder, "0106_b", "0105_a")
+    _migration(folder, "0107_usage", "0106_b")
+    _migration(folder, "0108_profiles", "0106_b")
+    out = _heads_run(tmp_path, folder)
+    assert "  FAIL  2 migration heads (0107_usage 0108_profiles)" in out.stdout, out.stdout + out.stderr
+    assert out.returncode == 1 and "Not ready." in out.stdout
+
+
+def test_one_migration_head_passes_that_check(tmp_path) -> None:
+    folder = tmp_path / "versions"
+    _migration(folder, "0105_a", None)
+    _migration(folder, "0106_b", "0105_a")
+    _migration(folder, "0108_profiles", "0106_b")
+    _migration(folder, "0109_usage", "0108_profiles")  # the other branch, moved after it
+    out = _heads_run(tmp_path, folder)
+    assert "  ok    one migration head (0109_usage)" in out.stdout, out.stdout + out.stderr
+    assert "migration heads" not in out.stdout
+
+
+def test_the_repository_has_exactly_one_migration_head() -> None:
+    """Read from the files, as the script does: nothing needs a database. After 0106 comes 0108 only."""
+    import re
+
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    revisions: set[str] = set()
+    parents: set[str] = set()
+    for path in versions.glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        revisions.update(re.findall(r'^revision\b[^=]*=\s*"([^"]+)"', text, flags=re.M))
+        parents.update(re.findall(r'^down_revision\b[^=]*=\s*"([^"]+)"', text, flags=re.M))
+    assert sorted(revisions - parents) == ["0108_manual_profiles"]
+    assert not [p.name for p in versions.glob("0107_*")]  # 0107 belongs to a branch that is not merged
+    out_of_tree = parents - revisions
+    assert not out_of_tree, out_of_tree
+
+
+def test_preflight_reads_the_repositorys_own_migrations(tmp_path) -> None:
+    out = _heads_run(tmp_path, None)
+    assert "  ok    one migration head (0108_manual_profiles)" in out.stdout, out.stdout + out.stderr

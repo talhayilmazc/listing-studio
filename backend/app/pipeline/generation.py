@@ -192,8 +192,9 @@ async def generate_listing_content(
         asset_id=asset_id,
         written_from_asset_id=asset_id,
         title=listing.title,
-        # The profile's default tags first (the seller's own words), then the writer's, 13 in all.
-        tags=profile_values.with_default_tags(profile.default_tags, listing.tags),
+        # Opt-in: a profile with default tags puts them first (the seller's own words), 13 in all. A profile
+        # without any stores the writer's tags themselves, untouched, as before the setting existed.
+        tags=profile_values.with_default_tags(profile.default_tags, listing.tags) if profile.default_tags else listing.tags,
         description=description,
         taxonomy_id=taxonomy_id,  # from the reference listing (never re-selected)
         listing_profile_id=profile.id,

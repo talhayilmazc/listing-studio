@@ -180,6 +180,7 @@ export const FIELD_GROUP: Record<string, (typeof GROUPS)[number]> = {
 /** How a listing's own value reads beside "your value" (one short line). */
 export function shown(field: string, value: unknown, options?: FormOptions | null): string {
   if (value === null || value === undefined || value === "") return "none";
+  if (field === "price" && typeof value === "number") return `${money(value, options?.currency)}${options?.currency ? ` ${options.currency}` : ""}`;
   const named = (items: FormOption[] | undefined, id: unknown) => items?.find((o) => o.id === Number(id))?.label ?? `#${id}`;
   if (field === "shipping_profile_id") return named(options?.shipping, value);
   if (field === "return_policy_id") return named(options?.returns, value);
@@ -195,3 +196,79 @@ export function shown(field: string, value: unknown, options?: FormOptions | nul
   const text = String(value);
   return text.length > 80 ? `${text.slice(0, 77)}…` : text;
 }
+
+/** "For Juniper Print Co." : a name that already ends a sentence is not given a second full stop. */
+export const sentence = (text: string): string => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
+
+/** How many decimals the shop's currency is written with (2 for most; 0 for yen). */
+export function decimals(currency?: string | null): number {
+  if (!currency) return 2;
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    return 2;
+  }
+}
+
+/** A price as the form shows it: 24.50 (the currency's own decimals); nothing for none. */
+export function money(value: number | null | undefined, currency?: string | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  return value.toFixed(decimals(currency));
+}
+
+/** A typed price as it is kept: rounded to the currency's decimals. */
+export function rounded(value: number | null, currency?: string | null): number | null {
+  if (value === null) return null;
+  const f = 10 ** decimals(currency);
+  return Math.round(value * f) / f;
+}
+
+/** How long the form waits for a category's attributes before it says it could not read them. */
+export const ATTRIBUTES_WAIT_MS = 15_000;
+export const ATTRIBUTES_FAILED = "Couldn't read this category's attributes.";
+
+/**
+ * What Etsy needs on every draft (its API reference, createDraftListing: quantity, price, who_made, when_made and
+ * taxonomy_id are required, a shipping profile "when listing type is physical", a return policy "for active
+ * physical listings", and a processing profile on every offering of the inventory), plus the profile's own name
+ * and description. Returned as the fields' labels, in the form's order, for the one line under the button.
+ *
+ * A profile that follows a reference listing takes these from the listing: only a value the seller emptied
+ * (the listing has one) is missing there.
+ */
+export const REQUIRED: [string, string][] = [
+  ["name", "Profile name"], ["taxonomy_id", "Category"], ["who_made", "Who made it"], ["when_made", "When it was made"],
+  ["price", "Price"], ["quantity", "Quantity"], ["shipping_profile_id", "Shipping profile"],
+  ["return_policy_id", "Return policy"], ["readiness_state_id", "Processing profile"], ["description", "Description"],
+];
+
+const empty = (v: unknown): boolean => v === null || v === undefined || (typeof v === "string" && !v.trim());
+
+export function missing(
+  name: string, values: Partial<FormValues>, opts: { manual: boolean; listing?: Partial<FormValues> | null },
+): string[] {
+  const out: string[] = [];
+  for (const [field, label] of REQUIRED) {
+    if (field === "name") {
+      if (!name.trim()) out.push(label);
+      continue;
+    }
+    const value = (values as Record<string, unknown>)[field];
+    let gone = empty(value);
+    if (field === "price" && gone) {
+      const rows = values.variations?.rows ?? [];
+      gone = !(rows.length > 0 && rows.every((r) => r.price !== null && r.price !== undefined));
+    }
+    if (!gone) continue;
+    if (!opts.manual) {
+      // It follows a listing: nothing is asked for that the listing itself does not have.
+      const theirs = (opts.listing as Record<string, unknown> | null | undefined)?.[field];
+      if (empty(theirs)) continue;
+    }
+    out.push(label);
+  }
+  return out;
+}
+
+/** The one line beside a button that cannot be pressed yet. */
+export const missingLine = (labels: string[]): string => `Still needed: ${labels.join(", ")}.`;

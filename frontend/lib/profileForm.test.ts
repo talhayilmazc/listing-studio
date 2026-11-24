@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
-  FIELD_GROUP, GROUPS, buildVariations, emptyValues, isOwn, list, optionsOf, refusal, shown, toNumber, withDefaults,
-  type FormOptions,
+  ATTRIBUTES_FAILED, ATTRIBUTES_WAIT_MS, FIELD_GROUP, GROUPS, buildVariations, emptyValues, isOwn, list, missing, missingLine,
+  money, optionsOf, refusal, rounded, sentence, shown, toNumber, withDefaults,
+  type FormOptions, type FormValues,
 } from "./profileForm.ts";
 import { tabsFor } from "./sectionTabs.ts";
 
@@ -87,4 +88,50 @@ test("the Profiles page offers three ways to make a profile; a profile made by h
   assert.ok(card.includes("your own values · never needs a refresh"));
   // The empty-shop note is the server's sentence (pipeline/links.py), never retyped here.
   assert.ok(!read("components/ProfileForm.tsx").includes("Shop Manager → Settings → Production partners"));
+});
+
+test("a price is shown with the currency's decimals and kept rounded to them", () => {
+  assert.equal(money(24.5, "USD"), "24.50");
+  assert.equal(money(24, "EUR"), "24.00");
+  assert.equal(money(24.5, null), "24.50");
+  assert.equal(money(2400, "JPY"), "2400");
+  assert.equal(money(null, "USD"), "");
+  assert.equal(rounded(24.999, "USD"), 25);
+  assert.equal(rounded(24.505, "USD"), 24.51);
+  assert.equal(rounded(null, "USD"), null);
+  assert.equal(shown("price", 24.5, { currency: "USD" } as FormOptions), "24.50 USD");
+});
+
+test("a shop name that ends with a full stop is not given a second one", () => {
+  assert.equal(sentence("Juniper Print Co."), "Juniper Print Co.");
+  assert.equal(sentence("Northwind Tees"), "Northwind Tees.");
+});
+
+test("what Etsy needs on a draft is named until it is filled", () => {
+  const blank = emptyValues();
+  assert.deepEqual(missing("", blank, { manual: true }), [
+    "Profile name", "Category", "Price", "Shipping profile", "Return policy", "Processing profile", "Description",
+  ]);
+  assert.equal(missingLine(["Category", "Price"]), "Still needed: Category, Price.");
+  const full: FormValues = {
+    ...blank, taxonomy_id: 9001, price: 24.5, shipping_profile_id: 1, return_policy_id: 2, readiness_state_id: 3, description: "A soft tee.",
+  };
+  assert.deepEqual(missing("Tees", full, { manual: true }), []);
+  assert.deepEqual(missing("Tees", { ...full, quantity: null }, { manual: true }), ["Quantity"]);
+  // Every option priced: the profile needs no price of its own.
+  const table = { properties: ["Size"], rows: [{ values: ["S"], price: 20, quantity: 5, enabled: true }] };
+  assert.deepEqual(missing("Tees", { ...full, price: null, variations: table }, { manual: true }), []);
+  assert.deepEqual(
+    missing("Tees", { ...full, price: null, variations: { ...table, rows: [{ ...table.rows[0], price: null }] } }, { manual: true }),
+    ["Price"],
+  );
+  // A profile that follows a listing: only what the seller emptied (the listing has one) is missing.
+  const listing = { ...full, readiness_state_id: null, quantity: null };
+  assert.deepEqual(missing("Tees", { ...listing, return_policy_id: null }, { manual: false, listing }), ["Return policy"]);
+  assert.deepEqual(missing("Tees", listing, { manual: false, listing }), []);
+});
+
+test("the form says it could not read a category's attributes after 15 seconds", () => {
+  assert.equal(ATTRIBUTES_WAIT_MS, 15_000);
+  assert.equal(ATTRIBUTES_FAILED, "Couldn't read this category's attributes.");
 });

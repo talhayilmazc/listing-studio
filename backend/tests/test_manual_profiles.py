@@ -465,3 +465,101 @@ async def test_a_profile_made_by_hand_is_never_given_a_reference_listing(world) 
     assert res.status_code == 409 and "made by hand" in res.json()["detail"]
     # "Use the listing's value again" has no listing to go back to either.
     assert (await world["a"].delete(f"/api/profiles/{made['id']}/values?field=price")).status_code == 409
+
+
+async def test_without_default_tags_the_tags_are_exactly_what_was_written_before(async_sm, make_image, monkeypatch) -> None:
+    """Default tags are opt-in. A profile with none (NULL, as every existing profile, or an empty list): the
+    writer's tags are stored as they were before the setting existed, and the default-tags code is not even run.
+    On the generation test's own fixtures (tests/test_generation.py) and the tag sets of the shared fixture file."""
+    from app.pipeline.generation import generate_listing_content
+    from tests import test_generation as G
+    from tests.support import FakeMessages, fake_response
+
+    # Every tag set of the existing fixtures, odd ones included (repeats, 9 tags, 5 tags): returned as given.
+    sets = json.loads((Path(__file__).parent / "fixtures" / "free_tool_cases.json").read_text(encoding="utf-8"))["tag_sets"]
+    assert len(sets) >= 3
+    for case in sets:
+        assert V.with_default_tags(None, case["tags"]) == case["tags"]
+        assert V.with_default_tags([], case["tags"]) == case["tags"]
+
+    def never(*_a: Any, **_k: Any) -> list[str]:
+        raise AssertionError("default tags were applied for a profile that has none")
+
+    written = [f"tag{i}" for i in range(13)]  # the tags of tests/test_generation.py::test_success_persists_generated_content
+    for none in (None, []):
+        tenant_id, batch_id, asset_id, profile_id = await G._seed(async_sm)
+        messages = FakeMessages([fake_response(G.VISION_DATA, input_tokens=1200, output_tokens=90),
+                                 fake_response(G._content(written), input_tokens=300, output_tokens=120)])
+        analyzer, generator = G._pipeline(messages)
+        async with async_sm() as session:
+            profile = await session.get(ListingProfile, profile_id)
+            profile.default_tags = none
+            with monkeypatch.context() as patched:
+                patched.setattr(V, "with_default_tags", never)
+                outcome = await generate_listing_content(
+                    session, tenant_id=tenant_id, batch_id=batch_id, asset_id=asset_id, image_data=make_image(400, 300),
+                    media_type="image/png", sku="SKU1", analyzer=analyzer, generator=generator, profile=profile)
+            assert outcome.status == "generated"
+            row = await session.get(GeneratedContent, outcome.generated_content_id)
+            assert row.tags == written  # the writer's own, in its order
+
+    # With default tags (the seller opted in), they come first and the writer's fill the rest, 13 in all.
+    tenant_id, batch_id, asset_id, profile_id = await G._seed(async_sm)
+    messages = FakeMessages([fake_response(G.VISION_DATA), fake_response(G._content(written))])
+    analyzer, generator = G._pipeline(messages)
+    async with async_sm() as session:
+        profile = await session.get(ListingProfile, profile_id)
+        profile.default_tags = ["soft tee", "tag3"]
+        outcome = await generate_listing_content(
+            session, tenant_id=tenant_id, batch_id=batch_id, asset_id=asset_id, image_data=make_image(400, 300),
+            media_type="image/png", sku="SKU1", analyzer=analyzer, generator=generator, profile=profile)
+        row = await session.get(GeneratedContent, outcome.generated_content_id)
+        assert row.tags == ["soft tee", "tag3", *[t for t in written if t != "tag3"]][:13]
+
+
+async def test_a_hand_written_listing_starts_empty_unless_the_profile_has_default_tags(world) -> None:  # noqa: F811
+    from app.db.models import Asset
+    from app.pipeline import manual
+
+    async with world["sm"]() as s:
+        content = await s.get(GeneratedContent, world["contents"][0])
+        asset = await s.get(Asset, content.asset_id)
+        plain = await s.get(ListingProfile, world["pa1"])
+        plain.cached_payload = dict(PAYLOAD)
+        for none in (None, []):
+            plain.default_tags = none
+            mine = await manual.write(s, tenant_id=world["alice"], batch_id=content.batch_id, asset=asset, profile=plain)
+            assert mine.tags == [] and mine.title == ""
+        await s.rollback()
+
+
+def test_a_description_typed_by_hand_is_kept_whole_in_every_listing() -> None:
+    """The draft path replaces a description's first block (a reference listing's own title block). A description
+    typed into the form has no such block: its first paragraph was once dropped from every listing (found by the
+    browser test against the fake Etsy)."""
+    from app.pipeline import manual
+    from app.pipeline.reference import replace_title_block, with_opening
+
+    typed = "A soft tee, printed to order.\n\nCare: wash cold, hang dry."
+    payload = V.to_payload({**VALUES, "description": typed}, currency="USD")
+    assert V.from_payload(payload)["description"] == typed  # the form shows what was typed
+    assert with_opening(payload["description"], "A pine ridge shirt for hikers.") == "A pine ridge shirt for hikers.\n\n" + typed
+    assert replace_title_block(payload["description"], "Pine Ridge Shirt") == "Pine Ridge Shirt\n\n" + typed
+    short = ListingProfile(name="p", listing_style="search", content_template="apparel", cached_payload=payload)
+    long = ListingProfile(name="p", listing_style="classic", content_template="apparel", cached_payload=payload)
+    assert manual.description_for(short, "") == typed and manual.description_for(short, "Pine Ridge Shirt") == typed
+    assert manual.description_for(long, "Pine Ridge Shirt") == "Pine Ridge Shirt\n\n" + typed
+
+    # A reference listing's description: the form shows what every listing keeps (its body), nothing changes
+    # until the seller edits it, and "Stop following the listing" gives the same listings as before.
+    reference = {**PAYLOAD, "description": "Old Reference Title\nSecond line\n\nSizes: S-3XL\n\nShips in 3 days."}
+    assert V.from_payload(reference)["description"] == "Sizes: S-3XL\n\nShips in 3 days."
+    assert V.apply(reference, None)["description"] == reference["description"]
+    stopped = V.to_payload(V.from_payload(reference), currency="USD")
+    assert with_opening(stopped["description"], "Open.") == with_opening(reference["description"], "Open.")
+    assert replace_title_block(stopped["description"], "New Title") == replace_title_block(reference["description"], "New Title")
+    mine = V.apply(reference, {"description": "Mine.\n\nMore of mine."})
+    assert with_opening(mine["description"], "Open.") == "Open.\n\nMine.\n\nMore of mine."
+    assert V.from_payload(mine)["description"] == "Mine.\n\nMore of mine."
+    # A reference description with no blank line is all body, as the writer treats it.
+    assert V.from_payload({**PAYLOAD, "description": "One line only"})["description"] == "One line only"

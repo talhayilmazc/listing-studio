@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import {
+  ATTRIBUTES_FAILED,
+  ATTRIBUTES_WAIT_MS,
   FIELD_GROUP,
   GROUPS,
   STYLE_LABELS,
@@ -11,8 +13,13 @@ import {
   emptyValues,
   isOwn,
   list,
+  missing,
+  missingLine,
+  money,
   optionsOf,
   refusal,
+  rounded,
+  sentence,
   shown,
   toNumber,
   withDefaults,
@@ -54,6 +61,8 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
   const [personal, setPersonal] = useState<Personalization>({ enabled: false });
   const [path, setPath] = useState<string[]>([]);
   const [props, setProps] = useState<CategoryProperty[] | null>(null);
+  const [propsFailed, setPropsFailed] = useState(false);
+  const [propsTry, setPropsTry] = useState(0);
   const [varNames, setVarNames] = useState<string[]>(["", ""]);
   const [varOptions, setVarOptions] = useState<string[]>(["", ""]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -71,7 +80,7 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
   const fill = useCallback((v: ProfileValues) => {
     setLoaded(v);
     setName(v.name);
-    const merged = { ...emptyValues(), ...v.values, quantity: v.values.quantity ?? (mode.kind === "edit" ? null : 999) } as FormValues;
+    const merged = { ...emptyValues(), ...v.values, quantity: v.values.quantity ?? (mode.kind === "edit" && !v.manual ? null : 999) } as FormValues;
     setValues(merged);
     setStyle(v.listing_style || "search");
     setPrefix(v.title_prefix ?? "");
@@ -133,35 +142,44 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
     };
   }, [shopId, mode.kind]);
 
-  // The chosen category's attributes.
+  // The chosen category's attributes. A read that fails, or takes longer than 15 seconds, is said so with
+  // "Try again": the rest of the form can still be saved, and the attributes stay as they are.
   const taxonomy = values.taxonomy_id;
   useEffect(() => {
-    if (!shopId || !taxonomy) {
-      setProps(null);
-      return;
-    }
+    setProps(null);
+    setPropsFailed(false);
+    if (!shopId || !taxonomy) return;
     let live = true;
-    let n = 0;
+    const fail = () => {
+      if (!live) return;
+      live = false;
+      setPropsFailed(true);
+    };
+    const deadline = setTimeout(fail, ATTRIBUTES_WAIT_MS);
+    let next: ReturnType<typeof setTimeout> | undefined;
     const ask = async () => {
       try {
         const c = await api.profileCategory(shopId, taxonomy);
         if (!live) return;
         if (c.path.length) setPath(c.path);
-        if (c.reading && n < MAX_TRIES) {
-          n += 1;
-          setTimeout(ask, POLL_MS);
+        if (c.reading) {
+          next = setTimeout(ask, POLL_MS);
           return;
         }
-        setProps(c.reading ? null : c.properties);
+        live = false;
+        clearTimeout(deadline);
+        setProps(c.properties);
       } catch {
-        if (live) setProps(null);
+        fail();
       }
     };
     ask();
     return () => {
       live = false;
+      clearTimeout(deadline);
+      if (next) clearTimeout(next);
     };
-  }, [shopId, taxonomy]);
+  }, [shopId, taxonomy, propsTry]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -264,6 +282,9 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
   const ready = mode.kind === "scratch" ? options !== null : loaded !== null && !loaded.reading;
   const calculated = options?.shipping.find((o) => o.id === values.shipping_profile_id)?.type === "calculated";
   const table = values.variations;
+  const currency = options?.currency ?? null;
+  // What Etsy needs on every draft: the button waits for it, and one line names what is missing.
+  const needed = ready ? missing(name, values, { manual, listing: loaded?.listing_values }) : [];
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 sm:p-6" onClick={onClose}>
@@ -274,7 +295,7 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
           <div className="min-w-0">
             <h2 className="font-display text-lg text-slate-900">{title}</h2>
             <p className="text-xs text-slate-600">
-              {shopName ? <span key="shop" translate="no">{`For ${shopName}. `}</span> : null}
+              {shopName ? <span key="shop" translate="no">{`For ${sentence(shopName)} `}</span> : null}
               <span>
                 {editing && !manual
                   ? "Change any value: it becomes your value and a Refresh never overwrites it."
@@ -349,9 +370,8 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
 
             <Section name="Price & variations" open={open} setOpen={setOpen} errors={errors}>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label={`Price${options?.currency ? ` (${options.currency})` : ""}`} foot={<>{whose("price")}{bad("price")}</>}>
-                  <input className="field" inputMode="decimal" value={values.price ?? ""} onChange={(e) => set("price", toNumber(e.target.value))}
-                    aria-label="Price" data-testid="form-price" />
+                <Field label={`Price${currency ? ` (${currency})` : ""}`} foot={<>{whose("price")}{bad("price")}</>}>
+                  <Money className="field" value={values.price} currency={currency} onChange={(n) => set("price", n)} label="Price" testid="form-price" />
                 </Field>
                 <Field label="Quantity" foot={<>{whose("quantity")}{bad("quantity")}</>}>
                   <input className="field" inputMode="numeric" value={values.quantity ?? ""} onChange={(e) => set("quantity", toNumber(e.target.value))}
@@ -381,40 +401,41 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
                   )}
                 </div>
                 {table && table.rows.length > 0 && (
-                  <div key="rows" className="overflow-x-auto">
-                    <table className="w-full min-w-[22rem] text-left text-xs">
-                      <thead className="text-slate-600">
-                        <tr>
-                          <th className="py-1 pr-2 font-medium"><span translate="no">{table.properties.join(" / ")}</span></th>
-                          <th className="py-1 pr-2 font-medium">Price</th>
-                          <th className="py-1 pr-2 font-medium">Quantity</th>
-                          <th className="py-1 font-medium">Sold</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {table.rows.map((row, i) => {
-                          const label = row.values.join(" / ");
-                          const patch = (change: Partial<typeof row>) =>
-                            set("variations", { ...table, rows: table.rows.map((r, k) => (k === i ? { ...r, ...change } : r)) });
-                          return (
-                            <tr key={label} className="border-t border-slate-100" data-testid="variation-row">
-                              <td className="py-1 pr-2"><span translate="no">{label}</span></td>
-                              <td className="py-1 pr-2">
-                                <input className="field w-24 py-1" inputMode="decimal" value={row.price ?? ""} aria-label={`Price of ${label}`}
-                                  onChange={(e) => patch({ price: toNumber(e.target.value) })} data-testid="variation-price" />
-                              </td>
-                              <td className="py-1 pr-2">
-                                <input className="field w-20 py-1" inputMode="numeric" value={row.quantity ?? ""} aria-label={`Quantity of ${label}`}
-                                  onChange={(e) => patch({ quantity: toNumber(e.target.value) })} />
-                              </td>
-                              <td className="py-1">
-                                <input type="checkbox" checked={row.enabled} aria-label={`${label} is sold`} onChange={(e) => patch({ enabled: e.target.checked })} />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  // One grid for both sizes: four columns from 640 px; below it each option is its own block, its
+                  // name on the first line and price, quantity and "Sold" under it, each with its label.
+                  <div key="rows" className="text-xs" data-testid="variation-table">
+                    <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem_3rem] gap-2 py-1 font-medium text-slate-600 sm:grid">
+                      <span translate="no">{table.properties.join(" / ")}</span>
+                      <span translate="no">{`Price${currency ? ` (${currency})` : ""}`}</span>
+                      <span>Quantity</span>
+                      <span>Sold</span>
+                    </div>
+                    {table.rows.map((row, i) => {
+                      const label = row.values.join(" / ");
+                      const patch = (change: Partial<typeof row>) =>
+                        set("variations", { ...table, rows: table.rows.map((r, k) => (k === i ? { ...r, ...change } : r)) });
+                      return (
+                        <div key={label} role="group" aria-label={label} data-testid="variation-row"
+                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 border-t border-slate-100 py-2 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_3rem] sm:items-center sm:py-1">
+                          <span className="col-span-3 font-medium text-slate-800 sm:col-span-1 sm:font-normal" translate="no">{label}</span>
+                          <label className="flex min-w-0 flex-col gap-0.5">
+                            <span className="text-[11px] text-slate-600 sm:hidden" translate="no">{`Price${currency ? ` (${currency})` : ""}`}</span>
+                            <Money className="field w-full py-1" value={row.price} currency={currency} onChange={(n) => patch({ price: n })}
+                              label={`Price of ${label}`} testid="variation-price" />
+                          </label>
+                          <label className="flex min-w-0 flex-col gap-0.5">
+                            <span className="text-[11px] text-slate-600 sm:hidden">Quantity</span>
+                            <input className="field w-full py-1" inputMode="numeric" value={row.quantity ?? ""} aria-label={`Quantity of ${label}`}
+                              onChange={(e) => patch({ quantity: toNumber(e.target.value) })} />
+                          </label>
+                          <label className="flex min-h-[2.75rem] flex-col items-center justify-end gap-0.5 sm:min-h-0 sm:items-start sm:justify-center">
+                            <span className="text-[11px] text-slate-600 sm:hidden">Sold</span>
+                            <input type="checkbox" checked={row.enabled} aria-label={`${label} is sold`} onChange={(e) => patch({ enabled: e.target.checked })}
+                              data-testid="variation-sold" />
+                          </label>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 <div className="flex flex-col gap-1">{whose("variations")}{bad("variations")}</div>
@@ -484,8 +505,16 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
                 <p className="font-medium text-slate-800">Attributes</p>
                 {!values.taxonomy_id ? (
                   <p key="first" className="text-xs text-slate-600">Choose a category first: its attributes are Etsy&apos;s own lists.</p>
+                ) : propsFailed ? (
+                  <p key="failed" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-amber-900" role="status" data-testid="form-attributes-failed">
+                    <span>{ATTRIBUTES_FAILED}</span>
+                    <button type="button" className="btn-secondary px-2 py-1 text-xs" onClick={() => setPropsTry((n) => n + 1)} data-testid="form-attributes-retry">
+                      Try again
+                    </button>
+                    <span>The rest of the form can be saved; the attributes stay as they are.</span>
+                  </p>
                 ) : props === null ? (
-                  <p key="reading" className="text-xs text-slate-600">Reading the category&apos;s attributes from Etsy…</p>
+                  <p key="reading" className="text-xs text-slate-600" data-testid="form-attributes-reading">Reading the category&apos;s attributes from Etsy…</p>
                 ) : (
                   <div key="props" className="grid gap-2 sm:grid-cols-2" data-testid="form-attributes">
                     {[...props].filter((p) => p.kind !== "number").sort((a, b) => Number(b.required) - Number(a.required)).slice(0, 40).map((p) => {
@@ -547,8 +576,11 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
             </Section>
 
             {message && <p key="message" role="alert" className="text-sm text-rose-700" data-testid="profile-form-message"><Txt>{message}</Txt></p>}
+            {needed.length > 0 && (
+              <p key="needed" className="text-xs text-amber-900" role="status" data-testid="profile-form-missing"><Txt>{missingLine(needed)}</Txt></p>
+            )}
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-              <button type="button" className="btn-primary" onClick={save} disabled={busy || !name.trim()} data-testid="profile-form-save">
+              <button type="button" className="btn-primary" onClick={save} disabled={busy || needed.length > 0} data-testid="profile-form-save">
                 {busy ? "Saving…" : editing ? "Save" : "Create the profile"}
               </button>
               <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -575,6 +607,22 @@ export function ProfileForm({ mode, onSaved, onClose }: { mode: FormMode; onSave
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * A price: shown with the currency's own decimals (24.50) whenever it is not being typed, kept rounded to them.
+ */
+function Money({ value, currency, onChange, label, testid, className }: {
+  value: number | null; currency: string | null; onChange: (n: number | null) => void; label: string; testid?: string; className?: string;
+}) {
+  const [typing, setTyping] = useState<string | null>(null);
+  return (
+    <input className={className} inputMode="decimal" aria-label={label} data-testid={testid}
+      value={typing ?? money(value, currency)}
+      onFocus={() => setTyping(money(value, currency))}
+      onChange={(e) => { setTyping(e.target.value); onChange(toNumber(e.target.value)); }}
+      onBlur={() => { setTyping(null); onChange(rounded(value, currency)); }} />
   );
 }
 

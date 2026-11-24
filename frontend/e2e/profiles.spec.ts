@@ -103,20 +103,46 @@ test.describe("profiles made and edited by hand", () => {
     const form = page.getByTestId("profile-form");
     await expect(form.getByTestId("form-name")).toBeVisible({ timeout: 60_000 });
     const scratchName = `Hand tees ${stamp}`;
+    // A shop name that ends with a full stop ("Juniper Print Co.") is not given a second one.
+    expect(await form.innerText()).not.toMatch(/\.\.\s/);
     await form.getByTestId("form-name").fill(scratchName);
+    // The category's attributes cannot be read (a failed request on the desktop, no answer for 15 seconds on the
+    // phone): the form says so and offers "Try again"; nothing else in it waits for them.
+    const stuck: (() => void)[] = [];
+    await page.route("**/api/profile-form/category**", (route) => (phone ? new Promise<void>((done) => stuck.push(done)).then(() => route.abort()) : route.abort()));
     await form.getByTestId("form-category-search").fill("t-shirt");
     await form.getByTestId("form-category-option").first().click();
     await expect(form.getByTestId("form-category-chosen")).toContainText("T-shirts");
+    await group(page, "Details");
+    if (phone) await expect(form.getByTestId("form-attributes-reading")).toBeVisible();
+    await expect(form.getByTestId("form-attributes-failed")).toContainText("Couldn't read this category's attributes.", { timeout: 25_000 });
+    await page.unroute("**/api/profile-form/category**");
+    stuck.forEach((done) => done());
+    await form.getByTestId("form-attributes-retry").click();
+    await expect(form.getByTestId("form-attributes")).toBeVisible({ timeout: 30_000 });
     await group(page, "Price & variations");
-    await form.getByTestId("form-price").fill("24.50");
+    await form.getByTestId("form-price").fill("24.5");
+    await form.getByTestId("form-price").blur();
+    await expect(form.getByTestId("form-price")).toHaveValue("24.50");  // two decimals, the shop's currency beside it
+    await expect(form.getByTestId("form-group-Price & variations")).toContainText("Price (USD)");
     await form.getByTestId("variation-name-0").fill("Size");
     await form.getByTestId("variation-options-0").fill("S, M, L");
     await form.getByTestId("variation-make").click();
     await expect(form.getByTestId("variation-row")).toHaveCount(3);
+    await expect(form.getByTestId("variation-price").first()).toHaveValue("24.50");
+    // Every column can be used at this width: "Sold" is on the screen, and nothing is cut off or scrolls sideways.
+    const sold = form.getByTestId("variation-sold").first();
+    await sold.scrollIntoViewIfNeeded();
+    const soldBox = (await sold.boundingBox())!;
+    expect(soldBox.x, "Sold is on the screen").toBeGreaterThanOrEqual(0);
+    expect(soldBox.x + soldBox.width, "Sold is on the screen").toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(await form.getByTestId("variation-table").evaluate((el) => el.scrollWidth <= el.clientWidth), "the options do not scroll sideways").toBe(true);
+    await sold.uncheck();
+    await sold.check();
     await shot(page, "2-scratch-form", project);
-    // Saved before its shipping is chosen: refused in plain words, under the field, and nothing is made.
-    await form.getByTestId("profile-form-save").click();
-    await expect(form.getByTestId("profile-form-message")).toContainText("Not saved");
+    // What a draft needs is not all there yet: the button waits, and one line names what is missing.
+    await expect(form.getByTestId("profile-form-save")).toBeDisabled();
+    await expect(form.getByTestId("profile-form-missing")).toHaveText("Still needed: Shipping profile, Return policy, Description.");
     await group(page, "Shipping & policies");
     await form.getByTestId("form-shipping_profile_id").selectOption({ index: 1 });
     await form.getByTestId("form-return_policy_id").selectOption({ index: 1 });
@@ -124,6 +150,12 @@ test.describe("profiles made and edited by hand", () => {
     await form.getByTestId("form-partner").selectOption({ index: 1 });
     await group(page, "Text");
     await form.getByTestId("form-description").fill("A soft tee, printed to order.\n\nCare: wash cold, hang dry.");
+    await expect(form.getByTestId("profile-form-missing")).toHaveCount(0);
+    // Something Etsy would refuse (a tag over 20 characters): refused in plain words, under the field; nothing is made.
+    await form.getByTestId("form-tags").fill("a tag that is far too long for etsy");
+    await form.getByTestId("profile-form-save").click();
+    await expect(form.getByTestId("profile-form-message")).toContainText("Not saved");
+    await expect(form.getByTestId("error-default_tags")).toContainText("20 at most");
     await form.getByTestId("form-tags").fill("soft tee, gift for her");
     await form.getByTestId("profile-form-save").click();
     await expect(form).toBeHidden({ timeout: 30_000 });
