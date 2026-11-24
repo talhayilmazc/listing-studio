@@ -23,6 +23,7 @@ from app.etsy.shops import NOT_YOUR_LISTING, active_shops, owned_listing, owned_
 from app.pipeline import chart_order
 from app.pipeline import creativity, how_made, item_options, profile_shops
 from app.pipeline import links as links_mod
+from app.pipeline import profile_values
 from app.pipeline.content import _SEARCH_TEMPLATES, bounds_for, uses_search_style
 from app.pipeline.personalization import effective as effective_personalization
 from app.pipeline.personalization import validate as validate_personalization
@@ -43,7 +44,9 @@ def _payload_age(profile: ListingProfile, stamp: datetime | None = None) -> floa
 
 
 def _is_fresh(profile: ListingProfile) -> bool:
-    """Structural reference data is within its 24-hour limit."""
+    """Structural reference data is within its 24-hour limit (a manual profile's values are the seller's own)."""
+    if profile.manual:
+        return bool(profile.cached_payload)
     age = _payload_age(profile)
     return age is not None and age < ListingProfile.CACHE_MAX_AGE_SECONDS
 
@@ -142,14 +145,18 @@ def _to_out(profile: ListingProfile, shop_name: str | None = None) -> schemas.Pr
             else "reference" if "personalization" in (profile.cached_payload or {})
             else "unknown"
         ),
-        refresh_error=profile.refresh_error,
+        # A profile made by hand is never refreshed from a listing, so it never says "Couldn't refresh".
+        refresh_error=None if profile.manual else profile.refresh_error,
+        manual=bool(profile.manual),
+        own_fields=profile_values.own_fields(profile),
+        default_tags=list(profile.default_tags or []),
         shipping_note=size_problem(profile.cached_payload),
         production_note=creativity.production_note(profile),
         how_made_production=profile.how_made_production,
         how_made_tools=list(profile.how_made_tools) if profile.how_made_tools else None,
         how_made_line=how_made.card_line(profile),
         how_made_set=how_made.is_set(profile),
-        refresh_failed_at=profile.refresh_failed_at,
+        refresh_failed_at=None if profile.manual else profile.refresh_failed_at,
     )
 
 
@@ -467,5 +474,6 @@ async def refresh_profile_endpoint(
     enqueuer: Enqueuer = Depends(get_enqueuer),
 ) -> schemas.ProfileOut:
     profile = await _get(session, tenant, profile_id)
+    # (A profile made by hand has no listing to read: the job only reads its category's attribute lists.)
     await enqueuer.enqueue("refresh_profile", str(profile.id))
     return await _out(session, tenant, profile)

@@ -1186,6 +1186,12 @@ class ProfileOut(BaseModel):
     reference_listing_id: int | None = None
     #: Every shop the profile is used in, the main one first.
     links: list[ProfileLinkOut] = Field(default_factory=list)
+    #: Made by hand: no reference listing, never refreshed (feature/manual-profiles).
+    manual: bool = False
+    #: The fields that are the seller's own value ("your value"); every field on a manual profile.
+    own_fields: list[str] = Field(default_factory=list)
+    #: Tags every listing written with the profile starts with.
+    default_tags: list[str] = Field(default_factory=list)
     content_template: str
     source: str = "manual"  # "manual" | "detected"
     confirmed: bool = True

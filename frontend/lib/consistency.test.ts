@@ -10,12 +10,18 @@ import type { Onboarding } from "./types.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("the sidebar: seven entries named by what the seller does, then Settings", () => {
+test("the sidebar: the entries named by what the seller does, Profiles under Shops, then Settings", () => {
   const rail = read("components/Rail.tsx");
   const labels = [...rail.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
   // Mockups back in the menu, right after Designs (feature/mockups-visible): at most 8 plus Settings.
-  assert.deepEqual(labels, ["Home", "Designs", "Mockups", "Review", "Schedule", "Reports", "Shops", "Settings", "Admin"]);
+  // Profiles has its own entry, directly under Shops (feature/manual-profiles); no other entry, order or label changed.
+  assert.deepEqual(labels, ["Home", "Designs", "Mockups", "Review", "Schedule", "Reports", "Shops", "Profiles", "Settings", "Admin"]);
   assert.ok(labels.indexOf("Settings") <= 8);
+  assert.ok(rail.includes('{ href: "/profiles", label: "Profiles", icon: IconTag }'));
+  // One page, two ways in: the entry is the active one on /profiles; Settings keeps its Profiles tab.
+  assert.ok(rail.includes('export const SETTINGS: Item = { href: "/settings", label: "Settings", icon: IconGear };'),
+    "Settings is not the active entry on /profiles any more");
+  assert.equal(labels.indexOf("Profiles"), labels.indexOf("Shops") + 1);
   assert.ok(!rail.includes('title: "Library"') && !rail.includes('title: "Workspace"'), "no section headings: seven entries need none");
   assert.deepEqual(tabsFor("/mockups")?.tabs.map((t) => t.label), ["Make mockups", "Templates", "Downloads"]);
   assert.equal(tabsFor("/mockups/templates")?.current, "/mockups/templates");

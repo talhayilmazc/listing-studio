@@ -1,4 +1,5 @@
 import type { Fix, HealthPage, HealthSales, PreviewAnswer, RewriteCheck } from "./listingHealth";
+import type { Category, CategoryProperty, FormBody, FormOptions, ProfileValues } from "./profileForm";
 import type { AttributeBulk, Attributes, AttributeValue } from "./listingAttributes";
 import type { PhotoBulk, ShopPhotos } from "./shopPhotos";
 import type { PlanPreview, PlannerChoice, PlannerState } from "./seasonPlan";
@@ -1017,6 +1018,22 @@ export const api = {
     }),
   confirmProfile: (id: string) => req<Profile>(`/profiles/${id}/confirm`, { method: "POST" }),
   refreshProfile: (id: string) => req<Profile>(`/profiles/${id}/refresh`, { method: "POST" }),
+  // The profile form (feature/manual-profiles): a profile made from scratch, copied, or edited by hand.
+  profileFormOptions: (shop: string) => req<FormOptions>(`/profile-form/options?shop=${shop}`),
+  profileCategories: (shop: string, q: string) =>
+    req<{ reading: boolean; categories: Category[] }>(`/profile-form/categories?shop=${shop}&q=${encodeURIComponent(q)}`),
+  profileCategory: (shop: string, taxonomyId: number) =>
+    req<{ reading: boolean; taxonomy_id: number; path: string[]; properties: CategoryProperty[] }>(
+      `/profile-form/category?shop=${shop}&taxonomy_id=${taxonomyId}`),
+  profileCopyForm: (profile: string, shop: string) => req<ProfileValues>(`/profile-form/copy?profile=${profile}&shop=${shop}`),
+  createProfileFromForm: (body: FormBody & { connection_id: string; copied_from?: string | null }) =>
+    req<Profile>("/profile-form", { method: "POST", body: JSON.stringify(body) }),
+  profileValues: (id: string) => req<ProfileValues>(`/profiles/${id}/values`),
+  saveProfileValues: (id: string, body: FormBody) =>
+    req<Profile>(`/profiles/${id}/values`, { method: "PUT", body: JSON.stringify(body) }),
+  useListingValue: (id: string, field: string) =>
+    req<Profile>(`/profiles/${id}/values?field=${encodeURIComponent(field)}`, { method: "DELETE" }),
+  stopFollowingListing: (id: string) => req<Profile>(`/profiles/${id}/stop-following`, { method: "POST" }),
   deleteProfile: (id: string) => req<void>(`/profiles/${id}`, { method: "DELETE" }),
   // --- One profile across shops (v8 §C) ---
   /** Listings created on Etsy whose draft did not finish, and "Finish these drafts" (backend api/unfinished.py). */

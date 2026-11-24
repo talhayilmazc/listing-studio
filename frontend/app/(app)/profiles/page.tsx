@@ -9,6 +9,7 @@ import type { LinkSuggestion, Profile, ShopListing } from "@/lib/types";
 import { etsyListingLink } from "@/lib/format";
 import { waitForJob } from "@/lib/jobs";
 import { ProfileCard } from "@/components/ProfileCard";
+import { NewProfile } from "@/components/NewProfile";
 import { ShopGroupsEditor } from "@/components/ShopGroupsEditor";
 import { useShops } from "@/components/ShopProvider";
 import { Help } from "@/components/Help";
@@ -208,7 +209,8 @@ export default function ProfilesPage() {
     }
   }
   const failing = (profiles ?? []).filter((p) => p.refresh_error && p.reference_listing_id != null);
-  const needsReference = (profiles ?? []).filter((p) => p.reference_listing_id == null);
+  // (A profile made by hand has no reference listing and needs none.)
+  const needsReference = (profiles ?? []).filter((p) => p.reference_listing_id == null && !p.manual);
 
   async function linkThese(sg: LinkSuggestion) {
     const [keep, ...rest] = sg.profiles;
@@ -233,7 +235,7 @@ export default function ProfilesPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-slate-500">
-          <span>A profile copies category, price, variations and description from one of your own listings.</span>
+          <span>A profile holds a listing&apos;s settings: category, price, variations, shipping and description. Copy them from one of your own listings, or set them yourself.</span>
           <Help label="profiles">
             New drafts reuse a profile instead of inventing anything. A profile uses its main shop&apos;s shipping, return
             and processing settings in every shop it is used in (copied there where needed); &ldquo;change&rdquo; on a
@@ -244,6 +246,10 @@ export default function ProfilesPage() {
           <span translate="no">{detecting ? "Detecting…" : `Detect from ${listingShop?.name ?? "my shop"}`}</span>
         </button>
       </div>
+
+      {/* A profile made by hand: from scratch for a shop, or a copy of another profile (feature/manual-profiles). */}
+      <NewProfile shops={(shops ?? []).map((s) => ({ id: s.id, name: s.name }))} profiles={profiles ?? []} defaultShop={scope?.id ?? selected?.id ?? null}
+        onCreated={(p) => setProfiles((cur) => ((cur ?? []).some((x) => x.id === p.id) ? (cur ?? []).map((x) => (x.id === p.id ? p : x)) : [p, ...(cur ?? [])]))} />
 
       {error && <div key="div-184-6" className="card p-4 text-sm text-rose-700">{error}</div>}
 
@@ -419,7 +425,7 @@ export default function ProfilesPage() {
         )}
       </section>
 
-      <section className="space-y-3">
+      <section className="scroll-mt-6 space-y-3" id="your-listings">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* The shop picked in the switcher: say which, so its count is not read as a profile's shop's. */}
           <SectionHead

@@ -82,6 +82,9 @@ def is_current(profile: ListingProfile) -> bool:
 
 
 def is_fresh(profile: ListingProfile) -> bool:
+    if profile.manual:
+        # Made by hand: its values are the seller's own, there is nothing to read again from a listing.
+        return bool(profile.cached_payload) and is_current(profile)
     if not profile.cached_payload or profile.updated_at is None:
         return False
     if not is_current(profile):
@@ -239,7 +242,7 @@ async def resolve_target(
             link = await profile_shops.link_for(session, chosen, connection.id)
     if link is None:
         return Target(connection, chosen, f'profile "{chosen.name}" is not set up in this shop', setup=True)
-    if chosen.reference_listing_id is None:
+    if chosen.reference_listing_id is None and not chosen.manual:
         return Target(connection, chosen, f'profile "{chosen.name}" needs a reference listing in its main shop',
                       link=link)
 

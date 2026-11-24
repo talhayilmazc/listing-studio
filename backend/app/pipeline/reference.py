@@ -365,6 +365,7 @@ def build_inventory_from_reference(
     sku_on_property: list[int] | None = None,
     skus_by_product: dict[int, str] | None = None,
     shop_readiness: int | None = None,
+    own_quantities: bool = False,
 ) -> dict[str, Any]:
     """Reshape a read-back inventory into a writable ``updateListingInventory`` body.
 
@@ -373,6 +374,9 @@ def build_inventory_from_reference(
     reference's offerings carry the main shop's ids, which Etsy refuses anywhere else
     ("Could not find readiness_state_id ... associated with shop"). None: the
     reference's own shop, where each offering keeps its own.
+
+    ``own_quantities``: the profile's variations carry the seller's own quantity per option (a profile made
+    or edited by hand, pipeline/profile_values.py): each offering keeps its own; otherwise ``quantity`` on all.
 
     ``skus_by_product``: each reference product's own SKU (by position), when the
     profile gives variations per-size SKUs (pipeline/skus.py); else ``sku`` on all.
@@ -402,10 +406,11 @@ def build_inventory_from_reference(
                 continue  # priceless / disabled variation -> skip (§C)
             # In the reference's own shop each offering keeps its own readiness_state_id
             # (else the listing-level one); in any other shop, that shop's own.
+            own = offering.get("quantity") if own_quantities else None
             offerings.append(
                 _offering(
                     price,
-                    quantity,
+                    int(own) if isinstance(own, (int, float)) and own >= 0 else quantity,
                     bool(offering.get("is_enabled", True)),
                     shop_readiness if shop_readiness is not None else (offering.get("readiness_state_id") or readiness_state_id),
                 )

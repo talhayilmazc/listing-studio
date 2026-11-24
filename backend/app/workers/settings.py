@@ -30,7 +30,13 @@ from app.etsy.rate_limiter import DailyQuota, TokenBucket
 from app.etsy.usage import UsageRecorder
 from app.workers.accounts import delete_account, finish_account_deletions
 from app.workers.ledger import backfill_ledger, estimate_ledger, sync_all_ledgers, sync_ledger
-from app.workers.links import create_link_resources, link_profile, refresh_shop_links, resolve_shop_settings_once
+from app.workers.links import (
+    create_link_resources,
+    link_profile,
+    read_profile_options,
+    refresh_shop_links,
+    resolve_shop_settings_once,
+)
 from app.workers.listing_stats import read_all_listing_stats, read_listing_stats
 from app.workers.mockups import build_mockup_zip, generate_mockups, prepare_mockup_template, rerender_mockups
 from app.workers.plans import release_planned_drafts
@@ -168,6 +174,7 @@ class WorkerSettings:
         link_profile,
         create_link_resources,
         refresh_shop_links,
+        read_profile_options,
         read_listing_stats,
         reconcile_listings,
         preflight_shop,

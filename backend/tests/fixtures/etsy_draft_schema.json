@@ -1,0 +1,512 @@
+{
+ "createDraftListing": {
+  "content_type": "application/x-www-form-urlencoded",
+  "schema": {
+   "type": "object",
+   "required": [
+    "quantity",
+    "title",
+    "description",
+    "price",
+    "who_made",
+    "when_made",
+    "taxonomy_id"
+   ],
+   "properties": {
+    "quantity": {
+     "type": "integer",
+     "format": "int64"
+    },
+    "title": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    },
+    "price": {
+     "type": "number",
+     "format": "float"
+    },
+    "who_made": {
+     "type": "string",
+     "enum": [
+      "i_did",
+      "someone_else",
+      "collective"
+     ]
+    },
+    "when_made": {
+     "type": "string",
+     "enum": [
+      "made_to_order",
+      "2020_2026",
+      "2010_2019",
+      "2007_2009",
+      "before_2007",
+      "2000_2006",
+      "1990s",
+      "1980s",
+      "1970s",
+      "1960s",
+      "1950s",
+      "1940s",
+      "1930s",
+      "1920s",
+      "1910s",
+      "1900s",
+      "1800s",
+      "1700s",
+      "before_1700"
+     ]
+    },
+    "taxonomy_id": {
+     "type": "integer",
+     "minimum": 1,
+     "format": "int64"
+    },
+    "shipping_profile_id": {
+     "type": "integer",
+     "minimum": 1,
+     "nullable": true,
+     "format": "int64"
+    },
+    "return_policy_id": {
+     "type": "integer",
+     "minimum": 1,
+     "nullable": true,
+     "format": "int64"
+    },
+    "materials": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "string"
+     }
+    },
+    "shop_section_id": {
+     "type": "integer",
+     "minimum": 1,
+     "nullable": true,
+     "format": "int64"
+    },
+    "processing_min": {
+     "type": "integer",
+     "nullable": true,
+     "format": "int64"
+    },
+    "processing_max": {
+     "type": "integer",
+     "nullable": true,
+     "format": "int64"
+    },
+    "readiness_state_id": {
+     "type": "integer",
+     "minimum": 1,
+     "nullable": true,
+     "format": "int64"
+    },
+    "tags": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "string"
+     }
+    },
+    "styles": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "string"
+     }
+    },
+    "item_weight": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1.79769313486e+308,
+     "nullable": true,
+     "format": "float"
+    },
+    "item_length": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1.79769313486e+308,
+     "nullable": true,
+     "format": "float"
+    },
+    "item_width": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1.79769313486e+308,
+     "nullable": true,
+     "format": "float"
+    },
+    "item_height": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1.79769313486e+308,
+     "nullable": true,
+     "format": "float"
+    },
+    "item_weight_unit": {
+     "type": "string",
+     "enum": [
+      "oz",
+      "lb",
+      "g",
+      "kg"
+     ],
+     "nullable": true
+    },
+    "item_dimensions_unit": {
+     "type": "string",
+     "enum": [
+      "in",
+      "ft",
+      "mm",
+      "cm",
+      "m",
+      "yd",
+      "inches"
+     ],
+     "nullable": true
+    },
+    "production_partner_ids": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "integer",
+      "minimum": 1,
+      "format": "int64"
+     }
+    },
+    "image_ids": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "integer",
+      "minimum": 1,
+      "format": "int64"
+     }
+    },
+    "ecgt_garan_brand": {
+     "type": "string",
+     "nullable": true
+    },
+    "ecgt_garan_years": {
+     "type": "integer",
+     "nullable": true,
+     "format": "int64"
+    },
+    "ecgt_garan_model": {
+     "type": "string",
+     "nullable": true
+    },
+    "ecgt_garan_guarantee_details": {
+     "type": "string",
+     "nullable": true
+    },
+    "ecgt_other_commercial_guarantee_details": {
+     "type": "string",
+     "nullable": true
+    },
+    "ecgt_after_sales_service_info": {
+     "type": "string",
+     "nullable": true
+    },
+    "ecgt_software_update_details": {
+     "type": "string",
+     "nullable": true
+    },
+    "gpsr_manufacturer_type": {
+     "type": "string",
+     "enum": [
+      "seller",
+      "economic_operator"
+     ],
+     "nullable": true
+    },
+    "gpsr_manufacturer_id": {
+     "type": "integer",
+     "nullable": true,
+     "format": "int64"
+    },
+    "gpsr_responsible_person_type": {
+     "type": "string",
+     "enum": [
+      "seller",
+      "economic_operator"
+     ],
+     "nullable": true
+    },
+    "gpsr_responsible_person_id": {
+     "type": "integer",
+     "nullable": true,
+     "format": "int64"
+    },
+    "gpsr_serial_number": {
+     "type": "string",
+     "nullable": true
+    },
+    "gpsr_safety_warnings": {
+     "type": "string",
+     "nullable": true
+    },
+    "is_supply": {
+     "type": "boolean"
+    },
+    "is_customizable": {
+     "type": "boolean"
+    },
+    "should_auto_renew": {
+     "type": "boolean"
+    },
+    "is_taxable": {
+     "type": "boolean"
+    },
+    "type": {
+     "type": "string",
+     "enum": [
+      "physical",
+      "download",
+      "both"
+     ]
+    }
+   }
+  }
+ },
+ "updateListingPersonalization": {
+  "content_type": "application/json",
+  "schema": {
+   "type": "object",
+   "required": [
+    "personalization_questions"
+   ],
+   "properties": {
+    "personalization_questions": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "question_text",
+       "question_type",
+       "required"
+      ],
+      "properties": {
+       "question_id": {
+        "type": "integer",
+        "minimum": 1,
+        "nullable": true,
+        "format": "int64"
+       },
+       "question_text": {
+        "type": "string"
+       },
+       "instructions": {
+        "type": "string",
+        "nullable": true
+       },
+       "question_type": {
+        "type": "string",
+        "enum": [
+         "text_input",
+         "dropdown",
+         "unlabeled_upload",
+         "labeled_upload"
+        ]
+       },
+       "required": {
+        "type": "boolean"
+       },
+       "max_allowed_files": {
+        "type": "integer",
+        "nullable": true,
+        "format": "int64"
+       },
+       "max_allowed_characters": {
+        "type": "integer",
+        "nullable": true,
+        "format": "int64"
+       },
+       "options": {
+        "type": "array",
+        "nullable": true,
+        "items": {
+         "type": "object",
+         "required": [
+          "label"
+         ],
+         "properties": {
+          "option_id": {
+           "type": "integer",
+           "minimum": 1,
+           "nullable": true,
+           "format": "int64"
+          },
+          "label": {
+           "type": "string"
+          }
+         }
+        }
+       },
+       "add_on_price": {
+        "type": "number",
+        "nullable": true,
+        "format": "float"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "updateListingProperty": {
+  "content_type": "application/x-www-form-urlencoded",
+  "schema": {
+   "type": "object",
+   "required": [
+    "value_ids",
+    "values"
+   ],
+   "properties": {
+    "value_ids": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1,
+      "format": "int64"
+     }
+    },
+    "values": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "scale_id": {
+     "type": "integer",
+     "minimum": 1,
+     "format": "int64"
+    }
+   }
+  }
+ },
+ "_source": "Etsy Open API v3 OpenAPI file (developer documentation), request bodies only, read 2026-11-21",
+ "updateListingInventory": {
+  "content_type": "application/json",
+  "schema": {
+   "type": "object",
+   "required": [
+    "products"
+   ],
+   "properties": {
+    "products": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "offerings"
+      ],
+      "properties": {
+       "sku": {
+        "type": "string",
+        "nullable": true
+       },
+       "property_values": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "property_id",
+          "value_ids",
+          "values"
+         ],
+         "properties": {
+          "property_id": {
+           "type": "integer",
+           "minimum": 1
+          },
+          "value_ids": {
+           "type": "array",
+           "items": {
+            "type": "integer",
+            "minimum": 1
+           }
+          },
+          "scale_id": {
+           "type": "integer",
+           "minimum": 1,
+           "nullable": true
+          },
+          "property_name": {
+           "type": "string"
+          },
+          "values": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       },
+       "offerings": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "price",
+          "quantity",
+          "is_enabled",
+          "readiness_state_id"
+         ],
+         "properties": {
+          "price": {
+           "type": "number"
+          },
+          "quantity": {
+           "type": "integer"
+          },
+          "is_enabled": {
+           "type": "boolean"
+          },
+          "readiness_state_id": {
+           "type": "integer",
+           "minimum": 1,
+           "nullable": true
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "price_on_property": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "quantity_on_property": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "sku_on_property": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "readiness_state_on_property": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    }
+   }
+  }
+ }
+}

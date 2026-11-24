@@ -729,6 +729,17 @@ async def seed_demo(sm: async_sessionmaker, *, admin: bool = False, shops: int |
                 ),
             ])
         await session.commit()
+    # What the profile form offers for the demo shops (made up; a development machine never asks Etsy).
+    from redis.asyncio import Redis
+
+    from app.core.config import get_settings
+    from app.ops import profile_form_demo
+
+    redis = Redis.from_url(get_settings().redis_url)
+    try:
+        await profile_form_demo.seed(sm, redis, email)
+    finally:
+        await redis.aclose()
     lines = [
         "Synthetic demo account ready" + (" (an admin, with sample invite requests)." if admin else "."),
         f"  e-mail:   {email}",

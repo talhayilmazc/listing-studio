@@ -51,7 +51,7 @@ from app.pipeline.reference import (
     prefix_from_shop,
     production_partner_ids,
 )
-from app.pipeline import suggested_profile
+from app.pipeline import profile_values, suggested_profile
 from app.pipeline.taxonomy import category_path, clothing_taxonomy_ids, infer_content_template
 from app.workers import gate
 
@@ -290,6 +290,40 @@ async def _refresh_profile(ctx: dict[str, Any], profile_id: str) -> str:
     return await _reported(ctx, profile_id, lambda: _refresh_profile_body(ctx, profile_id))
 
 
+async def _refresh_manual(ctx: dict[str, Any], session, service: ConnectionService, settings, profile: ListingProfile,  # noqa: ANN001
+                          connection: EtsyConnection) -> str:
+    """A profile made by hand has no listing to read. Its payload is built from the seller's own values, and
+    its category's attribute lists and names (Etsy's own lists, kept 24 hours like every profile's) are read
+    for the form and the review card. It never fails the profile: a list that could not be read is read the
+    next time, and the profile keeps working."""
+    payload = dict(profile.cached_payload or {})
+    taxonomy = (profile.own_values or {}).get("taxonomy_id")
+    try:
+        if taxonomy is not None:
+            tenant = await session.get(Tenant, profile.tenant_id)
+            token = await _token(service, session, connection)
+            async with httpx.AsyncClient(timeout=30.0) as http:
+                client = _build_client(ctx, http, settings, shop=connection.id)
+                kw = {"access_token": token, "tenant_id": profile.tenant_id,
+                      "tenant_limit": limits.ceiling_limit(tenant) if tenant else None}
+                props = await client.get_properties_by_taxonomy_id(int(taxonomy), **kw)
+                nodes = await client.get_seller_taxonomy_nodes(**kw)
+            payload["category_attributes"] = attribute_choices((props or {}).get("results"))
+            payload["category_attribute_limits"] = attribute_limits((props or {}).get("results"))
+            payload["category_properties"] = listing_attributes.compact((props or {}).get("results"))
+            payload["category_names"] = category_path(nodes, int(taxonomy))
+            payload["category_read_at"] = datetime.now(timezone.utc).isoformat()
+    except RateLimitExceeded:
+        raise
+    except Exception:  # noqa: BLE001 - the lists are a convenience: the profile's own values are all a draft needs
+        logger.warning("profile %s: its category's lists could not be read", profile.id, exc_info=True)
+    profile.cached_payload = payload
+    profile_values.rebuild(profile, currency=payload.get("currency"))
+    profile.refresh_error = profile.refresh_failed_at = None
+    await session.commit()
+    return "manual"
+
+
 async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
     settings = get_settings()
     sessionmaker = ctx["sessionmaker"]
@@ -303,6 +337,8 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         connection = await _active_shop(session, profile.connection_id)
         if connection is None or connection.tenant_id != profile.tenant_id:
             return "no-connection"
+        if profile.manual:
+            return await _refresh_manual(ctx, session, service, settings, profile, connection)
         if profile.reference_listing_id is None:
             return "no-reference"  # its main shop changed; the seller chooses a reference there
 
@@ -419,6 +455,8 @@ async def _refresh_profile_body(ctx: dict[str, Any], profile_id: str) -> str:
         if profile.fixed_image_ids is None and charts:
             profile.fixed_image_ids = charts
 
+        # The seller's own values ("your value") stay over what the listing says: a refresh never overwrites them.
+        payload = profile_values.apply(payload, profile.own_values)
         profile.cached_payload = payload
         profile.updated_at = profile.images_updated_at = datetime.now(timezone.utc)
         profile.refresh_error = profile.refresh_failed_at = None

@@ -146,7 +146,7 @@ test.describe("a new seller's first run", () => {
     await expect(cards.nth(1)).toHaveAttribute("data-approved", "true");
     await expect(cards.nth(2)).toHaveAttribute("data-approved", "true");
 
-    // --- A design of their own: step 2 ticks itself -------------------------------------------------------------
+    // --- A design of their own: step 3 ticks itself -------------------------------------------------------------
     await page.goto(`${APP}/upload`);
     await page.getByTestId("files-input").setInputFiles(DESIGN);
     await page.getByTestId("upload-start").click();
@@ -155,7 +155,10 @@ test.describe("a new seller's first run", () => {
     await expect(page.getByTestId("step-shop")).toHaveAttribute("data-state", "done");
     await expect(page.getByTestId("step-upload")).toHaveAttribute("data-state", "done");
     // The examples were approved to learn the screen; that is not the seller's own first approval.
-    await expect(page.getByTestId("step-approve")).toHaveAttribute("data-state", "now");
+    // Step 2, the listing settings, is next: this stack has no worker to read the stub shop, so there is
+    // nothing to suggest them from yet and the step links to Profiles (pipeline/onboarding.py).
+    await expect(page.getByTestId("step-profile")).toHaveAttribute("data-state", "now");
+    await expect(page.getByTestId("step-approve")).toHaveAttribute("data-state", "later");
 
     expect(errors, "no JavaScript error on the way").toEqual([]);
     const out = join(process.cwd(), "test-results");

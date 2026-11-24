@@ -795,6 +795,41 @@ async def relink_partners(ctx: dict[str, Any], *, connection_id: uuid.UUID | Non
     return len(shops)
 
 
+# --- read_profile_options: what the profile form offers (feature/manual-profiles) -------------------
+
+
+async def read_profile_options(ctx: dict[str, Any], arg: str) -> str:
+    """What the profile form offers for a shop, read through the queue: the shop's own shipping profiles, return
+    policies, processing profiles and production partners (kept an hour, like every setup), its currency, Etsy's
+    category tree and, for a chosen category, its attributes (kept 24 hours by the client; not Member Content).
+    ``arg``: "<connection id>" or "<connection id>|<taxonomy id>". Read only; upkeep."""
+    connection_id, _, taxonomy = arg.partition("|")
+    async with ctx["sessionmaker"]() as session:
+        shop = await session.get(EtsyConnection, uuid.UUID(connection_id))
+        if shop is None or shop.status is not ConnectionStatus.active:
+            return "no-connection"
+        tenant_id = shop.tenant_id
+    return await _gated(ctx, "read_profile_options", arg, tenant_id, lambda: _read_profile_options(ctx, connection_id, taxonomy))
+
+
+async def _read_profile_options(ctx: dict[str, Any], connection_id: str, taxonomy: str) -> str:
+    cid = uuid.UUID(connection_id)
+    async with ctx["sessionmaker"]() as session:
+        shop = await session.get(EtsyConnection, cid)
+        if shop is None:
+            return "no-connection"
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            client = _client(ctx, http, shop.id, upkeep=True)
+            kw = {"access_token": await _token(session, shop), "tenant_id": shop.tenant_id, "tenant_limit": None}
+            shop_id = await _shop_id(session, client, shop, kw)
+            await shop_lists(ctx, client, shop_id, shop.id, kw, currency=True)
+            await client.get_seller_taxonomy_nodes(**kw)
+            if taxonomy:
+                await client.get_properties_by_taxonomy_id(int(taxonomy), **kw)
+        await session.commit()
+    return "read"
+
+
 async def link_plan(ctx: dict[str, Any], profile_id: uuid.UUID) -> dict[str, Any]:
     """What is left for the seller, per shop (read by the API)."""
     return await _plan_store(ctx, profile_id)

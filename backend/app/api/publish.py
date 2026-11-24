@@ -218,7 +218,7 @@ def auto_setup(target: Any) -> bool:
     first (no question), and the draft waits for that. A profile that needs a reference or
     a refresh, or is not confirmed, is not set up this way."""
     profile = target.profile
-    if profile is None or not profile.confirmed or target.stale or profile.reference_listing_id is None:
+    if profile is None or not profile.confirmed or target.stale or (profile.reference_listing_id is None and not profile.manual):
         return False
     return target.link is None or target.link.status in ("checking", "incomplete", "error")
 

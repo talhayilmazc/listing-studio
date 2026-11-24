@@ -79,6 +79,8 @@ async def attention(session: AsyncSession, tenant: Tenant, redis: Redis | None =
 
     cannot_write = int(await session.scalar(select(func.count()).select_from(ListingProfile).where(
         ListingProfile.tenant_id == tid, ListingProfile.confirmed.is_(True),
+        # (A profile made by hand has no reference listing and is never refreshed: neither counts.)
+        ListingProfile.manual.is_(False),
         or_(ListingProfile.reference_listing_id.is_(None),
             and_(ListingProfile.refresh_error.is_not(None), ListingProfile.refresh_error != TRANSIENT)))) or 0)
     refused = int(await session.scalar(

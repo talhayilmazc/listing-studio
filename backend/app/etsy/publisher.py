@@ -64,7 +64,8 @@ from app.etsy.api import EtsyApiClient
 from app.etsy.errors import EtsyClientError, EtsyServerError
 from app.pipeline import chart_order, design_match, how_made, item_options, skus, versions
 from app.pipeline.attribute_fill import garment_attributes
-from app.pipeline.attributes import resolve_optional_attributes, resolve_required_attributes
+from app.pipeline.attributes import ResolvedAttribute, resolve_optional_attributes, resolve_required_attributes
+from app.pipeline.profile_values import named_attributes
 from app.pipeline.personalization import differs as personalization_differs
 from app.pipeline.personalization import etsy_problems as personalization_problems
 from app.pipeline.personalization import questions_for
@@ -733,7 +734,8 @@ async def publish_content(
     if size_issue:
         raise ValueError(size_issue)
     listing: dict[str, Any] = {
-        "quantity": config.quantity,
+        # The profile's own quantity when it has one (a profile made or edited by hand), else the app's setting.
+        "quantity": int(reference.get("quantity") or config.quantity),
         "title": (title if title is not None else content.title) or "",
         "description": (description if description is not None else content.description) or "",
         # Apparel is always a PHYSICAL listing. Sending type=download makes Etsy
@@ -869,8 +871,11 @@ async def publish_content(
     # missing names -- never a hardcoded default (v4 §B). Missing required attributes
     # are why "save then publish" was needed in Etsy's UI.
     props = await client.get_properties_by_taxonomy_id(taxonomy_id, **ctx)
+    # The attributes the seller set on the profile by name (a profile made by hand, or "your value") are
+    # looked up in this category and go with the reference listing's own (pipeline/profile_values.py).
+    reference_attributes = named_attributes(props.get("results", []), reference.get("attributes"), reference.get("attribute_values"))
     resolved, missing = resolve_required_attributes(
-        props.get("results", []), reference.get("attributes"), vision
+        props.get("results", []), reference_attributes, vision
     )
     if missing:
         raise ValueError(
@@ -878,8 +883,14 @@ async def publish_content(
         )
     # The garment's optional properties the profile's reference (or the mockup) gives.
     resolved = [*resolved, *garment_attributes(
-        props.get("results", []), reference.get("attributes"), vision, {a.property_id for a in resolved}
+        props.get("results", []), reference_attributes, vision, {a.property_id for a in resolved}
     )]
+    # Every attribute the seller set on the profile itself is written, optional ones too (the listing's own
+    # values, below, still come first).
+    for row in named_attributes(props.get("results", []), [], reference.get("attribute_values")):
+        if row["property_id"] not in {a.property_id for a in resolved}:
+            resolved.append(ResolvedAttribute(int(row["property_id"]), str(row["property_name"]), list(row["value_ids"]),
+                                              list(row["values"]), row.get("scale_id")))
     # What the seller set wins: a value of theirs replaces the reference's, and one they cleared is not written
     # (unless Etsy requires it: then the reference's value stays).
     mine = {n.strip().lower() for n in seller_attributes or ()}
@@ -953,7 +964,8 @@ async def publish_content(
         reference.get("inventory_products") or [],
         sku=sku,
         skus_by_product=per_product,
-        quantity=config.quantity,
+        quantity=int(reference.get("quantity") or config.quantity),
+        own_quantities=bool(reference.get("own_quantities")),
         fallback_price=reference.get("price"),
         readiness_state_id=reference.get("readiness_state_id"),
         price_on_property=reference.get("price_on_property"),
