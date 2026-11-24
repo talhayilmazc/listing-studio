@@ -4,12 +4,18 @@ Duration, frame size, whether it has a sound track and its video codec, from the
 kilobytes are read wherever the box sits (a phone puts it at the end), never the video itself, so a 100 MB file
 costs nothing. No decoder and no other program: the file is a seller's upload and is only parsed, never run.
 Anything that is not such a file raises :class:`NotAVideo`.
+
+Etsy also takes FLV, AVI and MPEG (pipeline/video_rules.py): those have no such boxes, so ``read_path`` asks the
+frame reader (ffmpeg, a separate program, the one that makes the poster) to describe them instead.
 """
 
 from __future__ import annotations
 
+import re
 import struct
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import BinaryIO
 
 #: A ``moov`` box larger than this is not a listing video's (a 15 second clip's is a few kilobytes).
@@ -137,3 +143,40 @@ def read(fh: BinaryIO, total: int) -> Probe:
     if seconds <= 0 or codec is None:
         raise NotAVideo("the file has no video in it")
     return Probe(seconds=seconds, width=width, height=height, has_audio=has_audio, codec=codec)
+
+
+_DURATION = re.compile(r"Duration: (\d+):(\d\d):(\d\d(?:\.\d+)?)")
+_VIDEO = re.compile(r"Stream #[^\n]*?Video: (\w+)[^\n]*?[ ,](\d{2,5})x(\d{2,5})[ ,\n\[]")
+_AUDIO = re.compile(r"Stream #[^\n]*?Audio:")
+FFMPEG_SECONDS = 20
+
+
+def read_other(path: Path) -> Probe:
+    """A container that is not MP4 or MOV (FLV, AVI, MPEG): what the frame reader says of it. It is asked to
+    describe the file and nothing else (``-i`` with no output), at low priority and with a time limit."""
+    from app.pipeline import listing_videos
+
+    exe = listing_videos.ffmpeg()
+    if exe is None:
+        raise NotAVideo("no reader for this kind of file here")
+    try:
+        done = subprocess.run([exe, "-nostdin", "-hide_banner", "-i", str(path)], capture_output=True, timeout=FFMPEG_SECONDS,
+                              stdin=subprocess.DEVNULL, check=False)
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise NotAVideo("the file could not be read") from exc
+    said = done.stderr.decode("utf-8", "replace")
+    duration, video = _DURATION.search(said), _VIDEO.search(said)
+    if duration is None or video is None:
+        raise NotAVideo("the file has no video in it")
+    hours, minutes, seconds = duration.groups()
+    return Probe(seconds=int(hours) * 3600 + int(minutes) * 60 + float(seconds), width=int(video.group(2)),
+                 height=int(video.group(3)), has_audio=_AUDIO.search(said) is not None, codec=video.group(1))
+
+
+def read_path(path: Path) -> Probe:
+    """The video at ``path``: from its own boxes when it is MP4, MOV or 3GP; else through the frame reader."""
+    try:
+        with open(path, "rb") as fh:
+            return read(fh, path.stat().st_size)
+    except NotAVideo:
+        return read_other(path)

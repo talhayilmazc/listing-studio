@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 #: The lease a video's reading takes of the worker's memory budget: the frame reader's own peak for one
 #: 1080p frame, with room (the file itself is never loaded).
 VIDEO_MB = 150
-MIME = {".mp4": "video/mp4", ".mov": "video/quicktime"}
+MIME = {".mp4": "video/mp4", ".mov": "video/quicktime", ".flv": "video/x-flv", ".avi": "video/x-msvideo",
+        ".3gp": "video/3gpp", ".mpeg": "video/mpeg", ".mpg": "video/mpeg"}
 NO_ANSWER = ("Etsy did not answer in time. Press Try again: the app looks on the draft first, so the video is "
              "never sent twice.")
 BUDGET = "Today's Etsy requests are used up. Try again after the reset."
@@ -52,8 +53,7 @@ def _storage(ctx: dict[str, Any]) -> Any:
 
 
 def _read(path: Any) -> video_probe.Probe:
-    with open(path, "rb") as fh:
-        return video_probe.read(fh, path.stat().st_size)
+    return video_probe.read_path(path)
 
 
 async def process_listing_video(ctx: dict[str, Any], video_id: str) -> str:
@@ -79,7 +79,8 @@ async def process_listing_video(ctx: dict[str, Any], video_id: str) -> str:
             if probe is not None:
                 video.duration_ms = int(round(probe.seconds * 1000))
                 video.width, video.height, video.has_audio = probe.width, probe.height, probe.has_audio
-                problem = video_rules.check(filename=video.filename, size=video.size, seconds=probe.seconds).problem
+                problem = video_rules.check(filename=video.filename, size=video.size, seconds=probe.seconds,
+                                            width=probe.width, height=probe.height).problem
             video.updated_at = datetime.now(timezone.utc)
             if problem:
                 # The seller is told what is wrong; a file Etsy would not take is not kept.
@@ -164,6 +165,10 @@ async def send(ctx: dict[str, Any], session: Any, publication: ListingPublicatio
         publication.video_state, publication.video_error, publication.etsy_video_id = "attached", None, etsy_id
     else:
         publication.video_state, publication.video_error = "failed", error
+        # Counted for the operator's digest and alert (monitor/videos.py); the seller's screen is as it was.
+        from app.monitor import videos as video_monitor
+
+        await video_monitor.failed(ctx.get("redis"))
     await session.commit()
     return publication.video_state
 

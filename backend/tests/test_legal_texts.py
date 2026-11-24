@@ -237,3 +237,25 @@ def test_no_external_script_or_tracker_is_loaded_by_any_page() -> None:
         "api", "localhost", "www.w3.org", "nextjs.org", "example.com", "example.test",  # the API inside the network; XML namespaces; docs in comments
     }
     assert hosts <= known, sorted(hosts - known)
+
+
+def test_a_listings_video_is_named_wherever_the_texts_say_what_is_stored_and_sent_to_etsy() -> None:
+    """feature/listing-video: the Privacy Policy and the scope's reason say "video" beside the photos; the policy's
+    own date moved, the Terms version did not (nobody is asked to agree again)."""
+    from app.etsy import oauth
+
+    privacy = " ".join(PRIVACY.read_text(encoding="utf-8").split())
+    assert ("A video you add to a listing is stored as you sent it, with its file name, length and frame size and a "
+            "poster frame made from it.") in privacy
+    assert "create drafts, upload their images and video, set" in privacy
+    assert "listing&rsquo;s images or video when you ask for that" in privacy
+    assert 'data="The image files you upload (the resized version), and a video you add to a listing"' in privacy
+    assert "upload their images and video" in oauth.SCOPE_REASONS["listings_w"]
+    assert "replace a listing's images or video" in oauth.SCOPE_REASONS["listings_w"]
+    legal = (ROOT / "frontend" / "lib" / "legal.ts").read_text(encoding="utf-8")
+    assert "upload their images and video, set their variations and SKUs" in legal
+    assert _const("PRIVACY_UPDATED") == "24 November 2026"
+    for doc in ("etsy-compliance.md", "commercial-application.md"):
+        path = ROOT / "docs" / doc
+        if path.exists():
+            assert "video" in path.read_text(encoding="utf-8"), doc

@@ -565,7 +565,7 @@ export default function UploadPage() {
       ref={filesRef}
       type="file"
       multiple
-      accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff,.zip,application/zip,.mp4,.mov,video/mp4,video/quicktime"
+      accept="image/png,image/jpeg,image/webp,image/heic,.heic,.heif,image/gif,image/tiff,.zip,application/zip,.mp4,.mov,.flv,.avi,.3gp,.mpeg,.mpg,video/*"
       className="hidden"
       data-testid="files-input"
       onChange={(e) => {

@@ -67,6 +67,12 @@ When a seller disconnects a shop, its tokens are deleted at once, its queued and
 
 Every scope requested is used; none is requested for future use.
 
+> **Changed after approval (24 November 2026), `listings_w`:** the same scope also uploads the seller's own video
+> to a draft the app made (one video a listing; Etsy's `uploadListingVideo`), after the draft's images, and, only on
+> the seller's confirmed click, replaces the video on a listing (the old one is removed with `deleteListingVideo`).
+> Nothing is removed on Etsy by the app itself. The current wording is in `docs/etsy-compliance.md` and
+> `backend/app/etsy/oauth.py::SCOPE_REASONS`; tell Etsy if it asks about scope use.
+
 > **Changed after approval (2 November 2026), `listings_w`:** the table above is the text Etsy approved. Since 2
 > November 2026 the same scope also changes a live listing's title, tags and attributes, only from the seller's own
 > approval of a before-and-after preview in Listing health, at most 50 listings per approval, read back afterwards, with

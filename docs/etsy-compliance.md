@@ -35,7 +35,7 @@ Developer: Talha Yılmaz and Ahmet Düzgün, operating as Listyro. Etsy app ID 1
 | Scope | Why it is asked for (the feature that uses it) |
 |---|---|
 | `listings_r` | Read the seller's own listings: the reference listing of a profile, the shop's listing cache, and the views and favourites of listings made with Listyro. |
-| `listings_w` | Create draft listings, upload their images, set inventory, attributes and personalization, publish a draft on the seller's instruction, replace a listing's images, change a live listing's title, tags and attributes when the seller approves that change (Listing health). |
+| `listings_w` | Create draft listings, upload their images and video, set inventory, attributes and personalization, publish a draft on the seller's instruction, replace a listing's images or video, change a live listing's title, tags and attributes when the seller approves that change (Listing health). |
 | `shops_r` | Read the shop's name, sections, shipping profiles, return policies, processing profiles and production partners, so a draft uses the shop's own settings. |
 | `shops_w` | Create a shop section the seller confirms, and copy the seller's main-shop shipping profile, return policy and processing profile into their other shops when a reference listing is used there (only where a shop has none, once per shop). |
 | `transactions_r` | Read the seller's own sales lines and payment account ledger for profit, cost and ads reporting. No buyer field is stored. |

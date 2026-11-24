@@ -113,7 +113,8 @@ export default function PrivacyPage() {
         <p>
           <strong>Your uploads.</strong> The design images you upload are resized and stored in that
           resized form only (the file as you sent it is not kept), with their file and folder names,
-          the SKU read from them, and their dimensions. If you make mockups, the blank garment photos you
+          the SKU read from them, and their dimensions. A video you add to a listing is stored as you
+          sent it, with its file name, length and frame size and a poster frame made from it. If you make mockups, the blank garment photos you
           save in templates are kept too, with the template&rsquo;s name and the photos&rsquo; order, the
           garment&rsquo;s outline, a map of where the garments are in the photo, the print area of each
           garment (as suggested and as you set it), whether and when you confirmed it, whether the photo
@@ -236,10 +237,10 @@ export default function PrivacyPage() {
           />
         </Table>
         <p>
-          We write to your shop only to do what you asked: create drafts, upload their images, set
+          We write to your shop only to do what you asked: create drafts, upload their images and video, set
           their variations, attributes, personalization and SKUs, publish a draft when you press{" "}
           <em>Publish now</em> or at a time you scheduled for a listing you approved, replace a
-          listing&rsquo;s images when you ask for that, and create a section when you confirm it. When
+          listing&rsquo;s images or video when you ask for that, and create a section when you confirm it. When
           a reference listing is used in another of your shops (when you choose that shop for it,
           draft there, or connect a new shop), its main shop&rsquo;s shipping profile, return policy and
           processing profile are copied into that shop: only where the shop has none, once per shop,
@@ -432,7 +433,7 @@ export default function PrivacyPage() {
         </p>
         <Table head={["Data", "Kept for"]}>
           <Row
-            data="The image files you upload (the resized version)"
+            data="The image files you upload (the resized version), and a video you add to a listing"
             period={<span>{`${R.uploadsAfterDraftsDays} days after a draft of the listing made from them exists in every shop it is meant for, with nothing scheduled for it; otherwise ${R.uploadsOtherwiseDays} days after you last worked on them. They are then deleted automatically, except one small thumbnail of the cover, which stays with the listing's record. When you delete the batch it disappears at once and can be restored for ${R.deletedBatchDays} days; then its files and everything written for it are deleted`}</span>}
           />
           <Row

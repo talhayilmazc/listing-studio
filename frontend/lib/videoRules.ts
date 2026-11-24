@@ -4,15 +4,22 @@
  * backend/tests/fixtures/video_rule_cases.json; the server is the one that decides.
  */
 
-export const MIN_SECONDS = 5;
+export const MIN_SECONDS = 3;
 export const MAX_SECONDS = 15;
 export const SECONDS_TOLERANCE = 0.25;
 export const MAX_BYTES = 100 * 1024 * 1024;
-export const EXTENSIONS = [".mp4", ".mov"];
-export const ACCEPT = ".mp4,.mov,video/mp4,video/quicktime";
-export const VIDEO_RE = /\.(mp4|mov)$/i;
+/** The frame's shorter side, at least. */
+export const MIN_PIXELS = 500;
+/** Between 2:1 and 1:2: the longer side is at most twice the shorter. */
+export const MAX_ASPECT = 2;
+export const ASPECT_TOLERANCE = 0.01;
+export const EXTENSIONS = [".mp4", ".mov", ".flv", ".avi", ".3gp", ".mpeg", ".mpg"];
+export const ACCEPT = ".mp4,.mov,.flv,.avi,.3gp,.mpeg,.mpg,video/mp4,video/quicktime,video/x-flv,video/x-msvideo,video/3gpp,video/mpeg";
+export const VIDEO_RE = /\.(mp4|mov|flv|avi|3gp|mpeg|mpg)$/i;
+/** The one quiet line beside a listing's video (Etsy's Help article: listing videos are silent). */
+export const SILENT = "Etsy shows listing videos without sound.";
 
-export const NOT_A_VIDEO = "Choose an MP4 or MOV video.";
+export const NOT_A_VIDEO = "Choose a video file: MP4, MOV, FLV, AVI, 3GP or MPEG.";
 export const UNREADABLE = "This file could not be read as a video. Export it again as MP4 or MOV and add it again.";
 
 export interface ListingVideo {
@@ -44,7 +51,7 @@ export interface VideoDraft {
 }
 
 export interface BatchVideos {
-  limits: { min_seconds: number; max_seconds: number; max_bytes: number; extensions: string[] };
+  limits: { min_seconds: number; max_seconds: number; max_bytes: number; min_pixels: number; max_aspect: number; extensions: string[] };
   videos: ListingVideo[];
   drafts: VideoDraft[];
 }
@@ -82,6 +89,19 @@ export function durationProblem(seconds: number | null): string | null {
   return null;
 }
 
+/** Too small, or too long and thin. A frame size nobody could read: nothing is said (the server reads it). */
+export function frameProblem(width: number | null | undefined, height: number | null | undefined): string | null {
+  if (!width || !height) return null;
+  const small = Math.min(width, height);
+  const large = Math.max(width, height);
+  if (small < MIN_PIXELS) return `This video is ${small} px; Etsy needs at least ${MIN_PIXELS} px.`;
+  const ratio = large / small;
+  if (ratio > MAX_ASPECT + ASPECT_TOLERANCE) {
+    return `This video is ${width > height ? `${ratio.toFixed(1)}:1` : `1:${ratio.toFixed(1)}`}; Etsy takes shapes between 2:1 and 1:2.`;
+  }
+  return null;
+}
+
 /** One line under a video that is there: "0:08 · clip.mp4". */
 export function videoLine(video: Pick<ListingVideo, "duration" | "filename">): string {
   return [video.duration, video.filename].filter(Boolean).join(" · ");
@@ -110,15 +130,17 @@ export function busy(videos: ListingVideo[], drafts: VideoDraft[], groupKey: str
     || drafts.some((d) => d.group_key === groupKey && d.video_state === "sending");
 }
 
-/** How long a video is, read by the browser from the file itself (nothing is sent). null: it cannot tell,
- *  and the server reads it after the upload. */
-export function readSeconds(file: File, timeoutMs = 8000): Promise<number | null> {
+export interface VideoFacts { seconds: number; width: number | null; height: number | null }
+
+/** How long a video is and how large its frame, read by the browser from the file itself (nothing is sent).
+ *  null: it cannot tell (a kind of file it does not play), and the server reads it after the upload. */
+export function readFacts(file: File, timeoutMs = 8000): Promise<VideoFacts | null> {
   if (typeof document === "undefined") return Promise.resolve(null);
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const el = document.createElement("video");
     let done = false;
-    const finish = (value: number | null) => {
+    const finish = (value: VideoFacts | null) => {
       if (done) return;
       done = true;
       URL.revokeObjectURL(url);
@@ -126,11 +148,18 @@ export function readSeconds(file: File, timeoutMs = 8000): Promise<number | null
     };
     el.preload = "metadata";
     el.muted = true;
-    el.onloadedmetadata = () => finish(Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null);
+    el.onloadedmetadata = () => finish(Number.isFinite(el.duration) && el.duration > 0
+      ? { seconds: el.duration, width: el.videoWidth || null, height: el.videoHeight || null } : null);
     el.onerror = () => finish(null);
     setTimeout(() => finish(null), timeoutMs);
     el.src = url;
   });
+}
+
+/** What Etsy would not take of a video the browser could read: its length, then its frame. */
+export function factsProblem(facts: VideoFacts | null): string | null {
+  if (facts === null) return null;
+  return durationProblem(facts.seconds) ?? frameProblem(facts.width, facts.height);
 }
 
 /** "Uploading 40%" */

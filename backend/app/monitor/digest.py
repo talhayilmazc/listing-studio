@@ -162,6 +162,10 @@ async def overall(session: AsyncSession, redis: Any, now: datetime) -> list[str]
         f"sign-ups: {signups}",
         f"Etsy calls: yesterday {used_yesterday:,} of {limit:,}, today so far {used_today:,}",
     ]
+    from app.monitor import videos
+
+    out.append("listing videos that could not be added to a draft: "
+               f"{await videos.count(redis, videos.DAY, now.timestamp())} in the last 24 hours")
     slow = await signals.slowest(redis, [yesterday, today])
     if slow:
         out.append("slowest endpoints (p95 of our own time, the request body's arrival left out): "

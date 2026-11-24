@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { groupKeyOf } from "@/lib/staging";
-import { durationProblem, failedLine, fileProblem, readSeconds, uploadingLine, videoLine, type ListingVideo } from "@/lib/videoRules";
+import { factsProblem, failedLine, fileProblem, readFacts, uploadingLine, videoLine, type ListingVideo } from "@/lib/videoRules";
 import { uploadVideo } from "@/lib/videoUpload";
 import { Txt } from "./Txt";
 
@@ -46,9 +46,8 @@ export function BatchVideoUploads({ items, batchId, ready }: { items: VideoItem[
     fresh.forEach((it) => known.current.add(it.file));
     setRows((rs) => [...rs, ...fresh.map((item) => ({ item, problem: fileProblem(item.file), checked: false, progress: null, video: null, error: null }))]);
     fresh.forEach(async (item) => {
-      const seconds = fileProblem(item.file) ? null : await readSeconds(item.file);
-      setRows((rs) => rs.map((r) => (r.item.file === item.file
-        ? { ...r, checked: true, problem: r.problem ?? (seconds !== null ? durationProblem(seconds) : null) } : r)));
+      const facts = fileProblem(item.file) ? null : await readFacts(item.file);
+      setRows((rs) => rs.map((r) => (r.item.file === item.file ? { ...r, checked: true, problem: r.problem ?? factsProblem(facts) } : r)));
     });
   }, [items]);
 

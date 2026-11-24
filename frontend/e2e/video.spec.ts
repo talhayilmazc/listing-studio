@@ -26,6 +26,7 @@ const SHOTS = "test-results/video";
 const FIXTURES = join(ROOT, "frontend", "e2e", "fixtures");
 const GOOD = join(FIXTURES, "listing-video-8s.mp4");
 const LONG = join(FIXTURES, "listing-video-22s.mp4");
+const SMALL = join(FIXTURES, "listing-video-small.mp4");  // 320 x 568
 
 function docker(args: string[], timeout = 600_000): string {
   return execFileSync("docker", args, { cwd: ROOT, encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"] });
@@ -142,10 +143,16 @@ test.describe("a listing's video, on a fake Etsy", () => {
     await expect(slot).toHaveAttribute("data-video", "none");
     await expect(slot.getByTestId("video-add")).toHaveText("Add video");
     await slot.getByTestId("video-input").setInputFiles(LONG);
-    await expect(slot.getByTestId("video-error")).toContainText("This video is 22 s; Etsy takes 5–15 s.", { timeout: 90_000 });
+    await expect(slot.getByTestId("video-error")).toContainText("This video is 22 s; Etsy takes 3–15 s.", { timeout: 90_000 });
     await slot.scrollIntoViewIfNeeded();
     await shot(page, "2-wrong-length", project);
     await expect(slot.getByTestId("video-poster")).toHaveCount(0);  // nothing was added
+    await expect(slot.getByTestId("video-silent")).toHaveCount(0);
+    // A frame Etsy would not take: said in the same plain way.
+    await slot.getByTestId("video-input").setInputFiles(SMALL);
+    await expect(slot.getByTestId("video-error")).toContainText("This video is 320 px; Etsy needs at least 500 px.", { timeout: 90_000 });
+    await shot(page, "2b-too-small", project);
+    await expect(slot.getByTestId("video-poster")).toHaveCount(0);
 
     await slot.getByTestId("video-input").setInputFiles(GOOD);
     await expect(slot.locator('img[data-testid="video-poster"]')).toBeVisible({ timeout: 120_000 });  // the worker's poster frame
@@ -154,6 +161,7 @@ test.describe("a listing's video, on a fake Etsy", () => {
     await expect(slot).toHaveAttribute("data-video", "ready");
     expect(await slot.locator('img[data-testid="video-poster"]').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
     await expect(slot.getByTestId("video-add")).toHaveText("Replace");
+    await expect(slot.getByTestId("video-silent")).toHaveText("Etsy shows listing videos without sound.");
     await expect(slot.getByTestId("video-remove")).toBeVisible();
     // Nothing is wider than the screen with the slot there.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -170,7 +178,7 @@ test.describe("a listing's video, on a fake Etsy", () => {
     expect(video.listing_id).toBe(drafts[0].listing_id);
     expect(video.name).toBe("listing-video-8s.mp4");
     expect(video.content_type).toBe("multipart/form-data");
-    expect(video.bytes).toBeGreaterThan(20_000);  // the file itself went up
+    expect(video.bytes).toBeGreaterThan(10_000);  // the file itself went up
 
     await page.goto(`${APP}/batches/${withVideo.batch}`);
     const row = page.getByTestId("video-slot").first();

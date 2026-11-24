@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import {
-  ACCEPT, MAX_SECONDS, MIN_SECONDS, busy, draftLine, durationProblem, failedLine, fileProblem, readSeconds, slotOf, uploadingLine, videoLine,
+  ACCEPT, MAX_SECONDS, MIN_SECONDS, SILENT, busy, draftLine, factsProblem, failedLine, fileProblem, readFacts, slotOf, uploadingLine, videoLine,
   type BatchVideos, type ListingVideo, type VideoDraft,
 } from "@/lib/videoRules";
 import { uploadVideo } from "@/lib/videoUpload";
@@ -70,12 +70,9 @@ export function VideoSlot({ batchId, groupKey, contentId, shop = null, disabled 
     setRetry(false);
     const wrong = fileProblem(file);
     if (wrong) return setMessage(wrong);
-    // How long it is, read here from the file itself: a video Etsy would not take is never uploaded.
-    const seconds = await readSeconds(file);
-    if (seconds !== null) {
-      const long = durationProblem(seconds);
-      if (long) return setMessage(long);
-    }
+    // How long it is and how large, read here from the file itself: a video Etsy would not take is never uploaded.
+    const refused = factsProblem(await readFacts(file));
+    if (refused) return setMessage(refused);
     setProgress({ sent: 0, total: file.size });
     try {
       await uploadVideo(batchId, file, { groupKey, shopId }, (sent, total) => setProgress({ sent, total }),
@@ -172,10 +169,11 @@ export function VideoSlot({ batchId, groupKey, contentId, shop = null, disabled 
                 Remove
               </button>
             )}
-            {!current && <span key="hint" className="text-slate-600" translate="no">{`MP4 or MOV, ${MIN_SECONDS}–${MAX_SECONDS} s`}</span>}
+            {!current && <span key="hint" className="text-slate-600" translate="no">{`${MIN_SECONDS}–${MAX_SECONDS} s, MP4 or MOV`}</span>}
           </span>
         ) : null}
       </div>
+      {current && <p key="silent" className="text-slate-600" data-testid="video-silent">{SILENT}</p>}
       {removing && current && (
         <div key="removing" className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5" data-testid="video-remove-confirm">
           <span>Remove this video here? Drafts already on Etsy keep theirs.</span>

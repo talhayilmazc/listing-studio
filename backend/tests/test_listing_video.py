@@ -40,11 +40,23 @@ def test_the_rules_say_what_is_wrong_in_plain_words() -> None:
     for case in CASES["durations"]:
         assert video_rules.duration_problem(case["seconds"]) == case["problem"], case
         assert video_rules.duration_label(case["seconds"]) == case["label"], case
-    assert video_rules.duration_problem(22) == "This video is 22 s; Etsy takes 5–15 s."  # the brief's own sentence
+    for case in CASES["frames"]:
+        assert video_rules.frame_problem(case["width"], case["height"]) == case["problem"], case
+    # The owner's own sentences.
+    assert video_rules.duration_problem(2) == "This video is 2 s; Etsy takes 3–15 s."
+    assert video_rules.frame_problem(320, 568) == "This video is 320 px; Etsy needs at least 500 px."
+    assert video_rules.SILENT == "Etsy shows listing videos without sound."
+    assert video_rules.check(filename="a.mp4", size=1000, seconds=8, width=1080, height=1920).problem is None
+    # Etsy's Help article's limits, with where they come from and when it was read.
+    assert (video_rules.MIN_SECONDS, video_rules.MAX_SECONDS, video_rules.MAX_BYTES, video_rules.MIN_PIXELS, video_rules.MAX_ASPECT) == \
+        (3.0, 15.0, 100 * 1024 * 1024, 500, 2.0)
+    assert video_rules.EXTENSIONS == (".mp4", ".mov", ".flv", ".avi", ".3gp", ".mpeg", ".mpg")
+    assert video_rules.HELP_ARTICLE.endswith("/articles/360053206073") and video_rules.HELP_READ == "2026-11-24"
     # What Etsy's developer pages say, and what they do not: the limits a person has not checked are marked.
     assert (video_rules.OPERATION, video_rules.SCOPE, video_rules.UPLOADS_PER_LISTING_PER_DAY) == ("uploadListingVideo", "listings_w", 10)
     assert video_rules.VIDEOS_PER_LISTING == 1 and video_rules.ETSY_ACTIVE_VIDEOS == 2
-    assert {k for k, v in video_rules.CONFIRMED.items() if v == "api"} == {"endpoint", "scope", "uploads_per_listing_per_day", "active_videos"} and video_rules.CONFIRMED["bytes"] == "unconfirmed"
+    assert {k for k, v in video_rules.CONFIRMED.items() if v == "api"} == {"endpoint", "scope", "uploads_per_listing_per_day"}
+    assert {k for k, v in video_rules.CONFIRMED.items() if v == "help"} == {"active_videos", "seconds", "bytes", "pixels", "aspect", "extensions", "sound"}
     # No new scope: the app already asks for the one the upload needs.
     from app.etsy.oauth import SCOPE_REASONS
 
@@ -117,8 +129,8 @@ async def test_a_video_arrives_in_pieces_and_is_read_by_the_worker(tmp_path, tes
     assert (await a.get(f"/api/batches/{w['batch']}/videos")).json()["videos"] == []
 
     # Refused before a byte is sent: not a video, and larger than Etsy takes.
-    wrong = await a.post(f"/api/batches/{w['batch']}/videos", json={"filename": "clip.avi", "size": 1000, "group_key": w["groups"][first]})
-    assert wrong.status_code == 422 and wrong.json()["detail"] == "Choose an MP4 or MOV video."
+    wrong = await a.post(f"/api/batches/{w['batch']}/videos", json={"filename": "clip.wmv", "size": 1000, "group_key": w["groups"][first]})
+    assert wrong.status_code == 422 and wrong.json()["detail"] == "Choose a video file: MP4, MOV, FLV, AVI, 3GP or MPEG."
     big = await a.post(f"/api/batches/{w['batch']}/videos", json={"filename": "clip.mp4", "size": 130 * 1024 * 1024, "group_key": w["groups"][first]})
     assert big.status_code == 413 and big.json()["detail"] == "This video is 130 MB; Etsy takes videos up to 100 MB."
 
@@ -151,11 +163,20 @@ async def test_a_video_arrives_in_pieces_and_is_read_by_the_worker(tmp_path, tes
 
     # A video Etsy would not take for its length: the brief's own sentence, and the file is not kept.
     long = await _add(w, w["contents"][1], mp4(22.0))
-    assert long["status"] == "failed" and long["error"] == "This video is 22 s; Etsy takes 5–15 s."
+    assert long["status"] == "failed" and long["error"] == "This video is 22 s; Etsy takes 3–15 s."
+    short = await _add(w, w["contents"][1], mp4(2.0))
+    assert short["error"] == "This video is 2 s; Etsy takes 3–15 s."
+    # Its frame, from the same reading: too small, and too long and thin.
+    small = await _add(w, w["contents"][1], mp4(8.0, width=320, height=568))
+    assert small["status"] == "failed" and small["error"] == "This video is 320 px; Etsy needs at least 500 px."
+    thin = await _add(w, w["contents"][1], mp4(8.0, width=1920, height=800))
+    assert thin["error"] == "This video is 2.4:1; Etsy takes shapes between 2:1 and 1:2."
     junk = await _add(w, w["contents"][1], b"\x00\x00\x00\x08free" + b"words " * 100)
     assert junk["status"] == "failed" and junk["error"] == video_rules.UNREADABLE
     async with w["sm"]() as s:
         assert (await s.get(ListingVideo, uuid.UUID(long["id"]))).file_key is None
+    # Another kind Etsy takes, of the smallest frame it takes: ready (and the refused ones before it are gone).
+    assert (await _add(w, w["contents"][1], mp4(4.0, width=500, height=1000), name="ok.3gp"))["status"] == "ready"
 
     # Replace: the new one takes the old one's place once it is ready; a refused one changes nothing.
     again = await _add(w, first, mov(6.0), name="second.mov")
@@ -336,3 +357,53 @@ def test_a_poster_frame_is_made_from_a_real_video(tmp_path) -> None:
     blank = tmp_path / "blank.mp4"
     blank.write_bytes(mp4(8.0))
     assert listing_videos.poster(blank, 8.0) is None
+
+
+def test_the_other_kinds_etsy_takes_are_read_through_the_frame_reader(tmp_path) -> None:
+    """FLV, AVI and MPEG have no MP4 boxes: the frame reader describes them (length, frame, sound)."""
+    exe = listing_videos.ffmpeg()
+    if exe is None:
+        pytest.skip("no frame reader in this image")
+    import subprocess
+
+    for name in ("clip.avi", "clip.flv", "clip.mpeg"):
+        clip = tmp_path / name
+        subprocess.run([exe, "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=640x640:rate=25",
+                        "-pix_fmt", "yuv420p", str(clip)], check=True, timeout=60)
+        probe = video_probe.read_path(clip)
+        assert (round(probe.seconds), probe.width, probe.height, probe.has_audio) == (4, 640, 640, False), name
+        assert video_rules.check(filename=name, size=clip.stat().st_size, seconds=probe.seconds, width=probe.width, height=probe.height).problem is None
+    words = tmp_path / "words.avi"
+    words.write_bytes(b"not a video at all " * 50)
+    with pytest.raises(video_probe.NotAVideo):
+        video_probe.read_path(words)
+
+
+async def test_failed_video_uploads_are_counted_for_the_digest_and_one_alert(tmp_path, test_settings, monkeypatch) -> None:
+    """Nothing the seller sees changes; the operator's digest says how many failed in a day, and more than ten
+    in an hour is one alert."""
+    from app.monitor import digest, rules, videos
+
+    w = await _etsy(tmp_path, test_settings, monkeypatch, listings=1)
+    redis = w["ctx"]["redis"]
+    now = datetime.now(timezone.utc)
+    assert await videos.count(redis, videos.DAY) == 0 and await rules._videos(redis, now) == []
+    # One real failure: Etsy refuses the video, the draft is made, and it is counted once.
+    await _add(w, w["contents"][0], mp4(8.0))
+    w["etsy"].refuse_video = "The video could not be processed."
+    await _run_drafts(w, await _send_drafts(w))
+    assert await videos.count(redis, videos.HOUR) == 1 and await rules._videos(redis, now) == []
+    async with w["sm"]() as s:
+        lines = await digest.overall(s, redis, datetime.now(timezone.utc))
+    assert "listing videos that could not be added to a draft: 1 in the last 24 hours" in lines
+    # Ten more within the hour: one problem, with a number and no seller's data.
+    stamp = datetime.now(timezone.utc).timestamp()
+    for n in range(10):
+        await videos.failed(redis, stamp - n * 60)
+    found = await rules._videos(redis, datetime.now(timezone.utc))
+    assert [p.key for p in found] == ["video_uploads_failing"] and found[0].line.startswith("11 listing videos could not be added")
+    assert found[0].tenant_id is None
+    # Older than an hour: not in the alert; older than a day: not in the digest.
+    assert await videos.count(redis, videos.HOUR, stamp + 2 * 3600) == 0
+    assert await videos.count(redis, videos.DAY, stamp + 25 * 3600) == 0
+    await videos.failed(None)  # no Redis: nothing, and no error

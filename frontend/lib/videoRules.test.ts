@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
-  ACCEPT, EXTENSIONS, MAX_BYTES, MAX_SECONDS, MIN_SECONDS, VIDEO_RE, busy, draftLine, durationLabel, durationProblem, failedLine,
-  fileProblem, slotOf, uploadingLine, videoLine, type ListingVideo, type VideoDraft,
+  ACCEPT, EXTENSIONS, MAX_ASPECT, MAX_BYTES, MAX_SECONDS, MIN_PIXELS, MIN_SECONDS, SILENT, VIDEO_RE, busy, draftLine, durationLabel,
+  durationProblem, factsProblem, failedLine, fileProblem, frameProblem, slotOf, uploadingLine, videoLine, type ListingVideo, type VideoDraft,
 } from "./videoRules.ts";
 import { pieces } from "./psdUpload.ts";
 
@@ -26,18 +26,27 @@ test("the page and the server say the same of every file and every length", () =
     assert.equal(durationProblem(c.seconds), c.problem, JSON.stringify(c));
     assert.equal(durationLabel(c.seconds), c.label, JSON.stringify(c));
   }
-  assert.equal(durationProblem(22), "This video is 22 s; Etsy takes 5–15 s.");
-  assert.deepEqual([MIN_SECONDS, MAX_SECONDS, MAX_BYTES, EXTENSIONS], [5, 15, 100 * 1024 * 1024, [".mp4", ".mov"]]);
+  for (const c of cases.frames) assert.equal(frameProblem(c.width, c.height), c.problem, JSON.stringify(c));
+  assert.equal(durationProblem(2), "This video is 2 s; Etsy takes 3–15 s.");
+  assert.equal(frameProblem(320, 568), "This video is 320 px; Etsy needs at least 500 px.");
+  assert.equal(factsProblem({ seconds: 8, width: 320, height: 568 }), "This video is 320 px; Etsy needs at least 500 px.");
+  assert.equal(factsProblem({ seconds: 22, width: 320, height: 568 }), "This video is 22 s; Etsy takes 3–15 s.");  // the length first
+  assert.equal(factsProblem(null), null);  // the browser could not read it: the server does
+  assert.deepEqual([MIN_SECONDS, MAX_SECONDS, MAX_BYTES, MIN_PIXELS, MAX_ASPECT], [3, 15, 100 * 1024 * 1024, 500, 2]);
+  assert.deepEqual(EXTENSIONS, [".mp4", ".mov", ".flv", ".avi", ".3gp", ".mpeg", ".mpg"]);
+  assert.equal(SILENT, "Etsy shows listing videos without sound.");
   // The same limits as the server's one place for them.
   const rules = read("../backend/app/pipeline/video_rules.py");
-  assert.match(rules, /MIN_SECONDS = 5\.0\nMAX_SECONDS = 15\.0/);
-  assert.match(rules, /MAX_BYTES = 100 \* 1024 \* 1024\nEXTENSIONS = \("\.mp4", "\.mov"\)/);
-  assert.ok(VIDEO_RE.test("Clip.MOV") && VIDEO_RE.test("a.mp4") && !VIDEO_RE.test("a.mp4.jpg") && !VIDEO_RE.test("a.avi"));
+  assert.match(rules, /MIN_SECONDS = 3\.0\nMAX_SECONDS = 15\.0/);
+  assert.match(rules, /MIN_PIXELS = 500\n/);
+  assert.match(rules, /EXTENSIONS = \("\.mp4", "\.mov", "\.flv", "\.avi", "\.3gp", "\.mpeg", "\.mpg"\)/);
+  assert.match(rules, /SILENT = "Etsy shows listing videos without sound\."/);
+  assert.ok(VIDEO_RE.test("Clip.MOV") && VIDEO_RE.test("a.mp4") && VIDEO_RE.test("a.avi") && !VIDEO_RE.test("a.mp4.jpg") && !VIDEO_RE.test("a.wmv"));
   assert.match(ACCEPT, /\.mp4,\.mov/);
 });
 
 test("the slot shows the listing's video, the one on its way, and each shop's own", () => {
-  const all = [video(), video({ id: "v2", status: "failed", error: "This video is 22 s; Etsy takes 5–15 s." }),
+  const all = [video(), video({ id: "v2", status: "failed", error: "This video is 22 s; Etsy takes 3–15 s." }),
     video({ id: "v3", connection_id: "s2", filename: "shop.mov", duration: "0:06" }), video({ id: "v4", group_key: "BR200" })];
   assert.deepEqual([slotOf(all, "BR100", null).current?.id, slotOf(all, "BR100", null).pending?.id], ["v1", "v2"]);
   assert.deepEqual([slotOf(all, "BR100", "s2").current?.id, slotOf(all, "BR100", "s2").pending], ["v3", null]);
@@ -71,6 +80,8 @@ test("a video goes up in the server's 8 MB pieces and a failed one says so with 
   // Sending to Etsy is always the seller's click, confirmed; replacing asks first.
   assert.match(slot, /confirm: true/);
   assert.match(slot, /data-testid="video-confirm"/);
+  // One quiet line beside a video that is there, and only then.
+  assert.match(slot, /\{current && <p key="silent"[^>]*data-testid="video-silent">\{SILENT\}<\/p>\}/);
 });
 
 test("the slot is on the review card, the batch row and the shop's row; a video is never among the photos", () => {
