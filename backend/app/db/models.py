@@ -1520,6 +1520,13 @@ class ListingPublication(Base):
     #: "seller_on_etsy": the seller published the draft in Shop Manager and the app found it
     #: live (it sent nothing; etsy/reconcile.py). NULL when the app published it.
     published_by: Mapped[str | None] = mapped_column(Text)
+    #: The listing's video on this draft (feature/listing-video): NULL none was sent · "sending" · "attached" ·
+    #: "failed" (the draft is made all the same; ``video_error`` is Etsy's reason, for the seller's "Try again").
+    video_state: Mapped[str | None] = mapped_column(Text)
+    video_error: Mapped[str | None] = mapped_column(Text)
+    #: Etsy's id of the video it holds for this listing, and which of the seller's uploads it was.
+    etsy_video_id: Mapped[int | None] = mapped_column(BigInteger)
+    video_sent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     #: When the app last read this listing's state on Etsy (at most every 6 hours by upkeep).
     etsy_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Settings the seller confirmed making by hand in Shop Manager (etsy/manual_fields.py),
@@ -2382,3 +2389,47 @@ class ComplianceFinding(Base):
     )
     rule: Mapped[str] = mapped_column(Text, nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
+
+
+class ListingVideo(Base):
+    """A listing's video: the seller's own file, attached to the Etsy draft after its images
+    (feature/listing-video; pipeline/video_rules.py, api/listing_videos.py, workers/listing_video.py).
+
+    One for a listing group of a batch (``connection_id`` NULL: it goes to every shop), and optionally one for
+    that group in one shop. Received in 8 MB pieces (resumable), then read by the worker (duration, frame size,
+    a poster frame). The file lives under the batch's own folder and goes when the group's photos do
+    (pipeline/upload_retention.py), with the batch, and with the account. Never an image, never the cover, and
+    not Etsy content: nothing here was read from Etsy.
+    """
+
+    __tablename__ = "listing_video"
+    __table_args__ = (Index("ix_listing_video_batch_group", "batch_id", "group_key"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("upload_batch.id", ondelete="CASCADE"), nullable=False, index=True)
+    #: The listing group it belongs to ("" is the root group), as ``asset.group_key`` names it.
+    group_key: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    #: NULL: the listing's video in every shop. Set: this shop's own.
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("etsy_connection.id", ondelete="CASCADE"), index=True)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The folder it was uploaded in with the batch's photos (NULL: added on a card), to place it again
+    #: when the seller groups the photos another way.
+    upload_folder: Mapped[str | None] = mapped_column(Text)
+    #: "upload" (came with the batch's files) · "slot" (added on a card or a row)
+    placed: Mapped[str] = mapped_column(Text, nullable=False, server_default="slot")
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    received: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    #: receiving · processing · ready · failed
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="receiving")
+    error: Mapped[str | None] = mapped_column(Text)
+    file_key: Mapped[str | None] = mapped_column(Text)
+    poster_key: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    has_audio: Mapped[bool | None] = mapped_column(Boolean)
+    #: The files went with the group's photos (upload retention); the row stays to say so.
+    files_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

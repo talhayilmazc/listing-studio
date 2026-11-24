@@ -87,6 +87,9 @@ JOB_COST: dict[str, int] = {
     "create_shop_section": 3,
     # shop, the draft's inventory read, written with the new SKU, read again
     "update_sku_on_etsy": 4,
+    # A listing's video sent again or replaced on the seller's click (workers/listing_video.py): the videos on
+    # the listing read, at most two taken off (Etsy keeps two), the upload.
+    "attach_listing_video": 4,
     # Listing health. Reading the attributes of the listings on screen, one request each (upkeep).
     "read_listing_properties": 26,
     # The listing and its attributes, the update, up to 15 attributes, and both read back.

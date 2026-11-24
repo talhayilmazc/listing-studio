@@ -150,6 +150,9 @@ async def _seed(sm, storage: LocalStorage, email: str, n: int) -> dict[str, Any]
         psd = M.PsdUpload(tenant_id=tid, filename=f"secret mockup {n}.psd", size=1000, rights_confirmed_at=datetime.now(timezone.utc),
                           template_id=template.id, photo_id=photo.id, status="ready")
         s.add(psd)
+        video = M.ListingVideo(tenant_id=tid, batch_id=batch.id, group_key="", filename=f"secret video {n}.mp4", size=1000,
+                               received=1000, status="ready")
+        s.add(video)
         await s.commit()
         return {
             "tenant": tid, "connection_id": shop.id, "shop_id": shop.id, "group_id": group.id, "profile_id": profile.id,
@@ -159,6 +162,7 @@ async def _seed(sm, storage: LocalStorage, email: str, n: int) -> dict[str, Any]
             "version_id": version.id, "run_id": run.id, "output_id": output.id, "zip_id": zipped.id,
             "placement_id": placement.id,
             "key": "creativity_production", "publication_id": publication.id, "fix_id": fix.id, "upload_id": psd.id,
+            "video_id": video.id,
         }
 
 

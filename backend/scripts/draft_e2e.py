@@ -45,6 +45,7 @@ SHOP_NAME = "Pine Ridge Tees"
 #: (Etsy user, Etsy shop id, name): made up.
 SHOPS = [(4242, SHOP_ID, SHOP_NAME), (4343, 901, "Harbor Thread")]
 SENT_KEY = "draft-e2e:sent"
+VIDEOS_KEY = "draft-e2e:videos"
 
 from app.etsy import guard  # noqa: E402
 
@@ -72,7 +73,17 @@ async def _keep(record: dict[str, Any]) -> None:
         await redis.aclose()
 
 
-etsy = BrowserEtsy(on_sent=_keep)
+async def _keep_video(record: dict[str, Any]) -> None:
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(_settings.redis_url)
+    try:
+        await redis.rpush(VIDEOS_KEY, json.dumps(record))
+    finally:
+        await redis.aclose()
+
+
+etsy = BrowserEtsy(on_sent=_keep, on_video=_keep_video)
 
 
 async def _handle(request: httpx.Request) -> httpx.Response:
@@ -99,15 +110,16 @@ from app.workers.settings import WorkerSettings as _Worker  # noqa: E402
 
 async def app(scope: Any, receive: Any, send: Any) -> None:
     """The API, and one more address: what the fake Etsy was sent."""
-    if scope.get("type") == "http" and scope.get("path") == "/api/__etsy/sent" and scope.get("method") == "GET":
+    if scope.get("type") == "http" and scope.get("path") in ("/api/__etsy/sent", "/api/__etsy/videos") and scope.get("method") == "GET":
         from redis.asyncio import Redis
 
+        videos = scope["path"].endswith("/videos")  # every uploadListingVideo the fake was sent (feature/listing-video)
         redis = Redis.from_url(_settings.redis_url)
         try:
-            rows = [json.loads(r) for r in await redis.lrange(SENT_KEY, 0, -1)]
+            rows = [json.loads(r) for r in await redis.lrange(VIDEOS_KEY if videos else SENT_KEY, 0, -1)]
         finally:
             await redis.aclose()
-        body = json.dumps({"sent": rows}).encode()
+        body = json.dumps({"videos" if videos else "sent": rows}).encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [(b"content-type", b"application/json"), (b"cache-control", b"private, no-store")]})
         await send({"type": "http.response.body", "body": body})

@@ -395,10 +395,11 @@ and every screenshot on the site was broken. Do not update by hand with
   than one revision is nobody's `down_revision` ("2 migration heads (…)"): with two heads
   `alembic upgrade head` refuses to run and the API would start on the old schema. This happens when
   two branches each add "the next" migration. Today the chain ends `0106_health_sales_and_brand` →
-  `0108_manual_profiles`. **`fix/usage-reconcile-shops` carries `0107_publication_made_from`, which
-  also follows 0106: before that branch is merged, its migration must be moved after 0108** (rename
-  it `0109_publication_made_from` and set its `down_revision` to `"0108_manual_profiles"`; nothing
-  else in it changes). `backend/tests/test_preflight_script.py` fails if the repository ever has
+  `0108_manual_profiles` → `0109_listing_video` (the last on feature/listing-video). **`fix/usage-reconcile-shops`
+  carries `0107_publication_made_from`, which also follows 0106: before that branch is merged, its
+  migration must be moved to the end of the chain** (rename it after the last migration then on master,
+  `0109_…` or, once the listing video is merged, `0110_publication_made_from`, and set its
+  `down_revision` to that last revision; nothing else in it changes). `backend/tests/test_preflight_script.py` fails if the repository ever has
   two heads.
 - `up --build` recreates the worker along with everything else. This matters:
   the worker has no reload, and an old worker silently runs old job code.

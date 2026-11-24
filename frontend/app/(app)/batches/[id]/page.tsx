@@ -31,6 +31,7 @@ import { writingLine, writtenLine } from "@/lib/words";
 import { outcomeLine } from "@/lib/writing";
 import { LOOK_AGAIN_MS, preparingLine, stillPreparing } from "@/lib/preparing";
 import { announceWritingDone } from "@/components/WritingReadyWatcher";
+import { VideoSlot } from "@/components/VideoSlot";
 interface AssetGroup {
   key: string;
   label: string;
@@ -864,6 +865,10 @@ export default function BatchPage() {
                   </div>
                 </div>
               )}
+              {/* The listing's video (feature/listing-video): Add / Replace / Remove, and "Replace video on Etsy". */}
+              <div key="video" className="mt-2">
+                <VideoSlot batchId={id} groupKey={g.key} contentId={contentOf(g)} />
+              </div>
               {asking === "replace" && (
                 <div key="replace-choice" role="alertdialog" aria-label="Replace images on Etsy" className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
                   <ReplaceChoice

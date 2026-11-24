@@ -315,7 +315,7 @@ def test_one_migration_head_passes_that_check(tmp_path) -> None:
 
 
 def test_the_repository_has_exactly_one_migration_head() -> None:
-    """Read from the files, as the script does: nothing needs a database. After 0106 comes 0108 only."""
+    """Read from the files, as the script does: nothing needs a database. After 0106 comes 0108, then 0109."""
     import re
 
     versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
@@ -325,7 +325,7 @@ def test_the_repository_has_exactly_one_migration_head() -> None:
         text = path.read_text(encoding="utf-8")
         revisions.update(re.findall(r'^revision\b[^=]*=\s*"([^"]+)"', text, flags=re.M))
         parents.update(re.findall(r'^down_revision\b[^=]*=\s*"([^"]+)"', text, flags=re.M))
-    assert sorted(revisions - parents) == ["0108_manual_profiles"]
+    assert sorted(revisions - parents) == ["0109_listing_video"]
     assert not [p.name for p in versions.glob("0107_*")]  # 0107 belongs to a branch that is not merged
     out_of_tree = parents - revisions
     assert not out_of_tree, out_of_tree
@@ -333,4 +333,4 @@ def test_the_repository_has_exactly_one_migration_head() -> None:
 
 def test_preflight_reads_the_repositorys_own_migrations(tmp_path) -> None:
     out = _heads_run(tmp_path, None)
-    assert "  ok    one migration head (0108_manual_profiles)" in out.stdout, out.stdout + out.stderr
+    assert "  ok    one migration head (0109_listing_video)" in out.stdout, out.stdout + out.stderr

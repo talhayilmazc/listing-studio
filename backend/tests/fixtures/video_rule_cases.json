@@ -1,0 +1,23 @@
+{
+  "_about": "A listing video's rules (backend/app/pipeline/video_rules.py and frontend/lib/videoRules.ts read these same cases).",
+  "files": [
+    {"name": "clip.mp4", "size": 5000000, "problem": null},
+    {"name": "CLIP.MOV", "size": 104857600, "problem": null},
+    {"name": "clip.avi", "size": 5000000, "problem": "Choose an MP4 or MOV video."},
+    {"name": "photo.jpg", "size": 5000000, "problem": "Choose an MP4 or MOV video."},
+    {"name": "clip.mp4", "size": 136314880, "problem": "This video is 130 MB; Etsy takes videos up to 100 MB."},
+    {"name": "clip.mp4", "size": 104857601, "problem": "This video is 100 MB; Etsy takes videos up to 100 MB."},
+    {"name": "clip.mp4", "size": 0, "problem": "This file could not be read as a video. Export it again as MP4 or MOV and add it again."}
+  ],
+  "durations": [
+    {"seconds": 8, "problem": null, "label": "0:08"},
+    {"seconds": 5, "problem": null, "label": "0:05"},
+    {"seconds": 15, "problem": null, "label": "0:15"},
+    {"seconds": 15.02, "problem": null, "label": "0:15"},
+    {"seconds": 4.9, "problem": null, "label": "0:05"},
+    {"seconds": 22, "problem": "This video is 22 s; Etsy takes 5–15 s.", "label": "0:22"},
+    {"seconds": 4.6, "problem": "This video is 4.6 s; Etsy takes 5–15 s.", "label": "0:05"},
+    {"seconds": 75.4, "problem": "This video is 75.4 s; Etsy takes 5–15 s.", "label": "1:15"},
+    {"seconds": 0, "problem": "This file could not be read as a video. Export it again as MP4 or MOV and add it again.", "label": "0:00"}
+  ]
+}

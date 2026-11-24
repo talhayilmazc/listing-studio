@@ -396,6 +396,11 @@ async def regroup_batch(
             detail="Listings have already been written from this batch, so its photos can no longer be regrouped.",
         )
     await ingestor.regroup(session, batch, body.mode)
+    # A video that came with the photos follows the same rule (pipeline/listing_videos.py).
+    from app.pipeline import listing_videos
+
+    await listing_videos.place_again(session, batch.id, body.mode)
+    await session.commit()
     return await _summary(session, batch)
 
 

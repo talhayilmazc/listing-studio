@@ -53,7 +53,8 @@ NOW = datetime.now(timezone.utc)
 #: settings (a batch, a group's choices, which shop groups a shop is in), and the
 #: job and plan history.
 # usage_event: the allowance count, not Etsy content; its shop id is history (core/usage.py).
-KEPT = {"job", "listing_group_setting", "planned_slot", "shop_group_member", "upload_batch", "usage_event"}
+# listing_video: the seller's own video file for a listing (and optionally for one shop), never read from Etsy.
+KEPT = {"job", "listing_group_setting", "listing_video", "planned_slot", "shop_group_member", "upload_batch", "usage_event"}
 
 
 def test_every_table_that_belongs_to_a_shop_is_wiped_or_deliberately_kept() -> None:

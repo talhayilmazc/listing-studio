@@ -33,6 +33,10 @@ dependencies = [
     "onnxruntime==1.20.1",
     "scipy==1.13.1",
     "scikit-image==0.24.0",
+    # A listing video's poster frame (pipeline/listing_videos.py): the wrapper (BSD-2) carries a static ffmpeg
+    # program (GPL build), run as a separate process for one frame; nothing of it is linked into the app, and
+    # a video without a poster is sent to Etsy all the same.
+    "imageio-ffmpeg>=0.5.1",
     # Sellers' own Photoshop mockups (pipeline/psd_read.py, feature/psd-templates): psd-tools (MIT),
     # parsed in a child process with time and memory limits (pipeline/psd_sandbox.py).
     "psd-tools==1.24.0",

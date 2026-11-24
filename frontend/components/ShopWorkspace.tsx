@@ -28,6 +28,7 @@ import { StatusChip } from "./StatusChip";
 import { ErrorNote } from "./ErrorNote";
 
 import { Txt } from "@/components/Txt";
+import { VideoSlot } from "./VideoSlot";
 type Row = AnotherShopPreview["rows"][number];
 /** A shop name ending a sentence: one full stop, even for "Juniper Print Co.". */
 const said = (name: string) => (name.endsWith(".") ? name : `${name}.`);
@@ -477,6 +478,12 @@ function ShopExtras({ row, shop, batchId, photosOpen, attributesOpen, setPhotosO
         </span>
       </span>
       {photosOpen && <ShopPhotoEditor key="photos" batchId={batchId} shop={shop} contentId={row.content_id} onSaved={() => void reload()} />}
+      {photosOpen && (
+        // This shop's own video, with its own photos (feature/listing-video): the listing's is used until it has one.
+        <div key="video" className="mt-2">
+          <VideoSlot batchId={batchId} groupKey={row.group_key} contentId={row.content_id} shop={{ id: shop.id, name: shop.name }} />
+        </div>
+      )}
       {attributesOpen && <AttributesEditor key="attributes" contentId={row.content_id} shop={shop} open onChanged={() => void reload()} />}
     </div>
   );
