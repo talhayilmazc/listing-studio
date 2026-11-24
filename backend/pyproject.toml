@@ -23,7 +23,10 @@ dependencies = [
     "certifi>=2026.10.19",
     "anthropic>=0.69",
     "argon2-cffi>=23.1",
-    "sentry-sdk>=2.0",
+    # Below 3: sentry-sdk 3.0.0 refuses the option the privacy promise rests on (send_default_pii=False,
+    # core/errortracking.py: "Unknown option"), so with it error tracking would not start. An image rebuilt
+    # on 24 November 2026 picked 3.0.0 up by itself; moving to 3 is its own change, read against its docs.
+    "sentry-sdk>=2.0,<3",
     # Image analysis for mockup templates, on our own CPU (pipeline/mockup_vision.py):
     # LiteRT runs Google's MediaPipe models (Apache-2.0); numpy holds the tensors.
     "ai-edge-litert==2.3.0",
